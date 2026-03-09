@@ -120,3 +120,5 @@ D:\src\DreamGenClone\DreamGenClone.Web\bin\Debug\net9.0\DreamGenClone.Infrastruc
 D:\src\DreamGenClone\DreamGenClone.Web\bin\Debug\net9.0\DreamGenClone.Application.pdb
 D:\src\DreamGenClone\DreamGenClone.Web\bin\Debug\net9.0\DreamGenClone.Infrastructure.pdb
 D:\src\DreamGenClone\DreamGenClone.Web\bin\Debug\net9.0\DreamGenClone.Domain.pdb
+D:\src\DreamGenClone\DreamGenClone.Web\bin\Debug\net9.0\Serilog.Enrichers.Environment.dll
+D:\src\DreamGenClone\DreamGenClone.Web\bin\Debug\net9.0\Serilog.Enrichers.Thread.dll

@@ -1,7 +1,7 @@
 # Tasks: DreamGenClone Specification
 
 **Input**: Design artifacts from `specs/001-project-architecture-layered-structure/`
-**Prerequisites**: `spec.md` (present), `plan.md` (not present - tasks derived from spec directly)
+**Prerequisites**: `spec.md` (present), `plan.md` (present)
 
 **Tests**: No explicit TDD/test-first requirement was requested in the specification, so test tasks are not mandated in this list.
 
@@ -19,15 +19,15 @@
 
 **Purpose**: Core architecture, persistence, import validation, and logging policy required before feature workflows.
 
-- [ ] T006 Configure DI composition root and service registrations in `DreamGenClone.Web/Program.cs`
-- [ ] T007 Implement LM Studio client abstraction and HTTP client in `DreamGenClone.Web/Infrastructure/Models/LmStudioClient.cs`
-- [ ] T008 Implement SQLite session/template persistence bootstrap in `DreamGenClone.Web/Infrastructure/Persistence/SqlitePersistence.cs`
-- [ ] T009 Implement template image local disk storage service and path metadata handling in `DreamGenClone.Web/Infrastructure/Storage/TemplateImageStorageService.cs`
-- [ ] T010 Implement strict JSON import validator (schema/version checks) in `DreamGenClone.Web/Application/Validation/SessionImportValidator.cs`
-- [ ] T011 Configure Serilog pipeline, enrichers, sinks, and level overrides in `DreamGenClone.Web/Infrastructure/Logging/LoggingSetup.cs`
-- [ ] T012 Wire Serilog startup and configurable log levels in `DreamGenClone.Web/Program.cs`
-- [ ] T013 Create shared domain contracts for session/story/role-play operations in `DreamGenClone.Web/Domain/Contracts/`
-- [ ] T014 Implement autosave coordinator with meaningful-change debounce behavior in `DreamGenClone.Web/Application/Sessions/AutoSaveCoordinator.cs`
+- [x] T006 Configure DI composition root and service registrations in `DreamGenClone.Web/Program.cs`
+- [x] T007 Implement LM Studio client abstraction and HTTP client in `DreamGenClone.Infrastructure/Models/LmStudioClient.cs`
+- [x] T008 Implement SQLite session/template persistence bootstrap in `DreamGenClone.Infrastructure/Persistence/SqlitePersistence.cs`
+- [x] T009 Implement template image local disk storage service and path metadata handling in `DreamGenClone.Infrastructure/Storage/TemplateImageStorageService.cs`
+- [x] T010 Implement strict JSON import validator (schema/version checks) in `DreamGenClone.Application/Validation/SessionImportValidator.cs`
+- [x] T011 Configure Serilog pipeline, enrichers, sinks, and level overrides in `DreamGenClone.Infrastructure/Logging/LoggingSetup.cs`
+- [x] T012 Wire Serilog startup and configurable log levels in `DreamGenClone.Web/Program.cs`
+- [x] T013 Create shared domain contracts for session/story/role-play operations in `DreamGenClone.Domain/Contracts/`
+- [x] T014 Implement autosave coordinator with meaningful-change debounce behavior in `DreamGenClone.Application/Sessions/AutoSaveCoordinator.cs`
 
 **Checkpoint**: Foundation complete - feature workflows can be implemented incrementally.
 
