@@ -1,0 +1,16 @@
+D:\src\DreamGenClone\DreamGenClone.Application\bin\Debug\net9.0\DreamGenClone.Application.deps.json
+D:\src\DreamGenClone\DreamGenClone.Application\bin\Debug\net9.0\DreamGenClone.Application.dll
+D:\src\DreamGenClone\DreamGenClone.Application\bin\Debug\net9.0\DreamGenClone.Application.pdb
+D:\src\DreamGenClone\DreamGenClone.Application\bin\Debug\net9.0\DreamGenClone.Domain.dll
+D:\src\DreamGenClone\DreamGenClone.Application\bin\Debug\net9.0\DreamGenClone.Domain.pdb
+D:\src\DreamGenClone\DreamGenClone.Application\obj\Debug\net9.0\DreamGenClone.Application.csproj.AssemblyReference.cache
+D:\src\DreamGenClone\DreamGenClone.Application\obj\Debug\net9.0\DreamGenClone.Application.GeneratedMSBuildEditorConfig.editorconfig
+D:\src\DreamGenClone\DreamGenClone.Application\obj\Debug\net9.0\DreamGenClone.Application.AssemblyInfoInputs.cache
+D:\src\DreamGenClone\DreamGenClone.Application\obj\Debug\net9.0\DreamGenClone.Application.AssemblyInfo.cs
+D:\src\DreamGenClone\DreamGenClone.Application\obj\Debug\net9.0\DreamGenClone.Application.csproj.CoreCompileInputs.cache
+D:\src\DreamGenClone\DreamGenClone.Application\obj\Debug\net9.0\DreamGenClone.Application.sourcelink.json
+D:\src\DreamGenClone\DreamGenClone.Application\obj\Debug\net9.0\DreamGen.25984A86.Up2Date
+D:\src\DreamGenClone\DreamGenClone.Application\obj\Debug\net9.0\DreamGenClone.Application.dll
+D:\src\DreamGenClone\DreamGenClone.Application\obj\Debug\net9.0\refint\DreamGenClone.Application.dll
+D:\src\DreamGenClone\DreamGenClone.Application\obj\Debug\net9.0\DreamGenClone.Application.pdb
+D:\src\DreamGenClone\DreamGenClone.Application\obj\Debug\net9.0\ref\DreamGenClone.Application.dll

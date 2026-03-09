@@ -1,12 +1,12 @@
 <!--
 Sync Impact Report
-Version change: 1.1.0 -> 1.2.0
+Version change: 1.2.0 -> 1.3.0
 Modified principles:
-- None
+- II. Modular Boundaries and Replaceable Components
 Added principles:
-- IX. Serilog-Centric Observability and Layer Coverage
+- None
 Added sections:
-- Logging Baseline
+- None
 Removed sections:
 - None
 Templates requiring updates:
@@ -46,6 +46,9 @@ keeps core functionality available offline.
 The system MUST separate domain/state logic, orchestration engine, prompt assembly,
 and model client into independent modules with explicit interfaces. Implementations
 MUST be swappable without changing domain rules, including model provider adapters.
+For .NET solutions, these boundaries MUST be represented as separate projects
+(at minimum: Web/UI host, Application, Domain, Infrastructure) with explicit
+project references that enforce dependency direction.
 
 Rationale: Explicit boundaries improve maintainability and enable controlled evolution.
 
@@ -127,7 +130,7 @@ The following capabilities are explicitly out of scope for Phase 1:
 
 Phase 1 deliverables MUST include:
 
-- C# solution with modular projects
+- C# solution with separate modular projects (Web/UI host, Application, Domain, Infrastructure)
 - Story engine with state machine
 - Prompt builder
 - Local model client
@@ -218,6 +221,8 @@ Compliance review expectations:
   exception handling) when in scope.
 - Every tasks file MUST include Serilog setup, cross-layer logging coverage, and
   configurable log-level controls when application behavior is implemented.
+- Every implementation plan/tasks set MUST include separate project scaffolding for
+  required layers when using .NET.
 - Pull requests MUST cite affected principles when changing architecture or contracts.
 
-**Version**: 1.2.0 | **Ratified**: TODO(RATIFICATION_DATE): Original adoption date not found in repository history. | **Last Amended**: 2026-03-08
+**Version**: 1.3.0 | **Ratified**: TODO(RATIFICATION_DATE): Original adoption date not found in repository history. | **Last Amended**: 2026-03-09

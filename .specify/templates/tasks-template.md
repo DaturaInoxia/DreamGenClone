@@ -65,7 +65,7 @@ Examples of foundational tasks (adjust based on your project):
 - [ ] T004 Setup SQLite schema and migrations framework (or document approved non-SQLite exception from spec)
 - [ ] T005 [P] Implement authentication/authorization framework
 - [ ] T006 [P] Setup API routing and middleware structure
-- [ ] T007 Create base models/entities and repository interfaces that all stories depend on
+- [ ] T007 Create separate layer projects and base models/entities/interfaces that all stories depend on
 - [ ] T008 Configure Serilog with structured logging, enrichers, and .NET logging integration
 - [ ] T009 Setup environment-based log-level overrides (including Verbose) and configuration management
 

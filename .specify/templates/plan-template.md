@@ -33,6 +33,7 @@
 
 - [ ] Local-first runtime preserved (no mandatory cloud dependency for core flow)
 - [ ] Module boundaries and adapter seams are explicit and swappable
+- [ ] .NET layered architecture uses separate projects with enforced dependency direction
 - [ ] Deterministic state transitions and JSON contract validation are test-covered
 - [ ] Persistence uses SQLite by default, or spec explicitly documents exception scope and rationale
 - [ ] Serilog is the primary logging framework with .NET 9 structured logging best practices

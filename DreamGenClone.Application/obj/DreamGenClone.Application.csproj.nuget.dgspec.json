@@ -1,0 +1,130 @@
+{
+  "format": 1,
+  "restore": {
+    "D:\\src\\DreamGenClone\\DreamGenClone.Application\\DreamGenClone.Application.csproj": {}
+  },
+  "projects": {
+    "D:\\src\\DreamGenClone\\DreamGenClone.Application\\DreamGenClone.Application.csproj": {
+      "version": "1.0.0",
+      "restore": {
+        "projectUniqueName": "D:\\src\\DreamGenClone\\DreamGenClone.Application\\DreamGenClone.Application.csproj",
+        "projectName": "DreamGenClone.Application",
+        "projectPath": "D:\\src\\DreamGenClone\\DreamGenClone.Application\\DreamGenClone.Application.csproj",
+        "packagesPath": "C:\\Users\\kenac\\.nuget\\packages\\",
+        "outputPath": "D:\\src\\DreamGenClone\\DreamGenClone.Application\\obj\\",
+        "projectStyle": "PackageReference",
+        "configFilePaths": [
+          "C:\\Users\\kenac\\AppData\\Roaming\\NuGet\\NuGet.Config"
+        ],
+        "originalTargetFrameworks": [
+          "net9.0"
+        ],
+        "sources": {
+          "https://api.nuget.org/v3/index.json": {}
+        },
+        "frameworks": {
+          "net9.0": {
+            "targetAlias": "net9.0",
+            "projectReferences": {
+              "D:\\src\\DreamGenClone\\DreamGenClone.Domain\\DreamGenClone.Domain.csproj": {
+                "projectPath": "D:\\src\\DreamGenClone\\DreamGenClone.Domain\\DreamGenClone.Domain.csproj"
+              }
+            }
+          }
+        },
+        "warningProperties": {
+          "warnAsError": [
+            "NU1605"
+          ]
+        },
+        "restoreAuditProperties": {
+          "enableAudit": "true",
+          "auditLevel": "low",
+          "auditMode": "direct"
+        },
+        "SdkAnalysisLevel": "9.0.300"
+      },
+      "frameworks": {
+        "net9.0": {
+          "targetAlias": "net9.0",
+          "imports": [
+            "net461",
+            "net462",
+            "net47",
+            "net471",
+            "net472",
+            "net48",
+            "net481"
+          ],
+          "assetTargetFallback": true,
+          "warn": true,
+          "frameworkReferences": {
+            "Microsoft.NETCore.App": {
+              "privateAssets": "all"
+            }
+          },
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.311/PortableRuntimeIdentifierGraph.json"
+        }
+      }
+    },
+    "D:\\src\\DreamGenClone\\DreamGenClone.Domain\\DreamGenClone.Domain.csproj": {
+      "version": "1.0.0",
+      "restore": {
+        "projectUniqueName": "D:\\src\\DreamGenClone\\DreamGenClone.Domain\\DreamGenClone.Domain.csproj",
+        "projectName": "DreamGenClone.Domain",
+        "projectPath": "D:\\src\\DreamGenClone\\DreamGenClone.Domain\\DreamGenClone.Domain.csproj",
+        "packagesPath": "C:\\Users\\kenac\\.nuget\\packages\\",
+        "outputPath": "D:\\src\\DreamGenClone\\DreamGenClone.Domain\\obj\\",
+        "projectStyle": "PackageReference",
+        "configFilePaths": [
+          "C:\\Users\\kenac\\AppData\\Roaming\\NuGet\\NuGet.Config"
+        ],
+        "originalTargetFrameworks": [
+          "net9.0"
+        ],
+        "sources": {
+          "https://api.nuget.org/v3/index.json": {}
+        },
+        "frameworks": {
+          "net9.0": {
+            "targetAlias": "net9.0",
+            "projectReferences": {}
+          }
+        },
+        "warningProperties": {
+          "warnAsError": [
+            "NU1605"
+          ]
+        },
+        "restoreAuditProperties": {
+          "enableAudit": "true",
+          "auditLevel": "low",
+          "auditMode": "direct"
+        },
+        "SdkAnalysisLevel": "9.0.300"
+      },
+      "frameworks": {
+        "net9.0": {
+          "targetAlias": "net9.0",
+          "imports": [
+            "net461",
+            "net462",
+            "net47",
+            "net471",
+            "net472",
+            "net48",
+            "net481"
+          ],
+          "assetTargetFallback": true,
+          "warn": true,
+          "frameworkReferences": {
+            "Microsoft.NETCore.App": {
+              "privateAssets": "all"
+            }
+          },
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.311/PortableRuntimeIdentifierGraph.json"
+        }
+      }
+    }
+  }
+}
