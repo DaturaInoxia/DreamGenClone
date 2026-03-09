@@ -13,11 +13,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "D:\\src\\DreamGenClone\\DreamGenClone.csproj",
+      "projectUniqueName": "D:\\src\\DreamGenClone\\DreamGenClone.Web\\DreamGenClone.csproj",
       "projectName": "DreamGenClone",
-      "projectPath": "D:\\src\\DreamGenClone\\DreamGenClone.csproj",
+      "projectPath": "D:\\src\\DreamGenClone\\DreamGenClone.Web\\DreamGenClone.csproj",
       "packagesPath": "C:\\Users\\kenac\\.nuget\\packages\\",
-      "outputPath": "D:\\src\\DreamGenClone\\obj\\",
+      "outputPath": "D:\\src\\DreamGenClone\\DreamGenClone.Web\\obj\\",
       "projectStyle": "PackageReference",
       "configFilePaths": [
         "C:\\Users\\kenac\\AppData\\Roaming\\NuGet\\NuGet.Config"

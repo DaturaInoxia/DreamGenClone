@@ -62,12 +62,12 @@ description: "Task list template for feature implementation"
 
 Examples of foundational tasks (adjust based on your project):
 
-- [ ] T004 Setup database schema and migrations framework
+- [ ] T004 Setup SQLite schema and migrations framework (or document approved non-SQLite exception from spec)
 - [ ] T005 [P] Implement authentication/authorization framework
 - [ ] T006 [P] Setup API routing and middleware structure
-- [ ] T007 Create base models/entities that all stories depend on
-- [ ] T008 Configure error handling and logging infrastructure
-- [ ] T009 Setup environment configuration management
+- [ ] T007 Create base models/entities and repository interfaces that all stories depend on
+- [ ] T008 Configure Serilog with structured logging, enrichers, and .NET logging integration
+- [ ] T009 Setup environment-based log-level overrides (including Verbose) and configuration management
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 
@@ -93,7 +93,7 @@ Examples of foundational tasks (adjust based on your project):
 - [ ] T014 [US1] Implement [Service] in src/services/[service].py (depends on T012, T013)
 - [ ] T015 [US1] Implement [endpoint/feature] in src/[location]/[file].py
 - [ ] T016 [US1] Add validation and error handling
-- [ ] T017 [US1] Add logging for user story 1 operations
+- [ ] T017 [US1] Add Information logs for major user story 1 call paths across touched layers/services
 
 **Checkpoint**: At this point, User Story 1 should be fully functional and testable independently
 

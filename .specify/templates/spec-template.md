@@ -89,11 +89,15 @@
 - **FR-003**: Users MUST be able to [key interaction, e.g., "reset their password"]
 - **FR-004**: System MUST [data requirement, e.g., "persist user preferences"]
 - **FR-005**: System MUST [behavior, e.g., "log all security events"]
+- **FR-006**: Persisted feature data MUST use SQLite unless this spec explicitly states and justifies a different store (for example session storage, local storage, or another backend store)
+- **FR-007**: Application logging MUST use Serilog with structured message templates and contextual properties aligned with .NET 9 logging best practices
+- **FR-008**: Major execution paths across layers/components/services MUST emit Information-level logs and provide actionable failure/error logs
+- **FR-009**: Log levels MUST be configurable via settings (including Verbose) without code changes
 
 *Example of marking unclear requirements:*
 
-- **FR-006**: System MUST authenticate users via [NEEDS CLARIFICATION: auth method not specified - email/password, SSO, OAuth?]
-- **FR-007**: System MUST retain user data for [NEEDS CLARIFICATION: retention period not specified]
+- **FR-010**: System MUST authenticate users via [NEEDS CLARIFICATION: auth method not specified - email/password, SSO, OAuth?]
+- **FR-011**: System MUST retain user data for [NEEDS CLARIFICATION: retention period not specified]
 
 ### Key Entities *(include if feature involves data)*
 

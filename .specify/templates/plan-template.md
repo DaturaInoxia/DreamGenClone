@@ -19,7 +19,7 @@
 
 **Language/Version**: [e.g., Python 3.11, Swift 5.9, Rust 1.75 or NEEDS CLARIFICATION]  
 **Primary Dependencies**: [e.g., FastAPI, UIKit, LLVM or NEEDS CLARIFICATION]  
-**Storage**: [if applicable, e.g., PostgreSQL, CoreData, files or N/A]  
+**Storage**: [if applicable, default SQLite unless explicitly overridden in spec; e.g., SQLite, session storage, local storage, PostgreSQL]  
 **Testing**: [e.g., pytest, XCTest, cargo test or NEEDS CLARIFICATION]  
 **Target Platform**: [e.g., Linux server, iOS 15+, WASM or NEEDS CLARIFICATION]
 **Project Type**: [e.g., library/cli/web-service/mobile-app/compiler/desktop-app or NEEDS CLARIFICATION]  
@@ -31,7 +31,13 @@
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-[Gates determined based on constitution file]
+- [ ] Local-first runtime preserved (no mandatory cloud dependency for core flow)
+- [ ] Module boundaries and adapter seams are explicit and swappable
+- [ ] Deterministic state transitions and JSON contract validation are test-covered
+- [ ] Persistence uses SQLite by default, or spec explicitly documents exception scope and rationale
+- [ ] Serilog is the primary logging framework with .NET 9 structured logging best practices
+- [ ] Logging coverage exists across layers/components/services with Information logs for major call paths
+- [ ] Log levels are externally configurable, including Verbose diagnostics without code changes
 
 ## Project Structure
 
