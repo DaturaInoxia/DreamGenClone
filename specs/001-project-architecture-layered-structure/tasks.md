@@ -63,12 +63,12 @@
 
 **Independent Test**: Build a story session with multiple blocks, continue via AI, execute rewind/undo, and validate expected restored state.
 
-- [ ] T027 [P] [US3] Implement story block/session domain structures in `DreamGenClone.Web/Domain/Story/`
-- [ ] T028 [P] [US3] Implement story orchestration service in `DreamGenClone.Web/Application/Story/StoryEngineService.cs`
-- [ ] T029 [US3] Build Story Mode page and block editor UI in `DreamGenClone.Web/Components/Pages/StoryMode.razor`
-- [ ] T030 [US3] Implement continue, rewind, and undo commands in `DreamGenClone.Web/Application/Story/StoryCommandService.cs`
-- [ ] T031 [US3] Integrate writing assistant context feed with scenario and recent story in `DreamGenClone.Web/Application/Assistants/WritingAssistantService.cs`
-- [ ] T032 [US3] Add Information-level logs for major story generation and command paths in `DreamGenClone.Web/Application/Story/`
+- [x] T027 [P] [US3] Implement story block/session domain structures in `DreamGenClone.Web/Domain/Story/`
+- [x] T028 [P] [US3] Implement story orchestration service in `DreamGenClone.Web/Application/Story/StoryEngineService.cs`
+- [x] T029 [US3] Build Story Mode page and block editor UI in `DreamGenClone.Web/Components/Pages/StoryMode.razor`
+- [x] T030 [US3] Implement continue, rewind, and undo commands in `DreamGenClone.Web/Application/Story/StoryCommandService.cs`
+- [x] T031 [US3] Integrate writing assistant context feed with scenario and recent story in `DreamGenClone.Web/Application/Assistants/WritingAssistantService.cs`
+- [x] T032 [US3] Add Information-level logs for major story generation and command paths in `DreamGenClone.Web/Application/Story/`
 
 ## Phase 6: User Story 4 - Role-Play Mode Engine (Priority: P4)
 

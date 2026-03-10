@@ -40,14 +40,23 @@ public sealed class LmStudioClient : ILmStudioClient
     {
         var payload = new ChatRequest
         {
+            Model = _options.Model,
             Messages =
             [
                 new ChatMessage("user", prompt)
-            ]
+            ],
+            Temperature = 0.7,
+            MaxTokens = 500
         };
 
         using var response = await _httpClient.PostAsJsonAsync(_options.ChatCompletionsPath, payload, cancellationToken);
-        response.EnsureSuccessStatusCode();
+        
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("LM Studio request failed with {StatusCode}: {Error}", response.StatusCode, errorContent);
+            response.EnsureSuccessStatusCode();
+        }
 
         var result = await response.Content.ReadFromJsonAsync<ChatResponse>(cancellationToken: cancellationToken);
         var content = result?.Choices?.FirstOrDefault()?.Message?.Content;
@@ -59,8 +68,17 @@ public sealed class LmStudioClient : ILmStudioClient
 
     private sealed class ChatRequest
     {
+        [JsonPropertyName("model")]
+        public string Model { get; init; } = string.Empty;
+
         [JsonPropertyName("messages")]
         public List<ChatMessage> Messages { get; init; } = [];
+
+        [JsonPropertyName("temperature")]
+        public double Temperature { get; init; } = 0.7;
+
+        [JsonPropertyName("max_tokens")]
+        public int MaxTokens { get; init; } = 500;
     }
 
     private sealed record ChatMessage(

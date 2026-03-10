@@ -44,6 +44,10 @@ build_metadata.AdditionalFiles.CssScope =
 build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xQYWdlc1xTY2VuYXJpb3MucmF6b3I=
 build_metadata.AdditionalFiles.CssScope = 
 
+[D:/src/DreamGenClone/DreamGenClone.Web/Components/Pages/StoryMode.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xQYWdlc1xTdG9yeU1vZGUucmF6b3I=
+build_metadata.AdditionalFiles.CssScope = 
+
 [D:/src/DreamGenClone/DreamGenClone.Web/Components/Pages/Templates.razor]
 build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xQYWdlc1xUZW1wbGF0ZXMucmF6b3I=
 build_metadata.AdditionalFiles.CssScope = 

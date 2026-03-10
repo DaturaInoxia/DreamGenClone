@@ -8,7 +8,9 @@ using DreamGenClone.Infrastructure.Logging;
 using DreamGenClone.Infrastructure.Models;
 using DreamGenClone.Infrastructure.Persistence;
 using DreamGenClone.Infrastructure.Storage;
+using DreamGenClone.Web.Application.Assistants;
 using DreamGenClone.Web.Application.Scenarios;
+using DreamGenClone.Web.Application.Story;
 using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -38,6 +40,9 @@ builder.Services.AddSingleton<SessionImportValidator>();
 builder.Services.AddSingleton<IAutoSaveCoordinator, AutoSaveCoordinator>();
 builder.Services.AddScoped<IScenarioService, ScenarioService>();
 builder.Services.AddScoped<IScenarioTokenCounter, ScenarioTokenCounter>();
+builder.Services.AddScoped<IStoryEngineService, StoryEngineService>();
+builder.Services.AddScoped<IStoryCommandService, StoryCommandService>();
+builder.Services.AddScoped<IWritingAssistantService, WritingAssistantService>();
 
 var app = builder.Build();
 

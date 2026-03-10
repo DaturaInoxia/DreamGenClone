@@ -8,5 +8,7 @@ public sealed class LmStudioOptions
 
     public string ChatCompletionsPath { get; set; } = "/v1/chat/completions";
 
+    public string Model { get; set; } = "local-model";
+
     public int TimeoutSeconds { get; set; } = 120;
 }
