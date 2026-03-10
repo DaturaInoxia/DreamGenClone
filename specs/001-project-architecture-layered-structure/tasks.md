@@ -50,12 +50,12 @@
 
 **Independent Test**: Create and save scenario, reload and edit it, verify template-backed entities and token count updates.
 
-- [ ] T021 [P] [US2] Implement scenario domain models in `DreamGenClone.Web/Domain/Scenarios/`
-- [ ] T022 [P] [US2] Implement scenario orchestration service in `DreamGenClone.Web/Application/Scenarios/ScenarioService.cs`
-- [ ] T023 [US2] Build scenario editor page and sections in `DreamGenClone.Web/Components/Pages/ScenarioEditor.razor`
-- [ ] T024 [US2] Implement token counting service and UI binding in `DreamGenClone.Web/Application/Scenarios/ScenarioTokenCounter.cs`
-- [ ] T025 [US2] Add template selection integration for scenario entities in `DreamGenClone.Web/Components/Scenarios/ScenarioEntityPicker.razor`
-- [ ] T026 [US2] Add Information-level logs for scenario save/load/edit operations in `DreamGenClone.Web/Application/Scenarios/ScenarioService.cs`
+- [x] T021 [P] [US2] Implement scenario domain models in `DreamGenClone.Web/Domain/Scenarios/`
+- [x] T022 [P] [US2] Implement scenario orchestration service in `DreamGenClone.Web/Application/Scenarios/ScenarioService.cs`
+- [x] T023 [US2] Build scenario editor page and sections in `DreamGenClone.Web/Components/Pages/ScenarioEditor.razor`
+- [x] T024 [US2] Implement token counting service and UI binding in `DreamGenClone.Web/Application/Scenarios/ScenarioTokenCounter.cs`
+- [x] T025 [US2] Add template selection integration for scenario entities in `DreamGenClone.Web/Components/Scenarios/ScenarioEntityPicker.razor`
+- [x] T026 [US2] Add Information-level logs for scenario save/load/edit operations in `DreamGenClone.Web/Application/Scenarios/ScenarioService.cs`
 
 ## Phase 5: User Story 3 - Story Mode Engine (Priority: P3)
 

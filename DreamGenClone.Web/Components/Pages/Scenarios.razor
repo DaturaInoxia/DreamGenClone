@@ -1,0 +1,90 @@
+@page "/scenarios"
+@rendermode InteractiveServer
+@using DreamGenClone.Web.Application.Scenarios
+@using DreamGenClone.Web.Domain.Scenarios
+
+@inject IScenarioService ScenarioService
+@inject NavigationManager Navigation
+
+<PageTitle>Scenarios - DreamGenClone</PageTitle>
+
+<div class="container-fluid mt-4">
+    <div class="row">
+        <div class="col-md-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h1>Scenarios</h1>
+                <button class="btn btn-primary" @onclick="CreateNewScenario">+ Create Scenario</button>
+            </div>
+            <hr />
+        </div>
+    </div>
+    
+    @if (ScenarioList.Any())
+    {
+        <div class="row">
+            @foreach (var scenario in ScenarioList)
+            {
+                <div class="col-md-6 col-lg-4 mb-4">
+                    <div class="card h-100">
+                        <div class="card-body">
+                            <h5 class="card-title">@scenario.Name</h5>
+                            <p class="card-text text-muted">@scenario.Description</p>
+                            
+                            <div class="mb-3">
+                                <small class="text-muted">
+                                    Characters: @scenario.Characters.Count | 
+                                    Locations: @scenario.Locations.Count | 
+                                    Tokens: @scenario.EstimatedTokenCount
+                                </small>
+                            </div>
+                            
+                            <small class="text-muted d-block">
+                                Modified: @scenario.ModifiedAt.ToString("MMM dd, yyyy")
+                            </small>
+                        </div>
+                        <div class="card-footer bg-white">
+                            <button class="btn btn-sm btn-primary" @onclick="@(() => EditScenario(scenario.Id))">Edit</button>
+                            <button class="btn btn-sm btn-outline-danger" @onclick="@(() => DeleteScenario(scenario.Id))">Delete</button>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="alert alert-info">
+            No scenarios yet. <button class="btn btn-link" @onclick="CreateNewScenario" style="padding: 0; text-decoration: underline;">Create your first scenario</button>.
+        </div>
+    }
+</div>
+
+@code {
+    private List<Scenario> ScenarioList = new();
+    
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadScenarios();
+    }
+    
+    private async Task LoadScenarios()
+    {
+        ScenarioList = await ScenarioService.GetAllScenariosAsync();
+    }
+    
+    private void CreateNewScenario()
+    {
+        Navigation.NavigateTo("/scenarios/editor");
+    }
+    
+    private void EditScenario(string id)
+    {
+        Navigation.NavigateTo($"/scenarios/editor/{id}");
+    }
+    
+    private async Task DeleteScenario(string id)
+    {
+        await ScenarioService.DeleteScenarioAsync(id);
+        await LoadScenarios();
+    }
+}

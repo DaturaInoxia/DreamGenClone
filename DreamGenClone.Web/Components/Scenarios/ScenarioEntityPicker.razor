@@ -1,0 +1,156 @@
+@namespace DreamGenClone.Components.Scenarios
+@using DreamGenClone.Application.Templates
+@using DreamGenClone.Domain.Templates
+@using DreamGenClone.Web.Domain.Scenarios
+
+@inject ITemplateService TemplateService
+
+<div class="entity-picker">
+    <label class="form-label">@Label</label>
+    
+    <div class="entity-picker-mode">
+        <div class="btn-group" role="group">
+            <input type="radio" class="btn-check" name="mode-@Id" id="mode-inline-@Id" 
+                   @onchange="@((ChangeEventArgs e) => SetMode("inline"))" 
+                   checked="@(Mode == "inline")" />
+            <label class="btn btn-outline-primary" for="mode-inline-@Id">Create New</label>
+            
+            <input type="radio" class="btn-check" name="mode-@Id" id="mode-template-@Id" 
+                   @onchange="@((ChangeEventArgs e) => SetMode("template"))" 
+                   checked="@(Mode == "template")" />
+            <label class="btn btn-outline-primary" for="mode-template-@Id">From Template</label>
+        </div>
+    </div>
+    
+    @if (Mode == "inline")
+    {
+        <div class="entity-inline mt-3">
+            <div class="mb-3">
+                <label class="form-label">Name</label>
+                <input type="text" class="form-control" @bind="InlineName" placeholder="Entity name" />
+            </div>
+            
+            <div class="mb-3">
+                <label class="form-label">Description</label>
+                <textarea class="form-control" @bind="InlineDescription" placeholder="Entity description" rows="3"></textarea>
+            </div>
+            
+            <button class="btn btn-primary" @onclick="CreateInlineEntity">Add Entity</button>
+        </div>
+    }
+    else if (Mode == "template")
+    {
+        <div class="entity-from-template mt-3">
+            <div class="mb-3">
+                <label class="form-label">Select Template</label>
+                <select class="form-control" @onchange="OnTemplateSelected">
+                    <option value="">-- Choose a template --</option>
+                    @foreach (var template in AvailableTemplates)
+                    {
+                        <option value="@template.Id">@template.Name</option>
+                    }
+                </select>
+            </div>
+            
+            @if (SelectedTemplate != null)
+            {
+                <div class="template-preview mb-3">
+                    <h6>@SelectedTemplate.Name</h6>
+                    @if (!string.IsNullOrEmpty(SelectedTemplate.ImagePath))
+                    {
+                        <img src="@SelectedTemplate.ImagePath" alt="@SelectedTemplate.Name" class="img-thumbnail" style="max-width: 150px;" />
+                    }
+                    <p>@SelectedTemplate.Content</p>
+                </div>
+                
+                <button class="btn btn-primary" @onclick="CreateFromTemplate">Add from Template</button>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    
+    [Parameter]
+    public string Label { get; set; } = "Entity";
+    
+    [Parameter]
+    public TemplateType TemplateTypeFilter { get; set; }
+    
+    [Parameter]
+    public EventCallback<EntityCreatedArgs> OnEntityCreated { get; set; }
+    
+    private string Mode = "inline";
+    private string InlineName = string.Empty;
+    private string InlineDescription = string.Empty;
+    private List<TemplateDefinition> AvailableTemplates = new();
+    private TemplateDefinition? SelectedTemplate;
+    
+    public class EntityCreatedArgs
+    {
+        public string Name { get; set; } = string.Empty;
+        public string? TemplateId { get; set; }
+        public string? Description { get; set; }
+    }
+    
+    protected override async Task OnInitializedAsync()
+    {
+        var templates = await TemplateService.GetAllAsync(TemplateTypeFilter);
+        AvailableTemplates = templates.ToList();
+    }
+    
+    private void SetMode(string newMode)
+    {
+        Mode = newMode;
+        InlineName = string.Empty;
+        InlineDescription = string.Empty;
+        SelectedTemplate = null;
+    }
+    
+    private async Task OnTemplateSelected(ChangeEventArgs e)
+    {
+        if (e.Value is string guidStr && !string.IsNullOrEmpty(guidStr) && Guid.TryParse(guidStr, out var id))
+        {
+            SelectedTemplate = await TemplateService.GetByIdAsync(id);
+        }
+    }
+    
+    private async Task CreateInlineEntity()
+    {
+        if (string.IsNullOrWhiteSpace(InlineName))
+        {
+            return;
+        }
+        
+        var args = new EntityCreatedArgs
+        {
+            Name = InlineName,
+            Description = InlineDescription,
+            TemplateId = null
+        };
+        
+        await OnEntityCreated.InvokeAsync(args);
+        InlineName = string.Empty;
+        InlineDescription = string.Empty;
+    }
+    
+    private async Task CreateFromTemplate()
+    {
+        if (SelectedTemplate == null)
+        {
+            return;
+        }
+        
+        var args = new EntityCreatedArgs
+        {
+            Name = SelectedTemplate.Name,
+            TemplateId = SelectedTemplate.Id.ToString(),
+            Description = SelectedTemplate.Content
+        };
+        
+        await OnEntityCreated.InvokeAsync(args);
+        SelectedTemplate = null;
+    }
+}

@@ -36,6 +36,14 @@ build_metadata.AdditionalFiles.CssScope =
 build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xQYWdlc1xIb21lLnJhem9y
 build_metadata.AdditionalFiles.CssScope = 
 
+[D:/src/DreamGenClone/DreamGenClone.Web/Components/Pages/ScenarioEditor.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xQYWdlc1xTY2VuYXJpb0VkaXRvci5yYXpvcg==
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/src/DreamGenClone/DreamGenClone.Web/Components/Pages/Scenarios.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xQYWdlc1xTY2VuYXJpb3MucmF6b3I=
+build_metadata.AdditionalFiles.CssScope = 
+
 [D:/src/DreamGenClone/DreamGenClone.Web/Components/Pages/Templates.razor]
 build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xQYWdlc1xUZW1wbGF0ZXMucmF6b3I=
 build_metadata.AdditionalFiles.CssScope = 
@@ -46,6 +54,10 @@ build_metadata.AdditionalFiles.CssScope =
 
 [D:/src/DreamGenClone/DreamGenClone.Web/Components/Routes.razor]
 build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xSb3V0ZXMucmF6b3I=
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/src/DreamGenClone/DreamGenClone.Web/Components/Scenarios/ScenarioEntityPicker.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xTY2VuYXJpb3NcU2NlbmFyaW9FbnRpdHlQaWNrZXIucmF6b3I=
 build_metadata.AdditionalFiles.CssScope = 
 
 [D:/src/DreamGenClone/DreamGenClone.Web/Components/Templates/TemplateImageEditor.razor]

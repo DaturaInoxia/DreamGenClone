@@ -1,0 +1,13 @@
+namespace DreamGenClone.Web.Domain.Scenarios;
+
+/// <summary>
+/// Represents the literary/narrative style component of a scenario.
+/// Includes tone, writing style preferences, and narrative constraints.
+/// </summary>
+public class Style
+{
+    public string? Tone { get; set; }
+    public string? WritingStyle { get; set; }
+    public string? PointOfView { get; set; }
+    public List<string> StyleGuidelines { get; set; } = [];
+}

@@ -1,0 +1,534 @@
+@page "/scenarios/editor/{ScenarioId?}"
+@rendermode InteractiveServer
+@using DreamGenClone.Web.Application.Scenarios
+@using DreamGenClone.Web.Domain.Scenarios
+@using DreamGenClone.Domain.Templates
+
+@inject IScenarioService ScenarioService
+@inject IScenarioTokenCounter TokenCounter
+@inject NavigationManager Navigation
+
+<PageTitle>Scenario Editor - DreamGenClone</PageTitle>
+
+<div class="container-fluid mt-4">
+    <div class="row">
+        <div class="col-md-12">
+            <h1>Scenario Editor</h1>
+            <hr />
+        </div>
+    </div>
+    
+    @if (CurrentScenario != null)
+    {
+        <div class="row">
+            <div class="col-md-8">
+                <!-- Scenario Metadata -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5>Scenario Details</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label class="form-label">Scenario Name</label>
+                            <input type="text" class="form-control" @bind="CurrentScenario.Name" />
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Description</label>
+                            <textarea class="form-control" @bind="CurrentScenario.Description" rows="3"></textarea>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Plot -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5>Plot</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label class="form-label">Plot Title</label>
+                            <input type="text" class="form-control" @bind="CurrentScenario.Plot.Title" />
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Plot Description</label>
+                            <textarea class="form-control" @bind="CurrentScenario.Plot.Description" rows="3"></textarea>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Conflicts</label>
+                            <div class="conflict-list">
+                                @foreach (var (conflict, index) in CurrentScenario.Plot.Conflicts.Select((c, i) => (c, i)))
+                                {
+                                    <div class="input-group mb-2">
+                                        <input type="text" class="form-control" @bind="CurrentScenario.Plot.Conflicts[index]" />
+                                        <button class="btn btn-outline-danger" @onclick="@(() => CurrentScenario.Plot.Conflicts.RemoveAt(index))">Remove</button>
+                                    </div>
+                                }
+                            </div>
+                            <button class="btn btn-outline-secondary btn-sm" @onclick="@(() => CurrentScenario.Plot.Conflicts.Add(string.Empty))">+ Add Conflict</button>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Goals</label>
+                            <div class="goal-list">
+                                @foreach (var (goal, index) in CurrentScenario.Plot.Goals.Select((g, i) => (g, i)))
+                                {
+                                    <div class="input-group mb-2">
+                                        <input type="text" class="form-control" @bind="CurrentScenario.Plot.Goals[index]" />
+                                        <button class="btn btn-outline-danger" @onclick="@(() => CurrentScenario.Plot.Goals.RemoveAt(index))">Remove</button>
+                                    </div>
+                                }
+                            </div>
+                            <button class="btn btn-outline-secondary btn-sm" @onclick="@(() => CurrentScenario.Plot.Goals.Add(string.Empty))">+ Add Goal</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Setting -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5>Setting / World</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label class="form-label">World Description</label>
+                            <textarea class="form-control" @bind="CurrentScenario.Setting.WorldDescription" rows="3"></textarea>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Time Frame</label>
+                            <input type="text" class="form-control" @bind="CurrentScenario.Setting.TimeFrame" />
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Environmental Details</label>
+                            <div class="details-list">
+                                @foreach (var (detail, index) in CurrentScenario.Setting.EnvironmentalDetails.Select((d, i) => (d, i)))
+                                {
+                                    <div class="input-group mb-2">
+                                        <input type="text" class="form-control" @bind="CurrentScenario.Setting.EnvironmentalDetails[index]" />
+                                        <button class="btn btn-outline-danger" @onclick="@(() => CurrentScenario.Setting.EnvironmentalDetails.RemoveAt(index))">Remove</button>
+                                    </div>
+                                }
+                            </div>
+                            <button class="btn btn-outline-secondary btn-sm" @onclick="@(() => CurrentScenario.Setting.EnvironmentalDetails.Add(string.Empty))">+ Add Detail</button>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">World Rules</label>
+                            <div class="rules-list">
+                                @foreach (var (rule, index) in CurrentScenario.Setting.WorldRules.Select((r, i) => (r, i)))
+                                {
+                                    <div class="input-group mb-2">
+                                        <input type="text" class="form-control" @bind="CurrentScenario.Setting.WorldRules[index]" />
+                                        <button class="btn btn-outline-danger" @onclick="@(() => CurrentScenario.Setting.WorldRules.RemoveAt(index))">Remove</button>
+                                    </div>
+                                }
+                            </div>
+                            <button class="btn btn-outline-secondary btn-sm" @onclick="@(() => CurrentScenario.Setting.WorldRules.Add(string.Empty))">+ Add Rule</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Style -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5>Style / Tone</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label class="form-label">Tone</label>
+                            <input type="text" class="form-control" @bind="CurrentScenario.Style.Tone" placeholder="e.g., Dark, Humorous, Serious" />
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Writing Style</label>
+                            <input type="text" class="form-control" @bind="CurrentScenario.Style.WritingStyle" placeholder="e.g., Descriptive, Minimalist, Prose" />
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Point of View</label>
+                            <input type="text" class="form-control" @bind="CurrentScenario.Style.PointOfView" placeholder="e.g., First Person, Third Person" />
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Style Guidelines</label>
+                            <div class="guidelines-list">
+                                @foreach (var (guideline, index) in CurrentScenario.Style.StyleGuidelines.Select((g, i) => (g, i)))
+                                {
+                                    <div class="input-group mb-2">
+                                        <input type="text" class="form-control" @bind="CurrentScenario.Style.StyleGuidelines[index]" />
+                                        <button class="btn btn-outline-danger" @onclick="@(() => CurrentScenario.Style.StyleGuidelines.RemoveAt(index))">Remove</button>
+                                    </div>
+                                }
+                            </div>
+                            <button class="btn btn-outline-secondary btn-sm" @onclick="@(() => CurrentScenario.Style.StyleGuidelines.Add(string.Empty))">+ Add Guideline</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Characters -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5>Characters</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="characters-list mb-3">
+                            @if (CurrentScenario.Characters.Any())
+                            {
+                                @foreach (var (character, index) in CurrentScenario.Characters.Select((c, i) => (c, i)))
+                                {
+                                    <div class="card mb-2">
+                                        <div class="card-body">
+                                            <div class="row">
+                                                <div class="col-md-8">
+                                                    <h6>@character.Name</h6>
+                                                    <p class="text-muted mb-1">@character.Description</p>
+                                                    @if (!string.IsNullOrEmpty(character.Role))
+                                                    {
+                                                        <p class="text-muted small">Role: @character.Role</p>
+                                                    }
+                                                </div>
+                                                <div class="col-md-4 text-end">
+                                                    <button class="btn btn-sm btn-outline-primary" @onclick="@(() => EditingCharacterIndex = index)">Edit</button>
+                                                    <button class="btn btn-sm btn-outline-danger" @onclick="@(() => CurrentScenario.Characters.RemoveAt(index))">Delete</button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                }
+                            }
+                            else
+                            {
+                                <p class="text-muted">No characters added yet.</p>
+                            }
+                        </div>
+                        
+                        <ScenarioEntityPicker 
+                            Label="Add Character" 
+                            TemplateTypeFilter="TemplateType.Character"
+                            OnEntityCreated="@OnCharacterCreated" />
+                    </div>
+                </div>
+                
+                <!-- Locations -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5>Locations</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="locations-list mb-3">
+                            @if (CurrentScenario.Locations.Any())
+                            {
+                                @foreach (var (location, index) in CurrentScenario.Locations.Select((l, i) => (l, i)))
+                                {
+                                    <div class="card mb-2">
+                                        <div class="card-body">
+                                            <div class="row">
+                                                <div class="col-md-8">
+                                                    <h6>@location.Name</h6>
+                                                    <p class="text-muted">@location.Description</p>
+                                                </div>
+                                                <div class="col-md-4 text-end">
+                                                    <button class="btn btn-sm btn-outline-primary" @onclick="@(() => EditingLocationIndex = index)">Edit</button>
+                                                    <button class="btn btn-sm btn-outline-danger" @onclick="@(() => CurrentScenario.Locations.RemoveAt(index))">Delete</button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                }
+                            }
+                            else
+                            {
+                                <p class="text-muted">No locations added yet.</p>
+                            }
+                        </div>
+                        
+                        <ScenarioEntityPicker 
+                            Label="Add Location" 
+                            TemplateTypeFilter="TemplateType.Location"
+                            OnEntityCreated="@OnLocationCreated" />
+                    </div>
+                </div>
+                
+                <!-- Objects -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5>Objects / Items</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="objects-list mb-3">
+                            @if (CurrentScenario.Objects.Any())
+                            {
+                                @foreach (var (obj, index) in CurrentScenario.Objects.Select((o, i) => (o, i)))
+                                {
+                                    <div class="card mb-2">
+                                        <div class="card-body">
+                                            <div class="row">
+                                                <div class="col-md-8">
+                                                    <h6>@obj.Name</h6>
+                                                    <p class="text-muted">@obj.Description</p>
+                                                </div>
+                                                <div class="col-md-4 text-end">
+                                                    <button class="btn btn-sm btn-outline-primary" @onclick="@(() => EditingObjectIndex = index)">Edit</button>
+                                                    <button class="btn btn-sm btn-outline-danger" @onclick="@(() => CurrentScenario.Objects.RemoveAt(index))">Delete</button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                }
+                            }
+                            else
+                            {
+                                <p class="text-muted">No objects added yet.</p>
+                            }
+                        </div>
+                        
+                        <ScenarioEntityPicker 
+                            Label="Add Object" 
+                            TemplateTypeFilter="TemplateType.Object"
+                            OnEntityCreated="@OnObjectCreated" />
+                    </div>
+                </div>
+                
+                <!-- Openings -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5>Openings / Starts</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="openings-list mb-3">
+                            @if (CurrentScenario.Openings.Any())
+                            {
+                                @foreach (var (opening, index) in CurrentScenario.Openings.Select((o, i) => (o, i)))
+                                {
+                                    <div class="card mb-2">
+                                        <div class="card-header">
+                                            <h6 class="mb-0">@opening.Title</h6>
+                                        </div>
+                                        <div class="card-body">
+                                            <p>@opening.Text</p>
+                                            <button class="btn btn-sm btn-outline-danger" @onclick="@(() => CurrentScenario.Openings.RemoveAt(index))">Delete</button>
+                                        </div>
+                                    </div>
+                                }
+                            }
+                            else
+                            {
+                                <p class="text-muted">No openings added yet.</p>
+                            }
+                        </div>
+                        
+                        <div class="opening-form">
+                            <input type="text" class="form-control mb-2" placeholder="Opening Title" @bind="NewOpeningTitle" />
+                            <textarea class="form-control mb-2" placeholder="Opening Text" rows="3" @bind="NewOpeningText"></textarea>
+                            <button class="btn btn-secondary" @onclick="AddOpening">+ Add Opening</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Examples -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5>Examples</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="examples-list mb-3">
+                            @if (CurrentScenario.Examples.Any())
+                            {
+                                @foreach (var (example, index) in CurrentScenario.Examples.Select((e, i) => (e, i)))
+                                {
+                                    <div class="card mb-2">
+                                        <div class="card-header">
+                                            <h6 class="mb-0">@example.Title</h6>
+                                        </div>
+                                        <div class="card-body">
+                                            <p>@example.Text</p>
+                                            <button class="btn btn-sm btn-outline-danger" @onclick="@(() => CurrentScenario.Examples.RemoveAt(index))">Delete</button>
+                                        </div>
+                                    </div>
+                                }
+                            }
+                            else
+                            {
+                                <p class="text-muted">No examples added yet.</p>
+                            }
+                        </div>
+                        
+                        <div class="example-form">
+                            <input type="text" class="form-control mb-2" placeholder="Example Title" @bind="NewExampleTitle" />
+                            <textarea class="form-control mb-2" placeholder="Example Text" rows="3" @bind="NewExampleText"></textarea>
+                            <button class="btn btn-secondary" @onclick="AddExample">+ Add Example</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Sidebar -->
+            <div class="col-md-4">
+                <!-- Token Count -->
+                <div class="card mb-4 sticky-top">
+                    <div class="card-header">
+                        <h5>Token Count</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="text-center">
+                            <h2 style="color: #0d6efd;">@CurrentScenario.EstimatedTokenCount</h2>
+                            <small class="text-muted">Estimated tokens</small>
+                        </div>
+                        <button class="btn btn-primary btn-sm w-100 mt-3" @onclick="RecalculateTokenCount">Recalculate</button>
+                    </div>
+                </div>
+                
+                <!-- Actions -->
+                <div class="card">
+                    <div class="card-header">
+                        <h5>Actions</h5>
+                    </div>
+                    <div class="card-body">
+                        <button class="btn btn-success w-100 mb-2" @onclick="SaveScenario">Save Scenario</button>
+                        <button class="btn btn-outline-secondary w-100" @onclick="@(() => Navigation.NavigateTo("/scenarios"))">Back to List</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="alert alert-info">Creating new scenario...</div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public string? ScenarioId { get; set; }
+    
+    private Scenario? CurrentScenario;
+    private int EditingCharacterIndex = -1;
+    private int EditingLocationIndex = -1;
+    private int EditingObjectIndex = -1;
+    private string NewOpeningTitle = string.Empty;
+    private string NewOpeningText = string.Empty;
+    private string NewExampleTitle = string.Empty;
+    private string NewExampleText = string.Empty;
+    
+    protected override async Task OnInitializedAsync()
+    {
+        if (!string.IsNullOrEmpty(ScenarioId))
+        {
+            CurrentScenario = await ScenarioService.GetScenarioAsync(ScenarioId);
+        }
+        else
+        {
+            CurrentScenario = new Scenario { Name = "New Scenario" };
+        }
+    }
+    
+    private void AddCharacter(string name, string? templateId, string? description)
+    {
+        var character = new Character
+        {
+            Name = name,
+            Description = description,
+            TemplateId = templateId
+        };
+        
+        CurrentScenario?.Characters.Add(character);
+    }
+    
+    private void OnCharacterCreated(DreamGenClone.Components.Scenarios.ScenarioEntityPicker.EntityCreatedArgs args)
+    {
+        AddCharacter(args.Name, args.TemplateId, args.Description);
+    }
+    
+    private void AddLocation(string name, string? templateId, string? description)
+    {
+        var location = new Location
+        {
+            Name = name,
+            Description = description,
+            TemplateId = templateId
+        };
+        
+        CurrentScenario?.Locations.Add(location);
+    }
+    
+    private void OnLocationCreated(DreamGenClone.Components.Scenarios.ScenarioEntityPicker.EntityCreatedArgs args)
+    {
+        AddLocation(args.Name, args.TemplateId, args.Description);
+    }
+    
+    private void AddObject(string name, string? templateId, string? description)
+    {
+        var obj = new ScenarioObject
+        {
+            Name = name,
+            Description = description,
+            TemplateId = templateId
+        };
+        
+        CurrentScenario?.Objects.Add(obj);
+    }
+    
+    private void OnObjectCreated(DreamGenClone.Components.Scenarios.ScenarioEntityPicker.EntityCreatedArgs args)
+    {
+        AddObject(args.Name, args.TemplateId, args.Description);
+    }
+    
+    private void AddOpening()
+    {
+        if (string.IsNullOrWhiteSpace(NewOpeningTitle))
+        {
+            return;
+        }
+        
+        var opening = new Opening
+        {
+            Title = NewOpeningTitle,
+            Text = NewOpeningText
+        };
+        
+        CurrentScenario?.Openings.Add(opening);
+        NewOpeningTitle = string.Empty;
+        NewOpeningText = string.Empty;
+    }
+    
+    private void AddExample()
+    {
+        if (string.IsNullOrWhiteSpace(NewExampleTitle))
+        {
+            return;
+        }
+        
+        var example = new Example
+        {
+            Title = NewExampleTitle,
+            Text = NewExampleText
+        };
+        
+        CurrentScenario?.Examples.Add(example);
+        NewExampleTitle = string.Empty;
+        NewExampleText = string.Empty;
+    }
+    
+    private void RecalculateTokenCount()
+    {
+        if (CurrentScenario != null)
+        {
+            CurrentScenario.EstimatedTokenCount = TokenCounter.CalculateTokenCount(CurrentScenario);
+            StateHasChanged();
+        }
+    }
+    
+    private async Task SaveScenario()
+    {
+        if (CurrentScenario != null)
+        {
+            RecalculateTokenCount();
+            await ScenarioService.SaveScenarioAsync(CurrentScenario);
+            Navigation.NavigateTo("/scenarios");
+        }
+    }
+}
