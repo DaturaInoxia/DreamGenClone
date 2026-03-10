@@ -102,8 +102,6 @@ D:\src\DreamGenClone\DreamGenClone.Web\obj\Debug\net9.0\compressed\gmste8wdh4-no
 D:\src\DreamGenClone\DreamGenClone.Web\obj\Debug\net9.0\compressed\z207u92v2t-h1s4sie4z3.gz
 D:\src\DreamGenClone\DreamGenClone.Web\obj\Debug\net9.0\compressed\wy5pkwmuig-63fj8s7r0e.gz
 D:\src\DreamGenClone\DreamGenClone.Web\obj\Debug\net9.0\compressed\2rpbokzyp4-0j3bgjxly4.gz
-D:\src\DreamGenClone\DreamGenClone.Web\obj\Debug\net9.0\compressed\huc8hti2af-isc6lyjgc0.gz
-D:\src\DreamGenClone\DreamGenClone.Web\obj\Debug\net9.0\compressed\bznwei8och-isc6lyjgc0.gz
 D:\src\DreamGenClone\DreamGenClone.Web\obj\Debug\net9.0\staticwebassets.build.json
 D:\src\DreamGenClone\DreamGenClone.Web\obj\Debug\net9.0\staticwebassets.build.json.cache
 D:\src\DreamGenClone\DreamGenClone.Web\obj\Debug\net9.0\staticwebassets.development.json
@@ -122,3 +120,5 @@ D:\src\DreamGenClone\DreamGenClone.Web\bin\Debug\net9.0\DreamGenClone.Infrastruc
 D:\src\DreamGenClone\DreamGenClone.Web\bin\Debug\net9.0\DreamGenClone.Domain.pdb
 D:\src\DreamGenClone\DreamGenClone.Web\bin\Debug\net9.0\Serilog.Enrichers.Environment.dll
 D:\src\DreamGenClone\DreamGenClone.Web\bin\Debug\net9.0\Serilog.Enrichers.Thread.dll
+D:\src\DreamGenClone\DreamGenClone.Web\obj\Debug\net9.0\compressed\huc8hti2af-yj6349fw5a.gz
+D:\src\DreamGenClone\DreamGenClone.Web\obj\Debug\net9.0\compressed\bznwei8och-yj6349fw5a.gz

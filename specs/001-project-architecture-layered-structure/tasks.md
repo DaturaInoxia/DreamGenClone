@@ -37,12 +37,12 @@
 
 **Independent Test**: Create, edit, delete, and preview each template type; restart app; verify template data and image references persist.
 
-- [ ] T015 [P] [US1] Implement template domain models in `DreamGenClone.Web/Domain/Templates/`
-- [ ] T016 [P] [US1] Implement template repository/service methods in `DreamGenClone.Web/Application/Templates/TemplateService.cs`
-- [ ] T017 [US1] Implement template CRUD UI in `DreamGenClone.Web/Components/Pages/Templates.razor`
-- [ ] T018 [US1] Implement template preview components in `DreamGenClone.Web/Components/Templates/TemplatePreview.razor`
-- [ ] T019 [US1] Integrate template image upload/select flow with local storage service in `DreamGenClone.Web/Components/Templates/TemplateImageEditor.razor`
-- [ ] T020 [US1] Add Information-level operational logs for template workflows in `DreamGenClone.Web/Application/Templates/TemplateService.cs`
+- [x] T015 [P] [US1] Implement template domain models in `DreamGenClone.Domain/Templates/`
+- [x] T016 [P] [US1] Implement template repository/service methods in `DreamGenClone.Application/Templates/TemplateService.cs`
+- [x] T017 [US1] Implement template CRUD UI in `DreamGenClone.Web/Components/Pages/Templates.razor`
+- [x] T018 [US1] Implement template preview components in `DreamGenClone.Web/Components/Templates/TemplatePreview.razor`
+- [x] T019 [US1] Integrate template image upload/select flow with local storage service in `DreamGenClone.Web/Components/Templates/TemplateImageEditor.razor`
+- [x] T020 [US1] Add Information-level operational logs for template workflows in `DreamGenClone.Application/Templates/TemplateService.cs`
 
 ## Phase 4: User Story 2 - Scenario Editor (Priority: P2)
 

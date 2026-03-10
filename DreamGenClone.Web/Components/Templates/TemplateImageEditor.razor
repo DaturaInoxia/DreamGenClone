@@ -1,0 +1,31 @@
+@using Microsoft.AspNetCore.Components.Forms
+@using DreamGenClone.Infrastructure.Storage
+
+<div class="mt-2">
+    <label class="form-label">Template Image</label>
+    <InputFile OnChange="OnFileSelectedAsync" accept="image/*" />
+</div>
+
+@code {
+    [Inject]
+    public ITemplateImageStorageService ImageStorageService { get; set; } = default!;
+
+    [Parameter]
+    public Guid? TemplateId { get; set; }
+
+    [Parameter]
+    public EventCallback<string> OnImageStored { get; set; }
+
+    private async Task OnFileSelectedAsync(InputFileChangeEventArgs args)
+    {
+        if (TemplateId is null)
+        {
+            return;
+        }
+
+        var file = args.File;
+        await using var stream = file.OpenReadStream(10 * 1024 * 1024);
+        var storedPath = await ImageStorageService.SaveAsync(file.Name, stream);
+        await OnImageStored.InvokeAsync(storedPath);
+    }
+}

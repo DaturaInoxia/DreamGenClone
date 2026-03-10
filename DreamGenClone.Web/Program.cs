@@ -1,6 +1,7 @@
 using DreamGenClone.Components;
 using DreamGenClone.Application.Abstractions;
 using DreamGenClone.Application.Sessions;
+using DreamGenClone.Application.Templates;
 using DreamGenClone.Application.Validation;
 using DreamGenClone.Infrastructure.Configuration;
 using DreamGenClone.Infrastructure.Logging;
@@ -10,6 +11,8 @@ using DreamGenClone.Infrastructure.Storage;
 using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.WebHost.UseStaticWebAssets();
 
 LoggingSetup.ConfigureSerilog(builder);
 
@@ -29,6 +32,7 @@ builder.Services.AddHttpClient<ILmStudioClient, LmStudioClient>((serviceProvider
 
 builder.Services.AddSingleton<ISqlitePersistence, SqlitePersistence>();
 builder.Services.AddSingleton<ITemplateImageStorageService, TemplateImageStorageService>();
+builder.Services.AddScoped<ITemplateService, TemplateService>();
 builder.Services.AddSingleton<SessionImportValidator>();
 builder.Services.AddSingleton<IAutoSaveCoordinator, AutoSaveCoordinator>();
 
@@ -48,7 +52,10 @@ if (!app.Environment.IsDevelopment())
     app.UseHsts();
 }
 
-app.UseHttpsRedirection();
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHttpsRedirection();
+}
 
 
 app.UseAntiforgery();

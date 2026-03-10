@@ -381,6 +381,8 @@
       "DreamGenClone.Application/1.0.0": {
         "dependencies": {
           "DreamGenClone.Domain": "1.0.0",
+          "Microsoft.Data.Sqlite": "9.0.0",
+          "Microsoft.Extensions.Configuration.Abstractions": "9.0.0",
           "Microsoft.Extensions.Logging.Abstractions": "9.0.0"
         },
         "runtime": {

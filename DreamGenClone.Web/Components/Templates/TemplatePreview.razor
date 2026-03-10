@@ -1,0 +1,25 @@
+@using DreamGenClone.Domain.Templates
+
+@if (Template is null)
+{
+    <p>Select a template to preview.</p>
+}
+else
+{
+    <div class="card mt-3">
+        <div class="card-header">Template Preview</div>
+        <div class="card-body">
+            <p><strong>Type:</strong> @Template.TemplateType</p>
+            <p><strong>Name:</strong> @Template.Name</p>
+            <p><strong>Last Updated (UTC):</strong> @Template.UpdatedUtc.ToString("u")</p>
+            <p><strong>Image Path:</strong> @(string.IsNullOrWhiteSpace(Template.ImagePath) ? "(none)" : Template.ImagePath)</p>
+            <hr />
+            <pre>@Template.Content</pre>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public TemplateDefinition? Template { get; set; }
+}

@@ -30,6 +30,7 @@ DreamGenClone must not include AdventureEngine or emotional-simulation features.
 - Q: How should JSON session import validation behave? -> A: Strict import with required schema/version validation and explicit errors on invalid payloads.
 - Q: How should assistant context windows be managed at limits? -> A: Deterministic recency truncation with pinned critical context retained.
 - Q: How should auto-save be triggered? -> A: Save on meaningful changes using a short debounce window.
+- Q: What UI visual baseline should be used during current implementation phases? -> A: Keep the default new Blazor template styling (layout, colors, spacing, and nav visual language) unless a later approved phase explicitly changes theme/styling.
 
 ## Scope and Boundaries
 
@@ -145,6 +146,12 @@ Core domain models include:
 - Pinned critical context must be retained when context limits are reached.
 - Non-pinned older context may be truncated first.
 
+### UI Baseline Style
+
+- The app must keep default new Blazor template styling during current implementation phases.
+- Existing scaffold visual language (sidebar gradient, top row, standard Bootstrap controls, default spacing/typography) is the required baseline.
+- Any custom visual theming must be deferred to a later approved phase and documented in spec updates.
+
 ## Delivery Parts
 
 ### Part 1 - Project Architecture and Layered Structure
@@ -165,6 +172,7 @@ Defines the project skeleton and dependency boundaries.
 - Layer projects/folders and namespaces match architecture definition
 - Dependency direction follows UI -> Application -> Domain, with Infrastructure consumed via abstractions
 - LM Studio health/test request succeeds against `http://127.0.0.1:1234`
+- UI renders using default new Blazor scaffold style without custom theme overrides
 
 ### Part 2 - Template Library
 
