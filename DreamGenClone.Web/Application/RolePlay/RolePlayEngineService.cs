@@ -1,15 +1,18 @@
 using DreamGenClone.Web.Application.Sessions;
 using DreamGenClone.Web.Domain.RolePlay;
 using Microsoft.Extensions.Logging;
+using System.Collections.Concurrent;
 
 namespace DreamGenClone.Web.Application.RolePlay;
 
 public sealed class RolePlayEngineService : IRolePlayEngineService
 {
-    private static readonly Dictionary<string, RolePlaySession> Sessions = [];
+    private static readonly ConcurrentDictionary<string, RolePlaySession> Sessions = new();
 
     private readonly IRolePlayContinuationService _continuationService;
     private readonly IBehaviorModeService _behaviorModeService;
+    private readonly IRolePlayPromptRouter _promptRouter;
+    private readonly IRolePlayIdentityOptionsService _identityOptionsService;
     private readonly ISessionService _sessionService;
     private readonly AutoSaveCoordinator _autoSaveCoordinator;
     private readonly ILogger<RolePlayEngineService> _logger;
@@ -17,12 +20,16 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     public RolePlayEngineService(
         IRolePlayContinuationService continuationService,
         IBehaviorModeService behaviorModeService,
+        IRolePlayPromptRouter promptRouter,
+        IRolePlayIdentityOptionsService identityOptionsService,
         ISessionService sessionService,
         AutoSaveCoordinator autoSaveCoordinator,
         ILogger<RolePlayEngineService> logger)
     {
         _continuationService = continuationService;
         _behaviorModeService = behaviorModeService;
+        _promptRouter = promptRouter;
+        _identityOptionsService = identityOptionsService;
         _sessionService = sessionService;
         _autoSaveCoordinator = autoSaveCoordinator;
         _logger = logger;
@@ -124,7 +131,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
     public async Task<bool> DeleteSessionAsync(string sessionId, CancellationToken cancellationToken = default)
     {
-        var removedFromCache = Sessions.Remove(sessionId);
+        var removedFromCache = Sessions.TryRemove(sessionId, out _);
         var deletedPersisted = await _sessionService.DeleteAsync(sessionId, cancellationToken);
         var deleted = removedFromCache || deletedPersisted;
 
@@ -205,11 +212,16 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             throw new InvalidOperationException($"Actor '{actor}' is not allowed in mode '{session.BehaviorMode}'.");
         }
 
+        var promptText = string.IsNullOrWhiteSpace(instruction)
+            ? "Continue the scene naturally."
+            : instruction.Trim();
+
         var interaction = await _continuationService.ContinueAsync(
             session,
             actor,
             customActorName,
-            instruction,
+            PromptIntent.Narrative,
+            promptText,
             cancellationToken);
 
         session.Interactions.Add(interaction);
@@ -220,6 +232,73 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         _logger.LogInformation(
             "Role-play continuation generated for session {SessionId} as {Actor} in mode {Mode}",
             sessionId,
+            interaction.ActorName,
+            session.BehaviorMode);
+
+        return interaction;
+    }
+
+    public async Task<RolePlayInteraction> SubmitPromptAsync(
+        UnifiedPromptSubmission submission,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(submission);
+
+        if (!submission.IsValid(out var validationError))
+        {
+            throw new ArgumentException(validationError, nameof(submission));
+        }
+
+        var session = await GetSessionAsync(submission.SessionId, cancellationToken);
+        if (session is null)
+        {
+            throw new InvalidOperationException($"Role-play session '{submission.SessionId}' not found.");
+        }
+
+        var options = await _identityOptionsService.GetIdentityOptionsAsync(session, cancellationToken);
+        var identity = options.FirstOrDefault(x =>
+            x.SourceType == submission.SelectedIdentityType &&
+            string.Equals(x.Id, submission.SelectedIdentityId, StringComparison.OrdinalIgnoreCase));
+
+        if (identity is null)
+        {
+            throw new InvalidOperationException($"Identity option '{submission.SelectedIdentityId}' is not available for this session.");
+        }
+
+        if (!identity.IsAvailable)
+        {
+            throw new InvalidOperationException(identity.AvailabilityReason ?? "The selected identity is not available.");
+        }
+
+        var customName = identity.SourceType == IdentityOptionSource.CustomCharacter
+            ? (string.IsNullOrWhiteSpace(submission.CustomIdentityName) ? null : submission.CustomIdentityName.Trim())
+            : null;
+
+        var route = _promptRouter.Resolve(submission.Intent);
+        _logger.LogInformation(
+            "Unified prompt route selected for session {SessionId}: intent={Intent}, command={Command}, identity={IdentityId}",
+            submission.SessionId,
+            submission.Intent,
+            route.TargetCommand,
+            identity.Id);
+
+        var interaction = await _continuationService.ContinueAsync(
+            session,
+            identity.Actor,
+            customName,
+            submission.Intent,
+            submission.PromptText,
+            cancellationToken);
+
+        session.Interactions.Add(interaction);
+        session.Status = RolePlaySessionStatus.InProgress;
+        session.BehaviorMode = submission.BehaviorModeAtSubmit;
+        session.ModifiedAt = DateTime.UtcNow;
+        _autoSaveCoordinator.QueueRolePlaySessionSave(session, "roleplay-unified-prompt-submitted");
+
+        _logger.LogInformation(
+            "Unified prompt executed for session {SessionId}: actor={Actor}, mode={Mode}",
+            session.Id,
             interaction.ActorName,
             session.BehaviorMode);
 
@@ -244,7 +323,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                     loaded.Status = RolePlaySessionStatus.InProgress;
                 }
 
-                Sessions[loaded.Id] = loaded;
+                Sessions.TryAdd(loaded.Id, loaded);
             }
         }
     }

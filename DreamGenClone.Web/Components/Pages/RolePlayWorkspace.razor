@@ -6,9 +6,12 @@
 
 @inject IRolePlayEngineService RolePlayEngine
 @inject IRolePlayBranchService RolePlayBranchService
+@inject IRolePlayIdentityOptionsService IdentityOptionsService
 @inject IBehaviorModeService BehaviorModeService
 @inject NavigationManager Navigation
+@inject IJSRuntime JS
 @inject ILogger<RolePlayWorkspace> Logger
+@implements IAsyncDisposable
 
 @code {
     [Parameter]
@@ -16,17 +19,28 @@
 
     private RolePlaySession? _session;
     private string _statusMessage = string.Empty;
+    private bool _isSubmitting = false;
 
+    // Settings panel
     private BehaviorMode _selectedBehaviorMode = BehaviorMode.TakeTurns;
+    private string _activeSettingsTab = "settings";
+    private readonly WorkspaceSettingsState _workspaceSettings = new();
+    private DotNetObjectReference<RolePlayWorkspace>? _dotNetRef;
+    private bool _resizeInitialized;
 
-    private ContinueAsActor _composeActor = ContinueAsActor.You;
-    private string _customActorName = string.Empty;
-    private string _composeContent = string.Empty;
+    // Unified prompt
+    private string _promptText = string.Empty;
+    private PromptIntent _selectedIntent = PromptIntent.Message;
+    private bool _intentPopupOpen = false;
+    private bool _identityPopupOpen = false;
 
-    private ContinueAsActor _continueAsActor = ContinueAsActor.Npc;
-    private string _continueCustomActorName = string.Empty;
-    private string _continueInstruction = string.Empty;
+    // Identity
+    private List<IdentityOption> _identityOptions = [];
+    private IdentityOption? _selectedIdentity = null;
+    private string _customIdentityName = string.Empty;
+    private bool _showCustomInput = false;
 
+    // Fork
     private string _branchTitle = "Forked Path";
     private int _branchFromIndex = -1;
 
@@ -35,230 +49,458 @@
         await LoadSessionAsync();
     }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _resizeInitialized)
+        {
+            return;
+        }
+
+        _dotNetRef = DotNetObjectReference.Create(this);
+        await JS.InvokeVoidAsync(
+            "rolePlayWorkspace.initPanelResize",
+            ".rw-shell",
+            ".rw-panel-resize-handle",
+            _workspaceSettings.SettingsPanelWidth,
+            WorkspaceSettingsState.MinPanelWidth,
+            WorkspaceSettingsState.MaxPanelWidth,
+            _dotNetRef);
+
+        _resizeInitialized = true;
+    }
+
     private async Task LoadSessionAsync()
     {
         _session = await RolePlayEngine.GetSessionAsync(sessionId);
         if (_session is null)
         {
-            _statusMessage = "Session not found. Returning to saved sessions.";
+            _statusMessage = "Session not found.";
             Navigation.NavigateTo(RolePlayRoutes.Sessions);
             return;
         }
 
         _selectedBehaviorMode = _session.BehaviorMode;
+
+        _identityOptions = (await IdentityOptionsService.GetIdentityOptionsAsync(_session)).ToList();
+
+        if (_selectedIdentity is null || !_identityOptions.Any(x => x.Id == _selectedIdentity.Id))
+        {
+            _selectedIdentity = _identityOptions.FirstOrDefault(x => x.IsAvailable);
+        }
+    }
+
+    private void ToggleIntentPopup()
+    {
+        _intentPopupOpen = !_intentPopupOpen;
+        _identityPopupOpen = false;
+    }
+
+    private void SelectIntent(PromptIntent intent)
+    {
+        _selectedIntent = intent;
+        _intentPopupOpen = false;
+    }
+
+    private void ToggleIdentityPopup()
+    {
+        _identityPopupOpen = !_identityPopupOpen;
+        _intentPopupOpen = false;
+    }
+
+    private void SelectIdentity(IdentityOption option)
+    {
+        if (!option.IsAvailable) return;
+        _selectedIdentity = option;
+        _showCustomInput = option.SourceType == IdentityOptionSource.CustomCharacter;
+        if (!_showCustomInput)
+        {
+            _identityPopupOpen = false;
+        }
+    }
+
+    private void CloseAllPopups()
+    {
+        _intentPopupOpen = false;
+        _identityPopupOpen = false;
     }
 
     private async Task ApplyBehaviorModeAsync()
     {
-        if (_session is null)
-        {
-            return;
-        }
-
-        var updated = await RolePlayEngine.UpdateBehaviorModeAsync(_session.Id, _selectedBehaviorMode);
-        if (updated)
-        {
-            _statusMessage = $"Behavior mode set to {_selectedBehaviorMode}.";
-            await LoadSessionAsync();
-        }
-    }
-
-    private async Task AddInteractionAsync()
-    {
-        if (_session is null || string.IsNullOrWhiteSpace(_composeContent))
-        {
-            return;
-        }
-
-        await RolePlayEngine.AddInteractionAsync(_session.Id, _composeActor, _composeContent, _customActorName);
-        _composeContent = string.Empty;
-        _statusMessage = "Interaction added.";
+        if (_session is null) return;
+        await RolePlayEngine.UpdateBehaviorModeAsync(_session.Id, _selectedBehaviorMode);
+        Logger.LogInformation(
+            "Role-play workspace behavior mode changed from settings panel: session={SessionId}, mode={Mode}",
+            _session.Id,
+            _selectedBehaviorMode);
         await LoadSessionAsync();
     }
 
-    private async Task ContinueAsync()
+    private bool CanSubmit =>
+        _session is not null &&
+        !string.IsNullOrWhiteSpace(_promptText) &&
+        _selectedIdentity is not null &&
+        _selectedIdentity.IsAvailable &&
+        !_isSubmitting;
+
+    private async Task SubmitPromptAsync()
     {
-        if (_session is null)
+        if (!CanSubmit) return;
+
+        _isSubmitting = true;
+        _statusMessage = string.Empty;
+        CloseAllPopups();
+
+        try
         {
-            return;
-        }
+            var submission = new UnifiedPromptSubmission
+            {
+                SessionId = _session!.Id,
+                PromptText = _promptText,
+                Intent = _selectedIntent,
+                SelectedIdentityId = _selectedIdentity!.Id,
+                SelectedIdentityType = _selectedIdentity.SourceType,
+                CustomIdentityName = string.IsNullOrWhiteSpace(_customIdentityName) ? null : _customIdentityName.Trim(),
+                BehaviorModeAtSubmit = _selectedBehaviorMode
+            };
 
-        if (!BehaviorModeService.IsContinuationAllowed(_session.BehaviorMode, _continueAsActor))
+            Logger.LogInformation(
+                "Role-play unified prompt submitted with settings snapshot: session={SessionId}, mode={Mode}",
+                _session.Id,
+                _selectedBehaviorMode);
+
+            await RolePlayEngine.SubmitPromptAsync(submission);
+            _promptText = string.Empty;
+            await LoadSessionAsync();
+        }
+        catch (Exception ex)
         {
-            _statusMessage = $"{_continueAsActor} is not allowed in {_session.BehaviorMode} mode.";
-            return;
+            _statusMessage = $"Error: {ex.Message}";
+            Logger.LogError(ex, "Unified prompt submission failed for session {SessionId}", sessionId);
         }
+        finally
+        {
+            _isSubmitting = false;
+        }
+    }
 
-        await RolePlayEngine.ContinueAsync(
-            _session.Id,
-            _continueAsActor,
-            _continueCustomActorName,
-            _continueInstruction);
+    private async Task AddManualInteractionAsync()
+    {
+        if (_session is null || string.IsNullOrWhiteSpace(_promptText) || _selectedIdentity is null)
+            return;
 
-        _continueInstruction = string.Empty;
-        _statusMessage = "Generated next interaction.";
+        CloseAllPopups();
+        var customName = _selectedIdentity.SourceType == IdentityOptionSource.CustomCharacter
+            ? (string.IsNullOrWhiteSpace(_customIdentityName) ? "Custom" : _customIdentityName.Trim())
+            : null;
+
+        await RolePlayEngine.AddInteractionAsync(_session.Id, _selectedIdentity.Actor, _promptText, customName);
+        _promptText = string.Empty;
         await LoadSessionAsync();
     }
 
     private async Task ForkAsync()
     {
-        if (_session is null)
-        {
-            return;
-        }
-
-        var title = string.IsNullOrWhiteSpace(_branchTitle)
-            ? $"Fork of {_session.Title}"
-            : _branchTitle.Trim();
-
+        if (_session is null) return;
+        var title = string.IsNullOrWhiteSpace(_branchTitle) ? $"Fork of {_session.Title}" : _branchTitle.Trim();
         var fork = await RolePlayBranchService.ForkSessionAsync(_session.Id, title, _branchFromIndex);
-        if (fork is null)
-        {
-            _statusMessage = "Fork failed.";
-            return;
-        }
-
-        _statusMessage = $"Fork created: {fork.Title}";
+        if (fork is null) { _statusMessage = "Fork failed."; return; }
         Navigation.NavigateTo(RolePlayRoutes.GetWorkspace(fork.Id));
     }
 
-    private void GoToSavedSessions()
+    private void GoToSavedSessions() => Navigation.NavigateTo(RolePlayRoutes.Sessions);
+
+    [JSInvokable]
+    public Task OnSettingsPanelResized(int width)
     {
-        Navigation.NavigateTo(RolePlayRoutes.Sessions);
+        var oldWidth = _workspaceSettings.SettingsPanelWidth;
+        _workspaceSettings.SettingsPanelWidth = width;
+
+        if (oldWidth != _workspaceSettings.SettingsPanelWidth)
+        {
+            Logger.LogInformation(
+                "Role-play settings panel resized: session={SessionId}, width={Width}",
+                sessionId,
+                _workspaceSettings.SettingsPanelWidth);
+        }
+
+        return Task.CompletedTask;
     }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_resizeInitialized)
+        {
+            await JS.InvokeVoidAsync("rolePlayWorkspace.disposePanelResize", ".rw-panel-resize-handle");
+        }
+
+        _dotNetRef?.Dispose();
+    }
+
+    private static string GetInitial(string name) =>
+        string.IsNullOrWhiteSpace(name) ? "?" : name.Trim()[0].ToString().ToUpper();
+
+    private string IntentLabel => _selectedIntent switch
+    {
+        PromptIntent.Narrative => "narrative",
+        PromptIntent.Instruction => "instruction",
+        _ => "message"
+    };
+
+    private string ShellStyle => $"--rw-settings-width: {_workspaceSettings.SettingsPanelWidth}px;";
 }
 
 <PageTitle>Role-Play Workspace</PageTitle>
 
-<div class="container-fluid mt-4">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-        <h1>Role-Play Workspace</h1>
-        <button class="btn btn-outline-secondary" @onclick="GoToSavedSessions">Back To Saved Sessions</button>
-    </div>
+<div class="rw-shell" @onclick="CloseAllPopups" style="@ShellStyle">
 
-    @if (!string.IsNullOrWhiteSpace(_statusMessage))
-    {
-        <div class="alert alert-info">@_statusMessage</div>
-    }
+    
+    <div class="rw-main">
 
-    @if (_session is null)
-    {
-        <div class="alert alert-warning">Loading session...</div>
-    }
-    else
-    {
-        <div class="card mb-3">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <span>@_session.Title</span>
-                <span class="badge text-bg-secondary">Interactions: @_session.Interactions.Count</span>
+        <div class="rw-header">
+            <div class="rw-header-left">
+                <button class="rw-back-btn" @onclick="GoToSavedSessions" @onclick:stopPropagation>←</button>
+                @if (_session is not null)
+                {
+                    <span class="rw-session-title">@_session.Title</span>
+                    <span class="rw-session-meta">@_session.Interactions.Count interactions · @_session.BehaviorMode</span>
+                }
             </div>
-            <div class="card-body" style="max-height: 360px; overflow-y: auto;">
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(_statusMessage))
+        {
+            <div class="rw-status-bar">@_statusMessage</div>
+        }
+
+        @if (_session is null)
+        {
+            <div class="rw-loading">Loading session...</div>
+        }
+        else
+        {
+            <div class="rw-story">
                 @if (_session.Interactions.Count == 0)
                 {
-                    <p class="text-muted mb-0">No interactions yet.</p>
+                    <p class="rw-empty-hint">No interactions yet. Type below and press Send to begin.</p>
                 }
                 else
                 {
-                    @for (var i = 0; i < _session.Interactions.Count; i++)
+                    @foreach (var interaction in _session.Interactions)
                     {
-                        var interaction = _session.Interactions[i];
-                        <div class="border rounded p-2 mb-2">
-                            <div class="d-flex justify-content-between">
-                                <strong>@interaction.ActorName (@interaction.InteractionType)</strong>
-                                <small class="text-muted">#@i</small>
+                        <div class="rw-interaction rw-type-@interaction.InteractionType.ToString().ToLower()">
+                            <div class="rw-actor-badge">@GetInitial(interaction.ActorName)</div>
+                            <div class="rw-interaction-body">
+                                <div class="rw-actor-name">@interaction.ActorName</div>
+                                <div class="rw-interaction-text">@interaction.Content</div>
                             </div>
-                            <div style="white-space: pre-wrap;">@interaction.Content</div>
                         </div>
                     }
                 }
             </div>
+
+            
+            <div class="rw-prompt-area" @onclick:stopPropagation>
+
+                
+                @if (_intentPopupOpen)
+                {
+                    <div class="rw-popup rw-intent-popup">
+                        <button class="rw-popup-item @(_selectedIntent == PromptIntent.Message ? "is-selected" : "")"
+                                @onclick="@(() => SelectIntent(PromptIntent.Message))">
+                            <div class="rw-popup-item-content">
+                                <span class="rw-popup-item-title">Message</span>
+                                <span class="rw-popup-item-desc">Act as one of the characters</span>
+                            </div>
+                            @if (_selectedIntent == PromptIntent.Message)
+                            {
+                                <span class="rw-popup-check">✓</span>
+                            }
+                        </button>
+                        <button class="rw-popup-item @(_selectedIntent == PromptIntent.Narrative ? "is-selected" : "")"
+                                @onclick="@(() => SelectIntent(PromptIntent.Narrative))">
+                            <div class="rw-popup-item-content">
+                                <span class="rw-popup-item-title">Narrative</span>
+                                <span class="rw-popup-item-desc">Add a piece of narrative</span>
+                            </div>
+                            @if (_selectedIntent == PromptIntent.Narrative)
+                            {
+                                <span class="rw-popup-check">✓</span>
+                            }
+                        </button>
+                        <button class="rw-popup-item @(_selectedIntent == PromptIntent.Instruction ? "is-selected" : "")"
+                                @onclick="@(() => SelectIntent(PromptIntent.Instruction))">
+                            <div class="rw-popup-item-content">
+                                <span class="rw-popup-item-title">Instruction</span>
+                                <span class="rw-popup-item-desc">Tell the AI what to do</span>
+                            </div>
+                            @if (_selectedIntent == PromptIntent.Instruction)
+                            {
+                                <span class="rw-popup-check">✓</span>
+                            }
+                        </button>
+                    </div>
+                }
+
+                
+                @if (_identityPopupOpen)
+                {
+                    <div class="rw-popup rw-identity-popup">
+                        <div class="rw-popup-header">
+                            <span class="rw-popup-intent-label">@IntentLabel</span>
+                        </div>
+                        <div class="rw-identity-list">
+                            @foreach (var option in _identityOptions)
+                            {
+                                <button class="rw-identity-item @(option == _selectedIdentity ? "is-selected" : "") @(!option.IsAvailable ? "is-disabled" : "")"
+                                        @onclick="@(() => SelectIdentity(option))"
+                                        disabled="@(!option.IsAvailable)"
+                                        title="@option.AvailabilityReason">
+                                    <span class="rw-identity-badge">@GetInitial(option.DisplayName)</span>
+                                    <span class="rw-identity-name">@option.DisplayName</span>
+                                    @if (option == _selectedIdentity)
+                                    {
+                                        <span class="rw-popup-check">✓</span>
+                                    }
+                                </button>
+                            }
+                        </div>
+                        @if (_showCustomInput)
+                        {
+                            <div class="rw-custom-name-row">
+                                <input class="rw-custom-name-input" placeholder="Character name..."
+                                       @bind="_customIdentityName" @bind:event="oninput" />
+                            </div>
+                        }
+                        <div class="rw-popup-actions">
+                            <button class="rw-popup-action-btn"
+                                    @onclick="@(() => { _selectedIdentity = null; _showCustomInput = false; _identityPopupOpen = false; })">Clear</button>
+                            @{
+                                var customOption = _identityOptions.FirstOrDefault(x => x.SourceType == IdentityOptionSource.CustomCharacter);
+                            }
+                            @if (customOption is not null)
+                            {
+                                <button class="rw-popup-action-btn" @onclick="@(() => SelectIdentity(customOption))">Custom</button>
+                            }
+                            <button class="rw-popup-action-btn is-primary"
+                                    @onclick="@(() => _identityPopupOpen = false)">Continue</button>
+                        </div>
+                    </div>
+                }
+
+                
+                <div class="rw-prompt-box">
+                    <textarea class="rw-prompt-textarea"
+                              placeholder="Write something..."
+                              rows="2"
+                              @bind="_promptText"
+                              @bind:event="oninput"
+                              disabled="@_isSubmitting"></textarea>
+                    <div class="rw-prompt-toolbar">
+                        <div class="rw-toolbar-left">
+                            <button class="rw-intent-btn" @onclick="ToggleIntentPopup" @onclick:stopPropagation title="Change message type">
+                                @IntentLabel <span class="rw-chevron">⌃</span>
+                            </button>
+                            <button class="rw-identity-btn" @onclick="ToggleIdentityPopup" @onclick:stopPropagation title="Select character">
+                                <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor">
+                                    <path d="M6 10.5a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 0 1h-3a.5.5 0 0 1-.5-.5zm-2-3a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1-.5-.5zm-2-3a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 0 1h-11a.5.5 0 0 1-.5-.5z"/>
+                                </svg>
+                            </button>
+                            @if (_selectedIdentity is not null)
+                            {
+                                <span class="rw-selected-identity-label">@_selectedIdentity.DisplayName</span>
+                            }
+                        </div>
+                        <div class="rw-toolbar-right">
+                            <button class="rw-add-btn"
+                                    @onclick="AddManualInteractionAsync"
+                                    disabled="@(string.IsNullOrWhiteSpace(_promptText) || _selectedIdentity is null)"
+                                    title="Add manually (no AI)">+</button>
+                            <button class="rw-send-btn @(CanSubmit ? "is-ready" : "")"
+                                    @onclick="SubmitPromptAsync"
+                                    disabled="@(!CanSubmit)"
+                                    title="Send to AI">
+                                @if (_isSubmitting)
+                                {
+                                    <span class="rw-spinner"></span>
+                                }
+                                else if (CanSubmit)
+                                {
+                                    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M8 13V3M3 8l5-5 5 5"/>
+                                    </svg>
+                                }
+                                else
+                                {
+                                    <span style="letter-spacing:1px">···</span>
+                                }
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        }
+
+    </div>
+
+    
+    <div class="rw-panel-resize-handle" @onclick:stopPropagation title="Resize settings panel"></div>
+    <div class="rw-settings-panel" @onclick:stopPropagation>
+
+        <div class="rw-settings-tabs">
+            <button class="rw-settings-tab @(_activeSettingsTab == "scenario" ? "is-active" : "")"
+                    @onclick="@(() => _activeSettingsTab = "scenario")">Scenario</button>
+            <button class="rw-settings-tab @(_activeSettingsTab == "settings" ? "is-active" : "")"
+                    @onclick="@(() => _activeSettingsTab = "settings")">
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" style="margin-right:4px;vertical-align:-1px">
+                    <path d="M8 4.754a3.246 3.246 0 1 0 0 6.492 3.246 3.246 0 0 0 0-6.492zM5.754 8a2.246 2.246 0 1 1 4.492 0 2.246 2.246 0 0 1-4.492 0z"/>
+                    <path d="M9.796 1.343c-.527-1.79-3.065-1.79-3.592 0l-.094.319a.873.873 0 0 1-1.255.52l-.292-.16c-1.64-.892-3.433.902-2.54 2.541l.159.292a.873.873 0 0 1-.52 1.255l-.319.094c-1.79.527-1.79 3.065 0 3.592l.319.094a.873.873 0 0 1 .52 1.255l-.16.292c-.892 1.64.901 3.434 2.541 2.54l.292-.159a.873.873 0 0 1 1.255.52l.094.319c.527 1.79 3.065 1.79 3.592 0l.094-.319a.873.873 0 0 1 1.255-.52l.292.16c1.64.893 3.434-.902 2.54-2.541l-.159-.292a.873.873 0 0 1 .52-1.255l.319-.094c1.79-.527 1.79-3.065 0-3.592l-.319-.094a.873.873 0 0 1-.52-1.255l.16-.292c.893-1.64-.902-3.433-2.541-2.54l-.292.159a.873.873 0 0 1-1.255-.52l-.094-.319zm-2.633.283c.246-.835 1.428-.835 1.674 0l.094.319a1.873 1.873 0 0 0 2.693 1.115l.291-.16c.764-.415 1.6.42 1.184 1.185l-.159.292a1.873 1.873 0 0 0 1.116 2.692l.318.094c.835.246.835 1.428 0 1.674l-.319.094a1.873 1.873 0 0 0-1.115 2.693l.16.291c.415.764-.42 1.6-1.185 1.184l-.291-.159a1.873 1.873 0 0 0-2.693 1.116l-.094.318c-.246.835-1.428.835-1.674 0l-.094-.319a1.873 1.873 0 0 0-2.692-1.115l-.292.16c-.764.415-1.6-.42-1.184-1.185l.159-.291A1.873 1.873 0 0 0 1.945 8.93l-.319-.094c-.835-.246-.835-1.428 0-1.674l.319-.094A1.873 1.873 0 0 0 3.06 4.47l-.16-.292c-.415-.764.42-1.6 1.185-1.184l.292.159a1.873 1.873 0 0 0 2.692-1.115l.094-.319z"/>
+                </svg>Settings
+            </button>
         </div>
 
-        <div class="card mb-3">
-            <div class="card-header">Behavior Mode</div>
-            <div class="card-body">
-                <div class="row g-2">
-                    <div class="col-12 col-lg-8">
-                        <select class="form-select" @bind="_selectedBehaviorMode">
-                            @foreach (var mode in Enum.GetValues<BehaviorMode>())
-                            {
-                                <option value="@mode">@mode</option>
-                            }
+        @if (_session is not null)
+        {
+            @if (_activeSettingsTab == "settings")
+            {
+                <div class="rw-settings-content">
+
+                    <div class="rw-settings-section">
+                        <div class="rw-settings-section-label">Behaviour</div>
+                        <select class="rw-mode-select" @bind="_selectedBehaviorMode" @bind:after="ApplyBehaviorModeAsync">
+                            <option value="@BehaviorMode.TakeTurns">↺  Take Turns</option>
+                            <option value="@BehaviorMode.Spectate">👁  Spectate</option>
+                            <option value="@BehaviorMode.NpcOnly">★  NPC Only</option>
                         </select>
                     </div>
-                    <div class="col-12 col-lg-4">
-                        <button class="btn btn-outline-secondary w-100" @onclick="ApplyBehaviorModeAsync">Apply Mode</button>
-                    </div>
-                </div>
-            </div>
-        </div>
 
-        <div class="card mb-3">
-            <div class="card-header">Composer</div>
-            <div class="card-body">
-                <div class="row g-2 mb-2">
-                    <div class="col-12 col-lg-4">
-                        <label class="form-label">Actor</label>
-                        <select class="form-select" @bind="_composeActor">
-                            @foreach (var actor in Enum.GetValues<ContinueAsActor>())
-                            {
-                                <option value="@actor">@actor</option>
-                            }
-                        </select>
+                    <div class="rw-settings-section">
+                        <div class="rw-settings-section-label">Fork Session</div>
+                        <input class="rw-settings-input" placeholder="Branch title" @bind="_branchTitle" />
+                        <div class="rw-settings-row">
+                            <span class="rw-settings-small-label">From index</span>
+                            <input type="number" class="rw-settings-input rw-settings-input-sm" min="-1" @bind="_branchFromIndex" />
+                        </div>
+                        <button class="rw-fork-btn" @onclick="ForkAsync">Fork Session</button>
                     </div>
-                    <div class="col-12 col-lg-8">
-                        <label class="form-label">Custom Actor Name (if Custom)</label>
-                        <input class="form-control" @bind="_customActorName" />
-                    </div>
-                </div>
-                <label class="form-label">Message</label>
-                <textarea class="form-control mb-2" rows="3" @bind="_composeContent"></textarea>
-                <button class="btn btn-outline-primary" @onclick="AddInteractionAsync">Add Interaction</button>
-            </div>
-        </div>
 
-        <div class="card mb-3">
-            <div class="card-header">Continue</div>
-            <div class="card-body">
-                <div class="row g-2 mb-2">
-                    <div class="col-12 col-lg-4">
-                        <label class="form-label">Continue As</label>
-                        <select class="form-select" @bind="_continueAsActor">
-                            @foreach (var actor in Enum.GetValues<ContinueAsActor>())
-                            {
-                                var isDisabled = !BehaviorModeService.IsContinuationAllowed(_session.BehaviorMode, actor);
-                                <option value="@actor" disabled="@isDisabled">@actor</option>
-                            }
-                        </select>
-                    </div>
-                    <div class="col-12 col-lg-8">
-                        <label class="form-label">Custom Actor Name (if Custom)</label>
-                        <input class="form-control" @bind="_continueCustomActorName" />
-                    </div>
                 </div>
-                <label class="form-label">Instruction (optional)</label>
-                <input class="form-control mb-2" @bind="_continueInstruction" placeholder="Mood, intent, pacing..." />
-                <button class="btn btn-success" @onclick="ContinueAsync">Generate Next Interaction</button>
-            </div>
-        </div>
+            }
 
-        <div class="card">
-            <div class="card-header">Branch / Fork</div>
-            <div class="card-body">
-                <div class="row g-2">
-                    <div class="col-12 col-lg-6">
-                        <label class="form-label">Branch Title</label>
-                        <input class="form-control" @bind="_branchTitle" />
-                    </div>
-                    <div class="col-12 col-lg-3">
-                        <label class="form-label">From Index</label>
-                        <input type="number" class="form-control" min="-1" @bind="_branchFromIndex" />
-                    </div>
-                    <div class="col-12 col-lg-3 d-flex align-items-end">
-                        <button class="btn btn-outline-dark w-100" @onclick="ForkAsync">Fork Session</button>
+            @if (_activeSettingsTab == "scenario")
+            {
+                <div class="rw-settings-content">
+                    <div class="rw-settings-section">
+                        <div class="rw-settings-section-label">Session Info</div>
+                        <div class="rw-settings-info-row"><span>Status</span><span>@_session.Status</span></div>
+                        <div class="rw-settings-info-row"><span>Mode</span><span>@_session.BehaviorMode</span></div>
+                        <div class="rw-settings-info-row"><span>Persona</span><span>@_session.PersonaName</span></div>
+                        <div class="rw-settings-info-row"><span>Created</span><span>@_session.CreatedAt.ToString("MMM d")</span></div>
                     </div>
                 </div>
-            </div>
-        </div>
-    }
+            }
+        }
+
+    </div>
+
 </div>

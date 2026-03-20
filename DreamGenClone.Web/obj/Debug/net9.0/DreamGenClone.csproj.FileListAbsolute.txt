@@ -122,3 +122,5 @@ D:\src\DreamGenClone\DreamGenClone.Web\bin\Debug\net9.0\Serilog.Enrichers.Thread
 D:\src\DreamGenClone\DreamGenClone.Web\obj\Debug\net9.0\compressed\huc8hti2af-yj6349fw5a.gz
 D:\src\DreamGenClone\DreamGenClone.Web\obj\Debug\net9.0\compressed\bznwei8och-yj6349fw5a.gz
 D:\src\DreamGenClone\DreamGenClone.Web\bin\Debug\net9.0\DreamGenClone.exe
+d:\src\DreamGenClone\DreamGenClone.Web\obj\Debug\net9.0\compressed\64ftirclvx-mftl3kuie0.gz
+d:\src\DreamGenClone\DreamGenClone.Web\obj\Debug\net9.0\compressed\tr5cgwpcrm-3d3ps1gdlu.gz

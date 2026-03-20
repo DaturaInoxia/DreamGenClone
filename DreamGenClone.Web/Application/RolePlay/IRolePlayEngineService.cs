@@ -39,5 +39,9 @@ public interface IRolePlayEngineService
         string? instruction = null,
         CancellationToken cancellationToken = default);
 
+    Task<RolePlayInteraction> SubmitPromptAsync(
+        UnifiedPromptSubmission submission,
+        CancellationToken cancellationToken = default);
+
     Task<bool> DeleteSessionAsync(string sessionId, CancellationToken cancellationToken = default);
 }

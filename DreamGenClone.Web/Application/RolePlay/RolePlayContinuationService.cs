@@ -26,10 +26,11 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         RolePlaySession session,
         ContinueAsActor actor,
         string? customActorName,
-        string? instruction,
+        PromptIntent intent,
+        string promptText,
         CancellationToken cancellationToken = default)
     {
-        var prompt = await BuildPromptAsync(session, actor, customActorName, instruction, cancellationToken);
+        var prompt = await BuildPromptAsync(session, actor, customActorName, intent, promptText, cancellationToken);
         var output = await _lmStudioClient.GenerateAsync(prompt, cancellationToken);
 
         var interaction = new RolePlayInteraction
@@ -60,7 +61,8 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         RolePlaySession session,
         ContinueAsActor actor,
         string? customActorName,
-        string? instruction,
+        PromptIntent intent,
+        string promptText,
         CancellationToken cancellationToken)
     {
         var sb = new StringBuilder();
@@ -108,10 +110,18 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
 
         sb.AppendLine($"Continue as: {actorName}");
 
-        if (!string.IsNullOrWhiteSpace(instruction))
+        if (!string.IsNullOrWhiteSpace(promptText))
         {
-            sb.AppendLine("Instruction:");
-            sb.AppendLine(instruction.Trim());
+            var intentLabel = intent switch
+            {
+                PromptIntent.Message => "Message",
+                PromptIntent.Narrative => "Narrative Direction",
+                PromptIntent.Instruction => "Instruction",
+                _ => "Prompt"
+            };
+
+            sb.AppendLine($"{intentLabel}:");
+            sb.AppendLine(promptText.Trim());
         }
 
         sb.AppendLine("Write one concise next interaction message only.");

@@ -58,6 +58,8 @@ builder.Services.AddScoped<IWritingAssistantService, WritingAssistantService>();
 builder.Services.AddScoped<IRolePlayAssistantService, RolePlayAssistantService>();
 builder.Services.AddScoped<IRolePlayEngineService, RolePlayEngineService>();
 builder.Services.AddScoped<IRolePlayContinuationService, RolePlayContinuationService>();
+builder.Services.AddScoped<IRolePlayPromptRouter, RolePlayPromptRouter>();
+builder.Services.AddScoped<IRolePlayIdentityOptionsService, RolePlayIdentityOptionsService>();
 builder.Services.AddScoped<IBehaviorModeService, BehaviorModeService>();
 builder.Services.AddScoped<IRolePlayBranchService, RolePlayBranchService>();
 builder.Services.AddSingleton<IModelSettingsService, ModelSettingsService>();

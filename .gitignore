@@ -22,3 +22,4 @@ packages/
 Thumbs.db
 *.tmp
 *.swp
+DreamGenClone.Web/obj/Debug/net9.0/DreamGenClone.AssemblyInfo.cs

@@ -8,6 +8,7 @@ public interface IRolePlayContinuationService
         RolePlaySession session,
         ContinueAsActor actor,
         string? customActorName,
-        string? instruction,
+        PromptIntent intent,
+        string promptText,
         CancellationToken cancellationToken = default);
 }

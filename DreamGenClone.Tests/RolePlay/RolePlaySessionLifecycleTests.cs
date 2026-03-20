@@ -52,10 +52,14 @@ public sealed class RolePlaySessionLifecycleTests
         var autoSave = new AutoSaveCoordinator(coreAutoSave, fakeSessionService, NullLogger<AutoSaveCoordinator>.Instance);
         var behaviorMode = new BehaviorModeService(NullLogger<BehaviorModeService>.Instance);
         var continuation = new FakeRolePlayContinuationService();
+        var router = new RolePlayPromptRouter();
+        var identities = new FakeRolePlayIdentityOptionsService();
 
         var service = new RolePlayEngineService(
             continuation,
             behaviorMode,
+            router,
+            identities,
             fakeSessionService,
             autoSave,
             NullLogger<RolePlayEngineService>.Instance);
@@ -69,7 +73,8 @@ public sealed class RolePlaySessionLifecycleTests
             RolePlaySession session,
             ContinueAsActor actor,
             string? customActorName,
-            string? instruction,
+            PromptIntent intent,
+            string promptText,
             CancellationToken cancellationToken = default)
         {
             return Task.FromResult(new RolePlayInteraction
@@ -78,6 +83,26 @@ public sealed class RolePlaySessionLifecycleTests
                 ActorName = "NPC",
                 Content = "Generated"
             });
+        }
+    }
+
+    private sealed class FakeRolePlayIdentityOptionsService : IRolePlayIdentityOptionsService
+    {
+        public Task<IReadOnlyList<IdentityOption>> GetIdentityOptionsAsync(RolePlaySession session, CancellationToken cancellationToken = default)
+        {
+            IReadOnlyList<IdentityOption> options =
+            [
+                new IdentityOption
+                {
+                    Id = "persona:you",
+                    DisplayName = "You",
+                    SourceType = IdentityOptionSource.Persona,
+                    Actor = ContinueAsActor.You,
+                    IsAvailable = true
+                }
+            ];
+
+            return Task.FromResult(options);
         }
     }
 
