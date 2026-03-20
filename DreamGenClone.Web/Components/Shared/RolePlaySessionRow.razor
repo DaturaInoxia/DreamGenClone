@@ -1,0 +1,43 @@
+<div class="list-group-item">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <div>
+            <div class="fw-semibold">@Title</div>
+            <small class="text-muted">Status: @StatusLabel</small>
+        </div>
+        <small class="text-muted">@LastUpdatedLabel</small>
+    </div>
+    <div class="d-flex justify-content-between align-items-center">
+        <span class="badge text-bg-secondary">Interactions: @InteractionCount</span>
+        <div class="d-flex gap-2">
+            <button class="btn btn-sm btn-primary" @onclick="OnOpenClicked">@PrimaryActionLabel</button>
+            <button class="btn btn-sm btn-outline-danger" @onclick="OnDeleteClicked">Delete</button>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public string Title { get; set; } = string.Empty;
+
+    [Parameter]
+    public string StatusLabel { get; set; } = string.Empty;
+
+    [Parameter]
+    public int InteractionCount { get; set; }
+
+    [Parameter]
+    public string LastUpdatedLabel { get; set; } = string.Empty;
+
+    [Parameter]
+    public string PrimaryActionLabel { get; set; } = "Continue";
+
+    [Parameter]
+    public EventCallback OnPrimaryAction { get; set; }
+
+    [Parameter]
+    public EventCallback OnDeleteAction { get; set; }
+
+    private Task OnOpenClicked() => OnPrimaryAction.InvokeAsync();
+
+    private Task OnDeleteClicked() => OnDeleteAction.InvokeAsync();
+}

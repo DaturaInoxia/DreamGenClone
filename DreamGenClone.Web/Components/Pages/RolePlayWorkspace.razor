@@ -1,0 +1,264 @@
+@page "/roleplay/workspace/{sessionId}"
+@rendermode InteractiveServer
+
+@using DreamGenClone.Web.Application.RolePlay
+@using DreamGenClone.Web.Domain.RolePlay
+
+@inject IRolePlayEngineService RolePlayEngine
+@inject IRolePlayBranchService RolePlayBranchService
+@inject IBehaviorModeService BehaviorModeService
+@inject NavigationManager Navigation
+@inject ILogger<RolePlayWorkspace> Logger
+
+@code {
+    [Parameter]
+    public string sessionId { get; set; } = string.Empty;
+
+    private RolePlaySession? _session;
+    private string _statusMessage = string.Empty;
+
+    private BehaviorMode _selectedBehaviorMode = BehaviorMode.TakeTurns;
+
+    private ContinueAsActor _composeActor = ContinueAsActor.You;
+    private string _customActorName = string.Empty;
+    private string _composeContent = string.Empty;
+
+    private ContinueAsActor _continueAsActor = ContinueAsActor.Npc;
+    private string _continueCustomActorName = string.Empty;
+    private string _continueInstruction = string.Empty;
+
+    private string _branchTitle = "Forked Path";
+    private int _branchFromIndex = -1;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadSessionAsync();
+    }
+
+    private async Task LoadSessionAsync()
+    {
+        _session = await RolePlayEngine.GetSessionAsync(sessionId);
+        if (_session is null)
+        {
+            _statusMessage = "Session not found. Returning to saved sessions.";
+            Navigation.NavigateTo(RolePlayRoutes.Sessions);
+            return;
+        }
+
+        _selectedBehaviorMode = _session.BehaviorMode;
+    }
+
+    private async Task ApplyBehaviorModeAsync()
+    {
+        if (_session is null)
+        {
+            return;
+        }
+
+        var updated = await RolePlayEngine.UpdateBehaviorModeAsync(_session.Id, _selectedBehaviorMode);
+        if (updated)
+        {
+            _statusMessage = $"Behavior mode set to {_selectedBehaviorMode}.";
+            await LoadSessionAsync();
+        }
+    }
+
+    private async Task AddInteractionAsync()
+    {
+        if (_session is null || string.IsNullOrWhiteSpace(_composeContent))
+        {
+            return;
+        }
+
+        await RolePlayEngine.AddInteractionAsync(_session.Id, _composeActor, _composeContent, _customActorName);
+        _composeContent = string.Empty;
+        _statusMessage = "Interaction added.";
+        await LoadSessionAsync();
+    }
+
+    private async Task ContinueAsync()
+    {
+        if (_session is null)
+        {
+            return;
+        }
+
+        if (!BehaviorModeService.IsContinuationAllowed(_session.BehaviorMode, _continueAsActor))
+        {
+            _statusMessage = $"{_continueAsActor} is not allowed in {_session.BehaviorMode} mode.";
+            return;
+        }
+
+        await RolePlayEngine.ContinueAsync(
+            _session.Id,
+            _continueAsActor,
+            _continueCustomActorName,
+            _continueInstruction);
+
+        _continueInstruction = string.Empty;
+        _statusMessage = "Generated next interaction.";
+        await LoadSessionAsync();
+    }
+
+    private async Task ForkAsync()
+    {
+        if (_session is null)
+        {
+            return;
+        }
+
+        var title = string.IsNullOrWhiteSpace(_branchTitle)
+            ? $"Fork of {_session.Title}"
+            : _branchTitle.Trim();
+
+        var fork = await RolePlayBranchService.ForkSessionAsync(_session.Id, title, _branchFromIndex);
+        if (fork is null)
+        {
+            _statusMessage = "Fork failed.";
+            return;
+        }
+
+        _statusMessage = $"Fork created: {fork.Title}";
+        Navigation.NavigateTo(RolePlayRoutes.GetWorkspace(fork.Id));
+    }
+
+    private void GoToSavedSessions()
+    {
+        Navigation.NavigateTo(RolePlayRoutes.Sessions);
+    }
+}
+
+<PageTitle>Role-Play Workspace</PageTitle>
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h1>Role-Play Workspace</h1>
+        <button class="btn btn-outline-secondary" @onclick="GoToSavedSessions">Back To Saved Sessions</button>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_statusMessage))
+    {
+        <div class="alert alert-info">@_statusMessage</div>
+    }
+
+    @if (_session is null)
+    {
+        <div class="alert alert-warning">Loading session...</div>
+    }
+    else
+    {
+        <div class="card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>@_session.Title</span>
+                <span class="badge text-bg-secondary">Interactions: @_session.Interactions.Count</span>
+            </div>
+            <div class="card-body" style="max-height: 360px; overflow-y: auto;">
+                @if (_session.Interactions.Count == 0)
+                {
+                    <p class="text-muted mb-0">No interactions yet.</p>
+                }
+                else
+                {
+                    @for (var i = 0; i < _session.Interactions.Count; i++)
+                    {
+                        var interaction = _session.Interactions[i];
+                        <div class="border rounded p-2 mb-2">
+                            <div class="d-flex justify-content-between">
+                                <strong>@interaction.ActorName (@interaction.InteractionType)</strong>
+                                <small class="text-muted">#@i</small>
+                            </div>
+                            <div style="white-space: pre-wrap;">@interaction.Content</div>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+
+        <div class="card mb-3">
+            <div class="card-header">Behavior Mode</div>
+            <div class="card-body">
+                <div class="row g-2">
+                    <div class="col-12 col-lg-8">
+                        <select class="form-select" @bind="_selectedBehaviorMode">
+                            @foreach (var mode in Enum.GetValues<BehaviorMode>())
+                            {
+                                <option value="@mode">@mode</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-12 col-lg-4">
+                        <button class="btn btn-outline-secondary w-100" @onclick="ApplyBehaviorModeAsync">Apply Mode</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-3">
+            <div class="card-header">Composer</div>
+            <div class="card-body">
+                <div class="row g-2 mb-2">
+                    <div class="col-12 col-lg-4">
+                        <label class="form-label">Actor</label>
+                        <select class="form-select" @bind="_composeActor">
+                            @foreach (var actor in Enum.GetValues<ContinueAsActor>())
+                            {
+                                <option value="@actor">@actor</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-12 col-lg-8">
+                        <label class="form-label">Custom Actor Name (if Custom)</label>
+                        <input class="form-control" @bind="_customActorName" />
+                    </div>
+                </div>
+                <label class="form-label">Message</label>
+                <textarea class="form-control mb-2" rows="3" @bind="_composeContent"></textarea>
+                <button class="btn btn-outline-primary" @onclick="AddInteractionAsync">Add Interaction</button>
+            </div>
+        </div>
+
+        <div class="card mb-3">
+            <div class="card-header">Continue</div>
+            <div class="card-body">
+                <div class="row g-2 mb-2">
+                    <div class="col-12 col-lg-4">
+                        <label class="form-label">Continue As</label>
+                        <select class="form-select" @bind="_continueAsActor">
+                            @foreach (var actor in Enum.GetValues<ContinueAsActor>())
+                            {
+                                var isDisabled = !BehaviorModeService.IsContinuationAllowed(_session.BehaviorMode, actor);
+                                <option value="@actor" disabled="@isDisabled">@actor</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-12 col-lg-8">
+                        <label class="form-label">Custom Actor Name (if Custom)</label>
+                        <input class="form-control" @bind="_continueCustomActorName" />
+                    </div>
+                </div>
+                <label class="form-label">Instruction (optional)</label>
+                <input class="form-control mb-2" @bind="_continueInstruction" placeholder="Mood, intent, pacing..." />
+                <button class="btn btn-success" @onclick="ContinueAsync">Generate Next Interaction</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">Branch / Fork</div>
+            <div class="card-body">
+                <div class="row g-2">
+                    <div class="col-12 col-lg-6">
+                        <label class="form-label">Branch Title</label>
+                        <input class="form-control" @bind="_branchTitle" />
+                    </div>
+                    <div class="col-12 col-lg-3">
+                        <label class="form-label">From Index</label>
+                        <input type="number" class="form-control" min="-1" @bind="_branchFromIndex" />
+                    </div>
+                    <div class="col-12 col-lg-3 d-flex align-items-end">
+                        <button class="btn btn-outline-dark w-100" @onclick="ForkAsync">Fork Session</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>

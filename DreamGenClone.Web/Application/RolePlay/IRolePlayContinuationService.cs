@@ -1,0 +1,13 @@
+using DreamGenClone.Web.Domain.RolePlay;
+
+namespace DreamGenClone.Web.Application.RolePlay;
+
+public interface IRolePlayContinuationService
+{
+    Task<RolePlayInteraction> ContinueAsync(
+        RolePlaySession session,
+        ContinueAsActor actor,
+        string? customActorName,
+        string? instruction,
+        CancellationToken cancellationToken = default);
+}

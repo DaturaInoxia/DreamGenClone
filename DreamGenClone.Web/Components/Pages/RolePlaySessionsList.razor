@@ -1,0 +1,140 @@
+@page "/roleplay/sessions"
+@rendermode InteractiveServer
+
+@using DreamGenClone.Web.Application.RolePlay
+@using DreamGenClone.Web.Domain.RolePlay
+@using DreamGenClone.Components.Shared
+
+@inject IRolePlayEngineService RolePlayEngine
+@inject NavigationManager Navigation
+@inject ILogger<RolePlaySessionsList> Logger
+
+<PageTitle>Role-Play Saved Sessions</PageTitle>
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h1>Role-Play Saved Sessions</h1>
+        <div class="d-flex gap-2">
+            <button class="btn btn-outline-secondary" @onclick="ReloadAsync">Refresh</button>
+            <button class="btn btn-primary" @onclick="GoToCreate">Create Session</button>
+        </div>
+    </div>
+    <p class="text-muted">Start, continue, or delete sessions from this dedicated page.</p>
+
+    @if (!string.IsNullOrWhiteSpace(_statusMessage))
+    {
+        <div class="alert alert-info">@_statusMessage</div>
+    }
+
+    @if (_sessions.Count == 0)
+    {
+        <div class="alert alert-info">No role-play sessions saved yet. Create one to begin.</div>
+    }
+    else
+    {
+        <div class="list-group">
+            @foreach (var session in _sessions)
+            {
+                <RolePlaySessionRow
+                    Title="@session.Title"
+                    StatusLabel="@session.Status.ToString()"
+                    InteractionCount="@session.Interactions.Count"
+                    LastUpdatedLabel='@session.ModifiedAt.ToLocalTime().ToString("g")'
+                    PrimaryActionLabel='@(session.Status == RolePlaySessionStatus.NotStarted ? "Start" : "Continue")'
+                    OnPrimaryAction="@(() => OpenSessionAsync(session))"
+                    OnDeleteAction="@(() => AskDelete(session))" />
+
+                @if (_pendingDeleteSessionId == session.Id)
+                {
+                    <div class="list-group-item bg-light border-top-0">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span>Delete <strong>@session.Title</strong>? This cannot be undone.</span>
+                            <div class="d-flex gap-2">
+                                <button class="btn btn-sm btn-danger" @onclick="() => ConfirmDeleteAsync(session.Id)">Confirm Delete</button>
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="CancelDelete">Cancel</button>
+                            </div>
+                        </div>
+                    </div>
+                }
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private readonly List<RolePlaySession> _sessions = [];
+    private string _statusMessage = string.Empty;
+    private string? _pendingDeleteSessionId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ReloadAsync();
+    }
+
+    private async Task ReloadAsync()
+    {
+        _sessions.Clear();
+        _sessions.AddRange(await RolePlayEngine.GetSessionsAsync());
+        _statusMessage = string.Empty;
+    }
+
+    private async Task OpenSessionAsync(RolePlaySession session)
+    {
+        try
+        {
+            var action = session.Status == RolePlaySessionStatus.NotStarted
+                ? RolePlaySessionOpenAction.Start
+                : RolePlaySessionOpenAction.Continue;
+
+            var opened = await RolePlayEngine.OpenSessionAsync(session.Id, action);
+            Navigation.NavigateTo(RolePlayRoutes.GetWorkspace(opened.Id));
+        }
+        catch (InvalidOperationException ex)
+        {
+            Logger.LogWarning(ex, "Open session failed for {SessionId}", session.Id);
+            _statusMessage = "That session is no longer available or cannot be opened in its current state. The list was refreshed.";
+            await ReloadAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Open session failed for {SessionId}", session.Id);
+            _statusMessage = "Could not open session. Please refresh and try again.";
+        }
+    }
+
+    private void AskDelete(RolePlaySession session)
+    {
+        _pendingDeleteSessionId = session.Id;
+    }
+
+    private void CancelDelete()
+    {
+        _pendingDeleteSessionId = null;
+    }
+
+    private async Task ConfirmDeleteAsync(string sessionId)
+    {
+        try
+        {
+            var deleted = await RolePlayEngine.DeleteSessionAsync(sessionId);
+            _pendingDeleteSessionId = null;
+
+            if (!deleted)
+            {
+                _statusMessage = "Session was already removed. The list was refreshed.";
+            }
+
+            await ReloadAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Delete session failed for {SessionId}", sessionId);
+            _statusMessage = "Could not delete session. Please try again.";
+        }
+    }
+
+    private void GoToCreate()
+    {
+        Navigation.NavigateTo(RolePlayRoutes.Create);
+    }
+}

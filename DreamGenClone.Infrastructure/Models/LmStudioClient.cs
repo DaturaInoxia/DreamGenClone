@@ -38,15 +38,33 @@ public sealed class LmStudioClient : ILmStudioClient
 
     public async Task<string> GenerateAsync(string prompt, CancellationToken cancellationToken = default)
     {
+        return await GenerateAsync(
+            prompt,
+            _options.Model,
+            0.7,
+            0.9,
+            500,
+            cancellationToken);
+    }
+
+    public async Task<string> GenerateAsync(
+        string prompt,
+        string model,
+        double temperature,
+        double topP,
+        int maxTokens,
+        CancellationToken cancellationToken = default)
+    {
         var payload = new ChatRequest
         {
-            Model = _options.Model,
+            Model = model,
             Messages =
             [
                 new ChatMessage("user", prompt)
             ],
-            Temperature = 0.7,
-            MaxTokens = 500
+            Temperature = temperature,
+            TopP = topP,
+            MaxTokens = maxTokens
         };
 
         using var response = await _httpClient.PostAsJsonAsync(_options.ChatCompletionsPath, payload, cancellationToken);
@@ -61,7 +79,7 @@ public sealed class LmStudioClient : ILmStudioClient
         var result = await response.Content.ReadFromJsonAsync<ChatResponse>(cancellationToken: cancellationToken);
         var content = result?.Choices?.FirstOrDefault()?.Message?.Content;
 
-        _logger.LogInformation("LM Studio generation request completed");
+        _logger.LogInformation("LM Studio generation request completed with model {Model}", model);
 
         return content ?? string.Empty;
     }
@@ -76,6 +94,9 @@ public sealed class LmStudioClient : ILmStudioClient
 
         [JsonPropertyName("temperature")]
         public double Temperature { get; init; } = 0.7;
+
+        [JsonPropertyName("top_p")]
+        public double TopP { get; init; } = 0.9;
 
         [JsonPropertyName("max_tokens")]
         public int MaxTokens { get; init; } = 500;

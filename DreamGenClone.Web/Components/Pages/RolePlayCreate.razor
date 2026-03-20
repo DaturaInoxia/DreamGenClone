@@ -1,0 +1,140 @@
+@page "/roleplay/create"
+@rendermode InteractiveServer
+
+@using DreamGenClone.Application.Templates
+@using DreamGenClone.Domain.Templates
+@using DreamGenClone.Web.Application.RolePlay
+@using DreamGenClone.Web.Application.Scenarios
+@using DreamGenClone.Web.Domain.Scenarios
+
+@inject IRolePlayEngineService RolePlayEngine
+@inject IScenarioService ScenarioService
+@inject ITemplateService TemplateService
+@inject NavigationManager Navigation
+@inject ILogger<RolePlayCreate> Logger
+
+<PageTitle>Role-Play Create Session</PageTitle>
+
+<div class="container-fluid mt-4">
+    <h1>Role-Play Create Session</h1>
+    <p class="text-muted">Create a role-play session from this dedicated page.</p>
+
+    @if (!string.IsNullOrWhiteSpace(_statusMessage))
+    {
+        <div class="alert alert-info">@_statusMessage</div>
+    }
+
+    <div class="card">
+        <div class="card-header">Create Session</div>
+        <div class="card-body">
+            <div class="row g-2">
+                <div class="col-12 col-lg-5">
+                    <label class="form-label">Session Title</label>
+                    <input class="form-control" @bind="_newSessionTitle" />
+                </div>
+                <div class="col-12 col-lg-4">
+                    <label class="form-label">Scenario (optional)</label>
+                    <select class="form-select" @bind="_newSessionScenarioId">
+                        <option value="">(none)</option>
+                        @foreach (var scenario in _scenarios)
+                        {
+                            <option value="@scenario.Id">@scenario.Name</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-12 col-lg-3">
+                    <label class="form-label">Persona (optional)</label>
+                    <select class="form-select" @bind="_newPersonaTemplateId">
+                        <option value="">(default - You)</option>
+                        @foreach (var persona in _personaTemplates)
+                        {
+                            <option value="@persona.Id">@persona.Name</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-12 d-flex gap-2 mt-3">
+                    <button class="btn btn-primary" @onclick="CreateSessionAsync">Create Session</button>
+                    <button class="btn btn-outline-secondary" @onclick="GoToSavedSessions">Go To Saved Sessions</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private readonly List<Scenario> _scenarios = [];
+    private readonly List<TemplateDefinition> _personaTemplates = [];
+
+    private string _newSessionTitle = "Role-Play Session";
+    private string _newSessionScenarioId = string.Empty;
+    private string _newPersonaTemplateId = string.Empty;
+    private string _statusMessage = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ReloadScenariosAsync();
+        await ReloadPersonaTemplatesAsync();
+    }
+
+    private async Task ReloadScenariosAsync()
+    {
+        _scenarios.Clear();
+        _scenarios.AddRange(await ScenarioService.GetAllScenariosAsync());
+    }
+
+    private async Task ReloadPersonaTemplatesAsync()
+    {
+        _personaTemplates.Clear();
+        var all = await TemplateService.GetAllAsync(TemplateType.Persona);
+        _personaTemplates.AddRange(all);
+    }
+
+    private async Task CreateSessionAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newSessionTitle))
+        {
+            _statusMessage = "Session title is required.";
+            return;
+        }
+
+        try
+        {
+            var scenarioId = string.IsNullOrWhiteSpace(_newSessionScenarioId) ? null : _newSessionScenarioId;
+
+            string personaName = "You";
+            string personaDescription = string.Empty;
+            string? personaTemplateId = null;
+
+            if (!string.IsNullOrWhiteSpace(_newPersonaTemplateId))
+            {
+                var persona = _personaTemplates.FirstOrDefault(p => p.Id.ToString() == _newPersonaTemplateId);
+                if (persona is not null)
+                {
+                    personaName = persona.Name;
+                    personaDescription = persona.Content ?? string.Empty;
+                    personaTemplateId = _newPersonaTemplateId;
+                }
+            }
+
+            var created = await RolePlayEngine.CreateSessionAsync(
+                _newSessionTitle,
+                scenarioId,
+                personaName,
+                personaDescription,
+                personaTemplateId);
+
+            Logger.LogInformation("Created role-play session {SessionId} from create page", created.Id);
+            Navigation.NavigateTo(RolePlayRoutes.Sessions);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to create role-play session from create page");
+            _statusMessage = "Could not create session. Please try again.";
+        }
+    }
+
+    private void GoToSavedSessions()
+    {
+        Navigation.NavigateTo(RolePlayRoutes.Sessions);
+    }
+}

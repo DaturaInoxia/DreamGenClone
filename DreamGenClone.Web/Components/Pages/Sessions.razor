@@ -1,0 +1,169 @@
+@page "/sessions"
+@rendermode InteractiveServer
+
+@using DreamGenClone.Web.Application.Export
+@using DreamGenClone.Web.Application.Import
+@using DreamGenClone.Web.Application.Sessions
+
+@inject ISessionService SessionService
+@inject ISessionCloneForkService SessionCloneForkService
+@inject IExportService ExportService
+@inject ISessionImportService SessionImportService
+
+<PageTitle>Session Manager</PageTitle>
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h1>Session Manager</h1>
+        <button class="btn btn-outline-secondary" @onclick="ReloadAsync">Refresh</button>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_status))
+    {
+        <div class="alert alert-info">@_status</div>
+    }
+
+    <div class="row g-3">
+        <div class="col-12 col-lg-6">
+            <div class="card">
+                <div class="card-header">Your Stories</div>
+                <div class="list-group list-group-flush">
+                    @if (_storySessions.Count == 0)
+                    {
+                        <div class="list-group-item text-muted">No story sessions saved yet.</div>
+                    }
+                    else
+                    {
+                        @foreach (var session in _storySessions)
+                        {
+                            <div class="list-group-item">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <strong>@session.Name</strong>
+                                    <small class="text-muted">@session.UpdatedUtc.ToLocalTime().ToString("g")</small>
+                                </div>
+                                <div class="d-flex flex-wrap gap-2">
+                                    <button class="btn btn-sm btn-outline-primary" @onclick="() => CloneAsync(session.Id)">Clone</button>
+                                    <button class="btn btn-sm btn-outline-dark" @onclick="() => ForkAsync(session.Id)">Fork</button>
+                                    <button class="btn btn-sm btn-outline-success" @onclick="() => ExportJsonAsync(session.Id)">Export JSON</button>
+                                    <button class="btn btn-sm btn-outline-success" @onclick="() => ExportMarkdownAsync(session.Id)">Export Markdown</button>
+                                </div>
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12 col-lg-6">
+            <div class="card">
+                <div class="card-header">Your Role-Plays</div>
+                <div class="list-group list-group-flush">
+                    @if (_rolePlaySessions.Count == 0)
+                    {
+                        <div class="list-group-item text-muted">No role-play sessions saved yet.</div>
+                    }
+                    else
+                    {
+                        @foreach (var session in _rolePlaySessions)
+                        {
+                            <div class="list-group-item">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <strong>@session.Name</strong>
+                                    <small class="text-muted">@session.UpdatedUtc.ToLocalTime().ToString("g")</small>
+                                </div>
+                                <div class="d-flex flex-wrap gap-2">
+                                    <button class="btn btn-sm btn-outline-primary" @onclick="() => CloneAsync(session.Id)">Clone</button>
+                                    <button class="btn btn-sm btn-outline-dark" @onclick="() => ForkAsync(session.Id)">Fork</button>
+                                    <button class="btn btn-sm btn-outline-success" @onclick="() => ExportJsonAsync(session.Id)">Export JSON</button>
+                                    <button class="btn btn-sm btn-outline-success" @onclick="() => ExportMarkdownAsync(session.Id)">Export Markdown</button>
+                                </div>
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mt-3">
+        <div class="card-header">Fork Options</div>
+        <div class="card-body">
+            <label class="form-label">Fork from index (for Story blocks or Role-Play interactions)</label>
+            <input type="number" class="form-control" @bind="_forkIndex" min="-1" />
+        </div>
+    </div>
+
+    <div class="card mt-3">
+        <div class="card-header">Import JSON</div>
+        <div class="card-body">
+            <textarea class="form-control mb-2" rows="8" @bind="_importJson" placeholder="Paste exported session JSON here"></textarea>
+            <button class="btn btn-primary" @onclick="ImportAsync">Import Session</button>
+        </div>
+    </div>
+
+    <div class="card mt-3">
+        <div class="card-header">Export Output</div>
+        <div class="card-body">
+            <textarea class="form-control" rows="10" readonly>@_exportOutput</textarea>
+        </div>
+    </div>
+</div>
+
+@code {
+    private readonly List<SessionListItem> _storySessions = [];
+    private readonly List<SessionListItem> _rolePlaySessions = [];
+
+    private int _forkIndex = -1;
+    private string _importJson = string.Empty;
+    private string _exportOutput = string.Empty;
+    private string _status = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ReloadAsync();
+    }
+
+    private async Task ReloadAsync()
+    {
+        _storySessions.Clear();
+        _rolePlaySessions.Clear();
+
+        _storySessions.AddRange(await SessionService.GetSessionsByTypeAsync("story"));
+        _rolePlaySessions.AddRange(await SessionService.GetSessionsByTypeAsync("roleplay"));
+    }
+
+    private async Task CloneAsync(string sessionId)
+    {
+        var cloneId = await SessionCloneForkService.CloneAsync(sessionId);
+        _status = cloneId is null ? "Clone failed." : $"Clone created: {cloneId}";
+        await ReloadAsync();
+    }
+
+    private async Task ForkAsync(string sessionId)
+    {
+        var forkId = await SessionCloneForkService.ForkAsync(sessionId, _forkIndex);
+        _status = forkId is null ? "Fork failed." : $"Fork created: {forkId}";
+        await ReloadAsync();
+    }
+
+    private async Task ExportJsonAsync(string sessionId)
+    {
+        _exportOutput = await ExportService.ExportJsonAsync(sessionId) ?? "Export failed.";
+    }
+
+    private async Task ExportMarkdownAsync(string sessionId)
+    {
+        _exportOutput = await ExportService.ExportMarkdownAsync(sessionId) ?? "Export failed.";
+    }
+
+    private async Task ImportAsync()
+    {
+        var result = await SessionImportService.ImportJsonAsync(_importJson);
+        _status = result.Message;
+        if (result.IsSuccess)
+        {
+            _importJson = string.Empty;
+            await ReloadAsync();
+        }
+    }
+}

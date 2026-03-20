@@ -76,13 +76,13 @@
 
 **Independent Test**: Create interaction sequences, switch behavior modes, continue as selected actor, fork branch, and verify independent paths.
 
-- [ ] T033 [P] [US4] Implement role-play interaction and behavior domain models in `DreamGenClone.Web/Domain/RolePlay/`
-- [ ] T034 [P] [US4] Implement role-play orchestration service in `DreamGenClone.Web/Application/RolePlay/RolePlayEngineService.cs`
-- [ ] T035 [US4] Build role-play interaction UI and composer in `DreamGenClone.Web/Components/Pages/RolePlayMode.razor`
-- [ ] T036 [US4] Implement continue-as behavior (You/NPC/Custom) in `DreamGenClone.Web/Application/RolePlay/RolePlayContinuationService.cs`
-- [ ] T037 [US4] Implement behavior modes (Take-Turns/Spectate/NPC-Only) in `DreamGenClone.Web/Application/RolePlay/BehaviorModeService.cs`
-- [ ] T038 [US4] Implement branch/fork session pathing in `DreamGenClone.Web/Application/RolePlay/RolePlayBranchService.cs`
-- [ ] T039 [US4] Add Information-level logs for major role-play transitions and branch actions in `DreamGenClone.Web/Application/RolePlay/`
+- [x] T033 [P] [US4] Implement role-play interaction and behavior domain models in `DreamGenClone.Web/Domain/RolePlay/`
+- [x] T034 [P] [US4] Implement role-play orchestration service in `DreamGenClone.Web/Application/RolePlay/RolePlayEngineService.cs`
+- [x] T035 [US4] Build role-play interaction UI and composer in `DreamGenClone.Web/Components/Pages/RolePlayMode.razor`
+- [x] T036 [US4] Implement continue-as behavior (You/NPC/Custom) in `DreamGenClone.Web/Application/RolePlay/RolePlayContinuationService.cs`
+- [x] T037 [US4] Implement behavior modes (Take-Turns/Spectate/NPC-Only) in `DreamGenClone.Web/Application/RolePlay/BehaviorModeService.cs`
+- [x] T038 [US4] Implement branch/fork session pathing in `DreamGenClone.Web/Application/RolePlay/RolePlayBranchService.cs`
+- [x] T039 [US4] Add Information-level logs for major role-play transitions and branch actions in `DreamGenClone.Web/Application/RolePlay/`
 
 ## Phase 7: User Story 5 - Session Manager (Priority: P5)
 
@@ -90,13 +90,13 @@
 
 **Independent Test**: Persist sessions across restart, clone/fork independently, export markdown/json, and verify strict import rejects invalid payloads.
 
-- [ ] T040 [P] [US5] Implement session metadata/list service in `DreamGenClone.Web/Application/Sessions/SessionService.cs`
-- [ ] T041 [P] [US5] Implement clone/fork operations in `DreamGenClone.Web/Application/Sessions/SessionCloneForkService.cs`
-- [ ] T042 [P] [US5] Implement markdown/json export pipeline in `DreamGenClone.Web/Application/Export/ExportService.cs`
-- [ ] T043 [US5] Implement strict JSON import with validator integration in `DreamGenClone.Web/Application/Import/SessionImportService.cs`
-- [ ] T044 [US5] Build session manager UI in `DreamGenClone.Web/Components/Pages/Sessions.razor`
-- [ ] T045 [US5] Integrate autosave debounce policy into session lifecycle in `DreamGenClone.Web/Application/Sessions/AutoSaveCoordinator.cs`
-- [ ] T046 [US5] Add Information-level logs for save/import/export/clone/fork operations in `DreamGenClone.Web/Application/Sessions/`
+- [x] T040 [P] [US5] Implement session metadata/list service in `DreamGenClone.Web/Application/Sessions/SessionService.cs`
+- [x] T041 [P] [US5] Implement clone/fork operations in `DreamGenClone.Web/Application/Sessions/SessionCloneForkService.cs`
+- [x] T042 [P] [US5] Implement markdown/json export pipeline in `DreamGenClone.Web/Application/Export/ExportService.cs`
+- [x] T043 [US5] Implement strict JSON import with validator integration in `DreamGenClone.Web/Application/Import/SessionImportService.cs`
+- [x] T044 [US5] Build session manager UI in `DreamGenClone.Web/Components/Pages/Sessions.razor`
+- [x] T045 [US5] Integrate autosave debounce policy into session lifecycle in `DreamGenClone.Web/Application/Sessions/AutoSaveCoordinator.cs`
+- [x] T046 [US5] Add Information-level logs for save/import/export/clone/fork operations in `DreamGenClone.Web/Application/Sessions/`
 
 ## Phase 8: User Story 6 - Model Settings (Priority: P6)
 
@@ -104,11 +104,11 @@
 
 **Independent Test**: Update model settings for session, perform retry with model, and verify payload values sent to LM Studio.
 
-- [ ] T047 [P] [US6] Implement model settings state and persistence model in `DreamGenClone.Web/Domain/Models/ModelSettings.cs`
-- [ ] T048 [P] [US6] Implement model settings service in `DreamGenClone.Web/Application/Models/ModelSettingsService.cs`
-- [ ] T049 [US6] Build model settings UI panel in `DreamGenClone.Web/Components/Shared/ModelSettingsPanel.razor`
-- [ ] T050 [US6] Implement retry-with-model flow using current settings in `DreamGenClone.Web/Application/Models/ModelRetryService.cs`
-- [ ] T051 [US6] Add Information-level logs for model settings changes and retry invocations in `DreamGenClone.Web/Application/Models/`
+- [X] T047 [P] [US6] Implement model settings state and persistence model in `DreamGenClone.Web/Domain/Models/ModelSettings.cs`
+- [X] T048 [P] [US6] Implement model settings service in `DreamGenClone.Web/Application/Models/ModelSettingsService.cs`
+- [X] T049 [US6] Build model settings UI panel in `DreamGenClone.Web/Components/Shared/ModelSettingsPanel.razor`
+- [X] T050 [US6] Implement retry-with-model flow using current settings in `DreamGenClone.Web/Application/Models/ModelRetryService.cs`
+- [X] T051 [US6] Add Information-level logs for model settings changes and retry invocations in `DreamGenClone.Web/Application/Models/`
 
 ## Phase 9: User Story 7 - Assistants (Priority: P7)
 
@@ -116,12 +116,12 @@
 
 **Independent Test**: Trigger assistant responses in both modes, exceed context limits, verify deterministic recency truncation with pinned retention, then clear chat.
 
-- [ ] T052 [P] [US7] Implement shared assistant context manager with deterministic truncation rules in `DreamGenClone.Web/Application/Assistants/AssistantContextManager.cs`
-- [ ] T053 [P] [US7] Implement writing assistant service in `DreamGenClone.Web/Application/Assistants/WritingAssistantService.cs`
-- [ ] T054 [P] [US7] Implement role-play assistant service in `DreamGenClone.Web/Application/Assistants/RolePlayAssistantService.cs`
-- [ ] T055 [US7] Build assistant UI shell with clear-chat actions in `DreamGenClone.Web/Components/Shared/AssistantPanel.razor`
-- [ ] T056 [US7] Enforce pinned-critical context retention policy in `DreamGenClone.Web/Application/Assistants/AssistantContextManager.cs`
-- [ ] T057 [US7] Add Information-level logs for assistant requests, truncation, and clear-chat operations in `DreamGenClone.Web/Application/Assistants/`
+- [X] T052 [P] [US7] Implement shared assistant context manager with deterministic truncation rules in `DreamGenClone.Web/Application/Assistants/AssistantContextManager.cs`
+- [X] T053 [P] [US7] Implement writing assistant service in `DreamGenClone.Web/Application/Assistants/WritingAssistantService.cs`
+- [X] T054 [P] [US7] Implement role-play assistant service in `DreamGenClone.Web/Application/Assistants/RolePlayAssistantService.cs`
+- [X] T055 [US7] Build assistant UI shell with clear-chat actions in `DreamGenClone.Web/Components/Shared/AssistantPanel.razor`
+- [X] T056 [US7] Enforce pinned-critical context retention policy in `DreamGenClone.Web/Application/Assistants/AssistantContextManager.cs`
+- [X] T057 [US7] Add Information-level logs for assistant requests, truncation, and clear-chat operations in `DreamGenClone.Web/Application/Assistants/`
 
 ## Phase 10: Polish & Cross-Cutting Concerns
 

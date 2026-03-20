@@ -1,5 +1,7 @@
 namespace DreamGenClone.Web.Application.Scenarios;
 
+using System.Text.Json;
+using DreamGenClone.Infrastructure.Persistence;
 using DreamGenClone.Web.Domain.Scenarios;
 using Microsoft.Extensions.Logging;
 
@@ -9,16 +11,46 @@ using Microsoft.Extensions.Logging;
 /// </summary>
 public class ScenarioService : IScenarioService
 {
+    private readonly ISqlitePersistence _persistence;
     private readonly ILogger<ScenarioService> _logger;
     private readonly Dictionary<string, Scenario> _scenarios = [];
+    private bool _isLoaded = false;
     
-    public ScenarioService(ILogger<ScenarioService> logger)
+    public ScenarioService(ISqlitePersistence persistence, ILogger<ScenarioService> logger)
     {
+        _persistence = persistence ?? throw new ArgumentNullException(nameof(persistence));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
-    
-    public Task<Scenario> CreateScenarioAsync(string name, string? description = null)
+
+    private async Task EnsureLoadedAsync()
     {
+        if (_isLoaded) return;
+
+        var persisted = await _persistence.LoadAllScenariosAsync();
+        foreach (var (id, _, payloadJson, _) in persisted)
+        {
+            try
+            {
+                var scenario = JsonSerializer.Deserialize<Scenario>(payloadJson);
+                if (scenario != null)
+                {
+                    _scenarios[id] = scenario;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to deserialize scenario {ScenarioId}", id);
+            }
+        }
+
+        _isLoaded = true;
+        _logger.LogInformation("Loaded {ScenarioCount} scenarios from persistence", _scenarios.Count);
+    }
+    
+    public async Task<Scenario> CreateScenarioAsync(string name, string? description = null)
+    {
+        await EnsureLoadedAsync();
+
         var scenario = new Scenario
         {
             Name = name,
@@ -26,14 +58,20 @@ public class ScenarioService : IScenarioService
         };
         
         _scenarios[scenario.Id] = scenario;
+
+        // Persist to database
+        var payloadJson = JsonSerializer.Serialize(scenario);
+        await _persistence.SaveScenarioAsync(scenario.Id, scenario.Name, payloadJson);
         
         _logger.LogInformation("Scenario created: {ScenarioId} - {ScenarioName}", scenario.Id, name);
         
-        return Task.FromResult(scenario);
+        return scenario;
     }
     
-    public Task<Scenario?> GetScenarioAsync(string id)
+    public async Task<Scenario?> GetScenarioAsync(string id)
     {
+        await EnsureLoadedAsync();
+
         _scenarios.TryGetValue(id, out var scenario);
         
         if (scenario != null)
@@ -41,38 +79,49 @@ public class ScenarioService : IScenarioService
             _logger.LogInformation("Scenario retrieved: {ScenarioId}", id);
         }
         
-        return Task.FromResult(scenario);
+        return scenario;
     }
     
-    public Task<List<Scenario>> GetAllScenariosAsync()
+    public async Task<List<Scenario>> GetAllScenariosAsync()
     {
+        await EnsureLoadedAsync();
+
         var scenarios = _scenarios.Values.ToList();
         _logger.LogInformation("Retrieved {ScenarioCount} scenarios", scenarios.Count);
-        return Task.FromResult(scenarios);
+        return scenarios;
     }
     
-    public Task<Scenario> SaveScenarioAsync(Scenario scenario)
+    public async Task<Scenario> SaveScenarioAsync(Scenario scenario)
     {
         ArgumentNullException.ThrowIfNull(scenario);
+
+        await EnsureLoadedAsync();
         
         scenario.ModifiedAt = DateTime.UtcNow;
         _scenarios[scenario.Id] = scenario;
+
+        // Persist to database
+        var payloadJson = JsonSerializer.Serialize(scenario);
+        await _persistence.SaveScenarioAsync(scenario.Id, scenario.Name ?? "Untitled", payloadJson);
         
         _logger.LogInformation("Scenario saved: {ScenarioId} - {ScenarioName}", scenario.Id, scenario.Name);
         
-        return Task.FromResult(scenario);
+        return scenario;
     }
     
-    public Task<bool> DeleteScenarioAsync(string id)
+    public async Task<bool> DeleteScenarioAsync(string id)
     {
+        await EnsureLoadedAsync();
+
         var result = _scenarios.Remove(id);
-        
+
         if (result)
         {
+            await _persistence.DeleteScenarioAsync(id);
             _logger.LogInformation("Scenario deleted: {ScenarioId}", id);
         }
         
-        return Task.FromResult(result);
+        return result;
     }
     
     public async Task<Scenario> CloneScenarioAsync(string id, string newName)
@@ -143,6 +192,10 @@ public class ScenarioService : IScenarioService
         };
         
         _scenarios[clone.Id] = clone;
+
+        // Persist to database
+        var payloadJson = JsonSerializer.Serialize(clone);
+        await _persistence.SaveScenarioAsync(clone.Id, clone.Name ?? "Untitled", payloadJson);
         
         _logger.LogInformation("Scenario cloned: Original={OriginalId}, Clone={CloneId}, CloneName={CloneName}", 
             id, clone.Id, newName);

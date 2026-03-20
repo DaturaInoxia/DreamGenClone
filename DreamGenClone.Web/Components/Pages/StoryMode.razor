@@ -243,6 +243,10 @@
             .Select(b => $"{b.Author} ({b.BlockType}): {b.Content}")
             .ToList();
 
-        _assistantResponse = await WritingAssistant.GenerateSuggestionAsync(scenarioSummary, recent, _assistantPrompt);
+        _assistantResponse = await WritingAssistant.GenerateSuggestionAsync(
+            _selectedSession.Id,
+            scenarioSummary,
+            recent,
+            _assistantPrompt);
     }
 }

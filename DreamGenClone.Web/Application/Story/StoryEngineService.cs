@@ -1,6 +1,7 @@
 using System.Text;
 using DreamGenClone.Application.Abstractions;
 using DreamGenClone.Web.Application.Scenarios;
+using DreamGenClone.Web.Application.Sessions;
 using DreamGenClone.Web.Domain.Story;
 using Microsoft.Extensions.Logging;
 
@@ -12,15 +13,21 @@ public sealed class StoryEngineService : IStoryEngineService
 
     private readonly ILmStudioClient _lmStudioClient;
     private readonly IScenarioService _scenarioService;
+    private readonly ISessionService _sessionService;
+    private readonly AutoSaveCoordinator _autoSaveCoordinator;
     private readonly ILogger<StoryEngineService> _logger;
 
     public StoryEngineService(
         ILmStudioClient lmStudioClient,
         IScenarioService scenarioService,
+        ISessionService sessionService,
+        AutoSaveCoordinator autoSaveCoordinator,
         ILogger<StoryEngineService> logger)
     {
         _lmStudioClient = lmStudioClient;
         _scenarioService = scenarioService;
+        _sessionService = sessionService;
+        _autoSaveCoordinator = autoSaveCoordinator;
         _logger = logger;
     }
 
@@ -33,37 +40,52 @@ public sealed class StoryEngineService : IStoryEngineService
         };
 
         Sessions[session.Id] = session;
+        _autoSaveCoordinator.QueueStorySessionSave(session, "story-session-created");
         _logger.LogInformation("Story session created: {SessionId} ({Title})", session.Id, session.Title);
         return Task.FromResult(session);
     }
 
-    public Task<IReadOnlyList<StorySession>> GetSessionsAsync(CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<StorySession>> GetSessionsAsync(CancellationToken cancellationToken = default)
     {
+        await EnsurePersistedSessionsLoadedAsync(cancellationToken);
+
         IReadOnlyList<StorySession> results = Sessions.Values
             .OrderByDescending(x => x.ModifiedAt)
             .ToList();
 
         _logger.LogInformation("Retrieved {Count} story sessions", results.Count);
-        return Task.FromResult(results);
+        return results;
     }
 
-    public Task<StorySession?> GetSessionAsync(string sessionId, CancellationToken cancellationToken = default)
+    public async Task<StorySession?> GetSessionAsync(string sessionId, CancellationToken cancellationToken = default)
     {
-        Sessions.TryGetValue(sessionId, out var session);
-        return Task.FromResult(session);
+        if (Sessions.TryGetValue(sessionId, out var session))
+        {
+            return session;
+        }
+
+        session = await _sessionService.LoadStorySessionAsync(sessionId, cancellationToken);
+        if (session is not null)
+        {
+            Sessions[session.Id] = session;
+        }
+
+        return session;
     }
 
     public Task<StorySession> SaveSessionAsync(StorySession session, CancellationToken cancellationToken = default)
     {
         session.ModifiedAt = DateTime.UtcNow;
         Sessions[session.Id] = session;
+        _autoSaveCoordinator.QueueStorySessionSave(session, "story-session-updated");
         _logger.LogInformation("Story session saved: {SessionId}, blocks={BlockCount}", session.Id, session.Blocks.Count);
         return Task.FromResult(session);
     }
 
     public async Task<StoryBlock> ContinueAsync(string sessionId, string? instruction = null, CancellationToken cancellationToken = default)
     {
-        if (!Sessions.TryGetValue(sessionId, out var session))
+        var session = await GetSessionAsync(sessionId, cancellationToken);
+        if (session is null)
         {
             throw new InvalidOperationException($"Story session '{sessionId}' not found.");
         }
@@ -80,9 +102,28 @@ public sealed class StoryEngineService : IStoryEngineService
 
         session.Blocks.Add(block);
         session.ModifiedAt = DateTime.UtcNow;
+        _autoSaveCoordinator.QueueStorySessionSave(session, "story-continue-generated");
 
         _logger.LogInformation("Story continue generated block for session {SessionId}", sessionId);
         return block;
+    }
+
+    private async Task EnsurePersistedSessionsLoadedAsync(CancellationToken cancellationToken)
+    {
+        var persisted = await _sessionService.GetSessionsByTypeAsync(SessionService.StorySessionType, cancellationToken);
+        foreach (var item in persisted)
+        {
+            if (Sessions.ContainsKey(item.Id))
+            {
+                continue;
+            }
+
+            var loaded = await _sessionService.LoadStorySessionAsync(item.Id, cancellationToken);
+            if (loaded is not null)
+            {
+                Sessions[loaded.Id] = loaded;
+            }
+        }
     }
 
     private async Task<string> BuildPromptAsync(StorySession session, string? instruction, CancellationToken cancellationToken)
@@ -92,7 +133,7 @@ public sealed class StoryEngineService : IStoryEngineService
 
         if (!string.IsNullOrWhiteSpace(session.ScenarioId))
         {
-                var scenario = await _scenarioService.GetScenarioAsync(session.ScenarioId);
+            var scenario = await _scenarioService.GetScenarioAsync(session.ScenarioId);
             if (scenario is not null)
             {
                 sb.AppendLine("Scenario:");

@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("DreamGenClone.Domain")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+75404df265e112c241055e22ff9699a8b99492a6")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+bd7dc2bf04719b67fe57a2970666fe3b2aee7490")]
 [assembly: System.Reflection.AssemblyProductAttribute("DreamGenClone.Domain")]
 [assembly: System.Reflection.AssemblyTitleAttribute("DreamGenClone.Domain")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

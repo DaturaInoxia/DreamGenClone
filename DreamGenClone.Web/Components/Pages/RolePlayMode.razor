@@ -1,0 +1,24 @@
+@page "/roleplay"
+@rendermode InteractiveServer
+
+@using DreamGenClone.Web.Application.RolePlay
+@inject NavigationManager Navigation
+
+<PageTitle>Role-Play Mode</PageTitle>
+
+<div class="container-fluid mt-4">
+    <h1>Role-Play Mode</h1>
+    <p class="text-muted">Redirecting to saved sessions...</p>
+</div>
+
+@code {
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        Navigation.NavigateTo(RolePlayRoutes.Sessions, replace: true);
+    }
+}

@@ -1,0 +1,94 @@
+@using DreamGenClone.Web.Domain.Models
+@using DreamGenClone.Web.Application.Models
+
+@inject IModelSettingsService ModelSettingsService
+
+<div class="model-settings-panel">
+    <h4>Model Settings</h4>
+    
+    <div class="form-group">
+        <label for="model-@SessionId">Model</label>
+        <input type="text" id="model-@SessionId" class="form-control" @bind="CurrentSettings.Model" @bind:event="oninput" @onchange="OnSettingsChanged" />
+    </div>
+
+    <div class="form-group">
+        <label for="temperature-@SessionId">Temperature (@CurrentSettings.Temperature.ToString("F2"))</label>
+        <input type="range" id="temperature-@SessionId" class="form-control" min="0" max="2" step="0.1" @bind="CurrentSettings.Temperature" @bind:event="oninput" @onchange="OnSettingsChanged" />
+    </div>
+
+    <div class="form-group">
+        <label for="topp-@SessionId">Top-P (@CurrentSettings.TopP.ToString("F2"))</label>
+        <input type="range" id="topp-@SessionId" class="form-control" min="0" max="1" step="0.05" @bind="CurrentSettings.TopP" @bind:event="oninput" @onchange="OnSettingsChanged" />
+    </div>
+
+    <div class="form-group">
+        <label for="maxtokens-@SessionId">Max Tokens (@CurrentSettings.MaxTokens)</label>
+        <input type="number" id="maxtokens-@SessionId" class="form-control" min="50" max="4000" step="50" @bind="CurrentSettings.MaxTokens" @bind:event="oninput" @onchange="OnSettingsChanged" />
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public string SessionId { get; set; } = string.Empty;
+
+    [Parameter]
+    public EventCallback OnSettingsUpdated { get; set; }
+
+    private ModelSettings CurrentSettings { get; set; } = new();
+
+    protected override void OnParametersSet()
+    {
+        if (!string.IsNullOrEmpty(SessionId))
+        {
+            CurrentSettings = ModelSettingsService.GetSettings(SessionId);
+        }
+    }
+
+    private async Task OnSettingsChanged()
+    {
+        if (!string.IsNullOrEmpty(SessionId))
+        {
+            ModelSettingsService.UpdateSettings(SessionId, CurrentSettings);
+            await OnSettingsUpdated.InvokeAsync();
+        }
+    }
+}
+
+<style>
+    .model-settings-panel {
+        padding: 1rem;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        margin-bottom: 1rem;
+        background-color: #f9f9f9;
+    }
+
+    .model-settings-panel h4 {
+        margin-top: 0;
+        margin-bottom: 1rem;
+        font-size: 1.125rem;
+        font-weight: 600;
+    }
+
+    .form-group {
+        margin-bottom: 1rem;
+    }
+
+    .form-group label {
+        display: block;
+        margin-bottom: 0.25rem;
+        font-weight: 500;
+        font-size: 0.875rem;
+    }
+
+    .form-control {
+        width: 100%;
+        padding: 0.5rem;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+    }
+
+    input[type="range"] {
+        padding: 0;
+    }
+</style>
