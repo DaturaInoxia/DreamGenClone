@@ -42,7 +42,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                 ContinueAsActor.Custom => InteractionType.Custom,
                 _ => InteractionType.System
             },
-            ActorName = actor == ContinueAsActor.Custom && !string.IsNullOrWhiteSpace(customActorName)
+            ActorName = !string.IsNullOrWhiteSpace(customActorName)
                 ? customActorName.Trim()
                 : actor switch
                 {
@@ -55,6 +55,51 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
 
         _logger.LogInformation("Role-play continuation prepared for actor {Actor} in session {SessionId}", interaction.ActorName, session.Id);
         return interaction;
+    }
+
+    public async Task<ContinueAsResult> ContinueBatchAsync(
+        RolePlaySession session,
+        IReadOnlyList<ContinueAsActor> actors,
+        bool includeNarrative,
+        string? customActorName,
+        string promptText,
+        CancellationToken cancellationToken = default)
+    {
+        var result = new ContinueAsResult { Success = true };
+        foreach (var actor in ContinueAsOrdering.OrderDistinct(actors))
+        {
+            var interaction = await ContinueAsync(
+                session,
+                actor,
+                customActorName,
+                PromptIntent.Message,
+                promptText,
+                cancellationToken);
+            result.ParticipantOutputs.Add(interaction);
+        }
+
+        if (includeNarrative)
+        {
+            var narrativePrompt = string.IsNullOrWhiteSpace(promptText)
+                ? "Move the role-play story forward with scene description and tone."
+                : promptText;
+            var prompt = await BuildPromptAsync(
+                session,
+                ContinueAsActor.Npc,
+                null,
+                PromptIntent.Narrative,
+                narrativePrompt,
+                cancellationToken);
+            var output = await _lmStudioClient.GenerateAsync(prompt, cancellationToken);
+            result.NarrativeOutput = new RolePlayInteraction
+            {
+                InteractionType = InteractionType.System,
+                ActorName = "Narrative",
+                Content = string.IsNullOrWhiteSpace(output) ? "(No output generated)" : output.Trim()
+            };
+        }
+
+        return result;
     }
 
     private async Task<string> BuildPromptAsync(
@@ -100,13 +145,14 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             sb.AppendLine($"[{interaction.InteractionType}] {interaction.ActorName}: {interaction.Content}");
         }
 
-        var actorName = actor switch
-        {
-            ContinueAsActor.You => string.IsNullOrWhiteSpace(session.PersonaName) ? "You" : session.PersonaName,
-            ContinueAsActor.Npc => "NPC",
-            ContinueAsActor.Custom when !string.IsNullOrWhiteSpace(customActorName) => customActorName.Trim(),
-            _ => "Custom"
-        };
+        var actorName = !string.IsNullOrWhiteSpace(customActorName)
+            ? customActorName.Trim()
+            : actor switch
+            {
+                ContinueAsActor.You => string.IsNullOrWhiteSpace(session.PersonaName) ? "You" : session.PersonaName,
+                ContinueAsActor.Npc => "NPC",
+                _ => "Custom"
+            };
 
         sb.AppendLine($"Continue as: {actorName}");
 

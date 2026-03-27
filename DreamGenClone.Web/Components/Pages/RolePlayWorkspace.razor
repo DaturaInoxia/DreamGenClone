@@ -27,18 +27,22 @@
     private readonly WorkspaceSettingsState _workspaceSettings = new();
     private DotNetObjectReference<RolePlayWorkspace>? _dotNetRef;
     private bool _resizeInitialized;
+    private int _lastRenderedInteractionCount = -1;
 
     // Unified prompt
     private string _promptText = string.Empty;
     private PromptIntent _selectedIntent = PromptIntent.Message;
     private bool _intentPopupOpen = false;
     private bool _identityPopupOpen = false;
+    private bool _continueCustomPopupOpen = false;
 
     // Identity
     private List<IdentityOption> _identityOptions = [];
     private IdentityOption? _selectedIdentity = null;
     private string _customIdentityName = string.Empty;
     private bool _showCustomInput = false;
+    private readonly HashSet<string> _continueSelectedIdentityIds = new(StringComparer.OrdinalIgnoreCase);
+    private bool _continueIncludeNarrative;
 
     // Fork
     private string _branchTitle = "Forked Path";
@@ -51,22 +55,27 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!firstRender || _resizeInitialized)
+        if (firstRender && !_resizeInitialized)
         {
-            return;
+            _dotNetRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync(
+                "rolePlayWorkspace.initPanelResize",
+                ".rw-shell",
+                ".rw-panel-resize-handle",
+                _workspaceSettings.SettingsPanelWidth,
+                WorkspaceSettingsState.MinPanelWidth,
+                WorkspaceSettingsState.MaxPanelWidth,
+                _dotNetRef);
+
+            _resizeInitialized = true;
         }
 
-        _dotNetRef = DotNetObjectReference.Create(this);
-        await JS.InvokeVoidAsync(
-            "rolePlayWorkspace.initPanelResize",
-            ".rw-shell",
-            ".rw-panel-resize-handle",
-            _workspaceSettings.SettingsPanelWidth,
-            WorkspaceSettingsState.MinPanelWidth,
-            WorkspaceSettingsState.MaxPanelWidth,
-            _dotNetRef);
-
-        _resizeInitialized = true;
+        var interactionCount = _session?.Interactions.Count ?? 0;
+        if (interactionCount != _lastRenderedInteractionCount)
+        {
+            await JS.InvokeVoidAsync("rolePlayWorkspace.scrollStoryToBottom");
+            _lastRenderedInteractionCount = interactionCount;
+        }
     }
 
     private async Task LoadSessionAsync()
@@ -83,6 +92,12 @@
 
         _identityOptions = (await IdentityOptionsService.GetIdentityOptionsAsync(_session)).ToList();
 
+        var continueIds = _identityOptions
+            .Where(x => x.IsAvailable)
+            .Select(x => x.Id)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        _continueSelectedIdentityIds.RemoveWhere(id => !continueIds.Contains(id));
+
         if (_selectedIdentity is null || !_identityOptions.Any(x => x.Id == _selectedIdentity.Id))
         {
             _selectedIdentity = _identityOptions.FirstOrDefault(x => x.IsAvailable);
@@ -93,6 +108,7 @@
     {
         _intentPopupOpen = !_intentPopupOpen;
         _identityPopupOpen = false;
+        _continueCustomPopupOpen = false;
     }
 
     private void SelectIntent(PromptIntent intent)
@@ -105,6 +121,7 @@
     {
         _identityPopupOpen = !_identityPopupOpen;
         _intentPopupOpen = false;
+        _continueCustomPopupOpen = false;
     }
 
     private void SelectIdentity(IdentityOption option)
@@ -122,6 +139,7 @@
     {
         _intentPopupOpen = false;
         _identityPopupOpen = false;
+        _continueCustomPopupOpen = false;
     }
 
     private async Task ApplyBehaviorModeAsync()
@@ -137,10 +155,34 @@
 
     private bool CanSubmit =>
         _session is not null &&
-        !string.IsNullOrWhiteSpace(_promptText) &&
-        _selectedIdentity is not null &&
-        _selectedIdentity.IsAvailable &&
+        HasPromptText &&
+        IsIdentitySelectionValidForIntent &&
         !_isSubmitting;
+
+    private bool HasPromptText => !string.IsNullOrWhiteSpace(_promptText);
+
+    private bool IsIdentitySelectionValidForIntent
+    {
+        get
+        {
+            if (_selectedIntent == PromptIntent.Instruction)
+            {
+                return true;
+            }
+
+            if (_selectedIdentity is null || !_selectedIdentity.IsAvailable)
+            {
+                return false;
+            }
+
+            if (_selectedIdentity.SourceType == IdentityOptionSource.CustomCharacter)
+            {
+                return !string.IsNullOrWhiteSpace(_customIdentityName);
+            }
+
+            return true;
+        }
+    }
 
     private async Task SubmitPromptAsync()
     {
@@ -155,12 +197,13 @@
             var submission = new UnifiedPromptSubmission
             {
                 SessionId = _session!.Id,
-                PromptText = _promptText,
+                PromptText = _promptText.Trim(),
                 Intent = _selectedIntent,
-                SelectedIdentityId = _selectedIdentity!.Id,
-                SelectedIdentityType = _selectedIdentity.SourceType,
+                SelectedIdentityId = _selectedIntent == PromptIntent.Instruction ? string.Empty : (_selectedIdentity?.Id ?? string.Empty),
+                SelectedIdentityType = _selectedIntent == PromptIntent.Instruction ? IdentityOptionSource.Persona : (_selectedIdentity?.SourceType ?? IdentityOptionSource.Persona),
                 CustomIdentityName = string.IsNullOrWhiteSpace(_customIdentityName) ? null : _customIdentityName.Trim(),
-                BehaviorModeAtSubmit = _selectedBehaviorMode
+                BehaviorModeAtSubmit = _selectedBehaviorMode,
+                SubmittedVia = _selectedIntent == PromptIntent.Instruction ? SubmissionSource.PlusButton : SubmissionSource.SendButton
             };
 
             Logger.LogInformation(
@@ -183,6 +226,24 @@
         }
     }
 
+    private async Task SubmitOrOverflowContinueAsync()
+    {
+        if (CanSubmit)
+        {
+            await SubmitPromptAsync();
+            return;
+        }
+
+        if (_session is null)
+        {
+            return;
+        }
+
+        var request = BuildContinueRequest(SubmissionSource.MainOverflowContinue);
+
+        await ExecuteContinueAsync(request, "Continue failed.");
+    }
+
     private async Task AddManualInteractionAsync()
     {
         if (_session is null || string.IsNullOrWhiteSpace(_promptText) || _selectedIdentity is null)
@@ -196,6 +257,138 @@
         await RolePlayEngine.AddInteractionAsync(_session.Id, _selectedIdentity.Actor, _promptText, customName);
         _promptText = string.Empty;
         await LoadSessionAsync();
+    }
+
+    private async Task ContinueFromIdentityPopupAsync()
+    {
+        if (_session is null)
+        {
+            return;
+        }
+
+        var request = BuildContinueRequest(SubmissionSource.ContinueAsPopupContinue);
+        var success = await ExecuteContinueAsync(request, "Continue As failed.");
+        if (success)
+        {
+            _continueCustomPopupOpen = false;
+        }
+    }
+
+    private void ToggleContinueCustomPopup()
+    {
+        _continueCustomPopupOpen = !_continueCustomPopupOpen;
+        _intentPopupOpen = false;
+        _identityPopupOpen = false;
+    }
+
+    private void ToggleContinueIdentitySelection(string optionId)
+    {
+        if (_continueSelectedIdentityIds.Contains(optionId))
+        {
+            _continueSelectedIdentityIds.Remove(optionId);
+            return;
+        }
+
+        _continueSelectedIdentityIds.Add(optionId);
+    }
+
+    private async Task ContinueAsYouQuickAsync()
+    {
+        _continueCustomPopupOpen = false;
+        var option = PersonaContinueOption;
+        _continueSelectedIdentityIds.Clear();
+        if (option is not null)
+        {
+            _continueSelectedIdentityIds.Add(option.Id);
+        }
+
+        _continueIncludeNarrative = false;
+        var request = BuildContinueRequest(SubmissionSource.ContinueAsPopupContinue);
+        await ExecuteContinueAsync(request, "Continue As failed.");
+    }
+
+    private async Task ContinueAsNpcQuickAsync()
+    {
+        _continueCustomPopupOpen = false;
+        _continueSelectedIdentityIds.Clear();
+        foreach (var npcOption in NpcContinueOptions)
+        {
+            _continueSelectedIdentityIds.Add(npcOption.Id);
+        }
+
+        _continueIncludeNarrative = true;
+        var request = BuildContinueRequest(SubmissionSource.ContinueAsPopupContinue);
+        await ExecuteContinueAsync(request, "Continue As failed.");
+    }
+
+    private void ToggleContinueNarrative()
+    {
+        _continueIncludeNarrative = !_continueIncludeNarrative;
+    }
+
+    private void SelectContinueCustomIdentityShortcut()
+    {
+        var customOption = ContinueCustomIdentityOption;
+        if (customOption is null)
+        {
+            return;
+        }
+
+        ToggleContinueIdentitySelection(customOption.Id);
+    }
+
+    private async Task ClearContinueAsAsync()
+    {
+        if (_session is null)
+        {
+            return;
+        }
+
+        _continueSelectedIdentityIds.Clear();
+        _continueIncludeNarrative = false;
+
+        var result = await RolePlayEngine.ContinueAsAsync(new ContinueAsRequest
+        {
+            SessionId = _session.Id,
+            IsClearAction = true,
+            TriggeredBy = SubmissionSource.ContinueAsPopupContinue
+        });
+
+        if (!result.Success)
+        {
+            _statusMessage = result.ValidationError ?? "Unable to clear Continue As selections.";
+        }
+    }
+
+    private ContinueAsRequest BuildContinueRequest(SubmissionSource source)
+    {
+        var selectedOptions = ContinueIdentityOptions
+            .Where(x => _continueSelectedIdentityIds.Contains(x.Id))
+            .ToList();
+
+        return new ContinueAsRequest
+        {
+            SessionId = _session!.Id,
+            SelectedIdentityIds = selectedOptions.Select(x => x.Id).ToList(),
+            SelectedParticipants = selectedOptions.Select(x => x.Actor).ToList(),
+            IncludeNarrative = _continueIncludeNarrative,
+            CustomIdentityName = string.IsNullOrWhiteSpace(_customIdentityName) ? null : _customIdentityName.Trim(),
+            TriggeredBy = source
+        };
+    }
+
+    private async Task<bool> ExecuteContinueAsync(ContinueAsRequest request, string defaultErrorMessage)
+    {
+        var result = await RolePlayEngine.ContinueAsAsync(request);
+        if (!result.Success)
+        {
+            _statusMessage = result.ValidationError ?? defaultErrorMessage;
+            return false;
+        }
+
+        _statusMessage = string.Empty;
+        await LoadSessionAsync();
+        return true;
     }
 
     private async Task ForkAsync()
@@ -245,6 +438,52 @@
         PromptIntent.Instruction => "instruction",
         _ => "message"
     };
+
+    private string CurrentIdentityLabel
+    {
+        get
+        {
+            if (_selectedIdentity is null)
+            {
+                return "?";
+            }
+
+            if (_selectedIdentity.SourceType == IdentityOptionSource.CustomCharacter
+                && !string.IsNullOrWhiteSpace(_customIdentityName))
+            {
+                return _customIdentityName.Trim();
+            }
+
+            return _selectedIdentity.DisplayName;
+        }
+    }
+
+    private string CurrentIdentityInitial => GetInitial(CurrentIdentityLabel);
+
+    private IEnumerable<IdentityOption> ContinueIdentityOptions =>
+        _identityOptions.Where(x => x.IsAvailable);
+
+    private IdentityOption? PersonaContinueOption => ContinueIdentityOptions
+        .FirstOrDefault(x => x.SourceType == IdentityOptionSource.Persona);
+
+    private IReadOnlyList<IdentityOption> NpcContinueOptions => ContinueIdentityOptions
+        .Where(x => x.SourceType == IdentityOptionSource.SceneCharacter)
+        .ToList();
+
+    private IdentityOption? ContinueCustomIdentityOption => ContinueIdentityOptions
+        .FirstOrDefault(x => x.SourceType == IdentityOptionSource.CustomCharacter);
+
+    private bool HasNpcContinueSelection => NpcContinueOptions.Any(x => _continueSelectedIdentityIds.Contains(x.Id));
+
+    private bool HasPersonaContinueSelection => PersonaContinueOption is not null
+        && _continueSelectedIdentityIds.Contains(PersonaContinueOption.Id);
+
+    private bool HasCustomContinueSelection => ContinueCustomIdentityOption is not null
+        && _continueSelectedIdentityIds.Contains(ContinueCustomIdentityOption.Id);
+
+    private bool IsContinueIdentitySelected(IdentityOption option) => _continueSelectedIdentityIds.Contains(option.Id);
+
+    private int ContinueSelectionCount => ContinueIdentityOptions.Count(x => _continueSelectedIdentityIds.Contains(x.Id));
 
     private string ShellStyle => $"--rw-settings-width: {_workspaceSettings.SettingsPanelWidth}px;";
 }
@@ -319,8 +558,8 @@
                         <button class="rw-popup-item @(_selectedIntent == PromptIntent.Narrative ? "is-selected" : "")"
                                 @onclick="@(() => SelectIntent(PromptIntent.Narrative))">
                             <div class="rw-popup-item-content">
-                                <span class="rw-popup-item-title">Narrative</span>
-                                <span class="rw-popup-item-desc">Add a piece of narrative</span>
+                                <span class="rw-popup-item-title">Narrative by Character</span>
+                                <span class="rw-popup-item-desc">Expand tone or phrase from selected character POV</span>
                             </div>
                             @if (_selectedIntent == PromptIntent.Narrative)
                             {
@@ -371,69 +610,120 @@
                                        @bind="_customIdentityName" @bind:event="oninput" />
                             </div>
                         }
-                        <div class="rw-popup-actions">
-                            <button class="rw-popup-action-btn"
-                                    @onclick="@(() => { _selectedIdentity = null; _showCustomInput = false; _identityPopupOpen = false; })">Clear</button>
-                            @{
-                                var customOption = _identityOptions.FirstOrDefault(x => x.SourceType == IdentityOptionSource.CustomCharacter);
-                            }
-                            @if (customOption is not null)
+                    </div>
+                }
+
+                <div class="rw-continue-row">
+                    <span class="rw-continue-label">Continue As</span>
+                    <button class="rw-continue-chip @(HasPersonaContinueSelection && !_continueIncludeNarrative ? "is-active" : string.Empty)"
+                            @onclick="ContinueAsYouQuickAsync"
+                            @onclick:stopPropagation>
+                        You
+                    </button>
+                    <button class="rw-continue-chip @(HasNpcContinueSelection && _continueIncludeNarrative ? "is-active" : string.Empty)"
+                            @onclick="ContinueAsNpcQuickAsync"
+                            @onclick:stopPropagation>
+                        NPC
+                    </button>
+                    <button class="rw-continue-chip rw-continue-chip-custom @((HasCustomContinueSelection || ContinueSelectionCount > 0 || _continueIncludeNarrative || _continueCustomPopupOpen) ? "is-active" : string.Empty)"
+                            @onclick="ToggleContinueCustomPopup"
+                            @onclick:stopPropagation>
+                        Custom
+                    </button>
+                </div>
+
+                @if (_continueCustomPopupOpen)
+                {
+                    <div class="rw-popup rw-continue-custom-popup">
+                        <div class="rw-popup-header">
+                            <span class="rw-popup-intent-label">continue as custom</span>
+                        </div>
+                        <div class="rw-continue-options-row">
+                            <button class="rw-popup-action-btn @(_continueIncludeNarrative ? "is-primary" : string.Empty)"
+                                    @onclick="ToggleContinueNarrative">
+                                Narrative @(_continueIncludeNarrative ? "✓" : string.Empty)
+                            </button>
+                            @if (ContinueCustomIdentityOption is not null)
                             {
-                                <button class="rw-popup-action-btn" @onclick="@(() => SelectIdentity(customOption))">Custom</button>
+                                <button class="rw-popup-action-btn @(HasCustomContinueSelection ? "is-primary" : string.Empty)"
+                                        @onclick="SelectContinueCustomIdentityShortcut">
+                                    Custom @((HasCustomContinueSelection) ? "✓" : string.Empty)
+                                </button>
                             }
+                        </div>
+                        <div class="rw-identity-list rw-continue-identity-list">
+                            @foreach (var option in ContinueIdentityOptions)
+                            {
+                                <button class="rw-identity-item @(IsContinueIdentitySelected(option) ? "is-selected" : string.Empty)"
+                                        @onclick="@(() => ToggleContinueIdentitySelection(option.Id))">
+                                    <span class="rw-identity-badge">@GetInitial(option.DisplayName)</span>
+                                    <span class="rw-identity-name">@option.DisplayName</span>
+                                    @if (IsContinueIdentitySelected(option))
+                                    {
+                                        <span class="rw-popup-check">✓</span>
+                                    }
+                                </button>
+                            }
+                        </div>
+                        <div class="rw-popup-actions rw-continue-popup-actions">
+                            <button class="rw-popup-action-btn"
+                                    @onclick="ClearContinueAsAsync">Clear</button>
                             <button class="rw-popup-action-btn is-primary"
-                                    @onclick="@(() => _identityPopupOpen = false)">Continue</button>
+                                    @onclick="ContinueFromIdentityPopupAsync">Continue</button>
                         </div>
                     </div>
                 }
 
                 
-                <div class="rw-prompt-box">
-                    <textarea class="rw-prompt-textarea"
-                              placeholder="Write something..."
-                              rows="2"
-                              @bind="_promptText"
-                              @bind:event="oninput"
-                              disabled="@_isSubmitting"></textarea>
-                    <div class="rw-prompt-toolbar">
-                        <div class="rw-toolbar-left">
-                            <button class="rw-intent-btn" @onclick="ToggleIntentPopup" @onclick:stopPropagation title="Change message type">
-                                @IntentLabel <span class="rw-chevron">⌃</span>
-                            </button>
-                            <button class="rw-identity-btn" @onclick="ToggleIdentityPopup" @onclick:stopPropagation title="Select character">
-                                <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor">
-                                    <path d="M6 10.5a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 0 1h-3a.5.5 0 0 1-.5-.5zm-2-3a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1-.5-.5zm-2-3a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 0 1h-11a.5.5 0 0 1-.5-.5z"/>
-                                </svg>
-                            </button>
-                            @if (_selectedIdentity is not null)
-                            {
-                                <span class="rw-selected-identity-label">@_selectedIdentity.DisplayName</span>
-                            }
-                        </div>
-                        <div class="rw-toolbar-right">
-                            <button class="rw-add-btn"
-                                    @onclick="AddManualInteractionAsync"
-                                    disabled="@(string.IsNullOrWhiteSpace(_promptText) || _selectedIdentity is null)"
-                                    title="Add manually (no AI)">+</button>
-                            <button class="rw-send-btn @(CanSubmit ? "is-ready" : "")"
-                                    @onclick="SubmitPromptAsync"
-                                    disabled="@(!CanSubmit)"
-                                    title="Send to AI">
-                                @if (_isSubmitting)
-                                {
-                                    <span class="rw-spinner"></span>
-                                }
-                                else if (CanSubmit)
-                                {
-                                    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                                        <path d="M8 13V3M3 8l5-5 5 5"/>
-                                    </svg>
-                                }
-                                else
-                                {
-                                    <span style="letter-spacing:1px">···</span>
-                                }
-                            </button>
+                <div class="rw-input-row">
+                    @if (_selectedIntent == PromptIntent.Message)
+                    {
+                        <button class="rw-identity-btn rw-identity-btn-outside @(_selectedIdentity is not null ? "has-selection" : string.Empty)"
+                                @onclick="ToggleIdentityPopup"
+                                @onclick:stopPropagation
+                                title="Select character: @CurrentIdentityLabel">
+                            <span class="rw-identity-btn-initial">@CurrentIdentityInitial</span>
+                        </button>
+                    }
+
+                    <div class="rw-prompt-box">
+                        <textarea class="rw-prompt-textarea"
+                                  placeholder="Write something..."
+                                  rows="2"
+                                  @bind="_promptText"
+                                  @bind:event="oninput"
+                                  disabled="@_isSubmitting"></textarea>
+                        <div class="rw-prompt-toolbar">
+                            <div class="rw-toolbar-left">
+                                <button class="rw-intent-btn" @onclick="ToggleIntentPopup" @onclick:stopPropagation title="Change message type">
+                                    @IntentLabel <span class="rw-chevron">⌃</span>
+                                </button>
+                            </div>
+                            <div class="rw-toolbar-right">
+                                <button class="rw-add-btn"
+                                        @onclick="SubmitPromptAsync"
+                                        disabled="@(!CanSubmit)"
+                                        title="Submit with +">+</button>
+                                <button class="rw-send-btn @(CanSubmit ? "is-ready" : "")"
+                                        @onclick="SubmitOrOverflowContinueAsync"
+                                        disabled="@(_isSubmitting)"
+                                        title="Send to AI">
+                                    @if (_isSubmitting)
+                                    {
+                                        <span class="rw-spinner"></span>
+                                    }
+                                    else if (CanSubmit)
+                                    {
+                                        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M8 13V3M3 8l5-5 5 5"/>
+                                        </svg>
+                                    }
+                                    else
+                                    {
+                                        <span style="letter-spacing:1px">···</span>
+                                    }
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>

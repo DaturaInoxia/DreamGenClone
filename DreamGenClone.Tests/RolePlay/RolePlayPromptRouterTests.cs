@@ -40,6 +40,22 @@ public sealed class RolePlayPromptRouterTests
     }
 
     [Fact]
+    public void UnifiedPromptSubmission_InstructionValidWithoutIdentity()
+    {
+        var submission = new UnifiedPromptSubmission
+        {
+            SessionId = "session-1",
+            PromptText = "Guide the next two interactions.",
+            Intent = PromptIntent.Instruction
+        };
+
+        var valid = submission.IsValid(out var error);
+
+        Assert.True(valid);
+        Assert.Equal(string.Empty, error);
+    }
+
+    [Fact]
     public void UnifiedPromptSubmission_InvalidWhenCustomIdentityHasNoName()
     {
         var submission = new UnifiedPromptSubmission

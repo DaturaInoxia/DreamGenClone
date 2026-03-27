@@ -61,6 +61,7 @@ builder.Services.AddScoped<IRolePlayContinuationService, RolePlayContinuationSer
 builder.Services.AddScoped<IRolePlayPromptRouter, RolePlayPromptRouter>();
 builder.Services.AddScoped<IRolePlayIdentityOptionsService, RolePlayIdentityOptionsService>();
 builder.Services.AddScoped<IBehaviorModeService, BehaviorModeService>();
+builder.Services.AddScoped<IRolePlayCommandValidator, RolePlayCommandValidator>();
 builder.Services.AddScoped<IRolePlayBranchService, RolePlayBranchService>();
 builder.Services.AddSingleton<IModelSettingsService, ModelSettingsService>();
 builder.Services.AddScoped<IModelRetryService, ModelRetryService>();

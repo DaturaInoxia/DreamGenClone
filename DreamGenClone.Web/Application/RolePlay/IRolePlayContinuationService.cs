@@ -11,4 +11,12 @@ public interface IRolePlayContinuationService
         PromptIntent intent,
         string promptText,
         CancellationToken cancellationToken = default);
+
+    Task<ContinueAsResult> ContinueBatchAsync(
+        RolePlaySession session,
+        IReadOnlyList<ContinueAsActor> actors,
+        bool includeNarrative,
+        string? customActorName,
+        string promptText,
+        CancellationToken cancellationToken = default);
 }

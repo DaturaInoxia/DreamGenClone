@@ -43,5 +43,9 @@ public interface IRolePlayEngineService
         UnifiedPromptSubmission submission,
         CancellationToken cancellationToken = default);
 
+    Task<ContinueAsResult> ContinueAsAsync(
+        ContinueAsRequest request,
+        CancellationToken cancellationToken = default);
+
     Task<bool> DeleteSessionAsync(string sessionId, CancellationToken cancellationToken = default);
 }

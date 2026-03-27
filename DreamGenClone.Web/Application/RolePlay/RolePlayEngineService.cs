@@ -13,6 +13,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     private readonly IBehaviorModeService _behaviorModeService;
     private readonly IRolePlayPromptRouter _promptRouter;
     private readonly IRolePlayIdentityOptionsService _identityOptionsService;
+    private readonly IRolePlayCommandValidator _commandValidator;
     private readonly ISessionService _sessionService;
     private readonly AutoSaveCoordinator _autoSaveCoordinator;
     private readonly ILogger<RolePlayEngineService> _logger;
@@ -22,6 +23,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         IBehaviorModeService behaviorModeService,
         IRolePlayPromptRouter promptRouter,
         IRolePlayIdentityOptionsService identityOptionsService,
+        IRolePlayCommandValidator commandValidator,
         ISessionService sessionService,
         AutoSaveCoordinator autoSaveCoordinator,
         ILogger<RolePlayEngineService> logger)
@@ -30,6 +32,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         _behaviorModeService = behaviorModeService;
         _promptRouter = promptRouter;
         _identityOptionsService = identityOptionsService;
+        _commandValidator = commandValidator;
         _sessionService = sessionService;
         _autoSaveCoordinator = autoSaveCoordinator;
         _logger = logger;
@@ -244,7 +247,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     {
         ArgumentNullException.ThrowIfNull(submission);
 
-        if (!submission.IsValid(out var validationError))
+        if (!_commandValidator.ValidateSubmission(submission, out var validationError))
         {
             throw new ArgumentException(validationError, nameof(submission));
         }
@@ -255,24 +258,37 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             throw new InvalidOperationException($"Role-play session '{submission.SessionId}' not found.");
         }
 
-        var options = await _identityOptionsService.GetIdentityOptionsAsync(session, cancellationToken);
-        var identity = options.FirstOrDefault(x =>
-            x.SourceType == submission.SelectedIdentityType &&
-            string.Equals(x.Id, submission.SelectedIdentityId, StringComparison.OrdinalIgnoreCase));
-
-        if (identity is null)
+        IdentityOption identity;
+        string? customName;
+        if (submission.Intent == PromptIntent.Instruction)
         {
-            throw new InvalidOperationException($"Identity option '{submission.SelectedIdentityId}' is not available for this session.");
+            identity = new IdentityOption
+            {
+                Id = "system:instruction",
+                DisplayName = "Instruction",
+                SourceType = IdentityOptionSource.Persona,
+                Actor = ContinueAsActor.Npc,
+                IsAvailable = true
+            };
+            customName = null;
         }
-
-        if (!identity.IsAvailable)
+        else
         {
-            throw new InvalidOperationException(identity.AvailabilityReason ?? "The selected identity is not available.");
-        }
+            var options = await _identityOptionsService.GetIdentityOptionsAsync(session, cancellationToken);
+            identity = options.FirstOrDefault(x =>
+                x.SourceType == submission.SelectedIdentityType &&
+                string.Equals(x.Id, submission.SelectedIdentityId, StringComparison.OrdinalIgnoreCase))
+                ?? throw new InvalidOperationException($"Identity option '{submission.SelectedIdentityId}' is not available for this session.");
 
-        var customName = identity.SourceType == IdentityOptionSource.CustomCharacter
-            ? (string.IsNullOrWhiteSpace(submission.CustomIdentityName) ? null : submission.CustomIdentityName.Trim())
-            : null;
+            if (!identity.IsAvailable)
+            {
+                throw new InvalidOperationException(identity.AvailabilityReason ?? "The selected identity is not available.");
+            }
+
+            customName = identity.SourceType == IdentityOptionSource.CustomCharacter
+                ? (string.IsNullOrWhiteSpace(submission.CustomIdentityName) ? null : submission.CustomIdentityName.Trim())
+                : null;
+        }
 
         var route = _promptRouter.Resolve(submission.Intent);
         _logger.LogInformation(
@@ -282,13 +298,44 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             route.TargetCommand,
             identity.Id);
 
-        var interaction = await _continuationService.ContinueAsync(
-            session,
-            identity.Actor,
-            customName,
-            submission.Intent,
-            submission.PromptText,
-            cancellationToken);
+        RolePlayInteraction interaction;
+        if (submission.Intent == PromptIntent.Instruction)
+        {
+            interaction = new RolePlayInteraction
+            {
+                InteractionType = InteractionType.System,
+                ActorName = "Instruction",
+                Content = submission.PromptText.Trim()
+            };
+        }
+        else
+        {
+            if (!_identityOptionsService.IsIdentityAvailableForIntent(session, identity, submission.Intent, out var availabilityReason))
+            {
+                throw new InvalidOperationException(availabilityReason ?? "The selected identity is not available for this action.");
+            }
+
+            var selectedActorName = identity.SourceType == IdentityOptionSource.CustomCharacter
+                ? (string.IsNullOrWhiteSpace(customName) ? identity.DisplayName : customName)
+                : identity.DisplayName;
+
+            var userPromptInteraction = new RolePlayInteraction
+            {
+                InteractionType = ToInteractionType(identity.Actor),
+                ActorName = selectedActorName,
+                Content = submission.PromptText.Trim()
+            };
+
+            session.Interactions.Add(userPromptInteraction);
+
+            interaction = await _continuationService.ContinueAsync(
+                session,
+                identity.Actor,
+                selectedActorName,
+                submission.Intent,
+                BuildContinuationPromptText(submission.Intent, submission.PromptText),
+                cancellationToken);
+        }
 
         session.Interactions.Add(interaction);
         session.Status = RolePlaySessionStatus.InProgress;
@@ -303,6 +350,115 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             session.BehaviorMode);
 
         return interaction;
+    }
+
+    public async Task<ContinueAsResult> ContinueAsAsync(
+        ContinueAsRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var session = await GetSessionAsync(request.SessionId, cancellationToken)
+            ?? throw new InvalidOperationException($"Role-play session '{request.SessionId}' not found.");
+
+        if (!_commandValidator.ValidateContinueRequest(request, session.BehaviorMode, out var validationError))
+        {
+            return new ContinueAsResult
+            {
+                Success = false,
+                ValidationError = validationError,
+                IsClearResult = request.IsClearAction
+            };
+        }
+
+        if (request.IsClearAction)
+        {
+            _logger.LogInformation("Continue As selections cleared for session {SessionId}", request.SessionId);
+            return new ContinueAsResult { Success = true, IsClearResult = true };
+        }
+
+        var selectedIdentityOptions = await ResolveSelectedIdentityOptionsAsync(session, request, cancellationToken);
+        var result = new ContinueAsResult { Success = true };
+
+        if (selectedIdentityOptions.Count > 0)
+        {
+            foreach (var option in selectedIdentityOptions)
+            {
+                var actorName = ResolveOptionActorName(option, request.CustomIdentityName);
+                var interaction = await _continuationService.ContinueAsync(
+                    session,
+                    option.Actor,
+                    actorName,
+                    PromptIntent.Message,
+                    "Continue role-play for the selected character.",
+                    cancellationToken);
+
+                result.ParticipantOutputs.Add(interaction);
+            }
+        }
+        else
+        {
+            var fallbackActor = ResolveDefaultContinueActor(session);
+            var fallbackActorName = ResolveActorName(fallbackActor, request.CustomIdentityName);
+            var interaction = await _continuationService.ContinueAsync(
+                session,
+                fallbackActor,
+                fallbackActorName,
+                PromptIntent.Message,
+                "Continue naturally with the next interaction that best fits recent context.",
+                cancellationToken);
+
+            result.ParticipantOutputs.Add(interaction);
+        }
+
+        if (request.IncludeNarrative)
+        {
+            var narrative = await _continuationService.ContinueAsync(
+                session,
+                ContinueAsActor.Npc,
+                "Narrative",
+                PromptIntent.Narrative,
+                "Move the role-play story forward with scene description and tone.",
+                cancellationToken);
+
+            narrative.InteractionType = InteractionType.System;
+            narrative.ActorName = "Narrative";
+            result.NarrativeOutput = narrative;
+        }
+
+        foreach (var interaction in result.ParticipantOutputs)
+        {
+            session.Interactions.Add(interaction);
+        }
+
+        if (result.NarrativeOutput is not null)
+        {
+            session.Interactions.Add(result.NarrativeOutput);
+        }
+
+        session.Status = RolePlaySessionStatus.InProgress;
+        session.ModifiedAt = DateTime.UtcNow;
+        _autoSaveCoordinator.QueueRolePlaySessionSave(session, "roleplay-continueas-generated");
+
+        _logger.LogInformation(
+            "Continue As executed for session {SessionId}: participants={ParticipantCount}, includeNarrative={IncludeNarrative}, source={Source}",
+            session.Id,
+            result.ParticipantOutputs.Count,
+            request.IncludeNarrative,
+            request.TriggeredBy);
+
+        return result;
+    }
+
+    private static string BuildContinuationPromptText(PromptIntent intent, string promptText)
+    {
+        var trimmed = promptText.Trim();
+        return intent switch
+        {
+            PromptIntent.Message => $"Respond in-character and follow this direction for tone/mood/action: {trimmed}",
+            PromptIntent.Narrative => $"Expand this into narrative from the selected character POV: {trimmed}",
+            _ => trimmed
+        };
     }
 
     private async Task EnsurePersistedSessionsLoadedAsync(CancellationToken cancellationToken)
@@ -348,5 +504,89 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             ContinueAsActor.Custom => string.IsNullOrWhiteSpace(customActorName) ? "Custom" : customActorName.Trim(),
             _ => "System"
         };
+    }
+
+    private async Task<IReadOnlyList<IdentityOption>> ResolveSelectedIdentityOptionsAsync(
+        RolePlaySession session,
+        ContinueAsRequest request,
+        CancellationToken cancellationToken)
+    {
+        var identityOptions = await _identityOptionsService.GetIdentityOptionsAsync(session, cancellationToken);
+        if (identityOptions.Count == 0)
+        {
+            return [];
+        }
+
+        var selectedById = request.SelectedIdentityIds
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        if (selectedById.Count > 0)
+        {
+            return identityOptions
+                .Where(x => x.IsAvailable && selectedById.Contains(x.Id))
+                .ToList();
+        }
+
+        var selectedActors = ContinueAsOrdering.OrderDistinct(request.SelectedParticipants).ToHashSet();
+        if (selectedActors.Count == 0)
+        {
+            return [];
+        }
+
+        return identityOptions
+            .Where(x => x.IsAvailable && selectedActors.Contains(x.Actor))
+            .ToList();
+    }
+
+    private ContinueAsActor ResolveDefaultContinueActor(RolePlaySession session)
+    {
+        var allowedActors = _behaviorModeService.GetAllowedActors(session.BehaviorMode);
+        if (allowedActors.Count == 0)
+        {
+            return ContinueAsActor.Npc;
+        }
+
+        var lastInteraction = session.Interactions.LastOrDefault();
+        var preferred = lastInteraction?.InteractionType switch
+        {
+            InteractionType.User => ContinueAsActor.Npc,
+            InteractionType.Custom => ContinueAsActor.Npc,
+            InteractionType.Npc => ContinueAsActor.You,
+            InteractionType.System => ContinueAsActor.Npc,
+            _ => ContinueAsActor.Npc
+        };
+
+        if (allowedActors.Contains(preferred))
+        {
+            return preferred;
+        }
+
+        if (allowedActors.Contains(ContinueAsActor.Npc))
+        {
+            return ContinueAsActor.Npc;
+        }
+
+        if (allowedActors.Contains(ContinueAsActor.You))
+        {
+            return ContinueAsActor.You;
+        }
+
+        if (allowedActors.Contains(ContinueAsActor.Custom))
+        {
+            return ContinueAsActor.Custom;
+        }
+
+        return allowedActors.First();
+    }
+
+    private static string? ResolveOptionActorName(IdentityOption option, string? customActorName)
+    {
+        if (option.SourceType == IdentityOptionSource.CustomCharacter)
+        {
+            return string.IsNullOrWhiteSpace(customActorName) ? option.DisplayName : customActorName.Trim();
+        }
+
+        return option.DisplayName;
     }
 }

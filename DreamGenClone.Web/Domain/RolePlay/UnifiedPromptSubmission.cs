@@ -16,6 +16,8 @@ public sealed class UnifiedPromptSubmission
 
     public BehaviorMode BehaviorModeAtSubmit { get; set; } = BehaviorMode.TakeTurns;
 
+    public SubmissionSource SubmittedVia { get; set; } = SubmissionSource.SendButton;
+
     public DateTime TimestampUtc { get; set; } = DateTime.UtcNow;
 
     public bool IsValid(out string validationError)
@@ -32,13 +34,15 @@ public sealed class UnifiedPromptSubmission
             return false;
         }
 
-        if (string.IsNullOrWhiteSpace(SelectedIdentityId))
+        var requiresIdentity = Intent is PromptIntent.Message or PromptIntent.Narrative;
+        if (requiresIdentity && string.IsNullOrWhiteSpace(SelectedIdentityId))
         {
-            validationError = "SelectedIdentityId is required.";
+            validationError = "SelectedIdentityId is required for character-scoped intents.";
             return false;
         }
 
-        if (SelectedIdentityType == IdentityOptionSource.CustomCharacter
+        if (requiresIdentity
+            && SelectedIdentityType == IdentityOptionSource.CustomCharacter
             && string.IsNullOrWhiteSpace(CustomIdentityName)
             && !SelectedIdentityId.StartsWith("custom:", StringComparison.OrdinalIgnoreCase))
         {

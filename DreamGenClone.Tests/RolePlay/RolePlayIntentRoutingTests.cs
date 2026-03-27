@@ -11,9 +11,27 @@ namespace DreamGenClone.Tests.RolePlay;
 public sealed class RolePlayIntentRoutingTests
 {
     [Theory]
+    [InlineData(PromptIntent.Message, "continue-message", false, true)]
+    [InlineData(PromptIntent.Narrative, "continue-narrative", false, true)]
+    public void Resolve_ReturnsExpectedRouteForCharacterIntents(
+        PromptIntent intent,
+        string targetCommand,
+        bool requiresInstructionPayload,
+        bool requiresActorContext)
+    {
+        var router = new RolePlayPromptRouter();
+
+        var route = router.Resolve(intent);
+
+        Assert.Equal(intent, route.Intent);
+        Assert.Equal(targetCommand, route.TargetCommand);
+        Assert.Equal(requiresInstructionPayload, route.RequiresInstructionPayload);
+        Assert.Equal(requiresActorContext, route.RequiresActorContext);
+    }
+
+    [Theory]
     [InlineData(PromptIntent.Message)]
     [InlineData(PromptIntent.Narrative)]
-    [InlineData(PromptIntent.Instruction)]
     public async Task SubmitPromptAsync_UsesSubmissionIntent(PromptIntent intent)
     {
         var continuation = new RecordingContinuationService();
@@ -33,7 +51,65 @@ public sealed class RolePlayIntentRoutingTests
         _ = await service.SubmitPromptAsync(submission);
 
         Assert.Equal(intent, continuation.LastIntent);
-        Assert.Equal("Advance the scene.", continuation.LastPromptText);
+        Assert.Equal(1, continuation.ContinueCallCount);
+        Assert.Contains("Advance the scene.", continuation.LastPromptText);
+
+        var updatedSession = await service.GetSessionAsync(session.Id);
+        Assert.NotNull(updatedSession);
+        Assert.Equal(2, updatedSession!.Interactions.Count);
+        Assert.Equal("You", updatedSession.Interactions[0].ActorName);
+        Assert.Equal("Advance the scene.", updatedSession.Interactions[0].Content);
+        Assert.Equal("You", updatedSession.Interactions[1].ActorName);
+    }
+
+    [Fact]
+    public async Task SubmitPromptAsync_MessageWithSceneCharacter_UsesSelectedCharacterForPromptAndResponse()
+    {
+        var continuation = new RecordingContinuationService();
+        var (service, _) = CreateService(continuation);
+        var session = await service.CreateSessionAsync("Routing Test", personaName: "Pilot");
+
+        var submission = new UnifiedPromptSubmission
+        {
+            SessionId = session.Id,
+            PromptText = "Get dressed and leave the room.",
+            Intent = PromptIntent.Message,
+            SelectedIdentityId = "scene:becky",
+            SelectedIdentityType = IdentityOptionSource.SceneCharacter,
+            BehaviorModeAtSubmit = BehaviorMode.TakeTurns
+        };
+
+        _ = await service.SubmitPromptAsync(submission);
+
+        var updatedSession = await service.GetSessionAsync(session.Id);
+        Assert.NotNull(updatedSession);
+        Assert.Equal(2, updatedSession!.Interactions.Count);
+        Assert.Equal("Becky", updatedSession.Interactions[0].ActorName);
+        Assert.Equal("Get dressed and leave the room.", updatedSession.Interactions[0].Content);
+        Assert.Equal("Becky", updatedSession.Interactions[1].ActorName);
+        Assert.Equal("Becky", continuation.LastCustomActorName);
+    }
+
+    [Fact]
+    public async Task SubmitPromptAsync_Instruction_BypassesContinuationService()
+    {
+        var continuation = new RecordingContinuationService();
+        var (service, _) = CreateService(continuation);
+        var session = await service.CreateSessionAsync("Routing Test", personaName: "Pilot");
+
+        var submission = new UnifiedPromptSubmission
+        {
+            SessionId = session.Id,
+            PromptText = "Advance the scene.",
+            Intent = PromptIntent.Instruction,
+            SubmittedVia = SubmissionSource.PlusButton,
+            BehaviorModeAtSubmit = BehaviorMode.TakeTurns
+        };
+
+        var interaction = await service.SubmitPromptAsync(submission);
+
+        Assert.Equal("Instruction", interaction.ActorName);
+        Assert.Equal(0, continuation.ContinueCallCount);
     }
 
     private static (RolePlayEngineService Service, FakeSessionService SessionService) CreateService(RecordingContinuationService continuation)
@@ -44,12 +120,14 @@ public sealed class RolePlayIntentRoutingTests
         var behaviorMode = new BehaviorModeService(NullLogger<BehaviorModeService>.Instance);
         var router = new RolePlayPromptRouter();
         var identities = new FakeRolePlayIdentityOptionsService();
+        var validator = new RolePlayCommandValidator(behaviorMode);
 
         var service = new RolePlayEngineService(
             continuation,
             behaviorMode,
             router,
             identities,
+            validator,
             fakeSessionService,
             autoSave,
             NullLogger<RolePlayEngineService>.Instance);
@@ -63,6 +141,10 @@ public sealed class RolePlayIntentRoutingTests
 
         public string LastPromptText { get; private set; } = string.Empty;
 
+        public string? LastCustomActorName { get; private set; }
+
+        public int ContinueCallCount { get; private set; }
+
         public Task<RolePlayInteraction> ContinueAsync(
             RolePlaySession session,
             ContinueAsActor actor,
@@ -71,15 +153,28 @@ public sealed class RolePlayIntentRoutingTests
             string promptText,
             CancellationToken cancellationToken = default)
         {
+            ContinueCallCount++;
             LastIntent = intent;
             LastPromptText = promptText;
+            LastCustomActorName = customActorName;
 
             return Task.FromResult(new RolePlayInteraction
             {
                 InteractionType = InteractionType.User,
-                ActorName = actor.ToString(),
+                ActorName = string.IsNullOrWhiteSpace(customActorName) ? actor.ToString() : customActorName,
                 Content = $"Recorded for {intent}"
             });
+        }
+
+        public Task<ContinueAsResult> ContinueBatchAsync(
+            RolePlaySession session,
+            IReadOnlyList<ContinueAsActor> actors,
+            bool includeNarrative,
+            string? customActorName,
+            string promptText,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new ContinueAsResult { Success = true });
         }
     }
 
@@ -96,10 +191,24 @@ public sealed class RolePlayIntentRoutingTests
                     SourceType = IdentityOptionSource.Persona,
                     Actor = ContinueAsActor.You,
                     IsAvailable = true
+                },
+                new IdentityOption
+                {
+                    Id = "scene:becky",
+                    DisplayName = "Becky",
+                    SourceType = IdentityOptionSource.SceneCharacter,
+                    Actor = ContinueAsActor.Npc,
+                    IsAvailable = true
                 }
             ];
 
             return Task.FromResult(options);
+        }
+
+        public bool IsIdentityAvailableForIntent(RolePlaySession session, IdentityOption option, PromptIntent intent, out string? availabilityReason)
+        {
+            availabilityReason = null;
+            return option.IsAvailable;
         }
     }
 

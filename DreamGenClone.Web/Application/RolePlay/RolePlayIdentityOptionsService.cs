@@ -69,4 +69,32 @@ public sealed class RolePlayIdentityOptionsService : IRolePlayIdentityOptionsSer
 
         return options;
     }
+
+    public bool IsIdentityAvailableForIntent(RolePlaySession session, IdentityOption option, PromptIntent intent, out string? availabilityReason)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(option);
+
+        if (intent == PromptIntent.Instruction)
+        {
+            availabilityReason = null;
+            return true;
+        }
+
+        if (!option.IsAvailable)
+        {
+            availabilityReason = option.AvailabilityReason ?? "The selected identity is not available for this behavior mode.";
+            return false;
+        }
+
+        var allowedActors = _behaviorModeService.GetAllowedActors(session.BehaviorMode);
+        if (!allowedActors.Contains(option.Actor))
+        {
+            availabilityReason = $"Actor '{option.Actor}' is not allowed in mode '{session.BehaviorMode}'.";
+            return false;
+        }
+
+        availabilityReason = null;
+        return true;
+    }
 }

@@ -88,6 +88,7 @@ public sealed class RolePlayBehaviorModeSubmitTests
             coreAutoSave, fakeSessionService, NullLogger<AutoSaveCoordinator>.Instance);
         var behaviorMode = new BehaviorModeService(NullLogger<BehaviorModeService>.Instance);
         var router = new RolePlayPromptRouter();
+        var validator = new RolePlayCommandValidator(behaviorMode);
 
         IRolePlayIdentityOptionsService identities = unavailablePersona
             ? new FakeIdentityOptionsWithUnavailablePersona()
@@ -98,6 +99,7 @@ public sealed class RolePlayBehaviorModeSubmitTests
             behaviorMode,
             router,
             identities,
+            validator,
             fakeSessionService,
             autoSave,
             NullLogger<RolePlayEngineService>.Instance);
@@ -122,6 +124,17 @@ public sealed class RolePlayBehaviorModeSubmitTests
                 Content = "Generated response."
             });
         }
+
+        public Task<ContinueAsResult> ContinueBatchAsync(
+            RolePlaySession session,
+            IReadOnlyList<ContinueAsActor> actors,
+            bool includeNarrative,
+            string? customActorName,
+            string promptText,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new ContinueAsResult { Success = true });
+        }
     }
 
     private sealed class FakeIdentityOptionsService : IRolePlayIdentityOptionsService
@@ -141,6 +154,12 @@ public sealed class RolePlayBehaviorModeSubmitTests
                 }
             ];
             return Task.FromResult(options);
+        }
+
+        public bool IsIdentityAvailableForIntent(RolePlaySession session, IdentityOption option, PromptIntent intent, out string? availabilityReason)
+        {
+            availabilityReason = null;
+            return option.IsAvailable;
         }
     }
 
@@ -162,6 +181,12 @@ public sealed class RolePlayBehaviorModeSubmitTests
                 }
             ];
             return Task.FromResult(options);
+        }
+
+        public bool IsIdentityAvailableForIntent(RolePlaySession session, IdentityOption option, PromptIntent intent, out string? availabilityReason)
+        {
+            availabilityReason = option.AvailabilityReason;
+            return false;
         }
     }
 

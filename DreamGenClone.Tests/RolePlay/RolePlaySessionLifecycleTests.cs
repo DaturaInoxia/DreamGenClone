@@ -54,12 +54,14 @@ public sealed class RolePlaySessionLifecycleTests
         var continuation = new FakeRolePlayContinuationService();
         var router = new RolePlayPromptRouter();
         var identities = new FakeRolePlayIdentityOptionsService();
+        var validator = new RolePlayCommandValidator(behaviorMode);
 
         var service = new RolePlayEngineService(
             continuation,
             behaviorMode,
             router,
             identities,
+            validator,
             fakeSessionService,
             autoSave,
             NullLogger<RolePlayEngineService>.Instance);
@@ -84,6 +86,17 @@ public sealed class RolePlaySessionLifecycleTests
                 Content = "Generated"
             });
         }
+
+        public Task<ContinueAsResult> ContinueBatchAsync(
+            RolePlaySession session,
+            IReadOnlyList<ContinueAsActor> actors,
+            bool includeNarrative,
+            string? customActorName,
+            string promptText,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new ContinueAsResult { Success = true });
+        }
     }
 
     private sealed class FakeRolePlayIdentityOptionsService : IRolePlayIdentityOptionsService
@@ -103,6 +116,12 @@ public sealed class RolePlaySessionLifecycleTests
             ];
 
             return Task.FromResult(options);
+        }
+
+        public bool IsIdentityAvailableForIntent(RolePlaySession session, IdentityOption option, PromptIntent intent, out string? availabilityReason)
+        {
+            availabilityReason = null;
+            return option.IsAvailable;
         }
     }
 
