@@ -126,3 +126,4 @@ D:\src\DreamGenClone\DreamGenClone.Web\bin\Debug\net9.0\artifacts\obj\DreamGenCl
 D:\src\DreamGenClone\DreamGenClone.Web\bin\Debug\net9.0\artifacts\obj\project.assets.json
 D:\src\DreamGenClone\DreamGenClone.Web\obj\Debug\net9.0\compressed\64ftirclvx-8brd5l2f9c.gz
 D:\src\DreamGenClone\DreamGenClone.Web\bin\Debug\net9.0\DreamGenClone.exe
+D:\src\DreamGenClone\DreamGenClone.Web\bin\Debug\net9.0\AngleSharp.dll

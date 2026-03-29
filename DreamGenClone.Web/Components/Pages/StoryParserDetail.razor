@@ -1,0 +1,93 @@
+@page "/storyparser/detail/{Id}"
+@rendermode InteractiveServer
+
+@using DreamGenClone.Web.Application.StoryParser
+
+@inject StoryParserFacade ParserFacade
+@inject NavigationManager Navigation
+
+<PageTitle>StoryParser Detail</PageTitle>
+
+<div class="container-fluid mt-4">
+    <button class="btn btn-outline-secondary mb-3" @onclick="BackToList">Back</button>
+
+    @if (_isLoading)
+    {
+        <div class="alert alert-info">Loading...</div>
+    }
+    else if (_detail is null)
+    {
+        <div class="alert alert-warning">Parsed story not found.</div>
+    }
+    else
+    {
+        <div class="card mb-3">
+            <div class="card-header">Parsed Story Detail</div>
+            <div class="card-body">
+                @if (!string.IsNullOrWhiteSpace(_detail.Title))
+                {
+                    <div><strong>Title:</strong> @_detail.Title</div>
+                }
+                @if (!string.IsNullOrWhiteSpace(_detail.Author))
+                {
+                    <div><strong>Author:</strong> @_detail.Author</div>
+                }
+                <div><strong>Source URL:</strong> @_detail.SourceUrl</div>
+                <div><strong>Parsed Date:</strong> @_detail.ParsedUtc.ToLocalTime().ToString("g")</div>
+                <div><strong>Page Count:</strong> @_detail.PageCount</div>
+                <div><strong>Status:</strong> @_detail.ParseStatus</div>
+            </div>
+        </div>
+
+        <div class="card mb-3">
+            <div class="card-header">Combined Text</div>
+            <div class="card-body" style="white-space: pre-wrap;">@_detail.CombinedText</div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">Diagnostics</div>
+            <div class="card-body">
+                <div><strong>Warnings:</strong> @_detail.Diagnostics.Warnings.Count</div>
+                <div><strong>Errors:</strong> @_detail.Diagnostics.Errors.Count</div>
+                @if (_detail.Diagnostics.Warnings.Count > 0)
+                {
+                    <ul>
+                        @foreach (var item in _detail.Diagnostics.Warnings)
+                        {
+                            <li>@item.Code - @item.Message</li>
+                        }
+                    </ul>
+                }
+                @if (_detail.Diagnostics.Errors.Count > 0)
+                {
+                    <ul>
+                        @foreach (var item in _detail.Diagnostics.Errors)
+                        {
+                            <li>@item.Code - @item.Message</li>
+                        }
+                    </ul>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public string Id { get; set; } = string.Empty;
+
+    private DreamGenClone.Application.StoryParser.Models.ParsedStoryDetail? _detail;
+    private bool _isLoading = true;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _isLoading = true;
+        _detail = await ParserFacade.GetByIdAsync(Id);
+        _isLoading = false;
+    }
+
+    private void BackToList()
+    {
+        Navigation.NavigateTo("/storyparser");
+    }
+}
