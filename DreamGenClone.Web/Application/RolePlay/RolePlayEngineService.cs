@@ -280,7 +280,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 string.Equals(x.Id, submission.SelectedIdentityId, StringComparison.OrdinalIgnoreCase))
                 ?? throw new InvalidOperationException($"Identity option '{submission.SelectedIdentityId}' is not available for this session.");
 
-            if (!identity.IsAvailable)
+            if (submission.SubmittedVia != SubmissionSource.PlusButton && !identity.IsAvailable)
             {
                 throw new InvalidOperationException(identity.AvailabilityReason ?? "The selected identity is not available.");
             }
@@ -310,7 +310,8 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         }
         else
         {
-            if (!_identityOptionsService.IsIdentityAvailableForIntent(session, identity, submission.Intent, out var availabilityReason))
+            if (submission.SubmittedVia != SubmissionSource.PlusButton
+                && !_identityOptionsService.IsIdentityAvailableForIntent(session, identity, submission.Intent, out var availabilityReason))
             {
                 throw new InvalidOperationException(availabilityReason ?? "The selected identity is not available for this action.");
             }
@@ -328,16 +329,29 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
             session.Interactions.Add(userPromptInteraction);
 
-            interaction = await _continuationService.ContinueAsync(
-                session,
-                identity.Actor,
-                selectedActorName,
-                submission.Intent,
-                BuildContinuationPromptText(submission.Intent, submission.PromptText),
-                cancellationToken);
+            if (submission.SubmittedVia == SubmissionSource.PlusButton)
+            {
+                interaction = userPromptInteraction;
+            }
+            else
+            {
+                interaction = await _continuationService.ContinueAsync(
+                    session,
+                    identity.Actor,
+                    selectedActorName,
+                    submission.Intent,
+                    BuildContinuationPromptText(submission.Intent, submission.PromptText),
+                    cancellationToken);
+
+                session.Interactions.Add(interaction);
+            }
         }
 
-        session.Interactions.Add(interaction);
+        if (submission.Intent == PromptIntent.Instruction)
+        {
+            session.Interactions.Add(interaction);
+        }
+
         session.Status = RolePlaySessionStatus.InProgress;
         session.BehaviorMode = submission.BehaviorModeAtSubmit;
         session.ModifiedAt = DateTime.UtcNow;

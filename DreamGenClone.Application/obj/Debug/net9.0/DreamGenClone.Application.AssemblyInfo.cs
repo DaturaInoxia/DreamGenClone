@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("DreamGenClone.Application")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+d8d3b85d32b2f5e1e5903925a5df3b88d68bb277")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+b1de1203dd3e9646f8327e55856f7726eba50bed")]
 [assembly: System.Reflection.AssemblyProductAttribute("DreamGenClone.Application")]
 [assembly: System.Reflection.AssemblyTitleAttribute("DreamGenClone.Application")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

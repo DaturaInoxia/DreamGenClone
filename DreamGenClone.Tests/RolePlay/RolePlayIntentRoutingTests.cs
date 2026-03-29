@@ -112,6 +112,35 @@ public sealed class RolePlayIntentRoutingTests
         Assert.Equal(0, continuation.ContinueCallCount);
     }
 
+    [Fact]
+    public async Task SubmitPromptAsync_PlusButton_MessageWithSceneCharacter_AddsSingleCharacterInteraction()
+    {
+        var continuation = new RecordingContinuationService();
+        var (service, _) = CreateService(continuation);
+        var session = await service.CreateSessionAsync("Routing Test", personaName: "Pilot");
+
+        var submission = new UnifiedPromptSubmission
+        {
+            SessionId = session.Id,
+            PromptText = "Get dressed and leave the room.",
+            Intent = PromptIntent.Message,
+            SelectedIdentityId = "scene:becky",
+            SelectedIdentityType = IdentityOptionSource.SceneCharacter,
+            BehaviorModeAtSubmit = BehaviorMode.TakeTurns,
+            SubmittedVia = SubmissionSource.PlusButton
+        };
+
+        var interaction = await service.SubmitPromptAsync(submission);
+
+        var updatedSession = await service.GetSessionAsync(session.Id);
+        Assert.NotNull(updatedSession);
+        Assert.Single(updatedSession!.Interactions);
+        Assert.Equal("Becky", updatedSession.Interactions[0].ActorName);
+        Assert.Equal("Get dressed and leave the room.", updatedSession.Interactions[0].Content);
+        Assert.Equal("Becky", interaction.ActorName);
+        Assert.Equal(0, continuation.ContinueCallCount);
+    }
+
     private static (RolePlayEngineService Service, FakeSessionService SessionService) CreateService(RecordingContinuationService continuation)
     {
         var fakeSessionService = new FakeSessionService();

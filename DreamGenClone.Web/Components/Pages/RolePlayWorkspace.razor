@@ -20,6 +20,8 @@
     private RolePlaySession? _session;
     private string _statusMessage = string.Empty;
     private bool _isSubmitting = false;
+    private bool _isAwaitingModelResponse = false;
+    private string _pendingResponseLabel = string.Empty;
 
     // Settings panel
     private BehaviorMode _selectedBehaviorMode = BehaviorMode.TakeTurns;
@@ -92,16 +94,26 @@
 
         _identityOptions = (await IdentityOptionsService.GetIdentityOptionsAsync(_session)).ToList();
 
+        var selectedIdentityId = _selectedIdentity?.Id;
+        if (!string.IsNullOrWhiteSpace(selectedIdentityId))
+        {
+            _selectedIdentity = _identityOptions.FirstOrDefault(x =>
+                string.Equals(x.Id, selectedIdentityId, StringComparison.OrdinalIgnoreCase));
+        }
+
         var continueIds = _identityOptions
             .Where(x => x.IsAvailable)
             .Select(x => x.Id)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         _continueSelectedIdentityIds.RemoveWhere(id => !continueIds.Contains(id));
 
-        if (_selectedIdentity is null || !_identityOptions.Any(x => x.Id == _selectedIdentity.Id))
+        if (_selectedIdentity is null)
         {
-            _selectedIdentity = _identityOptions.FirstOrDefault(x => x.IsAvailable);
+            _selectedIdentity = _identityOptions.FirstOrDefault(x => x.IsAvailable)
+                ?? _identityOptions.FirstOrDefault();
         }
+
+        _showCustomInput = _selectedIdentity?.SourceType == IdentityOptionSource.CustomCharacter;
     }
 
     private void ToggleIntentPopup()
@@ -126,7 +138,7 @@
 
     private void SelectIdentity(IdentityOption option)
     {
-        if (!option.IsAvailable) return;
+        if (IsIdentityOptionDisabled(option)) return;
         _selectedIdentity = option;
         _showCustomInput = option.SourceType == IdentityOptionSource.CustomCharacter;
         if (!_showCustomInput)
@@ -153,13 +165,27 @@
         await LoadSessionAsync();
     }
 
-    private bool CanSubmit =>
+    private bool CanAddPromptEntry =>
+        _session is not null &&
+        HasPromptText &&
+        IsAddIntent &&
+        !_isSubmitting;
+
+    private bool CanSendPrompt =>
         _session is not null &&
         HasPromptText &&
         IsIdentitySelectionValidForIntent &&
         !_isSubmitting;
 
     private bool HasPromptText => !string.IsNullOrWhiteSpace(_promptText);
+
+    private bool ShowPendingResponseIndicator =>
+        _isAwaitingModelResponse && !string.IsNullOrWhiteSpace(_pendingResponseLabel);
+
+    private bool IsAddIntent =>
+        _selectedIntent == PromptIntent.Instruction ||
+        _selectedIntent == PromptIntent.Narrative ||
+        _selectedIntent == PromptIntent.Message;
 
     private bool IsIdentitySelectionValidForIntent
     {
@@ -184,9 +210,21 @@
         }
     }
 
-    private async Task SubmitPromptAsync()
+    private bool IsIdentityOptionDisabled(IdentityOption option) => _isSubmitting;
+
+    private string? GetIdentityOptionTitle(IdentityOption option)
     {
-        if (!CanSubmit) return;
+        if (_isSubmitting)
+        {
+            return "Please wait for the current action to finish.";
+        }
+
+        return option.IsAvailable ? null : option.AvailabilityReason;
+    }
+
+    private async Task AddPromptEntryAsync()
+    {
+        if (!CanAddPromptEntry) return;
 
         _isSubmitting = true;
         _statusMessage = string.Empty;
@@ -194,31 +232,40 @@
 
         try
         {
+            var selectedIdentity = _selectedIntent == PromptIntent.Instruction ? null : _selectedIdentity;
+            if (_selectedIntent != PromptIntent.Instruction && selectedIdentity is null)
+            {
+                _statusMessage = "Select a character before adding the interaction.";
+                return;
+            }
+
             var submission = new UnifiedPromptSubmission
             {
                 SessionId = _session!.Id,
                 PromptText = _promptText.Trim(),
                 Intent = _selectedIntent,
-                SelectedIdentityId = _selectedIntent == PromptIntent.Instruction ? string.Empty : (_selectedIdentity?.Id ?? string.Empty),
-                SelectedIdentityType = _selectedIntent == PromptIntent.Instruction ? IdentityOptionSource.Persona : (_selectedIdentity?.SourceType ?? IdentityOptionSource.Persona),
+                SelectedIdentityId = selectedIdentity?.Id ?? string.Empty,
+                SelectedIdentityType = selectedIdentity?.SourceType ?? IdentityOptionSource.Persona,
                 CustomIdentityName = string.IsNullOrWhiteSpace(_customIdentityName) ? null : _customIdentityName.Trim(),
                 BehaviorModeAtSubmit = _selectedBehaviorMode,
-                SubmittedVia = _selectedIntent == PromptIntent.Instruction ? SubmissionSource.PlusButton : SubmissionSource.SendButton
+                SubmittedVia = SubmissionSource.PlusButton
             };
 
             Logger.LogInformation(
-                "Role-play unified prompt submitted with settings snapshot: session={SessionId}, mode={Mode}",
+                "Role-play entry added from + button without continuation: session={SessionId}, intent={Intent}, identity={IdentityId}",
                 _session.Id,
-                _selectedBehaviorMode);
+                _selectedIntent,
+                submission.SelectedIdentityId);
 
             await RolePlayEngine.SubmitPromptAsync(submission);
+
             _promptText = string.Empty;
             await LoadSessionAsync();
         }
         catch (Exception ex)
         {
             _statusMessage = $"Error: {ex.Message}";
-            Logger.LogError(ex, "Unified prompt submission failed for session {SessionId}", sessionId);
+            Logger.LogError(ex, "Prompt entry via + failed for session {SessionId}", sessionId);
         }
         finally
         {
@@ -228,9 +275,9 @@
 
     private async Task SubmitOrOverflowContinueAsync()
     {
-        if (CanSubmit)
+        if (CanSendPrompt)
         {
-            await SubmitPromptAsync();
+            await SubmitPromptWithContinuationAsync();
             return;
         }
 
@@ -244,19 +291,65 @@
         await ExecuteContinueAsync(request, "Continue failed.");
     }
 
-    private async Task AddManualInteractionAsync()
+    private async Task SubmitPromptWithContinuationAsync()
     {
-        if (_session is null || string.IsNullOrWhiteSpace(_promptText) || _selectedIdentity is null)
+        if (!CanSendPrompt)
+        {
+            if (HasPromptText)
+            {
+                _statusMessage = "Select a valid identity for this intent before sending.";
+            }
+
             return;
+        }
 
+        _isSubmitting = true;
+        _statusMessage = string.Empty;
         CloseAllPopups();
-        var customName = _selectedIdentity.SourceType == IdentityOptionSource.CustomCharacter
-            ? (string.IsNullOrWhiteSpace(_customIdentityName) ? "Custom" : _customIdentityName.Trim())
-            : null;
 
-        await RolePlayEngine.AddInteractionAsync(_session.Id, _selectedIdentity.Actor, _promptText, customName);
-        _promptText = string.Empty;
-        await LoadSessionAsync();
+        try
+        {
+            var awaitsModelResponse = _selectedIntent != PromptIntent.Instruction;
+            if (awaitsModelResponse)
+            {
+                _isAwaitingModelResponse = true;
+                _pendingResponseLabel = BuildPromptPendingResponseLabel();
+                await InvokeAsync(StateHasChanged);
+            }
+
+            var submission = new UnifiedPromptSubmission
+            {
+                SessionId = _session!.Id,
+                PromptText = _promptText.Trim(),
+                Intent = _selectedIntent,
+                SelectedIdentityId = _selectedIntent == PromptIntent.Instruction ? string.Empty : (_selectedIdentity?.Id ?? string.Empty),
+                SelectedIdentityType = _selectedIntent == PromptIntent.Instruction ? IdentityOptionSource.Persona : (_selectedIdentity?.SourceType ?? IdentityOptionSource.Persona),
+                CustomIdentityName = string.IsNullOrWhiteSpace(_customIdentityName) ? null : _customIdentityName.Trim(),
+                BehaviorModeAtSubmit = _selectedBehaviorMode,
+                SubmittedVia = SubmissionSource.SendButton
+            };
+
+            Logger.LogInformation(
+                "Role-play prompt submitted from send button: session={SessionId}, intent={Intent}, mode={Mode}",
+                _session.Id,
+                _selectedIntent,
+                _selectedBehaviorMode);
+
+            await RolePlayEngine.SubmitPromptAsync(submission);
+            _promptText = string.Empty;
+            await LoadSessionAsync();
+        }
+        catch (Exception ex)
+        {
+            _statusMessage = $"Error: {ex.Message}";
+            Logger.LogError(ex, "Prompt submission via send failed for session {SessionId}", sessionId);
+        }
+        finally
+        {
+            _isAwaitingModelResponse = false;
+            _pendingResponseLabel = string.Empty;
+            _isSubmitting = false;
+        }
     }
 
     private async Task ContinueFromIdentityPopupAsync()
@@ -379,16 +472,38 @@
 
     private async Task<bool> ExecuteContinueAsync(ContinueAsRequest request, string defaultErrorMessage)
     {
-        var result = await RolePlayEngine.ContinueAsAsync(request);
-        if (!result.Success)
+        _isSubmitting = true;
+        _statusMessage = string.Empty;
+        CloseAllPopups();
+        _isAwaitingModelResponse = true;
+        _pendingResponseLabel = BuildContinuePendingResponseLabel(request);
+        await InvokeAsync(StateHasChanged);
+
+        try
         {
-            _statusMessage = result.ValidationError ?? defaultErrorMessage;
+            var result = await RolePlayEngine.ContinueAsAsync(request);
+            if (!result.Success)
+            {
+                _statusMessage = result.ValidationError ?? defaultErrorMessage;
+                return false;
+            }
+
+            _statusMessage = string.Empty;
+            await LoadSessionAsync();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _statusMessage = $"Error: {ex.Message}";
+            Logger.LogError(ex, "Continue action failed for session {SessionId}", sessionId);
             return false;
         }
-
-        _statusMessage = string.Empty;
-        await LoadSessionAsync();
-        return true;
+        finally
+        {
+            _isAwaitingModelResponse = false;
+            _pendingResponseLabel = string.Empty;
+            _isSubmitting = false;
+        }
     }
 
     private async Task ForkAsync()
@@ -456,6 +571,58 @@
 
             return _selectedIdentity.DisplayName;
         }
+    }
+
+    private string BuildPromptPendingResponseLabel() => _selectedIntent switch
+    {
+        PromptIntent.Message => $"Waiting for {CurrentIdentityLabel} to reply...",
+        PromptIntent.Narrative => $"Waiting for {CurrentIdentityLabel} to continue the scene...",
+        _ => "Waiting for the next response..."
+    };
+
+    private string BuildContinuePendingResponseLabel(ContinueAsRequest request)
+    {
+        var selectedOptions = ContinueIdentityOptions
+            .Where(x => request.SelectedIdentityIds.Contains(x.Id, StringComparer.OrdinalIgnoreCase))
+            .ToList();
+
+        if (selectedOptions.Count == 1 && !request.IncludeNarrative)
+        {
+            return $"Waiting for {GetIdentityDisplayLabel(selectedOptions[0])} to continue...";
+        }
+
+        if (selectedOptions.Count > 1 && !request.IncludeNarrative)
+        {
+            return $"Waiting for {selectedOptions.Count} selected characters to continue...";
+        }
+
+        if (selectedOptions.Count == 0 && request.IncludeNarrative)
+        {
+            return "Waiting for narrative continuation...";
+        }
+
+        if (selectedOptions.Count == 1 && request.IncludeNarrative)
+        {
+            return $"Waiting for {GetIdentityDisplayLabel(selectedOptions[0])} and narrative continuation...";
+        }
+
+        if (selectedOptions.Count > 1 && request.IncludeNarrative)
+        {
+            return $"Waiting for {selectedOptions.Count} selected characters and narrative continuation...";
+        }
+
+        return "Waiting for the next response...";
+    }
+
+    private string GetIdentityDisplayLabel(IdentityOption option)
+    {
+        if (option.SourceType == IdentityOptionSource.CustomCharacter
+            && !string.IsNullOrWhiteSpace(_customIdentityName))
+        {
+            return _customIdentityName.Trim();
+        }
+
+        return option.DisplayName;
     }
 
     private string CurrentIdentityInitial => GetInitial(CurrentIdentityLabel);
@@ -534,6 +701,19 @@
                             </div>
                         </div>
                     }
+
+                    @if (ShowPendingResponseIndicator)
+                    {
+                        <div class="rw-interaction rw-interaction-pending" aria-live="polite" aria-busy="true">
+                            <div class="rw-actor-badge rw-pending-badge">
+                                <span class="rw-spinner rw-spinner-pending"></span>
+                            </div>
+                            <div class="rw-interaction-body">
+                                <div class="rw-actor-name">Generating</div>
+                                <div class="rw-pending-response-text">@_pendingResponseLabel</div>
+                            </div>
+                        </div>
+                    }
                 }
             </div>
 
@@ -590,13 +770,13 @@
                         <div class="rw-identity-list">
                             @foreach (var option in _identityOptions)
                             {
-                                <button class="rw-identity-item @(option == _selectedIdentity ? "is-selected" : "") @(!option.IsAvailable ? "is-disabled" : "")"
+                                <button class="rw-identity-item @(option.Id == _selectedIdentity?.Id ? "is-selected" : "") @(IsIdentityOptionDisabled(option) ? "is-disabled" : "")"
                                         @onclick="@(() => SelectIdentity(option))"
-                                        disabled="@(!option.IsAvailable)"
-                                        title="@option.AvailabilityReason">
+                                        disabled="@(IsIdentityOptionDisabled(option))"
+                                        title="@GetIdentityOptionTitle(option)">
                                     <span class="rw-identity-badge">@GetInitial(option.DisplayName)</span>
                                     <span class="rw-identity-name">@option.DisplayName</span>
-                                    @if (option == _selectedIdentity)
+                                    @if (option.Id == _selectedIdentity?.Id)
                                     {
                                         <span class="rw-popup-check">✓</span>
                                     }
@@ -617,16 +797,19 @@
                     <span class="rw-continue-label">Continue As</span>
                     <button class="rw-continue-chip @(HasPersonaContinueSelection && !_continueIncludeNarrative ? "is-active" : string.Empty)"
                             @onclick="ContinueAsYouQuickAsync"
+                            disabled="@_isSubmitting"
                             @onclick:stopPropagation>
                         You
                     </button>
                     <button class="rw-continue-chip @(HasNpcContinueSelection && _continueIncludeNarrative ? "is-active" : string.Empty)"
                             @onclick="ContinueAsNpcQuickAsync"
+                            disabled="@_isSubmitting"
                             @onclick:stopPropagation>
                         NPC
                     </button>
                     <button class="rw-continue-chip rw-continue-chip-custom @((HasCustomContinueSelection || ContinueSelectionCount > 0 || _continueIncludeNarrative || _continueCustomPopupOpen) ? "is-active" : string.Empty)"
                             @onclick="ToggleContinueCustomPopup"
+                            disabled="@_isSubmitting"
                             @onclick:stopPropagation>
                         Custom
                     </button>
@@ -640,21 +823,24 @@
                         </div>
                         <div class="rw-continue-options-row">
                             <button class="rw-popup-action-btn @(_continueIncludeNarrative ? "is-primary" : string.Empty)"
+                                    disabled="@_isSubmitting"
                                     @onclick="ToggleContinueNarrative">
                                 Narrative @(_continueIncludeNarrative ? "✓" : string.Empty)
                             </button>
                             @if (ContinueCustomIdentityOption is not null)
                             {
                                 <button class="rw-popup-action-btn @(HasCustomContinueSelection ? "is-primary" : string.Empty)"
+                                        disabled="@_isSubmitting"
                                         @onclick="SelectContinueCustomIdentityShortcut">
                                     Custom @((HasCustomContinueSelection) ? "✓" : string.Empty)
                                 </button>
                             }
                         </div>
                         <div class="rw-identity-list rw-continue-identity-list">
-                            @foreach (var option in ContinueIdentityOptions)
+                            @foreach (var option in _identityOptions)
                             {
-                                <button class="rw-identity-item @(IsContinueIdentitySelected(option) ? "is-selected" : string.Empty)"
+                                <button class="rw-identity-item @(IsContinueIdentitySelected(option) ? "is-selected" : string.Empty) @(_isSubmitting ? "is-disabled" : "")"
+                                        disabled="@_isSubmitting"
                                         @onclick="@(() => ToggleContinueIdentitySelection(option.Id))">
                                     <span class="rw-identity-badge">@GetInitial(option.DisplayName)</span>
                                     <span class="rw-identity-name">@option.DisplayName</span>
@@ -665,10 +851,20 @@
                                 </button>
                             }
                         </div>
+                        @if (HasCustomContinueSelection || _continueSelectedIdentityIds.Any(id => 
+                            _identityOptions.FirstOrDefault(o => o.Id == id)?.SourceType == IdentityOptionSource.CustomCharacter))
+                        {
+                            <div class="rw-custom-name-row">
+                                <input class="rw-custom-name-input" placeholder="Character name..."
+                                       @bind="_customIdentityName" @bind:event="oninput" disabled="@_isSubmitting" />
+                            </div>
+                        }
                         <div class="rw-popup-actions rw-continue-popup-actions">
                             <button class="rw-popup-action-btn"
+                                    disabled="@_isSubmitting"
                                     @onclick="ClearContinueAsAsync">Clear</button>
                             <button class="rw-popup-action-btn is-primary"
+                                    disabled="@_isSubmitting"
                                     @onclick="ContinueFromIdentityPopupAsync">Continue</button>
                         </div>
                     </div>
@@ -695,24 +891,24 @@
                                   disabled="@_isSubmitting"></textarea>
                         <div class="rw-prompt-toolbar">
                             <div class="rw-toolbar-left">
-                                <button class="rw-intent-btn" @onclick="ToggleIntentPopup" @onclick:stopPropagation title="Change message type">
+                                <button class="rw-intent-btn" @onclick="ToggleIntentPopup" @onclick:stopPropagation disabled="@_isSubmitting" title="Change message type">
                                     @IntentLabel <span class="rw-chevron">⌃</span>
                                 </button>
                             </div>
                             <div class="rw-toolbar-right">
                                 <button class="rw-add-btn"
-                                        @onclick="SubmitPromptAsync"
-                                        disabled="@(!CanSubmit)"
-                                        title="Submit with +">+</button>
-                                <button class="rw-send-btn @(CanSubmit ? "is-ready" : "")"
+                                        @onclick="AddPromptEntryAsync"
+                                        disabled="@(!CanAddPromptEntry)"
+                                        title="Add instruction or narrative">+</button>
+                                <button class="rw-send-btn is-ready"
                                         @onclick="SubmitOrOverflowContinueAsync"
                                         disabled="@(_isSubmitting)"
-                                        title="Send to AI">
+                                        title="Send text or continue based on recent context">
                                     @if (_isSubmitting)
                                     {
                                         <span class="rw-spinner"></span>
                                     }
-                                    else if (CanSubmit)
+                                    else if (HasPromptText)
                                     {
                                         <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                                             <path d="M8 13V3M3 8l5-5 5 5"/>
@@ -720,7 +916,7 @@
                                     }
                                     else
                                     {
-                                        <span style="letter-spacing:1px">···</span>
+                                        <span class="rw-send-ellipsis">•••</span>
                                     }
                                 </button>
                             </div>
