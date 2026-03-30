@@ -2,8 +2,13 @@
 @rendermode InteractiveServer
 
 @using DreamGenClone.Web.Application.StoryParser
+@using DreamGenClone.Web.Application.StoryAnalysis
+@using DreamGenClone.Domain.StoryAnalysis
+@using System.Text.Json
+@using System.Linq
 
 @inject StoryParserFacade ParserFacade
+@inject StoryAnalysisFacade AnalysisFacade
 @inject NavigationManager Navigation
 
 <PageTitle>StoryParser Detail</PageTitle>
@@ -21,6 +26,415 @@
     }
     else
     {
+        @* ── Action Bar at Top ── *@
+        <div class="card mb-3 border-primary">
+            <div class="card-body d-flex flex-wrap align-items-center gap-2">
+                <button class="btn btn-primary" @onclick="SummarizeStory" disabled="@_isLlmBusy">
+                    @if (_isSummarizing)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                        <span>Summarizing...</span>
+                    }
+                    else
+                    {
+                        <span>@(_summary is not null ? "Re-Summarize" : "Summarize")</span>
+                    }
+                </button>
+                <button class="btn btn-primary" @onclick="AnalyzeStory" disabled="@_isLlmBusy">
+                    @if (_isAnalyzing)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                        <span>Analyzing...</span>
+                    }
+                    else
+                    {
+                        <span>@(_analysis is not null ? "Re-Analyze" : "Analyze")</span>
+                    }
+                </button>
+                @if (_profiles.Count > 0)
+                {
+                    <div class="vr"></div>
+                    <select class="form-select form-select-sm" style="width: auto; min-width: 180px;" @onchange="OnProfileChanged">
+                        @foreach (var p in _profiles)
+                        {
+                            <option value="@p.Id" selected="@(p.Id == _selectedProfileId)">@p.Name @(p.IsDefault ? "★" : "")</option>
+                        }
+                    </select>
+                    <button class="btn btn-primary" @onclick="RankStory" disabled="@(_isLlmBusy || _themes.Count == 0)">
+                        @if (_isRanking)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                            <span>Ranking...</span>
+                        }
+                        else
+                        {
+                            <span>@(_ranking is not null ? "Re-Rank" : "Rank")</span>
+                        }
+                    </button>
+                    <a href="/ranking-profiles" class="btn btn-outline-secondary btn-sm">Manage Profiles</a>
+                }
+                else
+                {
+                    <a href="/ranking-profiles" class="btn btn-outline-secondary btn-sm">Create Ranking Profile</a>
+                }
+
+                <div class="vr"></div>
+                <div class="btn-group" style="position: relative;">
+                    <button class="btn btn-outline-secondary btn-sm" @onclick="ToggleManageDropdown">
+                        Manage &#x25BE;
+                    </button>
+                    @if (_showManageDropdown)
+                    {
+                        <div class="dropdown-menu show" style="position: absolute; right: 0; top: 100%; z-index: 1050;">
+                            <button class="dropdown-item" @onclick="ArchiveStoryAsync">&#x1F4E6; Archive</button>
+                            <button class="dropdown-item text-warning" @onclick="PurgeStoryAsync">&#x1F5D1; Purge (keep stub)</button>
+                            <hr class="dropdown-divider" />
+                            <button class="dropdown-item text-danger" @onclick="DeleteStoryAsync">&#x2715; Delete permanently</button>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        @* ── Summary Section ── *@
+        <div class="card mb-3">
+            <div class="card-header cursor-pointer" @onclick="() => _showSummary = !_showSummary">
+                @(_showSummary ? "▼" : "▶") Summary
+            </div>
+            @if (_showSummary)
+            {
+            <div class="card-body">
+                @if (!string.IsNullOrEmpty(_summaryError))
+                {
+                    <div class="alert alert-danger">@_summaryError</div>
+                }
+                @if (_summary is not null)
+                {
+                    <p style="white-space: pre-wrap;">@_summary.SummaryText</p>
+                    <small class="text-muted">Generated: @_summary.GeneratedUtc.ToLocalTime().ToString("g")</small>
+                }
+                else if (!_isSummarizing)
+                {
+                    <p class="text-muted">No summary yet. Click Summarize to generate one.</p>
+                }
+            </div>
+            }
+        </div>
+
+        @* ── Analysis Section ── *@
+        <div class="card mb-3">
+            <div class="card-header cursor-pointer" @onclick="() => _showAnalysis = !_showAnalysis">
+                @(_showAnalysis ? "▼" : "▶") Analysis
+            </div>
+            @if (_showAnalysis)
+            {
+            <div class="card-body">
+                @if (!string.IsNullOrEmpty(_analysisError))
+                {
+                    <div class="alert alert-danger">@_analysisError</div>
+                }
+                @if (_analysisDimensionErrors.Count > 0)
+                {
+                    @foreach (var err in _analysisDimensionErrors)
+                    {
+                        <div class="alert alert-warning">@err.Key: @err.Value</div>
+                    }
+                }
+                @if (_analysis is not null)
+                {
+                    @if (_parsedCharacters.Count > 0)
+                    {
+                        <div class="mb-3">
+                            <h6 class="cursor-pointer" @onclick="() => _showCharacters = !_showCharacters">
+                                @(_showCharacters ? "▼" : "▶") Characters
+                            </h6>
+                            @if (_showCharacters)
+                            {
+                                <table class="table table-sm table-striped">
+                                    <thead><tr><th>Name</th><th>Role</th><th>Description</th></tr></thead>
+                                    <tbody>
+                                        @foreach (var ch in _parsedCharacters)
+                                        {
+                                            <tr><td>@ch.Name</td><td><span class="badge bg-secondary">@ch.Role</span></td><td>@ch.Description</td></tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            }
+                        </div>
+                    }
+                    @if (_parsedThemes.Count > 0)
+                    {
+                        <div class="mb-3">
+                            <h6 class="cursor-pointer" @onclick="() => _showThemes = !_showThemes">
+                                @(_showThemes ? "▼" : "▶") Themes
+                            </h6>
+                            @if (_showThemes)
+                            {
+                                <table class="table table-sm table-striped">
+                                    <thead><tr><th>Theme</th><th>Prevalence</th><th>Description</th></tr></thead>
+                                    <tbody>
+                                        @foreach (var th in _parsedThemes)
+                                        {
+                                            <tr>
+                                                <td>@th.Name</td>
+                                                <td><span class="badge @(th.Prevalence == "primary" ? "bg-primary" : th.Prevalence == "secondary" ? "bg-info" : "bg-light text-dark")">@th.Prevalence</span></td>
+                                                <td>@th.Description</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            }
+                        </div>
+                    }
+                    @if (_parsedPlotStructure is not null)
+                    {
+                        <div class="mb-3">
+                            <h6 class="cursor-pointer" @onclick="() => _showPlotStructure = !_showPlotStructure">
+                                @(_showPlotStructure ? "▼" : "▶") Plot Structure
+                            </h6>
+                            @if (_showPlotStructure)
+                            {
+                                <dl class="row mb-0">
+                                    <dt class="col-sm-3">Exposition</dt>
+                                    <dd class="col-sm-9">@_parsedPlotStructure.Exposition</dd>
+                                    <dt class="col-sm-3">Rising Action</dt>
+                                    <dd class="col-sm-9">@_parsedPlotStructure.RisingAction</dd>
+                                    <dt class="col-sm-3">Climax</dt>
+                                    <dd class="col-sm-9">@_parsedPlotStructure.Climax</dd>
+                                    <dt class="col-sm-3">Falling Action</dt>
+                                    <dd class="col-sm-9">@_parsedPlotStructure.FallingAction</dd>
+                                    <dt class="col-sm-3">Resolution</dt>
+                                    <dd class="col-sm-9">@_parsedPlotStructure.Resolution</dd>
+                                </dl>
+                            }
+                        </div>
+                    }
+                    @if (_parsedWritingStyle is not null)
+                    {
+                        <div class="mb-3">
+                            <h6 class="cursor-pointer" @onclick="() => _showWritingStyle = !_showWritingStyle">
+                                @(_showWritingStyle ? "▼" : "▶") Writing Style
+                            </h6>
+                            @if (_showWritingStyle)
+                            {
+                                <dl class="row mb-0">
+                                    <dt class="col-sm-3">Tone</dt>
+                                    <dd class="col-sm-9">@_parsedWritingStyle.Tone</dd>
+                                    <dt class="col-sm-3">Perspective</dt>
+                                    <dd class="col-sm-9">@_parsedWritingStyle.Perspective</dd>
+                                    <dt class="col-sm-3">Pacing</dt>
+                                    <dd class="col-sm-9">@_parsedWritingStyle.Pacing</dd>
+                                    <dt class="col-sm-3">Language Complexity</dt>
+                                    <dd class="col-sm-9">@_parsedWritingStyle.LanguageComplexity</dd>
+                                    <dt class="col-sm-3">Notable Devices</dt>
+                                    <dd class="col-sm-9">
+                                        @if (_parsedWritingStyle.NotableDevices.Count > 0)
+                                        {
+                                            @foreach (var d in _parsedWritingStyle.NotableDevices)
+                                            {
+                                                <span class="badge bg-light text-dark me-1">@d</span>
+                                            }
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">None identified</span>
+                                        }
+                                    </dd>
+                                </dl>
+                            }
+                        </div>
+                    }
+                    <small class="text-muted">Generated: @_analysis.GeneratedUtc.ToLocalTime().ToString("g")</small>
+                }
+                else if (!_isAnalyzing)
+                {
+                    <p class="text-muted">No analysis yet. Click Analyze to generate one.</p>
+                }
+            </div>
+            }
+        </div>
+
+        @* ── Ranking Section (Profile-aware) ── *@
+        <div class="card mb-3">
+            <div class="card-header cursor-pointer" @onclick="() => _showRanking = !_showRanking">
+                @(_showRanking ? "▼" : "▶") Ranking
+                @if (_ranking is not null && !_showRanking)
+                {
+                    @if (_ranking.IsDisqualified)
+                    {
+                        <span class="badge bg-danger ms-2">DISQUALIFIED</span>
+                    }
+                    else
+                    {
+                        <span class="badge @GetScoreBadgeClass(_ranking.Score) ms-2">@_ranking.Score.ToString("F1")</span>
+                    }
+                }
+            </div>
+            @if (_showRanking)
+            {
+            <div class="card-body">
+                @if (_profiles.Count == 0)
+                {
+                    <p class="text-muted">No ranking profiles yet. <a href="/ranking-profiles">Create a profile</a> first.</p>
+                }
+                else
+                {
+
+                    @if (!string.IsNullOrEmpty(_rankingError))
+                    {
+                        <div class="alert alert-danger">@_rankingError</div>
+                    }
+                    @if (_rankingErrors.Count > 0)
+                    {
+                        @foreach (var err in _rankingErrors)
+                        {
+                            <div class="alert alert-warning">@err.Key: @err.Value</div>
+                        }
+                    }
+
+                    @* ── Theme Preferences for Selected Profile (inline edit) ── *@
+                    <div class="mb-3">
+                        <h6 class="cursor-pointer" @onclick="() => _showThemePrefs = !_showThemePrefs">
+                            @(_showThemePrefs ? "▼" : "▶") Themes (@_themes.Count)
+                        </h6>
+                        @if (_showThemePrefs)
+                        {
+                            @if (!string.IsNullOrEmpty(_themeError))
+                            {
+                                <div class="alert alert-danger">@_themeError</div>
+                            }
+                            @if (_themes.Count > 0)
+                            {
+                                <table class="table table-sm">
+                                    <thead><tr><th>Name</th><th>Description</th><th style="width: 140px;">Tier</th><th style="width: 140px;">Actions</th></tr></thead>
+                                    <tbody>
+                                        @foreach (var t in _themes)
+                                        {
+                                            @if (_editingThemeId == t.Id)
+                                            {
+                                                <tr>
+                                                    <td><input type="text" class="form-control form-control-sm" @bind="_editThemeName" /></td>
+                                                    <td><input type="text" class="form-control form-control-sm" @bind="_editThemeDescription" /></td>
+                                                    <td>
+                                                        <select class="form-select form-select-sm" @bind="_editThemeTier">
+                                                            @foreach (var tier in Enum.GetValues<ThemeTier>())
+                                                            {
+                                                                <option value="@tier">@FormatTier(tier)</option>
+                                                            }
+                                                        </select>
+                                                    </td>
+                                                    <td>
+                                                        <button class="btn btn-sm btn-success me-1" @onclick="SaveEditTheme" disabled="@_isThemeBusy">Save</button>
+                                                        <button class="btn btn-sm btn-secondary" @onclick="CancelEditTheme">Cancel</button>
+                                                    </td>
+                                                </tr>
+                                            }
+                                            else
+                                            {
+                                                <tr>
+                                                    <td>@t.Name</td>
+                                                    <td class="text-muted small">@t.Description</td>
+                                                    <td><span class="badge @GetTierBadgeClass(t.Tier)">@FormatTier(t.Tier)</span></td>
+                                                    <td>
+                                                        <button class="btn btn-sm btn-outline-primary me-1" @onclick="() => StartEditTheme(t)" disabled="@_isThemeBusy">Edit</button>
+                                                        <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteTheme(t.Id)" disabled="@_isThemeBusy">Delete</button>
+                                                    </td>
+                                                </tr>
+                                            }
+                                        }
+                                    </tbody>
+                                </table>
+                            }
+                            else
+                            {
+                                <p class="text-muted">No themes in this profile.</p>
+                            }
+                            <div class="border rounded p-2 mt-2">
+                                <div class="row g-2 align-items-end">
+                                    <div class="col">
+                                        <input type="text" class="form-control form-control-sm" @bind="_newThemeName" placeholder="Theme name..." />
+                                    </div>
+                                    <div class="col">
+                                        <input type="text" class="form-control form-control-sm" @bind="_newThemeDescription" placeholder="LLM guidance..." />
+                                    </div>
+                                    <div class="col-auto">
+                                        <select class="form-select form-select-sm" @bind="_newThemeTier" style="width: 140px;">
+                                            @foreach (var tier in Enum.GetValues<ThemeTier>())
+                                            {
+                                                <option value="@tier">@FormatTier(tier)</option>
+                                            }
+                                        </select>
+                                    </div>
+                                    <div class="col-auto">
+                                        <button class="btn btn-sm btn-primary" @onclick="AddTheme" disabled="@_isThemeBusy">Add</button>
+                                    </div>
+                                </div>
+                                @if (!string.IsNullOrEmpty(_themeValidationError))
+                                {
+                                    <div class="text-danger mt-1 small">@_themeValidationError</div>
+                                }
+                            </div>
+                        }
+                    </div>
+
+                    @* ── Ranking Results ── *@
+                    @if (_ranking is not null)
+                    {
+                        <div class="mb-3">
+                            @if (_ranking.IsDisqualified)
+                            {
+                                <h5>Score: <span class="badge bg-danger fs-5">DISQUALIFIED</span></h5>
+                            }
+                            else
+                            {
+                                <h5>Score: <span class="badge @GetScoreBadgeClass(_ranking.Score) fs-5">@_ranking.Score.ToString("F1")</span> / 100</h5>
+                            }
+                        </div>
+                        @if (_themeDetections.Count > 0)
+                        {
+                            <div class="mb-2">
+                                @foreach (var d in _themeDetections)
+                                {
+                                    @if (d.Detected)
+                                    {
+                                        <span class="badge @GetDetectionBadgeClass(d.Tier) me-1 mb-1" title="@d.Evidence">
+                                            @d.ThemeName <small>(@d.Intensity)</small>
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-light text-dark border me-1 mb-1">@d.ThemeName — not detected</span>
+                                    }
+                                }
+                            </div>
+                            <table class="table table-sm">
+                                <thead><tr><th>Theme</th><th>Tier</th><th>Detected</th><th>Intensity</th><th>Evidence</th></tr></thead>
+                                <tbody>
+                                    @foreach (var d in _themeDetections)
+                                    {
+                                        <tr class="@(d.Tier == "HardDealBreaker" && d.Detected ? "table-danger" : "")">
+                                            <td>@d.ThemeName</td>
+                                            <td><span class="badge @GetTierBadgeClassFromString(d.Tier)">@d.Tier</span></td>
+                                            <td>@(d.Detected ? "Yes" : "No")</td>
+                                            <td>@d.Intensity</td>
+                                            <td class="small">@d.Evidence</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        }
+                        <small class="text-muted">Generated: @_ranking.GeneratedUtc.ToLocalTime().ToString("g")</small>
+                    }
+                    else if (!_isRanking && _themes.Count > 0)
+                    {
+                        <p class="text-muted">No ranking yet for this profile. Click Rank to score this story.</p>
+                    }
+                }
+            </div>
+            }
+        </div>
+
+        @* ── Parsed Story Detail ── *@
         <div class="card mb-3">
             <div class="card-header">Parsed Story Detail</div>
             <div class="card-body">
@@ -78,12 +492,479 @@
 
     private DreamGenClone.Application.StoryParser.Models.ParsedStoryDetail? _detail;
     private bool _isLoading = true;
+    private bool _isLlmBusy;
+
+    // Summary state
+    private StorySummary? _summary;
+    private bool _isSummarizing;
+    private string? _summaryError;
+    private bool _showSummary = true;
+
+    // Analysis state
+    private StoryAnalysisResult? _analysis;
+    private bool _isAnalyzing;
+    private string? _analysisError;
+    private Dictionary<AnalysisDimension, string> _analysisDimensionErrors = new();
+    private bool _showAnalysis;
+    private bool _showCharacters = true;
+    private bool _showThemes = true;
+    private bool _showPlotStructure = true;
+    private bool _showWritingStyle = true;
+
+    // Parsed analysis view models
+    private List<CharacterEntry> _parsedCharacters = new();
+    private List<ThemeEntry> _parsedThemes = new();
+    private PlotStructureEntry? _parsedPlotStructure;
+    private WritingStyleEntry? _parsedWritingStyle;
+
+    // Ranking profiles state
+    private List<RankingProfile> _profiles = new();
+    private string? _selectedProfileId;
+    private bool _showRanking;
+    private bool _showThemePrefs = true;
+
+    // Theme preferences state
+    private List<ThemePreference> _themes = new();
+    private bool _isThemeBusy;
+    private string? _themeError;
+    private string? _themeValidationError;
+    private string _newThemeName = string.Empty;
+    private string _newThemeDescription = string.Empty;
+    private ThemeTier _newThemeTier = ThemeTier.NiceToHave;
+    private string? _editingThemeId;
+    private string _editThemeName = string.Empty;
+    private string _editThemeDescription = string.Empty;
+    private ThemeTier _editThemeTier = ThemeTier.NiceToHave;
+
+    // Ranking state
+    private StoryRankingResult? _ranking;
+    private List<DetectionEntry> _themeDetections = new();
+    private bool _isRanking;
+    private string? _rankingError;
+    private Dictionary<string, string> _rankingErrors = new();
+    private bool _showManageDropdown;
 
     protected override async Task OnParametersSetAsync()
     {
         _isLoading = true;
         _detail = await ParserFacade.GetByIdAsync(Id);
+
+        if (_detail is not null)
+        {
+            _summary = await AnalysisFacade.GetSummaryAsync(Id);
+            _analysis = await AnalysisFacade.GetAnalysisAsync(Id);
+            ParseAnalysisViewModels();
+            _profiles = await AnalysisFacade.ListProfilesAsync();
+            if (_profiles.Count > 0)
+            {
+                _selectedProfileId ??= _profiles[0].Id;
+                await LoadProfileData();
+            }
+        }
+
         _isLoading = false;
+    }
+
+    private async Task LoadProfileData()
+    {
+        if (_selectedProfileId is null) return;
+        _themes = await AnalysisFacade.ListThemesByProfileAsync(_selectedProfileId);
+        _ranking = await AnalysisFacade.GetRankingAsync(Id, _selectedProfileId);
+        _themeDetections = ParseThemeDetections(_ranking?.ThemeDetectionsJson);
+        _editingThemeId = null;
+        _rankingError = null;
+        _rankingErrors.Clear();
+    }
+
+    private async Task OnProfileChanged(ChangeEventArgs e)
+    {
+        _selectedProfileId = e.Value?.ToString();
+        await LoadProfileData();
+    }
+
+    private async Task SummarizeStory()
+    {
+        if (_isLlmBusy) return;
+        _isLlmBusy = true;
+        _isSummarizing = true;
+        _summaryError = null;
+        StateHasChanged();
+
+        try
+        {
+            var result = await AnalysisFacade.SummarizeAsync(Id);
+            if (result.Success)
+            {
+                _summary = await AnalysisFacade.GetSummaryAsync(Id);
+            }
+            else
+            {
+                _summaryError = result.ErrorMessage;
+            }
+        }
+        catch (Exception ex)
+        {
+            _summaryError = $"Unexpected error: {ex.Message}";
+        }
+        finally
+        {
+            _isSummarizing = false;
+            _isLlmBusy = false;
+        }
+    }
+
+    private async Task AnalyzeStory()
+    {
+        if (_isLlmBusy) return;
+        _isLlmBusy = true;
+        _isAnalyzing = true;
+        _analysisError = null;
+        _analysisDimensionErrors.Clear();
+        StateHasChanged();
+
+        try
+        {
+            var result = await AnalysisFacade.AnalyzeAsync(Id);
+            if (result.Success)
+            {
+                _analysis = await AnalysisFacade.GetAnalysisAsync(Id);
+                ParseAnalysisViewModels();
+            }
+            else
+            {
+                _analysisError = "Analysis failed for all dimensions.";
+            }
+            _analysisDimensionErrors = result.DimensionErrors;
+        }
+        catch (Exception ex)
+        {
+            _analysisError = $"Unexpected error: {ex.Message}";
+        }
+        finally
+        {
+            _isAnalyzing = false;
+            _isLlmBusy = false;
+        }
+    }
+
+    private void ParseAnalysisViewModels()
+    {
+        _parsedCharacters = new();
+        _parsedThemes = new();
+        _parsedPlotStructure = null;
+        _parsedWritingStyle = null;
+
+        if (_analysis is null) return;
+
+        try
+        {
+            if (!string.IsNullOrEmpty(_analysis.CharactersJson))
+            {
+                using var doc = JsonDocument.Parse(_analysis.CharactersJson);
+                if (doc.RootElement.TryGetProperty("characters", out var chars))
+                {
+                    foreach (var c in chars.EnumerateArray())
+                    {
+                        _parsedCharacters.Add(new CharacterEntry(
+                            c.TryGetProperty("name", out var n) ? n.GetString() ?? "—" : "—",
+                            c.TryGetProperty("role", out var r) ? r.GetString() ?? "—" : "—",
+                            c.TryGetProperty("description", out var d) ? d.GetString() ?? "—" : "—"));
+                    }
+                }
+            }
+        }
+        catch { /* graceful fallback — just leave empty */ }
+
+        try
+        {
+            if (!string.IsNullOrEmpty(_analysis.ThemesJson))
+            {
+                using var doc = JsonDocument.Parse(_analysis.ThemesJson);
+                if (doc.RootElement.TryGetProperty("themes", out var themes))
+                {
+                    foreach (var t in themes.EnumerateArray())
+                    {
+                        _parsedThemes.Add(new ThemeEntry(
+                            t.TryGetProperty("name", out var n) ? n.GetString() ?? "—" : "—",
+                            t.TryGetProperty("description", out var d) ? d.GetString() ?? "—" : "—",
+                            t.TryGetProperty("prevalence", out var p) ? p.GetString() ?? "minor" : "minor"));
+                    }
+                }
+            }
+        }
+        catch { }
+
+        try
+        {
+            if (!string.IsNullOrEmpty(_analysis.PlotStructureJson))
+            {
+                using var doc = JsonDocument.Parse(_analysis.PlotStructureJson);
+                var root = doc.RootElement;
+                _parsedPlotStructure = new PlotStructureEntry(
+                    root.TryGetProperty("exposition", out var ex) ? ex.GetString() ?? "—" : "—",
+                    root.TryGetProperty("risingAction", out var ra) ? ra.GetString() ?? "—" : "—",
+                    root.TryGetProperty("climax", out var cl) ? cl.GetString() ?? "—" : "—",
+                    root.TryGetProperty("fallingAction", out var fa) ? fa.GetString() ?? "—" : "—",
+                    root.TryGetProperty("resolution", out var re) ? re.GetString() ?? "—" : "—");
+            }
+        }
+        catch { }
+
+        try
+        {
+            if (!string.IsNullOrEmpty(_analysis.WritingStyleJson))
+            {
+                using var doc = JsonDocument.Parse(_analysis.WritingStyleJson);
+                var root = doc.RootElement;
+                var devices = new List<string>();
+                if (root.TryGetProperty("notableDevices", out var nd) && nd.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var d in nd.EnumerateArray())
+                        devices.Add(d.GetString() ?? "—");
+                }
+                _parsedWritingStyle = new WritingStyleEntry(
+                    root.TryGetProperty("tone", out var t) ? t.GetString() ?? "—" : "—",
+                    root.TryGetProperty("perspective", out var p) ? p.GetString() ?? "—" : "—",
+                    root.TryGetProperty("pacing", out var pa) ? pa.GetString() ?? "—" : "—",
+                    root.TryGetProperty("languageComplexity", out var lc) ? lc.GetString() ?? "—" : "—",
+                    devices);
+            }
+        }
+        catch { }
+    }
+
+    private sealed record CharacterEntry(string Name, string Role, string Description);
+    private sealed record ThemeEntry(string Name, string Description, string Prevalence);
+    private sealed record PlotStructureEntry(string Exposition, string RisingAction, string Climax, string FallingAction, string Resolution);
+    private sealed record WritingStyleEntry(string Tone, string Perspective, string Pacing, string LanguageComplexity, List<string> NotableDevices);
+
+    private async Task AddTheme()
+    {
+        if (_selectedProfileId is null) return;
+        _themeValidationError = null;
+        var name = _newThemeName?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            _themeValidationError = "Name is required.";
+            return;
+        }
+
+        _isThemeBusy = true;
+        try
+        {
+            await AnalysisFacade.CreateThemeAsync(_selectedProfileId, name, _newThemeDescription?.Trim() ?? string.Empty, _newThemeTier);
+            _themes = await AnalysisFacade.ListThemesByProfileAsync(_selectedProfileId);
+            _newThemeName = string.Empty;
+            _newThemeDescription = string.Empty;
+            _newThemeTier = ThemeTier.NiceToHave;
+        }
+        catch (Exception ex)
+        {
+            _themeError = ex.Message;
+        }
+        finally
+        {
+            _isThemeBusy = false;
+        }
+    }
+
+    private void StartEditTheme(ThemePreference t)
+    {
+        _editingThemeId = t.Id;
+        _editThemeName = t.Name;
+        _editThemeDescription = t.Description;
+        _editThemeTier = t.Tier;
+    }
+
+    private void CancelEditTheme()
+    {
+        _editingThemeId = null;
+    }
+
+    private async Task SaveEditTheme()
+    {
+        if (_editingThemeId is null || _selectedProfileId is null) return;
+        _themeValidationError = null;
+        var name = _editThemeName?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            _themeValidationError = "Name is required.";
+            return;
+        }
+
+        _isThemeBusy = true;
+        try
+        {
+            await AnalysisFacade.UpdateThemeAsync(_editingThemeId, name, _editThemeDescription?.Trim() ?? string.Empty, _editThemeTier);
+            _themes = await AnalysisFacade.ListThemesByProfileAsync(_selectedProfileId!);
+            _editingThemeId = null;
+        }
+        catch (Exception ex)
+        {
+            _themeError = ex.Message;
+        }
+        finally
+        {
+            _isThemeBusy = false;
+        }
+    }
+
+    private async Task DeleteTheme(string id)
+    {
+        if (_selectedProfileId is null) return;
+        _isThemeBusy = true;
+        try
+        {
+            await AnalysisFacade.DeleteThemeAsync(id);
+            _themes = await AnalysisFacade.ListThemesByProfileAsync(_selectedProfileId);
+        }
+        catch (Exception ex)
+        {
+            _themeError = ex.Message;
+        }
+        finally
+        {
+            _isThemeBusy = false;
+        }
+    }
+
+    private async Task RankStory()
+    {
+        if (_isLlmBusy || _selectedProfileId is null) return;
+        _isLlmBusy = true;
+        _isRanking = true;
+        _rankingError = null;
+        _rankingErrors.Clear();
+        StateHasChanged();
+
+        try
+        {
+            var result = await AnalysisFacade.RankAsync(Id, _selectedProfileId);
+            if (result.Success)
+            {
+                _ranking = await AnalysisFacade.GetRankingAsync(Id, _selectedProfileId);
+                _themeDetections = ParseThemeDetections(_ranking?.ThemeDetectionsJson);
+            }
+            else
+            {
+                _rankingError = result.Errors.Count > 0
+                    ? string.Join("; ", result.Errors.Select(e => $"{e.Key}: {e.Value}"))
+                    : "Ranking failed.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _rankingError = $"Unexpected error: {ex.Message}";
+        }
+        finally
+        {
+            _isRanking = false;
+            _isLlmBusy = false;
+        }
+    }
+
+    private sealed record DetectionEntry(string ThemeName, string Tier, bool Detected, string Intensity, string Evidence);
+
+    private static List<DetectionEntry> ParseThemeDetections(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return new();
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var list = new List<DetectionEntry>();
+            foreach (var elem in doc.RootElement.EnumerateArray())
+            {
+                list.Add(new DetectionEntry(
+                    elem.TryGetProperty("themeName", out var n) ? n.GetString() ?? "—" : "—",
+                    elem.TryGetProperty("tier", out var t) ? t.GetString() ?? "Neutral" : "Neutral",
+                    elem.TryGetProperty("detected", out var d) && d.GetBoolean(),
+                    elem.TryGetProperty("intensity", out var i) ? i.GetString() ?? "None" : "None",
+                    elem.TryGetProperty("evidence", out var e) ? e.GetString() ?? "" : ""
+                ));
+            }
+            return list;
+        }
+        catch
+        {
+            return new();
+        }
+    }
+
+    private static string FormatTier(ThemeTier tier) => tier switch
+    {
+        ThemeTier.MustHave => "Must-Have",
+        ThemeTier.StronglyPrefer => "Strongly Prefer",
+        ThemeTier.NiceToHave => "Nice to Have",
+        ThemeTier.Neutral => "Neutral",
+        ThemeTier.Dislike => "Dislike",
+        ThemeTier.HardDealBreaker => "Deal-Breaker",
+        _ => tier.ToString()
+    };
+
+    private static string GetTierBadgeClass(ThemeTier tier) => tier switch
+    {
+        ThemeTier.MustHave => "bg-success",
+        ThemeTier.StronglyPrefer => "bg-primary",
+        ThemeTier.NiceToHave => "bg-info text-dark",
+        ThemeTier.Neutral => "bg-secondary",
+        ThemeTier.Dislike => "bg-warning text-dark",
+        ThemeTier.HardDealBreaker => "bg-danger",
+        _ => "bg-secondary"
+    };
+
+    private static string GetTierBadgeClassFromString(string tier) => tier switch
+    {
+        "MustHave" => "bg-success",
+        "StronglyPrefer" => "bg-primary",
+        "NiceToHave" => "bg-info text-dark",
+        "Neutral" => "bg-secondary",
+        "Dislike" => "bg-warning text-dark",
+        "HardDealBreaker" => "bg-danger",
+        _ => "bg-secondary"
+    };
+
+    private static string GetScoreBadgeClass(double score) => score switch
+    {
+        >= 80 => "bg-success",
+        >= 60 => "bg-primary",
+        >= 40 => "bg-warning text-dark",
+        _ => "bg-danger"
+    };
+
+    private static string GetDetectionBadgeClass(string tier) => tier switch
+    {
+        "MustHave" => "bg-success",
+        "StronglyPrefer" => "bg-primary",
+        "NiceToHave" => "bg-info text-dark",
+        "Dislike" => "bg-warning text-dark",
+        "HardDealBreaker" => "bg-danger",
+        _ => "bg-secondary"
+    };
+
+    private void ToggleManageDropdown()
+    {
+        _showManageDropdown = !_showManageDropdown;
+    }
+
+    private async Task ArchiveStoryAsync()
+    {
+        _showManageDropdown = false;
+        await ParserFacade.ArchiveAsync(Id);
+        Navigation.NavigateTo("/storyparser");
+    }
+
+    private async Task PurgeStoryAsync()
+    {
+        _showManageDropdown = false;
+        await ParserFacade.PurgeAsync(Id);
+        Navigation.NavigateTo("/storyparser");
+    }
+
+    private async Task DeleteStoryAsync()
+    {
+        _showManageDropdown = false;
+        await ParserFacade.DeleteAsync(Id);
+        Navigation.NavigateTo("/storyparser");
     }
 
     private void BackToList()

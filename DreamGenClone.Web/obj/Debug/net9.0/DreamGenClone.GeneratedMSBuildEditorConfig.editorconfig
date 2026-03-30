@@ -36,6 +36,10 @@ build_metadata.AdditionalFiles.CssScope =
 build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xQYWdlc1xIb21lLnJhem9y
 build_metadata.AdditionalFiles.CssScope = 
 
+[D:/src/DreamGenClone/DreamGenClone.Web/Components/Pages/RankingProfiles.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xQYWdlc1xSYW5raW5nUHJvZmlsZXMucmF6b3I=
+build_metadata.AdditionalFiles.CssScope = 
+
 [D:/src/DreamGenClone/DreamGenClone.Web/Components/Pages/RolePlayCreate.razor]
 build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xQYWdlc1xSb2xlUGxheUNyZWF0ZS5yYXpvcg==
 build_metadata.AdditionalFiles.CssScope = 

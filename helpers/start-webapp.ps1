@@ -64,26 +64,33 @@ function Test-Prerequisites {
 }
 
 function Get-WebAppProcesses {
-    $dotnetProcesses = Get-CimInstance Win32_Process -Filter "Name = 'dotnet.exe'" |
+    $results = [System.Collections.ArrayList]::new()
+
+    $dotnetProcs = Get-CimInstance Win32_Process -Filter "Name = 'dotnet.exe'" -ErrorAction SilentlyContinue |
         Where-Object { $_.CommandLine -and $_.CommandLine -like "*DreamGenClone.Web*DreamGenClone.csproj*" }
+    if ($dotnetProcs) {
+        foreach ($p in @($dotnetProcs)) { [void]$results.Add($p) }
+    }
 
-    $appHostProcesses = Get-Process -Name "DreamGenClone" -ErrorAction SilentlyContinue |
-        ForEach-Object {
-            [PSCustomObject]@{
-                ProcessId = $_.Id
-                Name = $_.ProcessName
+    $appHostProcs = Get-Process -Name "DreamGenClone" -ErrorAction SilentlyContinue
+    if ($appHostProcs) {
+        foreach ($p in @($appHostProcs)) {
+            [void]$results.Add([PSCustomObject]@{
+                ProcessId = $p.Id
+                Name = $p.ProcessName
                 CommandLine = "DreamGenClone"
-            }
+            })
         }
+    }
 
-    @($dotnetProcesses) + @($appHostProcesses)
+    return $results
 }
 
 function Stop-WebAppProcesses {
     Write-Host "Checking for running DreamGenClone web app processes..." -ForegroundColor Yellow
-    $processes = Get-WebAppProcesses
+    [array]$processes = @(Get-WebAppProcesses)
 
-    if (-not $processes -or $processes.Count -eq 0) {
+    if ($processes.Count -eq 0) {
         Write-Host "No running web app processes found." -ForegroundColor Green
         Write-Host ""
         return
@@ -102,9 +109,9 @@ function Stop-WebAppProcesses {
 
 function Show-WebAppStatus {
     Write-Section "DreamGenClone Web App Status"
-    $processes = Get-WebAppProcesses
+    [array]$processes = @(Get-WebAppProcesses)
 
-    if (-not $processes -or $processes.Count -eq 0) {
+    if ($processes.Count -eq 0) {
         Write-Host "Status: Not running" -ForegroundColor Yellow
     }
     else {

@@ -6,5 +6,7 @@ public interface IStoryCatalogService
 {
     Task<IReadOnlyList<StoryCatalogEntry>> ListAsync(StoryCatalogQuery query, CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<StoryCatalogEntry>> ListAsync(StoryCatalogQuery query, bool includeArchived, CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<StoryCatalogEntry>> SearchAsync(StoryCatalogSearch query, CancellationToken cancellationToken = default);
 }

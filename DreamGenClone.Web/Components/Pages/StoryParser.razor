@@ -4,9 +4,13 @@
 @using DreamGenClone.Application.StoryParser.Models
 @using DreamGenClone.Domain.StoryParser
 @using DreamGenClone.Web.Application.StoryParser
+@using DreamGenClone.Web.Application.StoryAnalysis
+@using DreamGenClone.Domain.StoryAnalysis
+@using System.Linq
 
 @inject StoryParserFacade ParserFacade
 @inject StoryCatalogFacade CatalogFacade
+@inject StoryAnalysisFacade AnalysisFacade
 @inject NavigationManager Navigation
 
 <PageTitle>StoryParser</PageTitle>
@@ -35,13 +39,34 @@
             {
                 <div class="alert alert-info mt-3 mb-0">@_parseMessage</div>
             }
+            @if (_showDuplicateModal)
+            {
+                <div class="alert alert-warning mt-3 mb-0">
+                    <strong>Duplicate URL detected!</strong> This URL already exists in the catalog:
+                    <ul class="mb-2 mt-1">
+                        @foreach (var dup in _duplicateEntries)
+                        {
+                            <li>@(dup.Title ?? dup.SourceUrl) — @dup.ParseStatus @(dup.IsArchived ? "(Archived)" : "") — @dup.ParsedUtc.ToLocalTime().ToString("g")</li>
+                        }
+                    </ul>
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-sm btn-warning" @onclick="ParseReplace">Re-import (replace existing)</button>
+                        <button class="btn btn-sm btn-primary" @onclick="ParseAddNew">Add as new entry</button>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="CancelDuplicate">Cancel</button>
+                    </div>
+                </div>
+            }
         </div>
     </div>
 
     <div class="card">
         <div class="card-header d-flex justify-content-between align-items-center">
             <span>Parsed Stories</span>
-            <div class="d-flex gap-2">
+            <div class="d-flex gap-2 align-items-center">
+                <div class="form-check form-switch mb-0">
+                    <input class="form-check-input" type="checkbox" id="showArchived" @bind="_showArchived" @bind:after="LoadCatalogAsync" />
+                    <label class="form-check-label small" for="showArchived">Show Archived</label>
+                </div>
                 <input class="form-control" style="width: 240px;" @bind="_searchQuery" placeholder="Search metadata" />
                 <select class="form-select" style="width: 220px;" @bind="_selectedSortMode">
                     <option value="NewestFirst">Newest First</option>
@@ -60,9 +85,15 @@
                 <div class="list-group">
                     @foreach (var entry in _catalog)
                     {
-                        <div class="list-group-item list-group-item-action d-flex justify-content-between align-items-start" @onclick="() => OpenDetail(entry.Id)" style="cursor: pointer;">
+                        <div class="list-group-item list-group-item-action d-flex justify-content-between align-items-start @(entry.IsArchived ? "list-group-item-secondary" : "")" @onclick="() => OpenDetail(entry.Id)" style="cursor: pointer;">
                             <div>
-                                <div class="fw-semibold">@(string.IsNullOrWhiteSpace(entry.Title) ? entry.SourceUrl : entry.Title)</div>
+                                <div class="fw-semibold">
+                                    @if (entry.IsArchived)
+                                    {
+                                        <span class="badge bg-secondary me-1">Archived</span>
+                                    }
+                                    @(string.IsNullOrWhiteSpace(entry.Title) ? entry.SourceUrl : entry.Title)
+                                </div>
                                 @if (!string.IsNullOrWhiteSpace(entry.Author))
                                 {
                                     <small class="text-muted">by @entry.Author</small>
@@ -71,13 +102,42 @@
                             </div>
                             <div class="text-end d-flex align-items-start gap-2">
                                 <div>
+                                    @if (_storyScores.TryGetValue(entry.Id, out var scoreInfo))
+                                    {
+                                        @if (scoreInfo.IsDisqualified)
+                                        {
+                                            <span class="badge bg-danger">DQ</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge @GetScoreBadgeClass(scoreInfo.Score)">@scoreInfo.Score.ToString("F1")</span>
+                                        }
+                                    }
                                     <span class="badge text-bg-secondary">@entry.ParseStatus</span>
                                     <div><small>@entry.ParsedUtc.ToLocalTime().ToString("g")</small></div>
                                     <div><small>Pages: @entry.PageCount</small></div>
                                 </div>
-                                <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteStoryAsync(entry.Id)" @onclick:stopPropagation="true" title="Delete">
-                                    <span>&#x2715;</span>
-                                </button>
+                                <div class="btn-group" style="position: relative;" @onclick:stopPropagation="true">
+                                    <button class="btn btn-sm btn-outline-secondary" title="Actions" @onclick="() => ToggleDropdown(entry.Id)">
+                                        &#x22EE;
+                                    </button>
+                                    @if (_openDropdownId == entry.Id)
+                                    {
+                                        <div class="dropdown-menu dropdown-menu-end show" style="position: absolute; right: 0; top: 100%; z-index: 1050;">
+                                            @if (entry.IsArchived)
+                                            {
+                                                <button class="dropdown-item" @onclick="() => UnarchiveStoryAsync(entry.Id)">&#x21A9; Restore</button>
+                                            }
+                                            else
+                                            {
+                                                <button class="dropdown-item" @onclick="() => ArchiveStoryAsync(entry.Id)">&#x1F4E6; Archive</button>
+                                            }
+                                            <button class="dropdown-item text-warning" @onclick="() => PurgeStoryAsync(entry.Id)">&#x1F5D1; Purge (keep stub)</button>
+                                            <hr class="dropdown-divider" />
+                                            <button class="dropdown-item text-danger" @onclick="() => DeleteStoryAsync(entry.Id)">&#x2715; Delete permanently</button>
+                                        </div>
+                                    }
+                                </div>
                             </div>
                         </div>
                     }
@@ -94,7 +154,12 @@
     private string _selectedSortMode = nameof(CatalogSortMode.NewestFirst);
     private string _selectedErrorMode = nameof(ParseErrorMode.FailFast);
     private bool _isParsing;
+    private bool _showArchived;
+    private bool _showDuplicateModal;
     private List<StoryCatalogEntry> _catalog = [];
+    private Dictionary<string, (double Score, bool IsDisqualified)> _storyScores = new();
+    private List<ParsedStoryRecord> _duplicateEntries = [];
+    private string? _openDropdownId;
 
     protected override async Task OnInitializedAsync()
     {
@@ -102,6 +167,83 @@
     }
 
     private async Task ParseAsync()
+    {
+        _isParsing = true;
+        _parseMessage = string.Empty;
+        _showDuplicateModal = false;
+
+        try
+        {
+            // Check for duplicates first
+            var duplicates = await ParserFacade.FindBySourceUrlAsync(_sourceUrl.Trim());
+            if (duplicates.Count > 0)
+            {
+                _duplicateEntries = duplicates;
+                _showDuplicateModal = true;
+                _isParsing = false;
+                return;
+            }
+
+            await ExecuteParseAsync(deleteExistingId: null);
+        }
+        catch (Exception ex)
+        {
+            _parseMessage = ex.Message;
+        }
+        finally
+        {
+            _isParsing = false;
+        }
+    }
+
+    private async Task ParseReplace()
+    {
+        _showDuplicateModal = false;
+        _isParsing = true;
+        try
+        {
+            // Delete all existing entries for this URL, then re-parse
+            foreach (var dup in _duplicateEntries)
+            {
+                await ParserFacade.DeleteAsync(dup.Id);
+            }
+            await ExecuteParseAsync(deleteExistingId: null);
+        }
+        catch (Exception ex)
+        {
+            _parseMessage = ex.Message;
+        }
+        finally
+        {
+            _isParsing = false;
+        }
+    }
+
+    private async Task ParseAddNew()
+    {
+        _showDuplicateModal = false;
+        _isParsing = true;
+        try
+        {
+            await ExecuteParseAsync(deleteExistingId: null);
+        }
+        catch (Exception ex)
+        {
+            _parseMessage = ex.Message;
+        }
+        finally
+        {
+            _isParsing = false;
+        }
+    }
+
+    private void CancelDuplicate()
+    {
+        _showDuplicateModal = false;
+        _duplicateEntries = [];
+    }
+
+    private async Task ExecuteParseAsync(string? deleteExistingId)
     {
         _isParsing = true;
         _parseMessage = string.Empty;
@@ -115,8 +257,54 @@
             };
 
             var result = await ParserFacade.ParseFromUrlAsync(request);
-            _parseMessage = $"Status: {result.ParseStatus}, Pages: {result.PageCount}, Errors: {result.Diagnostics.Errors.Count}";
-            await LoadCatalogAsync();
+            var storyId = result.ParsedStoryId;
+            if (string.IsNullOrEmpty(storyId))
+            {
+                _parseMessage = $"Parse failed: {result.ParseStatus}, Errors: {result.Diagnostics.Errors.Count}";
+                await LoadCatalogAsync();
+                return;
+            }
+            _parseMessage = $"Parsed: {result.ParseStatus}, Pages: {result.PageCount}. Running analysis pipeline...";
+            StateHasChanged();
+
+            // Auto-run: Summarize
+            try
+            {
+                _parseMessage = "Running: Summarize...";
+                StateHasChanged();
+                await AnalysisFacade.SummarizeAsync(storyId);
+            }
+            catch { /* continue pipeline even if summary fails */ }
+
+            // Auto-run: Analyze
+            try
+            {
+                _parseMessage = "Running: Analyze...";
+                StateHasChanged();
+                await AnalysisFacade.AnalyzeAsync(storyId);
+            }
+            catch { /* continue pipeline even if analysis fails */ }
+
+            // Auto-run: Rank with default profile (if one exists)
+            try
+            {
+                var profiles = await AnalysisFacade.ListProfilesAsync();
+                var defaultProfile = profiles.FirstOrDefault(p => p.IsDefault) ?? profiles.FirstOrDefault();
+                if (defaultProfile is not null)
+                {
+                    var themes = await AnalysisFacade.ListThemesByProfileAsync(defaultProfile.Id);
+                    if (themes.Count > 0)
+                    {
+                        _parseMessage = $"Running: Rank with profile '{defaultProfile.Name}'...";
+                        StateHasChanged();
+                        await AnalysisFacade.RankAsync(storyId, defaultProfile.Id);
+                    }
+                }
+            }
+            catch { /* continue even if ranking fails */ }
+
+            // Navigate to the detail page
+            Navigation.NavigateTo($"/storyparser/detail/{storyId}");
         }
         catch (Exception ex)
         {
@@ -137,7 +325,7 @@
         IReadOnlyList<StoryCatalogEntry> rows;
         if (string.IsNullOrWhiteSpace(_searchQuery))
         {
-            rows = await CatalogFacade.ListAsync(sortMode);
+            rows = await CatalogFacade.ListAsync(sortMode, _showArchived);
         }
         else
         {
@@ -145,16 +333,74 @@
         }
 
         _catalog = rows.ToList();
+        await LoadRankingScoresAsync();
     }
+
+    private async Task LoadRankingScoresAsync()
+    {
+        _storyScores.Clear();
+        try
+        {
+            var profiles = await AnalysisFacade.ListProfilesAsync();
+            if (profiles.Count == 0) return;
+
+            var profile = profiles.FirstOrDefault(p => p.IsDefault) ?? profiles[0];
+
+            foreach (var entry in _catalog)
+            {
+                var ranking = await AnalysisFacade.GetRankingAsync(entry.Id, profile.Id);
+                if (ranking is not null)
+                {
+                    _storyScores[entry.Id] = (ranking.Score, ranking.IsDisqualified);
+                }
+            }
+        }
+        catch { /* don't break catalog display if ranking lookup fails */ }
+    }
+
+    private static string GetScoreBadgeClass(double score) => score switch
+    {
+        >= 80 => "bg-success",
+        >= 60 => "bg-primary",
+        >= 40 => "bg-warning text-dark",
+        _ => "bg-danger"
+    };
 
     private void OpenDetail(string id)
     {
         Navigation.NavigateTo($"/storyparser/detail/{id}");
     }
 
+    private void ToggleDropdown(string id)
+    {
+        _openDropdownId = _openDropdownId == id ? null : id;
+    }
+
     private async Task DeleteStoryAsync(string id)
     {
+        _openDropdownId = null;
         await ParserFacade.DeleteAsync(id);
+        await LoadCatalogAsync();
+    }
+
+    private async Task ArchiveStoryAsync(string id)
+    {
+        _openDropdownId = null;
+        await ParserFacade.ArchiveAsync(id);
+        await LoadCatalogAsync();
+    }
+
+    private async Task UnarchiveStoryAsync(string id)
+    {
+        _openDropdownId = null;
+        await ParserFacade.UnarchiveAsync(id);
+        await LoadCatalogAsync();
+    }
+
+    private async Task PurgeStoryAsync(string id)
+    {
+        _openDropdownId = null;
+        await ParserFacade.PurgeAsync(id);
         await LoadCatalogAsync();
     }
 }

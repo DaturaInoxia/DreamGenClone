@@ -202,9 +202,35 @@ public sealed class StoryParserService : IStoryParserService, IStoryCatalogServi
         return await _persistence.DeleteParsedStoryAsync(id, cancellationToken);
     }
 
+    public async Task<bool> ArchiveParsedStoryAsync(string id, CancellationToken cancellationToken = default)
+    {
+        return await _persistence.ArchiveParsedStoryAsync(id, cancellationToken);
+    }
+
+    public async Task<bool> UnarchiveParsedStoryAsync(string id, CancellationToken cancellationToken = default)
+    {
+        return await _persistence.UnarchiveParsedStoryAsync(id, cancellationToken);
+    }
+
+    public async Task<bool> PurgeParsedStoryAsync(string id, CancellationToken cancellationToken = default)
+    {
+        return await _persistence.PurgeParsedStoryAsync(id, cancellationToken);
+    }
+
+    public async Task<List<ParsedStoryRecord>> FindBySourceUrlAsync(string sourceUrl, CancellationToken cancellationToken = default)
+    {
+        return await _persistence.FindBySourceUrlAsync(sourceUrl, cancellationToken);
+    }
+
     public async Task<IReadOnlyList<StoryCatalogEntry>> ListAsync(StoryCatalogQuery query, CancellationToken cancellationToken = default)
     {
         var records = await _persistence.LoadParsedStoriesAsync(query.SortMode, query.Limit, query.Offset, cancellationToken);
+        return records.Select(ToCatalogEntry).ToList();
+    }
+
+    public async Task<IReadOnlyList<StoryCatalogEntry>> ListAsync(StoryCatalogQuery query, bool includeArchived, CancellationToken cancellationToken = default)
+    {
+        var records = await _persistence.LoadParsedStoriesAsync(query.SortMode, includeArchived, query.Limit, query.Offset, cancellationToken);
         return records.Select(ToCatalogEntry).ToList();
     }
 
@@ -225,7 +251,8 @@ public sealed class StoryParserService : IStoryParserService, IStoryCatalogServi
             SourceDomain = record.SourceDomain,
             ParsedUtc = record.ParsedUtc,
             ParseStatus = record.ParseStatus,
-            PageCount = record.PageCount
+            PageCount = record.PageCount,
+            IsArchived = record.IsArchived
         };
     }
 

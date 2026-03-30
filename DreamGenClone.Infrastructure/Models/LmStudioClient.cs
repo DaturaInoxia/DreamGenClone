@@ -84,6 +84,45 @@ public sealed class LmStudioClient : ILmStudioClient
         return content ?? string.Empty;
     }
 
+    public async Task<string> GenerateAsync(
+        string systemMessage,
+        string userMessage,
+        string model,
+        double temperature,
+        double topP,
+        int maxTokens,
+        CancellationToken cancellationToken = default)
+    {
+        var payload = new ChatRequest
+        {
+            Model = model,
+            Messages =
+            [
+                new ChatMessage("system", systemMessage),
+                new ChatMessage("user", userMessage)
+            ],
+            Temperature = temperature,
+            TopP = topP,
+            MaxTokens = maxTokens
+        };
+
+        using var response = await _httpClient.PostAsJsonAsync(_options.ChatCompletionsPath, payload, cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("LM Studio request failed with {StatusCode}: {Error}", response.StatusCode, errorContent);
+            response.EnsureSuccessStatusCode();
+        }
+
+        var result = await response.Content.ReadFromJsonAsync<ChatResponse>(cancellationToken: cancellationToken);
+        var content = result?.Choices?.FirstOrDefault()?.Message?.Content;
+
+        _logger.LogInformation("LM Studio generation request completed with model {Model}", model);
+
+        return content ?? string.Empty;
+    }
+
     private sealed class ChatRequest
     {
         [JsonPropertyName("model")]

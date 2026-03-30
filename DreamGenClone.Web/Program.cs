@@ -11,6 +11,8 @@ using DreamGenClone.Infrastructure.Models;
 using DreamGenClone.Infrastructure.Persistence;
 using DreamGenClone.Infrastructure.StoryParser;
 using DreamGenClone.Infrastructure.Storage;
+using DreamGenClone.Infrastructure.StoryAnalysis;
+using DreamGenClone.Application.StoryAnalysis;
 using DreamGenClone.Web.Application.Assistants;
 using DreamGenClone.Web.Application.Export;
 using DreamGenClone.Web.Application.Import;
@@ -20,6 +22,7 @@ using DreamGenClone.Web.Application.Scenarios;
 using DreamGenClone.Web.Application.Sessions;
 using DreamGenClone.Web.Application.StoryParser;
 using DreamGenClone.Web.Application.Story;
+using DreamGenClone.Web.Application.StoryAnalysis;
 using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -31,6 +34,7 @@ LoggingSetup.ConfigureSerilog(builder);
 builder.Services.Configure<LmStudioOptions>(builder.Configuration.GetSection(LmStudioOptions.SectionName));
 builder.Services.Configure<PersistenceOptions>(builder.Configuration.GetSection(PersistenceOptions.SectionName));
 builder.Services.Configure<StoryParserOptions>(builder.Configuration.GetSection(StoryParserOptions.SectionName));
+builder.Services.Configure<StoryAnalysisOptions>(builder.Configuration.GetSection(StoryAnalysisOptions.SectionName));
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
@@ -82,6 +86,12 @@ builder.Services.AddScoped<IStoryParserService>(serviceProvider => serviceProvid
 builder.Services.AddScoped<IStoryCatalogService>(serviceProvider => serviceProvider.GetRequiredService<StoryParserService>());
 builder.Services.AddScoped<StoryParserFacade>();
 builder.Services.AddScoped<StoryCatalogFacade>();
+builder.Services.AddScoped<IStorySummaryService, StorySummaryService>();
+builder.Services.AddScoped<IStoryAnalysisService, StoryAnalysisService>();
+builder.Services.AddScoped<IRankingProfileService, RankingProfileService>();
+builder.Services.AddScoped<IThemePreferenceService, ThemePreferenceService>();
+builder.Services.AddScoped<IStoryRankingService, StoryRankingService>();
+builder.Services.AddScoped<StoryAnalysisFacade>();
 
 var app = builder.Build();
 

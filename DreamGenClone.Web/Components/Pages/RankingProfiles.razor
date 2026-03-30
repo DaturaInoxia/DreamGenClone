@@ -1,0 +1,473 @@
+@page "/ranking-profiles"
+@page "/ranking-profiles/{ProfileId}"
+@rendermode InteractiveServer
+
+@using DreamGenClone.Web.Application.StoryAnalysis
+@using DreamGenClone.Domain.StoryAnalysis
+
+@inject StoryAnalysisFacade Facade
+@inject NavigationManager Navigation
+
+<PageTitle>Ranking Profiles</PageTitle>
+
+<div class="container-fluid mt-4">
+    <h3>Ranking Profiles</h3>
+    <p class="text-muted">Create named profiles, each containing theme preferences to detect and score stories against.</p>
+
+    <div class="row">
+        @* ── Left: Profile List ── *@
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">Profiles</div>
+                <div class="card-body">
+                    @if (_profiles.Count > 0)
+                    {
+                        <div class="list-group">
+                            @foreach (var p in _profiles)
+                            {
+                                <button type="button"
+                                        class="list-group-item list-group-item-action @(p.Id == _selectedProfileId ? "active" : "")"
+                                        @onclick="() => SelectProfile(p.Id)">
+                                    @p.Name
+                                    @if (p.IsDefault)
+                                    {
+                                        <span class="badge bg-warning text-dark ms-1">★ Default</span>
+                                    }
+                                    <small class="d-block @(p.Id == _selectedProfileId ? "text-light" : "text-muted")">
+                                        Created: @p.CreatedUtc.ToLocalTime().ToString("g")
+                                    </small>
+                                </button>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <p class="text-muted">No profiles yet. Create one below.</p>
+                    }
+
+                    <div class="mt-3">
+                        <div class="input-group input-group-sm">
+                            <input type="text" class="form-control" placeholder="New profile name..." @bind="_newProfileName" />
+                            <button class="btn btn-primary" @onclick="CreateProfile" disabled="@_isBusy">Create</button>
+                        </div>
+                        @if (!string.IsNullOrEmpty(_profileError))
+                        {
+                            <div class="text-danger mt-1 small">@_profileError</div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @* ── Right: Selected Profile Detail ── *@
+        <div class="col-md-8">
+            @if (_selectedProfile is not null)
+            {
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span>
+                            @if (_isEditingProfileName)
+                            {
+                                <div class="input-group input-group-sm" style="max-width: 300px;">
+                                    <input type="text" class="form-control" @bind="_editProfileName" />
+                                    <button class="btn btn-success btn-sm" @onclick="SaveProfileName" disabled="@_isBusy">Save</button>
+                                    <button class="btn btn-secondary btn-sm" @onclick="() => _isEditingProfileName = false">Cancel</button>
+                                </div>
+                            }
+                            else
+                            {
+                                <strong>@_selectedProfile.Name</strong>
+                                <button class="btn btn-sm btn-outline-secondary ms-2" @onclick="StartEditProfileName">Rename</button>
+                            }
+                        </span>
+                        <button class="btn btn-sm btn-outline-danger" @onclick="DeleteProfile" disabled="@_isBusy">Delete Profile</button>
+                        @if (_selectedProfile is not null && !_selectedProfile.IsDefault)
+                        {
+                            <button class="btn btn-sm btn-outline-warning ms-1" @onclick="SetAsDefault" disabled="@_isBusy">Set as Default</button>
+                        }
+                        else if (_selectedProfile is not null && _selectedProfile.IsDefault)
+                        {
+                            <span class="badge bg-warning text-dark align-self-center ms-1">★ Default</span>
+                        }
+                    </div>
+                    <div class="card-body">
+                        @if (!string.IsNullOrEmpty(_themeError))
+                        {
+                            <div class="alert alert-danger">@_themeError</div>
+                        }
+
+                        <h6>Theme Preferences</h6>
+                        @if (_themes.Count > 0)
+                        {
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Description</th>
+                                        <th style="width: 160px;">Tier</th>
+                                        <th style="width: 140px;">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var t in _themes)
+                                    {
+                                        @if (_editingThemeId == t.Id)
+                                        {
+                                            <tr>
+                                                <td><input type="text" class="form-control form-control-sm" @bind="_editThemeName" /></td>
+                                                <td><input type="text" class="form-control form-control-sm" @bind="_editThemeDescription" /></td>
+                                                <td>
+                                                    <select class="form-select form-select-sm" @bind="_editThemeTier">
+                                                        @foreach (var tier in Enum.GetValues<ThemeTier>())
+                                                        {
+                                                            <option value="@tier">@FormatTier(tier)</option>
+                                                        }
+                                                    </select>
+                                                </td>
+                                                <td>
+                                                    <button class="btn btn-sm btn-success me-1" @onclick="SaveEditTheme" disabled="@_isBusy">Save</button>
+                                                    <button class="btn btn-sm btn-secondary" @onclick="CancelEditTheme">Cancel</button>
+                                                </td>
+                                            </tr>
+                                        }
+                                        else
+                                        {
+                                            <tr>
+                                                <td>@t.Name</td>
+                                                <td class="text-muted small">@t.Description</td>
+                                                <td><span class="badge @GetTierBadgeClass(t.Tier)">@FormatTier(t.Tier)</span></td>
+                                                <td>
+                                                    <button class="btn btn-sm btn-outline-primary me-1" @onclick="() => StartEditTheme(t)" disabled="@_isBusy">Edit</button>
+                                                    <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteTheme(t.Id)" disabled="@_isBusy">Delete</button>
+                                                </td>
+                                            </tr>
+                                        }
+                                    }
+                                </tbody>
+                            </table>
+                        }
+                        else
+                        {
+                            <p class="text-muted">No theme preferences in this profile yet.</p>
+                        }
+
+                        <div class="border rounded p-2 mt-2">
+                            <h6>Add Theme</h6>
+                            <div class="row g-2 align-items-end">
+                                <div class="col">
+                                    <label class="form-label">Name</label>
+                                    <input type="text" class="form-control form-control-sm" @bind="_newThemeName" placeholder="e.g., Detailed sex scenes" />
+                                </div>
+                                <div class="col">
+                                    <label class="form-label">Description (LLM guidance)</label>
+                                    <input type="text" class="form-control form-control-sm" @bind="_newThemeDescription" placeholder="e.g., Explicit, detailed sexual content beyond fade-to-black" />
+                                </div>
+                                <div class="col-auto">
+                                    <label class="form-label">Tier</label>
+                                    <select class="form-select form-select-sm" @bind="_newThemeTier" style="width: 160px;">
+                                        @foreach (var tier in Enum.GetValues<ThemeTier>())
+                                        {
+                                            <option value="@tier">@FormatTier(tier)</option>
+                                        }
+                                    </select>
+                                </div>
+                                <div class="col-auto">
+                                    <button class="btn btn-sm btn-primary" @onclick="AddTheme" disabled="@_isBusy">Add</button>
+                                </div>
+                            </div>
+                            @if (!string.IsNullOrEmpty(_themeValidationError))
+                            {
+                                <div class="text-danger mt-1 small">@_themeValidationError</div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="card">
+                    <div class="card-body text-muted">Select a profile from the list, or create a new one.</div>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public string? ProfileId { get; set; }
+
+    private List<RankingProfile> _profiles = new();
+    private string? _selectedProfileId;
+    private RankingProfile? _selectedProfile;
+    private List<ThemePreference> _themes = new();
+
+    private bool _isBusy;
+    private string _newProfileName = string.Empty;
+    private string? _profileError;
+
+    // Profile rename
+    private bool _isEditingProfileName;
+    private string _editProfileName = string.Empty;
+
+    // Theme state
+    private string? _themeError;
+    private string? _themeValidationError;
+    private string _newThemeName = string.Empty;
+    private string _newThemeDescription = string.Empty;
+    private ThemeTier _newThemeTier = ThemeTier.NiceToHave;
+    private string? _editingThemeId;
+    private string _editThemeName = string.Empty;
+    private string _editThemeDescription = string.Empty;
+    private ThemeTier _editThemeTier = ThemeTier.NiceToHave;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _profiles = await Facade.ListProfilesAsync();
+
+        if (!string.IsNullOrEmpty(ProfileId))
+        {
+            await SelectProfile(ProfileId);
+        }
+        else if (_selectedProfileId is null && _profiles.Count > 0)
+        {
+            await SelectProfile(_profiles[0].Id);
+        }
+    }
+
+    private async Task SelectProfile(string profileId)
+    {
+        _selectedProfileId = profileId;
+        _selectedProfile = _profiles.FirstOrDefault(p => p.Id == profileId);
+        _themes = _selectedProfile is not null
+            ? await Facade.ListThemesByProfileAsync(profileId)
+            : new();
+        _editingThemeId = null;
+        _themeError = null;
+        _themeValidationError = null;
+    }
+
+    private async Task CreateProfile()
+    {
+        _profileError = null;
+        var name = _newProfileName?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            _profileError = "Name is required.";
+            return;
+        }
+
+        _isBusy = true;
+        try
+        {
+            var profile = await Facade.CreateProfileAsync(name);
+            _profiles = await Facade.ListProfilesAsync();
+            _newProfileName = string.Empty;
+            await SelectProfile(profile.Id);
+        }
+        catch (Exception ex)
+        {
+            _profileError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private void StartEditProfileName()
+    {
+        _isEditingProfileName = true;
+        _editProfileName = _selectedProfile?.Name ?? string.Empty;
+    }
+
+    private async Task SaveProfileName()
+    {
+        if (_selectedProfileId is null) return;
+        _profileError = null;
+        _isBusy = true;
+        try
+        {
+            await Facade.UpdateProfileAsync(_selectedProfileId, _editProfileName);
+            _profiles = await Facade.ListProfilesAsync();
+            _selectedProfile = _profiles.FirstOrDefault(p => p.Id == _selectedProfileId);
+            _isEditingProfileName = false;
+        }
+        catch (Exception ex)
+        {
+            _profileError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task DeleteProfile()
+    {
+        if (_selectedProfileId is null) return;
+        _isBusy = true;
+        try
+        {
+            await Facade.DeleteProfileAsync(_selectedProfileId);
+            _profiles = await Facade.ListProfilesAsync();
+            _selectedProfileId = null;
+            _selectedProfile = null;
+            _themes = new();
+            if (_profiles.Count > 0)
+                await SelectProfile(_profiles[0].Id);
+        }
+        catch (Exception ex)
+        {
+            _profileError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task SetAsDefault()
+    {
+        if (_selectedProfileId is null) return;
+        _isBusy = true;
+        try
+        {
+            await Facade.SetProfileDefaultAsync(_selectedProfileId);
+            _profiles = await Facade.ListProfilesAsync();
+            _selectedProfile = _profiles.FirstOrDefault(p => p.Id == _selectedProfileId);
+        }
+        catch (Exception ex)
+        {
+            _profileError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task AddTheme()
+    {
+        if (_selectedProfileId is null) return;
+        _themeValidationError = null;
+        var name = _newThemeName?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            _themeValidationError = "Name is required.";
+            return;
+        }
+        var desc = _newThemeDescription?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(desc))
+        {
+            _themeValidationError = "Description is required (guides the LLM).";
+            return;
+        }
+
+        _isBusy = true;
+        try
+        {
+            await Facade.CreateThemeAsync(_selectedProfileId, name, desc, _newThemeTier);
+            _themes = await Facade.ListThemesByProfileAsync(_selectedProfileId);
+            _newThemeName = string.Empty;
+            _newThemeDescription = string.Empty;
+            _newThemeTier = ThemeTier.NiceToHave;
+        }
+        catch (Exception ex)
+        {
+            _themeError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private void StartEditTheme(ThemePreference t)
+    {
+        _editingThemeId = t.Id;
+        _editThemeName = t.Name;
+        _editThemeDescription = t.Description;
+        _editThemeTier = t.Tier;
+    }
+
+    private void CancelEditTheme()
+    {
+        _editingThemeId = null;
+    }
+
+    private async Task SaveEditTheme()
+    {
+        if (_editingThemeId is null || _selectedProfileId is null) return;
+        _themeValidationError = null;
+        var name = _editThemeName?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            _themeValidationError = "Name is required.";
+            return;
+        }
+        var desc = _editThemeDescription?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(desc))
+        {
+            _themeValidationError = "Description is required.";
+            return;
+        }
+
+        _isBusy = true;
+        try
+        {
+            await Facade.UpdateThemeAsync(_editingThemeId, name, desc, _editThemeTier);
+            _themes = await Facade.ListThemesByProfileAsync(_selectedProfileId);
+            _editingThemeId = null;
+        }
+        catch (Exception ex)
+        {
+            _themeError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task DeleteTheme(string id)
+    {
+        if (_selectedProfileId is null) return;
+        _isBusy = true;
+        try
+        {
+            await Facade.DeleteThemeAsync(id);
+            _themes = await Facade.ListThemesByProfileAsync(_selectedProfileId);
+        }
+        catch (Exception ex)
+        {
+            _themeError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private static string FormatTier(ThemeTier tier) => tier switch
+    {
+        ThemeTier.MustHave => "Must-Have",
+        ThemeTier.StronglyPrefer => "Strongly Prefer",
+        ThemeTier.NiceToHave => "Nice-to-Have",
+        ThemeTier.Neutral => "Neutral",
+        ThemeTier.Dislike => "Dislike",
+        ThemeTier.HardDealBreaker => "Deal-Breaker",
+        _ => tier.ToString()
+    };
+
+    private static string GetTierBadgeClass(ThemeTier tier) => tier switch
+    {
+        ThemeTier.MustHave => "bg-success",
+        ThemeTier.StronglyPrefer => "bg-info text-dark",
+        ThemeTier.NiceToHave => "bg-primary",
+        ThemeTier.Neutral => "bg-secondary",
+        ThemeTier.Dislike => "bg-warning text-dark",
+        ThemeTier.HardDealBreaker => "bg-danger",
+        _ => "bg-secondary"
+    };
+}

@@ -18,6 +18,11 @@ public sealed class StoryCatalogFacade
         return _service.ListAsync(new StoryCatalogQuery { SortMode = sortMode }, cancellationToken);
     }
 
+    public Task<IReadOnlyList<StoryCatalogEntry>> ListAsync(CatalogSortMode sortMode, bool includeArchived, CancellationToken cancellationToken = default)
+    {
+        return _service.ListAsync(new StoryCatalogQuery { SortMode = sortMode }, includeArchived, cancellationToken);
+    }
+
     public Task<IReadOnlyList<StoryCatalogEntry>> SearchAsync(string query, CatalogSortMode sortMode, CancellationToken cancellationToken = default)
     {
         return _service.SearchAsync(new StoryCatalogSearch { Query = query, SortMode = sortMode }, cancellationToken);

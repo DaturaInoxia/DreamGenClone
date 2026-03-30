@@ -63,6 +63,8 @@ public sealed class StoryCatalogEntry
     public ParseStatus ParseStatus { get; set; }
 
     public int PageCount { get; set; }
+
+    public bool IsArchived { get; set; }
 }
 
 public sealed class ParsedStoryDetail

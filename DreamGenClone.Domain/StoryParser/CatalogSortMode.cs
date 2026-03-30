@@ -16,5 +16,6 @@ public enum ParseStatus
 {
     Success = 0,
     PartialSuccess = 1,
-    Failed = 2
+    Failed = 2,
+    Purged = 3
 }

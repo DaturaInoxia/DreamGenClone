@@ -23,4 +23,6 @@ public sealed class ParsedStoryRecord
     public ParseStatus ParseStatus { get; set; } = ParseStatus.Failed;
 
     public string DiagnosticsSummaryJson { get; set; } = "{}";
+
+    public bool IsArchived { get; set; }
 }
