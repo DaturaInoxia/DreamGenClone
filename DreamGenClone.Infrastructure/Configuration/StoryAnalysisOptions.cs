@@ -17,4 +17,12 @@ public sealed class StoryAnalysisOptions
     public int RankMaxTokens { get; set; } = 200;
 
     public int MaxStoryTextLength { get; set; } = 12000;
+
+    /// <summary>
+    /// LLM model to use for analysis, ranking, and summarization.
+    /// Falls back to LmStudioOptions.Model if not set.
+    /// </summary>
+    public string? Model { get; set; }
+
+    public double RankConfidenceThreshold { get; set; } = 0.5;
 }

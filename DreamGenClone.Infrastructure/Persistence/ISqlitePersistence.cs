@@ -23,6 +23,7 @@ public interface ISqlitePersistence
     Task<bool> ArchiveParsedStoryAsync(string id, CancellationToken cancellationToken = default);
     Task<bool> UnarchiveParsedStoryAsync(string id, CancellationToken cancellationToken = default);
     Task<bool> PurgeParsedStoryAsync(string id, CancellationToken cancellationToken = default);
+    Task<bool> UpdateCombinedTextAsync(string id, string combinedText, CancellationToken cancellationToken = default);
     Task<List<ParsedStoryRecord>> FindBySourceUrlAsync(string sourceUrl, CancellationToken cancellationToken = default);
 
     // Story summary operations
@@ -72,4 +73,5 @@ public interface ISqlitePersistence
     Task SaveUserStoryRatingAsync(UserStoryRating rating, CancellationToken cancellationToken = default);
     Task<UserStoryRating?> LoadUserStoryRatingAsync(string parsedStoryId, CancellationToken cancellationToken = default);
     Task<bool> DeleteUserStoryRatingAsync(string parsedStoryId, CancellationToken cancellationToken = default);
+    Task<Dictionary<string, UserStoryRating>> LoadUserStoryRatingsBatchAsync(IEnumerable<string> parsedStoryIds, CancellationToken cancellationToken = default);
 }

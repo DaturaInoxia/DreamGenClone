@@ -59,6 +59,7 @@ builder.Services.AddScoped<ITemplateService, TemplateService>();
 builder.Services.AddSingleton<SessionImportValidator>();
 builder.Services.AddSingleton<CoreAutoSaveCoordinatorContract, CoreAutoSaveCoordinator>();
 builder.Services.AddScoped<IScenarioService, ScenarioService>();
+builder.Services.AddScoped<IScenarioAdaptationService, ScenarioAdaptationService>();
 builder.Services.AddScoped<IScenarioTokenCounter, ScenarioTokenCounter>();
 builder.Services.AddScoped<ISessionService, SessionService>();
 builder.Services.AddScoped<ISessionCloneForkService, SessionCloneForkService>();
@@ -95,6 +96,9 @@ builder.Services.AddScoped<IRankingProfileService, RankingProfileService>();
 builder.Services.AddScoped<IThemePreferenceService, ThemePreferenceService>();
 builder.Services.AddScoped<IStoryRankingService, StoryRankingService>();
 builder.Services.AddScoped<StoryAnalysisFacade>();
+
+// Increase SignalR message size for large text editing (combined story text)
+builder.Services.AddSignalR(o => o.MaximumReceiveMessageSize = 1024 * 1024); // 1 MB
 
 var app = builder.Build();
 

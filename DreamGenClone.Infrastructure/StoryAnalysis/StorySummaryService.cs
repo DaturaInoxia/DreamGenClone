@@ -17,6 +17,7 @@ public sealed class StorySummaryService : IStorySummaryService
     private readonly StoryAnalysisOptions _options;
     private readonly LmStudioOptions _lmOptions;
     private readonly ILogger<StorySummaryService> _logger;
+    private readonly string _model;
 
     private const string ChunkSystemMessage =
         """
@@ -52,6 +53,7 @@ public sealed class StorySummaryService : IStorySummaryService
         _options = options.Value;
         _lmOptions = lmOptions.Value;
         _logger = logger;
+        _model = _options.Model ?? _lmOptions.Model;
     }
 
     public async Task<SummarizeResult> SummarizeAsync(string parsedStoryId, CancellationToken cancellationToken = default)
@@ -85,7 +87,7 @@ public sealed class StorySummaryService : IStorySummaryService
                 var response = await _lmClient.GenerateAsync(
                     SingleSystemMessage,
                     $"Story text:\n{chunks[0]}",
-                    _lmOptions.Model,
+                    _model,
                     _options.SummarizeTemperature,
                     0.9,
                     _options.SummarizeMaxTokens,
@@ -104,7 +106,7 @@ public sealed class StorySummaryService : IStorySummaryService
                     var response = await _lmClient.GenerateAsync(
                         ChunkSystemMessage,
                         $"Story text (part {i + 1} of {chunks.Count}):\n{chunks[i]}",
-                        _lmOptions.Model,
+                        _model,
                         _options.SummarizeTemperature,
                         0.9,
                         _options.SummarizeMaxTokens,
@@ -134,7 +136,7 @@ public sealed class StorySummaryService : IStorySummaryService
                 var consolidateResponse = await _lmClient.GenerateAsync(
                     ConsolidateSystemMessage,
                     $"Section summaries to consolidate:\n\n{consolidateInput}",
-                    _lmOptions.Model,
+                    _model,
                     _options.SummarizeTemperature,
                     0.9,
                     _options.SummarizeMaxTokens * 2,

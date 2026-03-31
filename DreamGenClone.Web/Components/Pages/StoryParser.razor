@@ -6,6 +6,7 @@
 @using DreamGenClone.Web.Application.StoryParser
 @using DreamGenClone.Web.Application.StoryAnalysis
 @using DreamGenClone.Domain.StoryAnalysis
+@using System.Text.Json
 @using System.Linq
 
 @inject StoryParserFacade ParserFacade
@@ -225,10 +226,34 @@
                                                     {
                                                         <span class="badge @GetScoreBadgeClass(memberScore.Score)">@memberScore.Score.ToString("F1")</span>
                                                     }
+                                                    @if (memberScore.IsVerified)
+                                                    {
+                                                        <span class="badge bg-success" title="All themes verified">✓</span>
+                                                    }
                                                 }
                                                 <span class="badge text-bg-secondary">@member.ParseStatus</span>
                                                 <div><small>@member.ParsedUtc.ToLocalTime().ToString("g")</small></div>
                                                 <div><small>Pages: @member.PageCount</small></div>
+                                                @if (_storyRatings.TryGetValue(member.Id, out var memberRating))
+                                                {
+                                                    <div>
+                                                        @if (memberRating.Stars.HasValue)
+                                                        {
+                                                            @for (int i = 1; i <= 5; i++)
+                                                            {
+                                                                <span style="color: @(i <= memberRating.Stars.Value ? "#ffc107" : "#dee2e6"); font-size: 0.75rem;">★</span>
+                                                            }
+                                                        }
+                                                        else
+                                                        {
+                                                            <small class="text-muted">—</small>
+                                                        }
+                                                        @if (!string.IsNullOrWhiteSpace(memberRating.Comment))
+                                                        {
+                                                            <div><small class="text-muted" title="@memberRating.Comment">@(memberRating.Comment.Length > 30 ? memberRating.Comment[..30] + "…" : memberRating.Comment)</small></div>
+                                                        }
+                                                    </div>
+                                                }
                                             </div>
                                             <div class="btn-group" style="position: relative;">
                                                 <button class="btn btn-sm btn-outline-secondary" title="Actions" @onclick="() => ToggleDropdown(member.Id)">
@@ -289,10 +314,34 @@
                                             {
                                                 <span class="badge @GetScoreBadgeClass(scoreInfo.Score)">@scoreInfo.Score.ToString("F1")</span>
                                             }
+                                            @if (scoreInfo.IsVerified)
+                                            {
+                                                <span class="badge bg-success" title="All themes verified">✓</span>
+                                            }
                                         }
                                         <span class="badge text-bg-secondary">@entry.ParseStatus</span>
                                         <div><small>@entry.ParsedUtc.ToLocalTime().ToString("g")</small></div>
                                         <div><small>Pages: @entry.PageCount</small></div>
+                                        @if (_storyRatings.TryGetValue(entry.Id, out var entryRating))
+                                        {
+                                            <div>
+                                                @if (entryRating.Stars.HasValue)
+                                                {
+                                                    @for (int i = 1; i <= 5; i++)
+                                                    {
+                                                        <span style="color: @(i <= entryRating.Stars.Value ? "#ffc107" : "#dee2e6"); font-size: 0.75rem;">★</span>
+                                                    }
+                                                }
+                                                else
+                                                {
+                                                    <small class="text-muted">—</small>
+                                                }
+                                                @if (!string.IsNullOrWhiteSpace(entryRating.Comment))
+                                                {
+                                                    <div><small class="text-muted" title="@entryRating.Comment">@(entryRating.Comment.Length > 30 ? entryRating.Comment[..30] + "…" : entryRating.Comment)</small></div>
+                                                }
+                                            </div>
+                                        }
                                     </div>
                                     <div class="btn-group" style="position: relative;">
                                         <button class="btn btn-sm btn-outline-secondary" title="Actions" @onclick="() => ToggleDropdown(entry.Id)">
@@ -366,7 +415,8 @@
     private string _selectedSortMode = nameof(CatalogSortMode.NewestFirst);
     private bool _showArchived;
     private List<CollectionDisplayItem> _catalogItems = [];
-    private Dictionary<string, (double Score, bool IsDisqualified)> _storyScores = new();
+    private Dictionary<string, (double Score, bool IsDisqualified, bool IsVerified)> _storyScores = new();
+    private Dictionary<string, UserStoryRating> _storyRatings = new();
     private HashSet<string> _expandedCollectionIds = [];
     private string? _openDropdownId;
 
@@ -626,6 +676,7 @@
         }
 
         await LoadRankingScoresAsync();
+        await LoadUserRatingsAsync();
         _allCollections = (await CollectionFacade.ListCollectionsAsync()).ToList();
     }
 
@@ -654,11 +705,32 @@
                 var ranking = await AnalysisFacade.GetRankingAsync(id, profile.Id);
                 if (ranking is not null)
                 {
-                    _storyScores[id] = (ranking.Score, ranking.IsDisqualified);
+                    var isVerified = IsRankingFullyVerified(ranking);
+                    _storyScores[id] = (ranking.Score, ranking.IsDisqualified, isVerified);
                 }
             }
         }
         catch { /* don't break catalog display if ranking lookup fails */ }
+    }
+
+    private async Task LoadUserRatingsAsync()
+    {
+        _storyRatings.Clear();
+        try
+        {
+            var storyIds = new List<string>();
+            foreach (var item in _catalogItems)
+            {
+                if (item.ItemType == CatalogDisplayItemType.StandaloneStory && item.Story is not null)
+                    storyIds.Add(item.Story.Id);
+                else if (item.ItemType == CatalogDisplayItemType.Collection)
+                    storyIds.AddRange(item.Members.Select(m => m.Id));
+            }
+
+            if (storyIds.Count > 0)
+                _storyRatings = await AnalysisFacade.GetUserRatingsBatchAsync(storyIds);
+        }
+        catch { /* don't break catalog display if rating lookup fails */ }
     }
 
     // ==================== Collection CRUD (inline) ====================
@@ -747,6 +819,37 @@
         >= 40 => "bg-warning text-dark",
         _ => "bg-danger"
     };
+
+    private static bool IsRankingFullyVerified(StoryRankingResult ranking)
+    {
+        if (string.IsNullOrWhiteSpace(ranking.ThemeDetectionsJson) || ranking.ThemeDetectionsJson == "[]")
+            return false;
+        if (string.IsNullOrWhiteSpace(ranking.ThemeVerificationStatusJson) || ranking.ThemeVerificationStatusJson == "{}")
+            return false;
+        try
+        {
+            using var detDoc = JsonDocument.Parse(ranking.ThemeDetectionsJson);
+            var themeIds = new List<string>();
+            foreach (var elem in detDoc.RootElement.EnumerateArray())
+            {
+                if (elem.TryGetProperty("themeId", out var id))
+                    themeIds.Add(id.GetString() ?? "");
+            }
+            if (themeIds.Count == 0) return false;
+
+            using var verDoc = JsonDocument.Parse(ranking.ThemeVerificationStatusJson);
+            foreach (var themeId in themeIds)
+            {
+                if (!verDoc.RootElement.TryGetProperty(themeId, out var statusVal))
+                    return false;
+                var statusStr = statusVal.GetString();
+                if (statusStr == null || statusStr == nameof(ThemeVerificationStatus.Unverified))
+                    return false;
+            }
+            return true;
+        }
+        catch { return false; }
+    }
 
     private void OpenDetail(string id)
     {

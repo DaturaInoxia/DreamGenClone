@@ -101,4 +101,17 @@ public sealed class StoryAnalysisFacade
 
     public Task<bool> DeleteUserRatingAsync(string parsedStoryId, CancellationToken cancellationToken = default)
         => _persistence.DeleteUserStoryRatingAsync(parsedStoryId, cancellationToken);
+
+    public Task<Dictionary<string, UserStoryRating>> GetUserRatingsBatchAsync(IEnumerable<string> parsedStoryIds, CancellationToken cancellationToken = default)
+        => _persistence.LoadUserStoryRatingsBatchAsync(parsedStoryIds, cancellationToken);
+
+    // Theme Verification
+    public async Task UpdateThemeVerificationAsync(StoryRankingResult ranking, CancellationToken cancellationToken = default)
+    {
+        await _persistence.SaveStoryRankingAsync(ranking, cancellationToken);
+    }
+
+    // Combined Text
+    public Task<bool> UpdateCombinedTextAsync(string id, string combinedText, CancellationToken cancellationToken = default)
+        => _persistence.UpdateCombinedTextAsync(id, combinedText, cancellationToken);
 }

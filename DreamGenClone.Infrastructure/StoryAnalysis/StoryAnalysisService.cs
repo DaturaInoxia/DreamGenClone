@@ -19,6 +19,7 @@ public sealed class StoryAnalysisService : IStoryAnalysisService
     private readonly StoryAnalysisOptions _options;
     private readonly LmStudioOptions _lmOptions;
     private readonly ILogger<StoryAnalysisService> _logger;
+    private readonly string _model;
 
     private static readonly Dictionary<AnalysisDimension, string> DimensionSystemMessages = new()
     {
@@ -146,6 +147,7 @@ public sealed class StoryAnalysisService : IStoryAnalysisService
         _options = options.Value;
         _lmOptions = lmOptions.Value;
         _logger = logger;
+        _model = _options.Model ?? _lmOptions.Model;
     }
 
     public async Task<AnalyzeResult> AnalyzeAsync(string parsedStoryId, CancellationToken cancellationToken = default)
@@ -223,7 +225,7 @@ public sealed class StoryAnalysisService : IStoryAnalysisService
                         var consolidateResponse = await _lmClient.GenerateAsync(
                             ConsolidateSystemMessages[dimension],
                             $"Section analyses to consolidate:\n\n{consolidateInput}",
-                            _lmOptions.Model,
+                            _model,
                             _options.AnalyzeTemperature,
                             0.9,
                             Math.Max(_options.AnalyzeMaxTokens * 2, chunkResults.Count * _options.AnalyzeMaxTokens),
@@ -303,7 +305,7 @@ public sealed class StoryAnalysisService : IStoryAnalysisService
         var response = await _lmClient.GenerateAsync(
             DimensionSystemMessages[dimension],
             userMessage,
-            _lmOptions.Model,
+            _model,
             _options.AnalyzeTemperature,
             0.9,
             _options.AnalyzeMaxTokens,

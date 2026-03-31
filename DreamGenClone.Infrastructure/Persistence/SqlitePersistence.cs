@@ -166,7 +166,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
             CREATE TABLE IF NOT EXISTS UserStoryRatings (
                 Id TEXT PRIMARY KEY,
                 ParsedStoryId TEXT NOT NULL UNIQUE,
-                Stars INTEGER NOT NULL CHECK(Stars >= 1 AND Stars <= 5),
+                Stars INTEGER NULL CHECK(Stars IS NULL OR (Stars >= 1 AND Stars <= 5)),
                 Comment TEXT NOT NULL DEFAULT '',
                 CreatedUtc TEXT NOT NULL,
                 UpdatedUtc TEXT NOT NULL,
@@ -267,6 +267,18 @@ public sealed class SqlitePersistence : ISqlitePersistence
             alterIsDefault.CommandText = "ALTER TABLE RankingProfiles ADD COLUMN IsDefault INTEGER NOT NULL DEFAULT 0";
             await alterIsDefault.ExecuteNonQueryAsync(cancellationToken);
             _logger.LogInformation("Migrated RankingProfiles table: added IsDefault column");
+        }
+
+        // Migrate: add ThemeVerificationStatusJson column to StoryRankings if missing
+        var checkVerificationStatus = connection.CreateCommand();
+        checkVerificationStatus.CommandText = "SELECT COUNT(*) FROM pragma_table_info('StoryRankings') WHERE name='ThemeVerificationStatusJson'";
+        var hasVerificationStatus = Convert.ToInt64(await checkVerificationStatus.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasVerificationStatus)
+        {
+            var alterVerification = connection.CreateCommand();
+            alterVerification.CommandText = "ALTER TABLE StoryRankings ADD COLUMN ThemeVerificationStatusJson TEXT NOT NULL DEFAULT '{}'";
+            await alterVerification.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated StoryRankings table: added ThemeVerificationStatusJson column");
         }
 
         _logger.LogInformation("SQLite persistence initialized using {ConnectionString}", _options.ConnectionString);
@@ -592,6 +604,21 @@ public sealed class SqlitePersistence : ISqlitePersistence
 
         var rowsAffected = await purgeCmd.ExecuteNonQueryAsync(cancellationToken);
         _logger.LogInformation("Parsed story purged (partial delete): {ParsedStoryId}, RowsAffected={RowsAffected}", id, rowsAffected);
+        return rowsAffected > 0;
+    }
+
+    public async Task<bool> UpdateCombinedTextAsync(string id, string combinedText, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "UPDATE ParsedStories SET CombinedText = $combinedText WHERE Id = $id";
+        command.Parameters.AddWithValue("$id", id);
+        command.Parameters.AddWithValue("$combinedText", combinedText);
+
+        var rowsAffected = await command.ExecuteNonQueryAsync(cancellationToken);
+        _logger.LogInformation("Combined text updated: {ParsedStoryId}, RowsAffected={RowsAffected}", id, rowsAffected);
         return rowsAffected > 0;
     }
 
@@ -995,13 +1022,14 @@ public sealed class SqlitePersistence : ISqlitePersistence
 
         var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO StoryRankings (Id, ParsedStoryId, ProfileId, ThemeSnapshotJson, ThemeDetectionsJson, Score, IsDisqualified, GeneratedUtc, UpdatedUtc)
-            VALUES ($id, $parsedStoryId, $profileId, $themeSnapshotJson, $themeDetectionsJson, $score, $isDisqualified, $generatedUtc, $updatedUtc)
+            INSERT INTO StoryRankings (Id, ParsedStoryId, ProfileId, ThemeSnapshotJson, ThemeDetectionsJson, Score, IsDisqualified, ThemeVerificationStatusJson, GeneratedUtc, UpdatedUtc)
+            VALUES ($id, $parsedStoryId, $profileId, $themeSnapshotJson, $themeDetectionsJson, $score, $isDisqualified, $themeVerificationStatusJson, $generatedUtc, $updatedUtc)
             ON CONFLICT(ParsedStoryId, ProfileId) DO UPDATE SET
                 ThemeSnapshotJson = $themeSnapshotJson,
                 ThemeDetectionsJson = $themeDetectionsJson,
                 Score = $score,
                 IsDisqualified = $isDisqualified,
+                ThemeVerificationStatusJson = $themeVerificationStatusJson,
                 UpdatedUtc = $updatedUtc;
             """;
 
@@ -1012,6 +1040,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
         command.Parameters.AddWithValue("$themeDetectionsJson", ranking.ThemeDetectionsJson);
         command.Parameters.AddWithValue("$score", ranking.Score);
         command.Parameters.AddWithValue("$isDisqualified", ranking.IsDisqualified ? 1 : 0);
+        command.Parameters.AddWithValue("$themeVerificationStatusJson", ranking.ThemeVerificationStatusJson);
         command.Parameters.AddWithValue("$generatedUtc", ranking.GeneratedUtc.ToString("O"));
         command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
 
@@ -1025,7 +1054,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
         await connection.OpenAsync(cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, ParsedStoryId, ProfileId, ThemeSnapshotJson, ThemeDetectionsJson, Score, IsDisqualified, GeneratedUtc, UpdatedUtc FROM StoryRankings WHERE ParsedStoryId = $parsedStoryId LIMIT 1";
+        command.CommandText = "SELECT Id, ParsedStoryId, ProfileId, ThemeSnapshotJson, ThemeDetectionsJson, Score, IsDisqualified, GeneratedUtc, UpdatedUtc, ThemeVerificationStatusJson FROM StoryRankings WHERE ParsedStoryId = $parsedStoryId LIMIT 1";
         command.Parameters.AddWithValue("$parsedStoryId", parsedStoryId);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -1041,7 +1070,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
         await connection.OpenAsync(cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, ParsedStoryId, ProfileId, ThemeSnapshotJson, ThemeDetectionsJson, Score, IsDisqualified, GeneratedUtc, UpdatedUtc FROM StoryRankings WHERE ParsedStoryId = $parsedStoryId AND ProfileId = $profileId";
+        command.CommandText = "SELECT Id, ParsedStoryId, ProfileId, ThemeSnapshotJson, ThemeDetectionsJson, Score, IsDisqualified, GeneratedUtc, UpdatedUtc, ThemeVerificationStatusJson FROM StoryRankings WHERE ParsedStoryId = $parsedStoryId AND ProfileId = $profileId";
         command.Parameters.AddWithValue("$parsedStoryId", parsedStoryId);
         command.Parameters.AddWithValue("$profileId", profileId);
 
@@ -1058,7 +1087,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
         await connection.OpenAsync(cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, ParsedStoryId, ProfileId, ThemeSnapshotJson, ThemeDetectionsJson, Score, IsDisqualified, GeneratedUtc, UpdatedUtc FROM StoryRankings WHERE ParsedStoryId = $parsedStoryId ORDER BY GeneratedUtc DESC";
+        command.CommandText = "SELECT Id, ParsedStoryId, ProfileId, ThemeSnapshotJson, ThemeDetectionsJson, Score, IsDisqualified, GeneratedUtc, UpdatedUtc, ThemeVerificationStatusJson FROM StoryRankings WHERE ParsedStoryId = $parsedStoryId ORDER BY GeneratedUtc DESC";
         command.Parameters.AddWithValue("$parsedStoryId", parsedStoryId);
 
         var results = new List<StoryRankingResult>();
@@ -1082,7 +1111,8 @@ public sealed class SqlitePersistence : ISqlitePersistence
             Score = reader.GetDouble(5),
             IsDisqualified = reader.GetInt32(6) != 0,
             GeneratedUtc = DateTime.TryParse(reader.GetString(7), out var gen) ? gen : DateTime.UtcNow,
-            UpdatedUtc = DateTime.TryParse(reader.GetString(8), out var upd) ? upd : DateTime.UtcNow
+            UpdatedUtc = DateTime.TryParse(reader.GetString(8), out var upd) ? upd : DateTime.UtcNow,
+            ThemeVerificationStatusJson = reader.IsDBNull(9) ? "{}" : reader.GetString(9)
         };
     }
 
@@ -1348,7 +1378,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
 
         command.Parameters.AddWithValue("$id", rating.Id);
         command.Parameters.AddWithValue("$parsedStoryId", rating.ParsedStoryId);
-        command.Parameters.AddWithValue("$stars", rating.Stars);
+        command.Parameters.AddWithValue("$stars", rating.Stars.HasValue ? (object)rating.Stars.Value : DBNull.Value);
         command.Parameters.AddWithValue("$comment", rating.Comment);
         command.Parameters.AddWithValue("$createdUtc", rating.CreatedUtc.ToString("O"));
         command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
@@ -1374,7 +1404,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
         {
             Id = reader.GetString(0),
             ParsedStoryId = reader.GetString(1),
-            Stars = reader.GetInt32(2),
+            Stars = reader.IsDBNull(2) ? null : reader.GetInt32(2),
             Comment = reader.GetString(3),
             CreatedUtc = DateTime.TryParse(reader.GetString(4), out var created) ? created : DateTime.UtcNow,
             UpdatedUtc = DateTime.TryParse(reader.GetString(5), out var updated) ? updated : DateTime.UtcNow
@@ -1391,5 +1421,39 @@ public sealed class SqlitePersistence : ISqlitePersistence
         command.Parameters.AddWithValue("$parsedStoryId", parsedStoryId);
 
         return await command.ExecuteNonQueryAsync(cancellationToken) > 0;
+    }
+
+    public async Task<Dictionary<string, UserStoryRating>> LoadUserStoryRatingsBatchAsync(IEnumerable<string> parsedStoryIds, CancellationToken cancellationToken = default)
+    {
+        var result = new Dictionary<string, UserStoryRating>();
+        var idList = parsedStoryIds.ToList();
+        if (idList.Count == 0) return result;
+
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        // SQLite doesn't support array params; use IN with positional parameters
+        var paramNames = idList.Select((_, idx) => $"$p{idx}").ToList();
+        var command = connection.CreateCommand();
+        command.CommandText = $"SELECT Id, ParsedStoryId, Stars, Comment, CreatedUtc, UpdatedUtc FROM UserStoryRatings WHERE ParsedStoryId IN ({string.Join(",", paramNames)})";
+        for (int idx = 0; idx < idList.Count; idx++)
+            command.Parameters.AddWithValue($"$p{idx}", idList[idx]);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var rating = new UserStoryRating
+            {
+                Id = reader.GetString(0),
+                ParsedStoryId = reader.GetString(1),
+                Stars = reader.IsDBNull(2) ? null : reader.GetInt32(2),
+                Comment = reader.GetString(3),
+                CreatedUtc = DateTime.TryParse(reader.GetString(4), out var created) ? created : DateTime.UtcNow,
+                UpdatedUtc = DateTime.TryParse(reader.GetString(5), out var updated) ? updated : DateTime.UtcNow
+            };
+            result[rating.ParsedStoryId] = rating;
+        }
+
+        return result;
     }
 }

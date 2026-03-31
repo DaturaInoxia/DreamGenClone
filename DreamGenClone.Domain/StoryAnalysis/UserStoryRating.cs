@@ -6,7 +6,7 @@ public sealed class UserStoryRating
 
     public string ParsedStoryId { get; set; } = string.Empty;
 
-    public int Stars { get; set; } = 3;
+    public int? Stars { get; set; }
 
     public string Comment { get; set; } = string.Empty;
 
