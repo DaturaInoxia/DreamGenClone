@@ -1,6 +1,7 @@
 using DreamGenClone.Application.StoryAnalysis;
 using DreamGenClone.Application.StoryAnalysis.Models;
 using DreamGenClone.Domain.StoryAnalysis;
+using DreamGenClone.Infrastructure.Persistence;
 
 namespace DreamGenClone.Web.Application.StoryAnalysis;
 
@@ -11,19 +12,22 @@ public sealed class StoryAnalysisFacade
     private readonly IThemePreferenceService _themeService;
     private readonly IRankingProfileService _profileService;
     private readonly IStoryRankingService _rankingService;
+    private readonly ISqlitePersistence _persistence;
 
     public StoryAnalysisFacade(
         IStorySummaryService summaryService,
         IStoryAnalysisService analysisService,
         IThemePreferenceService themeService,
         IRankingProfileService profileService,
-        IStoryRankingService rankingService)
+        IStoryRankingService rankingService,
+        ISqlitePersistence persistence)
     {
         _summaryService = summaryService;
         _analysisService = analysisService;
         _themeService = themeService;
         _profileService = profileService;
         _rankingService = rankingService;
+        _persistence = persistence;
     }
 
     // Summary
@@ -87,4 +91,14 @@ public sealed class StoryAnalysisFacade
 
     public Task<List<StoryRankingResult>> GetRankingsAsync(string parsedStoryId, CancellationToken cancellationToken = default)
         => _rankingService.GetRankingsAsync(parsedStoryId, cancellationToken);
+
+    // User Story Rating
+    public Task SaveUserRatingAsync(UserStoryRating rating, CancellationToken cancellationToken = default)
+        => _persistence.SaveUserStoryRatingAsync(rating, cancellationToken);
+
+    public Task<UserStoryRating?> GetUserRatingAsync(string parsedStoryId, CancellationToken cancellationToken = default)
+        => _persistence.LoadUserStoryRatingAsync(parsedStoryId, cancellationToken);
+
+    public Task<bool> DeleteUserRatingAsync(string parsedStoryId, CancellationToken cancellationToken = default)
+        => _persistence.DeleteUserStoryRatingAsync(parsedStoryId, cancellationToken);
 }

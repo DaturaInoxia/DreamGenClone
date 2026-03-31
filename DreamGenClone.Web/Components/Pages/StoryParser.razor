@@ -10,6 +10,7 @@
 
 @inject StoryParserFacade ParserFacade
 @inject StoryCatalogFacade CatalogFacade
+@inject StoryCollectionFacade CollectionFacade
 @inject StoryAnalysisFacade AnalysisFacade
 @inject NavigationManager Navigation
 
@@ -20,6 +21,7 @@
         <h1>StoryParser</h1>
     </div>
 
+    @* --- Parse Story URL card --- *@
     <div class="card mb-3">
         <div class="card-header">Parse Story URL</div>
         <div class="card-body">
@@ -56,13 +58,48 @@
                     </div>
                 </div>
             }
+            @if (_showCollectionPrompt && _collectionMatchResult is not null)
+            {
+                <div class="alert alert-primary mt-3 mb-0">
+                    @if (_collectionMatchResult.Matches.Count > 0)
+                    {
+                        <strong>Collection detected!</strong>
+                        <span> This story appears to be part of:</span>
+                        <ul class="mb-2 mt-1">
+                            @foreach (var match in _collectionMatchResult.Matches)
+                            {
+                                <li><strong>@match.CollectionName</strong> (matched by @match.MatchReason, confidence: @match.Confidence.ToString("P0"))</li>
+                            }
+                        </ul>
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-sm btn-primary" @onclick="AcceptCollectionMatch">Add to collection</button>
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="SkipCollectionPrompt">Skip</button>
+                        </div>
+                    }
+                    else if (_collectionMatchResult.OrphanSiblingStoryId is not null)
+                    {
+                        <strong>Related story found!</strong>
+                        <span> This story and "<em>@_collectionMatchResult.OrphanSiblingStoryTitle</em>" appear to be chapters of the same story.</span>
+                        <div class="mt-2 mb-2">
+                            <label class="form-label small">Collection name:</label>
+                            <input class="form-control form-control-sm" style="width:400px;" @bind="_newCollectionName" />
+                        </div>
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-sm btn-primary" @onclick="CreateCollectionFromOrphan">Create collection</button>
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="SkipCollectionPrompt">Skip</button>
+                        </div>
+                    }
+                </div>
+            }
         </div>
     </div>
 
+    @* --- Unified Catalog card --- *@
     <div class="card">
         <div class="card-header d-flex justify-content-between align-items-center">
             <span>Parsed Stories</span>
             <div class="d-flex gap-2 align-items-center">
+                <button class="btn btn-sm btn-outline-primary" @onclick="ShowCreateCollection">+ Collection</button>
                 <div class="form-check form-switch mb-0">
                     <input class="form-check-input" type="checkbox" id="showArchived" @bind="_showArchived" @bind:after="LoadCatalogAsync" />
                     <label class="form-check-label small" for="showArchived">Show Archived</label>
@@ -76,70 +113,232 @@
             </div>
         </div>
         <div class="card-body">
-            @if (_catalog.Count == 0)
+            @if (_showCreateCollectionForm)
+            {
+                <div class="card mb-3 border-primary">
+                    <div class="card-body">
+                        <h6>Create New Collection</h6>
+                        <div class="mb-2">
+                            <input class="form-control form-control-sm" @bind="_createCollectionName" placeholder="Collection name" />
+                        </div>
+                        <div class="mb-2">
+                            <input class="form-control form-control-sm" @bind="_createCollectionDescription" placeholder="Description (optional)" />
+                        </div>
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-sm btn-primary" @onclick="CreateCollectionAsync">Create</button>
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="() => _showCreateCollectionForm = false">Cancel</button>
+                        </div>
+                    </div>
+                </div>
+            }
+
+            @if (_catalogItems.Count == 0)
             {
                 <div class="text-muted">No parsed stories found.</div>
             }
             else
             {
                 <div class="list-group">
-                    @foreach (var entry in _catalog)
+                    @foreach (var item in _catalogItems)
                     {
-                        <div class="list-group-item list-group-item-action d-flex justify-content-between align-items-start @(entry.IsArchived ? "list-group-item-secondary" : "")" @onclick="() => OpenDetail(entry.Id)" style="cursor: pointer;">
-                            <div>
-                                <div class="fw-semibold">
-                                    @if (entry.IsArchived)
-                                    {
-                                        <span class="badge bg-secondary me-1">Archived</span>
-                                    }
-                                    @(string.IsNullOrWhiteSpace(entry.Title) ? entry.SourceUrl : entry.Title)
-                                </div>
-                                @if (!string.IsNullOrWhiteSpace(entry.Author))
-                                {
-                                    <small class="text-muted">by @entry.Author</small>
-                                }
-                                <div><small class="text-muted">@entry.SourceUrl</small></div>
-                            </div>
-                            <div class="text-end d-flex align-items-start gap-2">
+                        @if (item.ItemType == CatalogDisplayItemType.Collection)
+                        {
+                            @* --- Collection header row --- *@
+                            var isExpanded = _expandedCollectionIds.Contains(item.CollectionId!);
+                            <div class="list-group-item list-group-item-action d-flex justify-content-between align-items-start bg-light"
+                                 @onclick="() => ToggleCollection(item.CollectionId!)" style="cursor: pointer;">
                                 <div>
-                                    @if (_storyScores.TryGetValue(entry.Id, out var scoreInfo))
+                                    <div class="fw-semibold">
+                                        <span class="me-1">@(isExpanded ? "\u25BC" : "\u25B6")</span>
+                                        <span class="badge bg-info me-1">Collection</span>
+                                        @item.CollectionName
+                                        <span class="badge bg-secondary ms-1">@item.MemberCount stories</span>
+                                    </div>
+                                    @if (!string.IsNullOrWhiteSpace(item.CollectionDescription))
                                     {
-                                        @if (scoreInfo.IsDisqualified)
-                                        {
-                                            <span class="badge bg-danger">DQ</span>
-                                        }
-                                        else
-                                        {
-                                            <span class="badge @GetScoreBadgeClass(scoreInfo.Score)">@scoreInfo.Score.ToString("F1")</span>
-                                        }
+                                        <small class="text-muted">@item.CollectionDescription</small>
                                     }
-                                    <span class="badge text-bg-secondary">@entry.ParseStatus</span>
-                                    <div><small>@entry.ParsedUtc.ToLocalTime().ToString("g")</small></div>
-                                    <div><small>Pages: @entry.PageCount</small></div>
                                 </div>
-                                <div class="btn-group" style="position: relative;" @onclick:stopPropagation="true">
-                                    <button class="btn btn-sm btn-outline-secondary" title="Actions" @onclick="() => ToggleDropdown(entry.Id)">
-                                        &#x22EE;
-                                    </button>
-                                    @if (_openDropdownId == entry.Id)
-                                    {
-                                        <div class="dropdown-menu dropdown-menu-end show" style="position: absolute; right: 0; top: 100%; z-index: 1050;">
-                                            @if (entry.IsArchived)
+                                <div class="text-end d-flex align-items-start gap-2" @onclick:stopPropagation="true">
+                                    <div>
+                                        <div><small>@item.LatestParsedUtc.ToLocalTime().ToString("g")</small></div>
+                                    </div>
+                                    <div class="btn-group" style="position: relative;">
+                                        <button class="btn btn-sm btn-outline-secondary" title="Actions" @onclick="() => ToggleDropdown(item.CollectionId!)">
+                                            &#x22EE;
+                                        </button>
+                                        @if (_openDropdownId == item.CollectionId)
+                                        {
+                                            <div class="dropdown-menu dropdown-menu-end show" style="position: absolute; right: 0; top: 100%; z-index: 1050;">
+                                                <button class="dropdown-item" @onclick="() => StartEditCollection(item.CollectionId!, item.CollectionName!, item.CollectionDescription)">&#x270F; Edit</button>
+                                                <hr class="dropdown-divider" />
+                                                <button class="dropdown-item text-danger" @onclick="() => DeleteCollectionAsync(item.CollectionId!)">&#x2715; Delete collection</button>
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+
+                            @* --- Edit collection inline form --- *@
+                            @if (_editingCollectionId == item.CollectionId)
+                            {
+                                <div class="list-group-item border-primary" @onclick:stopPropagation="true">
+                                    <div class="d-flex gap-2 align-items-center">
+                                        <input class="form-control form-control-sm" style="width:300px;" @bind="_editCollectionName" placeholder="Name" />
+                                        <input class="form-control form-control-sm" style="width:300px;" @bind="_editCollectionDescription" placeholder="Description" />
+                                        <button class="btn btn-sm btn-primary" @onclick="SaveEditCollectionAsync">Save</button>
+                                        <button class="btn btn-sm btn-outline-secondary" @onclick="CancelEditCollection">Cancel</button>
+                                    </div>
+                                </div>
+                            }
+
+                            @* --- Expanded: member stories --- *@
+                            @if (isExpanded)
+                            {
+                                @foreach (var member in item.Members)
+                                {
+                                    <div class="list-group-item list-group-item-action d-flex justify-content-between align-items-start ps-5 @(member.IsArchived ? "list-group-item-secondary" : "")"
+                                         @onclick="() => OpenDetail(member.Id)" style="cursor: pointer;">
+                                        <div>
+                                            <div class="fw-semibold">
+                                                @if (member.IsArchived)
+                                                {
+                                                    <span class="badge bg-secondary me-1">Archived</span>
+                                                }
+                                                @(string.IsNullOrWhiteSpace(member.Title) ? member.SourceUrl : member.Title)
+                                            </div>
+                                            @if (!string.IsNullOrWhiteSpace(member.Author))
                                             {
-                                                <button class="dropdown-item" @onclick="() => UnarchiveStoryAsync(entry.Id)">&#x21A9; Restore</button>
+                                                <small class="text-muted">by @member.Author</small>
+                                            }
+                                            <div><small class="text-muted">@member.SourceUrl</small></div>
+                                        </div>
+                                        <div class="text-end d-flex align-items-start gap-2" @onclick:stopPropagation="true">
+                                            <div>
+                                                @if (_storyScores.TryGetValue(member.Id, out var memberScore))
+                                                {
+                                                    @if (memberScore.IsDisqualified)
+                                                    {
+                                                        <span class="badge bg-danger">DQ</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="badge @GetScoreBadgeClass(memberScore.Score)">@memberScore.Score.ToString("F1")</span>
+                                                    }
+                                                }
+                                                <span class="badge text-bg-secondary">@member.ParseStatus</span>
+                                                <div><small>@member.ParsedUtc.ToLocalTime().ToString("g")</small></div>
+                                                <div><small>Pages: @member.PageCount</small></div>
+                                            </div>
+                                            <div class="btn-group" style="position: relative;">
+                                                <button class="btn btn-sm btn-outline-secondary" title="Actions" @onclick="() => ToggleDropdown(member.Id)">
+                                                    &#x22EE;
+                                                </button>
+                                                @if (_openDropdownId == member.Id)
+                                                {
+                                                    <div class="dropdown-menu dropdown-menu-end show" style="position: absolute; right: 0; top: 100%; z-index: 1050;">
+                                                        <button class="dropdown-item" @onclick="() => RemoveFromCollectionAsync(item.CollectionId!, member.Id)">&#x2796; Remove from collection</button>
+                                                        @if (member.IsArchived)
+                                                        {
+                                                            <button class="dropdown-item" @onclick="() => UnarchiveStoryAsync(member.Id)">&#x21A9; Restore</button>
+                                                        }
+                                                        else
+                                                        {
+                                                            <button class="dropdown-item" @onclick="() => ArchiveStoryAsync(member.Id)">&#x1F4E6; Archive</button>
+                                                        }
+                                                        <button class="dropdown-item text-warning" @onclick="() => PurgeStoryAsync(member.Id)">&#x1F5D1; Purge</button>
+                                                        <hr class="dropdown-divider" />
+                                                        <button class="dropdown-item text-danger" @onclick="() => DeleteStoryAsync(member.Id)">&#x2715; Delete permanently</button>
+                                                    </div>
+                                                }
+                                            </div>
+                                        </div>
+                                    </div>
+                                }
+                            }
+                        }
+                        else
+                        {
+                            @* --- Standalone story row --- *@
+                            var entry = item.Story!;
+                            <div class="list-group-item list-group-item-action d-flex justify-content-between align-items-start @(entry.IsArchived ? "list-group-item-secondary" : "")"
+                                 @onclick="() => OpenDetail(entry.Id)" style="cursor: pointer;">
+                                <div>
+                                    <div class="fw-semibold">
+                                        @if (entry.IsArchived)
+                                        {
+                                            <span class="badge bg-secondary me-1">Archived</span>
+                                        }
+                                        @(string.IsNullOrWhiteSpace(entry.Title) ? entry.SourceUrl : entry.Title)
+                                    </div>
+                                    @if (!string.IsNullOrWhiteSpace(entry.Author))
+                                    {
+                                        <small class="text-muted">by @entry.Author</small>
+                                    }
+                                    <div><small class="text-muted">@entry.SourceUrl</small></div>
+                                </div>
+                                <div class="text-end d-flex align-items-start gap-2" @onclick:stopPropagation="true">
+                                    <div>
+                                        @if (_storyScores.TryGetValue(entry.Id, out var scoreInfo))
+                                        {
+                                            @if (scoreInfo.IsDisqualified)
+                                            {
+                                                <span class="badge bg-danger">DQ</span>
                                             }
                                             else
                                             {
-                                                <button class="dropdown-item" @onclick="() => ArchiveStoryAsync(entry.Id)">&#x1F4E6; Archive</button>
+                                                <span class="badge @GetScoreBadgeClass(scoreInfo.Score)">@scoreInfo.Score.ToString("F1")</span>
                                             }
-                                            <button class="dropdown-item text-warning" @onclick="() => PurgeStoryAsync(entry.Id)">&#x1F5D1; Purge (keep stub)</button>
-                                            <hr class="dropdown-divider" />
-                                            <button class="dropdown-item text-danger" @onclick="() => DeleteStoryAsync(entry.Id)">&#x2715; Delete permanently</button>
-                                        </div>
-                                    }
+                                        }
+                                        <span class="badge text-bg-secondary">@entry.ParseStatus</span>
+                                        <div><small>@entry.ParsedUtc.ToLocalTime().ToString("g")</small></div>
+                                        <div><small>Pages: @entry.PageCount</small></div>
+                                    </div>
+                                    <div class="btn-group" style="position: relative;">
+                                        <button class="btn btn-sm btn-outline-secondary" title="Actions" @onclick="() => ToggleDropdown(entry.Id)">
+                                            &#x22EE;
+                                        </button>
+                                        @if (_openDropdownId == entry.Id)
+                                        {
+                                            <div class="dropdown-menu dropdown-menu-end show" style="position: absolute; right: 0; top: 100%; z-index: 1050;">
+                                                <button class="dropdown-item" @onclick="() => ShowAddToCollection(entry.Id)">&#x1F4C1; Add to Collection...</button>
+                                                <hr class="dropdown-divider" />
+                                                @if (entry.IsArchived)
+                                                {
+                                                    <button class="dropdown-item" @onclick="() => UnarchiveStoryAsync(entry.Id)">&#x21A9; Restore</button>
+                                                }
+                                                else
+                                                {
+                                                    <button class="dropdown-item" @onclick="() => ArchiveStoryAsync(entry.Id)">&#x1F4E6; Archive</button>
+                                                }
+                                                <button class="dropdown-item text-warning" @onclick="() => PurgeStoryAsync(entry.Id)">&#x1F5D1; Purge (keep stub)</button>
+                                                <hr class="dropdown-divider" />
+                                                <button class="dropdown-item text-danger" @onclick="() => DeleteStoryAsync(entry.Id)">&#x2715; Delete permanently</button>
+                                            </div>
+                                        }
+                                    </div>
                                 </div>
                             </div>
-                        </div>
+
+                            @* --- Add to collection picker --- *@
+                            @if (_addToCollectionStoryId == entry.Id)
+                            {
+                                <div class="list-group-item ps-5 border-primary" @onclick:stopPropagation="true">
+                                    <div class="d-flex gap-2 align-items-center flex-wrap">
+                                        <span class="small fw-semibold">Add to:</span>
+                                        @foreach (var col in _allCollections)
+                                        {
+                                            <button class="btn btn-sm btn-outline-primary" @onclick="() => AddStoryToCollectionAsync(col.Id, entry.Id)">@col.Name</button>
+                                        }
+                                        @if (_allCollections.Count == 0)
+                                        {
+                                            <span class="text-muted small">No collections yet. Create one first.</span>
+                                        }
+                                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => _addToCollectionStoryId = null">Cancel</button>
+                                    </div>
+                                </div>
+                            }
+                        }
                     }
                 </div>
             }
@@ -148,33 +347,55 @@
 </div>
 
 @code {
+    // --- Parse state ---
     private string _sourceUrl = string.Empty;
     private string _parseMessage = string.Empty;
-    private string _searchQuery = string.Empty;
-    private string _selectedSortMode = nameof(CatalogSortMode.NewestFirst);
     private string _selectedErrorMode = nameof(ParseErrorMode.FailFast);
     private bool _isParsing;
-    private bool _showArchived;
     private bool _showDuplicateModal;
-    private List<StoryCatalogEntry> _catalog = [];
-    private Dictionary<string, (double Score, bool IsDisqualified)> _storyScores = new();
     private List<ParsedStoryRecord> _duplicateEntries = [];
+
+    // --- Collection prompt state (after import) ---
+    private bool _showCollectionPrompt;
+    private CollectionMatchResult? _collectionMatchResult;
+    private string? _lastParsedStoryId;
+    private string _newCollectionName = string.Empty;
+
+    // --- Catalog state ---
+    private string _searchQuery = string.Empty;
+    private string _selectedSortMode = nameof(CatalogSortMode.NewestFirst);
+    private bool _showArchived;
+    private List<CollectionDisplayItem> _catalogItems = [];
+    private Dictionary<string, (double Score, bool IsDisqualified)> _storyScores = new();
+    private HashSet<string> _expandedCollectionIds = [];
     private string? _openDropdownId;
+
+    // --- Inline collection management ---
+    private bool _showCreateCollectionForm;
+    private string _createCollectionName = string.Empty;
+    private string _createCollectionDescription = string.Empty;
+    private string? _addToCollectionStoryId;
+    private List<StoryCollection> _allCollections = [];
+    private string? _editingCollectionId;
+    private string _editCollectionName = string.Empty;
+    private string? _editCollectionDescription;
 
     protected override async Task OnInitializedAsync()
     {
         await LoadCatalogAsync();
     }
 
+    // ==================== Parse / Import ====================
+
     private async Task ParseAsync()
     {
         _isParsing = true;
         _parseMessage = string.Empty;
         _showDuplicateModal = false;
+        _showCollectionPrompt = false;
 
         try
         {
-            // Check for duplicates first
             var duplicates = await ParserFacade.FindBySourceUrlAsync(_sourceUrl.Trim());
             if (duplicates.Count > 0)
             {
@@ -184,7 +405,7 @@
                 return;
             }
 
-            await ExecuteParseAsync(deleteExistingId: null);
+            await ExecuteParseAsync();
         }
         catch (Exception ex)
         {
@@ -202,12 +423,11 @@
         _isParsing = true;
         try
         {
-            // Delete all existing entries for this URL, then re-parse
             foreach (var dup in _duplicateEntries)
             {
                 await ParserFacade.DeleteAsync(dup.Id);
             }
-            await ExecuteParseAsync(deleteExistingId: null);
+            await ExecuteParseAsync();
         }
         catch (Exception ex)
         {
@@ -225,7 +445,7 @@
         _isParsing = true;
         try
         {
-            await ExecuteParseAsync(deleteExistingId: null);
+            await ExecuteParseAsync();
         }
         catch (Exception ex)
         {
@@ -243,7 +463,7 @@
         _duplicateEntries = [];
     }
 
-    private async Task ExecuteParseAsync(string? deleteExistingId)
+    private async Task ExecuteParseAsync()
     {
         _isParsing = true;
         _parseMessage = string.Empty;
@@ -285,7 +505,7 @@
             }
             catch { /* continue pipeline even if analysis fails */ }
 
-            // Auto-run: Rank with default profile (if one exists)
+            // Auto-run: Rank with default profile
             try
             {
                 var profiles = await AnalysisFacade.ListProfilesAsync();
@@ -303,7 +523,27 @@
             }
             catch { /* continue even if ranking fails */ }
 
-            // Navigate to the detail page
+            // Check for collection matches
+            _lastParsedStoryId = storyId;
+            try
+            {
+                _parseMessage = "Checking for story collections...";
+                StateHasChanged();
+                _collectionMatchResult = await CollectionFacade.FindMatchesAsync(_sourceUrl, result.Title);
+
+                if (_collectionMatchResult.Matches.Count > 0 || _collectionMatchResult.OrphanSiblingStoryId is not null)
+                {
+                    _showCollectionPrompt = true;
+                    _newCollectionName = _collectionMatchResult.SuggestedCollectionName ?? string.Empty;
+                    _parseMessage = "Parse complete. Collection match found — see prompt above.";
+                    await LoadCatalogAsync();
+                    return;
+                }
+            }
+            catch { /* collection matching is non-critical */ }
+
+            _parseMessage = "Parse complete.";
+            await LoadCatalogAsync();
             Navigation.NavigateTo($"/storyparser/detail/{storyId}");
         }
         catch (Exception ex)
@@ -316,24 +556,77 @@
         }
     }
 
+    // ==================== Collection Prompt Handlers ====================
+
+    private async Task AcceptCollectionMatch()
+    {
+        if (_collectionMatchResult is null || _lastParsedStoryId is null) return;
+
+        var firstMatch = _collectionMatchResult.Matches[0];
+        await CollectionFacade.AddStoryToCollectionAsync(firstMatch.CollectionId, _lastParsedStoryId);
+        _showCollectionPrompt = false;
+        _collectionMatchResult = null;
+        _parseMessage = $"Added to collection '{firstMatch.CollectionName}'.";
+        _expandedCollectionIds.Add(firstMatch.CollectionId);
+        await LoadCatalogAsync();
+    }
+
+    private async Task CreateCollectionFromOrphan()
+    {
+        if (_collectionMatchResult is null || _lastParsedStoryId is null) return;
+
+        var name = string.IsNullOrWhiteSpace(_newCollectionName)
+            ? _collectionMatchResult.SuggestedCollectionName ?? "New Collection"
+            : _newCollectionName;
+
+        var collection = await CollectionFacade.CreateCollectionAsync(name, null);
+
+        // Add both the orphan sibling and the new story
+        if (_collectionMatchResult.OrphanSiblingStoryId is not null)
+        {
+            await CollectionFacade.AddStoryToCollectionAsync(collection.Id, _collectionMatchResult.OrphanSiblingStoryId);
+        }
+        await CollectionFacade.AddStoryToCollectionAsync(collection.Id, _lastParsedStoryId);
+
+        _showCollectionPrompt = false;
+        _collectionMatchResult = null;
+        _parseMessage = $"Created collection '{name}' with stories.";
+        _expandedCollectionIds.Add(collection.Id);
+        await LoadCatalogAsync();
+    }
+
+    private void SkipCollectionPrompt()
+    {
+        _showCollectionPrompt = false;
+        _collectionMatchResult = null;
+        if (_lastParsedStoryId is not null)
+        {
+            Navigation.NavigateTo($"/storyparser/detail/{_lastParsedStoryId}");
+        }
+    }
+
+    // ==================== Catalog Loading ====================
+
     private async Task LoadCatalogAsync()
     {
         var sortMode = Enum.TryParse<CatalogSortMode>(_selectedSortMode, true, out var parsed)
             ? parsed
             : CatalogSortMode.NewestFirst;
 
-        IReadOnlyList<StoryCatalogEntry> rows;
-        if (string.IsNullOrWhiteSpace(_searchQuery))
+        _catalogItems = await CollectionFacade.BuildUnifiedCatalogAsync(
+            sortMode, _showArchived, string.IsNullOrWhiteSpace(_searchQuery) ? null : _searchQuery);
+
+        // Auto-expand collections that have search matches
+        if (!string.IsNullOrWhiteSpace(_searchQuery))
         {
-            rows = await CatalogFacade.ListAsync(sortMode, _showArchived);
-        }
-        else
-        {
-            rows = await CatalogFacade.SearchAsync(_searchQuery, sortMode);
+            foreach (var item in _catalogItems.Where(i => i.ItemType == CatalogDisplayItemType.Collection && i.Members.Count > 0))
+            {
+                _expandedCollectionIds.Add(item.CollectionId!);
+            }
         }
 
-        _catalog = rows.ToList();
         await LoadRankingScoresAsync();
+        _allCollections = (await CollectionFacade.ListCollectionsAsync()).ToList();
     }
 
     private async Task LoadRankingScoresAsync()
@@ -346,16 +639,105 @@
 
             var profile = profiles.FirstOrDefault(p => p.IsDefault) ?? profiles[0];
 
-            foreach (var entry in _catalog)
+            // Collect all story IDs from both standalone and collection members
+            var storyIds = new List<string>();
+            foreach (var item in _catalogItems)
             {
-                var ranking = await AnalysisFacade.GetRankingAsync(entry.Id, profile.Id);
+                if (item.ItemType == CatalogDisplayItemType.StandaloneStory && item.Story is not null)
+                    storyIds.Add(item.Story.Id);
+                else if (item.ItemType == CatalogDisplayItemType.Collection)
+                    storyIds.AddRange(item.Members.Select(m => m.Id));
+            }
+
+            foreach (var id in storyIds)
+            {
+                var ranking = await AnalysisFacade.GetRankingAsync(id, profile.Id);
                 if (ranking is not null)
                 {
-                    _storyScores[entry.Id] = (ranking.Score, ranking.IsDisqualified);
+                    _storyScores[id] = (ranking.Score, ranking.IsDisqualified);
                 }
             }
         }
         catch { /* don't break catalog display if ranking lookup fails */ }
+    }
+
+    // ==================== Collection CRUD (inline) ====================
+
+    private void ShowCreateCollection()
+    {
+        _showCreateCollectionForm = !_showCreateCollectionForm;
+        _createCollectionName = string.Empty;
+        _createCollectionDescription = string.Empty;
+    }
+
+    private async Task CreateCollectionAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_createCollectionName)) return;
+        await CollectionFacade.CreateCollectionAsync(_createCollectionName, 
+            string.IsNullOrWhiteSpace(_createCollectionDescription) ? null : _createCollectionDescription);
+        _showCreateCollectionForm = false;
+        _createCollectionName = string.Empty;
+        _createCollectionDescription = string.Empty;
+        await LoadCatalogAsync();
+    }
+
+    private async Task DeleteCollectionAsync(string collectionId)
+    {
+        _openDropdownId = null;
+        await CollectionFacade.DeleteCollectionAsync(collectionId);
+        _expandedCollectionIds.Remove(collectionId);
+        await LoadCatalogAsync();
+    }
+
+    private void StartEditCollection(string collectionId, string name, string? description)
+    {
+        _openDropdownId = null;
+        _editingCollectionId = collectionId;
+        _editCollectionName = name;
+        _editCollectionDescription = description;
+    }
+
+    private async Task SaveEditCollectionAsync()
+    {
+        if (_editingCollectionId is null || string.IsNullOrWhiteSpace(_editCollectionName)) return;
+        await CollectionFacade.UpdateCollectionAsync(_editingCollectionId, _editCollectionName, _editCollectionDescription);
+        _editingCollectionId = null;
+        await LoadCatalogAsync();
+    }
+
+    private void CancelEditCollection()
+    {
+        _editingCollectionId = null;
+    }
+
+    private async Task ShowAddToCollection(string storyId)
+    {
+        _openDropdownId = null;
+        _addToCollectionStoryId = storyId;
+        _allCollections = (await CollectionFacade.ListCollectionsAsync()).ToList();
+    }
+
+    private async Task AddStoryToCollectionAsync(string collectionId, string storyId)
+    {
+        await CollectionFacade.AddStoryToCollectionAsync(collectionId, storyId);
+        _addToCollectionStoryId = null;
+        _expandedCollectionIds.Add(collectionId);
+        await LoadCatalogAsync();
+    }
+
+    private async Task RemoveFromCollectionAsync(string collectionId, string storyId)
+    {
+        _openDropdownId = null;
+        await CollectionFacade.RemoveStoryFromCollectionAsync(collectionId, storyId);
+        await LoadCatalogAsync();
+    }
+
+    // ==================== Story Actions ====================
+
+    private void ToggleCollection(string collectionId)
+    {
+        if (!_expandedCollectionIds.Remove(collectionId))
+            _expandedCollectionIds.Add(collectionId);
     }
 
     private static string GetScoreBadgeClass(double score) => score switch

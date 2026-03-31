@@ -23,23 +23,28 @@ public sealed class StoryRankingService : IStoryRankingService
 
     private const string SystemMessage =
         """
-        You are a literary analyst detecting thematic content in stories.
-        You will be given a list of themes to check for. For each theme, determine:
-        1. Whether the theme is present in the story
-        2. The intensity of the theme: "None", "Minor", "Moderate", "Major", or "Central"
-        3. Brief evidence from the story supporting your determination
+        You are a content classifier that determines whether a specific theme is present in a section of a story.
 
-        Respond ONLY with valid JSON as an array matching the themes provided, in this exact format:
-        [
-          {
-            "themeId": "the id provided",
-            "detected": true,
-            "intensity": "Major",
-            "evidence": "brief explanation"
-          }
-        ]
-        Use intensity "None" when the theme is not detected (detected should be false in that case).
-        Do not include any text outside the JSON array.
+        Read the provided story text carefully and check whether it contains the described theme.
+
+        MATCHING RULES:
+        - A theme is "detected" when the text depicts the specific behavior or content described in the theme description.
+        - Match based on what actually happens in the text, not on surface-level word overlap.
+          Example: A story mentioning "brother" in a family argument does NOT match a theme about incest. The text must actually depict sexual contact between family members.
+          Example: A character watching TV does NOT match a voyeurism theme. The text must depict the specific voyeuristic behavior described.
+        - If the text contains scenes or events that clearly match the theme description, mark detected as true even if the theme is not the central focus.
+
+        Intensity levels (only when detected is true):
+        - "Minor": briefly mentioned or implied in a single passage
+        - "Moderate": appears in multiple scenes but is not the main focus
+        - "Major": a significant recurring element of the text
+        - "Central": the primary focus of the text
+
+        Respond ONLY with valid JSON:
+        {"detected": true/false, "intensity": "None/Minor/Moderate/Major/Central", "evidence": "your reasoning"}
+        When detected is false, set intensity to "None".
+        When detected is true, describe the specific content that matches the theme.
+        Do not include any text outside the JSON object.
         """;
 
     public StoryRankingService(
@@ -83,95 +88,123 @@ public sealed class StoryRankingService : IStoryRankingService
             return new ThemeRankResult { Success = false, Errors = { ["_global"] = "Story text is empty" } };
         }
 
-        string storyTextForPrompt;
-        if (storyText.Length > _options.MaxStoryTextLength)
-        {
-            _logger.LogInformation("Text truncation applied: original {OriginalLength} chars, truncated to {TruncatedLength} chars",
-                storyText.Length, _options.MaxStoryTextLength);
-            storyTextForPrompt = storyText[.._options.MaxStoryTextLength];
-        }
-        else
-        {
-            storyTextForPrompt = storyText;
-        }
+        // Split the story into chunks so the entire text is analyzed
+        var chunks = ChunkStoryText(storyText, _options.MaxStoryTextLength);
+        _logger.LogInformation("Story {ParsedStoryId} split into {ChunkCount} chunk(s) ({TotalLength} chars, chunk size {ChunkSize})",
+            parsedStoryId, chunks.Count, storyText.Length, _options.MaxStoryTextLength);
 
         // Build theme snapshot
         var snapshotItems = themes.Select(t => new { themeId = t.Id, name = t.Name, description = t.Description, tier = t.Tier.ToString() }).ToList();
         var themeSnapshotJson = JsonSerializer.Serialize(snapshotItems);
 
-        // Build theme list for the LLM prompt
-        var themeDefinitions = themes.Select(t => new { themeId = t.Id, name = t.Name, description = t.Description }).ToList();
-        var themeListJson = JsonSerializer.Serialize(themeDefinitions, new JsonSerializerOptions { WriteIndented = true });
-
-        // Single LLM call for all themes
-        var userMessage = $"Themes to detect:\n{themeListJson}\n\nStory text:\n{storyTextForPrompt}";
-        var maxTokens = Math.Max(200, themes.Count * 50);
-
+        // Evaluate each theme across all chunks, keeping the strongest detection
+        var detections = new List<ThemeDetection>();
+        var errors = new Dictionary<string, string>();
         var sw = Stopwatch.StartNew();
-        try
-        {
-            var response = await _lmClient.GenerateAsync(
-                SystemMessage,
-                userMessage,
-                _lmOptions.Model,
-                _options.RankTemperature,
-                0.9,
-                maxTokens,
-                cancellationToken);
-            sw.Stop();
-            _logger.LogInformation("Theme detection LLM call completed in {Duration}ms", sw.ElapsedMilliseconds);
 
-            var json = StripMarkdownFences(response?.Trim() ?? string.Empty);
-            if (string.IsNullOrWhiteSpace(json))
+        foreach (var theme in themes)
+        {
+            ThemeDetection bestDetection = UndetectedTheme(theme);
+
+            for (int i = 0; i < chunks.Count; i++)
             {
-                return new ThemeRankResult { Success = false, Errors = { ["_global"] = "Empty response from LLM" } };
+                var chunkLabel = chunks.Count > 1 ? $" (part {i + 1} of {chunks.Count})" : "";
+                var userMessage = $"""
+                    Theme to detect:
+                    Name: {theme.Name}
+                    Description: {theme.Description}
+
+                    Does the story text below contain the theme described above? Base your answer on what actually happens in the text.
+
+                    Story text{chunkLabel}:
+                    {chunks[i]}
+                    """;
+
+                try
+                {
+                    var response = await _lmClient.GenerateAsync(
+                        SystemMessage,
+                        userMessage,
+                        _lmOptions.Model,
+                        _options.RankTemperature,
+                        0.5,
+                        200,
+                        cancellationToken);
+
+                    var json = StripMarkdownFences(response?.Trim() ?? string.Empty);
+                    _logger.LogDebug("Theme '{ThemeName}' chunk {Chunk}/{Total} LLM response ({Length} chars): {Response}",
+                        theme.Name, i + 1, chunks.Count, json.Length, json);
+
+                    var detection = ParseSingleDetection(json, theme);
+
+                    // Keep the strongest detection across chunks
+                    if (detection.Detected && detection.Intensity > bestDetection.Intensity)
+                    {
+                        bestDetection = detection;
+                    }
+
+                    // If we found a strong detection, no need to check remaining chunks for this theme
+                    if (bestDetection.Intensity >= ThemeIntensity.Major)
+                    {
+                        _logger.LogInformation("Theme '{ThemeName}' strong detection in chunk {Chunk}, skipping remaining chunks",
+                            theme.Name, i + 1);
+                        break;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "LLM call failed for theme '{ThemeName}' chunk {Chunk}/{Total}", theme.Name, i + 1, chunks.Count);
+                    if (!errors.ContainsKey(theme.Name))
+                        errors[theme.Name] = ex.Message;
+                }
             }
 
-            var detections = ParseDetections(json, themes);
-
-            var (score, isDisqualified, disqualifyingThemes) = ThemeScoreCalculator.Calculate(detections);
-
-            var result = new ThemeRankResult
-            {
-                Success = true,
-                Score = score,
-                IsDisqualified = isDisqualified,
-                DisqualifyingThemes = disqualifyingThemes,
-                ThemeDetectionsJson = JsonSerializer.Serialize(detections.Select(d => new
-                {
-                    themeId = d.ThemeId,
-                    themeName = d.ThemeName,
-                    tier = d.Tier.ToString(),
-                    detected = d.Detected,
-                    intensity = d.Intensity.ToString(),
-                    evidence = d.Evidence
-                })),
-                ThemeSnapshotJson = themeSnapshotJson
-            };
-
-            var ranking = new StoryRankingResult
-            {
-                ParsedStoryId = parsedStoryId,
-                ProfileId = profileId,
-                ThemeSnapshotJson = themeSnapshotJson,
-                ThemeDetectionsJson = result.ThemeDetectionsJson,
-                Score = score,
-                IsDisqualified = isDisqualified,
-                GeneratedUtc = DateTime.UtcNow
-            };
-
-            await _persistence.SaveStoryRankingAsync(ranking, cancellationToken);
-            _logger.LogInformation("Ranking persisted for story {ParsedStoryId} profile {ProfileId}: score={Score}, disqualified={IsDisqualified}",
-                parsedStoryId, profileId, score, isDisqualified);
-
-            return result;
+            detections.Add(bestDetection);
+            _logger.LogInformation("Theme '{ThemeName}' final result: detected={Detected}, intensity={Intensity}",
+                theme.Name, bestDetection.Detected, bestDetection.Intensity);
         }
-        catch (Exception ex)
+
+        sw.Stop();
+        _logger.LogInformation("All {ThemeCount} theme evaluations across {ChunkCount} chunk(s) completed in {Duration}ms",
+            themes.Count, chunks.Count, sw.ElapsedMilliseconds);
+
+        var (score, isDisqualified, disqualifyingThemes) = ThemeScoreCalculator.Calculate(detections);
+
+        var result = new ThemeRankResult
         {
-            sw.Stop();
-            _logger.LogError(ex, "Theme detection LLM call failed for story {ParsedStoryId}", parsedStoryId);
-            return new ThemeRankResult { Success = false, Errors = { ["_global"] = $"LLM call failed: {ex.Message}" } };
-        }
+            Success = errors.Count == 0,
+            Score = score,
+            IsDisqualified = isDisqualified,
+            DisqualifyingThemes = disqualifyingThemes,
+            ThemeDetectionsJson = JsonSerializer.Serialize(detections.Select(d => new
+            {
+                themeId = d.ThemeId,
+                themeName = d.ThemeName,
+                tier = d.Tier.ToString(),
+                detected = d.Detected,
+                intensity = d.Intensity.ToString(),
+                evidence = d.Evidence
+            })),
+            ThemeSnapshotJson = themeSnapshotJson,
+            Errors = errors
+        };
+
+        var ranking = new StoryRankingResult
+        {
+            ParsedStoryId = parsedStoryId,
+            ProfileId = profileId,
+            ThemeSnapshotJson = themeSnapshotJson,
+            ThemeDetectionsJson = result.ThemeDetectionsJson,
+            Score = score,
+            IsDisqualified = isDisqualified,
+            GeneratedUtc = DateTime.UtcNow
+        };
+
+        await _persistence.SaveStoryRankingAsync(ranking, cancellationToken);
+        _logger.LogInformation("Ranking persisted for story {ParsedStoryId} profile {ProfileId}: score={Score}, disqualified={IsDisqualified}",
+            parsedStoryId, profileId, score, isDisqualified);
+
+        return result;
     }
 
     public async Task<StoryRankingResult?> GetRankingAsync(string parsedStoryId, string profileId, CancellationToken cancellationToken = default)
@@ -190,90 +223,105 @@ public sealed class StoryRankingService : IStoryRankingService
         return match.Success ? match.Groups[1].Value.Trim() : text;
     }
 
-    private static List<ThemeDetection> ParseDetections(string json, List<ThemePreference> themes)
+    private static ThemeDetection ParseSingleDetection(string json, ThemePreference theme)
     {
-        var detections = new List<ThemeDetection>();
-        var themeLookup = themes.ToDictionary(t => t.Id);
-
         try
         {
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                return UndetectedTheme(theme);
+            }
+
             using var doc = JsonDocument.Parse(json);
-            var array = doc.RootElement;
+            var elem = doc.RootElement;
 
-            if (array.ValueKind != JsonValueKind.Array)
+            if (elem.ValueKind != JsonValueKind.Object)
             {
-                // Return all themes as undetected if LLM response is malformed
-                return themes.Select(t => new ThemeDetection
-                {
-                    ThemeId = t.Id,
-                    ThemeName = t.Name,
-                    Tier = t.Tier,
-                    Detected = false,
-                    Intensity = ThemeIntensity.None,
-                    Evidence = string.Empty
-                }).ToList();
+                return UndetectedTheme(theme);
             }
 
-            var parsedIds = new HashSet<string>();
-            foreach (var elem in array.EnumerateArray())
+            var detected = elem.TryGetProperty("detected", out var detProp) && detProp.GetBoolean();
+            var intensityStr = elem.TryGetProperty("intensity", out var intProp) ? intProp.GetString() ?? "None" : "None";
+            var evidence = elem.TryGetProperty("evidence", out var evProp) ? evProp.GetString() ?? string.Empty : string.Empty;
+
+            var intensity = Enum.TryParse<ThemeIntensity>(intensityStr, ignoreCase: true, out var parsed)
+                ? parsed
+                : ThemeIntensity.None;
+
+            // Normalize: if not detected, intensity should be None
+            if (!detected) intensity = ThemeIntensity.None;
+
+            return new ThemeDetection
             {
-                var themeId = elem.TryGetProperty("themeId", out var idProp) ? idProp.GetString() ?? string.Empty : string.Empty;
-                if (!themeLookup.TryGetValue(themeId, out var theme))
-                    continue;
-
-                parsedIds.Add(themeId);
-                var detected = elem.TryGetProperty("detected", out var detProp) && detProp.GetBoolean();
-                var intensityStr = elem.TryGetProperty("intensity", out var intProp) ? intProp.GetString() ?? "None" : "None";
-                var evidence = elem.TryGetProperty("evidence", out var evProp) ? evProp.GetString() ?? string.Empty : string.Empty;
-
-                var intensity = Enum.TryParse<ThemeIntensity>(intensityStr, ignoreCase: true, out var parsed)
-                    ? parsed
-                    : ThemeIntensity.None;
-
-                // Normalize: if not detected, intensity should be None
-                if (!detected) intensity = ThemeIntensity.None;
-
-                detections.Add(new ThemeDetection
-                {
-                    ThemeId = themeId,
-                    ThemeName = theme.Name,
-                    Tier = theme.Tier,
-                    Detected = detected,
-                    Intensity = intensity,
-                    Evidence = evidence
-                });
-            }
-
-            // Add any themes the LLM missed as undetected
-            foreach (var theme in themes)
-            {
-                if (!parsedIds.Contains(theme.Id))
-                {
-                    detections.Add(new ThemeDetection
-                    {
-                        ThemeId = theme.Id,
-                        ThemeName = theme.Name,
-                        Tier = theme.Tier,
-                        Detected = false,
-                        Intensity = ThemeIntensity.None,
-                        Evidence = string.Empty
-                    });
-                }
-            }
+                ThemeId = theme.Id,
+                ThemeName = theme.Name,
+                Tier = theme.Tier,
+                Detected = detected,
+                Intensity = intensity,
+                Evidence = evidence
+            };
         }
         catch (JsonException)
         {
-            return themes.Select(t => new ThemeDetection
+            return UndetectedTheme(theme);
+        }
+    }
+
+    private static ThemeDetection UndetectedTheme(ThemePreference theme) => new()
+    {
+        ThemeId = theme.Id,
+        ThemeName = theme.Name,
+        Tier = theme.Tier,
+        Detected = false,
+        Intensity = ThemeIntensity.None,
+        Evidence = string.Empty
+    };
+
+    /// <summary>
+    /// Splits story text into chunks of approximately <paramref name="chunkSize"/> characters,
+    /// breaking at paragraph boundaries to avoid splitting mid-sentence.
+    /// </summary>
+    internal static List<string> ChunkStoryText(string text, int chunkSize)
+    {
+        if (string.IsNullOrWhiteSpace(text) || text.Length <= chunkSize)
+            return [text];
+
+        var chunks = new List<string>();
+        var position = 0;
+
+        while (position < text.Length)
+        {
+            var remaining = text.Length - position;
+            if (remaining <= chunkSize)
             {
-                ThemeId = t.Id,
-                ThemeName = t.Name,
-                Tier = t.Tier,
-                Detected = false,
-                Intensity = ThemeIntensity.None,
-                Evidence = string.Empty
-            }).ToList();
+                chunks.Add(text[position..]);
+                break;
+            }
+
+            // Take chunkSize chars, then look backwards for a paragraph break
+            var end = position + chunkSize;
+            var breakPoint = text.LastIndexOf("\n\n", end, Math.Min(chunkSize, end), StringComparison.Ordinal);
+
+            if (breakPoint <= position)
+            {
+                // No paragraph break found, try a single newline
+                breakPoint = text.LastIndexOf('\n', end, Math.Min(chunkSize, end));
+            }
+
+            if (breakPoint <= position)
+            {
+                // No newline at all, just cut at chunkSize
+                breakPoint = end;
+            }
+
+            chunks.Add(text[position..breakPoint]);
+            position = breakPoint;
+
+            // Skip the newline characters at the break point
+            while (position < text.Length && text[position] is '\n' or '\r')
+                position++;
         }
 
-        return detections;
+        return chunks;
     }
 }

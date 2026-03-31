@@ -1,0 +1,383 @@
+@page "/storycollections"
+@rendermode InteractiveServer
+
+@using DreamGenClone.Application.StoryParser.Models
+@using DreamGenClone.Domain.StoryParser
+@using DreamGenClone.Web.Application.StoryParser
+
+@inject StoryCollectionFacade CollectionFacade
+@inject StoryCatalogFacade CatalogFacade
+@inject NavigationManager Navigation
+
+<PageTitle>Story Collections</PageTitle>
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3>Story Collections</h3>
+        <button class="btn btn-primary btn-sm" @onclick="ToggleCreateForm">@(_showCreateForm ? "Cancel" : "+ New Collection")</button>
+    </div>
+
+    @* ── Create / Edit Collection Form ── *@
+    @if (_showCreateForm)
+    {
+        <div class="card mb-3">
+            <div class="card-body">
+                <h5>@(_editingCollectionId is null ? "Create Collection" : "Edit Collection")</h5>
+                <div class="row g-2 align-items-end">
+                    <div class="col-md-4">
+                        <label class="form-label">Name</label>
+                        <input class="form-control form-control-sm" @bind="_formName" placeholder="Collection name" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Description</label>
+                        <input class="form-control form-control-sm" @bind="_formDescription" placeholder="Optional description" />
+                    </div>
+                    <div class="col-md-2">
+                        <button class="btn btn-success btn-sm w-100" @onclick="SaveCollectionAsync" disabled="@string.IsNullOrWhiteSpace(_formName)">
+                            @(_editingCollectionId is null ? "Create" : "Save")
+                        </button>
+                    </div>
+                </div>
+                @if (_formError is not null)
+                {
+                    <div class="text-danger small mt-1">@_formError</div>
+                }
+            </div>
+        </div>
+    }
+
+    @* ── Collections List ── *@
+    @if (_isLoading)
+    {
+        <p><em>Loading collections...</em></p>
+    }
+    else if (_collections.Count == 0)
+    {
+        <div class="alert alert-info">No collections yet. Create one to get started.</div>
+    }
+    else
+    {
+        @foreach (var col in _collections)
+        {
+            var isExpanded = _expandedIds.Contains(col.Id);
+            <div class="card mb-2">
+                <div class="card-header d-flex justify-content-between align-items-center" style="cursor:pointer;" @onclick="() => ToggleExpand(col.Id)">
+                    <div>
+                        <span class="me-2">@(isExpanded ? "▼" : "▶")</span>
+                        <strong>@col.Name</strong>
+                        @if (!string.IsNullOrWhiteSpace(col.Description))
+                        {
+                            <small class="text-muted ms-2">— @col.Description</small>
+                        }
+                        <span class="badge bg-secondary ms-2">@(_memberCounts.GetValueOrDefault(col.Id, 0)) stories</span>
+                    </div>
+                    <div class="d-flex gap-1" @onclick:stopPropagation="true">
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => StartEdit(col)">Edit</button>
+                        <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfirmDeleteAsync(col)">Delete</button>
+                    </div>
+                </div>
+
+                @if (isExpanded)
+                {
+                    <div class="card-body p-2">
+                        @if (_loadingMembers.Contains(col.Id))
+                        {
+                            <p class="text-muted small"><em>Loading members...</em></p>
+                        }
+                        else
+                        {
+                            var members = _membersMap.GetValueOrDefault(col.Id, []);
+                            @if (members.Count == 0)
+                            {
+                                <p class="text-muted small mb-1">No stories in this collection.</p>
+                            }
+                            else
+                            {
+                                <table class="table table-sm mb-2">
+                                    <thead>
+                                        <tr>
+                                            <th style="width:40px">#</th>
+                                            <th>Title</th>
+                                            <th>URL</th>
+                                            <th style="width:120px">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @for (var i = 0; i < members.Count; i++)
+                                        {
+                                            var member = members[i];
+                                            var story = _storiesById.GetValueOrDefault(member.ParsedStoryId);
+                                            var idx = i;
+                                            <tr>
+                                                <td>@member.SortOrder</td>
+                                                <td>@(story?.Title ?? "(unknown)")</td>
+                                                <td class="text-truncate" style="max-width:300px">@(story?.SourceUrl ?? member.ParsedStoryId)</td>
+                                                <td>
+                                                    <div class="d-flex gap-1">
+                                                        <button class="btn btn-sm btn-outline-secondary" disabled="@(idx == 0)" @onclick="() => MoveUpAsync(col.Id, members, idx)">↑</button>
+                                                        <button class="btn btn-sm btn-outline-secondary" disabled="@(idx == members.Count - 1)" @onclick="() => MoveDownAsync(col.Id, members, idx)">↓</button>
+                                                        <button class="btn btn-sm btn-outline-danger" @onclick="() => RemoveMemberAsync(col.Id, member.ParsedStoryId)">✕</button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            }
+
+                            @* ── Add story to collection ── *@
+                            @if (_addingToCollectionId == col.Id)
+                            {
+                                <div class="d-flex gap-2 align-items-center mt-1">
+                                    <input class="form-control form-control-sm" style="max-width:300px" placeholder="Search stories..."
+                                           @bind="_addStorySearch" @bind:event="oninput" @onkeyup="OnAddStorySearchKeyUp" />
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => _addingToCollectionId = null">Cancel</button>
+                                </div>
+                                @if (_addStoryResults.Count > 0)
+                                {
+                                    <div class="list-group mt-1" style="max-height:200px;overflow-y:auto;">
+                                        @foreach (var entry in _addStoryResults)
+                                        {
+                                            var existingIds = members.Select(m => m.ParsedStoryId).ToHashSet();
+                                            @if (!existingIds.Contains(entry.Id))
+                                            {
+                                                <button class="list-group-item list-group-item-action py-1 small"
+                                                        @onclick="() => AddStoryToCollectionAsync(col.Id, entry.Id)">
+                                                    @(entry.Title ?? entry.SourceUrl)
+                                                </button>
+                                            }
+                                        }
+                                    </div>
+                                }
+                            }
+                            else
+                            {
+                                <button class="btn btn-sm btn-outline-primary mt-1" @onclick="() => StartAddStory(col.Id)">+ Add Story</button>
+                            }
+                        }
+                    </div>
+                }
+            </div>
+        }
+    }
+
+    @* ── Delete Confirmation ── *@
+    @if (_deletingCollection is not null)
+    {
+        <div class="modal d-block" tabindex="-1" style="background:rgba(0,0,0,0.4)">
+            <div class="modal-dialog modal-sm">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Delete Collection</h5>
+                    </div>
+                    <div class="modal-body">
+                        <p>Delete <strong>@_deletingCollection.Name</strong> and unlink all member stories?</p>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary btn-sm" @onclick="() => _deletingCollection = null">Cancel</button>
+                        <button class="btn btn-danger btn-sm" @onclick="ExecuteDeleteAsync">Delete</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<StoryCollection> _collections = [];
+    private bool _isLoading = true;
+
+    // Create / Edit form
+    private bool _showCreateForm;
+    private string? _editingCollectionId;
+    private string _formName = string.Empty;
+    private string? _formDescription;
+    private string? _formError;
+
+    // Expand state
+    private HashSet<string> _expandedIds = new();
+    private HashSet<string> _loadingMembers = new();
+    private Dictionary<string, List<StoryCollectionMembership>> _membersMap = new();
+    private Dictionary<string, int> _memberCounts = new();
+    private Dictionary<string, StoryCatalogEntry> _storiesById = new();
+
+    // Add story
+    private string? _addingToCollectionId;
+    private string _addStorySearch = string.Empty;
+    private List<StoryCatalogEntry> _addStoryResults = [];
+
+    // Delete
+    private StoryCollection? _deletingCollection;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCollectionsAsync();
+        _isLoading = false;
+    }
+
+    private async Task LoadCollectionsAsync()
+    {
+        _collections = (await CollectionFacade.ListCollectionsAsync()).ToList();
+
+        // Preload member counts
+        _memberCounts.Clear();
+        foreach (var col in _collections)
+        {
+            var members = await CollectionFacade.GetCollectionMembersAsync(col.Id);
+            _memberCounts[col.Id] = members.Count;
+        }
+    }
+
+    // ── Create / Edit ──
+
+    private void ToggleCreateForm()
+    {
+        _showCreateForm = !_showCreateForm;
+        if (_showCreateForm)
+        {
+            _editingCollectionId = null;
+            _formName = string.Empty;
+            _formDescription = null;
+            _formError = null;
+        }
+    }
+
+    private void StartEdit(StoryCollection col)
+    {
+        _editingCollectionId = col.Id;
+        _formName = col.Name;
+        _formDescription = col.Description;
+        _formError = null;
+        _showCreateForm = true;
+    }
+
+    private async Task SaveCollectionAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_formName)) return;
+        _formError = null;
+
+        try
+        {
+            if (_editingCollectionId is null)
+                await CollectionFacade.CreateCollectionAsync(_formName.Trim(), _formDescription?.Trim());
+            else
+                await CollectionFacade.UpdateCollectionAsync(_editingCollectionId, _formName.Trim(), _formDescription?.Trim());
+
+            _showCreateForm = false;
+            _editingCollectionId = null;
+            _formName = string.Empty;
+            _formDescription = null;
+            await LoadCollectionsAsync();
+        }
+        catch (Exception ex)
+        {
+            _formError = ex.Message;
+        }
+    }
+
+    // ── Delete ──
+
+    private void ConfirmDeleteAsync(StoryCollection col)
+    {
+        _deletingCollection = col;
+    }
+
+    private async Task ExecuteDeleteAsync()
+    {
+        if (_deletingCollection is null) return;
+        await CollectionFacade.DeleteCollectionAsync(_deletingCollection.Id);
+        _deletingCollection = null;
+        _expandedIds.Remove(_deletingCollection?.Id ?? "");
+        await LoadCollectionsAsync();
+    }
+
+    // ── Expand / Collapse ──
+
+    private async Task ToggleExpand(string collectionId)
+    {
+        if (_expandedIds.Contains(collectionId))
+        {
+            _expandedIds.Remove(collectionId);
+            return;
+        }
+
+        _expandedIds.Add(collectionId);
+        await LoadMembersAsync(collectionId);
+    }
+
+    private async Task LoadMembersAsync(string collectionId)
+    {
+        _loadingMembers.Add(collectionId);
+        StateHasChanged();
+
+        var members = (await CollectionFacade.GetCollectionMembersAsync(collectionId))
+            .OrderBy(m => m.SortOrder).ToList();
+        _membersMap[collectionId] = members;
+
+        // Ensure we have story entries for display
+        var catalog = await CatalogFacade.ListAsync(CatalogSortMode.NewestFirst);
+        foreach (var entry in catalog)
+            _storiesById.TryAdd(entry.Id, entry);
+
+        _loadingMembers.Remove(collectionId);
+    }
+
+    // ── Reorder ──
+
+    private async Task MoveUpAsync(string collectionId, List<StoryCollectionMembership> members, int index)
+    {
+        if (index <= 0) return;
+        var orderedIds = members.Select(m => m.ParsedStoryId).ToList();
+        (orderedIds[index], orderedIds[index - 1]) = (orderedIds[index - 1], orderedIds[index]);
+        await CollectionFacade.ReorderCollectionMembersAsync(collectionId, orderedIds);
+        await LoadMembersAsync(collectionId);
+    }
+
+    private async Task MoveDownAsync(string collectionId, List<StoryCollectionMembership> members, int index)
+    {
+        if (index >= members.Count - 1) return;
+        var orderedIds = members.Select(m => m.ParsedStoryId).ToList();
+        (orderedIds[index], orderedIds[index + 1]) = (orderedIds[index + 1], orderedIds[index]);
+        await CollectionFacade.ReorderCollectionMembersAsync(collectionId, orderedIds);
+        await LoadMembersAsync(collectionId);
+    }
+
+    // ── Add Story ──
+
+    private void StartAddStory(string collectionId)
+    {
+        _addingToCollectionId = collectionId;
+        _addStorySearch = string.Empty;
+        _addStoryResults = [];
+    }
+
+    private async Task OnAddStorySearchKeyUp(KeyboardEventArgs e)
+    {
+        if (_addStorySearch.Length < 2)
+        {
+            _addStoryResults = [];
+            return;
+        }
+
+        _addStoryResults = (await CatalogFacade.SearchAsync(_addStorySearch, CatalogSortMode.NewestFirst)).ToList();
+    }
+
+    private async Task AddStoryToCollectionAsync(string collectionId, string storyId)
+    {
+        await CollectionFacade.AddStoryToCollectionAsync(collectionId, storyId);
+        _addStorySearch = string.Empty;
+        _addStoryResults = [];
+        _addingToCollectionId = null;
+        await LoadMembersAsync(collectionId);
+        _memberCounts[collectionId] = _membersMap[collectionId].Count;
+    }
+
+    // ── Remove Member ──
+
+    private async Task RemoveMemberAsync(string collectionId, string storyId)
+    {
+        await CollectionFacade.RemoveStoryFromCollectionAsync(collectionId, storyId);
+        await LoadMembersAsync(collectionId);
+        _memberCounts[collectionId] = _membersMap[collectionId].Count;
+    }
+}

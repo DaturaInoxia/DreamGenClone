@@ -4,10 +4,12 @@
 @using DreamGenClone.Web.Application.StoryParser
 @using DreamGenClone.Web.Application.StoryAnalysis
 @using DreamGenClone.Domain.StoryAnalysis
+@using DreamGenClone.Domain.StoryParser
 @using System.Text.Json
 @using System.Linq
 
 @inject StoryParserFacade ParserFacade
+@inject StoryCollectionFacade CollectionFacade
 @inject StoryAnalysisFacade AnalysisFacade
 @inject NavigationManager Navigation
 
@@ -434,6 +436,54 @@
             }
         </div>
 
+        @* ── My Rating Section ── *@
+        <div class="card mb-3">
+            <div class="card-header cursor-pointer" @onclick="() => _showRating = !_showRating">
+                @(_showRating ? "▼" : "▶") My Rating
+                @if (_userRating is not null && !_showRating)
+                {
+                    <span class="ms-2">
+                        @for (int i = 1; i <= 5; i++)
+                        {
+                            <span style="color: @(i <= _userRating.Stars ? "#ffc107" : "#dee2e6"); font-size: 0.9rem;">★</span>
+                        }
+                    </span>
+                }
+            </div>
+            @if (_showRating)
+            {
+                <div class="card-body">
+                    <div class="mb-2">
+                        @for (int s = 1; s <= 5; s++)
+                        {
+                            var star = s;
+                            <span style="cursor: pointer; font-size: 1.5rem; color: @(star <= _ratingStars ? "#ffc107" : "#dee2e6");"
+                                  @onclick="() => _ratingStars = star"
+                                  title="@star star(s)">★</span>
+                        }
+                        <span class="ms-2 text-muted small">@_ratingStars / 5</span>
+                    </div>
+                    <div class="mb-2">
+                        <textarea class="form-control form-control-sm" rows="2" placeholder="Optional comment..."
+                                  @bind="_ratingComment"></textarea>
+                    </div>
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-sm btn-primary" @onclick="SaveRating" disabled="@_isRatingSaving">
+                            @(_userRating is not null ? "Update Rating" : "Save Rating")
+                        </button>
+                        @if (_userRating is not null)
+                        {
+                            <button class="btn btn-sm btn-outline-danger" @onclick="DeleteRating" disabled="@_isRatingSaving">Remove</button>
+                        }
+                    </div>
+                    @if (_userRating is not null)
+                    {
+                        <small class="text-muted d-block mt-1">Rated: @_userRating.UpdatedUtc.ToLocalTime().ToString("g")</small>
+                    }
+                </div>
+            }
+        </div>
+
         @* ── Parsed Story Detail ── *@
         <div class="card mb-3">
             <div class="card-header">Parsed Story Detail</div>
@@ -450,6 +500,50 @@
                 <div><strong>Parsed Date:</strong> @_detail.ParsedUtc.ToLocalTime().ToString("g")</div>
                 <div><strong>Page Count:</strong> @_detail.PageCount</div>
                 <div><strong>Status:</strong> @_detail.ParseStatus</div>
+            </div>
+        </div>
+
+        @* ── Collections ── *@
+        <div class="card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>Collections</span>
+                <button class="btn btn-sm btn-outline-primary" @onclick="ToggleAddToCollectionPicker">@(_showCollectionPicker ? "Cancel" : "+ Add to Collection")</button>
+            </div>
+            <div class="card-body">
+                @if (_showCollectionPicker)
+                {
+                    <div class="mb-3 d-flex gap-2 align-items-center flex-wrap">
+                        @foreach (var col in _availableCollections)
+                        {
+                            <button class="btn btn-sm btn-outline-primary" @onclick="() => AddToCollectionAsync(col.Id)">@col.Name</button>
+                        }
+                        @if (_availableCollections.Count == 0)
+                        {
+                            <span class="text-muted small">No collections available.</span>
+                        }
+                    </div>
+                }
+                @if (_storyCollections.Count == 0 && !_showCollectionPicker)
+                {
+                    <p class="text-muted mb-0">This story is not part of any collection.</p>
+                }
+                else
+                {
+                    @foreach (var col in _storyCollections)
+                    {
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <span>
+                                <span class="badge bg-info me-1">Collection</span>
+                                <strong>@col.Name</strong>
+                                @if (!string.IsNullOrWhiteSpace(col.Description))
+                                {
+                                    <small class="text-muted ms-1">— @col.Description</small>
+                                }
+                            </span>
+                            <button class="btn btn-sm btn-outline-danger" @onclick="() => RemoveFromCollectionAsync(col.Id)">Remove</button>
+                        </div>
+                    }
+                }
             </div>
         </div>
 
@@ -544,6 +638,18 @@
     private Dictionary<string, string> _rankingErrors = new();
     private bool _showManageDropdown;
 
+    // Collection state
+    private List<StoryCollection> _storyCollections = new();
+    private List<StoryCollection> _availableCollections = new();
+    private bool _showCollectionPicker;
+
+    // User rating state
+    private UserStoryRating? _userRating;
+    private int _ratingStars = 3;
+    private string _ratingComment = string.Empty;
+    private bool _showRating = true;
+    private bool _isRatingSaving;
+
     protected override async Task OnParametersSetAsync()
     {
         _isLoading = true;
@@ -560,6 +666,8 @@
                 _selectedProfileId ??= _profiles[0].Id;
                 await LoadProfileData();
             }
+            await LoadCollectionsAsync();
+            await LoadUserRatingAsync();
         }
 
         _isLoading = false;
@@ -580,6 +688,80 @@
     {
         _selectedProfileId = e.Value?.ToString();
         await LoadProfileData();
+    }
+
+    private async Task LoadCollectionsAsync()
+    {
+        _storyCollections = (await CollectionFacade.GetCollectionsForStoryAsync(Id)).ToList();
+        var allCollections = await CollectionFacade.ListCollectionsAsync();
+        var memberIds = _storyCollections.Select(c => c.Id).ToHashSet();
+        _availableCollections = allCollections.Where(c => !memberIds.Contains(c.Id)).ToList();
+    }
+
+    private void ToggleAddToCollectionPicker()
+    {
+        _showCollectionPicker = !_showCollectionPicker;
+    }
+
+    private async Task AddToCollectionAsync(string collectionId)
+    {
+        await CollectionFacade.AddStoryToCollectionAsync(collectionId, Id);
+        _showCollectionPicker = false;
+        await LoadCollectionsAsync();
+    }
+
+    private async Task RemoveFromCollectionAsync(string collectionId)
+    {
+        await CollectionFacade.RemoveStoryFromCollectionAsync(collectionId, Id);
+        await LoadCollectionsAsync();
+    }
+
+    private async Task LoadUserRatingAsync()
+    {
+        _userRating = await AnalysisFacade.GetUserRatingAsync(Id);
+        if (_userRating is not null)
+        {
+            _ratingStars = _userRating.Stars;
+            _ratingComment = _userRating.Comment;
+        }
+        else
+        {
+            _ratingStars = 3;
+            _ratingComment = string.Empty;
+        }
+    }
+
+    private async Task SaveRating()
+    {
+        _isRatingSaving = true;
+        try
+        {
+            var rating = _userRating ?? new UserStoryRating { ParsedStoryId = Id };
+            rating.Stars = _ratingStars;
+            rating.Comment = _ratingComment?.Trim() ?? string.Empty;
+            await AnalysisFacade.SaveUserRatingAsync(rating);
+            await LoadUserRatingAsync();
+        }
+        finally
+        {
+            _isRatingSaving = false;
+        }
+    }
+
+    private async Task DeleteRating()
+    {
+        _isRatingSaving = true;
+        try
+        {
+            await AnalysisFacade.DeleteUserRatingAsync(Id);
+            _userRating = null;
+            _ratingStars = 3;
+            _ratingComment = string.Empty;
+        }
+        finally
+        {
+            _isRatingSaving = false;
+        }
     }
 
     private async Task SummarizeStory()

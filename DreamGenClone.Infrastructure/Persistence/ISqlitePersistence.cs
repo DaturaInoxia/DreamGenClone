@@ -53,4 +53,23 @@ public interface ISqlitePersistence
     Task<StoryRankingResult?> LoadStoryRankingAsync(string parsedStoryId, CancellationToken cancellationToken = default);
     Task<StoryRankingResult?> LoadStoryRankingByProfileAsync(string parsedStoryId, string profileId, CancellationToken cancellationToken = default);
     Task<List<StoryRankingResult>> LoadStoryRankingsAsync(string parsedStoryId, CancellationToken cancellationToken = default);
+
+    // Story collection operations
+    Task SaveStoryCollectionAsync(StoryCollection collection, CancellationToken cancellationToken = default);
+    Task<StoryCollection?> LoadStoryCollectionAsync(string id, CancellationToken cancellationToken = default);
+    Task<List<StoryCollection>> LoadAllStoryCollectionsAsync(CancellationToken cancellationToken = default);
+    Task<bool> DeleteStoryCollectionAsync(string id, CancellationToken cancellationToken = default);
+    Task<List<StoryCollection>> SearchStoryCollectionsAsync(string query, CancellationToken cancellationToken = default);
+
+    // Story collection membership operations
+    Task SaveStoryCollectionMemberAsync(StoryCollectionMembership membership, CancellationToken cancellationToken = default);
+    Task<List<StoryCollectionMembership>> LoadCollectionMembersAsync(string collectionId, CancellationToken cancellationToken = default);
+    Task<List<StoryCollection>> LoadCollectionsForStoryAsync(string parsedStoryId, CancellationToken cancellationToken = default);
+    Task<bool> DeleteStoryCollectionMemberAsync(string id, CancellationToken cancellationToken = default);
+    Task<bool> DeleteStoryCollectionMemberByStoryAsync(string collectionId, string parsedStoryId, CancellationToken cancellationToken = default);
+
+    // User story rating operations
+    Task SaveUserStoryRatingAsync(UserStoryRating rating, CancellationToken cancellationToken = default);
+    Task<UserStoryRating?> LoadUserStoryRatingAsync(string parsedStoryId, CancellationToken cancellationToken = default);
+    Task<bool> DeleteUserStoryRatingAsync(string parsedStoryId, CancellationToken cancellationToken = default);
 }

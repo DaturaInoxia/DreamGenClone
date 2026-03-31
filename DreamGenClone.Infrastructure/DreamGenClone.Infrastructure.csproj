@@ -28,4 +28,8 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="DreamGenClone.Tests" />
+  </ItemGroup>
+
 </Project>

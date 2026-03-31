@@ -23,7 +23,7 @@ public sealed class StoryAnalysisService : IStoryAnalysisService
     private static readonly Dictionary<AnalysisDimension, string> DimensionSystemMessages = new()
     {
         [AnalysisDimension.Characters] = """
-            You are a literary analyst. Extract the characters from the following story.
+            You are a literary analyst. Extract the characters from the following story text.
             Respond ONLY with valid JSON in this exact format:
             {
               "characters": [
@@ -33,7 +33,7 @@ public sealed class StoryAnalysisService : IStoryAnalysisService
             Do not include any text outside the JSON object.
             """,
         [AnalysisDimension.Themes] = """
-            You are a literary analyst. Identify the major themes in the following story.
+            You are a literary analyst. Identify the major themes in the following story text.
             Important rules:
             - Do NOT list themes that are contradictory or mutually exclusive with each other.
             - If two potential themes are very similar or overlapping, merge them into one.
@@ -48,7 +48,7 @@ public sealed class StoryAnalysisService : IStoryAnalysisService
             Do not include any text outside the JSON object.
             """,
         [AnalysisDimension.PlotStructure] = """
-            You are a literary analyst. Analyze the plot structure of the following story.
+            You are a literary analyst. Analyze the plot structure of the following story text.
             Respond ONLY with valid JSON in this exact format:
             {
               "exposition": "description of the story setup and initial situation",
@@ -60,7 +60,60 @@ public sealed class StoryAnalysisService : IStoryAnalysisService
             Do not include any text outside the JSON object.
             """,
         [AnalysisDimension.WritingStyle] = """
-            You are a literary analyst. Assess the writing style of the following story.
+            You are a literary analyst. Assess the writing style of the following story text.
+            Respond ONLY with valid JSON in this exact format:
+            {
+              "tone": "description of the overall tone",
+              "perspective": "narrative perspective (first person, third person limited, etc.)",
+              "pacing": "description of the story's pacing",
+              "languageComplexity": "assessment of vocabulary and sentence complexity",
+              "notableDevices": ["literary device 1", "literary device 2"]
+            }
+            Do not include any text outside the JSON object.
+            """
+    };
+
+    private static readonly Dictionary<AnalysisDimension, string> ConsolidateSystemMessages = new()
+    {
+        [AnalysisDimension.Characters] = """
+            You are a literary analyst. You have been given character lists extracted from consecutive sections of a single story.
+            Merge them into one deduplicated character list. If the same character appears in multiple sections, combine their descriptions and use their most significant role.
+            Respond ONLY with valid JSON in this exact format:
+            {
+              "characters": [
+                { "name": "character name", "role": "protagonist/antagonist/supporting/minor", "description": "brief character description" }
+              ]
+            }
+            Do not include any text outside the JSON object.
+            """,
+        [AnalysisDimension.Themes] = """
+            You are a literary analyst. You have been given theme analyses from consecutive sections of a single story.
+            Merge them into one consolidated theme list for the whole story. Deduplicate similar themes. Only include themes that have genuine support.
+            Important: Do NOT list contradictory or mutually exclusive themes. Merge overlapping themes.
+            Respond ONLY with valid JSON in this exact format:
+            {
+              "themes": [
+                { "name": "theme name", "description": "how this theme manifests in the story", "prevalence": "primary/secondary/minor" }
+              ]
+            }
+            Do not include any text outside the JSON object.
+            """,
+        [AnalysisDimension.PlotStructure] = """
+            You are a literary analyst. You have been given plot structure analyses from consecutive sections of a single story.
+            Combine them into one coherent plot structure covering the full story arc.
+            Respond ONLY with valid JSON in this exact format:
+            {
+              "exposition": "description of the story setup and initial situation",
+              "risingAction": "description of the building tension and complications",
+              "climax": "description of the turning point or peak conflict",
+              "fallingAction": "description of events after the climax",
+              "resolution": "description of how the story concludes"
+            }
+            Do not include any text outside the JSON object.
+            """,
+        [AnalysisDimension.WritingStyle] = """
+            You are a literary analyst. You have been given writing style assessments from consecutive sections of a single story.
+            Synthesize them into one overall writing style assessment for the whole story.
             Respond ONLY with valid JSON in this exact format:
             {
               "tone": "description of the overall tone",
@@ -111,18 +164,9 @@ public sealed class StoryAnalysisService : IStoryAnalysisService
             return new AnalyzeResult { Success = false, DimensionErrors = { [AnalysisDimension.Characters] = "Story text is empty" } };
         }
 
-        string userMessage;
-        if (storyText.Length > _options.MaxStoryTextLength)
-        {
-            _logger.LogInformation("Text truncation applied: original {OriginalLength} chars, truncated to {TruncatedLength} chars",
-                storyText.Length, _options.MaxStoryTextLength);
-            var truncated = storyText[.._options.MaxStoryTextLength];
-            userMessage = $"Story text (truncated to first {_options.MaxStoryTextLength} characters — full story is {storyText.Length} characters):\n{truncated}";
-        }
-        else
-        {
-            userMessage = $"Story text:\n{storyText}";
-        }
+        var chunks = StoryRankingService.ChunkStoryText(storyText, _options.MaxStoryTextLength);
+        _logger.LogInformation("Story {ParsedStoryId} split into {ChunkCount} chunk(s) for analysis ({TotalLength} chars)",
+            parsedStoryId, chunks.Count, storyText.Length);
 
         var result = new AnalyzeResult();
         var dimensions = Enum.GetValues<AnalysisDimension>();
@@ -135,29 +179,75 @@ public sealed class StoryAnalysisService : IStoryAnalysisService
 
             try
             {
-                var response = await _lmClient.GenerateAsync(
-                    DimensionSystemMessages[dimension],
-                    userMessage,
-                    _lmOptions.Model,
-                    _options.AnalyzeTemperature,
-                    0.9,
-                    _options.AnalyzeMaxTokens,
-                    cancellationToken);
-                sw.Stop();
-                _logger.LogInformation("Dimension {Dimension} LLM call completed in {Duration}ms", dimension, sw.ElapsedMilliseconds);
+                string json;
+                if (chunks.Count == 1)
+                {
+                    // Single chunk — analyze directly
+                    json = await AnalyzeChunkAsync(dimension, $"Story text:\n{chunks[0]}", cancellationToken);
+                }
+                else
+                {
+                    // Multi-chunk: analyze each chunk, then consolidate
+                    var chunkResults = new List<string>();
+                    for (int i = 0; i < chunks.Count; i++)
+                    {
+                        _logger.LogInformation("Analyzing dimension {Dimension} chunk {Chunk}/{Total}", dimension, i + 1, chunks.Count);
+                        var chunkJson = await AnalyzeChunkAsync(dimension, $"Story text (part {i + 1} of {chunks.Count}):\n{chunks[i]}", cancellationToken);
 
-                var json = StripMarkdownFences(response?.Trim() ?? string.Empty);
+                        if (!string.IsNullOrWhiteSpace(chunkJson) && ValidateJson(chunkJson, dimension))
+                        {
+                            chunkResults.Add(chunkJson);
+                        }
+                        else
+                        {
+                            _logger.LogWarning("Chunk {Chunk} returned invalid result for dimension {Dimension}", i + 1, dimension);
+                        }
+                    }
+
+                    if (chunkResults.Count == 0)
+                    {
+                        result.DimensionErrors[dimension] = "All chunks returned invalid results";
+                        continue;
+                    }
+
+                    if (chunkResults.Count == 1)
+                    {
+                        json = chunkResults[0];
+                    }
+                    else
+                    {
+                        // Consolidate chunk results
+                        _logger.LogInformation("Consolidating {Count} chunk results for dimension {Dimension}", chunkResults.Count, dimension);
+                        var consolidateInput = string.Join("\n\n---\n\n", chunkResults.Select((r, i) => $"Section {i + 1} analysis:\n{r}"));
+
+                        var consolidateResponse = await _lmClient.GenerateAsync(
+                            ConsolidateSystemMessages[dimension],
+                            $"Section analyses to consolidate:\n\n{consolidateInput}",
+                            _lmOptions.Model,
+                            _options.AnalyzeTemperature,
+                            0.9,
+                            Math.Max(_options.AnalyzeMaxTokens * 2, chunkResults.Count * _options.AnalyzeMaxTokens),
+                            cancellationToken);
+
+                        json = StripMarkdownFences(consolidateResponse?.Trim() ?? string.Empty);
+                        _logger.LogDebug("Consolidated {Dimension} response ({Length} chars): {Json}", dimension, json.Length, json);
+                    }
+                }
+
+                sw.Stop();
+                _logger.LogInformation("Dimension {Dimension} completed in {Duration}ms", dimension, sw.ElapsedMilliseconds);
+
                 if (string.IsNullOrWhiteSpace(json))
                 {
                     result.DimensionErrors[dimension] = "Empty response from LLM";
-                    _logger.LogWarning("JSON validation failed for dimension {Dimension}: empty response", dimension);
                     continue;
                 }
 
                 if (!ValidateJson(json, dimension))
                 {
                     result.DimensionErrors[dimension] = "Invalid JSON schema";
-                    _logger.LogWarning("JSON validation failed for dimension {Dimension}: invalid schema", dimension);
+                    _logger.LogWarning("JSON validation failed for dimension {Dimension}: invalid schema. Response ({Length} chars): {Json}",
+                        dimension, json.Length, json.Length > 500 ? json[..500] + "..." : json);
                     continue;
                 }
 
@@ -169,13 +259,13 @@ public sealed class StoryAnalysisService : IStoryAnalysisService
                     case AnalysisDimension.WritingStyle: result.WritingStyleJson = json; break;
                 }
                 successCount++;
-                _logger.LogInformation("JSON validation passed for dimension {Dimension}", dimension);
+                _logger.LogInformation("Dimension {Dimension} success", dimension);
             }
             catch (Exception ex)
             {
                 sw.Stop();
                 result.DimensionErrors[dimension] = $"LLM call failed: {ex.Message}";
-                _logger.LogError(ex, "Dimension {Dimension} LLM call failed for story {ParsedStoryId}", dimension, parsedStoryId);
+                _logger.LogError(ex, "Dimension {Dimension} failed for story {ParsedStoryId}", dimension, parsedStoryId);
             }
         }
 
@@ -206,6 +296,20 @@ public sealed class StoryAnalysisService : IStoryAnalysisService
     public async Task<StoryAnalysisResult?> GetAnalysisAsync(string parsedStoryId, CancellationToken cancellationToken = default)
     {
         return await _persistence.LoadStoryAnalysisAsync(parsedStoryId, cancellationToken);
+    }
+
+    private async Task<string> AnalyzeChunkAsync(AnalysisDimension dimension, string userMessage, CancellationToken cancellationToken)
+    {
+        var response = await _lmClient.GenerateAsync(
+            DimensionSystemMessages[dimension],
+            userMessage,
+            _lmOptions.Model,
+            _options.AnalyzeTemperature,
+            0.9,
+            _options.AnalyzeMaxTokens,
+            cancellationToken);
+
+        return StripMarkdownFences(response?.Trim() ?? string.Empty);
     }
 
     private static string StripMarkdownFences(string text)

@@ -86,6 +86,9 @@ builder.Services.AddScoped<IStoryParserService>(serviceProvider => serviceProvid
 builder.Services.AddScoped<IStoryCatalogService>(serviceProvider => serviceProvider.GetRequiredService<StoryParserService>());
 builder.Services.AddScoped<StoryParserFacade>();
 builder.Services.AddScoped<StoryCatalogFacade>();
+builder.Services.AddScoped<IStoryCollectionService, StoryCollectionService>();
+builder.Services.AddScoped<ICollectionMatchingService, CollectionMatchingService>();
+builder.Services.AddScoped<StoryCollectionFacade>();
 builder.Services.AddScoped<IStorySummaryService, StorySummaryService>();
 builder.Services.AddScoped<IStoryAnalysisService, StoryAnalysisService>();
 builder.Services.AddScoped<IRankingProfileService, RankingProfileService>();

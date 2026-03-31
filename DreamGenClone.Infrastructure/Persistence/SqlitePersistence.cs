@@ -139,6 +139,42 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 UNIQUE(ParsedStoryId, ProfileId)
             );
 
+            CREATE TABLE IF NOT EXISTS StoryCollections (
+                Id TEXT PRIMARY KEY,
+                Name TEXT NOT NULL,
+                Description TEXT NULL,
+                CreatedUtc TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS IX_StoryCollections_Name ON StoryCollections (Name);
+
+            CREATE TABLE IF NOT EXISTS StoryCollectionMembers (
+                Id TEXT PRIMARY KEY,
+                CollectionId TEXT NOT NULL,
+                ParsedStoryId TEXT NOT NULL,
+                SortOrder INTEGER NOT NULL DEFAULT 0,
+                AddedUtc TEXT NOT NULL,
+                FOREIGN KEY (CollectionId) REFERENCES StoryCollections(Id) ON DELETE CASCADE,
+                FOREIGN KEY (ParsedStoryId) REFERENCES ParsedStories(Id) ON DELETE CASCADE,
+                UNIQUE(CollectionId, ParsedStoryId)
+            );
+
+            CREATE INDEX IF NOT EXISTS IX_StoryCollectionMembers_CollectionId ON StoryCollectionMembers (CollectionId);
+            CREATE INDEX IF NOT EXISTS IX_StoryCollectionMembers_ParsedStoryId ON StoryCollectionMembers (ParsedStoryId);
+
+            CREATE TABLE IF NOT EXISTS UserStoryRatings (
+                Id TEXT PRIMARY KEY,
+                ParsedStoryId TEXT NOT NULL UNIQUE,
+                Stars INTEGER NOT NULL CHECK(Stars >= 1 AND Stars <= 5),
+                Comment TEXT NOT NULL DEFAULT '',
+                CreatedUtc TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL,
+                FOREIGN KEY (ParsedStoryId) REFERENCES ParsedStories(Id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS IX_UserStoryRatings_ParsedStoryId ON UserStoryRatings (ParsedStoryId);
+
             """;
 
         await command.ExecuteNonQueryAsync(cancellationToken);
@@ -1070,5 +1106,290 @@ public sealed class SqlitePersistence : ISqlitePersistence
             DiagnosticsSummaryJson = reader.GetString(10),
             IsArchived = reader.FieldCount > 11 && !reader.IsDBNull(11) && reader.GetInt32(11) != 0
         };
+    }
+
+    // --- Story Collection operations ---
+
+    public async Task SaveStoryCollectionAsync(StoryCollection collection, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO StoryCollections (Id, Name, Description, CreatedUtc, UpdatedUtc)
+            VALUES ($id, $name, $description, $createdUtc, $updatedUtc)
+            ON CONFLICT(Id) DO UPDATE SET
+                Name = $name,
+                Description = $description,
+                UpdatedUtc = $updatedUtc;
+            """;
+
+        command.Parameters.AddWithValue("$id", collection.Id);
+        command.Parameters.AddWithValue("$name", collection.Name);
+        command.Parameters.AddWithValue("$description", (object?)collection.Description ?? DBNull.Value);
+        command.Parameters.AddWithValue("$createdUtc", collection.CreatedUtc.ToString("O"));
+        command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
+
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    public async Task<StoryCollection?> LoadStoryCollectionAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT Id, Name, Description, CreatedUtc, UpdatedUtc FROM StoryCollections WHERE Id = $id";
+        command.Parameters.AddWithValue("$id", id);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (await reader.ReadAsync(cancellationToken))
+        {
+            return ReadStoryCollection(reader);
+        }
+        return null;
+    }
+
+    public async Task<List<StoryCollection>> LoadAllStoryCollectionsAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT Id, Name, Description, CreatedUtc, UpdatedUtc FROM StoryCollections ORDER BY Name ASC";
+
+        var results = new List<StoryCollection>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            results.Add(ReadStoryCollection(reader));
+        }
+        return results;
+    }
+
+    public async Task<bool> DeleteStoryCollectionAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        // Enable foreign keys for cascade
+        var pragmaCmd = connection.CreateCommand();
+        pragmaCmd.CommandText = "PRAGMA foreign_keys = ON";
+        await pragmaCmd.ExecuteNonQueryAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM StoryCollections WHERE Id = $id";
+        command.Parameters.AddWithValue("$id", id);
+
+        return await command.ExecuteNonQueryAsync(cancellationToken) > 0;
+    }
+
+    public async Task<List<StoryCollection>> SearchStoryCollectionsAsync(string query, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT Id, Name, Description, CreatedUtc, UpdatedUtc FROM StoryCollections
+            WHERE Name LIKE $query OR Description LIKE $query
+            ORDER BY Name ASC
+            """;
+        command.Parameters.AddWithValue("$query", $"%{query}%");
+
+        var results = new List<StoryCollection>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            results.Add(ReadStoryCollection(reader));
+        }
+        return results;
+    }
+
+    // --- Story Collection Membership operations ---
+
+    public async Task SaveStoryCollectionMemberAsync(StoryCollectionMembership membership, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO StoryCollectionMembers (Id, CollectionId, ParsedStoryId, SortOrder, AddedUtc)
+            VALUES ($id, $collectionId, $parsedStoryId, $sortOrder, $addedUtc)
+            ON CONFLICT(CollectionId, ParsedStoryId) DO UPDATE SET
+                SortOrder = $sortOrder;
+            """;
+
+        command.Parameters.AddWithValue("$id", membership.Id);
+        command.Parameters.AddWithValue("$collectionId", membership.CollectionId);
+        command.Parameters.AddWithValue("$parsedStoryId", membership.ParsedStoryId);
+        command.Parameters.AddWithValue("$sortOrder", membership.SortOrder);
+        command.Parameters.AddWithValue("$addedUtc", membership.AddedUtc.ToString("O"));
+
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    public async Task<List<StoryCollectionMembership>> LoadCollectionMembersAsync(string collectionId, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT Id, CollectionId, ParsedStoryId, SortOrder, AddedUtc
+            FROM StoryCollectionMembers
+            WHERE CollectionId = $collectionId
+            ORDER BY SortOrder ASC
+            """;
+        command.Parameters.AddWithValue("$collectionId", collectionId);
+
+        var results = new List<StoryCollectionMembership>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            results.Add(ReadStoryCollectionMembership(reader));
+        }
+        return results;
+    }
+
+    public async Task<List<StoryCollection>> LoadCollectionsForStoryAsync(string parsedStoryId, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT c.Id, c.Name, c.Description, c.CreatedUtc, c.UpdatedUtc
+            FROM StoryCollections c
+            INNER JOIN StoryCollectionMembers m ON c.Id = m.CollectionId
+            WHERE m.ParsedStoryId = $parsedStoryId
+            ORDER BY c.Name ASC
+            """;
+        command.Parameters.AddWithValue("$parsedStoryId", parsedStoryId);
+
+        var results = new List<StoryCollection>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            results.Add(ReadStoryCollection(reader));
+        }
+        return results;
+    }
+
+    public async Task<bool> DeleteStoryCollectionMemberAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM StoryCollectionMembers WHERE Id = $id";
+        command.Parameters.AddWithValue("$id", id);
+
+        return await command.ExecuteNonQueryAsync(cancellationToken) > 0;
+    }
+
+    public async Task<bool> DeleteStoryCollectionMemberByStoryAsync(string collectionId, string parsedStoryId, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM StoryCollectionMembers WHERE CollectionId = $collectionId AND ParsedStoryId = $parsedStoryId";
+        command.Parameters.AddWithValue("$collectionId", collectionId);
+        command.Parameters.AddWithValue("$parsedStoryId", parsedStoryId);
+
+        return await command.ExecuteNonQueryAsync(cancellationToken) > 0;
+    }
+
+    private static StoryCollection ReadStoryCollection(SqliteDataReader reader)
+    {
+        return new StoryCollection
+        {
+            Id = reader.GetString(0),
+            Name = reader.GetString(1),
+            Description = reader.IsDBNull(2) ? null : reader.GetString(2),
+            CreatedUtc = DateTime.TryParse(reader.GetString(3), out var created) ? created : DateTime.UtcNow,
+            UpdatedUtc = DateTime.TryParse(reader.GetString(4), out var updated) ? updated : DateTime.UtcNow
+        };
+    }
+
+    private static StoryCollectionMembership ReadStoryCollectionMembership(SqliteDataReader reader)
+    {
+        return new StoryCollectionMembership
+        {
+            Id = reader.GetString(0),
+            CollectionId = reader.GetString(1),
+            ParsedStoryId = reader.GetString(2),
+            SortOrder = reader.GetInt32(3),
+            AddedUtc = DateTime.TryParse(reader.GetString(4), out var added) ? added : DateTime.UtcNow
+        };
+    }
+
+    // ── User Story Rating ──
+
+    public async Task SaveUserStoryRatingAsync(UserStoryRating rating, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(rating);
+
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO UserStoryRatings (Id, ParsedStoryId, Stars, Comment, CreatedUtc, UpdatedUtc)
+            VALUES ($id, $parsedStoryId, $stars, $comment, $createdUtc, $updatedUtc)
+            ON CONFLICT(ParsedStoryId) DO UPDATE SET
+                Stars = $stars,
+                Comment = $comment,
+                UpdatedUtc = $updatedUtc;
+            """;
+
+        command.Parameters.AddWithValue("$id", rating.Id);
+        command.Parameters.AddWithValue("$parsedStoryId", rating.ParsedStoryId);
+        command.Parameters.AddWithValue("$stars", rating.Stars);
+        command.Parameters.AddWithValue("$comment", rating.Comment);
+        command.Parameters.AddWithValue("$createdUtc", rating.CreatedUtc.ToString("O"));
+        command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
+
+        await command.ExecuteNonQueryAsync(cancellationToken);
+        _logger.LogInformation("User story rating persisted: {ParsedStoryId}, Stars={Stars}", rating.ParsedStoryId, rating.Stars);
+    }
+
+    public async Task<UserStoryRating?> LoadUserStoryRatingAsync(string parsedStoryId, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT Id, ParsedStoryId, Stars, Comment, CreatedUtc, UpdatedUtc FROM UserStoryRatings WHERE ParsedStoryId = $parsedStoryId";
+        command.Parameters.AddWithValue("$parsedStoryId", parsedStoryId);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+            return null;
+
+        return new UserStoryRating
+        {
+            Id = reader.GetString(0),
+            ParsedStoryId = reader.GetString(1),
+            Stars = reader.GetInt32(2),
+            Comment = reader.GetString(3),
+            CreatedUtc = DateTime.TryParse(reader.GetString(4), out var created) ? created : DateTime.UtcNow,
+            UpdatedUtc = DateTime.TryParse(reader.GetString(5), out var updated) ? updated : DateTime.UtcNow
+        };
+    }
+
+    public async Task<bool> DeleteUserStoryRatingAsync(string parsedStoryId, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM UserStoryRatings WHERE ParsedStoryId = $parsedStoryId";
+        command.Parameters.AddWithValue("$parsedStoryId", parsedStoryId);
+
+        return await command.ExecuteNonQueryAsync(cancellationToken) > 0;
     }
 }
