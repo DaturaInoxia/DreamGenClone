@@ -128,3 +128,4 @@ D:\src\DreamGenClone\DreamGenClone.Web\obj\Debug\net9.0\compressed\64ftirclvx-8b
 D:\src\DreamGenClone\DreamGenClone.Web\bin\Debug\net9.0\DreamGenClone.exe
 D:\src\DreamGenClone\DreamGenClone.Web\bin\Debug\net9.0\AngleSharp.dll
 D:\src\DreamGenClone\DreamGenClone.Web\obj\Debug\net9.0\compressed\3sk4eiodxo-24hg9q9v1e.gz
+D:\src\DreamGenClone\DreamGenClone.Web\bin\Debug\net9.0\System.Security.Cryptography.ProtectedData.dll

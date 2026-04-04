@@ -26,6 +26,9 @@ using DreamGenClone.Web.Application.StoryAnalysis;
 using DreamGenClone.Application.Processing;
 using DreamGenClone.Infrastructure.Processing;
 using Microsoft.Extensions.Options;
+using DreamGenClone.Application.ModelManager;
+using DreamGenClone.Infrastructure.ModelManager;
+using DreamGenClone.Web.Application.ModelManager;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -42,13 +45,6 @@ builder.Services.Configure<ScenarioAdaptationOptions>(builder.Configuration.GetS
 // Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
-
-builder.Services.AddHttpClient<ILmStudioClient, LmStudioClient>((serviceProvider, httpClient) =>
-{
-    var options = serviceProvider.GetRequiredService<IOptions<LmStudioOptions>>().Value;
-    httpClient.BaseAddress = new Uri(options.BaseUrl);
-    httpClient.Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds);
-});
 
 builder.Services.AddHttpClient<HtmlFetchClient>((serviceProvider, httpClient) =>
 {
@@ -99,6 +95,17 @@ builder.Services.AddScoped<IRankingProfileService, RankingProfileService>();
 builder.Services.AddScoped<IThemePreferenceService, ThemePreferenceService>();
 builder.Services.AddScoped<IStoryRankingService, StoryRankingService>();
 builder.Services.AddScoped<StoryAnalysisFacade>();
+
+// Model Manager services
+builder.Services.AddSingleton<IProviderRepository, ProviderRepository>();
+builder.Services.AddSingleton<IRegisteredModelRepository, RegisteredModelRepository>();
+builder.Services.AddSingleton<IFunctionDefaultRepository, FunctionDefaultRepository>();
+builder.Services.AddSingleton<IApiKeyEncryptionService, ApiKeyEncryptionService>();
+builder.Services.AddSingleton<ICompletionClient, CompletionClient>();
+builder.Services.AddHttpClient("CompletionClient");
+builder.Services.AddScoped<IModelResolutionService, ModelResolutionService>();
+builder.Services.AddScoped<ModelManagerFacade>();
+builder.Services.AddScoped<ProviderTestService>();
 
 // Background model processing queue
 builder.Services.AddSingleton<ModelProcessingQueue>();

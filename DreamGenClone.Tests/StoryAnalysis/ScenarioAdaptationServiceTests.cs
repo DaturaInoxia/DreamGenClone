@@ -1,17 +1,17 @@
 using DreamGenClone.Application.Abstractions;
+using DreamGenClone.Application.ModelManager;
 using DreamGenClone.Application.StoryAnalysis;
 using DreamGenClone.Application.StoryAnalysis.Models;
 using DreamGenClone.Application.StoryParser;
 using DreamGenClone.Application.StoryParser.Models;
 using DreamGenClone.Application.Templates;
+using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Domain.StoryAnalysis;
 using DreamGenClone.Domain.Templates;
-using DreamGenClone.Infrastructure.Configuration;
 using DreamGenClone.Web.Application.Scenarios;
 using DreamGenClone.Web.Domain.Scenarios;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
 
 namespace DreamGenClone.Tests.StoryAnalysis;
 
@@ -77,14 +77,13 @@ public class ScenarioAdaptationServiceTests
         var analysisService = new FakeStoryAnalysisService(analysis);
         var summaryService = new FakeStorySummaryService(summary);
         var templateService = new FakeTemplateService(templates ?? []);
-        var lmClient = new FakeLmStudioClient(llmResponse ?? ValidLlmResponse);
-        var adaptOptions = Options.Create(new ScenarioAdaptationOptions { Model = "test-adapt-model" });
-        var lmOptions = Options.Create(new LmStudioOptions { Model = "test-model" });
+        var completionClient = new FakeCompletionClient(llmResponse ?? ValidLlmResponse);
+        var modelResolver = new FakeModelResolutionService();
         var logger = NullLogger<ScenarioAdaptationService>.Instance;
 
         return new ScenarioAdaptationService(
             storyParser, analysisService, summaryService, templateService,
-            lmClient, adaptOptions, lmOptions, logger);
+            completionClient, modelResolver, logger);
     }
 
     private ParsedStoryDetail CreateStoryDetail() => new()
@@ -349,38 +348,38 @@ public class ScenarioAdaptationServiceTests
     [Fact]
     public async Task AdaptStoryToScenarioAsync_WithUserGuidance_IncludedInLlmCall()
     {
-        var lmClient = new FakeLmStudioClient(ValidLlmResponse);
-        var service = CreateServiceWithClient(lmClient);
+        var completionClient = new FakeCompletionClient(ValidLlmResponse);
+        var service = CreateServiceWithClient(completionClient);
 
         var request = CreateRequest();
         request.UserGuidance = "Make it a vacation setting";
 
         await service.AdaptStoryToScenarioAsync(request);
 
-        Assert.Contains("vacation setting", lmClient.LastUserMessage!);
+        Assert.Contains("vacation setting", completionClient.LastUserMessage!);
     }
 
     [Fact]
     public async Task AdaptStoryToScenarioAsync_LlmCallIncludesSummary()
     {
-        var lmClient = new FakeLmStudioClient(ValidLlmResponse);
-        var service = CreateServiceWithClient(lmClient);
+        var completionClient = new FakeCompletionClient(ValidLlmResponse);
+        var service = CreateServiceWithClient(completionClient);
 
         await service.AdaptStoryToScenarioAsync(CreateRequest());
 
-        Assert.Contains("Sarah joins a gym", lmClient.LastUserMessage!);
+        Assert.Contains("Sarah joins a gym", completionClient.LastUserMessage!);
     }
 
     [Fact]
     public async Task AdaptStoryToScenarioAsync_LlmCallIncludesTargetCharacterNames()
     {
-        var lmClient = new FakeLmStudioClient(ValidLlmResponse);
-        var service = CreateServiceWithClient(lmClient);
+        var completionClient = new FakeCompletionClient(ValidLlmResponse);
+        var service = CreateServiceWithClient(completionClient);
 
         await service.AdaptStoryToScenarioAsync(CreateRequest());
 
-        Assert.Contains("Becky", lmClient.LastUserMessage!);
-        Assert.Contains("Ken", lmClient.LastUserMessage!);
+        Assert.Contains("Becky", completionClient.LastUserMessage!);
+        Assert.Contains("Ken", completionClient.LastUserMessage!);
     }
 
     [Fact]
@@ -401,16 +400,15 @@ public class ScenarioAdaptationServiceTests
         Assert.Equal("Third person limited", style.PointOfView);
     }
 
-    private ScenarioAdaptationService CreateServiceWithClient(FakeLmStudioClient lmClient)
+    private ScenarioAdaptationService CreateServiceWithClient(FakeCompletionClient completionClient)
     {
         return new ScenarioAdaptationService(
             new FakeStoryParserService(CreateStoryDetail()),
             new FakeStoryAnalysisService(CreateAnalysis()),
             new FakeStorySummaryService(CreateSummary()),
             new FakeTemplateService(CreateTemplates()),
-            lmClient,
-            Options.Create(new ScenarioAdaptationOptions { Model = "test-adapt-model" }),
-            Options.Create(new LmStudioOptions { Model = "test-model" }),
+            completionClient,
+            new FakeModelResolutionService(),
             NullLogger<ScenarioAdaptationService>.Instance);
     }
 
@@ -469,25 +467,46 @@ public class ScenarioAdaptationServiceTests
             => throw new NotImplementedException();
     }
 
-    internal sealed class FakeLmStudioClient(string response) : ILmStudioClient
+    internal sealed class FakeCompletionClient(string response) : ICompletionClient
     {
         public string? LastSystemMessage { get; private set; }
         public string? LastUserMessage { get; private set; }
 
-        public Task<bool> CheckHealthAsync(CancellationToken cancellationToken = default)
-            => Task.FromResult(true);
-
-        public Task<string> GenerateAsync(string prompt, CancellationToken cancellationToken = default)
+        public Task<string> GenerateAsync(string prompt, ResolvedModel resolved, CancellationToken cancellationToken = default)
             => Task.FromResult(response);
 
-        public Task<string> GenerateAsync(string prompt, string model, double temperature, double topP, int maxTokens, CancellationToken cancellationToken = default)
-            => Task.FromResult(response);
-
-        public Task<string> GenerateAsync(string systemMessage, string userMessage, string model, double temperature, double topP, int maxTokens, CancellationToken cancellationToken = default)
+        public Task<string> GenerateAsync(string systemMessage, string userMessage, ResolvedModel resolved, CancellationToken cancellationToken = default)
         {
             LastSystemMessage = systemMessage;
             LastUserMessage = userMessage;
             return Task.FromResult(response);
+        }
+
+        public Task<bool> CheckHealthAsync(string providerBaseUrl, int timeoutSeconds, string? decryptedApiKey, CancellationToken cancellationToken = default)
+            => Task.FromResult(true);
+    }
+
+    internal sealed class FakeModelResolutionService : IModelResolutionService
+    {
+        public Task<ResolvedModel> ResolveAsync(
+            AppFunction function,
+            string? sessionModelId = null,
+            double? sessionTemperature = null,
+            double? sessionTopP = null,
+            int? sessionMaxTokens = null,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new ResolvedModel(
+                ProviderBaseUrl: "http://127.0.0.1:1234",
+                ChatCompletionsPath: "/v1/chat/completions",
+                ProviderTimeoutSeconds: 120,
+                ApiKeyEncrypted: null,
+                ModelIdentifier: "test-model",
+                Temperature: sessionTemperature ?? 0.7,
+                TopP: sessionTopP ?? 0.9,
+                MaxTokens: sessionMaxTokens ?? 500,
+                ProviderName: "Test Provider",
+                IsSessionOverride: sessionModelId != null));
         }
     }
 

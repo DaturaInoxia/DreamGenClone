@@ -1,14 +1,14 @@
 using System.Text;
 using System.Text.Json;
 using DreamGenClone.Application.Abstractions;
+using DreamGenClone.Application.ModelManager;
 using DreamGenClone.Application.StoryAnalysis;
 using DreamGenClone.Application.StoryParser;
 using DreamGenClone.Application.Templates;
+using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Domain.Templates;
-using DreamGenClone.Infrastructure.Configuration;
 using DreamGenClone.Web.Domain.Scenarios;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 
 namespace DreamGenClone.Web.Application.Scenarios;
 
@@ -18,9 +18,8 @@ public sealed class ScenarioAdaptationService : IScenarioAdaptationService
     private readonly IStoryAnalysisService _analysisService;
     private readonly IStorySummaryService _summaryService;
     private readonly ITemplateService _templateService;
-    private readonly ILmStudioClient _lmClient;
-    private readonly ScenarioAdaptationOptions _adaptOptions;
-    private readonly LmStudioOptions _lmOptions;
+    private readonly ICompletionClient _completionClient;
+    private readonly IModelResolutionService _modelResolver;
     private readonly ILogger<ScenarioAdaptationService> _logger;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -33,18 +32,16 @@ public sealed class ScenarioAdaptationService : IScenarioAdaptationService
         IStoryAnalysisService analysisService,
         IStorySummaryService summaryService,
         ITemplateService templateService,
-        ILmStudioClient lmClient,
-        IOptions<ScenarioAdaptationOptions> adaptOptions,
-        IOptions<LmStudioOptions> lmOptions,
+        ICompletionClient completionClient,
+        IModelResolutionService modelResolver,
         ILogger<ScenarioAdaptationService> logger)
     {
         _storyParserService = storyParserService;
         _analysisService = analysisService;
         _summaryService = summaryService;
         _templateService = templateService;
-        _lmClient = lmClient;
-        _adaptOptions = adaptOptions.Value;
-        _lmOptions = lmOptions.Value;
+        _completionClient = completionClient;
+        _modelResolver = modelResolver;
         _logger = logger;
     }
 
@@ -74,16 +71,13 @@ public sealed class ScenarioAdaptationService : IScenarioAdaptationService
             "Generating scenario preview for parsed story '{StoryId}'.", parsedStoryId);
 
         string llmResponse;
-        var model = _adaptOptions.Model ?? _lmOptions.Model;
         try
         {
-            llmResponse = await _lmClient.GenerateAsync(
+            var previewResolved = await _modelResolver.ResolveAsync(AppFunction.ScenarioPreview, cancellationToken: cancellationToken);
+            llmResponse = await _completionClient.GenerateAsync(
                 systemMessage,
                 userMessage,
-                model,
-                _adaptOptions.PreviewTemperature,
-                _adaptOptions.PreviewTopP,
-                _adaptOptions.PreviewMaxTokens,
+                previewResolved,
                 cancellationToken);
         }
         catch (Exception ex)
@@ -241,16 +235,13 @@ public sealed class ScenarioAdaptationService : IScenarioAdaptationService
             request.ParsedStoryId, storyDetail.Title, substitutionCharacters.Count);
 
         string llmResponse;
-        var model = _adaptOptions.Model ?? _lmOptions.Model;
         try
         {
-            llmResponse = await _lmClient.GenerateAsync(
+            var adaptResolved = await _modelResolver.ResolveAsync(AppFunction.ScenarioAdapt, cancellationToken: cancellationToken);
+            llmResponse = await _completionClient.GenerateAsync(
                 systemMessage,
                 userMessage,
-                model,
-                _adaptOptions.AdaptTemperature,
-                _adaptOptions.AdaptTopP,
-                _adaptOptions.AdaptMaxTokens,
+                adaptResolved,
                 cancellationToken);
         }
         catch (Exception ex)

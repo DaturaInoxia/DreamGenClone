@@ -1,7 +1,9 @@
 using System.Diagnostics;
 using DreamGenClone.Application.Abstractions;
+using DreamGenClone.Application.ModelManager;
 using DreamGenClone.Application.StoryAnalysis;
 using DreamGenClone.Application.StoryAnalysis.Models;
+using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Domain.StoryAnalysis;
 using DreamGenClone.Infrastructure.Configuration;
 using DreamGenClone.Infrastructure.Persistence;
@@ -12,12 +14,11 @@ namespace DreamGenClone.Infrastructure.StoryAnalysis;
 
 public sealed class StorySummaryService : IStorySummaryService
 {
-    private readonly ILmStudioClient _lmClient;
+    private readonly ICompletionClient _completionClient;
+    private readonly IModelResolutionService _modelResolver;
     private readonly ISqlitePersistence _persistence;
     private readonly StoryAnalysisOptions _options;
-    private readonly LmStudioOptions _lmOptions;
     private readonly ILogger<StorySummaryService> _logger;
-    private readonly string _model;
 
     private const string ChunkSystemMessage =
         """
@@ -42,18 +43,17 @@ public sealed class StorySummaryService : IStorySummaryService
         """;
 
     public StorySummaryService(
-        ILmStudioClient lmClient,
+        ICompletionClient completionClient,
+        IModelResolutionService modelResolver,
         ISqlitePersistence persistence,
         IOptions<StoryAnalysisOptions> options,
-        IOptions<LmStudioOptions> lmOptions,
         ILogger<StorySummaryService> logger)
     {
-        _lmClient = lmClient;
+        _completionClient = completionClient;
+        _modelResolver = modelResolver;
         _persistence = persistence;
         _options = options.Value;
-        _lmOptions = lmOptions.Value;
         _logger = logger;
-        _model = _options.Model ?? _lmOptions.Model;
     }
 
     public async Task<SummarizeResult> SummarizeAsync(string parsedStoryId, CancellationToken cancellationToken = default)
@@ -84,13 +84,11 @@ public sealed class StorySummaryService : IStorySummaryService
             if (chunks.Count == 1)
             {
                 // Single chunk — summarize directly
-                var response = await _lmClient.GenerateAsync(
+                var resolved = await _modelResolver.ResolveAsync(AppFunction.StorySummarize, cancellationToken: cancellationToken);
+                var response = await _completionClient.GenerateAsync(
                     SingleSystemMessage,
                     $"Story text:\n{chunks[0]}",
-                    _model,
-                    _options.SummarizeTemperature,
-                    0.9,
-                    _options.SummarizeMaxTokens,
+                    resolved,
                     cancellationToken);
 
                 finalSummary = response?.Trim() ?? string.Empty;
@@ -103,13 +101,11 @@ public sealed class StorySummaryService : IStorySummaryService
                 {
                     _logger.LogInformation("Summarizing chunk {Chunk}/{Total} for story {ParsedStoryId}", i + 1, chunks.Count, parsedStoryId);
 
-                    var response = await _lmClient.GenerateAsync(
+                    var chunkResolved = await _modelResolver.ResolveAsync(AppFunction.StorySummarize, cancellationToken: cancellationToken);
+                    var response = await _completionClient.GenerateAsync(
                         ChunkSystemMessage,
                         $"Story text (part {i + 1} of {chunks.Count}):\n{chunks[i]}",
-                        _model,
-                        _options.SummarizeTemperature,
-                        0.9,
-                        _options.SummarizeMaxTokens,
+                        chunkResolved,
                         cancellationToken);
 
                     var chunkSummary = response?.Trim() ?? string.Empty;
@@ -133,13 +129,11 @@ public sealed class StorySummaryService : IStorySummaryService
                 _logger.LogInformation("Consolidating {Count} chunk summaries for story {ParsedStoryId}", chunkSummaries.Count, parsedStoryId);
                 var consolidateInput = string.Join("\n\n---\n\n", chunkSummaries.Select((s, i) => $"Section {i + 1}:\n{s}"));
 
-                var consolidateResponse = await _lmClient.GenerateAsync(
+                var consolidateResolved = await _modelResolver.ResolveAsync(AppFunction.StorySummarize, cancellationToken: cancellationToken);
+                var consolidateResponse = await _completionClient.GenerateAsync(
                     ConsolidateSystemMessage,
                     $"Section summaries to consolidate:\n\n{consolidateInput}",
-                    _model,
-                    _options.SummarizeTemperature,
-                    0.9,
-                    _options.SummarizeMaxTokens * 2,
+                    consolidateResolved,
                     cancellationToken);
 
                 finalSummary = consolidateResponse?.Trim() ?? string.Empty;

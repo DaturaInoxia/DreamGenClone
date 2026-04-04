@@ -1,21 +1,26 @@
 using System.Text;
 using DreamGenClone.Application.Abstractions;
+using DreamGenClone.Application.ModelManager;
+using DreamGenClone.Domain.ModelManager;
 using Microsoft.Extensions.Logging;
 
 namespace DreamGenClone.Web.Application.Assistants;
 
 public sealed class RolePlayAssistantService : IRolePlayAssistantService
 {
-    private readonly ILmStudioClient _lmStudioClient;
+    private readonly ICompletionClient _completionClient;
+    private readonly IModelResolutionService _modelResolver;
     private readonly IAssistantContextManager _contextManager;
     private readonly ILogger<RolePlayAssistantService> _logger;
 
     public RolePlayAssistantService(
-        ILmStudioClient lmStudioClient,
+        ICompletionClient completionClient,
+        IModelResolutionService modelResolver,
         IAssistantContextManager contextManager,
         ILogger<RolePlayAssistantService> logger)
     {
-        _lmStudioClient = lmStudioClient;
+        _completionClient = completionClient;
+        _modelResolver = modelResolver;
         _contextManager = contextManager;
         _logger = logger;
     }
@@ -40,7 +45,7 @@ public sealed class RolePlayAssistantService : IRolePlayAssistantService
         var prompt = BuildAssistantPrompt(sessionId, recentInteractions, userPrompt);
         _logger.LogInformation("Role-play assistant request initiated for session {SessionId}", sessionId);
 
-        var response = await _lmStudioClient.GenerateAsync(prompt, cancellationToken);
+        var response = await _completionClient.GenerateAsync(prompt, await _modelResolver.ResolveAsync(AppFunction.RolePlayAssistant, cancellationToken: cancellationToken), cancellationToken);
 
         var trimmedResponse = string.IsNullOrWhiteSpace(response) ? "(No suggestion generated)" : response.Trim();
 

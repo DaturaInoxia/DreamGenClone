@@ -2,8 +2,10 @@ using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using DreamGenClone.Application.Abstractions;
+using DreamGenClone.Application.ModelManager;
 using DreamGenClone.Application.StoryAnalysis;
 using DreamGenClone.Application.StoryAnalysis.Models;
+using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Domain.StoryAnalysis;
 using DreamGenClone.Infrastructure.Configuration;
 using DreamGenClone.Infrastructure.Persistence;
@@ -14,13 +16,12 @@ namespace DreamGenClone.Infrastructure.StoryAnalysis;
 
 public sealed class StoryRankingService : IStoryRankingService
 {
-    private readonly ILmStudioClient _lmClient;
+    private readonly ICompletionClient _completionClient;
+    private readonly IModelResolutionService _modelResolver;
     private readonly ISqlitePersistence _persistence;
     private readonly IThemePreferenceService _themeService;
     private readonly StoryAnalysisOptions _options;
-    private readonly LmStudioOptions _lmOptions;
     private readonly ILogger<StoryRankingService> _logger;
-    private readonly string _model;
 
     private const string SystemMessage =
         """
@@ -52,20 +53,19 @@ public sealed class StoryRankingService : IStoryRankingService
         """;
 
     public StoryRankingService(
-        ILmStudioClient lmClient,
+        ICompletionClient completionClient,
+        IModelResolutionService modelResolver,
         ISqlitePersistence persistence,
         IThemePreferenceService themeService,
         IOptions<StoryAnalysisOptions> options,
-        IOptions<LmStudioOptions> lmOptions,
         ILogger<StoryRankingService> logger)
     {
-        _lmClient = lmClient;
+        _completionClient = completionClient;
+        _modelResolver = modelResolver;
         _persistence = persistence;
         _themeService = themeService;
         _options = options.Value;
-        _lmOptions = lmOptions.Value;
         _logger = logger;
-        _model = _options.Model ?? _lmOptions.Model;
     }
 
     public async Task<ThemeRankResult> RankAsync(string parsedStoryId, string profileId, CancellationToken cancellationToken = default)
@@ -127,13 +127,11 @@ public sealed class StoryRankingService : IStoryRankingService
 
                 try
                 {
-                    var response = await _lmClient.GenerateAsync(
+                    var resolved = await _modelResolver.ResolveAsync(AppFunction.StoryRank, cancellationToken: cancellationToken);
+                    var response = await _completionClient.GenerateAsync(
                         SystemMessage,
                         userMessage,
-                        _model,
-                        _options.RankTemperature,
-                        0.5,
-                        200,
+                        resolved,
                         cancellationToken);
 
                     var json = StripMarkdownFences(response?.Trim() ?? string.Empty);

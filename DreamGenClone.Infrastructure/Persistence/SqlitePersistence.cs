@@ -1,3 +1,4 @@
+using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Infrastructure.Configuration;
 using DreamGenClone.Domain.StoryAnalysis;
 using DreamGenClone.Domain.StoryParser;
@@ -11,11 +12,22 @@ namespace DreamGenClone.Infrastructure.Persistence;
 public sealed class SqlitePersistence : ISqlitePersistence
 {
     private readonly PersistenceOptions _options;
+    private readonly LmStudioOptions _lmStudioOptions;
+    private readonly StoryAnalysisOptions _storyAnalysisOptions;
+    private readonly ScenarioAdaptationOptions _scenarioAdaptationOptions;
     private readonly ILogger<SqlitePersistence> _logger;
 
-    public SqlitePersistence(IOptions<PersistenceOptions> options, ILogger<SqlitePersistence> logger)
+    public SqlitePersistence(
+        IOptions<PersistenceOptions> options,
+        IOptions<LmStudioOptions> lmStudioOptions,
+        IOptions<StoryAnalysisOptions> storyAnalysisOptions,
+        IOptions<ScenarioAdaptationOptions> scenarioAdaptationOptions,
+        ILogger<SqlitePersistence> logger)
     {
         _options = options.Value;
+        _lmStudioOptions = lmStudioOptions.Value;
+        _storyAnalysisOptions = storyAnalysisOptions.Value;
+        _scenarioAdaptationOptions = scenarioAdaptationOptions.Value;
         _logger = logger;
     }
 
@@ -175,6 +187,41 @@ public sealed class SqlitePersistence : ISqlitePersistence
 
             CREATE INDEX IF NOT EXISTS IX_UserStoryRatings_ParsedStoryId ON UserStoryRatings (ParsedStoryId);
 
+            CREATE TABLE IF NOT EXISTS Providers (
+                Id TEXT PRIMARY KEY NOT NULL,
+                Name TEXT NOT NULL UNIQUE,
+                ProviderType INTEGER NOT NULL,
+                BaseUrl TEXT NOT NULL,
+                ChatCompletionsPath TEXT NOT NULL DEFAULT '/v1/chat/completions',
+                TimeoutSeconds INTEGER NOT NULL DEFAULT 120,
+                ApiKeyEncrypted TEXT,
+                IsEnabled INTEGER NOT NULL DEFAULT 1,
+                CreatedUtc TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS RegisteredModels (
+                Id TEXT PRIMARY KEY NOT NULL,
+                ProviderId TEXT NOT NULL,
+                ModelIdentifier TEXT NOT NULL,
+                DisplayName TEXT NOT NULL,
+                IsEnabled INTEGER NOT NULL DEFAULT 1,
+                CreatedUtc TEXT NOT NULL,
+                FOREIGN KEY (ProviderId) REFERENCES Providers(Id) ON DELETE CASCADE,
+                UNIQUE (ProviderId, ModelIdentifier)
+            );
+
+            CREATE TABLE IF NOT EXISTS FunctionModelDefaults (
+                Id TEXT PRIMARY KEY NOT NULL,
+                FunctionName TEXT NOT NULL UNIQUE,
+                ModelId TEXT NOT NULL,
+                Temperature REAL NOT NULL DEFAULT 0.7,
+                TopP REAL NOT NULL DEFAULT 0.9,
+                MaxTokens INTEGER NOT NULL DEFAULT 500,
+                UpdatedUtc TEXT NOT NULL,
+                FOREIGN KEY (ModelId) REFERENCES RegisteredModels(Id)
+            );
+
             """;
 
         await command.ExecuteNonQueryAsync(cancellationToken);
@@ -279,6 +326,104 @@ public sealed class SqlitePersistence : ISqlitePersistence
             alterVerification.CommandText = "ALTER TABLE StoryRankings ADD COLUMN ThemeVerificationStatusJson TEXT NOT NULL DEFAULT '{}'";
             await alterVerification.ExecuteNonQueryAsync(cancellationToken);
             _logger.LogInformation("Migrated StoryRankings table: added ThemeVerificationStatusJson column");
+        }
+
+        // Seed Model Manager tables on first run (empty Providers table)
+        var checkProviders = connection.CreateCommand();
+        checkProviders.CommandText = "SELECT COUNT(*) FROM Providers";
+        var providerCount = Convert.ToInt64(await checkProviders.ExecuteScalarAsync(cancellationToken));
+        if (providerCount == 0)
+        {
+            var providerId = Guid.NewGuid().ToString();
+            var now = DateTime.UtcNow.ToString("o");
+
+            // Resolve model names from options (fallback to LmStudio model)
+            var lmModel = _lmStudioOptions.Model;
+            var analysisModel = _storyAnalysisOptions.Model ?? lmModel;
+            var scenarioModel = _scenarioAdaptationOptions.Model ?? lmModel;
+
+            // Seed LM Studio provider
+            var seedProvider = connection.CreateCommand();
+            seedProvider.CommandText = """
+                INSERT INTO Providers (Id, Name, ProviderType, BaseUrl, ChatCompletionsPath, TimeoutSeconds, ApiKeyEncrypted, IsEnabled, CreatedUtc, UpdatedUtc)
+                VALUES ($id, $name, $type, $baseUrl, $path, $timeout, NULL, 1, $now, $now)
+                """;
+            seedProvider.Parameters.AddWithValue("$id", providerId);
+            seedProvider.Parameters.AddWithValue("$name", "LM Studio (Local)");
+            seedProvider.Parameters.AddWithValue("$type", (int)ProviderType.LmStudio);
+            seedProvider.Parameters.AddWithValue("$baseUrl", _lmStudioOptions.BaseUrl);
+            seedProvider.Parameters.AddWithValue("$path", _lmStudioOptions.ChatCompletionsPath);
+            seedProvider.Parameters.AddWithValue("$timeout", _lmStudioOptions.TimeoutSeconds);
+            seedProvider.Parameters.AddWithValue("$now", now);
+            await seedProvider.ExecuteNonQueryAsync(cancellationToken);
+
+            // Seed models — collect unique model identifiers
+            var modelIds = new Dictionary<string, string>(); // modelIdentifier -> GUID
+
+            void EnsureModel(string identifier, string displayName)
+            {
+                if (!modelIds.ContainsKey(identifier))
+                    modelIds[identifier] = Guid.NewGuid().ToString();
+            }
+
+            EnsureModel(lmModel, lmModel);
+            if (analysisModel != lmModel)
+                EnsureModel(analysisModel, analysisModel);
+            if (scenarioModel != lmModel && scenarioModel != analysisModel)
+                EnsureModel(scenarioModel, scenarioModel);
+
+            foreach (var (identifier, modelId) in modelIds)
+            {
+                var seedModel = connection.CreateCommand();
+                seedModel.CommandText = """
+                    INSERT INTO RegisteredModels (Id, ProviderId, ModelIdentifier, DisplayName, IsEnabled, CreatedUtc)
+                    VALUES ($id, $providerId, $identifier, $displayName, 1, $now)
+                    """;
+                seedModel.Parameters.AddWithValue("$id", modelId);
+                seedModel.Parameters.AddWithValue("$providerId", providerId);
+                seedModel.Parameters.AddWithValue("$identifier", identifier);
+                seedModel.Parameters.AddWithValue("$displayName", identifier);
+                seedModel.Parameters.AddWithValue("$now", now);
+                await seedModel.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            // Seed function defaults
+            var functionDefaults = new (string FunctionName, string ModelIdentifier, double Temp, double TopP, int MaxTokens)[]
+            {
+                ("RolePlayGeneration", lmModel, 0.7, 0.9, 500),
+                ("StoryModeGeneration", lmModel, 0.7, 0.9, 500),
+                ("StorySummarize", analysisModel, _storyAnalysisOptions.SummarizeTemperature, 0.9, _storyAnalysisOptions.SummarizeMaxTokens),
+                ("StoryAnalyze", analysisModel, _storyAnalysisOptions.AnalyzeTemperature, 0.9, _storyAnalysisOptions.AnalyzeMaxTokens),
+                ("StoryRank", analysisModel, _storyAnalysisOptions.RankTemperature, 0.9, _storyAnalysisOptions.RankMaxTokens),
+                ("ScenarioPreview", scenarioModel, _scenarioAdaptationOptions.PreviewTemperature, _scenarioAdaptationOptions.PreviewTopP, _scenarioAdaptationOptions.PreviewMaxTokens),
+                ("ScenarioAdapt", scenarioModel, _scenarioAdaptationOptions.AdaptTemperature, _scenarioAdaptationOptions.AdaptTopP, _scenarioAdaptationOptions.AdaptMaxTokens),
+                ("WritingAssistant", lmModel, 0.7, 0.9, 500),
+                ("RolePlayAssistant", lmModel, 0.7, 0.9, 500),
+            };
+
+            foreach (var (funcName, modelIdentifier, temp, topP, maxTokens) in functionDefaults)
+            {
+                var seedDefault = connection.CreateCommand();
+                seedDefault.CommandText = """
+                    INSERT INTO FunctionModelDefaults (Id, FunctionName, ModelId, Temperature, TopP, MaxTokens, UpdatedUtc)
+                    VALUES ($id, $funcName, $modelId, $temp, $topP, $maxTokens, $now)
+                    """;
+                seedDefault.Parameters.AddWithValue("$id", Guid.NewGuid().ToString());
+                seedDefault.Parameters.AddWithValue("$funcName", funcName);
+                seedDefault.Parameters.AddWithValue("$modelId", modelIds[modelIdentifier]);
+                seedDefault.Parameters.AddWithValue("$temp", temp);
+                seedDefault.Parameters.AddWithValue("$topP", topP);
+                seedDefault.Parameters.AddWithValue("$maxTokens", maxTokens);
+                seedDefault.Parameters.AddWithValue("$now", now);
+                await seedDefault.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            _logger.LogInformation("Model Manager seed migration completed: 1 provider, {ModelCount} models, {DefaultCount} function defaults",
+                modelIds.Count, functionDefaults.Length);
+        }
+        else
+        {
+            _logger.LogInformation("Model Manager seed migration skipped: {ProviderCount} providers already exist", providerCount);
         }
 
         _logger.LogInformation("SQLite persistence initialized using {ConnectionString}", _options.ConnectionString);

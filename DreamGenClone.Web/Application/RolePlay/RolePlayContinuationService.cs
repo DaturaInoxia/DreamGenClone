@@ -1,5 +1,8 @@
 using System.Text;
 using DreamGenClone.Application.Abstractions;
+using DreamGenClone.Application.ModelManager;
+using DreamGenClone.Domain.ModelManager;
+using DreamGenClone.Web.Application.Models;
 using DreamGenClone.Web.Application.Scenarios;
 using DreamGenClone.Web.Domain.RolePlay;
 using Microsoft.Extensions.Logging;
@@ -8,16 +11,22 @@ namespace DreamGenClone.Web.Application.RolePlay;
 
 public sealed class RolePlayContinuationService : IRolePlayContinuationService
 {
-    private readonly ILmStudioClient _lmStudioClient;
+    private readonly ICompletionClient _completionClient;
+    private readonly IModelResolutionService _modelResolver;
+    private readonly IModelSettingsService _modelSettingsService;
     private readonly IScenarioService _scenarioService;
     private readonly ILogger<RolePlayContinuationService> _logger;
 
     public RolePlayContinuationService(
-        ILmStudioClient lmStudioClient,
+        ICompletionClient completionClient,
+        IModelResolutionService modelResolver,
+        IModelSettingsService modelSettingsService,
         IScenarioService scenarioService,
         ILogger<RolePlayContinuationService> logger)
     {
-        _lmStudioClient = lmStudioClient;
+        _completionClient = completionClient;
+        _modelResolver = modelResolver;
+        _modelSettingsService = modelSettingsService;
         _scenarioService = scenarioService;
         _logger = logger;
     }
@@ -31,7 +40,15 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         CancellationToken cancellationToken = default)
     {
         var prompt = await BuildPromptAsync(session, actor, customActorName, intent, promptText, cancellationToken);
-        var output = await _lmStudioClient.GenerateAsync(prompt, cancellationToken);
+        var sessionSettings = _modelSettingsService.GetSettings(session.Id);
+        var resolved = await _modelResolver.ResolveAsync(
+            AppFunction.RolePlayGeneration,
+            sessionModelId: sessionSettings.SessionModelId,
+            sessionTemperature: sessionSettings.SessionModelId != null ? sessionSettings.Temperature : null,
+            sessionTopP: sessionSettings.SessionModelId != null ? sessionSettings.TopP : null,
+            sessionMaxTokens: sessionSettings.SessionModelId != null ? sessionSettings.MaxTokens : null,
+            cancellationToken: cancellationToken);
+        var output = await _completionClient.GenerateAsync(prompt, resolved, cancellationToken);
 
         var interaction = new RolePlayInteraction
         {
@@ -90,7 +107,15 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                 PromptIntent.Narrative,
                 narrativePrompt,
                 cancellationToken);
-            var output = await _lmStudioClient.GenerateAsync(prompt, cancellationToken);
+            var narrativeSettings = _modelSettingsService.GetSettings(session.Id);
+            var narrativeResolved = await _modelResolver.ResolveAsync(
+                AppFunction.RolePlayGeneration,
+                sessionModelId: narrativeSettings.SessionModelId,
+                sessionTemperature: narrativeSettings.SessionModelId != null ? narrativeSettings.Temperature : null,
+                sessionTopP: narrativeSettings.SessionModelId != null ? narrativeSettings.TopP : null,
+                sessionMaxTokens: narrativeSettings.SessionModelId != null ? narrativeSettings.MaxTokens : null,
+                cancellationToken: cancellationToken);
+            var output = await _completionClient.GenerateAsync(prompt, narrativeResolved, cancellationToken);
             result.NarrativeOutput = new RolePlayInteraction
             {
                 InteractionType = InteractionType.System,

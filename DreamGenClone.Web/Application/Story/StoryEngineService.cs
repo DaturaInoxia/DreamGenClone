@@ -1,5 +1,7 @@
 using System.Text;
 using DreamGenClone.Application.Abstractions;
+using DreamGenClone.Application.ModelManager;
+using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Web.Application.Scenarios;
 using DreamGenClone.Web.Application.Sessions;
 using DreamGenClone.Web.Domain.Story;
@@ -11,20 +13,23 @@ public sealed class StoryEngineService : IStoryEngineService
 {
     private static readonly Dictionary<string, StorySession> Sessions = [];
 
-    private readonly ILmStudioClient _lmStudioClient;
+    private readonly ICompletionClient _completionClient;
+    private readonly IModelResolutionService _modelResolver;
     private readonly IScenarioService _scenarioService;
     private readonly ISessionService _sessionService;
     private readonly AutoSaveCoordinator _autoSaveCoordinator;
     private readonly ILogger<StoryEngineService> _logger;
 
     public StoryEngineService(
-        ILmStudioClient lmStudioClient,
+        ICompletionClient completionClient,
+        IModelResolutionService modelResolver,
         IScenarioService scenarioService,
         ISessionService sessionService,
         AutoSaveCoordinator autoSaveCoordinator,
         ILogger<StoryEngineService> logger)
     {
-        _lmStudioClient = lmStudioClient;
+        _completionClient = completionClient;
+        _modelResolver = modelResolver;
         _scenarioService = scenarioService;
         _sessionService = sessionService;
         _autoSaveCoordinator = autoSaveCoordinator;
@@ -91,7 +96,8 @@ public sealed class StoryEngineService : IStoryEngineService
         }
 
         var prompt = await BuildPromptAsync(session, instruction, cancellationToken);
-        var aiOutput = await _lmStudioClient.GenerateAsync(prompt, cancellationToken);
+        var resolved = await _modelResolver.ResolveAsync(AppFunction.StoryModeGeneration, cancellationToken: cancellationToken);
+        var aiOutput = await _completionClient.GenerateAsync(prompt, resolved, cancellationToken);
 
         var block = new StoryBlock
         {
