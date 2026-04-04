@@ -43,3 +43,24 @@ public sealed class AdaptStoryResult
 
     public string? ErrorMessage { get; set; }
 }
+
+public sealed class ScenarioPreviewResult
+{
+    public bool Success { get; set; }
+
+    public string? PlotTitle { get; set; }
+
+    public string? PlotDescription { get; set; }
+
+    public List<string> Conflicts { get; set; } = [];
+
+    public List<string> Goals { get; set; } = [];
+
+    public string? SettingSummary { get; set; }
+
+    public string? StyleSummary { get; set; }
+
+    public List<string> SuggestedRoles { get; set; } = [];
+
+    public string? ErrorMessage { get; set; }
+}

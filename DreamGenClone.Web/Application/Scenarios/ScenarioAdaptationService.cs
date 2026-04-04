@@ -19,13 +19,9 @@ public sealed class ScenarioAdaptationService : IScenarioAdaptationService
     private readonly IStorySummaryService _summaryService;
     private readonly ITemplateService _templateService;
     private readonly ILmStudioClient _lmClient;
-    private readonly StoryAnalysisOptions _analysisOptions;
+    private readonly ScenarioAdaptationOptions _adaptOptions;
     private readonly LmStudioOptions _lmOptions;
     private readonly ILogger<ScenarioAdaptationService> _logger;
-
-    private const double Temperature = 0.5;
-    private const double TopP = 0.95;
-    private const int MaxTokens = 2000;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -38,7 +34,7 @@ public sealed class ScenarioAdaptationService : IScenarioAdaptationService
         IStorySummaryService summaryService,
         ITemplateService templateService,
         ILmStudioClient lmClient,
-        IOptions<StoryAnalysisOptions> analysisOptions,
+        IOptions<ScenarioAdaptationOptions> adaptOptions,
         IOptions<LmStudioOptions> lmOptions,
         ILogger<ScenarioAdaptationService> logger)
     {
@@ -47,9 +43,142 @@ public sealed class ScenarioAdaptationService : IScenarioAdaptationService
         _summaryService = summaryService;
         _templateService = templateService;
         _lmClient = lmClient;
-        _analysisOptions = analysisOptions.Value;
+        _adaptOptions = adaptOptions.Value;
         _lmOptions = lmOptions.Value;
         _logger = logger;
+    }
+
+    public async Task<ScenarioPreviewResult> PreviewScenarioAsync(
+        string parsedStoryId,
+        CancellationToken cancellationToken = default)
+    {
+        // 1. Load summary (required)
+        var summary = await _summaryService.GetSummaryAsync(parsedStoryId, cancellationToken);
+        if (summary is null || string.IsNullOrWhiteSpace(summary.SummaryText))
+        {
+            return new ScenarioPreviewResult
+            {
+                Success = false,
+                ErrorMessage = "Story must be summarized before preview. Please run Summarize first."
+            };
+        }
+
+        // 2. Load analysis (optional — enriches preview)
+        var analysis = await _analysisService.GetAnalysisAsync(parsedStoryId, cancellationToken);
+
+        // 3. Build preview prompt and call LLM with unrestricted model
+        var systemMessage = BuildPreviewSystemMessage();
+        var userMessage = BuildPreviewUserMessage(summary.SummaryText, analysis);
+
+        _logger.LogInformation(
+            "Generating scenario preview for parsed story '{StoryId}'.", parsedStoryId);
+
+        string llmResponse;
+        var model = _adaptOptions.Model ?? _lmOptions.Model;
+        try
+        {
+            llmResponse = await _lmClient.GenerateAsync(
+                systemMessage,
+                userMessage,
+                model,
+                _adaptOptions.PreviewTemperature,
+                _adaptOptions.PreviewTopP,
+                _adaptOptions.PreviewMaxTokens,
+                cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "LLM call failed during scenario preview for story '{StoryId}'.", parsedStoryId);
+            return new ScenarioPreviewResult
+            {
+                Success = false,
+                ErrorMessage = $"LLM generation failed: {ex.Message}"
+            };
+        }
+
+        // 4. Parse preview response
+        return ParsePreviewResponse(llmResponse);
+    }
+
+    public async Task<AdaptStoryResult> BuildScenarioFromPreviewAsync(
+        ScenarioPreviewResult preview,
+        List<CharacterSubstitution> characterSubstitutions,
+        string? sourceStoryId,
+        CancellationToken cancellationToken = default)
+    {
+        // 1. Load character templates
+        var characters = new List<Character>();
+        foreach (var sub in characterSubstitutions)
+        {
+            var template = await _templateService.GetByIdAsync(sub.TemplateId, cancellationToken);
+            if (template is null)
+            {
+                _logger.LogWarning("Character template {TemplateId} not found, skipping.", sub.TemplateId);
+                continue;
+            }
+            characters.Add(new Character
+            {
+                Name = template.Name,
+                Description = template.Content,
+                Role = sub.TargetRole,
+                TemplateId = template.Id.ToString()
+            });
+        }
+
+        if (characters.Count == 0)
+        {
+            return new AdaptStoryResult
+            {
+                Success = false,
+                ErrorMessage = "At least one valid character template is required."
+            };
+        }
+
+        // 2. Build scenario directly from the edited preview
+        var scenario = new Scenario
+        {
+            Name = preview.PlotTitle ?? "Adapted Scenario",
+            Plot = new Plot
+            {
+                Title = preview.PlotTitle,
+                Description = preview.PlotDescription,
+                Conflicts = preview.Conflicts.Where(c => !string.IsNullOrWhiteSpace(c)).ToList(),
+                Goals = preview.Goals.Where(g => !string.IsNullOrWhiteSpace(g)).ToList()
+            },
+            Setting = new Setting
+            {
+                WorldDescription = preview.SettingSummary
+            },
+            Style = new Style
+            {
+                Tone = preview.StyleSummary
+            },
+            Characters = characters
+        };
+
+        // 3. Set provenance
+        string? sourceTitle = null;
+        if (!string.IsNullOrWhiteSpace(sourceStoryId))
+        {
+            var storyDetail = await _storyParserService.GetParsedStoryAsync(sourceStoryId, cancellationToken);
+            sourceTitle = storyDetail?.Title;
+            var provenanceNote = $"Adapted from: {sourceTitle ?? "Unknown Title"}";
+            scenario.Description = string.IsNullOrWhiteSpace(scenario.Plot.Description)
+                ? provenanceNote
+                : $"{scenario.Plot.Description}\n\n{provenanceNote}";
+        }
+
+        _logger.LogInformation(
+            "Built scenario '{ScenarioName}' from preview with {CharacterCount} characters.",
+            scenario.Name, characters.Count);
+
+        return new AdaptStoryResult
+        {
+            Success = true,
+            GeneratedScenario = scenario,
+            SourceParsedStoryId = sourceStoryId,
+            SourceStoryTitle = sourceTitle
+        };
     }
 
     public async Task<AdaptStoryResult> AdaptStoryToScenarioAsync(
@@ -112,16 +241,16 @@ public sealed class ScenarioAdaptationService : IScenarioAdaptationService
             request.ParsedStoryId, storyDetail.Title, substitutionCharacters.Count);
 
         string llmResponse;
-        var model = _analysisOptions.Model ?? _lmOptions.Model;
+        var model = _adaptOptions.Model ?? _lmOptions.Model;
         try
         {
             llmResponse = await _lmClient.GenerateAsync(
                 systemMessage,
                 userMessage,
                 model,
-                Temperature,
-                TopP,
-                MaxTokens,
+                _adaptOptions.AdaptTemperature,
+                _adaptOptions.AdaptTopP,
+                _adaptOptions.AdaptMaxTokens,
                 cancellationToken);
         }
         catch (Exception ex)
@@ -458,5 +587,137 @@ public sealed class ScenarioAdaptationService : IScenarioAdaptationService
             }
         }
         return result;
+    }
+
+    private static string BuildPreviewSystemMessage()
+    {
+        return """
+            You are a scenario concept generator. Your job is to distill a story into a character-agnostic scenario concept that can later be adapted with specific characters.
+
+            Extract the core premise, tension, setting, and style from the story — but do NOT include any character names. Think of this as creating a "scenario card" that describes the situation anyone could step into.
+
+            CRITICAL RULES:
+            - Plot title: short, evocative scenario name (3-8 words)
+            - Plot description: character-agnostic, NO names — just the situation, tension, and setup (2-4 sentences)
+            - Setting: describe the world and environment
+            - Style: capture the tone, writing style, and narrative perspective
+            - Suggested roles: list the character roles needed for this scenario (e.g., "protagonist", "love interest", "antagonist")
+
+            Respond ONLY with valid JSON in this exact format (no text outside the JSON):
+            {
+              "plot": {
+                "title": "Short Evocative Title",
+                "description": "Character-agnostic premise. 2-4 sentences describing the situation, tension, and setup without any names.",
+                "conflicts": ["conflict 1", "conflict 2"],
+                "goals": ["goal 1", "goal 2"]
+              },
+              "setting": {
+                "summary": "Brief description of the world, location, and timeframe"
+              },
+              "style": {
+                "summary": "Brief description of the tone, writing style, and narrative perspective"
+              },
+              "suggestedRoles": ["role 1", "role 2"]
+            }
+            """;
+    }
+
+    private static string BuildPreviewUserMessage(
+        string summaryText,
+        DreamGenClone.Domain.StoryAnalysis.StoryAnalysisResult? analysis)
+    {
+        var sb = new StringBuilder();
+
+        sb.AppendLine("## Story Summary");
+        sb.AppendLine(summaryText);
+        sb.AppendLine();
+
+        if (analysis is not null)
+        {
+            if (!string.IsNullOrWhiteSpace(analysis.ThemesJson))
+            {
+                sb.AppendLine("## Themes");
+                sb.AppendLine(analysis.ThemesJson);
+                sb.AppendLine();
+            }
+
+            if (!string.IsNullOrWhiteSpace(analysis.PlotStructureJson))
+            {
+                sb.AppendLine("## Plot Structure");
+                sb.AppendLine(analysis.PlotStructureJson);
+                sb.AppendLine();
+            }
+
+            if (!string.IsNullOrWhiteSpace(analysis.WritingStyleJson))
+            {
+                sb.AppendLine("## Writing Style");
+                sb.AppendLine(analysis.WritingStyleJson);
+                sb.AppendLine();
+            }
+
+            if (!string.IsNullOrWhiteSpace(analysis.CharactersJson))
+            {
+                sb.AppendLine("## Original Story Characters (for role identification only)");
+                sb.AppendLine(analysis.CharactersJson);
+                sb.AppendLine();
+            }
+        }
+
+        sb.AppendLine("Distill this story into a character-agnostic scenario concept. Extract the premise, setting, style, and identify the character roles needed.");
+
+        return sb.ToString();
+    }
+
+    private ScenarioPreviewResult ParsePreviewResponse(string llmResponse)
+    {
+        try
+        {
+            var json = llmResponse.Trim();
+            if (json.StartsWith("```"))
+            {
+                var firstNewline = json.IndexOf('\n');
+                if (firstNewline >= 0)
+                    json = json[(firstNewline + 1)..];
+                if (json.EndsWith("```"))
+                    json = json[..^3];
+                json = json.Trim();
+            }
+
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            var result = new ScenarioPreviewResult { Success = true };
+
+            if (root.TryGetProperty("plot", out var plotEl))
+            {
+                result.PlotTitle = GetString(plotEl, "title");
+                result.PlotDescription = GetString(plotEl, "description");
+                result.Conflicts = GetStringArray(plotEl, "conflicts");
+                result.Goals = GetStringArray(plotEl, "goals");
+            }
+
+            if (root.TryGetProperty("setting", out var settingEl))
+            {
+                result.SettingSummary = GetString(settingEl, "summary");
+            }
+
+            if (root.TryGetProperty("style", out var styleEl))
+            {
+                result.StyleSummary = GetString(styleEl, "summary");
+            }
+
+            result.SuggestedRoles = GetStringArray(root, "suggestedRoles");
+
+            return result;
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogError(ex, "Failed to parse LLM scenario preview response as JSON.");
+            return new ScenarioPreviewResult
+            {
+                Success = false,
+                ErrorMessage = "Failed to parse LLM preview response. Raw response logged."
+            };
+        }
     }
 }

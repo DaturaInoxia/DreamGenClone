@@ -65,4 +65,9 @@ public class Scenario
     /// Last modification timestamp in UTC.
     /// </summary>
     public DateTime ModifiedAt { get; set; } = DateTime.UtcNow;
+
+    /// <summary>
+    /// The ID of the parsed story this scenario was adapted from, if any.
+    /// </summary>
+    public string? SourceParsedStoryId { get; set; }
 }

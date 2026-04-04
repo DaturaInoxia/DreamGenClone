@@ -1,19 +1,24 @@
 @page "/storyparser"
 @rendermode InteractiveServer
+@implements IDisposable
 
 @using DreamGenClone.Application.StoryParser.Models
 @using DreamGenClone.Domain.StoryParser
 @using DreamGenClone.Web.Application.StoryParser
 @using DreamGenClone.Web.Application.StoryAnalysis
+@using DreamGenClone.Application.Processing
 @using DreamGenClone.Domain.StoryAnalysis
 @using System.Text.Json
 @using System.Linq
+@using Microsoft.JSInterop
 
 @inject StoryParserFacade ParserFacade
 @inject StoryCatalogFacade CatalogFacade
 @inject StoryCollectionFacade CollectionFacade
 @inject StoryAnalysisFacade AnalysisFacade
+@inject IModelProcessingQueue ProcessingQueue
 @inject NavigationManager Navigation
+@inject IJSRuntime JS
 
 <PageTitle>StoryParser</PageTitle>
 
@@ -231,6 +236,13 @@
                                                         <span class="badge bg-success" title="All themes verified">✓</span>
                                                     }
                                                 }
+                                                @{ var memberTasks = ProcessingQueue.GetTasksForStory(member.Id); }
+                                                @foreach (var pt in memberTasks.Where(t => t.Status is ModelProcessingStatus.Queued or ModelProcessingStatus.Processing))
+                                                {
+                                                    <span class="badge @(pt.Status == ModelProcessingStatus.Processing ? "bg-warning text-dark" : "bg-info text-dark")" title="@pt.TaskType @pt.Status">
+                                                        @(pt.Status == ModelProcessingStatus.Processing ? "⏳" : "🕐") @pt.TaskType
+                                                    </span>
+                                                }
                                                 <span class="badge text-bg-secondary">@member.ParseStatus</span>
                                                 <div><small>@member.ParsedUtc.ToLocalTime().ToString("g")</small></div>
                                                 <div><small>Pages: @member.PageCount</small></div>
@@ -318,6 +330,13 @@
                                             {
                                                 <span class="badge bg-success" title="All themes verified">✓</span>
                                             }
+                                        }
+                                        @{ var entryTasks = ProcessingQueue.GetTasksForStory(entry.Id); }
+                                        @foreach (var pt in entryTasks.Where(t => t.Status is ModelProcessingStatus.Queued or ModelProcessingStatus.Processing))
+                                        {
+                                            <span class="badge @(pt.Status == ModelProcessingStatus.Processing ? "bg-warning text-dark" : "bg-info text-dark")" title="@pt.TaskType @pt.Status">
+                                                @(pt.Status == ModelProcessingStatus.Processing ? "⏳" : "🕐") @pt.TaskType
+                                            </span>
                                         }
                                         <span class="badge text-bg-secondary">@entry.ParseStatus</span>
                                         <div><small>@entry.ParsedUtc.ToLocalTime().ToString("g")</small></div>
@@ -432,7 +451,30 @@
 
     protected override async Task OnInitializedAsync()
     {
+        ProcessingQueue.OnStatusChanged += OnProcessingStatusChanged;
         await LoadCatalogAsync();
+        _shouldRestoreScroll = true;
+    }
+
+    private bool _shouldRestoreScroll;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_shouldRestoreScroll)
+        {
+            _shouldRestoreScroll = false;
+            await JS.InvokeVoidAsync("scrollHelper.restoreScrollPosition", "storyparser_scrollY");
+        }
+    }
+
+    private void OnProcessingStatusChanged(ModelProcessingTask task)
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        ProcessingQueue.OnStatusChanged -= OnProcessingStatusChanged;
     }
 
     // ==================== Parse / Import ====================
@@ -534,28 +576,11 @@
                 await LoadCatalogAsync();
                 return;
             }
-            _parseMessage = $"Parsed: {result.ParseStatus}, Pages: {result.PageCount}. Running analysis pipeline...";
+            _parseMessage = $"Parsed: {result.ParseStatus}, Pages: {result.PageCount}. Queuing analysis pipeline...";
             StateHasChanged();
 
-            // Auto-run: Summarize
-            try
-            {
-                _parseMessage = "Running: Summarize...";
-                StateHasChanged();
-                await AnalysisFacade.SummarizeAsync(storyId);
-            }
-            catch { /* continue pipeline even if summary fails */ }
-
-            // Auto-run: Analyze
-            try
-            {
-                _parseMessage = "Running: Analyze...";
-                StateHasChanged();
-                await AnalysisFacade.AnalyzeAsync(storyId);
-            }
-            catch { /* continue pipeline even if analysis fails */ }
-
-            // Auto-run: Rank with default profile
+            // Enqueue background analysis: Summarize → Analyze → Rank
+            string? defaultProfileId = null;
             try
             {
                 var profiles = await AnalysisFacade.ListProfilesAsync();
@@ -564,14 +589,13 @@
                 {
                     var themes = await AnalysisFacade.ListThemesByProfileAsync(defaultProfile.Id);
                     if (themes.Count > 0)
-                    {
-                        _parseMessage = $"Running: Rank with profile '{defaultProfile.Name}'...";
-                        StateHasChanged();
-                        await AnalysisFacade.RankAsync(storyId, defaultProfile.Id);
-                    }
+                        defaultProfileId = defaultProfile.Id;
                 }
             }
-            catch { /* continue even if ranking fails */ }
+            catch { /* non-critical */ }
+
+            ProcessingQueue.EnqueueStoryProcessing(storyId, result.Title, defaultProfileId);
+            _parseMessage = $"Parsed: {result.ParseStatus}, Pages: {result.PageCount}. Analysis queued.";
 
             // Check for collection matches
             _lastParsedStoryId = storyId;
@@ -851,8 +875,9 @@
         catch { return false; }
     }
 
-    private void OpenDetail(string id)
+    private async Task OpenDetail(string id)
     {
+        await JS.InvokeVoidAsync("scrollHelper.saveScrollPosition", "storyparser_scrollY");
         Navigation.NavigateTo($"/storyparser/detail/{id}");
     }
 

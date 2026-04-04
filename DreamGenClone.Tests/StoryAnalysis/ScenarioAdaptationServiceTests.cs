@@ -78,13 +78,13 @@ public class ScenarioAdaptationServiceTests
         var summaryService = new FakeStorySummaryService(summary);
         var templateService = new FakeTemplateService(templates ?? []);
         var lmClient = new FakeLmStudioClient(llmResponse ?? ValidLlmResponse);
-        var analysisOptions = Options.Create(new StoryAnalysisOptions { Model = "test-analysis-model" });
+        var adaptOptions = Options.Create(new ScenarioAdaptationOptions { Model = "test-adapt-model" });
         var lmOptions = Options.Create(new LmStudioOptions { Model = "test-model" });
         var logger = NullLogger<ScenarioAdaptationService>.Instance;
 
         return new ScenarioAdaptationService(
             storyParser, analysisService, summaryService, templateService,
-            lmClient, analysisOptions, lmOptions, logger);
+            lmClient, adaptOptions, lmOptions, logger);
     }
 
     private ParsedStoryDetail CreateStoryDetail() => new()
@@ -409,7 +409,7 @@ public class ScenarioAdaptationServiceTests
             new FakeStorySummaryService(CreateSummary()),
             new FakeTemplateService(CreateTemplates()),
             lmClient,
-            Options.Create(new StoryAnalysisOptions { Model = "test-analysis-model" }),
+            Options.Create(new ScenarioAdaptationOptions { Model = "test-adapt-model" }),
             Options.Create(new LmStudioOptions { Model = "test-model" }),
             NullLogger<ScenarioAdaptationService>.Instance);
     }

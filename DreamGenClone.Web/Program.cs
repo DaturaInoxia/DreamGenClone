@@ -23,6 +23,8 @@ using DreamGenClone.Web.Application.Sessions;
 using DreamGenClone.Web.Application.StoryParser;
 using DreamGenClone.Web.Application.Story;
 using DreamGenClone.Web.Application.StoryAnalysis;
+using DreamGenClone.Application.Processing;
+using DreamGenClone.Infrastructure.Processing;
 using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -35,6 +37,7 @@ builder.Services.Configure<LmStudioOptions>(builder.Configuration.GetSection(LmS
 builder.Services.Configure<PersistenceOptions>(builder.Configuration.GetSection(PersistenceOptions.SectionName));
 builder.Services.Configure<StoryParserOptions>(builder.Configuration.GetSection(StoryParserOptions.SectionName));
 builder.Services.Configure<StoryAnalysisOptions>(builder.Configuration.GetSection(StoryAnalysisOptions.SectionName));
+builder.Services.Configure<ScenarioAdaptationOptions>(builder.Configuration.GetSection(ScenarioAdaptationOptions.SectionName));
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
@@ -96,6 +99,11 @@ builder.Services.AddScoped<IRankingProfileService, RankingProfileService>();
 builder.Services.AddScoped<IThemePreferenceService, ThemePreferenceService>();
 builder.Services.AddScoped<IStoryRankingService, StoryRankingService>();
 builder.Services.AddScoped<StoryAnalysisFacade>();
+
+// Background model processing queue
+builder.Services.AddSingleton<ModelProcessingQueue>();
+builder.Services.AddSingleton<IModelProcessingQueue>(sp => sp.GetRequiredService<ModelProcessingQueue>());
+builder.Services.AddHostedService<ModelProcessingWorker>();
 
 // Increase SignalR message size for large text editing (combined story text)
 builder.Services.AddSignalR(o => o.MaximumReceiveMessageSize = 1024 * 1024); // 1 MB
