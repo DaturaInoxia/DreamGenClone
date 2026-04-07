@@ -1163,6 +1163,16 @@
 
     private void GoToSavedSessions() => Navigation.NavigateTo(RolePlayRoutes.Sessions);
 
+    private async Task OpenDebugWindowAsync()
+    {
+        if (_session is null)
+        {
+            return;
+        }
+
+        await JS.InvokeVoidAsync("rolePlayWorkspace.openDebugWindow", RolePlayRoutes.GetDebug(_session.Id));
+    }
+
     [JSInvokable]
     public Task OnSettingsPanelResized(int width)
     {
@@ -1636,6 +1646,9 @@
                     <span class="rw-session-title">@_session.Title</span>
                     <span class="rw-session-meta">@_session.Interactions.Count interactions · @_session.BehaviorMode</span>
                 }
+            </div>
+            <div class="rw-header-right">
+                <button class="rw-debug-btn" @onclick="OpenDebugWindowAsync" @onclick:stopPropagation>Debug View</button>
             </div>
         </div>
 

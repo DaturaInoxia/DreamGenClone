@@ -3,6 +3,8 @@ using DreamGenClone.Web.Application.Sessions;
 using DreamGenClone.Web.Domain.RolePlay;
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
+using System.Text.Json;
+using DreamGenClone.Application.Abstractions;
 
 namespace DreamGenClone.Web.Application.RolePlay;
 
@@ -19,6 +21,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     private readonly ISessionService _sessionService;
     private readonly IScenarioService _scenarioService;
     private readonly AutoSaveCoordinator _autoSaveCoordinator;
+    private readonly IRolePlayDebugEventSink _debugEventSink;
     private readonly ILogger<RolePlayEngineService> _logger;
 
     public RolePlayEngineService(
@@ -31,6 +34,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         ISessionService sessionService,
         IScenarioService scenarioService,
         AutoSaveCoordinator autoSaveCoordinator,
+        IRolePlayDebugEventSink debugEventSink,
         ILogger<RolePlayEngineService> logger)
     {
         _continuationService = continuationService;
@@ -42,6 +46,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         _sessionService = sessionService;
         _scenarioService = scenarioService;
         _autoSaveCoordinator = autoSaveCoordinator;
+        _debugEventSink = debugEventSink;
         _logger = logger;
     }
 
@@ -90,6 +95,22 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
         Sessions[session.Id] = session;
         _autoSaveCoordinator.QueueRolePlaySessionSave(session, "roleplay-session-created");
+        await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+        {
+            SessionId = session.Id,
+            EventKind = "SessionCreated",
+            Severity = "Info",
+            ActorName = session.PersonaName,
+            Summary = "Role-play session created",
+            MetadataJson = JsonSerializer.Serialize(new
+            {
+                session.Id,
+                session.Title,
+                session.PersonaName,
+                session.ScenarioId
+            })
+        }, cancellationToken);
+
         _logger.LogInformation("Role-play session created: {SessionId} ({Title}), Persona={PersonaName}",
             session.Id, session.Title, session.PersonaName);
         return session;
@@ -235,6 +256,22 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         }
 
         _autoSaveCoordinator.QueueRolePlaySessionSave(session, "roleplay-interaction-added");
+        await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+        {
+            SessionId = session.Id,
+            InteractionId = interaction.Id,
+            EventKind = "InteractionPersisted",
+            Severity = "Info",
+            ActorName = interaction.ActorName,
+            Summary = "Manual interaction added",
+            MetadataJson = JsonSerializer.Serialize(new
+            {
+                interaction.Id,
+                interaction.ActorName,
+                interaction.InteractionType,
+                interaction.Content
+            })
+        }, cancellationToken);
 
         _logger.LogInformation("Manual role-play interaction appended to session {SessionId} as {Actor}", sessionId, interaction.ActorName);
         return interaction;
@@ -275,6 +312,26 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         session.ModifiedAt = DateTime.UtcNow;
         session.AdaptiveState = await _adaptiveStateService.UpdateFromInteractionAsync(session, interaction, cancellationToken);
         _autoSaveCoordinator.QueueRolePlaySessionSave(session, "roleplay-continue-generated");
+        await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+        {
+            SessionId = session.Id,
+            InteractionId = interaction.Id,
+            EventKind = "InteractionPersisted",
+            Severity = "Info",
+            ActorName = interaction.ActorName,
+            ModelIdentifier = interaction.GeneratedByModelId,
+            ProviderName = interaction.GeneratedByProvider,
+            Summary = "Continuation interaction persisted",
+            MetadataJson = JsonSerializer.Serialize(new
+            {
+                interaction.Id,
+                interaction.ActorName,
+                interaction.InteractionType,
+                interaction.GeneratedByCommand,
+                interaction.GeneratedByModelId,
+                interaction.GeneratedByProvider
+            })
+        }, cancellationToken);
 
         _logger.LogInformation(
             "Role-play continuation generated for session {SessionId} as {Actor} in mode {Mode}",
@@ -411,6 +468,26 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         }
 
         _autoSaveCoordinator.QueueRolePlaySessionSave(session, "roleplay-unified-prompt-submitted");
+        await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+        {
+            SessionId = session.Id,
+            InteractionId = interaction.Id,
+            EventKind = "PromptSubmitted",
+            Severity = "Info",
+            ActorName = interaction.ActorName,
+            ModelIdentifier = interaction.GeneratedByModelId,
+            ProviderName = interaction.GeneratedByProvider,
+            Summary = "Unified prompt submission completed",
+            MetadataJson = JsonSerializer.Serialize(new
+            {
+                submission.Intent,
+                submission.SubmittedVia,
+                submission.SelectedIdentityId,
+                submission.SelectedIdentityType,
+                interaction.Id,
+                interaction.ActorName
+            })
+        }, cancellationToken);
 
         _logger.LogInformation(
             "Unified prompt executed for session {SessionId}: actor={Actor}, mode={Mode}",

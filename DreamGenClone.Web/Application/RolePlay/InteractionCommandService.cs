@@ -1,16 +1,23 @@
 using DreamGenClone.Web.Domain.RolePlay;
 using Microsoft.Extensions.Logging;
+using System.Text.Json;
+using DreamGenClone.Application.Abstractions;
 
 namespace DreamGenClone.Web.Application.RolePlay;
 
 public sealed class InteractionCommandService : IInteractionCommandService
 {
     private readonly IRolePlayEngineService _engineService;
+    private readonly IRolePlayDebugEventSink _debugEventSink;
     private readonly ILogger<InteractionCommandService> _logger;
 
-    public InteractionCommandService(IRolePlayEngineService engineService, ILogger<InteractionCommandService> logger)
+    public InteractionCommandService(
+        IRolePlayEngineService engineService,
+        IRolePlayDebugEventSink debugEventSink,
+        ILogger<InteractionCommandService> logger)
     {
         _engineService = engineService;
+        _debugEventSink = debugEventSink;
         _logger = logger;
     }
 
@@ -32,6 +39,16 @@ public sealed class InteractionCommandService : IInteractionCommandService
         };
 
         await _engineService.SaveSessionAsync(session, cancellationToken);
+        await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+        {
+            SessionId = session.Id,
+            InteractionId = interaction.Id,
+            EventKind = "CommandExecuted",
+            Severity = "Info",
+            ActorName = interaction.ActorName,
+            Summary = $"Toggled {flag} to {newValue}",
+            MetadataJson = JsonSerializer.Serialize(new { flag, newValue, interactionId })
+        }, cancellationToken);
 
         _logger.LogInformation(
             "Toggled {Flag} to {Value} on interaction {InteractionId} in session {SessionId}",
@@ -57,6 +74,16 @@ public sealed class InteractionCommandService : IInteractionCommandService
         interaction.Content = newContent.Trim();
 
         await _engineService.SaveSessionAsync(session, cancellationToken);
+        await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+        {
+            SessionId = session.Id,
+            InteractionId = interaction.Id,
+            EventKind = "CommandExecuted",
+            Severity = "Info",
+            ActorName = interaction.ActorName,
+            Summary = "Interaction content updated",
+            MetadataJson = JsonSerializer.Serialize(new { interactionId, contentLength = interaction.Content.Length })
+        }, cancellationToken);
 
         _logger.LogInformation(
             "Updated content of interaction {InteractionId} in session {SessionId}",
@@ -108,6 +135,16 @@ public sealed class InteractionCommandService : IInteractionCommandService
         var removedCount = session.Interactions.RemoveAll(i => allIdsToRemove.Contains(i.Id));
 
         await _engineService.SaveSessionAsync(session, cancellationToken);
+        await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+        {
+            SessionId = session.Id,
+            InteractionId = interactionId,
+            EventKind = "CommandExecuted",
+            Severity = "Info",
+            ActorName = interaction.ActorName,
+            Summary = "Interaction delete command executed",
+            MetadataJson = JsonSerializer.Serialize(new { interactionId, deleteBelow, removedCount })
+        }, cancellationToken);
 
         _logger.LogInformation(
             "Deleted interaction {InteractionId} (deleteBelow={DeleteBelow}) from session {SessionId}, removed {Count} entries",
@@ -141,6 +178,16 @@ public sealed class InteractionCommandService : IInteractionCommandService
         original.ActiveAlternativeIndex = newIndex;
 
         await _engineService.SaveSessionAsync(session, cancellationToken);
+        await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+        {
+            SessionId = session.Id,
+            InteractionId = original.Id,
+            EventKind = "CommandExecuted",
+            Severity = "Info",
+            ActorName = original.ActorName,
+            Summary = "Alternative navigation command executed",
+            MetadataJson = JsonSerializer.Serialize(new { original.Id, direction, newIndex, maxIndex })
+        }, cancellationToken);
 
         _logger.LogInformation(
             "Navigated to alternative {Index} of {Max} for interaction {InteractionId} in session {SessionId}",
@@ -204,6 +251,16 @@ public sealed class InteractionCommandService : IInteractionCommandService
         }
 
         await _engineService.SaveSessionAsync(session, cancellationToken);
+        await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+        {
+            SessionId = session.Id,
+            InteractionId = originalId,
+            EventKind = "CommandExecuted",
+            Severity = "Info",
+            ActorName = original.ActorName,
+            Summary = "Alternative deleted",
+            MetadataJson = JsonSerializer.Serialize(new { originalId, deletedIndex, remainingCount = remainingAlternatives.Count })
+        }, cancellationToken);
 
         _logger.LogInformation(
             "Deleted alternative {DeletedIndex} for interaction {InteractionId} in session {SessionId}, {Count} alternatives remain",

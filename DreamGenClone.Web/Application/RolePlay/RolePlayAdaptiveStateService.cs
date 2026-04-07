@@ -1,4 +1,6 @@
 using DreamGenClone.Web.Domain.RolePlay;
+using System.Text.Json;
+using DreamGenClone.Application.Abstractions;
 
 namespace DreamGenClone.Web.Application.RolePlay;
 
@@ -32,7 +34,22 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         new("dominance", "Dominance", new[] { "dominate", "command", "control", "kneel", "order" }, 4)
     };
 
-    public Task<RolePlayAdaptiveState> UpdateFromInteractionAsync(
+    private readonly IRolePlayDebugEventSink? _debugEventSink;
+    private readonly ILogger<RolePlayAdaptiveStateService>? _logger;
+
+    public RolePlayAdaptiveStateService()
+    {
+    }
+
+    public RolePlayAdaptiveStateService(
+        IRolePlayDebugEventSink debugEventSink,
+        ILogger<RolePlayAdaptiveStateService> logger)
+    {
+        _debugEventSink = debugEventSink;
+        _logger = logger;
+    }
+
+    public async Task<RolePlayAdaptiveState> UpdateFromInteractionAsync(
         RolePlaySession session,
         RolePlayInteraction interaction,
         CancellationToken cancellationToken = default)
@@ -47,10 +64,15 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         var actorKey = string.IsNullOrWhiteSpace(interaction.ActorName) ? "Unknown" : interaction.ActorName.Trim();
         var trackCharacterStats = !IsNarrativeOrSystemInteraction(interaction, actorKey);
         CharacterStatBlock? actorStats = null;
+        Dictionary<string, int>? statsBefore = null;
         if (trackCharacterStats)
         {
             actorStats = GetOrCreateCharacterStats(state, actorKey);
+            statsBefore = new Dictionary<string, int>(actorStats.Stats, StringComparer.OrdinalIgnoreCase);
         }
+
+        var primaryBefore = state.ThemeTracker.PrimaryThemeId;
+        var secondaryBefore = state.ThemeTracker.SecondaryThemeId;
 
         var content = interaction.Content ?? string.Empty;
         var contentLower = content.ToLowerInvariant();
@@ -79,7 +101,59 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         state.ThemeTracker.UpdatedUtc = DateTime.UtcNow;
 
         session.AdaptiveState = state;
-        return Task.FromResult(state);
+
+        if (_debugEventSink is not null)
+        {
+            try
+            {
+                var statDeltas = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                if (actorStats is not null && statsBefore is not null)
+                {
+                    foreach (var stat in actorStats.Stats)
+                    {
+                        var before = statsBefore.TryGetValue(stat.Key, out var existing) ? existing : 50;
+                        if (before != stat.Value)
+                        {
+                            statDeltas[stat.Key] = stat.Value - before;
+                        }
+                    }
+                }
+
+                var topThemes = state.ThemeTracker.Themes.Values
+                    .OrderByDescending(x => x.Score)
+                    .Take(5)
+                    .Select(x => new { x.ThemeId, x.ThemeName, x.Score, x.Intensity })
+                    .ToList();
+
+                await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+                {
+                    SessionId = session.Id,
+                    InteractionId = interaction.Id,
+                    EventKind = "AdaptiveStateUpdated",
+                    Severity = "Info",
+                    ActorName = actorKey,
+                    Summary = $"Adaptive state updated for {actorKey}",
+                    MetadataJson = JsonSerializer.Serialize(new
+                    {
+                        interactionId = interaction.Id,
+                        actorKey,
+                        statDeltas,
+                        primaryThemeBefore = primaryBefore,
+                        secondaryThemeBefore = secondaryBefore,
+                        primaryThemeAfter = state.ThemeTracker.PrimaryThemeId,
+                        secondaryThemeAfter = state.ThemeTracker.SecondaryThemeId,
+                        topThemes,
+                        recentEvidence = state.ThemeTracker.RecentEvidence.TakeLast(8)
+                    })
+                }, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "Failed to emit adaptive debug event for session {SessionId}", session.Id);
+            }
+        }
+
+        return state;
     }
 
     private static void EnsureThemeCatalog(ThemeTrackerState tracker)

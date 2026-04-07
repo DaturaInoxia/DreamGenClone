@@ -247,6 +247,27 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 CheckedUtc TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS RolePlayDebugEvents (
+                Id TEXT PRIMARY KEY NOT NULL,
+                SessionId TEXT NOT NULL,
+                CorrelationId TEXT NULL,
+                InteractionId TEXT NULL,
+                EventKind TEXT NOT NULL,
+                Severity TEXT NOT NULL,
+                ActorName TEXT NULL,
+                ModelIdentifier TEXT NULL,
+                ProviderName TEXT NULL,
+                DurationMs INTEGER NULL,
+                Summary TEXT NOT NULL DEFAULT '',
+                MetadataJson TEXT NOT NULL DEFAULT '{}',
+                CreatedUtc TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS IX_RolePlayDebugEvents_Session_CreatedUtc
+                ON RolePlayDebugEvents (SessionId, CreatedUtc DESC);
+            CREATE INDEX IF NOT EXISTS IX_RolePlayDebugEvents_Kind_CreatedUtc
+                ON RolePlayDebugEvents (EventKind, CreatedUtc DESC);
+
             """;
 
         await command.ExecuteNonQueryAsync(cancellationToken);

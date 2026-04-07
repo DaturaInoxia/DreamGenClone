@@ -80,6 +80,8 @@ builder.Services.AddScoped<IRolePlayCommandValidator, RolePlayCommandValidator>(
 builder.Services.AddScoped<IRolePlayBranchService, RolePlayBranchService>();
 builder.Services.AddScoped<IInteractionCommandService, InteractionCommandService>();
 builder.Services.AddScoped<IInteractionRetryService, InteractionRetryService>();
+builder.Services.AddScoped<RolePlayDebugEventService>();
+builder.Services.AddScoped<IRolePlayDebugEventSink>(sp => sp.GetRequiredService<RolePlayDebugEventService>());
 builder.Services.AddSingleton<IModelSettingsService, ModelSettingsService>();
 builder.Services.AddScoped<IModelRetryService, ModelRetryService>();
 builder.Services.AddSingleton<PaginationDiscoveryService>();

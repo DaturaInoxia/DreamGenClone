@@ -42,6 +42,12 @@
     min-width: 0;
 }
 
+.rw-header-right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+}
+
 .rw-back-btn {
     background: transparent;
     border: 1px solid #333;
@@ -55,6 +61,25 @@
 }
 
 .rw-back-btn:hover { border-color: #555; color: #ccc; }
+
+.rw-debug-btn {
+    border: 1px solid #355b63;
+    background: #15272a;
+    color: #91d6e4;
+    border-radius: 8px;
+    padding: 5px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+    cursor: pointer;
+    transition: background 0.1s, border-color 0.1s, color 0.1s;
+}
+
+.rw-debug-btn:hover {
+    background: #1b3338;
+    border-color: #4a8592;
+    color: #c0ebf5;
+}
 
 .rw-session-title {
     font-size: 15px;

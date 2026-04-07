@@ -1,4 +1,6 @@
 using System.Text;
+using System.Text.Json;
+using System.Diagnostics;
 using DreamGenClone.Application.Abstractions;
 using DreamGenClone.Application.ModelManager;
 using DreamGenClone.Application.StoryAnalysis;
@@ -20,6 +22,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
     private readonly IPromptDealbreakerService _dealbreakerService;
     private readonly IThemePreferenceService _themePreferenceService;
     private readonly IToneProfileService _toneProfileService;
+    private readonly IRolePlayDebugEventSink _debugEventSink;
     private readonly ILogger<RolePlayContinuationService> _logger;
 
     public RolePlayContinuationService(
@@ -30,6 +33,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         IPromptDealbreakerService dealbreakerService,
         IThemePreferenceService themePreferenceService,
         IToneProfileService toneProfileService,
+        IRolePlayDebugEventSink debugEventSink,
         ILogger<RolePlayContinuationService> logger)
     {
         _completionClient = completionClient;
@@ -39,6 +43,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         _dealbreakerService = dealbreakerService;
         _themePreferenceService = themePreferenceService;
         _toneProfileService = toneProfileService;
+        _debugEventSink = debugEventSink;
         _logger = logger;
     }
 
@@ -52,7 +57,26 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
     {
         await ValidateDirectiveTextAsync(session, promptText, cancellationToken);
 
+        var correlationId = Guid.NewGuid().ToString("N");
+        var actorLabel = string.IsNullOrWhiteSpace(customActorName) ? actor.ToString() : customActorName;
         var prompt = await BuildPromptAsync(session, actor, customActorName, intent, promptText, cancellationToken);
+        await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+        {
+            SessionId = session.Id,
+            CorrelationId = correlationId,
+            EventKind = "PromptBuilt",
+            Severity = "Info",
+            ActorName = actorLabel,
+            Summary = $"Prompt prepared for {actor} ({intent})",
+            MetadataJson = JsonSerializer.Serialize(new
+            {
+                actor,
+                customActorName,
+                intent,
+                prompt,
+                promptLength = prompt.Length
+            })
+        }, cancellationToken);
 
         var sessionSettings = _modelSettingsService.GetSettings(session.Id);
         var resolved = await _modelResolver.ResolveAsync(
@@ -62,7 +86,76 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             sessionTopP: sessionSettings.SessionModelId != null ? sessionSettings.TopP : null,
             sessionMaxTokens: sessionSettings.SessionModelId != null ? sessionSettings.MaxTokens : null,
             cancellationToken: cancellationToken);
-        var output = await _completionClient.GenerateAsync(prompt, resolved, cancellationToken);
+        await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+        {
+            SessionId = session.Id,
+            CorrelationId = correlationId,
+            EventKind = "LlmRequestSent",
+            Severity = "Info",
+            ActorName = actorLabel,
+            ModelIdentifier = resolved.ModelIdentifier,
+            ProviderName = resolved.ProviderName,
+            Summary = "Dispatching completion request",
+            MetadataJson = JsonSerializer.Serialize(new
+            {
+                resolved.ModelIdentifier,
+                resolved.ProviderName,
+                resolved.ProviderBaseUrl,
+                resolved.ChatCompletionsPath,
+                resolved.Temperature,
+                resolved.TopP,
+                resolved.MaxTokens,
+                resolved.ProviderTimeoutSeconds
+            })
+        }, cancellationToken);
+
+        var stopwatch = Stopwatch.StartNew();
+        string output;
+        try
+        {
+            output = await _completionClient.GenerateAsync(prompt, resolved, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+            {
+                SessionId = session.Id,
+                CorrelationId = correlationId,
+                EventKind = "ErrorRaised",
+                Severity = "Error",
+                ActorName = actorLabel,
+                ModelIdentifier = resolved.ModelIdentifier,
+                ProviderName = resolved.ProviderName,
+                Summary = "Completion request failed",
+                MetadataJson = JsonSerializer.Serialize(new
+                {
+                    ex.Message,
+                    ExceptionType = ex.GetType().Name
+                })
+            }, cancellationToken);
+
+            throw;
+        }
+
+        stopwatch.Stop();
+        await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+        {
+            SessionId = session.Id,
+            CorrelationId = correlationId,
+            EventKind = "LlmResponseReceived",
+            Severity = "Info",
+            ActorName = actorLabel,
+            ModelIdentifier = resolved.ModelIdentifier,
+            ProviderName = resolved.ProviderName,
+            DurationMs = (int)stopwatch.ElapsedMilliseconds,
+            Summary = "Completion response received",
+            MetadataJson = JsonSerializer.Serialize(new
+            {
+                output,
+                outputLength = output.Length,
+                durationMs = stopwatch.ElapsedMilliseconds
+            })
+        }, cancellationToken);
 
         var interaction = new RolePlayInteraction
         {
@@ -90,6 +183,26 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             GeneratedTopP = resolved.TopP,
             GeneratedMaxTokens = resolved.MaxTokens
         };
+
+        await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+        {
+            SessionId = session.Id,
+            CorrelationId = correlationId,
+            InteractionId = interaction.Id,
+            EventKind = "InteractionPrepared",
+            Severity = "Info",
+            ActorName = interaction.ActorName,
+            ModelIdentifier = resolved.ModelIdentifier,
+            ProviderName = resolved.ProviderName,
+            Summary = "Role-play interaction prepared from model output",
+            MetadataJson = JsonSerializer.Serialize(new
+            {
+                interaction.Id,
+                interaction.ActorName,
+                interaction.InteractionType,
+                interaction.Content
+            })
+        }, cancellationToken);
 
         _logger.LogInformation("Role-play continuation prepared for actor {Actor} in session {SessionId}", interaction.ActorName, session.Id);
         return interaction;

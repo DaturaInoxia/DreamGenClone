@@ -71,5 +71,14 @@ window.rolePlayWorkspace = {
             handle.__rwResizeDispose();
             handle.__rwResizeDispose = null;
         }
+    },
+
+    openDebugWindow: function (url) {
+        if (!url) {
+            return;
+        }
+
+        const features = 'popup=yes,width=1600,height=960,resizable=yes,scrollbars=yes';
+        window.open(url, 'RolePlayDebugWindow', features);
     }
 };
