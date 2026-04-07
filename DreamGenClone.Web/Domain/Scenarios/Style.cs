@@ -10,4 +10,19 @@ public class Style
     public string? WritingStyle { get; set; }
     public string? PointOfView { get; set; }
     public List<string> StyleGuidelines { get; set; } = [];
+
+    /// <summary>
+    /// Optional reference to a reusable tone profile.
+    /// </summary>
+    public string? ToneProfileId { get; set; }
+
+    /// <summary>
+    /// Optional lower style boundary for this scenario.
+    /// </summary>
+    public string? StyleFloor { get; set; }
+
+    /// <summary>
+    /// Optional upper style boundary for this scenario.
+    /// </summary>
+    public string? StyleCeiling { get; set; }
 }

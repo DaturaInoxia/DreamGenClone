@@ -99,8 +99,10 @@ public sealed class RolePlayBehaviorModeSubmitTests
             behaviorMode,
             router,
             identities,
+            new RolePlayAdaptiveStateService(),
             validator,
             fakeSessionService,
+            new RolePlayTestFactory.NullScenarioService(),
             autoSave,
             NullLogger<RolePlayEngineService>.Instance);
 

@@ -5,6 +5,7 @@
 
 @inject IModelSettingsService ModelSettingsService
 @inject IRegisteredModelRepository ModelRepository
+@inject IFunctionDefaultRepository FunctionDefaultRepository
 
 <div class="model-settings-panel">
     <h4>Model Settings</h4>
@@ -51,24 +52,47 @@
     private ModelSettings CurrentSettings { get; set; } = new();
     private string SelectedModelId { get; set; } = string.Empty;
     private Dictionary<string, List<RegisteredModel>> _groupedModels = new();
+    private FunctionModelDefault? _functionDefault;
+    private bool _initialized;
 
     protected override async Task OnParametersSetAsync()
     {
-        if (!string.IsNullOrEmpty(SessionId))
-        {
-            CurrentSettings = ModelSettingsService.GetSettings(SessionId);
-            SelectedModelId = CurrentSettings.SessionModelId ?? string.Empty;
-        }
+        _functionDefault = await FunctionDefaultRepository.GetByFunctionAsync(AppFunction.RolePlayGeneration);
 
         var enabledModels = await ModelRepository.GetAllEnabledAsync();
         _groupedModels = enabledModels
             .GroupBy(m => m.ProviderName ?? "Unknown")
             .ToDictionary(g => g.Key, g => g.ToList());
+
+        if (!string.IsNullOrEmpty(SessionId))
+        {
+            CurrentSettings = ModelSettingsService.GetSettings(SessionId);
+            SelectedModelId = CurrentSettings.SessionModelId ?? string.Empty;
+
+            // On first load, if no model override is set, show function default values
+            if (!_initialized && !CurrentSettings.HasOverride && _functionDefault is not null)
+            {
+                CurrentSettings.Temperature = _functionDefault.Temperature;
+                CurrentSettings.TopP = _functionDefault.TopP;
+                CurrentSettings.MaxTokens = _functionDefault.MaxTokens;
+                ModelSettingsService.UpdateSettings(SessionId, CurrentSettings);
+            }
+            _initialized = true;
+        }
     }
 
     private async Task OnModelChanged()
     {
         CurrentSettings.SessionModelId = string.IsNullOrEmpty(SelectedModelId) ? null : SelectedModelId;
+
+        // When model changes, reset sliders to function default values
+        if (_functionDefault is not null)
+        {
+            CurrentSettings.Temperature = _functionDefault.Temperature;
+            CurrentSettings.TopP = _functionDefault.TopP;
+            CurrentSettings.MaxTokens = _functionDefault.MaxTokens;
+        }
+
         await OnSettingsChanged();
     }
 

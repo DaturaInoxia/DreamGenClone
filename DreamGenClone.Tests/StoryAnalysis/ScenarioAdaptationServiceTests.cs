@@ -484,6 +484,9 @@ public class ScenarioAdaptationServiceTests
 
         public Task<bool> CheckHealthAsync(string providerBaseUrl, int timeoutSeconds, string? decryptedApiKey, CancellationToken cancellationToken = default)
             => Task.FromResult(true);
+
+        public Task<(bool Success, string Message)> CheckModelHealthAsync(string providerBaseUrl, string chatCompletionsPath, int timeoutSeconds, string? decryptedApiKey, string modelIdentifier, CancellationToken cancellationToken = default)
+            => Task.FromResult((true, "OK"));
     }
 
     internal sealed class FakeModelResolutionService : IModelResolutionService

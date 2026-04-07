@@ -1,0 +1,514 @@
+@using DreamGenClone.Domain.ModelManager
+@using DreamGenClone.Web.Application.ModelManager
+
+@inject ModelManagerFacade Facade
+@inject ModelAnalysisService AnalysisService
+@inject ModelMetadataService MetadataService
+
+<div class="card mb-3 border-info">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="bi bi-card-text me-1"></i> Model Details — @Model.DisplayName</h5>
+    </div>
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-4">
+                <label class="form-label">Provider</label>
+                <input type="text" class="form-control" value="@Model.ProviderName" readonly />
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Model Identifier <span class="text-danger">*</span></label>
+                <input type="text" class="form-control" @bind="_modelIdentifier" maxlength="200" />
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Display Name <span class="text-danger">*</span></label>
+                <input type="text" class="form-control" @bind="_displayName" maxlength="200" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Context Window (tokens)</label>
+                <input type="number" class="form-control" @bind="_contextWindowSize" min="0" max="2000000" />
+                <div class="form-text">e.g., 8192, 32768, 131072. 0 = unknown.</div>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Parameter Count</label>
+                <input type="text" class="form-control" @bind="_parameterCount" maxlength="20" placeholder="e.g., 7B, 13B, 70B, 8x7B" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Quantization</label>
+                <input type="text" class="form-control" @bind="_quantization" maxlength="20" placeholder="e.g., Q4_K_M, Q8_0, FP16" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Status</label>
+                <div class="form-check form-switch mt-2">
+                    <input class="form-check-input" type="checkbox" @bind="_isEnabled" id="model-enabled-toggle" />
+                    <label class="form-check-label" for="model-enabled-toggle">
+                        @(_isEnabled ? "Enabled" : "Disabled")
+                    </label>
+                </div>
+            </div>
+            <div class="col-12">
+                <label class="form-label">Notes</label>
+                <textarea class="form-control" rows="2" @bind="_notes" maxlength="1000"
+                          placeholder="e.g., Fine-tuned for creative writing, excels at dialogue, known issues with long context..."></textarea>
+                <div class="form-text">Optional. Helps the model analysis produce more accurate recommendations.</div>
+            </div>
+            <div class="col-12">
+                <button class="btn btn-outline-primary btn-sm" @onclick="AutoDetectMetadata" disabled="@_isDetecting">
+                    @if (_isDetecting) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                    else { <i class="bi bi-cloud-download me-1"></i> }
+                    Auto-detect from Provider
+                </button>
+                <span class="text-muted small ms-2">Queries the provider's API to populate Context Window, Parameter Count, and other metadata.</span>
+                @if (!string.IsNullOrEmpty(_detectMessage))
+                {
+                    <div class="mt-1 small @(_detectSuccess ? "text-success" : "text-warning")">
+                        <i class="bi @(_detectSuccess ? "bi-check-circle" : "bi-exclamation-triangle")"></i> @_detectMessage
+                    </div>
+                }
+            </div>
+        </div>
+
+        @if (!string.IsNullOrEmpty(_formError))
+        {
+            <div class="text-danger mt-2">@_formError</div>
+        }
+
+        <hr class="my-3" />
+
+        @* Analyse Section *@
+        <div class="d-flex align-items-center mb-2">
+            <h6 class="mb-0"><i class="bi bi-lightbulb me-1"></i> Model Analysis</h6>
+            <button class="btn btn-outline-info btn-sm ms-3" @onclick="RunAnalysis" disabled="@_isAnalysing">
+                @if (_isAnalysing) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                else { <i class="bi bi-search me-1"></i> }
+                Analyse
+            </button>
+            <span class="text-muted small ms-2">Uses the <strong>ModelAnalysis</strong> function default (or WritingAssistant as fallback)</span>
+        </div>
+
+        @if (!string.IsNullOrEmpty(_analysisError))
+        {
+            <div class="alert alert-warning">@_analysisError</div>
+        }
+
+        @if (_analysisResult is not null)
+        {
+            @* General defaults *@
+            <div class="card bg-light mb-3">
+                <div class="card-header py-2">
+                    <strong>Default Recommended Settings</strong>
+                    <span class="text-muted small ms-2">(general baseline for this model)</span>
+                </div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-md-3">
+                            <label class="form-label fw-bold">Temperature</label>
+                            <div class="fs-5">@_analysisResult.SuggestedTemperature.ToString("F2")</div>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label fw-bold">Top P</label>
+                            <div class="fs-5">@_analysisResult.SuggestedTopP.ToString("F2")</div>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label fw-bold">Max Tokens</label>
+                            <div class="fs-5">@_analysisResult.SuggestedMaxTokens</div>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label fw-bold">Analysed</label>
+                            <div class="small text-muted">@FormatTimestamp(_analysisResult.AnalysedUtc)</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            @* Additional parameters *@
+            @if (_analysisResult.AdditionalParameters.Count > 0)
+            {
+                <div class="card bg-light mb-3">
+                    <div class="card-header py-2">
+                        <strong>Additional Parameters</strong>
+                        <span class="text-muted small ms-2">(model-specific sampling settings)</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-2">
+                            @foreach (var param in _analysisResult.AdditionalParameters)
+                            {
+                                <div class="col-md-3">
+                                    <span class="fw-bold small">@param.Key</span>
+                                    <div>@param.Value</div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            }
+
+            @* Per-function recommendations *@
+            @if (_analysisResult.FunctionRecommendations.Count > 0)
+            {
+                <div class="card bg-light mb-3">
+                    <div class="card-header py-2 d-flex align-items-center">
+                        <strong>Per-Function Recommendations</strong>
+                        <span class="text-muted small ms-2">(recommended settings for each application function)</span>
+                        <div class="ms-auto d-flex gap-2">
+                            <button class="btn btn-outline-secondary btn-sm" @onclick="ToggleSelectAll">
+                                @(_selectedFunctions.Count == _analysisResult.FunctionRecommendations.Count ? "Deselect All" : "Select All")
+                            </button>
+                            <button class="btn btn-primary btn-sm" @onclick="ApplySelectedRecommendations"
+                                    disabled="@(_selectedFunctions.Count == 0 || _isApplying)">
+                                @if (_isApplying) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                                else { <i class="bi bi-check2-all me-1"></i> }
+                                Apply Selected (@_selectedFunctions.Count)
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body p-0">
+                        @if (!string.IsNullOrEmpty(_applyMessage))
+                        {
+                            <div class="px-3 pt-2">
+                                <div class="alert @(_applySuccess ? "alert-success" : "alert-danger") py-2 mb-2 small">
+                                    <i class="bi @(_applySuccess ? "bi-check-circle" : "bi-exclamation-triangle") me-1"></i>
+                                    @_applyMessage
+                                </div>
+                            </div>
+                        }
+                        <table class="table table-sm table-striped mb-0">
+                            <thead>
+                                <tr>
+                                    <th style="width:40px" class="text-center">
+                                        <input type="checkbox" class="form-check-input"
+                                               checked="@(_selectedFunctions.Count == _analysisResult.FunctionRecommendations.Count)"
+                                               @onchange="ToggleSelectAll" />
+                                    </th>
+                                    <th>Function</th>
+                                    <th class="text-center">Temp</th>
+                                    <th class="text-center">Top P</th>
+                                    <th class="text-center">Max Tokens</th>
+                                    <th>Notes</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var rec in _analysisResult.FunctionRecommendations)
+                                {
+                                    <tr class="@(_selectedFunctions.Contains(rec.FunctionName) ? "table-info" : "")">
+                                        <td class="text-center">
+                                            <input type="checkbox" class="form-check-input"
+                                                   checked="@(_selectedFunctions.Contains(rec.FunctionName))"
+                                                   @onchange="@(() => ToggleFunctionSelection(rec.FunctionName))" />
+                                        </td>
+                                        <td><strong>@FormatFunctionName(rec.FunctionName)</strong></td>
+                                        <td class="text-center">@rec.Temperature.ToString("F2")</td>
+                                        <td class="text-center">@rec.TopP.ToString("F2")</td>
+                                        <td class="text-center">@rec.MaxTokens</td>
+                                        <td class="small">@rec.Notes</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            }
+
+            @* Capability assessment *@
+            @if (!string.IsNullOrWhiteSpace(_analysisResult.ModelCapabilityNotes))
+            {
+                <div class="card bg-light mb-3">
+                    <div class="card-header py-2">
+                        <strong><i class="bi bi-bar-chart me-1"></i> Capability Assessment</strong>
+                    </div>
+                    <div class="card-body">
+                        <p class="mb-0 small" style="white-space: pre-line;">@_analysisResult.ModelCapabilityNotes</p>
+                    </div>
+                </div>
+            }
+
+            @* Reasoning *@
+            <div class="card bg-light mb-3">
+                <div class="card-header py-2">
+                    <strong><i class="bi bi-chat-left-text me-1"></i> Analysis Reasoning</strong>
+                </div>
+                <div class="card-body">
+                    <p class="mb-0 small" style="white-space: pre-line;">@_analysisResult.Reasoning</p>
+                </div>
+            </div>
+
+            <div class="mt-2 small text-muted">
+                <i class="bi bi-info-circle me-1"></i>
+                Select functions and click "Apply Selected" to save the recommended settings directly to your Function Defaults configuration for this model.
+            </div>
+        }
+        else if (!_isAnalysing)
+        {
+            <p class="text-muted small">Click "Analyse" to investigate optimal settings for this model across all application functions (roleplay, story generation, summarization, analysis, ranking, etc.).</p>
+        }
+
+        <hr class="my-3" />
+
+        <div class="d-flex gap-2">
+            <button class="btn btn-success" @onclick="Save" disabled="@_isSaving">
+                @if (_isSaving) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                <i class="bi bi-check-lg me-1"></i> Save
+            </button>
+            <button class="btn btn-outline-secondary" @onclick="Cancel">Cancel</button>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public RegisteredModel Model { get; set; } = default!;
+
+    [Parameter]
+    public EventCallback OnSaved { get; set; }
+
+    [Parameter]
+    public EventCallback OnCancelled { get; set; }
+
+    private string _modelIdentifier = "";
+    private string _displayName = "";
+    private bool _isEnabled;
+    private int _contextWindowSize;
+    private string _parameterCount = "";
+    private string _quantization = "";
+    private string? _notes;
+    private string? _formError;
+    private bool _isSaving;
+    private bool _isAnalysing;
+    private string? _analysisError;
+    private ModelAnalysisResult? _analysisResult;
+    private bool _isDetecting;
+    private string? _detectMessage;
+    private bool _detectSuccess;
+    private HashSet<string> _selectedFunctions = new();
+    private bool _isApplying;
+    private string? _applyMessage;
+    private bool _applySuccess;
+
+    protected override void OnParametersSet()
+    {
+        _modelIdentifier = Model.ModelIdentifier;
+        _displayName = Model.DisplayName;
+        _isEnabled = Model.IsEnabled;
+        _contextWindowSize = Model.ContextWindowSize;
+        _parameterCount = Model.ParameterCount;
+        _quantization = Model.Quantization;
+        _notes = Model.Notes;
+        _formError = null;
+        _analysisError = null;
+    }
+
+    private async Task Save()
+    {
+        if (string.IsNullOrWhiteSpace(_modelIdentifier))
+        {
+            _formError = "Model identifier is required.";
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(_displayName))
+        {
+            _formError = "Display name is required.";
+            return;
+        }
+
+        _isSaving = true;
+        _formError = null;
+        try
+        {
+            Model.ModelIdentifier = _modelIdentifier.Trim();
+            Model.DisplayName = _displayName.Trim();
+            Model.IsEnabled = _isEnabled;
+            Model.ContextWindowSize = _contextWindowSize;
+            Model.ParameterCount = _parameterCount.Trim();
+            Model.Quantization = _quantization.Trim();
+            Model.Notes = string.IsNullOrWhiteSpace(_notes) ? null : _notes.Trim();
+            await Facade.SaveModelAsync(Model);
+            await OnSaved.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            _formError = $"Save failed: {ex.Message}";
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private async Task Cancel()
+    {
+        await OnCancelled.InvokeAsync();
+    }
+
+    private async Task RunAnalysis()
+    {
+        _isAnalysing = true;
+        _analysisError = null;
+        _analysisResult = null;
+        StateHasChanged();
+
+        try
+        {
+            // Save current form values first so the analysis uses the latest metadata
+            Model.ModelIdentifier = _modelIdentifier.Trim();
+            Model.DisplayName = _displayName.Trim();
+            Model.IsEnabled = _isEnabled;
+            Model.ContextWindowSize = _contextWindowSize;
+            Model.ParameterCount = _parameterCount.Trim();
+            Model.Quantization = _quantization.Trim();
+            Model.Notes = string.IsNullOrWhiteSpace(_notes) ? null : _notes.Trim();
+            await Facade.SaveModelAsync(Model);
+
+            _analysisResult = await Facade.AnalyseModelAsync(Model.Id, AnalysisService);
+        }
+        catch (Exception ex)
+        {
+            _analysisError = ex.Message;
+        }
+        finally
+        {
+            _isAnalysing = false;
+        }
+    }
+
+    private async Task AutoDetectMetadata()
+    {
+        _isDetecting = true;
+        _detectMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var metadata = await Facade.FetchModelMetadataAsync(Model.Id, MetadataService);
+            if (metadata is null)
+            {
+                _detectMessage = "Could not retrieve model metadata from the provider. The /v1/models endpoint may not be available or the model was not found.";
+                _detectSuccess = false;
+                return;
+            }
+
+            var updated = new List<string>();
+
+            if (metadata.ContextWindowSize > 0 && _contextWindowSize == 0)
+            {
+                _contextWindowSize = metadata.ContextWindowSize;
+                updated.Add($"Context Window: {metadata.ContextWindowSize:N0}");
+            }
+            else if (metadata.ContextWindowSize > 0 && _contextWindowSize != metadata.ContextWindowSize)
+            {
+                _contextWindowSize = metadata.ContextWindowSize;
+                updated.Add($"Context Window updated: {metadata.ContextWindowSize:N0}");
+            }
+
+            if (!string.IsNullOrWhiteSpace(metadata.ParameterCount) && string.IsNullOrWhiteSpace(_parameterCount))
+            {
+                _parameterCount = metadata.ParameterCount;
+                updated.Add($"Parameter Count: {metadata.ParameterCount}");
+            }
+
+            if (!string.IsNullOrWhiteSpace(metadata.Description) && string.IsNullOrWhiteSpace(_notes))
+            {
+                _notes = metadata.Description.Length > 1000 ? metadata.Description[..1000] : metadata.Description;
+                updated.Add("Notes populated from description");
+            }
+
+            if (updated.Count > 0)
+            {
+                _detectMessage = $"Auto-detected: {string.Join(", ", updated)}";
+                _detectSuccess = true;
+            }
+            else
+            {
+                _detectMessage = "Provider returned metadata but no new values to populate (fields already filled or provider returned no data for these fields).";
+                _detectSuccess = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            _detectMessage = $"Auto-detect failed: {ex.Message}";
+            _detectSuccess = false;
+        }
+        finally
+        {
+            _isDetecting = false;
+        }
+    }
+
+    private void ToggleFunctionSelection(string functionName)
+    {
+        if (!_selectedFunctions.Remove(functionName))
+            _selectedFunctions.Add(functionName);
+    }
+
+    private void ToggleSelectAll()
+    {
+        if (_analysisResult is null) return;
+
+        if (_selectedFunctions.Count == _analysisResult.FunctionRecommendations.Count)
+            _selectedFunctions.Clear();
+        else
+            _selectedFunctions = new HashSet<string>(_analysisResult.FunctionRecommendations.Select(r => r.FunctionName));
+    }
+
+    private async Task ApplySelectedRecommendations()
+    {
+        if (_analysisResult is null || _selectedFunctions.Count == 0) return;
+
+        _isApplying = true;
+        _applyMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var applied = new List<string>();
+            foreach (var rec in _analysisResult.FunctionRecommendations.Where(r => _selectedFunctions.Contains(r.FunctionName)))
+            {
+                if (!Enum.TryParse<AppFunction>(rec.FunctionName, out var appFunction))
+                    continue;
+
+                var functionDefault = new FunctionModelDefault
+                {
+                    FunctionName = appFunction.ToString(),
+                    ModelId = Model.Id,
+                    Temperature = rec.Temperature,
+                    TopP = rec.TopP,
+                    MaxTokens = rec.MaxTokens,
+                    UpdatedUtc = DateTime.UtcNow.ToString("o")
+                };
+
+                // Check if there's already a saved default — preserve its Id for upsert
+                var existing = await Facade.GetAllFunctionDefaultsAsync();
+                var match = existing.FirstOrDefault(e => e.Function == appFunction);
+                if (match.Default is not null)
+                    functionDefault.Id = match.Default.Id;
+
+                await Facade.SaveFunctionDefaultAsync(functionDefault);
+                applied.Add(FormatFunctionName(rec.FunctionName));
+            }
+
+            _applyMessage = $"Applied settings for: {string.Join(", ", applied)}";
+            _applySuccess = true;
+            _selectedFunctions.Clear();
+        }
+        catch (Exception ex)
+        {
+            _applyMessage = $"Failed to apply: {ex.Message}";
+            _applySuccess = false;
+        }
+        finally
+        {
+            _isApplying = false;
+        }
+    }
+
+    private static string FormatTimestamp(string isoTimestamp)
+    {
+        return DateTime.TryParse(isoTimestamp, out var dt)
+            ? dt.ToLocalTime().ToString("g")
+            : isoTimestamp;
+    }
+
+    private static string FormatFunctionName(string name)
+    {
+        // "RolePlayGeneration" → "Role Play Generation"
+        return System.Text.RegularExpressions.Regex.Replace(name, "(?<!^)([A-Z])", " $1");
+    }
+}

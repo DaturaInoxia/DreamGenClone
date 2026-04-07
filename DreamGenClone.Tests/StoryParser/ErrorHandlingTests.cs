@@ -59,6 +59,9 @@ public sealed class ErrorHandlingTests
         });
         var persistence = new DreamGenClone.Infrastructure.Persistence.SqlitePersistence(
             persistenceOptions,
+            Options.Create(new DreamGenClone.Infrastructure.Configuration.LmStudioOptions()),
+            Options.Create(new DreamGenClone.Infrastructure.Configuration.StoryAnalysisOptions()),
+            Options.Create(new DreamGenClone.Infrastructure.Configuration.ScenarioAdaptationOptions()),
             NullLogger<DreamGenClone.Infrastructure.Persistence.SqlitePersistence>.Instance);
         persistence.InitializeAsync().GetAwaiter().GetResult();
 

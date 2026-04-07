@@ -12,4 +12,7 @@ public sealed class Provider
     public bool IsEnabled { get; set; } = true;
     public string CreatedUtc { get; set; } = DateTime.UtcNow.ToString("o");
     public string UpdatedUtc { get; set; } = DateTime.UtcNow.ToString("o");
+
+    /// <summary>Free-text notes about this provider (e.g., pricing tier, rate limits, special capabilities).</summary>
+    public string? Notes { get; set; }
 }

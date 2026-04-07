@@ -70,4 +70,14 @@ public class Scenario
     /// The ID of the parsed story this scenario was adapted from, if any.
     /// </summary>
     public string? SourceParsedStoryId { get; set; }
+
+    /// <summary>
+    /// Default ranking profile to use when creating sessions from this scenario.
+    /// </summary>
+    public string? DefaultRankingProfileId { get; set; }
+
+    /// <summary>
+    /// Default tone profile to use when creating sessions from this scenario.
+    /// </summary>
+    public string? DefaultToneProfileId { get; set; }
 }

@@ -11,6 +11,8 @@ public sealed class ModelManagerFacade
     private readonly IFunctionDefaultRepository _functionDefaultRepository;
     private readonly IApiKeyEncryptionService _encryptionService;
     private readonly ProviderTestService _testService;
+    private readonly IHealthCheckService _healthCheckService;
+    private readonly IHealthCheckRepository _healthCheckRepository;
     private readonly ILogger<ModelManagerFacade> _logger;
 
     public ModelManagerFacade(
@@ -19,6 +21,8 @@ public sealed class ModelManagerFacade
         IFunctionDefaultRepository functionDefaultRepository,
         IApiKeyEncryptionService encryptionService,
         ProviderTestService testService,
+        IHealthCheckService healthCheckService,
+        IHealthCheckRepository healthCheckRepository,
         ILogger<ModelManagerFacade> logger)
     {
         _providerRepository = providerRepository;
@@ -26,6 +30,8 @@ public sealed class ModelManagerFacade
         _functionDefaultRepository = functionDefaultRepository;
         _encryptionService = encryptionService;
         _testService = testService;
+        _healthCheckService = healthCheckService;
+        _healthCheckRepository = healthCheckRepository;
         _logger = logger;
     }
 
@@ -60,6 +66,11 @@ public sealed class ModelManagerFacade
         return await _testService.TestConnectionAsync(provider, cancellationToken);
     }
 
+    public async Task<(bool Success, string Message)> TestModelConnectionAsync(RegisteredModel model, CancellationToken cancellationToken = default)
+    {
+        return await _testService.TestModelConnectionAsync(model, cancellationToken);
+    }
+
     public async Task<Provider> EnableDisableProviderAsync(string providerId, bool enabled, CancellationToken cancellationToken = default)
     {
         var provider = await _providerRepository.GetByIdAsync(providerId, cancellationToken);
@@ -91,6 +102,8 @@ public sealed class ModelManagerFacade
         foreach (var provider in providers)
         {
             var models = await _modelRepository.GetByProviderIdAsync(provider.Id, cancellationToken);
+            foreach (var m in models)
+                m.ProviderName = provider.Name;
             result[provider] = models;
         }
 
@@ -174,5 +187,41 @@ public sealed class ModelManagerFacade
         }
 
         return result;
+    }
+
+    // === Health Check Methods ===
+
+    public async Task<List<HealthCheckResult>> GetHealthCheckSummaryAsync(CancellationToken cancellationToken = default)
+    {
+        return await _healthCheckRepository.GetAllAsync(cancellationToken);
+    }
+
+    public async Task<List<HealthCheckResult>> RunAllHealthChecksAsync(CancellationToken cancellationToken = default)
+    {
+        return await _healthCheckService.RunAllHealthChecksAsync(cancellationToken);
+    }
+
+    // === Model Analysis Methods ===
+
+    public async Task<ModelAnalysisResult> AnalyseModelAsync(string modelId, ModelAnalysisService analysisService, CancellationToken cancellationToken = default)
+    {
+        var model = await _modelRepository.GetByIdAsync(modelId, cancellationToken);
+        if (model is null) throw new InvalidOperationException($"Model '{modelId}' not found.");
+
+        var provider = await _providerRepository.GetByIdAsync(model.ProviderId, cancellationToken);
+        if (provider is null) throw new InvalidOperationException($"Provider for model '{modelId}' not found.");
+
+        return await analysisService.AnalyseModelAsync(model, provider, cancellationToken);
+    }
+
+    public async Task<ModelMetadata?> FetchModelMetadataAsync(string modelId, ModelMetadataService metadataService, CancellationToken cancellationToken = default)
+    {
+        var model = await _modelRepository.GetByIdAsync(modelId, cancellationToken);
+        if (model is null) return null;
+
+        var provider = await _providerRepository.GetByIdAsync(model.ProviderId, cancellationToken);
+        if (provider is null) return null;
+
+        return await metadataService.FetchModelMetadataAsync(provider, model.ModelIdentifier, cancellationToken);
     }
 }

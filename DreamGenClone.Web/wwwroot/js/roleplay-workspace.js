@@ -5,6 +5,14 @@ window.rolePlayWorkspace = {
         if (el) { el.scrollTop = el.scrollHeight; }
     },
 
+    // Return the bounding rect of the element matching the selector.
+    getElementRect: function (selector) {
+        const el = document.querySelector(selector);
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return { top: r.top, left: r.left, bottom: r.bottom, right: r.right, width: r.width, height: r.height };
+    },
+
     initPanelResize: function (shellSelector, handleSelector, initialWidth, minWidth, maxWidth, dotNetRef) {
         const shell = document.querySelector(shellSelector);
         const handle = document.querySelector(handleSelector);

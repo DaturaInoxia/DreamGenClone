@@ -61,8 +61,10 @@ public sealed class RolePlaySessionLifecycleTests
             behaviorMode,
             router,
             identities,
+            new RolePlayAdaptiveStateService(),
             validator,
             fakeSessionService,
+            new RolePlayTestFactory.NullScenarioService(),
             autoSave,
             NullLogger<RolePlayEngineService>.Instance);
 

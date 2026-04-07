@@ -27,8 +27,8 @@ public sealed class ProviderRepository : IProviderRepository
 
         var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO Providers (Id, Name, ProviderType, BaseUrl, ChatCompletionsPath, TimeoutSeconds, ApiKeyEncrypted, IsEnabled, CreatedUtc, UpdatedUtc)
-            VALUES ($id, $name, $type, $baseUrl, $path, $timeout, $apiKey, $enabled, $created, $updated)
+            INSERT INTO Providers (Id, Name, ProviderType, BaseUrl, ChatCompletionsPath, TimeoutSeconds, ApiKeyEncrypted, IsEnabled, CreatedUtc, UpdatedUtc, Notes)
+            VALUES ($id, $name, $type, $baseUrl, $path, $timeout, $apiKey, $enabled, $created, $updated, $notes)
             ON CONFLICT(Id) DO UPDATE SET
                 Name = $name,
                 ProviderType = $type,
@@ -37,7 +37,8 @@ public sealed class ProviderRepository : IProviderRepository
                 TimeoutSeconds = $timeout,
                 ApiKeyEncrypted = $apiKey,
                 IsEnabled = $enabled,
-                UpdatedUtc = $updated
+                UpdatedUtc = $updated,
+                Notes = $notes
             """;
 
         command.Parameters.AddWithValue("$id", provider.Id);
@@ -50,6 +51,7 @@ public sealed class ProviderRepository : IProviderRepository
         command.Parameters.AddWithValue("$enabled", provider.IsEnabled ? 1 : 0);
         command.Parameters.AddWithValue("$created", provider.CreatedUtc);
         command.Parameters.AddWithValue("$updated", provider.UpdatedUtc);
+        command.Parameters.AddWithValue("$notes", (object?)provider.Notes ?? DBNull.Value);
 
         await command.ExecuteNonQueryAsync(cancellationToken);
         _logger.LogInformation("Provider saved: {ProviderId} ({ProviderName})", provider.Id, provider.Name);
@@ -62,7 +64,7 @@ public sealed class ProviderRepository : IProviderRepository
         await connection.OpenAsync(cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, Name, ProviderType, BaseUrl, ChatCompletionsPath, TimeoutSeconds, ApiKeyEncrypted, IsEnabled, CreatedUtc, UpdatedUtc FROM Providers WHERE Id = $id";
+        command.CommandText = "SELECT Id, Name, ProviderType, BaseUrl, ChatCompletionsPath, TimeoutSeconds, ApiKeyEncrypted, IsEnabled, CreatedUtc, UpdatedUtc, Notes FROM Providers WHERE Id = $id";
         command.Parameters.AddWithValue("$id", id);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -80,7 +82,7 @@ public sealed class ProviderRepository : IProviderRepository
         await connection.OpenAsync(cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, Name, ProviderType, BaseUrl, ChatCompletionsPath, TimeoutSeconds, ApiKeyEncrypted, IsEnabled, CreatedUtc, UpdatedUtc FROM Providers ORDER BY Name";
+        command.CommandText = "SELECT Id, Name, ProviderType, BaseUrl, ChatCompletionsPath, TimeoutSeconds, ApiKeyEncrypted, IsEnabled, CreatedUtc, UpdatedUtc, Notes FROM Providers ORDER BY Name";
 
         var providers = new List<Provider>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -133,6 +135,7 @@ public sealed class ProviderRepository : IProviderRepository
         ApiKeyEncrypted = reader.IsDBNull(6) ? null : reader.GetString(6),
         IsEnabled = reader.GetInt32(7) == 1,
         CreatedUtc = reader.GetString(8),
-        UpdatedUtc = reader.GetString(9)
+        UpdatedUtc = reader.GetString(9),
+        Notes = reader.IsDBNull(10) ? null : reader.GetString(10)
     };
 }

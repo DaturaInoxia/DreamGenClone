@@ -11,6 +11,7 @@ public sealed class StoryAnalysisFacade
     private readonly IStoryAnalysisService _analysisService;
     private readonly IThemePreferenceService _themeService;
     private readonly IRankingProfileService _profileService;
+    private readonly IToneProfileService _toneProfileService;
     private readonly IStoryRankingService _rankingService;
     private readonly ISqlitePersistence _persistence;
 
@@ -19,6 +20,7 @@ public sealed class StoryAnalysisFacade
         IStoryAnalysisService analysisService,
         IThemePreferenceService themeService,
         IRankingProfileService profileService,
+        IToneProfileService toneProfileService,
         IStoryRankingService rankingService,
         ISqlitePersistence persistence)
     {
@@ -26,6 +28,7 @@ public sealed class StoryAnalysisFacade
         _analysisService = analysisService;
         _themeService = themeService;
         _profileService = profileService;
+        _toneProfileService = toneProfileService;
         _rankingService = rankingService;
         _persistence = persistence;
     }
@@ -81,6 +84,22 @@ public sealed class StoryAnalysisFacade
 
     public Task<bool> DeleteThemeAsync(string id, CancellationToken cancellationToken = default)
         => _themeService.DeleteAsync(id, cancellationToken);
+
+    // Tone Profiles
+    public Task<ToneProfile> CreateToneProfileAsync(string name, string description, ToneIntensity intensity, CancellationToken cancellationToken = default)
+        => _toneProfileService.CreateAsync(name, description, intensity, cancellationToken);
+
+    public Task<List<ToneProfile>> ListToneProfilesAsync(CancellationToken cancellationToken = default)
+        => _toneProfileService.ListAsync(cancellationToken);
+
+    public Task<ToneProfile?> GetToneProfileAsync(string id, CancellationToken cancellationToken = default)
+        => _toneProfileService.GetAsync(id, cancellationToken);
+
+    public Task<ToneProfile?> UpdateToneProfileAsync(string id, string name, string description, ToneIntensity intensity, CancellationToken cancellationToken = default)
+        => _toneProfileService.UpdateAsync(id, name, description, intensity, cancellationToken);
+
+    public Task<bool> DeleteToneProfileAsync(string id, CancellationToken cancellationToken = default)
+        => _toneProfileService.DeleteAsync(id, cancellationToken);
 
     // Ranking
     public Task<ThemeRankResult> RankAsync(string parsedStoryId, string profileId, CancellationToken cancellationToken = default)

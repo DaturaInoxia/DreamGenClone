@@ -112,6 +112,10 @@ build_metadata.AdditionalFiles.CssScope =
 build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xTaGFyZWRcQXNzaXN0YW50UGFuZWwucmF6b3I=
 build_metadata.AdditionalFiles.CssScope = 
 
+[D:/src/DreamGenClone/DreamGenClone.Web/Components/Shared/ModelDetailsEditor.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xTaGFyZWRcTW9kZWxEZXRhaWxzRWRpdG9yLnJhem9y
+build_metadata.AdditionalFiles.CssScope = 
+
 [D:/src/DreamGenClone/DreamGenClone.Web/Components/Shared/ModelSettingsPanel.razor]
 build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xTaGFyZWRcTW9kZWxTZXR0aW5nc1BhbmVsLnJhem9y
 build_metadata.AdditionalFiles.CssScope = 

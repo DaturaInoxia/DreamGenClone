@@ -20,4 +20,12 @@ public interface ICompletionClient
         int timeoutSeconds,
         string? decryptedApiKey,
         CancellationToken cancellationToken = default);
+
+    Task<(bool Success, string Message)> CheckModelHealthAsync(
+        string providerBaseUrl,
+        string chatCompletionsPath,
+        int timeoutSeconds,
+        string? decryptedApiKey,
+        string modelIdentifier,
+        CancellationToken cancellationToken = default);
 }

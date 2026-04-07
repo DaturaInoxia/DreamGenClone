@@ -9,15 +9,18 @@ public sealed class ProviderTestService
 {
     private readonly ICompletionClient _completionClient;
     private readonly IApiKeyEncryptionService _encryptionService;
+    private readonly IProviderRepository _providerRepository;
     private readonly ILogger<ProviderTestService> _logger;
 
     public ProviderTestService(
         ICompletionClient completionClient,
         IApiKeyEncryptionService encryptionService,
+        IProviderRepository providerRepository,
         ILogger<ProviderTestService> logger)
     {
         _completionClient = completionClient;
         _encryptionService = encryptionService;
+        _providerRepository = providerRepository;
         _logger = logger;
     }
 
@@ -61,5 +64,37 @@ public sealed class ProviderTestService
         {
             return (false, $"Connection error: {ex.Message}");
         }
+    }
+
+    public async Task<(bool Success, string Message)> TestModelConnectionAsync(RegisteredModel model, CancellationToken cancellationToken = default)
+    {
+        var provider = await _providerRepository.GetByIdAsync(model.ProviderId, cancellationToken);
+        if (provider is null)
+            return (false, "Parent provider not found.");
+
+        if (!provider.IsEnabled)
+            return (false, "Parent provider is disabled.");
+
+        string? decryptedKey = null;
+        if (!string.IsNullOrEmpty(provider.ApiKeyEncrypted))
+        {
+            try
+            {
+                decryptedKey = _encryptionService.Decrypt(provider.ApiKeyEncrypted);
+            }
+            catch (System.Security.Cryptography.CryptographicException ex)
+            {
+                _logger.LogError(ex, "Failed to decrypt API key for provider {ProviderName} while testing model {ModelName}.", provider.Name, model.DisplayName);
+                return (false, "API key decryption failed. Please re-enter the API key on the provider.");
+            }
+        }
+
+        return await _completionClient.CheckModelHealthAsync(
+            provider.BaseUrl,
+            provider.ChatCompletionsPath,
+            provider.TimeoutSeconds,
+            decryptedKey,
+            model.ModelIdentifier,
+            cancellationToken);
     }
 }

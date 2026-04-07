@@ -55,6 +55,54 @@
                             <div class="text-danger mt-1 small">@_profileError</div>
                         }
                     </div>
+
+                    <hr />
+                    <h6>Tone Profiles</h6>
+                    @if (_toneProfiles.Count > 0)
+                    {
+                        <ul class="list-group list-group-flush">
+                            @foreach (var tone in _toneProfiles)
+                            {
+                                <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+                                    <div>
+                                        <div><strong>@tone.Name</strong> <span class="badge bg-secondary ms-1">@tone.Intensity</span></div>
+                                        <small class="text-muted">@tone.Description</small>
+                                    </div>
+                                    <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteTone(tone.Id)" disabled="@_isBusy">Delete</button>
+                                </li>
+                            }
+                        </ul>
+                    }
+                    else
+                    {
+                        <p class="text-muted small">No tone profiles yet.</p>
+                    }
+
+                    <div class="border rounded p-2 mt-2">
+                        <h6>Add Tone Profile</h6>
+                        <div class="mb-2">
+                            <label class="form-label">Name</label>
+                            <input type="text" class="form-control form-control-sm" @bind="_newToneName" placeholder="e.g., Intro Slow Burn" />
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label">Description</label>
+                            <input type="text" class="form-control form-control-sm" @bind="_newToneDescription" placeholder="Short guidance for this tone" />
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label">Intensity</label>
+                            <select class="form-select form-select-sm" @bind="_newToneIntensity">
+                                @foreach (var intensity in Enum.GetValues<ToneIntensity>())
+                                {
+                                    <option value="@intensity">@intensity</option>
+                                }
+                            </select>
+                        </div>
+                        <button class="btn btn-sm btn-primary" @onclick="AddTone" disabled="@_isBusy">Add Tone</button>
+                        @if (!string.IsNullOrEmpty(_toneError))
+                        {
+                            <div class="text-danger mt-1 small">@_toneError</div>
+                        }
+                    </div>
                 </div>
             </div>
         </div>
@@ -220,10 +268,16 @@
     private string _editThemeName = string.Empty;
     private string _editThemeDescription = string.Empty;
     private ThemeTier _editThemeTier = ThemeTier.NiceToHave;
+    private List<ToneProfile> _toneProfiles = [];
+    private string _newToneName = string.Empty;
+    private string _newToneDescription = string.Empty;
+    private ToneIntensity _newToneIntensity = ToneIntensity.Emotional;
+    private string? _toneError;
 
     protected override async Task OnParametersSetAsync()
     {
         _profiles = await Facade.ListProfilesAsync();
+        _toneProfiles = await Facade.ListToneProfilesAsync();
 
         if (!string.IsNullOrEmpty(ProfileId))
         {
@@ -232,6 +286,54 @@
         else if (_selectedProfileId is null && _profiles.Count > 0)
         {
             await SelectProfile(_profiles[0].Id);
+        }
+    }
+
+    private async Task AddTone()
+    {
+        _toneError = null;
+        var name = _newToneName?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            _toneError = "Tone profile name is required.";
+            return;
+        }
+
+        _isBusy = true;
+        try
+        {
+            await Facade.CreateToneProfileAsync(name, _newToneDescription ?? string.Empty, _newToneIntensity);
+            _toneProfiles = await Facade.ListToneProfilesAsync();
+            _newToneName = string.Empty;
+            _newToneDescription = string.Empty;
+            _newToneIntensity = ToneIntensity.Emotional;
+        }
+        catch (Exception ex)
+        {
+            _toneError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task DeleteTone(string toneId)
+    {
+        _toneError = null;
+        _isBusy = true;
+        try
+        {
+            await Facade.DeleteToneProfileAsync(toneId);
+            _toneProfiles = await Facade.ListToneProfilesAsync();
+        }
+        catch (Exception ex)
+        {
+            _toneError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
         }
     }
 

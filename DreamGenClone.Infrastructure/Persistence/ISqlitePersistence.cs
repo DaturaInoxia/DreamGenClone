@@ -49,6 +49,12 @@ public interface ISqlitePersistence
     Task SetDefaultRankingProfileAsync(string id, CancellationToken cancellationToken = default);
     Task<RankingProfile?> LoadDefaultRankingProfileAsync(CancellationToken cancellationToken = default);
 
+    // Tone profile operations
+    Task SaveToneProfileAsync(ToneProfile profile, CancellationToken cancellationToken = default);
+    Task<ToneProfile?> LoadToneProfileAsync(string id, CancellationToken cancellationToken = default);
+    Task<List<ToneProfile>> LoadAllToneProfilesAsync(CancellationToken cancellationToken = default);
+    Task<bool> DeleteToneProfileAsync(string id, CancellationToken cancellationToken = default);
+
     // Story ranking operations
     Task SaveStoryRankingAsync(StoryRankingResult ranking, CancellationToken cancellationToken = default);
     Task<StoryRankingResult?> LoadStoryRankingAsync(string parsedStoryId, CancellationToken cancellationToken = default);

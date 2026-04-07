@@ -19,6 +19,80 @@
     }
 
     @* ══════════════════════════════════════════════════════════════
+       SECTION 0: System Health Summary
+       ══════════════════════════════════════════════════════════════ *@
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h4 class="mb-0"><i class="bi bi-heart-pulse"></i> System Health</h4>
+            <button class="btn btn-outline-primary btn-sm" @onclick="RunHealthChecks" disabled="@_isHealthChecking">
+                @if (_isHealthChecking) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                else { <i class="bi bi-arrow-clockwise me-1"></i> }
+                Re-check All
+            </button>
+        </div>
+        <div class="card-body">
+            @if (_healthResults.Count == 0)
+            {
+                <div class="alert alert-info mb-0">No health check results yet. Click "Re-check All" or restart the application.</div>
+            }
+            else
+            {
+                var providerResults = _healthResults.Where(r => r.EntityType == HealthCheckEntityType.Provider).ToList();
+                var modelResults = _healthResults.Where(r => r.EntityType == HealthCheckEntityType.Model).ToList();
+                var healthyProviders = providerResults.Count(r => r.IsHealthy);
+                var healthyModels = modelResults.Count(r => r.IsHealthy);
+                var hasFailures = providerResults.Any(r => !r.IsHealthy) || modelResults.Any(r => !r.IsHealthy);
+
+                <div class="d-flex gap-3 mb-3">
+                    <span class="badge @(healthyProviders == providerResults.Count ? "bg-success" : "bg-warning text-dark") fs-6">
+                        <i class="bi bi-hdd-network me-1"></i> @healthyProviders / @providerResults.Count providers healthy
+                    </span>
+                    <span class="badge @(healthyModels == modelResults.Count ? "bg-success" : "bg-warning text-dark") fs-6">
+                        <i class="bi bi-cpu me-1"></i> @healthyModels / @modelResults.Count models healthy
+                    </span>
+                </div>
+
+                @if (hasFailures)
+                {
+                    <div class="alert alert-warning alert-dismissible fade show mb-3">
+                        <i class="bi bi-exclamation-triangle me-1"></i>
+                        <strong>@(providerResults.Count(r => !r.IsHealthy) + modelResults.Count(r => !r.IsHealthy)) connectivity issue(s) detected.</strong>
+                        Check the details below for failing providers or models.
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                }
+
+                @foreach (var providerGroup in _healthResults.GroupBy(r => r.ProviderName))
+                {
+                    var providerResult = providerGroup.FirstOrDefault(r => r.EntityType == HealthCheckEntityType.Provider);
+                    var models = providerGroup.Where(r => r.EntityType == HealthCheckEntityType.Model).ToList();
+
+                    <div class="mb-2">
+                        <div class="d-flex align-items-center">
+                            <i class="bi @(providerResult?.IsHealthy == true ? "bi-check-circle-fill text-success" : "bi-x-circle-fill text-danger") me-2"></i>
+                            <strong>@providerGroup.Key</strong>
+                            <small class="text-muted ms-2">@providerResult?.Message</small>
+                            @if (providerResult is not null)
+                            {
+                                <small class="text-muted ms-auto">@FormatTimestamp(providerResult.CheckedUtc)</small>
+                            }
+                        </div>
+
+                        @foreach (var model in models)
+                        {
+                            <div class="d-flex align-items-center ms-4 mt-1">
+                                <i class="bi @(model.IsHealthy ? "bi-check-circle text-success" : "bi-x-circle text-danger") me-2"></i>
+                                <span>@model.EntityName</span>
+                                <small class="text-muted ms-2">@model.Message</small>
+                            </div>
+                        }
+                    </div>
+                }
+            }
+        </div>
+    </div>
+
+    @* ══════════════════════════════════════════════════════════════
        SECTION 1: Providers
        ══════════════════════════════════════════════════════════════ *@
     <div class="card mb-4">
@@ -81,6 +155,12 @@
                                     }
                                 </div>
                             }
+                            <div class="col-12">
+                                <label class="form-label">Notes</label>
+                                <textarea class="form-control" rows="2" @bind="_editingProvider!.Notes" maxlength="1000"
+                                          placeholder="e.g., Free tier, rate-limited to 60 RPM, pricing tier, special capabilities..."></textarea>
+                                <div class="form-text">Optional. Helps the model analysis understand provider capabilities and constraints.</div>
+                            </div>
                         </div>
                         @if (!string.IsNullOrEmpty(_providerFormError))
                         {
@@ -125,19 +205,20 @@
                                     </small>
                                 }
                             </div>
-                            <div class="btn-group btn-group-sm">
-                                <button class="btn btn-outline-primary" @onclick="() => TestProvider(provider)" disabled="@_isBusy" title="Test Connection">
-                                    @if (_testingProviderId == provider.Id) { <span class="spinner-border spinner-border-sm"></span> }
-                                    else { <i class="bi bi-wifi"></i> }
+                            <div class="d-flex gap-1 flex-wrap">
+                                <button class="btn btn-outline-primary btn-sm" @onclick="() => TestProvider(provider)" disabled="@_isBusy">
+                                    @if (_testingProviderId == provider.Id) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                                    else { <i class="bi bi-wifi me-1"></i> }
+                                    Test
                                 </button>
-                                <button class="btn btn-outline-secondary" @onclick="() => EditProvider(provider)" disabled="@_isBusy" title="Edit">
-                                    <i class="bi bi-pencil"></i>
+                                <button class="btn btn-outline-secondary btn-sm" @onclick="() => EditProvider(provider)" disabled="@_isBusy">
+                                    <i class="bi bi-pencil me-1"></i> Edit
                                 </button>
-                                <button class="btn @(provider.IsEnabled ? "btn-outline-warning" : "btn-outline-success")" @onclick="() => ToggleProvider(provider)" disabled="@_isBusy" title="@(provider.IsEnabled ? "Disable" : "Enable")">
-                                    <i class="bi @(provider.IsEnabled ? "bi-toggle-on" : "bi-toggle-off")"></i>
+                                <button class="btn @(provider.IsEnabled ? "btn-outline-warning" : "btn-outline-success") btn-sm" @onclick="() => ToggleProvider(provider)" disabled="@_isBusy">
+                                    <i class="bi @(provider.IsEnabled ? "bi-toggle-on" : "bi-toggle-off") me-1"></i> @(provider.IsEnabled ? "Disable" : "Enable")
                                 </button>
-                                <button class="btn btn-outline-danger" @onclick="() => ConfirmDeleteProvider(provider)" disabled="@_isBusy" title="Delete">
-                                    <i class="bi bi-trash"></i>
+                                <button class="btn btn-outline-danger btn-sm" @onclick="() => ConfirmDeleteProvider(provider)" disabled="@_isBusy">
+                                    <i class="bi bi-trash me-1"></i> Delete
                                 </button>
                             </div>
                         </div>
@@ -208,6 +289,11 @@
                     </div>
                 }
 
+                @if (_showModelDetails && _detailsModel is not null)
+                {
+                    <ModelDetailsEditor Model="_detailsModel" OnSaved="OnModelDetailsSaved" OnCancelled="OnModelDetailsCancelled" />
+                }
+
                 @foreach (var group in _modelsGrouped)
                 {
                     <h6 class="mt-3">
@@ -229,18 +315,29 @@
                                         <br />
                                         <small class="text-muted font-monospace">@model.ModelIdentifier</small>
                                     </div>
-                                    <div class="btn-group btn-group-sm">
-                                        <button class="btn btn-outline-secondary" @onclick="() => EditModel(model)" disabled="@_isBusy" title="Edit">
-                                            <i class="bi bi-pencil"></i>
+                                    <div class="d-flex gap-1 flex-wrap">
+                                        <button class="btn btn-outline-primary btn-sm" @onclick="() => TestModel(model)" disabled="@_isBusy">
+                                            @if (_testingModelId == model.Id) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                                            else { <i class="bi bi-wifi me-1"></i> }
+                                            Test
                                         </button>
-                                        <button class="btn @(model.IsEnabled ? "btn-outline-warning" : "btn-outline-success")" @onclick="() => ToggleModel(model)" disabled="@_isBusy">
-                                            <i class="bi @(model.IsEnabled ? "bi-toggle-on" : "bi-toggle-off")"></i>
+                                        <button class="btn btn-outline-info btn-sm" @onclick="() => OpenModelDetails(model)" disabled="@_isBusy">
+                                            <i class="bi bi-card-text me-1"></i> Details
                                         </button>
-                                        <button class="btn btn-outline-danger" @onclick="() => ConfirmDeleteModel(model)" disabled="@_isBusy" title="Delete">
-                                            <i class="bi bi-trash"></i>
+                                        <button class="btn @(model.IsEnabled ? "btn-outline-warning" : "btn-outline-success") btn-sm" @onclick="() => ToggleModel(model)" disabled="@_isBusy">
+                                            <i class="bi @(model.IsEnabled ? "bi-toggle-on" : "bi-toggle-off") me-1"></i> @(model.IsEnabled ? "Disable" : "Enable")
+                                        </button>
+                                        <button class="btn btn-outline-danger btn-sm" @onclick="() => ConfirmDeleteModel(model)" disabled="@_isBusy">
+                                            <i class="bi bi-trash me-1"></i> Delete
                                         </button>
                                     </div>
                                 </div>
+                                @if (_testResultModelId == model.Id && _testResultModelMessage is not null)
+                                {
+                                    <div class="mt-2 small @(_testResultModelSuccess ? "text-success" : "text-danger")">
+                                        <i class="bi @(_testResultModelSuccess ? "bi-check-circle" : "bi-x-circle")"></i> @_testResultModelMessage
+                                    </div>
+                                }
                             </div>
                         </div>
                     }
@@ -310,8 +407,8 @@
                                                value="@state.MaxTokens" @onchange="e => state.MaxTokens = ParseInt(e, 500)" />
                                     </td>
                                     <td>
-                                        <button class="btn btn-sm btn-outline-success" @onclick="() => SaveFunctionDefault(func)" disabled="@_isBusy" title="Save">
-                                            <i class="bi bi-check-lg"></i>
+                                        <button class="btn btn-sm btn-outline-success" @onclick="() => SaveFunctionDefault(func)" disabled="@_isBusy">
+                                            <i class="bi bi-check-lg me-1"></i> Save
                                         </button>
                                     </td>
                                 </tr>
@@ -354,8 +451,10 @@
     private Dictionary<Provider, List<RegisteredModel>> _modelsGrouped = [];
     private List<(AppFunction Function, FunctionModelDefault? Default)> _functionDefaults = [];
     private List<(Provider Provider, List<RegisteredModel> Models)> _enabledModelsDropdown = [];
+    private List<HealthCheckResult> _healthResults = [];
 
     private bool _isBusy;
+    private bool _isHealthChecking;
     private string? _globalError;
 
     // Provider form state
@@ -371,6 +470,16 @@
     private string? _testResultProviderId;
     private bool _testResultSuccess;
     private string? _testResultMessage;
+
+    // Model test state
+    private string? _testingModelId;
+    private string? _testResultModelId;
+    private bool _testResultModelSuccess;
+    private string? _testResultModelMessage;
+
+    // Model details state
+    private RegisteredModel? _detailsModel;
+    private bool _showModelDetails;
 
     // Model form state
     private bool _showModelForm;
@@ -405,6 +514,8 @@
             _functionDefaults = await Facade.GetAllFunctionDefaultsAsync();
             _enabledModelsDropdown = await Facade.GetEnabledModelsForDropdownAsync();
 
+            _healthResults = await Facade.GetHealthCheckSummaryAsync();
+
             // Initialize function edit states
             _functionStates.Clear();
             foreach (var (func, fd) in _functionDefaults)
@@ -422,6 +533,24 @@
         catch (Exception ex)
         {
             _globalError = $"Failed to load data: {ex.Message}";
+        }
+    }
+
+    private async Task RunHealthChecks()
+    {
+        _isHealthChecking = true;
+        StateHasChanged();
+        try
+        {
+            _healthResults = await Facade.RunAllHealthChecksAsync();
+        }
+        catch (Exception ex)
+        {
+            _globalError = $"Health check failed: {ex.Message}";
+        }
+        finally
+        {
+            _isHealthChecking = false;
         }
     }
 
@@ -449,7 +578,8 @@
             ApiKeyEncrypted = provider.ApiKeyEncrypted,
             IsEnabled = provider.IsEnabled,
             CreatedUtc = provider.CreatedUtc,
-            UpdatedUtc = provider.UpdatedUtc
+            UpdatedUtc = provider.UpdatedUtc,
+            Notes = provider.Notes
         };
         _editingProviderType = (int)provider.ProviderType;
         _editingApiKey = null;
@@ -634,6 +764,67 @@
         finally { _isBusy = false; }
     }
 
+    private async Task TestModel(RegisteredModel model)
+    {
+        _testingModelId = model.Id;
+        _testResultModelId = null;
+        _testResultModelMessage = null;
+        _isBusy = true;
+        StateHasChanged();
+
+        try
+        {
+            var (success, message) = await Facade.TestModelConnectionAsync(model);
+            _testResultModelId = model.Id;
+            _testResultModelSuccess = success;
+            _testResultModelMessage = message;
+        }
+        catch (Exception ex)
+        {
+            _testResultModelId = model.Id;
+            _testResultModelSuccess = false;
+            _testResultModelMessage = $"Test failed: {ex.Message}";
+        }
+        finally
+        {
+            _testingModelId = null;
+            _isBusy = false;
+        }
+    }
+
+    private void OpenModelDetails(RegisteredModel model)
+    {
+        _detailsModel = new RegisteredModel
+        {
+            Id = model.Id,
+            ProviderId = model.ProviderId,
+            ModelIdentifier = model.ModelIdentifier,
+            DisplayName = model.DisplayName,
+            IsEnabled = model.IsEnabled,
+            CreatedUtc = model.CreatedUtc,
+            ProviderName = model.ProviderName,
+            ContextWindowSize = model.ContextWindowSize,
+            Quantization = model.Quantization,
+            ParameterCount = model.ParameterCount,
+            Notes = model.Notes
+        };
+        _showModelDetails = true;
+        _showModelForm = false;
+    }
+
+    private async Task OnModelDetailsSaved()
+    {
+        _showModelDetails = false;
+        _detailsModel = null;
+        await LoadAllDataAsync();
+    }
+
+    private void OnModelDetailsCancelled()
+    {
+        _showModelDetails = false;
+        _detailsModel = null;
+    }
+
     private async Task ConfirmDeleteModel(RegisteredModel model)
     {
         var dependents = await Facade.GetDependentFunctionDefaultsAsync(model.Id);
@@ -742,6 +933,7 @@
         AppFunction.ScenarioAdapt => "Scenario Adapt",
         AppFunction.WritingAssistant => "Writing Assistant",
         AppFunction.RolePlayAssistant => "Role-Play Assistant",
+        AppFunction.ModelAnalysis => "Model Analysis",
         _ => func.ToString()
     };
 
@@ -753,6 +945,13 @@
     private static int ParseInt(ChangeEventArgs e, int fallback)
     {
         return int.TryParse(e.Value?.ToString(), out var v) ? v : fallback;
+    }
+
+    private static string FormatTimestamp(string isoTimestamp)
+    {
+        return DateTime.TryParse(isoTimestamp, out var dt)
+            ? dt.ToLocalTime().ToString("g")
+            : isoTimestamp;
     }
 
     private sealed class FunctionEditState

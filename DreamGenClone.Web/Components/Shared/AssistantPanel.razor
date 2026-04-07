@@ -1,16 +1,29 @@
 @using DreamGenClone.Web.Application.Assistants
 
 <div class="assistant-panel">
-    <h4>@Title</h4>
+    <div class="assistant-header-row">
+        <h4>@Title</h4>
+        <button class="btn btn-secondary btn-xs" @onclick="OnCreateChat" disabled="@IsProcessing">New Chat</button>
+    </div>
+
+    <div class="assistant-chat-picker-row">
+        <select class="assistant-chat-select" value="@ActiveChatId" @onchange="OnChatSelectionChanged" disabled="@IsProcessing">
+            @foreach (var chat in Chats)
+            {
+                <option value="@chat.Id">@chat.Title</option>
+            }
+        </select>
+        <button class="btn btn-secondary btn-xs" @onclick="OnDeleteChat" disabled="@(IsProcessing || Chats.Count <= 1 || string.IsNullOrWhiteSpace(ActiveChatId))">Delete</button>
+    </div>
     
     <div class="assistant-conversation">
-        @if (ConversationHistory.Count == 0)
+        @if (Messages.Count == 0)
         {
             <p class="empty-state">No conversation yet. Ask the assistant for help!</p>
         }
         else
         {
-            @foreach (var message in ConversationHistory)
+            @foreach (var message in Messages)
             {
                 <div class="message @(message.StartsWith("[User]") ? "user-message" : "assistant-message")">
                     @message
@@ -20,7 +33,7 @@
     </div>
 
     <div class="assistant-input-group">
-        <textarea class="form-control" rows="3" placeholder="Ask for assistance..." @bind="UserPrompt" @bind:event="oninput"></textarea>
+        <textarea rows="3" placeholder="Ask for assistance..." @bind="UserPrompt" @bind:event="oninput"></textarea>
         <div class="button-group">
             <button class="btn btn-primary" @onclick="OnSendRequest" disabled="@(string.IsNullOrWhiteSpace(UserPrompt) || IsProcessing)">
                 @if (IsProcessing)
@@ -32,7 +45,7 @@
                     <span>Send</span>
                 }
             </button>
-            <button class="btn btn-secondary" @onclick="OnClearChat" disabled="@(ConversationHistory.Count == 0)">
+            <button class="btn btn-secondary" @onclick="OnClearChat" disabled="@(Messages.Count == 0 || IsProcessing)">
                 Clear Chat
             </button>
         </div>
@@ -59,10 +72,27 @@
     [Parameter]
     public EventCallback OnClearChatRequest { get; set; }
 
+    [Parameter]
+    public IReadOnlyList<string> Messages { get; set; } = [];
+
+    [Parameter]
+    public IReadOnlyList<AssistantChatSummary> Chats { get; set; } = [];
+
+    [Parameter]
+    public string? ActiveChatId { get; set; }
+
+    [Parameter]
+    public EventCallback<string> OnSelectChatRequest { get; set; }
+
+    [Parameter]
+    public EventCallback OnCreateChatRequest { get; set; }
+
+    [Parameter]
+    public EventCallback OnDeleteChatRequest { get; set; }
+
     private string UserPrompt { get; set; } = string.Empty;
     private bool IsProcessing { get; set; }
     private string ErrorMessage { get; set; } = string.Empty;
-    private List<string> ConversationHistory { get; set; } = new();
 
     private async Task OnSendRequest()
     {
@@ -73,15 +103,10 @@
 
         try
         {
-            // Add user message to display
-            ConversationHistory.Add($"[User] {UserPrompt}");
             var promptToSend = UserPrompt;
             UserPrompt = string.Empty;
 
-            // Invoke callback to parent component
             await OnGenerateRequest.InvokeAsync(promptToSend);
-
-            // Note: Parent component should call AddAssistantResponse after generation
         }
         catch (Exception ex)
         {
@@ -95,83 +120,202 @@
 
     private async Task OnClearChat()
     {
-        ConversationHistory.Clear();
         UserPrompt = string.Empty;
         ErrorMessage = string.Empty;
         await OnClearChatRequest.InvokeAsync();
     }
 
-    /// <summary>
-    /// Call this from parent component after receiving assistant response.
-    /// </summary>
-    public void AddAssistantResponse(string response)
+    private async Task OnCreateChat()
     {
-        ConversationHistory.Add($"[Assistant] {response}");
-        StateHasChanged();
+        ErrorMessage = string.Empty;
+        await OnCreateChatRequest.InvokeAsync();
+    }
+
+    private async Task OnDeleteChat()
+    {
+        ErrorMessage = string.Empty;
+        await OnDeleteChatRequest.InvokeAsync();
+    }
+
+    private async Task OnChatSelectionChanged(ChangeEventArgs args)
+    {
+        var chatId = args.Value?.ToString();
+        if (string.IsNullOrWhiteSpace(chatId)) return;
+        ErrorMessage = string.Empty;
+        await OnSelectChatRequest.InvokeAsync(chatId);
     }
 }
 
 <style>
     .assistant-panel {
-        border: 1px solid #ddd;
-        border-radius: 4px;
-        padding: 1rem;
-        background-color: #f9f9f9;
-        max-width: 600px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        width: 100%;
     }
 
     .assistant-panel h4 {
-        margin-top: 0;
-        margin-bottom: 1rem;
-        font-size: 1.125rem;
+        margin: 0;
+        font-size: 11px;
         font-weight: 600;
+        color: #808080;
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+    }
+
+    .assistant-header-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+    }
+
+    .assistant-chat-picker-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .assistant-chat-select {
+        flex: 1;
+        min-width: 0;
+        background: #222;
+        border: 1px solid #363636;
+        border-radius: 8px;
+        color: #e0e0e0;
+        font-size: 12px;
+        padding: 6px 10px;
+        outline: none;
+    }
+
+    .assistant-chat-select:focus {
+        border-color: #505050;
     }
 
     .assistant-conversation {
-        max-height: 400px;
+        max-height: 450px;
         overflow-y: auto;
-        margin-bottom: 1rem;
-        padding: 0.5rem;
-        background-color: white;
-        border: 1px solid #ddd;
-        border-radius: 4px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding: 10px;
+        background: #1a1a1a;
+        border: 1px solid #2a2a2a;
+        border-radius: 8px;
     }
 
     .empty-state {
-        color: #999;
+        color: #606060;
         font-style: italic;
         text-align: center;
-        padding: 2rem;
+        padding: 2rem 1rem;
+        font-size: 13px;
     }
 
     .message {
-        margin-bottom: 0.5rem;
-        padding: 0.5rem;
-        border-radius: 4px;
+        padding: 10px 12px;
+        border-radius: 8px;
+        font-size: 13px;
+        line-height: 1.55;
+        white-space: pre-wrap;
+        word-wrap: break-word;
     }
 
     .user-message {
-        background-color: #e3f2fd;
-        margin-left: 2rem;
+        background: #1e2a3a;
+        color: #c8ddf0;
+        border: 1px solid #2a3a50;
+        margin-left: 24px;
+        align-self: flex-end;
     }
 
     .assistant-message {
-        background-color: #f5f5f5;
-        margin-right: 2rem;
+        background: #222222;
+        color: #d4d4d4;
+        border: 1px solid #333333;
+        margin-right: 24px;
+        align-self: flex-start;
     }
 
     .assistant-input-group {
         display: flex;
         flex-direction: column;
-        gap: 0.5rem;
+        gap: 8px;
+    }
+
+    .assistant-input-group textarea {
+        background: #222;
+        border: 1px solid #363636;
+        border-radius: 8px;
+        color: #e0e0e0;
+        font-size: 13px;
+        padding: 8px 10px;
+        outline: none;
+        resize: vertical;
+        min-height: 60px;
+    }
+
+    .assistant-input-group textarea:focus {
+        border-color: #505050;
+    }
+
+    .assistant-input-group textarea::placeholder {
+        color: #555;
     }
 
     .button-group {
         display: flex;
-        gap: 0.5rem;
+        gap: 8px;
     }
 
-    .alert {
-        margin-top: 1rem;
+    .button-group .btn-primary {
+        background: #2a5a9a;
+        border-color: #2a5a9a;
+        color: #e0e0e0;
+        font-size: 12px;
+        padding: 6px 16px;
+        border-radius: 6px;
+    }
+
+    .btn-xs {
+        font-size: 11px;
+        padding: 4px 10px;
+        border-radius: 6px;
+    }
+
+    .button-group .btn-primary:hover:not(:disabled) {
+        background: #3468a8;
+    }
+
+    .button-group .btn-primary:disabled {
+        opacity: 0.4;
+    }
+
+    .button-group .btn-secondary {
+        background: #2a2a2a;
+        border-color: #3a3a3a;
+        color: #999;
+        font-size: 12px;
+        padding: 6px 16px;
+        border-radius: 6px;
+    }
+
+    .button-group .btn-secondary:hover:not(:disabled) {
+        background: #333;
+        color: #bbb;
+    }
+
+    .button-group .btn-secondary:disabled {
+        opacity: 0.4;
+    }
+
+    .assistant-panel .alert-danger {
+        background: #3a1a1a;
+        border: 1px solid #5a2a2a;
+        color: #e8a0a0;
+        border-radius: 6px;
+        font-size: 12px;
+        padding: 8px 12px;
+        margin-top: 0;
     }
 </style>

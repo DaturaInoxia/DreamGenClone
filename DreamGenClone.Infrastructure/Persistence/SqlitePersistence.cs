@@ -137,6 +137,15 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 UpdatedUtc TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS ToneProfiles (
+                Id TEXT PRIMARY KEY,
+                Name TEXT NOT NULL,
+                Description TEXT NOT NULL,
+                Intensity TEXT NOT NULL,
+                CreatedUtc TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS StoryRankings (
                 Id TEXT PRIMARY KEY,
                 ParsedStoryId TEXT NOT NULL,
@@ -197,7 +206,8 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 ApiKeyEncrypted TEXT,
                 IsEnabled INTEGER NOT NULL DEFAULT 1,
                 CreatedUtc TEXT NOT NULL,
-                UpdatedUtc TEXT NOT NULL
+                UpdatedUtc TEXT NOT NULL,
+                Notes TEXT
             );
 
             CREATE TABLE IF NOT EXISTS RegisteredModels (
@@ -207,6 +217,10 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 DisplayName TEXT NOT NULL,
                 IsEnabled INTEGER NOT NULL DEFAULT 1,
                 CreatedUtc TEXT NOT NULL,
+                ContextWindowSize INTEGER NOT NULL DEFAULT 0,
+                Quantization TEXT NOT NULL DEFAULT '',
+                ParameterCount TEXT NOT NULL DEFAULT '',
+                Notes TEXT,
                 FOREIGN KEY (ProviderId) REFERENCES Providers(Id) ON DELETE CASCADE,
                 UNIQUE (ProviderId, ModelIdentifier)
             );
@@ -220,6 +234,17 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 MaxTokens INTEGER NOT NULL DEFAULT 500,
                 UpdatedUtc TEXT NOT NULL,
                 FOREIGN KEY (ModelId) REFERENCES RegisteredModels(Id)
+            );
+
+            CREATE TABLE IF NOT EXISTS HealthCheckResults (
+                Id TEXT PRIMARY KEY NOT NULL,
+                EntityType INTEGER NOT NULL,
+                EntityId TEXT NOT NULL,
+                EntityName TEXT NOT NULL,
+                ProviderName TEXT NOT NULL,
+                IsHealthy INTEGER NOT NULL DEFAULT 0,
+                Message TEXT NOT NULL DEFAULT '',
+                CheckedUtc TEXT NOT NULL
             );
 
             """;
@@ -304,6 +329,10 @@ public sealed class SqlitePersistence : ISqlitePersistence
             """;
         await rankingIndexCmd.ExecuteNonQueryAsync(cancellationToken);
 
+        var toneIndexCmd = connection.CreateCommand();
+        toneIndexCmd.CommandText = "CREATE INDEX IF NOT EXISTS IX_ToneProfiles_Name ON ToneProfiles (Name)";
+        await toneIndexCmd.ExecuteNonQueryAsync(cancellationToken);
+
         // Migrate: add IsDefault column to RankingProfiles if missing
         var migrateIsDefault = connection.CreateCommand();
         migrateIsDefault.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RankingProfiles') WHERE name='IsDefault'";
@@ -326,6 +355,43 @@ public sealed class SqlitePersistence : ISqlitePersistence
             alterVerification.CommandText = "ALTER TABLE StoryRankings ADD COLUMN ThemeVerificationStatusJson TEXT NOT NULL DEFAULT '{}'";
             await alterVerification.ExecuteNonQueryAsync(cancellationToken);
             _logger.LogInformation("Migrated StoryRankings table: added ThemeVerificationStatusJson column");
+        }
+
+        // Migrate: add Notes column to Providers if missing
+        var checkProviderNotes = connection.CreateCommand();
+        checkProviderNotes.CommandText = "SELECT COUNT(*) FROM pragma_table_info('Providers') WHERE name='Notes'";
+        var hasProviderNotes = Convert.ToInt64(await checkProviderNotes.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasProviderNotes)
+        {
+            var alter = connection.CreateCommand();
+            alter.CommandText = "ALTER TABLE Providers ADD COLUMN Notes TEXT";
+            await alter.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated Providers table: added Notes column");
+        }
+
+        // Migrate: add model metadata columns to RegisteredModels if missing
+        var checkContextWindow = connection.CreateCommand();
+        checkContextWindow.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RegisteredModels') WHERE name='ContextWindowSize'";
+        var hasContextWindow = Convert.ToInt64(await checkContextWindow.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasContextWindow)
+        {
+            var alterCtx = connection.CreateCommand();
+            alterCtx.CommandText = "ALTER TABLE RegisteredModels ADD COLUMN ContextWindowSize INTEGER NOT NULL DEFAULT 0";
+            await alterCtx.ExecuteNonQueryAsync(cancellationToken);
+
+            var alterQuant = connection.CreateCommand();
+            alterQuant.CommandText = "ALTER TABLE RegisteredModels ADD COLUMN Quantization TEXT NOT NULL DEFAULT ''";
+            await alterQuant.ExecuteNonQueryAsync(cancellationToken);
+
+            var alterParams = connection.CreateCommand();
+            alterParams.CommandText = "ALTER TABLE RegisteredModels ADD COLUMN ParameterCount TEXT NOT NULL DEFAULT ''";
+            await alterParams.ExecuteNonQueryAsync(cancellationToken);
+
+            var alterNotes = connection.CreateCommand();
+            alterNotes.CommandText = "ALTER TABLE RegisteredModels ADD COLUMN Notes TEXT";
+            await alterNotes.ExecuteNonQueryAsync(cancellationToken);
+
+            _logger.LogInformation("Migrated RegisteredModels table: added ContextWindowSize, Quantization, ParameterCount, Notes columns");
         }
 
         // Seed Model Manager tables on first run (empty Providers table)
@@ -398,7 +464,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 ("ScenarioPreview", scenarioModel, _scenarioAdaptationOptions.PreviewTemperature, _scenarioAdaptationOptions.PreviewTopP, _scenarioAdaptationOptions.PreviewMaxTokens),
                 ("ScenarioAdapt", scenarioModel, _scenarioAdaptationOptions.AdaptTemperature, _scenarioAdaptationOptions.AdaptTopP, _scenarioAdaptationOptions.AdaptMaxTokens),
                 ("WritingAssistant", lmModel, 0.7, 0.9, 500),
-                ("RolePlayAssistant", lmModel, 0.7, 0.9, 500),
+                ("RolePlayAssistant", lmModel, 0.7, 0.9, 2000),
             };
 
             foreach (var (funcName, modelIdentifier, temp, topP, maxTokens) in functionDefaults)
@@ -425,6 +491,17 @@ public sealed class SqlitePersistence : ISqlitePersistence
         {
             _logger.LogInformation("Model Manager seed migration skipped: {ProviderCount} providers already exist", providerCount);
         }
+
+        // Migrate: bump RolePlayAssistant max tokens from 500 to 2000 for existing databases
+        var updateAssistantTokens = connection.CreateCommand();
+        updateAssistantTokens.CommandText = """
+            UPDATE FunctionModelDefaults SET MaxTokens = 2000, UpdatedUtc = $now
+            WHERE FunctionName = 'RolePlayAssistant' AND MaxTokens <= 500
+            """;
+        updateAssistantTokens.Parameters.AddWithValue("$now", DateTime.UtcNow.ToString("o"));
+        var updatedRows = await updateAssistantTokens.ExecuteNonQueryAsync(cancellationToken);
+        if (updatedRows > 0)
+            _logger.LogInformation("Migrated RolePlayAssistant function default: MaxTokens 500 → 2000");
 
         _logger.LogInformation("SQLite persistence initialized using {ConnectionString}", _options.ConnectionString);
     }
@@ -1100,9 +1177,9 @@ public sealed class SqlitePersistence : ISqlitePersistence
         await using var connection = new SqliteConnection(_options.ConnectionString);
         await connection.OpenAsync(cancellationToken);
 
-        // Also delete criteria belonging to this profile
+        // Also delete theme preferences belonging to this profile
         var deleteCriteria = connection.CreateCommand();
-        deleteCriteria.CommandText = "DELETE FROM RankingCriteria WHERE ProfileId = $profileId";
+        deleteCriteria.CommandText = "DELETE FROM ThemePreferences WHERE ProfileId = $profileId";
         deleteCriteria.Parameters.AddWithValue("$profileId", id);
         await deleteCriteria.ExecuteNonQueryAsync(cancellationToken);
 
@@ -1153,6 +1230,102 @@ public sealed class SqlitePersistence : ISqlitePersistence
             IsDefault = reader.GetInt32(2) != 0,
             CreatedUtc = DateTime.TryParse(reader.GetString(3), out var cre) ? cre : DateTime.UtcNow,
             UpdatedUtc = DateTime.TryParse(reader.GetString(4), out var upd) ? upd : DateTime.UtcNow
+        };
+    }
+
+    // --- Tone Profile persistence ---
+
+    public async Task SaveToneProfileAsync(ToneProfile profile, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO ToneProfiles (Id, Name, Description, Intensity, CreatedUtc, UpdatedUtc)
+            VALUES ($id, $name, $description, $intensity, $createdUtc, $updatedUtc)
+            ON CONFLICT(Id) DO UPDATE SET
+                Name = $name,
+                Description = $description,
+                Intensity = $intensity,
+                UpdatedUtc = $updatedUtc;
+            """;
+
+        command.Parameters.AddWithValue("$id", profile.Id);
+        command.Parameters.AddWithValue("$name", profile.Name);
+        command.Parameters.AddWithValue("$description", profile.Description);
+        command.Parameters.AddWithValue("$intensity", profile.Intensity.ToString());
+        command.Parameters.AddWithValue("$createdUtc", profile.CreatedUtc.ToString("O"));
+        command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
+
+        await command.ExecuteNonQueryAsync(cancellationToken);
+        _logger.LogInformation("Tone profile persisted: {ToneProfileId}, Name={Name}", profile.Id, profile.Name);
+    }
+
+    public async Task<ToneProfile?> LoadToneProfileAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT Id, Name, Description, Intensity, CreatedUtc, UpdatedUtc FROM ToneProfiles WHERE Id = $id";
+        command.Parameters.AddWithValue("$id", id);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return ReadToneProfile(reader);
+    }
+
+    public async Task<List<ToneProfile>> LoadAllToneProfilesAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT Id, Name, Description, Intensity, CreatedUtc, UpdatedUtc FROM ToneProfiles ORDER BY Name";
+
+        var results = new List<ToneProfile>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            results.Add(ReadToneProfile(reader));
+        }
+
+        return results;
+    }
+
+    public async Task<bool> DeleteToneProfileAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM ToneProfiles WHERE Id = $id";
+        command.Parameters.AddWithValue("$id", id);
+
+        var rowsAffected = await command.ExecuteNonQueryAsync(cancellationToken);
+        _logger.LogInformation("Tone profile deletion attempted: {ToneProfileId}, RowsAffected={RowsAffected}", id, rowsAffected);
+        return rowsAffected > 0;
+    }
+
+    private static ToneProfile ReadToneProfile(SqliteDataReader reader)
+    {
+        return new ToneProfile
+        {
+            Id = reader.GetString(0),
+            Name = reader.GetString(1),
+            Description = reader.GetString(2),
+            Intensity = Enum.TryParse<ToneIntensity>(reader.GetString(3), out var intensity)
+                ? intensity
+                : ToneIntensity.SensualMature,
+            CreatedUtc = DateTime.TryParse(reader.GetString(4), out var created) ? created : DateTime.UtcNow,
+            UpdatedUtc = DateTime.TryParse(reader.GetString(5), out var updated) ? updated : DateTime.UtcNow
         };
     }
 

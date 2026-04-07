@@ -157,14 +157,18 @@ public class ScenarioService : IScenarioService
                 Tone = original.Style.Tone,
                 WritingStyle = original.Style.WritingStyle,
                 PointOfView = original.Style.PointOfView,
-                StyleGuidelines = new List<string>(original.Style.StyleGuidelines)
+                StyleGuidelines = new List<string>(original.Style.StyleGuidelines),
+                ToneProfileId = original.Style.ToneProfileId,
+                StyleFloor = original.Style.StyleFloor,
+                StyleCeiling = original.Style.StyleCeiling
             },
             Characters = original.Characters.Select(c => new Character
             {
                 Name = c.Name,
                 Description = c.Description,
                 Role = c.Role,
-                TemplateId = c.TemplateId
+                TemplateId = c.TemplateId,
+                BaseStats = new Dictionary<string, int>(c.BaseStats, StringComparer.OrdinalIgnoreCase)
             }).ToList(),
             Locations = original.Locations.Select(l => new Location
             {
@@ -188,7 +192,9 @@ public class ScenarioService : IScenarioService
                 Title = e.Title,
                 Text = e.Text
             }).ToList(),
-            EstimatedTokenCount = original.EstimatedTokenCount
+            EstimatedTokenCount = original.EstimatedTokenCount,
+            DefaultRankingProfileId = original.DefaultRankingProfileId,
+            DefaultToneProfileId = original.DefaultToneProfileId
         };
         
         _scenarios[clone.Id] = clone;

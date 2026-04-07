@@ -1,7 +1,9 @@
 using CoreAutoSaveCoordinator = DreamGenClone.Application.Sessions.IAutoSaveCoordinator;
 using DreamGenClone.Web.Application.RolePlay;
+using DreamGenClone.Web.Application.Scenarios;
 using DreamGenClone.Web.Application.Sessions;
 using DreamGenClone.Web.Domain.RolePlay;
+using DreamGenClone.Web.Domain.Scenarios;
 using DreamGenClone.Web.Domain.Story;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -24,8 +26,10 @@ internal static class RolePlayTestFactory
             behaviorMode,
             new RolePlayPromptRouter(),
             identityOptionsService ?? new DefaultIdentityOptionsService(),
+            new RolePlayAdaptiveStateService(),
             validator,
             sessionService,
+            new NullScenarioService(),
             autoSave,
             NullLogger<RolePlayEngineService>.Instance);
     }
@@ -173,5 +177,19 @@ internal static class RolePlayTestFactory
 
         public Task<bool> DeleteAsync(string sessionId, CancellationToken cancellationToken = default)
             => Task.FromResult(_sessions.Remove(sessionId));
+    }
+
+    /// <summary>
+    /// Scenario service that returns no scenarios. Used by engine service tests 
+    /// that don't need scenario-aware multi-actor continue behavior.
+    /// </summary>
+    internal sealed class NullScenarioService : IScenarioService
+    {
+        public Task<Scenario> CreateScenarioAsync(string name, string? description = null) => throw new NotImplementedException();
+        public Task<Scenario?> GetScenarioAsync(string id) => Task.FromResult<Scenario?>(null);
+        public Task<List<Scenario>> GetAllScenariosAsync() => Task.FromResult(new List<Scenario>());
+        public Task<Scenario> SaveScenarioAsync(Scenario scenario) => throw new NotImplementedException();
+        public Task<bool> DeleteScenarioAsync(string id) => throw new NotImplementedException();
+        public Task<Scenario> CloneScenarioAsync(string id, string newName) => throw new NotImplementedException();
     }
 }

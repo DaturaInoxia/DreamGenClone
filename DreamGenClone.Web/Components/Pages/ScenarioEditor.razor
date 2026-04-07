@@ -1,11 +1,14 @@
 @page "/scenarios/editor/{ScenarioId?}"
 @rendermode InteractiveServer
 @using DreamGenClone.Web.Application.Scenarios
+@using DreamGenClone.Web.Application.StoryAnalysis
 @using DreamGenClone.Web.Domain.Scenarios
+@using DreamGenClone.Domain.StoryAnalysis
 @using DreamGenClone.Domain.Templates
 
 @inject IScenarioService ScenarioService
 @inject IScenarioTokenCounter TokenCounter
+@inject StoryAnalysisFacade StoryAnalysisFacade
 @inject NavigationManager Navigation
 
 <PageTitle>Scenario Editor - DreamGenClone</PageTitle>
@@ -139,6 +142,28 @@
                     </div>
                     <div class="card-body">
                         <div class="mb-3">
+                            <label class="form-label">Default Ranking Profile</label>
+                            <select class="form-select" @bind="CurrentScenario.DefaultRankingProfileId">
+                                <option value="">(None)</option>
+                                @foreach (var profile in RankingProfiles)
+                                {
+                                    <option value="@profile.Id">@profile.Name</option>
+                                }
+                            </select>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Default Tone Profile</label>
+                            <select class="form-select" @bind="CurrentScenario.DefaultToneProfileId">
+                                <option value="">(None)</option>
+                                @foreach (var tone in ToneProfiles)
+                                {
+                                    <option value="@tone.Id">@tone.Name (@tone.Intensity)</option>
+                                }
+                            </select>
+                        </div>
+
+                        <div class="mb-3">
                             <label class="form-label">Tone</label>
                             <input type="text" class="form-control" @bind="CurrentScenario.Style.Tone" placeholder="e.g., Dark, Humorous, Serious" />
                         </div>
@@ -151,6 +176,28 @@
                         <div class="mb-3">
                             <label class="form-label">Point of View</label>
                             <input type="text" class="form-control" @bind="CurrentScenario.Style.PointOfView" placeholder="e.g., First Person, Third Person" />
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Style Floor</label>
+                            <select class="form-select" @bind="CurrentScenario.Style.StyleFloor">
+                                <option value="">(None)</option>
+                                @foreach (var tone in ToneProfiles)
+                                {
+                                    <option value="@tone.Name">@tone.Name (@tone.Intensity)</option>
+                                }
+                            </select>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Style Ceiling</label>
+                            <select class="form-select" @bind="CurrentScenario.Style.StyleCeiling">
+                                <option value="">(None)</option>
+                                @foreach (var tone in ToneProfiles)
+                                {
+                                    <option value="@tone.Name">@tone.Name (@tone.Intensity)</option>
+                                }
+                            </select>
                         </div>
                         
                         <div class="mb-3">
@@ -190,6 +237,21 @@
                                                     {
                                                         <p class="text-muted small">Role: @character.Role</p>
                                                     }
+                                                    <div class="mt-2">
+                                                        <div class="small text-muted mb-1">Base Stats (session start values)</div>
+                                                        @foreach (var statName in BaseStatNames)
+                                                        {
+                                                            <div class="input-group input-group-sm mb-1">
+                                                                <span class="input-group-text" style="min-width: 140px;">@statName</span>
+                                                                <input type="number"
+                                                                       class="form-control"
+                                                                       min="0"
+                                                                       max="100"
+                                                                       value="@GetCharacterStat(character, statName)"
+                                                                       @onchange="@(e => SetCharacterStat(character, statName, e.Value?.ToString()))" />
+                                                            </div>
+                                                        }
+                                                    </div>
                                                 </div>
                                                 <div class="col-md-4 text-end">
                                                     <button class="btn btn-sm btn-outline-primary" @onclick="@(() => EditingCharacterIndex = index)">Edit</button>
@@ -413,9 +475,25 @@
     private string NewOpeningText = string.Empty;
     private string NewExampleTitle = string.Empty;
     private string NewExampleText = string.Empty;
+    private List<RankingProfile> RankingProfiles = [];
+    private List<ToneProfile> ToneProfiles = [];
+    private static readonly string[] BaseStatNames =
+    [
+        "Arousal",
+        "Inhibition",
+        "Tension",
+        "Trust",
+        "Jealousy",
+        "DominanceDrive",
+        "Shame",
+        "RiskAppetite"
+    ];
     
     protected override async Task OnInitializedAsync()
     {
+        RankingProfiles = await StoryAnalysisFacade.ListProfilesAsync();
+        ToneProfiles = await StoryAnalysisFacade.ListToneProfilesAsync();
+
         if (!string.IsNullOrEmpty(ScenarioId))
         {
             CurrentScenario = await ScenarioService.GetScenarioAsync(ScenarioId);
@@ -424,6 +502,8 @@
         {
             CurrentScenario = new Scenario { Name = "New Scenario" };
         }
+
+        EnsureBaseStatsInitialized();
     }
     
     private void AddCharacter(string name, string? templateId, string? description)
@@ -436,6 +516,7 @@
         };
         
         CurrentScenario?.Characters.Add(character);
+        EnsureBaseStats(character);
     }
     
     private void OnCharacterCreated(DreamGenClone.Components.Scenarios.ScenarioEntityPicker.EntityCreatedArgs args)
@@ -526,9 +607,55 @@
     {
         if (CurrentScenario != null)
         {
+            EnsureBaseStatsInitialized();
             RecalculateTokenCount();
             await ScenarioService.SaveScenarioAsync(CurrentScenario);
             Navigation.NavigateTo("/scenarios");
         }
+    }
+
+    private void EnsureBaseStatsInitialized()
+    {
+        if (CurrentScenario is null)
+        {
+            return;
+        }
+
+        foreach (var character in CurrentScenario.Characters)
+        {
+            EnsureBaseStats(character);
+        }
+    }
+
+    private static void EnsureBaseStats(Character character)
+    {
+        foreach (var statName in BaseStatNames)
+        {
+            if (!character.BaseStats.ContainsKey(statName))
+            {
+                character.BaseStats[statName] = 50;
+            }
+        }
+    }
+
+    private static int GetCharacterStat(Character character, string statName)
+    {
+        if (!character.BaseStats.TryGetValue(statName, out var value))
+        {
+            value = 50;
+            character.BaseStats[statName] = value;
+        }
+
+        return value;
+    }
+
+    private static void SetCharacterStat(Character character, string statName, string? rawValue)
+    {
+        if (!int.TryParse(rawValue, out var value))
+        {
+            value = 50;
+        }
+
+        character.BaseStats[statName] = Math.Clamp(value, 0, 100);
     }
 }

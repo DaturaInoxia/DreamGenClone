@@ -72,11 +72,14 @@ builder.Services.AddScoped<IWritingAssistantService, WritingAssistantService>();
 builder.Services.AddScoped<IRolePlayAssistantService, RolePlayAssistantService>();
 builder.Services.AddScoped<IRolePlayEngineService, RolePlayEngineService>();
 builder.Services.AddScoped<IRolePlayContinuationService, RolePlayContinuationService>();
+builder.Services.AddScoped<IRolePlayAdaptiveStateService, RolePlayAdaptiveStateService>();
 builder.Services.AddScoped<IRolePlayPromptRouter, RolePlayPromptRouter>();
 builder.Services.AddScoped<IRolePlayIdentityOptionsService, RolePlayIdentityOptionsService>();
 builder.Services.AddScoped<IBehaviorModeService, BehaviorModeService>();
 builder.Services.AddScoped<IRolePlayCommandValidator, RolePlayCommandValidator>();
 builder.Services.AddScoped<IRolePlayBranchService, RolePlayBranchService>();
+builder.Services.AddScoped<IInteractionCommandService, InteractionCommandService>();
+builder.Services.AddScoped<IInteractionRetryService, InteractionRetryService>();
 builder.Services.AddSingleton<IModelSettingsService, ModelSettingsService>();
 builder.Services.AddScoped<IModelRetryService, ModelRetryService>();
 builder.Services.AddSingleton<PaginationDiscoveryService>();
@@ -93,6 +96,8 @@ builder.Services.AddScoped<IStorySummaryService, StorySummaryService>();
 builder.Services.AddScoped<IStoryAnalysisService, StoryAnalysisService>();
 builder.Services.AddScoped<IRankingProfileService, RankingProfileService>();
 builder.Services.AddScoped<IThemePreferenceService, ThemePreferenceService>();
+builder.Services.AddScoped<IToneProfileService, ToneProfileService>();
+builder.Services.AddScoped<IPromptDealbreakerService, PromptDealbreakerService>();
 builder.Services.AddScoped<IStoryRankingService, StoryRankingService>();
 builder.Services.AddScoped<StoryAnalysisFacade>();
 
@@ -100,12 +105,16 @@ builder.Services.AddScoped<StoryAnalysisFacade>();
 builder.Services.AddSingleton<IProviderRepository, ProviderRepository>();
 builder.Services.AddSingleton<IRegisteredModelRepository, RegisteredModelRepository>();
 builder.Services.AddSingleton<IFunctionDefaultRepository, FunctionDefaultRepository>();
+builder.Services.AddSingleton<IHealthCheckRepository, HealthCheckRepository>();
 builder.Services.AddSingleton<IApiKeyEncryptionService, ApiKeyEncryptionService>();
 builder.Services.AddSingleton<ICompletionClient, CompletionClient>();
 builder.Services.AddHttpClient("CompletionClient");
 builder.Services.AddScoped<IModelResolutionService, ModelResolutionService>();
+builder.Services.AddScoped<IHealthCheckService, HealthCheckService>();
 builder.Services.AddScoped<ModelManagerFacade>();
 builder.Services.AddScoped<ProviderTestService>();
+builder.Services.AddScoped<ModelAnalysisService>();
+builder.Services.AddScoped<ModelMetadataService>();
 
 // Background model processing queue
 builder.Services.AddSingleton<ModelProcessingQueue>();
@@ -122,6 +131,22 @@ using (var scope = app.Services.CreateScope())
     var sqlitePersistence = scope.ServiceProvider.GetRequiredService<ISqlitePersistence>();
     await sqlitePersistence.InitializeAsync();
 }
+
+// Run startup health checks for all configured providers and models
+_ = Task.Run(async () =>
+{
+    try
+    {
+        using var healthScope = app.Services.CreateScope();
+        var healthCheckService = healthScope.ServiceProvider.GetRequiredService<IHealthCheckService>();
+        await healthCheckService.RunAllHealthChecksAsync();
+    }
+    catch (Exception ex)
+    {
+        var logger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Startup");
+        logger.LogWarning(ex, "Startup health checks failed — results may be stale");
+    }
+});
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
