@@ -406,6 +406,34 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                         }
                     }
                 }
+
+                if (scenario.Locations.Count > 0)
+                {
+                    sb.AppendLine("Locations:");
+                    foreach (var location in scenario.Locations
+                        .Where(x => !string.IsNullOrWhiteSpace(x.Name))
+                        .Take(8))
+                    {
+                        var description = string.IsNullOrWhiteSpace(location.Description)
+                            ? "(no description)"
+                            : location.Description.Trim();
+                        sb.AppendLine($"  {location.Name.Trim()}: {description}");
+                    }
+                }
+
+                if (scenario.Objects.Count > 0)
+                {
+                    sb.AppendLine("Objects/Items:");
+                    foreach (var item in scenario.Objects
+                        .Where(x => !string.IsNullOrWhiteSpace(x.Name))
+                        .Take(8))
+                    {
+                        var description = string.IsNullOrWhiteSpace(item.Description)
+                            ? "(no description)"
+                            : item.Description.Trim();
+                        sb.AppendLine($"  {item.Name.Trim()}: {description}");
+                    }
+                }
             }
         }
 
