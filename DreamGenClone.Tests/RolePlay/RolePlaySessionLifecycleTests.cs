@@ -65,7 +65,9 @@ public sealed class RolePlaySessionLifecycleTests
             validator,
             fakeSessionService,
             new RolePlayTestFactory.NullScenarioService(),
+            new RolePlayTestFactory.FakeBaseStatProfileService(),
             autoSave,
+            new RolePlayTestFactory.NullRolePlayDebugEventSink(),
             NullLogger<RolePlayEngineService>.Instance);
 
         return (service, fakeSessionService);
@@ -79,6 +81,7 @@ public sealed class RolePlaySessionLifecycleTests
             string? customActorName,
             PromptIntent intent,
             string promptText,
+            Func<string, Task>? onChunk = null,
             CancellationToken cancellationToken = default)
         {
             return Task.FromResult(new RolePlayInteraction

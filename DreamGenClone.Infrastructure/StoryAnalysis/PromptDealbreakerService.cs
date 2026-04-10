@@ -56,17 +56,34 @@ public sealed class PromptDealbreakerService : IPromptDealbreakerService
             return false;
         }
 
+        var nameTokens = Tokenize(theme.Name);
+        var descriptionTokens = Tokenize(theme.Description);
         var textWords = Regex.Matches(normalizedText, "[a-z0-9]+")
             .Select(x => x.Value)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        var tokens = (theme.Name + " " + theme.Description)
-            .Split([' ', ',', '.', ';', ':', '(', ')', '[', ']', '"', '\'', '/', '\\', '-', '_', '\n', '\r', '\t'], StringSplitOptions.RemoveEmptyEntries)
-            .Select(x => x.Trim().ToLowerInvariant())
-            .Where(x => x.Length >= 3)
-            .Where(x => !StopWords.Contains(x))
-            .Distinct()
+        if (ContainsExactPhrase(normalizedText, theme.Name))
+        {
+            return true;
+        }
+
+        var phraseCandidates = BuildPhraseCandidates(nameTokens)
+            .Concat(BuildPhraseCandidates(descriptionTokens))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        foreach (var phrase in phraseCandidates)
+        {
+            if (ContainsExactPhrase(normalizedText, phrase))
+            {
+                return true;
+            }
+        }
+
+        var tokens = nameTokens
+            .Concat(descriptionTokens)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
         if (tokens.Count == 0)
@@ -74,27 +91,65 @@ public sealed class PromptDealbreakerService : IPromptDealbreakerService
             return false;
         }
 
+        var nameTokenHits = nameTokens.Count(textWords.Contains);
         var tokenHits = tokens.Count(textWords.Contains);
-        if (tokenHits >= 2)
+
+        if (nameTokens.Count > 0 && nameTokenHits > 0 && tokenHits >= 2)
         {
             return true;
         }
 
-        var phraseCandidates = new[] { theme.Name, theme.Description }
-            .Where(x => !string.IsNullOrWhiteSpace(x))
-            .Select(x => x!.Trim().ToLowerInvariant())
-            .Where(x => x.Length >= 3)
-            .Distinct();
-
-        foreach (var phrase in phraseCandidates)
+        if (nameTokens.Count == 0 && tokenHits >= 2)
         {
-            var pattern = $@"\b{Regex.Escape(phrase)}\b";
-            if (Regex.IsMatch(normalizedText, pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
-            {
-                return true;
-            }
+            return true;
         }
 
         return false;
+    }
+
+    private static List<string> Tokenize(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return [];
+        }
+
+        return text
+            .Split([' ', ',', '.', ';', ':', '(', ')', '[', ']', '"', '\'', '/', '\\', '-', '_', '\n', '\r', '\t'], StringSplitOptions.RemoveEmptyEntries)
+            .Select(x => x.Trim().ToLowerInvariant())
+            .Where(x => x.Length >= 3)
+            .Where(x => !StopWords.Contains(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static IEnumerable<string> BuildPhraseCandidates(IReadOnlyList<string> tokens)
+    {
+        if (tokens.Count < 2)
+        {
+            yield break;
+        }
+
+        for (var i = 0; i < tokens.Count - 1; i++)
+        {
+            yield return $"{tokens[i]} {tokens[i + 1]}";
+        }
+    }
+
+    private static bool ContainsExactPhrase(string normalizedText, string? phrase)
+    {
+        if (string.IsNullOrWhiteSpace(phrase))
+        {
+            return false;
+        }
+
+        var trimmed = phrase.Trim().ToLowerInvariant();
+        if (trimmed.Length < 3)
+        {
+            return false;
+        }
+
+        var pattern = $@"\b{Regex.Escape(trimmed)}\b";
+        return Regex.IsMatch(normalizedText, pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     }
 }

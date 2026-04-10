@@ -1,5 +1,7 @@
 namespace DreamGenClone.Web.Domain.Scenarios;
 
+using DreamGenClone.Web.Domain.RolePlay;
+
 /// <summary>
 /// Represents a complete scenario definition.
 /// Scenarios contain plot, setting, style, characters, locations, objects, openings, and examples.
@@ -80,4 +82,30 @@ public class Scenario
     /// Default tone profile to use when creating sessions from this scenario.
     /// </summary>
     public string? DefaultToneProfileId { get; set; }
+
+    /// <summary>
+    /// Base stat profile to resolve default session stat seeds for scenario characters.
+    /// </summary>
+    public string? BaseStatProfileId { get; set; }
+
+    /// <summary>
+    /// Resolved stat defaults derived from <see cref="BaseStatProfileId"/>.
+    /// Character base stats apply as per-character overrides during session creation.
+    /// </summary>
+    public Dictionary<string, int> ResolvedBaseStats { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Default role-play perspective mode for the persona when creating sessions from this scenario.
+    /// </summary>
+    public CharacterPerspectiveMode DefaultPersonaPerspectiveMode { get; set; } = CharacterPerspectiveMode.FirstPersonInternalMonologue;
+
+    /// <summary>
+    /// Persisted assistant chat threads for scenario editor assistant usage.
+    /// </summary>
+    public List<RolePlayAssistantChatThread> AssistantChats { get; set; } = [];
+
+    /// <summary>
+    /// Currently selected assistant chat thread ID in scenario editor.
+    /// </summary>
+    public string? ActiveAssistantChatId { get; set; }
 }

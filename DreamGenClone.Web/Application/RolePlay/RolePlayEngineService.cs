@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 using System.Text.Json;
 using DreamGenClone.Application.Abstractions;
+using DreamGenClone.Application.StoryAnalysis;
 
 namespace DreamGenClone.Web.Application.RolePlay;
 
@@ -20,6 +21,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     private readonly IRolePlayCommandValidator _commandValidator;
     private readonly ISessionService _sessionService;
     private readonly IScenarioService _scenarioService;
+    private readonly IBaseStatProfileService _baseStatProfileService;
     private readonly AutoSaveCoordinator _autoSaveCoordinator;
     private readonly IRolePlayDebugEventSink _debugEventSink;
     private readonly ILogger<RolePlayEngineService> _logger;
@@ -33,6 +35,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         IRolePlayCommandValidator commandValidator,
         ISessionService sessionService,
         IScenarioService scenarioService,
+        IBaseStatProfileService baseStatProfileService,
         AutoSaveCoordinator autoSaveCoordinator,
         IRolePlayDebugEventSink debugEventSink,
         ILogger<RolePlayEngineService> logger)
@@ -45,6 +48,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         _commandValidator = commandValidator;
         _sessionService = sessionService;
         _scenarioService = scenarioService;
+        _baseStatProfileService = baseStatProfileService;
         _autoSaveCoordinator = autoSaveCoordinator;
         _debugEventSink = debugEventSink;
         _logger = logger;
@@ -64,7 +68,8 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             ScenarioId = scenarioId,
             PersonaName = string.IsNullOrWhiteSpace(personaName) ? "You" : personaName.Trim(),
             PersonaDescription = personaDescription ?? string.Empty,
-            PersonaTemplateId = personaTemplateId
+            PersonaTemplateId = personaTemplateId,
+            PersonaPerspectiveMode = CharacterPerspectiveMode.FirstPersonInternalMonologue
         };
 
         if (!string.IsNullOrWhiteSpace(scenarioId))
@@ -72,14 +77,49 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             var scenario = await _scenarioService.GetScenarioAsync(scenarioId);
             if (scenario is not null)
             {
+                session.PersonaPerspectiveMode = scenario.DefaultPersonaPerspectiveMode;
                 session.SelectedRankingProfileId = scenario.DefaultRankingProfileId;
                 session.SelectedToneProfileId = scenario.DefaultToneProfileId ?? scenario.Style.ToneProfileId;
+                session.SelectedStyleProfileId = scenario.Style.StyleProfileId;
                 session.StyleFloorOverride = scenario.Style.StyleFloor;
                 session.StyleCeilingOverride = scenario.Style.StyleCeiling;
 
+                var resolvedBaseStats = AdaptiveStatCatalog.NormalizePartial(scenario.ResolvedBaseStats);
+                if (!string.IsNullOrWhiteSpace(scenario.BaseStatProfileId))
+                {
+                    var baseStatProfile = await _baseStatProfileService.GetAsync(scenario.BaseStatProfileId, cancellationToken);
+                    if (baseStatProfile is not null)
+                    {
+                        resolvedBaseStats = AdaptiveStatCatalog.NormalizeComplete(baseStatProfile.DefaultStats);
+                        scenario.ResolvedBaseStats = new Dictionary<string, int>(resolvedBaseStats, StringComparer.OrdinalIgnoreCase);
+                    }
+                }
+
+                session.CharacterPerspectives = scenario.Characters
+                    .Where(x => !string.IsNullOrWhiteSpace(x.Name))
+                    .Select(x => new RolePlayCharacterPerspective
+                    {
+                        CharacterId = x.Id,
+                        CharacterName = x.Name!.Trim(),
+                        PerspectiveMode = x.PerspectiveMode
+                    })
+                    .ToList();
+
                 foreach (var character in scenario.Characters)
                 {
-                    if (string.IsNullOrWhiteSpace(character.Name) || character.BaseStats.Count == 0)
+                    if (string.IsNullOrWhiteSpace(character.Name))
+                    {
+                        continue;
+                    }
+
+                    var mergedStats = new Dictionary<string, int>(resolvedBaseStats, StringComparer.OrdinalIgnoreCase);
+                    var normalizedCharacterOverrides = AdaptiveStatCatalog.NormalizePartial(character.BaseStats);
+                    foreach (var (statName, statValue) in normalizedCharacterOverrides)
+                    {
+                        mergedStats[statName] = statValue;
+                    }
+
+                    if (mergedStats.Count == 0)
                     {
                         continue;
                     }
@@ -87,7 +127,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                     session.AdaptiveState.CharacterStats[character.Name.Trim()] = new CharacterStatBlock
                     {
                         CharacterId = character.Id,
-                        Stats = new Dictionary<string, int>(character.BaseStats, StringComparer.OrdinalIgnoreCase)
+                        Stats = mergedStats
                     };
                 }
             }
@@ -305,6 +345,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             customActorName,
             PromptIntent.Narrative,
             promptText,
+            null,
             cancellationToken);
 
         session.Interactions.Add(interaction);
@@ -344,6 +385,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
     public async Task<RolePlayInteraction> SubmitPromptAsync(
         UnifiedPromptSubmission submission,
+        Func<string, Task>? onChunk = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(submission);
@@ -443,6 +485,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                     selectedActorName,
                     submission.Intent,
                     BuildContinuationPromptText(submission.Intent, submission.PromptText),
+                    onChunk,
                     cancellationToken);
 
                 session.Interactions.Add(interaction);
@@ -500,6 +543,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
     public async Task<ContinueAsResult> ContinueAsAsync(
         ContinueAsRequest request,
+        Func<string, Task>? onChunk = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -549,6 +593,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 PromptIntent.Narrative,
                 "Set the opening scene. Establish the setting, atmosphere, and the characters present. " +
                 "Describe the environment and the initial situation the characters find themselves in.",
+                onChunk,
                 cancellationToken);
 
             openingNarrative.InteractionType = InteractionType.System;
@@ -570,6 +615,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                     actorName,
                     PromptIntent.Message,
                     "Continue role-play for the selected character.",
+                    onChunk,
                     cancellationToken);
 
                 result.ParticipantOutputs.Add(interaction);
@@ -594,7 +640,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                     : "Continue the conversation naturally, building on the previous response.";
 
                 var interaction = await _continuationService.ContinueAsync(
-                    session, actor, actorName, PromptIntent.Message, promptText, cancellationToken);
+                    session, actor, actorName, PromptIntent.Message, promptText, onChunk, cancellationToken);
 
                 result.ParticipantOutputs.Add(interaction);
                 // Append to session so next iteration's prompt sees this interaction
@@ -613,6 +659,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 fallbackActorName,
                 PromptIntent.Message,
                 "Continue naturally with the next interaction that best fits recent context.",
+                onChunk,
                 cancellationToken);
 
             result.ParticipantOutputs.Add(interaction);
@@ -636,6 +683,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 "Narrative",
                 PromptIntent.Narrative,
                 narrativePrompt,
+                onChunk,
                 cancellationToken);
 
             narrative.InteractionType = InteractionType.System;

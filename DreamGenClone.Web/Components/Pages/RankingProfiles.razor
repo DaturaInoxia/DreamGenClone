@@ -1,264 +1,588 @@
+@page "/profiles"
+@page "/profiles/{ProfileId}"
 @page "/ranking-profiles"
 @page "/ranking-profiles/{ProfileId}"
 @rendermode InteractiveServer
 
 @using DreamGenClone.Web.Application.StoryAnalysis
+@using DreamGenClone.Application.StoryAnalysis
+@using DreamGenClone.Web.Domain.RolePlay
 @using DreamGenClone.Domain.StoryAnalysis
 
 @inject StoryAnalysisFacade Facade
-@inject NavigationManager Navigation
 
-<PageTitle>Ranking Profiles</PageTitle>
+<PageTitle>Profiles</PageTitle>
 
 <div class="container-fluid mt-4">
-    <h3>Ranking Profiles</h3>
-    <p class="text-muted">Create named profiles, each containing theme preferences to detect and score stories against.</p>
+    <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-end gap-3 mb-4">
+        <div>
+            <h3 class="mb-1">Profiles</h3>
+            <p class="text-muted mb-0">Manage ranking, tone, and style profiles in one place, and keep Character Perspective Modes close at hand as a reference.</p>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+            <span class="badge bg-primary-subtle text-primary-emphasis border">Ranking: @_profiles.Count</span>
+            <span class="badge bg-secondary-subtle text-secondary-emphasis border">Tone: @_toneProfiles.Count</span>
+            <span class="badge bg-dark-subtle text-dark-emphasis border">Style: @_styleProfiles.Count</span>
+            <span class="badge bg-success-subtle text-success-emphasis border">Base Stats: @_baseStatProfiles.Count</span>
+            <span class="badge bg-light text-dark border">Perspective Modes: @CharacterPerspectiveModes.All.Count</span>
+        </div>
+    </div>
 
-    <div class="row">
-        @* ── Left: Profile List ── *@
-        <div class="col-md-4">
-            <div class="card">
-                <div class="card-header">Profiles</div>
-                <div class="card-body">
-                    @if (_profiles.Count > 0)
-                    {
-                        <div class="list-group">
-                            @foreach (var p in _profiles)
-                            {
-                                <button type="button"
-                                        class="list-group-item list-group-item-action @(p.Id == _selectedProfileId ? "active" : "")"
-                                        @onclick="() => SelectProfile(p.Id)">
-                                    @p.Name
-                                    @if (p.IsDefault)
-                                    {
-                                        <span class="badge bg-warning text-dark ms-1">★ Default</span>
-                                    }
-                                    <small class="d-block @(p.Id == _selectedProfileId ? "text-light" : "text-muted")">
-                                        Created: @p.CreatedUtc.ToLocalTime().ToString("g")
-                                    </small>
-                                </button>
-                            }
-                        </div>
-                    }
-                    else
-                    {
-                        <p class="text-muted">No profiles yet. Create one below.</p>
-                    }
+    <ul class="nav nav-pills flex-nowrap overflow-auto mb-4" role="tablist" style="gap:0.5rem; white-space:nowrap;">
+        <li class="nav-item" role="presentation">
+            <button type="button" class="nav-link @GetTabClass("ranking")" @onclick='() => _activeTab = "ranking"'>Ranking</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button type="button" class="nav-link @GetTabClass("tone")" @onclick='() => _activeTab = "tone"'>Tone</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button type="button" class="nav-link @GetTabClass("style")" @onclick='() => _activeTab = "style"'>Style</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button type="button" class="nav-link @GetTabClass("base-stats")" @onclick='() => _activeTab = "base-stats"'>Base Stats</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button type="button" class="nav-link @GetTabClass("perspective")" @onclick='() => _activeTab = "perspective"'>Perspective</button>
+        </li>
+    </ul>
 
-                    <div class="mt-3">
-                        <div class="input-group input-group-sm">
-                            <input type="text" class="form-control" placeholder="New profile name..." @bind="_newProfileName" />
-                            <button class="btn btn-primary" @onclick="CreateProfile" disabled="@_isBusy">Create</button>
-                        </div>
-                        @if (!string.IsNullOrEmpty(_profileError))
-                        {
-                            <div class="text-danger mt-1 small">@_profileError</div>
-                        }
+    @if (_activeTab == "ranking")
+    {
+        <div class="row g-4">
+            <div class="col-lg-4">
+                <div class="card h-100">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span>Ranking Profiles</span>
+                        <button class="btn btn-sm btn-primary" @onclick="CreateProfile" disabled="@_isBusy">Create</button>
                     </div>
-
-                    <hr />
-                    <h6>Tone Profiles</h6>
-                    @if (_toneProfiles.Count > 0)
-                    {
-                        <ul class="list-group list-group-flush">
-                            @foreach (var tone in _toneProfiles)
-                            {
-                                <li class="list-group-item d-flex justify-content-between align-items-center px-0">
-                                    <div>
-                                        <div><strong>@tone.Name</strong> <span class="badge bg-secondary ms-1">@tone.Intensity</span></div>
-                                        <small class="text-muted">@tone.Description</small>
-                                    </div>
-                                    <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteTone(tone.Id)" disabled="@_isBusy">Delete</button>
-                                </li>
-                            }
-                        </ul>
-                    }
-                    else
-                    {
-                        <p class="text-muted small">No tone profiles yet.</p>
-                    }
-
-                    <div class="border rounded p-2 mt-2">
-                        <h6>Add Tone Profile</h6>
-                        <div class="mb-2">
-                            <label class="form-label">Name</label>
-                            <input type="text" class="form-control form-control-sm" @bind="_newToneName" placeholder="e.g., Intro Slow Burn" />
-                        </div>
-                        <div class="mb-2">
-                            <label class="form-label">Description</label>
-                            <input type="text" class="form-control form-control-sm" @bind="_newToneDescription" placeholder="Short guidance for this tone" />
-                        </div>
-                        <div class="mb-2">
-                            <label class="form-label">Intensity</label>
-                            <select class="form-select form-select-sm" @bind="_newToneIntensity">
-                                @foreach (var intensity in Enum.GetValues<ToneIntensity>())
-                                {
-                                    <option value="@intensity">@intensity</option>
-                                }
-                            </select>
-                        </div>
-                        <button class="btn btn-sm btn-primary" @onclick="AddTone" disabled="@_isBusy">Add Tone</button>
-                        @if (!string.IsNullOrEmpty(_toneError))
+                    <div class="card-body">
+                        @if (_profiles.Count > 0)
                         {
-                            <div class="text-danger mt-1 small">@_toneError</div>
+                            <div class="list-group">
+                                @foreach (var profile in _profiles)
+                                {
+                                    var themeCount = _selectedProfileId == profile.Id ? _themes.Count : (int?)null;
+                                    <button type="button"
+                                            class="list-group-item list-group-item-action @(profile.Id == _selectedProfileId ? "active" : "")"
+                                            @onclick="() => SelectProfile(profile.Id)">
+                                        <div class="d-flex justify-content-between align-items-start gap-2">
+                                            <div>
+                                                <strong>@profile.Name</strong>
+                                                @if (profile.IsDefault)
+                                                {
+                                                    <span class="badge bg-warning text-dark ms-1">Default</span>
+                                                }
+                                                <small class="d-block @(profile.Id == _selectedProfileId ? "text-light" : "text-muted")">
+                                                    Created @profile.CreatedUtc.ToLocalTime().ToString("g")
+                                                </small>
+                                            </div>
+                                            @if (themeCount.HasValue)
+                                            {
+                                                <span class="badge @(profile.Id == _selectedProfileId ? "bg-light text-dark" : "bg-secondary")">@themeCount.Value themes</span>
+                                            }
+                                        </div>
+                                    </button>
+                                }
+                            </div>
                         }
+                        else
+                        {
+                            <p class="text-muted mb-0">No ranking profiles yet. Create one to start steering themes.</p>
+                        }
+
+                        <div class="border rounded p-3 mt-3 bg-light-subtle">
+                            <label class="form-label">New Ranking Profile</label>
+                            <div class="input-group input-group-sm">
+                                <input type="text" class="form-control" placeholder="e.g. Voyeur Suspense" @bind="_newProfileName" />
+                                <button class="btn btn-primary" @onclick="CreateProfile" disabled="@_isBusy">Add</button>
+                            </div>
+                            @if (!string.IsNullOrEmpty(_profileError))
+                            {
+                                <div class="text-danger mt-2 small">@_profileError</div>
+                            }
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
 
-        @* ── Right: Selected Profile Detail ── *@
-        <div class="col-md-8">
-            @if (_selectedProfile is not null)
-            {
-                <div class="card">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <span>
-                            @if (_isEditingProfileName)
+            <div class="col-lg-8">
+                @if (_selectedProfile is not null)
+                {
+                    <div class="card">
+                        <div class="card-header d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2">
+                            <div>
+                                @if (_isEditingProfileName)
+                                {
+                                    <div class="input-group input-group-sm" style="max-width: 420px;">
+                                        <input type="text" class="form-control" @bind="_editProfileName" />
+                                        <button class="btn btn-success" @onclick="SaveProfileName" disabled="@_isBusy">Save</button>
+                                        <button class="btn btn-outline-secondary" @onclick="() => _isEditingProfileName = false">Cancel</button>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="d-flex flex-wrap align-items-center gap-2">
+                                        <strong>@_selectedProfile.Name</strong>
+                                        @if (_selectedProfile.IsDefault)
+                                        {
+                                            <span class="badge bg-warning text-dark">Default</span>
+                                        }
+                                    </div>
+                                    <small class="text-muted">Theme preferences shape ranking and prompt steering across the app.</small>
+                                }
+                            </div>
+                            <div class="d-flex flex-wrap gap-2">
+                                @if (!_isEditingProfileName)
+                                {
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="StartEditProfileName">Rename</button>
+                                }
+                                @if (!_selectedProfile.IsDefault)
+                                {
+                                    <button class="btn btn-sm btn-outline-warning" @onclick="SetAsDefault" disabled="@_isBusy">Set Default</button>
+                                }
+                                <button class="btn btn-sm btn-outline-danger" @onclick="DeleteProfile" disabled="@_isBusy">Delete</button>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            @if (!string.IsNullOrEmpty(_themeError))
                             {
-                                <div class="input-group input-group-sm" style="max-width: 300px;">
-                                    <input type="text" class="form-control" @bind="_editProfileName" />
-                                    <button class="btn btn-success btn-sm" @onclick="SaveProfileName" disabled="@_isBusy">Save</button>
-                                    <button class="btn btn-secondary btn-sm" @onclick="() => _isEditingProfileName = false">Cancel</button>
+                                <div class="alert alert-danger">@_themeError</div>
+                            }
+
+                            <h6>Theme Preferences</h6>
+                            @if (_themes.Count > 0)
+                            {
+                                <div class="table-responsive">
+                                    <table class="table table-sm align-middle">
+                                        <thead>
+                                            <tr>
+                                                <th>Name</th>
+                                                <th>Description</th>
+                                                <th style="width: 170px;">Tier</th>
+                                                <th style="width: 150px;">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var theme in _themes)
+                                            {
+                                                if (_editingThemeId == theme.Id)
+                                                {
+                                                    <tr>
+                                                        <td><input type="text" class="form-control form-control-sm" @bind="_editThemeName" /></td>
+                                                        <td><input type="text" class="form-control form-control-sm" @bind="_editThemeDescription" /></td>
+                                                        <td>
+                                                            <select class="form-select form-select-sm" @bind="_editThemeTier">
+                                                                @foreach (var tier in Enum.GetValues<ThemeTier>())
+                                                                {
+                                                                    <option value="@tier">@FormatTier(tier)</option>
+                                                                }
+                                                            </select>
+                                                        </td>
+                                                        <td>
+                                                            <button class="btn btn-sm btn-success me-1" @onclick="SaveEditTheme" disabled="@_isBusy">Save</button>
+                                                            <button class="btn btn-sm btn-outline-secondary" @onclick="CancelEditTheme">Cancel</button>
+                                                        </td>
+                                                    </tr>
+                                                }
+                                                else
+                                                {
+                                                    <tr>
+                                                        <td>@theme.Name</td>
+                                                        <td class="text-muted small">@theme.Description</td>
+                                                        <td><span class="badge @GetTierBadgeClass(theme.Tier)">@FormatTier(theme.Tier)</span></td>
+                                                        <td>
+                                                            <button class="btn btn-sm btn-outline-primary me-1" @onclick="() => StartEditTheme(theme)" disabled="@_isBusy">Edit</button>
+                                                            <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteTheme(theme.Id)" disabled="@_isBusy">Delete</button>
+                                                        </td>
+                                                    </tr>
+                                                }
+                                            }
+                                        </tbody>
+                                    </table>
                                 </div>
                             }
                             else
                             {
-                                <strong>@_selectedProfile.Name</strong>
-                                <button class="btn btn-sm btn-outline-secondary ms-2" @onclick="StartEditProfileName">Rename</button>
+                                <p class="text-muted">No theme preferences in this profile yet.</p>
                             }
-                        </span>
-                        <button class="btn btn-sm btn-outline-danger" @onclick="DeleteProfile" disabled="@_isBusy">Delete Profile</button>
-                        @if (_selectedProfile is not null && !_selectedProfile.IsDefault)
-                        {
-                            <button class="btn btn-sm btn-outline-warning ms-1" @onclick="SetAsDefault" disabled="@_isBusy">Set as Default</button>
-                        }
-                        else if (_selectedProfile is not null && _selectedProfile.IsDefault)
-                        {
-                            <span class="badge bg-warning text-dark align-self-center ms-1">★ Default</span>
-                        }
+
+                            <div class="border rounded p-3 mt-3 bg-light-subtle">
+                                <h6 class="mb-3">Add Theme</h6>
+                                <div class="row g-2 align-items-end">
+                                    <div class="col-md-4">
+                                        <label class="form-label">Name</label>
+                                        <input type="text" class="form-control form-control-sm" @bind="_newThemeName" placeholder="e.g. Slow-burn secrecy" />
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label">Description</label>
+                                        <input type="text" class="form-control form-control-sm" @bind="_newThemeDescription" placeholder="LLM guidance for this theme" />
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label class="form-label">Tier</label>
+                                        <select class="form-select form-select-sm" @bind="_newThemeTier">
+                                            @foreach (var tier in Enum.GetValues<ThemeTier>())
+                                            {
+                                                <option value="@tier">@FormatTier(tier)</option>
+                                            }
+                                        </select>
+                                    </div>
+                                    <div class="col-md-2">
+                                        <button class="btn btn-sm btn-primary w-100" @onclick="AddTheme" disabled="@_isBusy">Add</button>
+                                    </div>
+                                </div>
+                                @if (!string.IsNullOrEmpty(_themeValidationError))
+                                {
+                                    <div class="text-danger mt-2 small">@_themeValidationError</div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div class="card">
+                        <div class="card-body text-muted">Select a ranking profile to edit its theme preferences.</div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+    else if (_activeTab == "tone")
+    {
+        <div class="row g-4">
+            <div class="col-lg-4">
+                <div class="card h-100">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span>Tone Profiles</span>
+                        <button class="btn btn-sm btn-primary" @onclick="StartCreateTone">New</button>
                     </div>
                     <div class="card-body">
-                        @if (!string.IsNullOrEmpty(_themeError))
+                        @if (_toneProfiles.Count > 0)
                         {
-                            <div class="alert alert-danger">@_themeError</div>
-                        }
-
-                        <h6>Theme Preferences</h6>
-                        @if (_themes.Count > 0)
-                        {
-                            <table class="table table-sm">
-                                <thead>
-                                    <tr>
-                                        <th>Name</th>
-                                        <th>Description</th>
-                                        <th style="width: 160px;">Tier</th>
-                                        <th style="width: 140px;">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    @foreach (var t in _themes)
-                                    {
-                                        @if (_editingThemeId == t.Id)
-                                        {
-                                            <tr>
-                                                <td><input type="text" class="form-control form-control-sm" @bind="_editThemeName" /></td>
-                                                <td><input type="text" class="form-control form-control-sm" @bind="_editThemeDescription" /></td>
-                                                <td>
-                                                    <select class="form-select form-select-sm" @bind="_editThemeTier">
-                                                        @foreach (var tier in Enum.GetValues<ThemeTier>())
-                                                        {
-                                                            <option value="@tier">@FormatTier(tier)</option>
-                                                        }
-                                                    </select>
-                                                </td>
-                                                <td>
-                                                    <button class="btn btn-sm btn-success me-1" @onclick="SaveEditTheme" disabled="@_isBusy">Save</button>
-                                                    <button class="btn btn-sm btn-secondary" @onclick="CancelEditTheme">Cancel</button>
-                                                </td>
-                                            </tr>
-                                        }
-                                        else
-                                        {
-                                            <tr>
-                                                <td>@t.Name</td>
-                                                <td class="text-muted small">@t.Description</td>
-                                                <td><span class="badge @GetTierBadgeClass(t.Tier)">@FormatTier(t.Tier)</span></td>
-                                                <td>
-                                                    <button class="btn btn-sm btn-outline-primary me-1" @onclick="() => StartEditTheme(t)" disabled="@_isBusy">Edit</button>
-                                                    <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteTheme(t.Id)" disabled="@_isBusy">Delete</button>
-                                                </td>
-                                            </tr>
-                                        }
-                                    }
-                                </tbody>
-                            </table>
+                            <div class="list-group">
+                                @foreach (var tone in _toneProfiles)
+                                {
+                                    <button type="button"
+                                            class="list-group-item list-group-item-action @(tone.Id == _selectedToneId ? "active" : "")"
+                                            @onclick="() => SelectTone(tone.Id)">
+                                        <div class="d-flex justify-content-between align-items-start gap-2">
+                                            <div>
+                                                <strong>@tone.Name</strong>
+                                                <small class="d-block @(tone.Id == _selectedToneId ? "text-light" : "text-muted")">@Truncate(tone.Description, 90)</small>
+                                            </div>
+                                            <span class="badge @(tone.Id == _selectedToneId ? "bg-light text-dark" : "bg-secondary")">@tone.Intensity</span>
+                                        </div>
+                                    </button>
+                                }
+                            </div>
                         }
                         else
                         {
-                            <p class="text-muted">No theme preferences in this profile yet.</p>
+                            <p class="text-muted mb-0">No tone profiles yet.</p>
                         }
+                    </div>
+                </div>
+            </div>
 
-                        <div class="border rounded p-2 mt-2">
-                            <h6>Add Theme</h6>
-                            <div class="row g-2 align-items-end">
-                                <div class="col">
-                                    <label class="form-label">Name</label>
-                                    <input type="text" class="form-control form-control-sm" @bind="_newThemeName" placeholder="e.g., Detailed sex scenes" />
-                                </div>
-                                <div class="col">
-                                    <label class="form-label">Description (LLM guidance)</label>
-                                    <input type="text" class="form-control form-control-sm" @bind="_newThemeDescription" placeholder="e.g., Explicit, detailed sexual content beyond fade-to-black" />
-                                </div>
-                                <div class="col-auto">
-                                    <label class="form-label">Tier</label>
-                                    <select class="form-select form-select-sm" @bind="_newThemeTier" style="width: 160px;">
-                                        @foreach (var tier in Enum.GetValues<ThemeTier>())
+            <div class="col-lg-8">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>@(_selectedToneId is null ? "Create Tone Profile" : "Edit Tone Profile")</strong>
+                            <div class="text-muted small">Tone profiles set the emotional intensity baseline and adaptive style floor or ceiling behavior.</div>
+                        </div>
+                        @if (_selectedToneId is not null)
+                        {
+                            <button class="btn btn-sm btn-outline-danger" @onclick="DeleteTone" disabled="@_isBusy">Delete</button>
+                        }
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Name</label>
+                                <input type="text" class="form-control" @bind="_toneFormName" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Intensity</label>
+                                <select class="form-select" @bind="_toneFormIntensity">
+                                    @foreach (var intensity in Enum.GetValues<ToneIntensity>())
+                                    {
+                                        <option value="@intensity">@intensity</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Description</label>
+                                <textarea class="form-control" rows="3" @bind="_toneFormDescription"></textarea>
+                            </div>
+                        </div>
+                        @if (!string.IsNullOrEmpty(_toneError))
+                        {
+                            <div class="text-danger mt-3 small">@_toneError</div>
+                        }
+                        <div class="d-flex flex-wrap gap-2 mt-3">
+                            <button class="btn btn-primary" @onclick="SaveTone" disabled="@_isBusy">@(_selectedToneId is null ? "Create Tone" : "Save Changes")</button>
+                            <button class="btn btn-outline-secondary" @onclick="StartCreateTone" disabled="@_isBusy">Reset</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+    else if (_activeTab == "style")
+    {
+        <div class="row g-4">
+            <div class="col-lg-4">
+                <div class="card h-100">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span>Style Profiles</span>
+                        <button class="btn btn-sm btn-primary" @onclick="StartCreateStyle">New</button>
+                    </div>
+                    <div class="card-body">
+                        @if (_styleProfiles.Count > 0)
+                        {
+                            <div class="list-group">
+                                @foreach (var style in _styleProfiles)
+                                {
+                                    <button type="button"
+                                            class="list-group-item list-group-item-action @(style.Id == _selectedStyleId ? "active" : "")"
+                                            @onclick="() => SelectStyle(style.Id)">
+                                        <strong>@style.Name</strong>
+                                        <small class="d-block @(style.Id == _selectedStyleId ? "text-light" : "text-muted")">@Truncate(style.Description, 100)</small>
+                                    </button>
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <p class="text-muted mb-0">No style profiles yet.</p>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-8">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>@(_selectedStyleId is null ? "Create Style Profile" : "Edit Style Profile")</strong>
+                            <div class="text-muted small">Styles capture reusable writing voice, example phrasing, and a simple rule of thumb for authors and prompts.</div>
+                        </div>
+                        @if (_selectedStyleId is not null)
+                        {
+                            <button class="btn btn-sm btn-outline-danger" @onclick="DeleteStyle" disabled="@_isBusy">Delete</button>
+                        }
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Name</label>
+                                <input type="text" class="form-control" @bind="_styleFormName" />
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Description</label>
+                                <textarea class="form-control" rows="3" @bind="_styleFormDescription"></textarea>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Example</label>
+                                <textarea class="form-control" rows="3" @bind="_styleFormExample"></textarea>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Rule of Thumb</label>
+                                <textarea class="form-control" rows="2" @bind="_styleFormRuleOfThumb"></textarea>
+                            </div>
+                        </div>
+                        @if (!string.IsNullOrEmpty(_styleError))
+                        {
+                            <div class="text-danger mt-3 small">@_styleError</div>
+                        }
+                        <div class="d-flex flex-wrap gap-2 mt-3">
+                            <button class="btn btn-primary" @onclick="SaveStyle" disabled="@_isBusy">@(_selectedStyleId is null ? "Create Style" : "Save Changes")</button>
+                            <button class="btn btn-outline-secondary" @onclick="StartCreateStyle" disabled="@_isBusy">Reset</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+    else if (_activeTab == "base-stats")
+    {
+        <div class="row g-4">
+            <div class="col-lg-4">
+                <div class="card h-100">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span>Base Stat Profiles</span>
+                        <button class="btn btn-sm btn-primary" @onclick="StartCreateBaseStatProfile">New</button>
+                    </div>
+                    <div class="card-body">
+                        @if (_baseStatProfiles.Count > 0)
+                        {
+                            <div class="list-group">
+                                @foreach (var profile in _baseStatProfiles)
+                                {
+                                    <button type="button"
+                                            class="list-group-item list-group-item-action @(profile.Id == _selectedBaseStatProfileId ? "active" : "")"
+                                            @onclick="() => SelectBaseStatProfile(profile.Id)">
+                                        <strong>@profile.Name</strong>
+                                        <small class="d-block @(profile.Id == _selectedBaseStatProfileId ? "text-light" : "text-muted")">@Truncate(profile.Description, 100)</small>
+                                    </button>
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <p class="text-muted mb-0">No base stat profiles yet.</p>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-8">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>@(_selectedBaseStatProfileId is null ? "Create Base Stat Profile" : "Edit Base Stat Profile")</strong>
+                            <div class="text-muted small">Defines default per-character stat seeds for scenario session initialization.</div>
+                        </div>
+                        @if (_selectedBaseStatProfileId is not null)
+                        {
+                            <button class="btn btn-sm btn-outline-danger" @onclick="DeleteBaseStatProfile" disabled="@_isBusy">Delete</button>
+                        }
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Name</label>
+                                <input type="text" class="form-control" @bind="_baseStatFormName" />
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Description</label>
+                                <textarea class="form-control" rows="2" @bind="_baseStatFormDescription"></textarea>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Default Stats</label>
+                                @foreach (var statName in BaseStatNames)
+                                {
+                                    <div class="input-group input-group-sm mb-2" style="max-width: 360px;">
+                                        <span class="input-group-text" style="min-width: 140px;">@statName</span>
+                                        <input type="number"
+                                               class="form-control"
+                                               min="0"
+                                               max="100"
+                                               value="@GetBaseStatValue(statName)"
+                                               @onchange="@(e => SetBaseStatValue(statName, e.Value?.ToString()))" />
+                                    </div>
+                                }
+
+                                <div class="border rounded p-3 mt-3 bg-light-subtle">
+                                    <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+                                        <strong>Adaptive Stat Guide</strong>
+                                        <span class="badge bg-secondary-subtle text-secondary-emphasis border">Default seed: 50</span>
+                                    </div>
+
+                                    <div class="row g-2">
+                                        @foreach (var stat in AdaptiveStatCatalog.CanonicalStats)
                                         {
-                                            <option value="@tier">@FormatTier(tier)</option>
+                                            <div class="col-12 col-md-6">
+                                                <div class="border rounded p-2 h-100 bg-white">
+                                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                                        <strong>@stat.Name</strong>
+                                                        <span class="badge bg-light text-dark border">@stat.DefaultValue</span>
+                                                    </div>
+                                                    <div class="small text-muted mb-1">@stat.Description</div>
+                                                    <div class="small"><span class="text-muted">Low:</span> @stat.LowMeaning</div>
+                                                    <div class="small"><span class="text-muted">High:</span> @stat.HighMeaning</div>
+                                                    @if (StatEngineEffects.TryGetValue(stat.Name, out var effect))
+                                                    {
+                                                        <div class="small mt-1"><span class="text-muted">Engine:</span> @effect</div>
+                                                    }
+                                                </div>
+                                            </div>
                                         }
-                                    </select>
-                                </div>
-                                <div class="col-auto">
-                                    <button class="btn btn-sm btn-primary" @onclick="AddTheme" disabled="@_isBusy">Add</button>
+                                    </div>
+
+                                    <div class="mt-3">
+                                        <div class="fw-semibold mb-1">Interaction Patterns</div>
+                                        <ul class="small mb-0">
+                                            @foreach (var interaction in StatInteractionPatterns)
+                                            {
+                                                <li><strong>@interaction.Pair:</strong> @interaction.Effect</li>
+                                            }
+                                        </ul>
+                                    </div>
+
+                                    <div class="mt-3">
+                                        <div class="fw-semibold mb-1">Cross-Character Behavior (Current)</div>
+                                        <ul class="small mb-0">
+                                            @foreach (var note in CrossCharacterBehaviorNotes)
+                                            {
+                                                <li>@note</li>
+                                            }
+                                        </ul>
+                                    </div>
                                 </div>
                             </div>
-                            @if (!string.IsNullOrEmpty(_themeValidationError))
-                            {
-                                <div class="text-danger mt-1 small">@_themeValidationError</div>
-                            }
+                        </div>
+                        @if (!string.IsNullOrEmpty(_baseStatError))
+                        {
+                            <div class="text-danger mt-3 small">@_baseStatError</div>
+                        }
+                        <div class="d-flex flex-wrap gap-2 mt-3">
+                            <button class="btn btn-primary" @onclick="SaveBaseStatProfile" disabled="@_isBusy">@(_selectedBaseStatProfileId is null ? "Create Profile" : "Save Changes")</button>
+                            <button class="btn btn-outline-secondary" @onclick="StartCreateBaseStatProfile" disabled="@_isBusy">Reset</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="row g-4">
+            @foreach (var mode in CharacterPerspectiveModes.All)
+            {
+                <div class="col-12 col-md-6">
+                    <div class="card h-100 border-secondary-subtle">
+                        <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                            <strong>@mode.DisplayName</strong>
+                            <span class="badge bg-dark-subtle text-dark-emphasis border">Reference</span>
+                        </div>
+                        <div class="card-body d-flex flex-column gap-3">
+                            <div>
+                                <div class="text-muted small text-uppercase mb-1">Description</div>
+                                <div>@mode.Description</div>
+                            </div>
+                            <div>
+                                <div class="text-muted small text-uppercase mb-1">Example</div>
+                                <div class="fst-italic">@mode.Example</div>
+                            </div>
+                            <div>
+                                <div class="text-muted small text-uppercase mb-1">Rule of Thumb</div>
+                                <div>@mode.RuleOfThumb</div>
+                            </div>
                         </div>
                     </div>
                 </div>
             }
-            else
-            {
-                <div class="card">
-                    <div class="card-body text-muted">Select a profile from the list, or create a new one.</div>
-                </div>
-            }
         </div>
-    </div>
+    }
 </div>
 
 @code {
     [Parameter]
     public string? ProfileId { get; set; }
 
-    private List<RankingProfile> _profiles = new();
+    private string _activeTab = "ranking";
+    private bool _isBusy;
+
+    private List<RankingProfile> _profiles = [];
     private string? _selectedProfileId;
     private RankingProfile? _selectedProfile;
-    private List<ThemePreference> _themes = new();
-
-    private bool _isBusy;
+    private List<ThemePreference> _themes = [];
     private string _newProfileName = string.Empty;
     private string? _profileError;
-
-    // Profile rename
     private bool _isEditingProfileName;
     private string _editProfileName = string.Empty;
-
-    // Theme state
     private string? _themeError;
     private string? _themeValidationError;
     private string _newThemeName = string.Empty;
@@ -268,18 +592,62 @@
     private string _editThemeName = string.Empty;
     private string _editThemeDescription = string.Empty;
     private ThemeTier _editThemeTier = ThemeTier.NiceToHave;
+
     private List<ToneProfile> _toneProfiles = [];
-    private string _newToneName = string.Empty;
-    private string _newToneDescription = string.Empty;
-    private ToneIntensity _newToneIntensity = ToneIntensity.Emotional;
+    private string? _selectedToneId;
+    private string _toneFormName = string.Empty;
+    private string _toneFormDescription = string.Empty;
+    private ToneIntensity _toneFormIntensity = ToneIntensity.Emotional;
     private string? _toneError;
+
+    private List<StyleProfile> _styleProfiles = [];
+    private string? _selectedStyleId;
+    private string _styleFormName = string.Empty;
+    private string _styleFormDescription = string.Empty;
+    private string _styleFormExample = string.Empty;
+    private string _styleFormRuleOfThumb = string.Empty;
+    private string? _styleError;
+
+    private List<BaseStatProfile> _baseStatProfiles = [];
+    private string? _selectedBaseStatProfileId;
+    private string _baseStatFormName = string.Empty;
+    private string _baseStatFormDescription = string.Empty;
+    private Dictionary<string, int> _baseStatFormStats = new(StringComparer.OrdinalIgnoreCase);
+    private string? _baseStatError;
+
+    private static readonly IReadOnlyDictionary<string, string> StatEngineEffects = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Arousal"] = "Primary intensity driver. Higher values can raise effective style intensity and reinforce escalation themes.",
+        ["Inhibition"] = "Restraint brake. Lower values permit bolder progression; higher values slow escalation and preserve caution.",
+        ["Tension"] = "Conflict pressure. Higher values bias output toward volatility, uncertainty, and risk-laden beats.",
+        ["Trust"] = "Safety confidence. Higher values enable openness and vulnerability; lower values reinforce defensiveness.",
+        ["Agency"] = "Control signal. Higher values favor decisive initiative; lower values bias toward passivity and reduced control."
+    };
+
+    private static readonly (string Pair, string Effect)[] StatInteractionPatterns =
+    [
+        ("High Trust + Low Inhibition", "Usually increases openness and accelerates consent-forward progression."),
+        ("High Arousal + High Inhibition", "Creates push-pull tension: strong desire paired with restraint and hesitation."),
+        ("High Tension + Low Trust", "Increases conflict tone and defensive reactions; de-escalation cues become more important."),
+        ("High Agency + High Tension", "Biases toward assertive, high-stakes actions and explicit directional choices."),
+        ("Low Agency + High Trust", "Can read as receptive surrender when safety is high, but less initiative from the actor.")
+    ];
+
+    private static readonly string[] CrossCharacterBehaviorNotes =
+    [
+        "Each character currently tracks their own independent stat block.",
+        "There is no pairwise relational matrix yet (for example, Trust[A->B] vs Trust[A->C]).",
+        "Theme tracking is session-level, so dominant themes can influence style resolution globally.",
+        "Direct cross-character stat transfer effects are not implemented in v1; they are planned for a later phase."
+    ];
+
+    private static readonly string[] BaseStatNames = GetBaseStatNames();
 
     protected override async Task OnParametersSetAsync()
     {
-        _profiles = await Facade.ListProfilesAsync();
-        _toneProfiles = await Facade.ListToneProfilesAsync();
+        await ReloadAsync();
 
-        if (!string.IsNullOrEmpty(ProfileId))
+        if (!string.IsNullOrWhiteSpace(ProfileId))
         {
             await SelectProfile(ProfileId);
         }
@@ -287,63 +655,49 @@
         {
             await SelectProfile(_profiles[0].Id);
         }
+
+        if (_selectedToneId is null && _toneProfiles.Count > 0)
+        {
+            SelectTone(_toneProfiles[0].Id);
+        }
+
+        if (_selectedStyleId is null && _styleProfiles.Count > 0)
+        {
+            SelectStyle(_styleProfiles[0].Id);
+        }
+
+        if (_selectedBaseStatProfileId is null && _baseStatProfiles.Count > 0)
+        {
+            SelectBaseStatProfile(_baseStatProfiles[0].Id);
+        }
+        else if (_selectedBaseStatProfileId is null && _baseStatProfiles.Count == 0)
+        {
+            StartCreateBaseStatProfile();
+        }
     }
 
-    private async Task AddTone()
+    private static string[] GetBaseStatNames()
     {
-        _toneError = null;
-        var name = _newToneName?.Trim() ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(name))
-        {
-            _toneError = "Tone profile name is required.";
-            return;
-        }
-
-        _isBusy = true;
-        try
-        {
-            await Facade.CreateToneProfileAsync(name, _newToneDescription ?? string.Empty, _newToneIntensity);
-            _toneProfiles = await Facade.ListToneProfilesAsync();
-            _newToneName = string.Empty;
-            _newToneDescription = string.Empty;
-            _newToneIntensity = ToneIntensity.Emotional;
-        }
-        catch (Exception ex)
-        {
-            _toneError = ex.Message;
-        }
-        finally
-        {
-            _isBusy = false;
-        }
+        return AdaptiveStatCatalog.CanonicalStatNames.ToArray();
     }
 
-    private async Task DeleteTone(string toneId)
+    private async Task ReloadAsync()
     {
-        _toneError = null;
-        _isBusy = true;
-        try
-        {
-            await Facade.DeleteToneProfileAsync(toneId);
-            _toneProfiles = await Facade.ListToneProfilesAsync();
-        }
-        catch (Exception ex)
-        {
-            _toneError = ex.Message;
-        }
-        finally
-        {
-            _isBusy = false;
-        }
+        _profiles = await Facade.ListProfilesAsync();
+        _toneProfiles = await Facade.ListToneProfilesAsync();
+        _styleProfiles = await Facade.ListStyleProfilesAsync();
+        _baseStatProfiles = await Facade.ListBaseStatProfilesAsync();
     }
+
+    private string GetTabClass(string tab) => _activeTab == tab ? "active" : string.Empty;
 
     private async Task SelectProfile(string profileId)
     {
         _selectedProfileId = profileId;
-        _selectedProfile = _profiles.FirstOrDefault(p => p.Id == profileId);
+        _selectedProfile = _profiles.FirstOrDefault(x => x.Id == profileId);
         _themes = _selectedProfile is not null
             ? await Facade.ListThemesByProfileAsync(profileId)
-            : new();
+            : [];
         _editingThemeId = null;
         _themeError = null;
         _themeValidationError = null;
@@ -352,7 +706,7 @@
     private async Task CreateProfile()
     {
         _profileError = null;
-        var name = _newProfileName?.Trim() ?? string.Empty;
+        var name = _newProfileName.Trim();
         if (string.IsNullOrWhiteSpace(name))
         {
             _profileError = "Name is required.";
@@ -363,7 +717,7 @@
         try
         {
             var profile = await Facade.CreateProfileAsync(name);
-            _profiles = await Facade.ListProfilesAsync();
+            await ReloadAsync();
             _newProfileName = string.Empty;
             await SelectProfile(profile.Id);
         }
@@ -385,14 +739,18 @@
 
     private async Task SaveProfileName()
     {
-        if (_selectedProfileId is null) return;
+        if (_selectedProfileId is null)
+        {
+            return;
+        }
+
         _profileError = null;
         _isBusy = true;
         try
         {
             await Facade.UpdateProfileAsync(_selectedProfileId, _editProfileName);
-            _profiles = await Facade.ListProfilesAsync();
-            _selectedProfile = _profiles.FirstOrDefault(p => p.Id == _selectedProfileId);
+            await ReloadAsync();
+            _selectedProfile = _profiles.FirstOrDefault(x => x.Id == _selectedProfileId);
             _isEditingProfileName = false;
         }
         catch (Exception ex)
@@ -407,17 +765,24 @@
 
     private async Task DeleteProfile()
     {
-        if (_selectedProfileId is null) return;
+        if (_selectedProfileId is null)
+        {
+            return;
+        }
+
+        _profileError = null;
         _isBusy = true;
         try
         {
             await Facade.DeleteProfileAsync(_selectedProfileId);
-            _profiles = await Facade.ListProfilesAsync();
+            await ReloadAsync();
             _selectedProfileId = null;
             _selectedProfile = null;
-            _themes = new();
+            _themes = [];
             if (_profiles.Count > 0)
+            {
                 await SelectProfile(_profiles[0].Id);
+            }
         }
         catch (Exception ex)
         {
@@ -431,13 +796,18 @@
 
     private async Task SetAsDefault()
     {
-        if (_selectedProfileId is null) return;
+        if (_selectedProfileId is null)
+        {
+            return;
+        }
+
+        _profileError = null;
         _isBusy = true;
         try
         {
             await Facade.SetProfileDefaultAsync(_selectedProfileId);
-            _profiles = await Facade.ListProfilesAsync();
-            _selectedProfile = _profiles.FirstOrDefault(p => p.Id == _selectedProfileId);
+            await ReloadAsync();
+            _selectedProfile = _profiles.FirstOrDefault(x => x.Id == _selectedProfileId);
         }
         catch (Exception ex)
         {
@@ -451,25 +821,30 @@
 
     private async Task AddTheme()
     {
-        if (_selectedProfileId is null) return;
+        if (_selectedProfileId is null)
+        {
+            return;
+        }
+
         _themeValidationError = null;
-        var name = _newThemeName?.Trim() ?? string.Empty;
+        var name = _newThemeName.Trim();
+        var description = _newThemeDescription.Trim();
         if (string.IsNullOrWhiteSpace(name))
         {
             _themeValidationError = "Name is required.";
             return;
         }
-        var desc = _newThemeDescription?.Trim() ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(desc))
+
+        if (string.IsNullOrWhiteSpace(description))
         {
-            _themeValidationError = "Description is required (guides the LLM).";
+            _themeValidationError = "Description is required.";
             return;
         }
 
         _isBusy = true;
         try
         {
-            await Facade.CreateThemeAsync(_selectedProfileId, name, desc, _newThemeTier);
+            await Facade.CreateThemeAsync(_selectedProfileId, name, description, _newThemeTier);
             _themes = await Facade.ListThemesByProfileAsync(_selectedProfileId);
             _newThemeName = string.Empty;
             _newThemeDescription = string.Empty;
@@ -485,31 +860,31 @@
         }
     }
 
-    private void StartEditTheme(ThemePreference t)
+    private void StartEditTheme(ThemePreference theme)
     {
-        _editingThemeId = t.Id;
-        _editThemeName = t.Name;
-        _editThemeDescription = t.Description;
-        _editThemeTier = t.Tier;
+        _editingThemeId = theme.Id;
+        _editThemeName = theme.Name;
+        _editThemeDescription = theme.Description;
+        _editThemeTier = theme.Tier;
     }
 
-    private void CancelEditTheme()
-    {
-        _editingThemeId = null;
-    }
+    private void CancelEditTheme() => _editingThemeId = null;
 
     private async Task SaveEditTheme()
     {
-        if (_editingThemeId is null || _selectedProfileId is null) return;
+        if (_editingThemeId is null || _selectedProfileId is null)
+        {
+            return;
+        }
+
         _themeValidationError = null;
-        var name = _editThemeName?.Trim() ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(name))
+        if (string.IsNullOrWhiteSpace(_editThemeName.Trim()))
         {
             _themeValidationError = "Name is required.";
             return;
         }
-        var desc = _editThemeDescription?.Trim() ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(desc))
+
+        if (string.IsNullOrWhiteSpace(_editThemeDescription.Trim()))
         {
             _themeValidationError = "Description is required.";
             return;
@@ -518,7 +893,7 @@
         _isBusy = true;
         try
         {
-            await Facade.UpdateThemeAsync(_editingThemeId, name, desc, _editThemeTier);
+            await Facade.UpdateThemeAsync(_editingThemeId, _editThemeName, _editThemeDescription, _editThemeTier);
             _themes = await Facade.ListThemesByProfileAsync(_selectedProfileId);
             _editingThemeId = null;
         }
@@ -534,7 +909,11 @@
 
     private async Task DeleteTheme(string id)
     {
-        if (_selectedProfileId is null) return;
+        if (_selectedProfileId is null)
+        {
+            return;
+        }
+
         _isBusy = true;
         try
         {
@@ -549,6 +928,323 @@
         {
             _isBusy = false;
         }
+    }
+
+    private void StartCreateTone()
+    {
+        _selectedToneId = null;
+        _toneFormName = string.Empty;
+        _toneFormDescription = string.Empty;
+        _toneFormIntensity = ToneIntensity.Emotional;
+        _toneError = null;
+    }
+
+    private void SelectTone(string toneId)
+    {
+        var tone = _toneProfiles.FirstOrDefault(x => x.Id == toneId);
+        if (tone is null)
+        {
+            return;
+        }
+
+        _selectedToneId = tone.Id;
+        _toneFormName = tone.Name;
+        _toneFormDescription = tone.Description;
+        _toneFormIntensity = tone.Intensity;
+        _toneError = null;
+    }
+
+    private async Task SaveTone()
+    {
+        _toneError = null;
+        if (string.IsNullOrWhiteSpace(_toneFormName.Trim()))
+        {
+            _toneError = "Tone profile name is required.";
+            return;
+        }
+
+        _isBusy = true;
+        try
+        {
+            if (_selectedToneId is null)
+            {
+                var created = await Facade.CreateToneProfileAsync(_toneFormName, _toneFormDescription, _toneFormIntensity);
+                await ReloadAsync();
+                SelectTone(created.Id);
+            }
+            else
+            {
+                await Facade.UpdateToneProfileAsync(_selectedToneId, _toneFormName, _toneFormDescription, _toneFormIntensity);
+                await ReloadAsync();
+                SelectTone(_selectedToneId);
+            }
+        }
+        catch (Exception ex)
+        {
+            _toneError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task DeleteTone()
+    {
+        if (_selectedToneId is null)
+        {
+            return;
+        }
+
+        _toneError = null;
+        _isBusy = true;
+        try
+        {
+            await Facade.DeleteToneProfileAsync(_selectedToneId);
+            await ReloadAsync();
+            if (_toneProfiles.Count > 0)
+            {
+                SelectTone(_toneProfiles[0].Id);
+            }
+            else
+            {
+                StartCreateTone();
+            }
+        }
+        catch (Exception ex)
+        {
+            _toneError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private void StartCreateStyle()
+    {
+        _selectedStyleId = null;
+        _styleFormName = string.Empty;
+        _styleFormDescription = string.Empty;
+        _styleFormExample = string.Empty;
+        _styleFormRuleOfThumb = string.Empty;
+        _styleError = null;
+    }
+
+    private void SelectStyle(string styleId)
+    {
+        var style = _styleProfiles.FirstOrDefault(x => x.Id == styleId);
+        if (style is null)
+        {
+            return;
+        }
+
+        _selectedStyleId = style.Id;
+        _styleFormName = style.Name;
+        _styleFormDescription = style.Description;
+        _styleFormExample = style.Example;
+        _styleFormRuleOfThumb = style.RuleOfThumb;
+        _styleError = null;
+    }
+
+    private async Task SaveStyle()
+    {
+        _styleError = null;
+        if (string.IsNullOrWhiteSpace(_styleFormName.Trim()))
+        {
+            _styleError = "Style profile name is required.";
+            return;
+        }
+
+        _isBusy = true;
+        try
+        {
+            if (_selectedStyleId is null)
+            {
+                var created = await Facade.CreateStyleProfileAsync(_styleFormName, _styleFormDescription, _styleFormExample, _styleFormRuleOfThumb);
+                await ReloadAsync();
+                SelectStyle(created.Id);
+            }
+            else
+            {
+                await Facade.UpdateStyleProfileAsync(_selectedStyleId, _styleFormName, _styleFormDescription, _styleFormExample, _styleFormRuleOfThumb);
+                await ReloadAsync();
+                SelectStyle(_selectedStyleId);
+            }
+        }
+        catch (Exception ex)
+        {
+            _styleError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task DeleteStyle()
+    {
+        if (_selectedStyleId is null)
+        {
+            return;
+        }
+
+        _styleError = null;
+        _isBusy = true;
+        try
+        {
+            await Facade.DeleteStyleProfileAsync(_selectedStyleId);
+            await ReloadAsync();
+            if (_styleProfiles.Count > 0)
+            {
+                SelectStyle(_styleProfiles[0].Id);
+            }
+            else
+            {
+                StartCreateStyle();
+            }
+        }
+        catch (Exception ex)
+        {
+            _styleError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private void StartCreateBaseStatProfile()
+    {
+        _selectedBaseStatProfileId = null;
+        _baseStatFormName = string.Empty;
+        _baseStatFormDescription = string.Empty;
+        _baseStatError = null;
+        _baseStatFormStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var statName in BaseStatNames)
+        {
+            _baseStatFormStats[statName] = 50;
+        }
+    }
+
+    private void SelectBaseStatProfile(string profileId)
+    {
+        var profile = _baseStatProfiles.FirstOrDefault(x => x.Id == profileId);
+        if (profile is null)
+        {
+            return;
+        }
+
+        _selectedBaseStatProfileId = profile.Id;
+        _baseStatFormName = profile.Name;
+        _baseStatFormDescription = profile.Description;
+        _baseStatError = null;
+        _baseStatFormStats = new Dictionary<string, int>(profile.DefaultStats, StringComparer.OrdinalIgnoreCase);
+        foreach (var statName in BaseStatNames)
+        {
+            if (!_baseStatFormStats.ContainsKey(statName))
+            {
+                _baseStatFormStats[statName] = 50;
+            }
+        }
+    }
+
+    private async Task SaveBaseStatProfile()
+    {
+        _baseStatError = null;
+        if (string.IsNullOrWhiteSpace(_baseStatFormName.Trim()))
+        {
+            _baseStatError = "Base stat profile name is required.";
+            return;
+        }
+
+        _isBusy = true;
+        try
+        {
+            if (_selectedBaseStatProfileId is null)
+            {
+                var created = await Facade.CreateBaseStatProfileAsync(_baseStatFormName, _baseStatFormDescription, _baseStatFormStats);
+                await ReloadAsync();
+                SelectBaseStatProfile(created.Id);
+            }
+            else
+            {
+                await Facade.UpdateBaseStatProfileAsync(_selectedBaseStatProfileId, _baseStatFormName, _baseStatFormDescription, _baseStatFormStats);
+                await ReloadAsync();
+                SelectBaseStatProfile(_selectedBaseStatProfileId);
+            }
+        }
+        catch (Exception ex)
+        {
+            _baseStatError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task DeleteBaseStatProfile()
+    {
+        if (_selectedBaseStatProfileId is null)
+        {
+            return;
+        }
+
+        _baseStatError = null;
+        _isBusy = true;
+        try
+        {
+            await Facade.DeleteBaseStatProfileAsync(_selectedBaseStatProfileId);
+            await ReloadAsync();
+            if (_baseStatProfiles.Count > 0)
+            {
+                SelectBaseStatProfile(_baseStatProfiles[0].Id);
+            }
+            else
+            {
+                StartCreateBaseStatProfile();
+            }
+        }
+        catch (Exception ex)
+        {
+            _baseStatError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private int GetBaseStatValue(string statName)
+    {
+        if (!_baseStatFormStats.TryGetValue(statName, out var value))
+        {
+            value = 50;
+            _baseStatFormStats[statName] = value;
+        }
+
+        return value;
+    }
+
+    private void SetBaseStatValue(string statName, string? rawValue)
+    {
+        if (!int.TryParse(rawValue, out var value))
+        {
+            value = 50;
+        }
+
+        _baseStatFormStats[statName] = Math.Clamp(value, 0, 100);
+    }
+
+    private static string Truncate(string? value, int maxLength)
+    {
+        if (string.IsNullOrWhiteSpace(value) || value.Length <= maxLength)
+        {
+            return value ?? string.Empty;
+        }
+
+        return $"{value[..(maxLength - 1)]}…";
     }
 
     private static string FormatTier(ThemeTier tier) => tier switch

@@ -22,6 +22,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
     private readonly IPromptDealbreakerService _dealbreakerService;
     private readonly IThemePreferenceService _themePreferenceService;
     private readonly IToneProfileService _toneProfileService;
+    private readonly IStyleProfileService _styleProfileService;
     private readonly IRolePlayDebugEventSink _debugEventSink;
     private readonly ILogger<RolePlayContinuationService> _logger;
 
@@ -33,6 +34,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         IPromptDealbreakerService dealbreakerService,
         IThemePreferenceService themePreferenceService,
         IToneProfileService toneProfileService,
+        IStyleProfileService styleProfileService,
         IRolePlayDebugEventSink debugEventSink,
         ILogger<RolePlayContinuationService> logger)
     {
@@ -43,6 +45,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         _dealbreakerService = dealbreakerService;
         _themePreferenceService = themePreferenceService;
         _toneProfileService = toneProfileService;
+        _styleProfileService = styleProfileService;
         _debugEventSink = debugEventSink;
         _logger = logger;
     }
@@ -53,6 +56,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         string? customActorName,
         PromptIntent intent,
         string promptText,
+        Func<string, Task>? onChunk = null,
         CancellationToken cancellationToken = default)
     {
         await ValidateDirectiveTextAsync(session, promptText, cancellationToken);
@@ -113,7 +117,9 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         string output;
         try
         {
-            output = await _completionClient.GenerateAsync(prompt, resolved, cancellationToken);
+            output = onChunk is null
+                ? await _completionClient.GenerateAsync(prompt, resolved, cancellationToken)
+                : await _completionClient.StreamGenerateAsync(prompt, resolved, onChunk, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -225,6 +231,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                 customActorName,
                 PromptIntent.Message,
                 promptText,
+                null,
                 cancellationToken);
             result.ParticipantOutputs.Add(interaction);
         }
@@ -311,6 +318,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
 
         string scenarioStyle = string.Empty;
         ToneIntensity? baseToneIntensity = null;
+        string? scenarioStyleProfileId = null;
 
         if (!string.IsNullOrWhiteSpace(session.ScenarioId))
         {
@@ -323,6 +331,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                 sb.AppendLine($"- Plot: {scenario.Plot.Description}");
                 sb.AppendLine($"- Setting: {scenario.Setting.WorldDescription}");
                 scenarioStyle = $"{scenario.Style.WritingStyle} / {scenario.Style.Tone}".Trim();
+                scenarioStyleProfileId = scenario.Style.StyleProfileId;
                 sb.AppendLine($"- Style: {scenarioStyle}");
 
                 if (!string.IsNullOrWhiteSpace(scenario.Style.PointOfView))
@@ -394,7 +403,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                     sb.AppendLine($"- Style Bounds: floor={session.StyleFloorOverride ?? "(none)"}, ceiling={session.StyleCeilingOverride ?? "(none)"}");
                 }
 
-                // Include all character descriptions so the AI can portray them accurately
+                // Include all character details so the AI can portray them accurately.
                 if (scenario.Characters.Count > 0)
                 {
                     sb.AppendLine("Characters in this scene:");
@@ -402,7 +411,10 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                     {
                         if (!string.IsNullOrWhiteSpace(character.Name))
                         {
-                            sb.AppendLine($"  {character.Name}: {character.Description?.Trim() ?? "(no description)"}");
+                            var roleText = string.IsNullOrWhiteSpace(character.Role)
+                                ? string.Empty
+                                : $" [Role: {character.Role.Trim()}]";
+                            sb.AppendLine($"  {character.Name}{roleText}: {character.Description?.Trim() ?? "(no description)"}");
                         }
                     }
                 }
@@ -433,6 +445,30 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                             : item.Description.Trim();
                         sb.AppendLine($"  {item.Name.Trim()}: {description}");
                     }
+                }
+            }
+        }
+
+        var selectedStyleProfileId = session.SelectedStyleProfileId ?? scenarioStyleProfileId;
+        if (!string.IsNullOrWhiteSpace(selectedStyleProfileId))
+        {
+            sb.AppendLine($"Style Profile: {selectedStyleProfileId}");
+            var styleProfile = await _styleProfileService.GetAsync(selectedStyleProfileId, cancellationToken);
+            if (styleProfile is not null)
+            {
+                if (!string.IsNullOrWhiteSpace(styleProfile.Description))
+                {
+                    sb.AppendLine($"- Style Profile Description: {styleProfile.Description}");
+                }
+
+                if (!string.IsNullOrWhiteSpace(styleProfile.Example))
+                {
+                    sb.AppendLine($"- Style Profile Example: {styleProfile.Example}");
+                }
+
+                if (!string.IsNullOrWhiteSpace(styleProfile.RuleOfThumb))
+                {
+                    sb.AppendLine($"- Style Profile Rule of Thumb: {styleProfile.RuleOfThumb}");
                 }
             }
         }
@@ -623,9 +659,10 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         // Persona   = 1st person POV ("I felt...", "I watched...")
         // NPC       = 3rd person external (dialogue + observable behavior only)
         var personaName = string.IsNullOrWhiteSpace(session.PersonaName) ? "You" : session.PersonaName;
-        var (effectiveStyleLabel, effectiveStyleReason) = ResolveEffectiveStyle(session, baseToneIntensity);
+        var (effectiveStyleLabel, effectiveStyleReason) = RolePlayStyleResolver.ResolveEffectiveStyle(session, baseToneIntensity);
         sb.AppendLine($"Effective Style Mode: {effectiveStyleLabel}");
         sb.AppendLine($"Style Resolution: {effectiveStyleReason}");
+        sb.AppendLine($"Manual Tone Pin: {(session.IsToneManuallyPinned ? "ON" : "OFF")}");
 
         var styleHint = string.IsNullOrWhiteSpace(scenarioStyle)
             ? effectiveStyleLabel
@@ -640,133 +677,19 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                 "Prefer externally observable actions, dialogue, body language, and scene-level state changes. " +
                 $"Use vivid sensory details and match the established tone ({styleHint}). Output 100-300 words.");
         }
-        else if (actor == ContinueAsActor.You)
-        {
-            // Persona is the POV character — writes in 1st person
-            sb.AppendLine($"Write the next interaction as {actorName} in FIRST PERSON. Use \"I\" throughout. " +
-                $"Include {actorName}'s dialogue, actions, physical sensations, and internal thoughts. " +
-                "Refer to all other characters by name in third person. " +
-                $"Match the scene's style ({styleHint}). Output 100-300 words.");
-        }
         else
         {
-            // NPC / Custom character writes in THIRD PERSON
-            sb.AppendLine($"Write the next interaction for {actorName} in THIRD PERSON. " +
-                $"Use \"{actorName}\" and \"he/she/they\" — NEVER use \"I\" or first person for {actorName}. " +
-                $"Include {actorName}'s dialogue (in quotes), physical actions, body language, and observable behavior. " +
-                $"Do NOT write {actorName}'s internal thoughts or feelings — only what can be seen and heard externally. " +
-                $"Do NOT write from {personaName}'s perspective or include {personaName}'s thoughts. " +
-                $"Match the scene's style ({styleHint}). Output 100-300 words.");
+            var perspectiveMode = session.ResolvePerspectiveMode(actor, actorName);
+            RolePlayPerspectivePromptBuilder.AppendInteractionInstruction(
+                sb,
+                perspectiveMode,
+                actorName,
+                personaName,
+                styleHint,
+                "Output 100-300 words.");
         }
 
         return sb.ToString();
     }
 
-    private static (string Label, string Reason) ResolveEffectiveStyle(RolePlaySession session, ToneIntensity? baseToneIntensity)
-    {
-        var baseScale = baseToneIntensity.HasValue ? (int)baseToneIntensity.Value : 2;
-        var reasonParts = new List<string>
-        {
-            $"base={(ToneIntensity)Math.Clamp(baseScale, 0, 5)}"
-        };
-
-        var arousalValues = session.AdaptiveState.CharacterStats.Values
-            .SelectMany(x => x.Stats.Where(kvp => string.Equals(kvp.Key, "Arousal", StringComparison.OrdinalIgnoreCase)).Select(kvp => kvp.Value))
-            .ToList();
-        if (arousalValues.Count > 0)
-        {
-            var avgArousal = arousalValues.Average();
-            if (avgArousal >= 85)
-            {
-                baseScale += 2;
-                reasonParts.Add("arousal=very-high(+2)");
-            }
-            else if (avgArousal >= 70)
-            {
-                baseScale += 1;
-                reasonParts.Add("arousal=high(+1)");
-            }
-            else if (avgArousal <= 35)
-            {
-                baseScale -= 1;
-                reasonParts.Add("arousal=low(-1)");
-            }
-        }
-
-        if (session.Interactions.Count >= 14)
-        {
-            baseScale += 1;
-            reasonParts.Add("progression=late(+1)");
-        }
-        else if (session.Interactions.Count <= 4)
-        {
-            baseScale -= 1;
-            reasonParts.Add("progression=early(-1)");
-        }
-
-        var primary = session.AdaptiveState.ThemeTracker.PrimaryThemeId ?? string.Empty;
-        var secondary = session.AdaptiveState.ThemeTracker.SecondaryThemeId ?? string.Empty;
-        if (IsEscalatingTheme(primary) || IsEscalatingTheme(secondary))
-        {
-            baseScale += 1;
-            reasonParts.Add("theme=escalating(+1)");
-        }
-
-        var floor = ParseBoundScale(session.StyleFloorOverride);
-        var ceiling = ParseBoundScale(session.StyleCeilingOverride);
-
-        var clamped = Math.Clamp(baseScale, 0, 5);
-        if (floor.HasValue && clamped < floor.Value)
-        {
-            clamped = floor.Value;
-            reasonParts.Add($"floor={ToStyleLabel(floor.Value)}");
-        }
-
-        if (ceiling.HasValue && clamped > ceiling.Value)
-        {
-            clamped = ceiling.Value;
-            reasonParts.Add($"ceiling={ToStyleLabel(ceiling.Value)}");
-        }
-
-        return (ToStyleLabel(clamped), string.Join(", ", reasonParts));
-    }
-
-    private static bool IsEscalatingTheme(string themeId)
-    {
-        return string.Equals(themeId, "dominance", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(themeId, "power-dynamics", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(themeId, "forbidden-risk", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(themeId, "humiliation", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(themeId, "infidelity", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static int? ParseBoundScale(string? bound)
-    {
-        if (string.IsNullOrWhiteSpace(bound))
-        {
-            return null;
-        }
-
-        var value = bound.Trim().ToLowerInvariant();
-        if (value.Contains("intro") || value.Contains("pg12") || value.Contains("pg-12")) return 0;
-        if (value.Contains("emotional") || value.Contains("pg13") || value.Contains("pg-13")) return 1;
-        if (value.Contains("suggestive")) return 2;
-        if (value.Contains("sensual") || value.Contains("mature")) return 3;
-        if (value.Contains("explicit") || value.Contains("erotic")) return 4;
-        if (value.Contains("hardcore")) return 5;
-        return null;
-    }
-
-    private static string ToStyleLabel(int scale)
-    {
-        return scale switch
-        {
-            0 => "Intro / PG-12",
-            1 => "Emotional / PG-13",
-            2 => "Suggestive / PG-13+",
-            3 => "Sensual / Mature",
-            4 => "Erotic / Explicit",
-            _ => "Hardcore / Explicit+"
-        };
-    }
 }

@@ -278,6 +278,15 @@ public sealed class InteractionRetryService : IInteractionRetryService
                     }
                 }
 
+                if (scenario.Plot.Conflicts.Count > 0)
+                {
+                    sb.AppendLine("- Plot Conflicts:");
+                    foreach (var conflict in scenario.Plot.Conflicts.Where(x => !string.IsNullOrWhiteSpace(x)))
+                    {
+                        sb.AppendLine($"  - {conflict.Trim()}");
+                    }
+                }
+
                 if (scenario.Setting.WorldRules.Count > 0)
                 {
                     sb.AppendLine("- World Rules:");
@@ -293,6 +302,21 @@ public sealed class InteractionRetryService : IInteractionRetryService
                     foreach (var guideline in scenario.Style.StyleGuidelines.Where(x => !string.IsNullOrWhiteSpace(x)))
                     {
                         sb.AppendLine($"  - {guideline.Trim()}");
+                    }
+                }
+
+                if (scenario.Characters.Count > 0)
+                {
+                    sb.AppendLine("Characters in this scene:");
+                    foreach (var character in scenario.Characters.Where(x => !string.IsNullOrWhiteSpace(x.Name)))
+                    {
+                        var roleText = string.IsNullOrWhiteSpace(character.Role)
+                            ? string.Empty
+                            : $" [Role: {character.Role.Trim()}]";
+                        var description = string.IsNullOrWhiteSpace(character.Description)
+                            ? "(no description)"
+                            : character.Description.Trim();
+                        sb.AppendLine($"  {character.Name!.Trim()}{roleText}: {description}");
                     }
                 }
 
@@ -342,8 +366,33 @@ public sealed class InteractionRetryService : IInteractionRetryService
             sb.AppendLine(additionalInstruction);
         }
 
-        sb.AppendLine("Write one concise next interaction message only.");
+        var styleHint = BuildRetryStyleHint(session);
+        var perspectiveMode = session.ResolvePerspectiveMode(target.InteractionType, target.ActorName);
+        RolePlayPerspectivePromptBuilder.AppendInteractionInstruction(
+            sb,
+            perspectiveMode,
+            target.ActorName,
+            string.IsNullOrWhiteSpace(session.PersonaName) ? "You" : session.PersonaName,
+            styleHint,
+            "Output 100-300 words.");
         return sb.ToString();
+    }
+
+    private static string BuildRetryStyleHint(RolePlaySession session)
+    {
+        var parts = new List<string>();
+
+        if (!string.IsNullOrWhiteSpace(session.SelectedToneProfileId))
+        {
+            parts.Add($"tone profile: {session.SelectedToneProfileId}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(session.StyleFloorOverride) || !string.IsNullOrWhiteSpace(session.StyleCeilingOverride))
+        {
+            parts.Add($"bounds: {session.StyleFloorOverride ?? "(none)"} to {session.StyleCeilingOverride ?? "(none)"}");
+        }
+
+        return parts.Count == 0 ? "current scene style" : string.Join(" | ", parts);
     }
 
     private async Task<ResolvedModel> ResolveModelAsync(

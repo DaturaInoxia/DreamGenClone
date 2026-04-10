@@ -33,8 +33,10 @@ public sealed class RolePlayAssistantContext
     // Adaptive/profile steering visibility for assistant guidance
     public string? SelectedRankingProfileId { get; init; }
     public string? SelectedToneProfileId { get; init; }
+    public string? SelectedStyleProfileId { get; init; }
     public string? StyleFloorOverride { get; init; }
     public string? StyleCeilingOverride { get; init; }
+    public bool IsToneManuallyPinned { get; init; }
     public string? EffectiveStyleMode { get; init; }
     public string? StyleResolutionReason { get; init; }
     public IReadOnlyList<string> ProfileSteeringThemes { get; init; } = [];
@@ -59,6 +61,16 @@ public interface IRolePlayAssistantService
     Task<string> GenerateSuggestionAsync(
         RolePlayAssistantContext context,
         string userPrompt,
+        string? assistantModelId = null,
+        double? assistantTemperature = null,
+        double? assistantTopP = null,
+        int? assistantMaxTokens = null,
+        CancellationToken cancellationToken = default);
+
+    Task<string> GenerateSuggestionStreamingAsync(
+        RolePlayAssistantContext context,
+        string userPrompt,
+        Func<string, Task> onChunk,
         string? assistantModelId = null,
         double? assistantTemperature = null,
         double? assistantTopP = null,

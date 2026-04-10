@@ -9,6 +9,7 @@ public enum AppFunction
     StoryRank,
     ScenarioPreview,
     ScenarioAdapt,
+    ScenarioAssistant,
     WritingAssistant,
     RolePlayAssistant,
     ModelAnalysis

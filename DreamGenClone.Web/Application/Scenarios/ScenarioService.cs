@@ -2,6 +2,7 @@ namespace DreamGenClone.Web.Application.Scenarios;
 
 using System.Text.Json;
 using DreamGenClone.Infrastructure.Persistence;
+using DreamGenClone.Web.Domain.RolePlay;
 using DreamGenClone.Web.Domain.Scenarios;
 using Microsoft.Extensions.Logging;
 
@@ -159,6 +160,7 @@ public class ScenarioService : IScenarioService
                 PointOfView = original.Style.PointOfView,
                 StyleGuidelines = new List<string>(original.Style.StyleGuidelines),
                 ToneProfileId = original.Style.ToneProfileId,
+                StyleProfileId = original.Style.StyleProfileId,
                 StyleFloor = original.Style.StyleFloor,
                 StyleCeiling = original.Style.StyleCeiling
             },
@@ -168,7 +170,8 @@ public class ScenarioService : IScenarioService
                 Description = c.Description,
                 Role = c.Role,
                 TemplateId = c.TemplateId,
-                BaseStats = new Dictionary<string, int>(c.BaseStats, StringComparer.OrdinalIgnoreCase)
+                BaseStats = new Dictionary<string, int>(c.BaseStats, StringComparer.OrdinalIgnoreCase),
+                PerspectiveMode = c.PerspectiveMode
             }).ToList(),
             Locations = original.Locations.Select(l => new Location
             {
@@ -194,7 +197,24 @@ public class ScenarioService : IScenarioService
             }).ToList(),
             EstimatedTokenCount = original.EstimatedTokenCount,
             DefaultRankingProfileId = original.DefaultRankingProfileId,
-            DefaultToneProfileId = original.DefaultToneProfileId
+            DefaultToneProfileId = original.DefaultToneProfileId,
+            BaseStatProfileId = original.BaseStatProfileId,
+            ResolvedBaseStats = new Dictionary<string, int>(original.ResolvedBaseStats, StringComparer.OrdinalIgnoreCase),
+            DefaultPersonaPerspectiveMode = original.DefaultPersonaPerspectiveMode,
+            AssistantChats = original.AssistantChats.Select(chat => new RolePlayAssistantChatThread
+            {
+                Id = chat.Id,
+                Title = chat.Title,
+                CreatedAt = chat.CreatedAt,
+                ModifiedAt = chat.ModifiedAt,
+                Messages = chat.Messages.Select(message => new RolePlayAssistantChatMessage
+                {
+                    Role = message.Role,
+                    Content = message.Content,
+                    CreatedAt = message.CreatedAt
+                }).ToList()
+            }).ToList(),
+            ActiveAssistantChatId = original.ActiveAssistantChatId
         };
         
         _scenarios[clone.Id] = clone;

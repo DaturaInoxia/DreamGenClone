@@ -10,6 +10,7 @@ public interface IRolePlayContinuationService
         string? customActorName,
         PromptIntent intent,
         string promptText,
+        Func<string, Task>? onChunk = null,
         CancellationToken cancellationToken = default);
 
     Task<ContinueAsResult> ContinueBatchAsync(

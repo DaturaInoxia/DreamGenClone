@@ -45,6 +45,11 @@ public static class RolePlayAssistantPrompts
           - *Take Turns*: User and NPCs alternate. After the threshold, engine signals user's turn.
           - *Spectate*: Only NPCs act; user watches.
           - *NPC Only*: Fully autonomous.
+            - **Content Preference Profile** — Session ranking profile used for safety/theme steering.
+            - **Tone Profile** — Session tone profile that sets base style intensity.
+            - **Style Profile** — Session prose guidance profile used to steer wording and texture.
+            - **Style Floor / Style Ceiling** — Hard lower/upper clamps on effective style intensity.
+            - **Manual Tone Pin** — Freezes style resolution to base tone intensity (adaptive deltas suppressed), while floor/ceiling clamps still apply.
         - **Turn-Taking Threshold** — How many consecutive NPC turns before the engine pauses for the user.
         - **Auto-Narrative** — When ON, generates atmospheric narrative blocks between character turns during batch continuation.
         - **Context Window Size** — Number of recent interactions sent to the AI (default 30). Pinned interactions survive trimming.

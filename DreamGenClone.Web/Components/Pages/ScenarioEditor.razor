@@ -1,14 +1,18 @@
 @page "/scenarios/editor/{ScenarioId?}"
 @rendermode InteractiveServer
+@using DreamGenClone.Web.Application.Assistants
 @using DreamGenClone.Web.Application.Scenarios
 @using DreamGenClone.Web.Application.StoryAnalysis
+@using DreamGenClone.Web.Domain.RolePlay
 @using DreamGenClone.Web.Domain.Scenarios
+@using DreamGenClone.Application.StoryAnalysis
 @using DreamGenClone.Domain.StoryAnalysis
 @using DreamGenClone.Domain.Templates
 
 @inject IScenarioService ScenarioService
 @inject IScenarioTokenCounter TokenCounter
 @inject StoryAnalysisFacade StoryAnalysisFacade
+@inject IScenarioAssistantService ScenarioAssistant
 @inject NavigationManager Navigation
 
 <PageTitle>Scenario Editor - DreamGenClone</PageTitle>
@@ -24,7 +28,23 @@
     @if (CurrentScenario != null)
     {
         <div class="row">
-            <div class="col-md-8">
+            <div class="col-12">
+                <div class="card mb-4 sticky-top" style="top: 0.75rem; z-index: 1020;">
+                    <div class="card-body py-3">
+                        <div class="d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-3">
+                            <div class="d-flex flex-column flex-sm-row align-items-sm-center gap-2 gap-sm-3">
+                                <span class="small text-muted text-uppercase fw-semibold">Token Count</span>
+                                <span class="fs-4 fw-bold text-primary">@CurrentScenario.EstimatedTokenCount</span>
+                                <button class="btn btn-outline-primary btn-sm" @onclick="RecalculateTokenCount">Recalculate</button>
+                            </div>
+                            <div class="d-flex flex-column flex-sm-row gap-2 ms-lg-auto">
+                                <button class="btn btn-success" @onclick="SaveScenario">Save Scenario</button>
+                                <button class="btn btn-outline-secondary" @onclick="@(() => Navigation.NavigateTo("/scenarios"))">Back to List</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Scenario Metadata -->
                 <div class="card mb-4">
                     <div class="card-header">
@@ -164,6 +184,40 @@
                         </div>
 
                         <div class="mb-3">
+                            <label class="form-label">Default Base Stat Profile</label>
+                            <select class="form-select" @bind="CurrentScenario.BaseStatProfileId">
+                                <option value="">(None)</option>
+                                @foreach (var profile in BaseStatProfiles)
+                                {
+                                    <option value="@profile.Id">@profile.Name</option>
+                                }
+                            </select>
+                            <div class="form-text">Session seeding starts from this profile; each character's Base Stats are applied as overrides.</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Default Style Profile</label>
+                            <select class="form-select" @bind="CurrentScenario.Style.StyleProfileId">
+                                <option value="">(None)</option>
+                                @foreach (var style in StyleProfiles)
+                                {
+                                    <option value="@style.Id">@style.Name</option>
+                                }
+                            </select>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Default Persona Perspective</label>
+                            <select class="form-select" @bind="CurrentScenario.DefaultPersonaPerspectiveMode">
+                                @foreach (var mode in CharacterPerspectiveModes.All)
+                                {
+                                    <option value="@mode.Mode">@mode.DisplayName</option>
+                                }
+                            </select>
+                            <div class="form-text">This becomes the starting persona perspective for new role-play sessions created from the scenario.</div>
+                        </div>
+
+                        <div class="mb-3">
                             <label class="form-label">Tone</label>
                             <input type="text" class="form-control" @bind="CurrentScenario.Style.Tone" placeholder="e.g., Dark, Humorous, Serious" />
                         </div>
@@ -182,9 +236,9 @@
                             <label class="form-label">Style Floor</label>
                             <select class="form-select" @bind="CurrentScenario.Style.StyleFloor">
                                 <option value="">(None)</option>
-                                @foreach (var tone in ToneProfiles)
+                                @foreach (var option in StyleBoundOptions)
                                 {
-                                    <option value="@tone.Name">@tone.Name (@tone.Intensity)</option>
+                                    <option value="@option.Value">@option.Label</option>
                                 }
                             </select>
                         </div>
@@ -193,9 +247,9 @@
                             <label class="form-label">Style Ceiling</label>
                             <select class="form-select" @bind="CurrentScenario.Style.StyleCeiling">
                                 <option value="">(None)</option>
-                                @foreach (var tone in ToneProfiles)
+                                @foreach (var option in StyleBoundOptions)
                                 {
-                                    <option value="@tone.Name">@tone.Name (@tone.Intensity)</option>
+                                    <option value="@option.Value">@option.Label</option>
                                 }
                             </select>
                         </div>
@@ -232,13 +286,25 @@
                                             <div class="row">
                                                 <div class="col-md-8">
                                                     <h6>@character.Name</h6>
-                                                    <p class="text-muted mb-1">@character.Description</p>
-                                                    @if (!string.IsNullOrEmpty(character.Role))
-                                                    {
-                                                        <p class="text-muted small">Role: @character.Role</p>
-                                                    }
+                                                    <div class="mb-2">
+                                                        <label class="form-label small">Description</label>
+                                                        <textarea class="form-control form-control-sm" rows="3" @bind="character.Description"></textarea>
+                                                    </div>
+                                                    <div class="mb-2" style="max-width: 360px;">
+                                                        <label class="form-label small">Role</label>
+                                                        <input type="text" class="form-control form-control-sm" @bind="character.Role" placeholder="e.g., antagonist, catalyst, love interest" />
+                                                    </div>
+                                                    <div class="mb-2" style="max-width: 360px;">
+                                                        <label class="form-label small">Default Perspective</label>
+                                                        <select class="form-select form-select-sm" @bind="character.PerspectiveMode">
+                                                            @foreach (var mode in CharacterPerspectiveModes.All)
+                                                            {
+                                                                <option value="@mode.Mode">@mode.DisplayName</option>
+                                                            }
+                                                        </select>
+                                                    </div>
                                                     <div class="mt-2">
-                                                        <div class="small text-muted mb-1">Base Stats (session start values)</div>
+                                                        <div class="small text-muted mb-1">Character Base Stat Overrides (applied after scenario profile defaults at session start)</div>
                                                         @foreach (var statName in BaseStatNames)
                                                         {
                                                             <div class="input-group input-group-sm mb-1">
@@ -426,32 +492,62 @@
                         </div>
                     </div>
                 </div>
-            </div>
-            
-            <!-- Sidebar -->
-            <div class="col-md-4">
-                <!-- Token Count -->
-                <div class="card mb-4 sticky-top">
-                    <div class="card-header">
-                        <h5>Token Count</h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="text-center">
-                            <h2 style="color: #0d6efd;">@CurrentScenario.EstimatedTokenCount</h2>
-                            <small class="text-muted">Estimated tokens</small>
+
+                <!-- Scenario Assistant -->
+                <div class="card mb-4">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">Scenario Assistant</h5>
+                        <div class="d-flex align-items-center gap-2">
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="ToggleAssistantExpanded">
+                                @(_assistantExpanded ? "Minimize" : "Expand")
+                            </button>
+                            <span class="badge text-bg-secondary">Chat</span>
                         </div>
-                        <button class="btn btn-primary btn-sm w-100 mt-3" @onclick="RecalculateTokenCount">Recalculate</button>
                     </div>
-                </div>
-                
-                <!-- Actions -->
-                <div class="card">
-                    <div class="card-header">
-                        <h5>Actions</h5>
-                    </div>
-                    <div class="card-body">
-                        <button class="btn btn-success w-100 mb-2" @onclick="SaveScenario">Save Scenario</button>
-                        <button class="btn btn-outline-secondary w-100" @onclick="@(() => Navigation.NavigateTo("/scenarios"))">Back to List</button>
+                    <div class="card-body" style="@(_assistantExpanded ? "min-height: 58vh;" : null)">
+                        <AssistantPanel Title="Scenario Assistant"
+                                        SessionId="@GetScenarioAssistantSessionId()"
+                                        Messages="@GetActiveAssistantMessages()"
+                                        Chats="@GetAssistantChatSummaries()"
+                                        ActiveChatId="@_activeAssistantChatId"
+                                        OnSelectChatRequest="OnAssistantSelectChat"
+                                        OnCreateChatRequest="OnAssistantCreateChat"
+                                        OnDeleteChatRequest="OnAssistantDeleteChat"
+                                        OnGenerateRequest="OnAssistantGenerateRequest"
+                                        OnClearChatRequest="OnAssistantClearChat"
+                                        ConversationMaxHeightCss="@AssistantConversationHeightCss" />
+
+                        <div class="mt-3 border rounded p-3">
+                            <div class="small text-muted mb-2">Apply Last Assistant Response</div>
+                            <div class="row g-2 align-items-end">
+                                <div class="col-md-4">
+                                    <label class="form-label">Target Field (generation + apply)</label>
+                                    <select class="form-select" @bind="_assistantApplyTarget">
+                                        <option value="@ScenarioAssistantTarget.General">General (advisory)</option>
+                                        <option value="@ScenarioAssistantTarget.PlotDescription">Plot Description</option>
+                                        <option value="@ScenarioAssistantTarget.WorldDescription">World Description</option>
+                                        <option value="@ScenarioAssistantTarget.StyleGuidelines">Style Guidelines</option>
+                                        <option value="@ScenarioAssistantTarget.Locations">Locations</option>
+                                        <option value="@ScenarioAssistantTarget.Objects">Objects / Items</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="form-check mt-4">
+                                        <input class="form-check-input" type="checkbox" id="assistant-append-style" @bind="_assistantApplyAppendStyleGuidelines" />
+                                        <label class="form-check-label" for="assistant-append-style">Append style guidelines (otherwise replace)</label>
+                                    </div>
+                                </div>
+                                <div class="col-md-4 d-grid">
+                                    <button class="btn btn-outline-primary" @onclick="ApplyLastAssistantResponse">
+                                        Apply Last Assistant Response
+                                    </button>
+                                </div>
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(_assistantApplyStatus))
+                            {
+                                <div class="form-text mt-2">@_assistantApplyStatus</div>
+                            }
+                        </div>
                     </div>
                 </div>
             </div>
@@ -477,22 +573,32 @@
     private string NewExampleText = string.Empty;
     private List<RankingProfile> RankingProfiles = [];
     private List<ToneProfile> ToneProfiles = [];
-    private static readonly string[] BaseStatNames =
+    private List<StyleProfile> StyleProfiles = [];
+    private List<RolePlayAssistantChatThread> _assistantChats = [];
+    private string? _activeAssistantChatId;
+    private ScenarioAssistantTarget _assistantApplyTarget = ScenarioAssistantTarget.General;
+    private bool _assistantApplyAppendStyleGuidelines = true;
+    private string _assistantApplyStatus = string.Empty;
+    private bool _assistantExpanded;
+    private string AssistantConversationHeightCss => _assistantExpanded ? "52vh" : "450px";
+    private static readonly (string Value, string Label)[] StyleBoundOptions =
     [
-        "Arousal",
-        "Inhibition",
-        "Tension",
-        "Trust",
-        "Jealousy",
-        "DominanceDrive",
-        "Shame",
-        "RiskAppetite"
+        ("Intro / PG-12", "Intro / PG-12"),
+        ("Emotional / PG-13", "Emotional / PG-13"),
+        ("Suggestive / PG-13+", "Suggestive / PG-13+"),
+        ("Sensual / Mature", "Sensual / Mature"),
+        ("Erotic / Explicit", "Erotic / Explicit"),
+        ("Hardcore / Explicit+", "Hardcore / Explicit+")
     ];
+    private List<BaseStatProfile> BaseStatProfiles = [];
+    private static readonly string[] BaseStatNames = GetBaseStatNames();
     
     protected override async Task OnInitializedAsync()
     {
         RankingProfiles = await StoryAnalysisFacade.ListProfilesAsync();
         ToneProfiles = await StoryAnalysisFacade.ListToneProfilesAsync();
+        StyleProfiles = await StoryAnalysisFacade.ListStyleProfilesAsync();
+        BaseStatProfiles = await StoryAnalysisFacade.ListBaseStatProfilesAsync();
 
         if (!string.IsNullOrEmpty(ScenarioId))
         {
@@ -504,8 +610,463 @@
         }
 
         EnsureBaseStatsInitialized();
+        InitializeAssistantChatsFromScenario();
     }
-    
+
+    private static string[] GetBaseStatNames()
+    {
+        return AdaptiveStatCatalog.CanonicalStatNames.ToArray();
+    }
+
+    private RolePlayAssistantChatThread? ActiveAssistantChat =>
+        _assistantChats.FirstOrDefault(c => c.Id == _activeAssistantChatId);
+
+    private static RolePlayAssistantChatThread CreateAssistantChatThread(string title)
+    {
+        return new RolePlayAssistantChatThread
+        {
+            Id = Guid.NewGuid().ToString(),
+            Title = title,
+            CreatedAt = DateTime.UtcNow,
+            ModifiedAt = DateTime.UtcNow,
+            Messages = new List<RolePlayAssistantChatMessage>()
+        };
+    }
+
+    private void EnsureAssistantChatsInitialized()
+    {
+        if (_assistantChats.Count == 0)
+        {
+            var chat = CreateAssistantChatThread("Chat 1");
+            _assistantChats.Add(chat);
+            _activeAssistantChatId = chat.Id;
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_activeAssistantChatId) || _assistantChats.All(c => c.Id != _activeAssistantChatId))
+        {
+            _activeAssistantChatId = _assistantChats
+                .OrderByDescending(c => c.ModifiedAt)
+                .Select(c => c.Id)
+                .First();
+        }
+    }
+
+    private static RolePlayAssistantChatThread CloneAssistantChat(RolePlayAssistantChatThread source)
+    {
+        return new RolePlayAssistantChatThread
+        {
+            Id = source.Id,
+            Title = source.Title,
+            CreatedAt = source.CreatedAt,
+            ModifiedAt = source.ModifiedAt,
+            Messages = source.Messages.Select(m => new RolePlayAssistantChatMessage
+            {
+                Role = m.Role,
+                Content = m.Content,
+                CreatedAt = m.CreatedAt
+            }).ToList()
+        };
+    }
+
+    private void InitializeAssistantChatsFromScenario()
+    {
+        _assistantChats = CurrentScenario?.AssistantChats?.Select(CloneAssistantChat).ToList() ?? new List<RolePlayAssistantChatThread>();
+        _activeAssistantChatId = CurrentScenario?.ActiveAssistantChatId;
+        EnsureAssistantChatsInitialized();
+        SyncAssistantChatsToScenario();
+    }
+
+    private void SyncAssistantChatsToScenario()
+    {
+        if (CurrentScenario is null)
+        {
+            return;
+        }
+
+        CurrentScenario.AssistantChats = _assistantChats.Select(CloneAssistantChat).ToList();
+        CurrentScenario.ActiveAssistantChatId = _activeAssistantChatId;
+    }
+
+    private async Task PersistAssistantChatsAsync()
+    {
+        if (CurrentScenario is null)
+        {
+            return;
+        }
+
+        SyncAssistantChatsToScenario();
+        await ScenarioService.SaveScenarioAsync(CurrentScenario);
+    }
+
+    private List<AssistantChatSummary> GetAssistantChatSummaries()
+    {
+        var ordered = _assistantChats.OrderByDescending(c => c.ModifiedAt).ToList();
+        var summaries = new List<AssistantChatSummary>(ordered.Count);
+
+        foreach (var chat in ordered)
+        {
+            summaries.Add(new AssistantChatSummary
+            {
+                Id = chat.Id,
+                Title = chat.Title,
+                ModifiedAt = chat.ModifiedAt
+            });
+        }
+
+        return summaries;
+    }
+
+    private List<string> GetActiveAssistantMessages()
+    {
+        if (ActiveAssistantChat is null)
+        {
+            return new List<string>();
+        }
+
+        return ActiveAssistantChat.Messages
+            .Select(m => m.Role == "user" ? $"[User] {m.Content}" : $"[Assistant] {m.Content}")
+            .ToList();
+    }
+
+    private string GetScenarioAssistantSessionId()
+    {
+        var scenarioId = string.IsNullOrWhiteSpace(CurrentScenario?.Id) ? "new" : CurrentScenario!.Id;
+        var chatId = string.IsNullOrWhiteSpace(_activeAssistantChatId) ? "default" : _activeAssistantChatId;
+        return $"scenario-editor:{scenarioId}:{chatId}";
+    }
+
+    private static string Truncate(string value, int maxLength)
+    {
+        if (string.IsNullOrWhiteSpace(value) || value.Length <= maxLength)
+        {
+            return value;
+        }
+
+        return value[..maxLength].TrimEnd() + "...";
+    }
+
+    private async Task OnAssistantGenerateRequest(string userPrompt)
+    {
+        if (CurrentScenario is null || string.IsNullOrWhiteSpace(userPrompt))
+        {
+            return;
+        }
+
+        var activeChat = ActiveAssistantChat;
+        if (activeChat is null)
+        {
+            return;
+        }
+
+        var userMessage = new RolePlayAssistantChatMessage
+        {
+            Role = "user",
+            Content = userPrompt,
+            CreatedAt = DateTime.UtcNow
+        };
+        activeChat.Messages.Add(userMessage);
+
+        if (activeChat.Messages.Count == 1 && string.Equals(activeChat.Title, "New Chat", StringComparison.Ordinal))
+        {
+            activeChat.Title = Truncate(userPrompt.Trim(), 36);
+        }
+
+        try
+        {
+            var context = BuildAssistantContext(CurrentScenario, GetScenarioAssistantSessionId(), _assistantApplyTarget);
+            var response = await ScenarioAssistant.GenerateSuggestionAsync(context, userPrompt);
+
+            activeChat.Messages.Add(new RolePlayAssistantChatMessage
+            {
+                Role = "assistant",
+                Content = response,
+                CreatedAt = DateTime.UtcNow
+            });
+        }
+        catch (Exception ex)
+        {
+            activeChat.Messages.Add(new RolePlayAssistantChatMessage
+            {
+                Role = "assistant",
+                Content = $"(Error: {ex.Message})",
+                CreatedAt = DateTime.UtcNow
+            });
+        }
+
+        activeChat.ModifiedAt = DateTime.UtcNow;
+        _assistantChats = _assistantChats.OrderByDescending(c => c.ModifiedAt).ToList();
+        await PersistAssistantChatsAsync();
+    }
+
+    private async Task OnAssistantClearChat()
+    {
+        var activeChat = ActiveAssistantChat;
+        if (activeChat is null)
+        {
+            return;
+        }
+
+        activeChat.Messages.Clear();
+        activeChat.ModifiedAt = DateTime.UtcNow;
+        ScenarioAssistant.ClearChat(GetScenarioAssistantSessionId());
+        await PersistAssistantChatsAsync();
+    }
+
+    private async Task OnAssistantCreateChat()
+    {
+        var index = _assistantChats.Count + 1;
+        var chat = CreateAssistantChatThread($"Chat {index}");
+        _assistantChats.Insert(0, chat);
+        _activeAssistantChatId = chat.Id;
+        await PersistAssistantChatsAsync();
+    }
+
+    private async Task OnAssistantSelectChat(string chatId)
+    {
+        if (_assistantChats.Any(c => c.Id == chatId))
+        {
+            _activeAssistantChatId = chatId;
+            await PersistAssistantChatsAsync();
+        }
+    }
+
+    private async Task OnAssistantDeleteChat()
+    {
+        if (_assistantChats.Count <= 1 || string.IsNullOrWhiteSpace(_activeAssistantChatId))
+        {
+            return;
+        }
+
+        var removed = _assistantChats.RemoveAll(c => c.Id == _activeAssistantChatId);
+        if (removed > 0)
+        {
+            var next = _assistantChats.OrderByDescending(c => c.ModifiedAt).First();
+            _activeAssistantChatId = next.Id;
+            await PersistAssistantChatsAsync();
+        }
+    }
+
+    private void ToggleAssistantExpanded()
+    {
+        _assistantExpanded = !_assistantExpanded;
+    }
+
+    private void ApplyLastAssistantResponse()
+    {
+        if (CurrentScenario is null)
+        {
+            _assistantApplyStatus = "No scenario loaded.";
+            return;
+        }
+
+        if (_assistantApplyTarget == ScenarioAssistantTarget.General)
+        {
+            _assistantApplyStatus = "General target is advisory-only. Select a specific target field to apply content.";
+            return;
+        }
+
+        var lastAssistantResponse = ActiveAssistantChat?.Messages
+            .Where(m => string.Equals(m.Role, "assistant", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(m.Content))
+            .Select(m => m.Content)
+            .LastOrDefault();
+
+        if (string.IsNullOrWhiteSpace(lastAssistantResponse))
+        {
+            _assistantApplyStatus = "No assistant response found in this chat.";
+            return;
+        }
+
+        var draft = ExtractAssistantApplyContent(lastAssistantResponse, _assistantApplyTarget);
+        if (string.IsNullOrWhiteSpace(draft))
+        {
+            _assistantApplyStatus = "No structured draft found. Ask the assistant to include [[SCENARIO_FIELD:...]] blocks.";
+            return;
+        }
+
+        switch (_assistantApplyTarget)
+        {
+            case ScenarioAssistantTarget.PlotDescription:
+                CurrentScenario.Plot.Description = draft;
+                _assistantApplyStatus = "Updated Plot Description.";
+                break;
+            case ScenarioAssistantTarget.WorldDescription:
+                CurrentScenario.Setting.WorldDescription = draft;
+                _assistantApplyStatus = "Updated World Description.";
+                break;
+            case ScenarioAssistantTarget.StyleGuidelines:
+                var items = draft.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Select(x => x.TrimStart('-', '*', ' '))
+                    .Where(x => !string.IsNullOrWhiteSpace(x))
+                    .ToList();
+
+                if (!_assistantApplyAppendStyleGuidelines)
+                {
+                    CurrentScenario.Style.StyleGuidelines.Clear();
+                }
+
+                foreach (var item in items)
+                {
+                    if (!CurrentScenario.Style.StyleGuidelines.Any(x => string.Equals(x, item, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        CurrentScenario.Style.StyleGuidelines.Add(item);
+                    }
+                }
+
+                _assistantApplyStatus = _assistantApplyAppendStyleGuidelines
+                    ? $"Added {items.Count} style guideline(s)."
+                    : $"Replaced with {items.Count} style guideline(s).";
+                break;
+            case ScenarioAssistantTarget.Locations:
+                var parsedLocations = ParseNameDescriptionPairs(draft);
+                var addedLocations = 0;
+                foreach (var (name, description) in parsedLocations)
+                {
+                    if (CurrentScenario.Locations.Any(l => string.Equals(l.Name?.Trim(), name, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        continue;
+                    }
+
+                    CurrentScenario.Locations.Add(new Location
+                    {
+                        Name = name,
+                        Description = description
+                    });
+                    addedLocations++;
+                }
+
+                _assistantApplyStatus = $"Added {addedLocations} location(s).";
+                break;
+            case ScenarioAssistantTarget.Objects:
+                var parsedObjects = ParseNameDescriptionPairs(draft);
+                var addedObjects = 0;
+                foreach (var (name, description) in parsedObjects)
+                {
+                    if (CurrentScenario.Objects.Any(o => string.Equals(o.Name?.Trim(), name, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        continue;
+                    }
+
+                    CurrentScenario.Objects.Add(new ScenarioObject
+                    {
+                        Name = name,
+                        Description = description
+                    });
+                    addedObjects++;
+                }
+
+                _assistantApplyStatus = $"Added {addedObjects} object/item(s).";
+                break;
+        }
+
+        RecalculateTokenCount();
+    }
+
+    private static List<(string Name, string Description)> ParseNameDescriptionPairs(string draft)
+    {
+        var pairs = new List<(string Name, string Description)>();
+        var lines = draft.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        foreach (var raw in lines)
+        {
+            var line = raw.Trim().TrimStart('-', '*', ' ').Trim();
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                continue;
+            }
+
+            string name;
+            string description;
+
+            var pipeIndex = line.IndexOf('|');
+            if (pipeIndex > 0)
+            {
+                name = line[..pipeIndex].Trim();
+                description = line[(pipeIndex + 1)..].Trim();
+            }
+            else
+            {
+                var colonIndex = line.IndexOf(':');
+                if (colonIndex > 0)
+                {
+                    name = line[..colonIndex].Trim();
+                    description = line[(colonIndex + 1)..].Trim();
+                }
+                else
+                {
+                    name = line;
+                    description = string.Empty;
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                continue;
+            }
+
+            pairs.Add((name, description));
+        }
+
+        return pairs;
+    }
+
+    private static string ExtractAssistantApplyContent(string response, ScenarioAssistantTarget target)
+    {
+        var token = target switch
+        {
+            ScenarioAssistantTarget.PlotDescription => "PlotDescription",
+            ScenarioAssistantTarget.WorldDescription => "WorldDescription",
+            ScenarioAssistantTarget.StyleGuidelines => "StyleGuidelines",
+            ScenarioAssistantTarget.Locations => "Locations",
+            ScenarioAssistantTarget.Objects => "Objects",
+            _ => string.Empty
+        };
+
+        if (!string.IsNullOrWhiteSpace(token))
+        {
+            var startTag = $"[[SCENARIO_FIELD:{token}]]";
+            const string endTag = "[[/SCENARIO_FIELD]]";
+
+            var startIndex = response.IndexOf(startTag, StringComparison.OrdinalIgnoreCase);
+            if (startIndex >= 0)
+            {
+                var contentStart = startIndex + startTag.Length;
+                var endIndex = response.IndexOf(endTag, contentStart, StringComparison.OrdinalIgnoreCase);
+                if (endIndex > contentStart)
+                {
+                    return response[contentStart..endIndex].Trim();
+                }
+
+                return response[contentStart..].Trim();
+            }
+        }
+
+        var header = target switch
+        {
+            ScenarioAssistantTarget.PlotDescription => "## Draft: Plot Description",
+            ScenarioAssistantTarget.WorldDescription => "## Draft: World Description",
+            ScenarioAssistantTarget.StyleGuidelines => "## Draft: Style Guidelines",
+            ScenarioAssistantTarget.Locations => "## Draft: Locations",
+            ScenarioAssistantTarget.Objects => "## Draft: Objects",
+            _ => string.Empty
+        };
+
+        if (string.IsNullOrWhiteSpace(header))
+        {
+            return string.Empty;
+        }
+
+        var headerIndex = response.IndexOf(header, StringComparison.OrdinalIgnoreCase);
+        if (headerIndex < 0)
+        {
+            return string.Empty;
+        }
+
+        var fromHeader = response[(headerIndex + header.Length)..].TrimStart();
+        var nextHeader = fromHeader.IndexOf("\n## ", StringComparison.Ordinal);
+        return (nextHeader >= 0 ? fromHeader[..nextHeader] : fromHeader).Trim();
+    }
+
     private void AddCharacter(string name, string? templateId, string? description)
     {
         var character = new Character
@@ -608,10 +1169,30 @@
         if (CurrentScenario != null)
         {
             EnsureBaseStatsInitialized();
+            await ResolveScenarioBaseStatsAsync();
             RecalculateTokenCount();
             await ScenarioService.SaveScenarioAsync(CurrentScenario);
             Navigation.NavigateTo("/scenarios");
         }
+    }
+
+    private async Task ResolveScenarioBaseStatsAsync()
+    {
+        if (CurrentScenario is null)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(CurrentScenario.BaseStatProfileId))
+        {
+            CurrentScenario.ResolvedBaseStats.Clear();
+            return;
+        }
+
+        var profile = await StoryAnalysisFacade.GetBaseStatProfileAsync(CurrentScenario.BaseStatProfileId);
+        CurrentScenario.ResolvedBaseStats = profile is null
+            ? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+            : AdaptiveStatCatalog.NormalizeComplete(profile.DefaultStats);
     }
 
     private void EnsureBaseStatsInitialized()
@@ -629,13 +1210,7 @@
 
     private static void EnsureBaseStats(Character character)
     {
-        foreach (var statName in BaseStatNames)
-        {
-            if (!character.BaseStats.ContainsKey(statName))
-            {
-                character.BaseStats[statName] = 50;
-            }
-        }
+        character.BaseStats = AdaptiveStatCatalog.NormalizeComplete(character.BaseStats);
     }
 
     private static int GetCharacterStat(Character character, string statName)
@@ -657,5 +1232,119 @@
         }
 
         character.BaseStats[statName] = Math.Clamp(value, 0, 100);
+    }
+
+    private ScenarioAssistantContext BuildAssistantContext(Scenario scenario, string? sessionId = null, ScenarioAssistantTarget? target = null)
+    {
+        var characters = scenario.Characters
+            .Where(c => !string.IsNullOrWhiteSpace(c.Name))
+            .Select(c =>
+            {
+                var role = string.IsNullOrWhiteSpace(c.Role) ? string.Empty : $" ({c.Role.Trim()})";
+                var description = string.IsNullOrWhiteSpace(c.Description) ? string.Empty : $": {c.Description.Trim()}";
+                return $"{c.Name!.Trim()}{role}{description}";
+            })
+            .ToList();
+
+        var locations = scenario.Locations
+            .Where(l => !string.IsNullOrWhiteSpace(l.Name))
+            .Select(l =>
+            {
+                var description = string.IsNullOrWhiteSpace(l.Description) ? string.Empty : $": {l.Description.Trim()}";
+                return $"{l.Name!.Trim()}{description}";
+            })
+            .ToList();
+
+        var objects = scenario.Objects
+            .Where(o => !string.IsNullOrWhiteSpace(o.Name))
+            .Select(o =>
+            {
+                var description = string.IsNullOrWhiteSpace(o.Description) ? string.Empty : $": {o.Description.Trim()}";
+                return $"{o.Name!.Trim()}{description}";
+            })
+            .ToList();
+
+        var openings = scenario.Openings
+            .Where(o => !string.IsNullOrWhiteSpace(o.Title))
+            .Select(o =>
+            {
+                var text = string.IsNullOrWhiteSpace(o.Text) ? string.Empty : $": {Truncate(o.Text.Trim(), 120)}";
+                return $"{o.Title!.Trim()}{text}";
+            })
+            .ToList();
+
+        var examples = scenario.Examples
+            .Where(e => !string.IsNullOrWhiteSpace(e.Title))
+            .Select(e =>
+            {
+                var text = string.IsNullOrWhiteSpace(e.Text) ? string.Empty : $": {Truncate(e.Text.Trim(), 120)}";
+                return $"{e.Title!.Trim()}{text}";
+            })
+            .ToList();
+
+        var snapshot = BuildScenarioSnapshot(scenario);
+
+        return new ScenarioAssistantContext
+        {
+            SessionId = sessionId ?? $"scenario-editor:{scenario.Id}",
+            ScenarioName = scenario.Name?.Trim() ?? "Unnamed Scenario",
+            ScenarioDescription = scenario.Description?.Trim() ?? string.Empty,
+            PlotDescription = scenario.Plot.Description?.Trim() ?? string.Empty,
+            PlotConflicts = scenario.Plot.Conflicts,
+            PlotGoals = scenario.Plot.Goals,
+            WorldDescription = scenario.Setting.WorldDescription?.Trim() ?? string.Empty,
+            TimeFrame = scenario.Setting.TimeFrame?.Trim() ?? string.Empty,
+            WorldRules = scenario.Setting.WorldRules,
+            EnvironmentalDetails = scenario.Setting.EnvironmentalDetails,
+            Tone = scenario.Style.Tone?.Trim() ?? string.Empty,
+            WritingStyle = scenario.Style.WritingStyle?.Trim() ?? string.Empty,
+            PointOfView = scenario.Style.PointOfView?.Trim() ?? string.Empty,
+            StyleGuidelines = scenario.Style.StyleGuidelines,
+            CharacterSummaries = characters,
+            LocationSummaries = locations,
+            ObjectSummaries = objects,
+            OpeningSummaries = openings,
+            ExampleSummaries = examples,
+            SavedScenarioSnapshot = snapshot,
+            Target = target ?? ScenarioAssistantTarget.General
+        };
+    }
+
+    private static string BuildScenarioSnapshot(Scenario scenario)
+    {
+        var snapshot = new
+        {
+            scenario.Name,
+            scenario.Description,
+            Plot = new
+            {
+                scenario.Plot.Title,
+                scenario.Plot.Description,
+                Conflicts = scenario.Plot.Conflicts,
+                Goals = scenario.Plot.Goals
+            },
+            Setting = new
+            {
+                scenario.Setting.WorldDescription,
+                scenario.Setting.TimeFrame,
+                scenario.Setting.WorldRules,
+                scenario.Setting.EnvironmentalDetails
+            },
+            Style = new
+            {
+                scenario.Style.Tone,
+                scenario.Style.WritingStyle,
+                scenario.Style.PointOfView,
+                scenario.Style.StyleGuidelines
+            },
+            Characters = scenario.Characters.Select(c => new { c.Name, c.Role, c.Description }).ToList(),
+            Locations = scenario.Locations.Select(l => new { l.Name, l.Description }).ToList(),
+            Objects = scenario.Objects.Select(o => new { o.Name, o.Description }).ToList(),
+            Openings = scenario.Openings.Select(o => new { o.Title, o.Text }).ToList(),
+            Examples = scenario.Examples.Select(e => new { e.Title, e.Text }).ToList()
+        };
+
+        var json = System.Text.Json.JsonSerializer.Serialize(snapshot);
+        return json.Length <= 8000 ? json : json[..8000];
     }
 }

@@ -20,10 +20,16 @@ public sealed class RolePlaySession
     /// <summary>Description/content of the POV persona (from template or manual).</summary>
     public string PersonaDescription { get; set; } = string.Empty;
 
+    /// <summary>Active perspective mode for the persona in this session.</summary>
+    public CharacterPerspectiveMode PersonaPerspectiveMode { get; set; } = CharacterPerspectiveMode.FirstPersonInternalMonologue;
+
     /// <summary>Optional link to the Persona template this was sourced from.</summary>
     public string? PersonaTemplateId { get; set; }
 
     public List<RolePlayInteraction> Interactions { get; set; } = [];
+
+    /// <summary>Active perspective modes for scenario characters in this session.</summary>
+    public List<RolePlayCharacterPerspective> CharacterPerspectives { get; set; } = [];
 
     /// <summary>When true, narrative blocks are auto-generated during overflow continue.</summary>
     public bool AutoNarrative { get; set; } = true;
@@ -73,6 +79,9 @@ public sealed class RolePlaySession
     /// <summary>Selected tone profile for this session.</summary>
     public string? SelectedToneProfileId { get; set; }
 
+    /// <summary>Selected style profile for this session.</summary>
+    public string? SelectedStyleProfileId { get; set; }
+
     /// <summary>Session-level style floor override.</summary>
     public string? StyleFloorOverride { get; set; }
 
@@ -103,6 +112,13 @@ public sealed class RolePlayAssistantChatThread
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime ModifiedAt { get; set; } = DateTime.UtcNow;
     public List<RolePlayAssistantChatMessage> Messages { get; set; } = [];
+}
+
+public sealed class RolePlayCharacterPerspective
+{
+    public string CharacterId { get; set; } = string.Empty;
+    public string CharacterName { get; set; } = string.Empty;
+    public CharacterPerspectiveMode PerspectiveMode { get; set; } = CharacterPerspectiveMode.ThirdPersonExternalOnly;
 }
 
 public sealed class RolePlayAssistantChatMessage

@@ -1,4 +1,5 @@
 @using DreamGenClone.Web.Application.Assistants
+@inject IJSRuntime JS
 
 <div class="assistant-panel">
     <div class="assistant-header-row">
@@ -16,24 +17,43 @@
         <button class="btn btn-secondary btn-xs" @onclick="OnDeleteChat" disabled="@(IsProcessing || Chats.Count <= 1 || string.IsNullOrWhiteSpace(ActiveChatId))">Delete</button>
     </div>
     
-    <div class="assistant-conversation">
+    <div class="assistant-conversation" style="max-height: @ConversationMaxHeightCss;" @ref="_conversationRef">
         @if (Messages.Count == 0)
         {
             <p class="empty-state">No conversation yet. Ask the assistant for help!</p>
         }
         else
         {
-            @foreach (var message in Messages)
+            @for (var i = 0; i < Messages.Count; i++)
             {
-                <div class="message @(message.StartsWith("[User]") ? "user-message" : "assistant-message")">
-                    @message
+                var rawMessage = Messages[i];
+                var isUserMessage = rawMessage.StartsWith("[User]", StringComparison.Ordinal);
+                var renderedText = StripRolePrefix(rawMessage);
+
+                <div class="message-row @(isUserMessage ? "user-row" : "assistant-row")">
+                    <div class="message @(isUserMessage ? "user-message" : "assistant-message")">
+                        @renderedText
+                    </div>
+                    @if (!isUserMessage)
+                    {
+                        <button class="copy-btn"
+                                title="Copy response"
+                                @onclick="(() => CopyAssistantMessageAsync(renderedText, i))"
+                                disabled="@IsProcessing">
+                            @(_copiedMessageIndex == i ? "Copied" : "Copy")
+                        </button>
+                    }
                 </div>
             }
         }
     </div>
 
     <div class="assistant-input-group">
-        <textarea rows="3" placeholder="Ask for assistance..." @bind="UserPrompt" @bind:event="oninput"></textarea>
+        <textarea rows="3"
+              placeholder="Ask for assistance..."
+              @bind="UserPrompt"
+              @bind:event="oninput"
+              @onkeyup="OnInputKeyUp"></textarea>
         <div class="button-group">
             <button class="btn btn-primary" @onclick="OnSendRequest" disabled="@(string.IsNullOrWhiteSpace(UserPrompt) || IsProcessing)">
                 @if (IsProcessing)
@@ -90,9 +110,27 @@
     [Parameter]
     public EventCallback OnDeleteChatRequest { get; set; }
 
+    [Parameter]
+    public string ConversationMaxHeightCss { get; set; } = "450px";
+
     private string UserPrompt { get; set; } = string.Empty;
     private bool IsProcessing { get; set; }
     private string ErrorMessage { get; set; } = string.Empty;
+    private ElementReference _conversationRef;
+    private int _lastMessageSignature = -1;
+    private int _copiedMessageIndex = -1;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        var signature = ComputeMessageSignature(Messages);
+        if (!firstRender && signature == _lastMessageSignature)
+        {
+            return;
+        }
+
+        _lastMessageSignature = signature;
+        await JS.InvokeVoidAsync("rolePlayWorkspace.scrollElementToBottom", _conversationRef);
+    }
 
     private async Task OnSendRequest()
     {
@@ -115,6 +153,71 @@
         finally
         {
             IsProcessing = false;
+        }
+    }
+
+    private async Task OnInputKeyUp(KeyboardEventArgs args)
+    {
+        if (!string.Equals(args.Key, "Enter", StringComparison.Ordinal) || args.ShiftKey)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(UserPrompt) || IsProcessing)
+        {
+            return;
+        }
+
+        UserPrompt = UserPrompt.TrimEnd('\r', '\n');
+        await OnSendRequest();
+    }
+
+    private async Task CopyAssistantMessageAsync(string message, int index)
+    {
+        try
+        {
+            var success = await JS.InvokeAsync<bool>("rolePlayWorkspace.copyTextToClipboard", message);
+            if (!success)
+            {
+                ErrorMessage = "Copy failed. Clipboard permission may be blocked.";
+                return;
+            }
+
+            ErrorMessage = string.Empty;
+            _copiedMessageIndex = index;
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Copy failed: {ex.Message}";
+        }
+    }
+
+    private static string StripRolePrefix(string message)
+    {
+        if (message.StartsWith("[User] ", StringComparison.Ordinal))
+        {
+            return message[7..];
+        }
+
+        if (message.StartsWith("[Assistant] ", StringComparison.Ordinal))
+        {
+            return message[12..];
+        }
+
+        return message;
+    }
+
+    private static int ComputeMessageSignature(IReadOnlyList<string> messages)
+    {
+        unchecked
+        {
+            var hash = 17;
+            for (var i = 0; i < messages.Count; i++)
+            {
+                hash = (hash * 23) + (messages[i]?.Length ?? 0);
+            }
+
+            return (hash * 23) + messages.Count;
         }
     }
 
@@ -193,7 +296,6 @@
     }
 
     .assistant-conversation {
-        max-height: 450px;
         overflow-y: auto;
         display: flex;
         flex-direction: column;
@@ -221,6 +323,20 @@
         word-wrap: break-word;
     }
 
+    .message-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+    }
+
+    .user-row {
+        justify-content: flex-end;
+    }
+
+    .assistant-row {
+        justify-content: flex-start;
+    }
+
     .user-message {
         background: #1e2a3a;
         color: #c8ddf0;
@@ -233,8 +349,24 @@
         background: #222222;
         color: #d4d4d4;
         border: 1px solid #333333;
-        margin-right: 24px;
         align-self: flex-start;
+    }
+
+    .copy-btn {
+        background: transparent;
+        border: 1px solid #3a3a3a;
+        border-radius: 6px;
+        color: #a4a4a4;
+        font-size: 11px;
+        line-height: 1;
+        padding: 6px 8px;
+        margin-top: 2px;
+        cursor: pointer;
+    }
+
+    .copy-btn:hover:not(:disabled) {
+        color: #d0d0d0;
+        border-color: #5a5a5a;
     }
 
     .assistant-input-group {

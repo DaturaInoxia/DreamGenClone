@@ -17,6 +17,11 @@ public class Style
     public string? ToneProfileId { get; set; }
 
     /// <summary>
+    /// Optional reference to a reusable style profile.
+    /// </summary>
+    public string? StyleProfileId { get; set; }
+
+    /// <summary>
     /// Optional lower style boundary for this scenario.
     /// </summary>
     public string? StyleFloor { get; set; }

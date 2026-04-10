@@ -1,5 +1,7 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using DreamGenClone.Application.Abstractions;
 using DreamGenClone.Application.ModelManager;
@@ -45,6 +47,32 @@ public sealed class CompletionClient : ICompletionClient
             new("user", userMessage)
         };
         return await SendCompletionAsync(messages, resolved, cancellationToken);
+    }
+
+    public async Task<string> StreamGenerateAsync(
+        string prompt,
+        ResolvedModel resolved,
+        Func<string, Task> onChunk,
+        CancellationToken cancellationToken = default)
+    {
+        var messages = new List<ChatMessage> { new("user", prompt) };
+        return await SendCompletionStreamingAsync(messages, resolved, onChunk, cancellationToken);
+    }
+
+    public async Task<string> StreamGenerateAsync(
+        string systemMessage,
+        string userMessage,
+        ResolvedModel resolved,
+        Func<string, Task> onChunk,
+        CancellationToken cancellationToken = default)
+    {
+        var messages = new List<ChatMessage>
+        {
+            new("system", systemMessage),
+            new("user", userMessage)
+        };
+
+        return await SendCompletionStreamingAsync(messages, resolved, onChunk, cancellationToken);
     }
 
     public async Task<bool> CheckHealthAsync(
@@ -246,6 +274,231 @@ public sealed class CompletionClient : ICompletionClient
         return content ?? string.Empty;
     }
 
+    private async Task<string> SendCompletionStreamingAsync(
+        List<ChatMessage> messages,
+        ResolvedModel resolved,
+        Func<string, Task> onChunk,
+        CancellationToken cancellationToken)
+    {
+        var startTime = DateTime.UtcNow;
+
+        var client = _httpClientFactory.CreateClient("CompletionClient");
+        var baseUrl = resolved.ProviderBaseUrl.TrimEnd('/') + "/";
+        client.BaseAddress = new Uri(baseUrl);
+        client.Timeout = TimeSpan.FromSeconds(resolved.ProviderTimeoutSeconds);
+
+        if (!string.IsNullOrEmpty(resolved.ApiKeyEncrypted))
+        {
+            try
+            {
+                var decryptedKey = _encryptionService.Decrypt(resolved.ApiKeyEncrypted);
+                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", decryptedKey);
+            }
+            catch (System.Security.Cryptography.CryptographicException ex)
+            {
+                _logger.LogError(ex, "Failed to decrypt API key for provider {ProviderName}. Please re-enter the API key in Model Manager.", resolved.ProviderName);
+                throw;
+            }
+        }
+
+        var payload = new ChatRequest
+        {
+            Model = resolved.ModelIdentifier,
+            Messages = messages,
+            Temperature = resolved.Temperature,
+            TopP = resolved.TopP,
+            MaxTokens = resolved.MaxTokens,
+            Stream = true
+        };
+
+        var relativePath = resolved.ChatCompletionsPath.TrimStart('/');
+        using var request = new HttpRequestMessage(HttpMethod.Post, relativePath)
+        {
+            Content = JsonContent.Create(payload)
+        };
+
+        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            var statusCode = (int)response.StatusCode;
+            var errorMessage = statusCode switch
+            {
+                401 => $"Invalid API key for provider {resolved.ProviderName}",
+                429 => $"Rate limit exceeded for provider {resolved.ProviderName}",
+                >= 500 => $"Server error from provider {resolved.ProviderName}: {statusCode}",
+                _ => $"Request failed for provider {resolved.ProviderName}: {statusCode}"
+            };
+
+            _logger.LogError("Streaming completion request failed: {ErrorMessage}, Response={ErrorContent}", errorMessage, errorContent);
+            response.EnsureSuccessStatusCode();
+        }
+
+        var sb = new StringBuilder();
+        string? finishReason = null;
+
+        await using (var stream = await response.Content.ReadAsStreamAsync(cancellationToken))
+        using (var reader = new StreamReader(stream))
+        {
+            while (!reader.EndOfStream)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var line = await reader.ReadLineAsync();
+                if (string.IsNullOrWhiteSpace(line))
+                {
+                    continue;
+                }
+
+                if (!line.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var data = line[5..].Trim();
+                if (data.Length == 0)
+                {
+                    continue;
+                }
+
+                if (string.Equals(data, "[DONE]", StringComparison.Ordinal))
+                {
+                    break;
+                }
+
+                if (!TryParseStreamingChunk(data, out var chunkText, out var chunkFinishReason))
+                {
+                    continue;
+                }
+
+                if (!string.IsNullOrWhiteSpace(chunkFinishReason))
+                {
+                    finishReason = chunkFinishReason;
+                }
+
+                if (string.IsNullOrEmpty(chunkText))
+                {
+                    continue;
+                }
+
+                sb.Append(chunkText);
+                await onChunk(chunkText);
+            }
+        }
+
+        var content = sb.ToString();
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            // Provider likely ignored stream=true and returned non-SSE JSON.
+            content = await SendCompletionAsync(messages, resolved, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(content))
+            {
+                await onChunk(content);
+            }
+            finishReason = null;
+        }
+        else if (string.Equals(finishReason, "length", StringComparison.OrdinalIgnoreCase))
+        {
+            var continuation = await ContinueTruncatedResponseAsync(
+                client,
+                relativePath,
+                messages,
+                resolved,
+                content,
+                cancellationToken);
+
+            if (continuation.Length > content.Length)
+            {
+                var delta = continuation[content.Length..];
+                if (!string.IsNullOrWhiteSpace(delta))
+                {
+                    await onChunk(delta);
+                }
+            }
+
+            content = continuation;
+        }
+
+        var duration = DateTime.UtcNow - startTime;
+        _logger.LogInformation(
+            "Streaming completion request completed: Model={ModelIdentifier}, Provider={ProviderName}, SessionOverride={IsSessionOverride}, Duration={DurationMs}ms",
+            resolved.ModelIdentifier, resolved.ProviderName, resolved.IsSessionOverride, (int)duration.TotalMilliseconds);
+
+        return content;
+    }
+
+    private static bool TryParseStreamingChunk(string json, out string chunkText, out string? finishReason)
+    {
+        chunkText = string.Empty;
+        finishReason = null;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            if (!root.TryGetProperty("choices", out var choices) || choices.ValueKind != JsonValueKind.Array || choices.GetArrayLength() == 0)
+            {
+                return false;
+            }
+
+            var firstChoice = choices[0];
+
+            if (firstChoice.TryGetProperty("finish_reason", out var finishReasonElement)
+                && finishReasonElement.ValueKind == JsonValueKind.String)
+            {
+                finishReason = finishReasonElement.GetString();
+            }
+
+            if (firstChoice.TryGetProperty("delta", out var delta) && delta.ValueKind == JsonValueKind.Object)
+            {
+                if (delta.TryGetProperty("content", out var deltaContent) && deltaContent.ValueKind == JsonValueKind.String)
+                {
+                    chunkText = deltaContent.GetString() ?? string.Empty;
+                    return true;
+                }
+
+                if (delta.TryGetProperty("reasoning_content", out var deltaReasoning) && deltaReasoning.ValueKind == JsonValueKind.String)
+                {
+                    chunkText = deltaReasoning.GetString() ?? string.Empty;
+                    return true;
+                }
+
+                if (delta.TryGetProperty("reasoning", out var deltaReasoningFallback) && deltaReasoningFallback.ValueKind == JsonValueKind.String)
+                {
+                    chunkText = deltaReasoningFallback.GetString() ?? string.Empty;
+                    return true;
+                }
+            }
+
+            if (firstChoice.TryGetProperty("message", out var message) && message.ValueKind == JsonValueKind.Object)
+            {
+                if (message.TryGetProperty("content", out var content) && content.ValueKind == JsonValueKind.String)
+                {
+                    chunkText = content.GetString() ?? string.Empty;
+                    return true;
+                }
+
+                if (message.TryGetProperty("reasoning_content", out var reasoning) && reasoning.ValueKind == JsonValueKind.String)
+                {
+                    chunkText = reasoning.GetString() ?? string.Empty;
+                    return true;
+                }
+
+                if (message.TryGetProperty("reasoning", out var reasoningFallback) && reasoningFallback.ValueKind == JsonValueKind.String)
+                {
+                    chunkText = reasoningFallback.GetString() ?? string.Empty;
+                    return true;
+                }
+            }
+
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private async Task<string> ContinueTruncatedResponseAsync(
         HttpClient client,
         string relativePath,
@@ -342,6 +595,10 @@ public sealed class CompletionClient : ICompletionClient
 
         [JsonPropertyName("max_tokens")]
         public int MaxTokens { get; init; } = 500;
+
+        [JsonPropertyName("stream")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public bool? Stream { get; init; }
     }
 
     private sealed record ChatMessage(

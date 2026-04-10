@@ -82,6 +82,46 @@ public sealed class RolePlayAssistantService : IRolePlayAssistantService
         return trimmedResponse;
     }
 
+    public async Task<string> GenerateSuggestionStreamingAsync(
+        RolePlayAssistantContext context,
+        string userPrompt,
+        Func<string, Task> onChunk,
+        string? assistantModelId = null,
+        double? assistantTemperature = null,
+        double? assistantTopP = null,
+        int? assistantMaxTokens = null,
+        CancellationToken cancellationToken = default)
+    {
+        var sessionId = context.SessionId;
+
+        _contextManager.AddUserMessage(sessionId, userPrompt);
+
+        var userMessage = BuildUserMessage(sessionId, context, userPrompt);
+        _logger.LogInformation("Role-play assistant streaming request initiated for session {SessionId}", sessionId);
+
+        var resolved = await _modelResolver.ResolveAsync(
+            AppFunction.RolePlayAssistant,
+            sessionModelId: assistantModelId,
+            sessionTemperature: assistantTemperature,
+            sessionTopP: assistantTopP,
+            sessionMaxTokens: assistantMaxTokens,
+            cancellationToken: cancellationToken);
+
+        var response = await _completionClient.StreamGenerateAsync(
+            RolePlayAssistantPrompts.SystemPrompt,
+            userMessage,
+            resolved,
+            onChunk,
+            cancellationToken);
+
+        var trimmedResponse = CleanResponse(response);
+
+        _contextManager.AddAssistantResponse(sessionId, trimmedResponse);
+
+        _logger.LogInformation("Role-play assistant streaming suggestion generated for session {SessionId}", sessionId);
+        return trimmedResponse;
+    }
+
     public void ClearChat(string sessionId)
     {
         _contextManager.ClearChat(sessionId);
@@ -138,10 +178,15 @@ public sealed class RolePlayAssistantService : IRolePlayAssistantService
 
         if (!string.IsNullOrWhiteSpace(context.SelectedRankingProfileId)
             || !string.IsNullOrWhiteSpace(context.SelectedToneProfileId)
+            || !string.IsNullOrWhiteSpace(context.SelectedStyleProfileId)
             || !string.IsNullOrWhiteSpace(context.StyleFloorOverride)
             || !string.IsNullOrWhiteSpace(context.StyleCeilingOverride))
         {
-            sb.AppendLine($"[Adaptive Profiles: ranking={context.SelectedRankingProfileId ?? "(none)"}, tone={context.SelectedToneProfileId ?? "(none)"}, floor={context.StyleFloorOverride ?? "(none)"}, ceiling={context.StyleCeilingOverride ?? "(none)"}]");
+            sb.AppendLine($"[Adaptive Profiles: ranking={context.SelectedRankingProfileId ?? "(none)"}, tone={context.SelectedToneProfileId ?? "(none)"}, style={context.SelectedStyleProfileId ?? "(none)"}, floor={context.StyleFloorOverride ?? "(none)"}, ceiling={context.StyleCeilingOverride ?? "(none)"}, manualPin={(context.IsToneManuallyPinned ? "on" : "off")}] ");
+        }
+        else if (context.IsToneManuallyPinned)
+        {
+            sb.AppendLine("[Adaptive Profiles: manualPin=on]");
         }
 
         if (context.ProfileSteeringThemes.Count > 0)

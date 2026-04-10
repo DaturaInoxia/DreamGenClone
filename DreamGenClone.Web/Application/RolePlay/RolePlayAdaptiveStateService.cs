@@ -1,24 +1,13 @@
 using DreamGenClone.Web.Domain.RolePlay;
 using System.Text.Json;
 using DreamGenClone.Application.Abstractions;
+using DreamGenClone.Application.StoryAnalysis;
 
 namespace DreamGenClone.Web.Application.RolePlay;
 
 public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
 {
     private sealed record ThemeRule(string ThemeId, string ThemeName, string[] Keywords, int Weight);
-
-    private static readonly string[] DefaultStats =
-    [
-        "Arousal",
-        "Inhibition",
-        "Tension",
-        "Trust",
-        "Jealousy",
-        "DominanceDrive",
-        "Shame",
-        "RiskAppetite"
-    ];
 
     private static readonly ThemeRule[] ThemeCatalog =
     {
@@ -84,10 +73,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             ApplyDelta(actorStats.Stats, "Inhibition", -Score(contentLower, ["can't", "wrong", "shouldn't", "hesitate", "guilt"], 2));
             ApplyDelta(actorStats.Stats, "Tension", Score(contentLower, ["fear", "caught", "risk", "panic", "nervous"], 3));
             ApplyDelta(actorStats.Stats, "Trust", Score(contentLower, ["safe", "comfort", "trust", "reassure"], 2));
-            ApplyDelta(actorStats.Stats, "Jealousy", Score(contentLower, ["jealous", "comparison", "watch", "envy"], 3));
-            ApplyDelta(actorStats.Stats, "DominanceDrive", Score(contentLower, ["control", "command", "obey", "claim"], 2));
-            ApplyDelta(actorStats.Stats, "Shame", Score(contentLower, ["shame", "humiliation", "embarrass", "degrade"], 2));
-            ApplyDelta(actorStats.Stats, "RiskAppetite", Score(contentLower, ["secret", "hide", "chance", "danger", "thrill"], 2));
+            ApplyDelta(actorStats.Stats, "Agency", Score(contentLower, ["control", "command", "obey", "claim", "choose", "decide", "insist"], 2));
 
             actorStats.UpdatedUtc = DateTime.UtcNow;
         }
@@ -199,11 +185,11 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
 
     private static void EnsureDefaultStats(Dictionary<string, int> stats)
     {
-        foreach (var statName in DefaultStats)
+        foreach (var statName in AdaptiveStatCatalog.CanonicalStatNames)
         {
             if (!stats.ContainsKey(statName))
             {
-                stats[statName] = 50;
+                stats[statName] = AdaptiveStatCatalog.DefaultValue;
             }
         }
     }
@@ -218,7 +204,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
     {
         if (!stats.TryGetValue(statName, out var current))
         {
-            current = 50;
+            current = AdaptiveStatCatalog.DefaultValue;
         }
 
         var boundedDelta = Math.Clamp(delta, -25, 25);

@@ -5,6 +5,56 @@ window.rolePlayWorkspace = {
         if (el) { el.scrollTop = el.scrollHeight; }
     },
 
+    // Check if story view is near bottom before applying auto-follow.
+    isStoryNearBottom: function (thresholdPx) {
+        const el = document.querySelector('.rw-story');
+        if (!el) {
+            return true;
+        }
+
+        const threshold = typeof thresholdPx === 'number' ? thresholdPx : 80;
+        const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+        return distance <= threshold;
+    },
+
+    // Follow new story chunks only when the user is already near the bottom.
+    followStoryIfNearBottom: function (thresholdPx) {
+        const el = document.querySelector('.rw-story');
+        if (!el) {
+            return true;
+        }
+
+        const threshold = typeof thresholdPx === 'number' ? thresholdPx : 80;
+        const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+        const nearBottom = distance <= threshold;
+        if (nearBottom) {
+            el.scrollTop = el.scrollHeight;
+        }
+
+        return nearBottom;
+    },
+
+    scrollElementToBottom: function (element) {
+        if (!element) {
+            return;
+        }
+
+        element.scrollTop = element.scrollHeight;
+    },
+
+    copyTextToClipboard: async function (text) {
+        if (!navigator.clipboard || typeof navigator.clipboard.writeText !== 'function') {
+            return false;
+        }
+
+        try {
+            await navigator.clipboard.writeText(text ?? '');
+            return true;
+        } catch {
+            return false;
+        }
+    },
+
     // Return the bounding rect of the element matching the selector.
     getElementRect: function (selector) {
         const el = document.querySelector(selector);

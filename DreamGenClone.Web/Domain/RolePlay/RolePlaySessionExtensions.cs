@@ -2,6 +2,45 @@ namespace DreamGenClone.Web.Domain.RolePlay;
 
 public static class RolePlaySessionExtensions
 {
+    public static CharacterPerspectiveMode ResolvePerspectiveMode(this RolePlaySession session, ContinueAsActor actor, string actorName)
+    {
+        if (actor == ContinueAsActor.You || string.Equals(actorName, session.PersonaName, StringComparison.OrdinalIgnoreCase))
+        {
+            return Enum.IsDefined(session.PersonaPerspectiveMode)
+                ? session.PersonaPerspectiveMode
+                : CharacterPerspectiveMode.FirstPersonInternalMonologue;
+        }
+
+        return ResolveCharacterPerspectiveMode(session, actorName);
+    }
+
+    public static CharacterPerspectiveMode ResolvePerspectiveMode(this RolePlaySession session, InteractionType interactionType, string actorName)
+    {
+        if (interactionType == InteractionType.User || string.Equals(actorName, session.PersonaName, StringComparison.OrdinalIgnoreCase))
+        {
+            return session.PersonaPerspectiveMode;
+        }
+
+        return ResolveCharacterPerspectiveMode(session, actorName);
+    }
+
+    private static CharacterPerspectiveMode ResolveCharacterPerspectiveMode(RolePlaySession session, string actorName)
+    {
+        if (!string.IsNullOrWhiteSpace(actorName))
+        {
+            var configured = session.CharacterPerspectives.FirstOrDefault(x =>
+                string.Equals(x.CharacterName, actorName, StringComparison.OrdinalIgnoreCase));
+            if (configured is not null)
+            {
+                return Enum.IsDefined(configured.PerspectiveMode)
+                    ? configured.PerspectiveMode
+                    : CharacterPerspectiveMode.ThirdPersonExternalOnly;
+            }
+        }
+
+        return CharacterPerspectiveMode.ThirdPersonExternalOnly;
+    }
+
     /// <summary>
     /// Returns a filtered, ordered list of interactions for AI context building:
     /// 1. Selects only original interactions (ParentInteractionId == null)

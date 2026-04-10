@@ -146,6 +146,25 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 UpdatedUtc TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS BaseStatProfiles (
+                Id TEXT PRIMARY KEY,
+                Name TEXT NOT NULL,
+                Description TEXT NOT NULL,
+                DefaultStatsJson TEXT NOT NULL,
+                CreatedUtc TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS StyleProfiles (
+                Id TEXT PRIMARY KEY,
+                Name TEXT NOT NULL,
+                Description TEXT NOT NULL,
+                Example TEXT NOT NULL,
+                RuleOfThumb TEXT NOT NULL,
+                CreatedUtc TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS StoryRankings (
                 Id TEXT PRIMARY KEY,
                 ParsedStoryId TEXT NOT NULL,
@@ -353,6 +372,10 @@ public sealed class SqlitePersistence : ISqlitePersistence
         var toneIndexCmd = connection.CreateCommand();
         toneIndexCmd.CommandText = "CREATE INDEX IF NOT EXISTS IX_ToneProfiles_Name ON ToneProfiles (Name)";
         await toneIndexCmd.ExecuteNonQueryAsync(cancellationToken);
+
+        var baseStatsIndexCmd = connection.CreateCommand();
+        baseStatsIndexCmd.CommandText = "CREATE INDEX IF NOT EXISTS IX_BaseStatProfiles_Name ON BaseStatProfiles (Name)";
+        await baseStatsIndexCmd.ExecuteNonQueryAsync(cancellationToken);
 
         // Migrate: add IsDefault column to RankingProfiles if missing
         var migrateIsDefault = connection.CreateCommand();
@@ -1347,6 +1370,210 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 : ToneIntensity.SensualMature,
             CreatedUtc = DateTime.TryParse(reader.GetString(4), out var created) ? created : DateTime.UtcNow,
             UpdatedUtc = DateTime.TryParse(reader.GetString(5), out var updated) ? updated : DateTime.UtcNow
+        };
+    }
+
+    // --- Base Stat Profile persistence ---
+
+    public async Task SaveBaseStatProfileAsync(BaseStatProfile profile, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO BaseStatProfiles (Id, Name, Description, DefaultStatsJson, CreatedUtc, UpdatedUtc)
+            VALUES ($id, $name, $description, $defaultStatsJson, $createdUtc, $updatedUtc)
+            ON CONFLICT(Id) DO UPDATE SET
+                Name = $name,
+                Description = $description,
+                DefaultStatsJson = $defaultStatsJson,
+                UpdatedUtc = $updatedUtc;
+            """;
+
+        command.Parameters.AddWithValue("$id", profile.Id);
+        command.Parameters.AddWithValue("$name", profile.Name);
+        command.Parameters.AddWithValue("$description", profile.Description);
+        command.Parameters.AddWithValue("$defaultStatsJson", JsonSerializer.Serialize(profile.DefaultStats));
+        command.Parameters.AddWithValue("$createdUtc", profile.CreatedUtc.ToString("O"));
+        command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
+
+        await command.ExecuteNonQueryAsync(cancellationToken);
+        _logger.LogInformation("Base stat profile persisted: {BaseStatProfileId}, Name={Name}", profile.Id, profile.Name);
+    }
+
+    public async Task<BaseStatProfile?> LoadBaseStatProfileAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT Id, Name, Description, DefaultStatsJson, CreatedUtc, UpdatedUtc FROM BaseStatProfiles WHERE Id = $id";
+        command.Parameters.AddWithValue("$id", id);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return ReadBaseStatProfile(reader);
+    }
+
+    public async Task<List<BaseStatProfile>> LoadAllBaseStatProfilesAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT Id, Name, Description, DefaultStatsJson, CreatedUtc, UpdatedUtc FROM BaseStatProfiles ORDER BY Name";
+
+        var results = new List<BaseStatProfile>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            results.Add(ReadBaseStatProfile(reader));
+        }
+
+        return results;
+    }
+
+    public async Task<bool> DeleteBaseStatProfileAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM BaseStatProfiles WHERE Id = $id";
+        command.Parameters.AddWithValue("$id", id);
+
+        var rowsAffected = await command.ExecuteNonQueryAsync(cancellationToken);
+        _logger.LogInformation("Base stat profile deletion attempted: {BaseStatProfileId}, RowsAffected={RowsAffected}", id, rowsAffected);
+        return rowsAffected > 0;
+    }
+
+    private static BaseStatProfile ReadBaseStatProfile(SqliteDataReader reader)
+    {
+        var defaultStatsJson = reader.GetString(3);
+        Dictionary<string, int>? parsedStats = null;
+        try
+        {
+            parsedStats = JsonSerializer.Deserialize<Dictionary<string, int>>(defaultStatsJson);
+        }
+        catch
+        {
+            parsedStats = null;
+        }
+
+        return new BaseStatProfile
+        {
+            Id = reader.GetString(0),
+            Name = reader.GetString(1),
+            Description = reader.GetString(2),
+            DefaultStats = parsedStats is null
+                ? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+                : new Dictionary<string, int>(parsedStats, StringComparer.OrdinalIgnoreCase),
+            CreatedUtc = DateTime.TryParse(reader.GetString(4), out var created) ? created : DateTime.UtcNow,
+            UpdatedUtc = DateTime.TryParse(reader.GetString(5), out var updated) ? updated : DateTime.UtcNow
+        };
+    }
+
+    // --- Style Profile persistence ---
+
+    public async Task SaveStyleProfileAsync(StyleProfile profile, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO StyleProfiles (Id, Name, Description, Example, RuleOfThumb, CreatedUtc, UpdatedUtc)
+            VALUES ($id, $name, $description, $example, $ruleOfThumb, $createdUtc, $updatedUtc)
+            ON CONFLICT(Id) DO UPDATE SET
+                Name = $name,
+                Description = $description,
+                Example = $example,
+                RuleOfThumb = $ruleOfThumb,
+                UpdatedUtc = $updatedUtc;
+            """;
+
+        command.Parameters.AddWithValue("$id", profile.Id);
+        command.Parameters.AddWithValue("$name", profile.Name);
+        command.Parameters.AddWithValue("$description", profile.Description);
+        command.Parameters.AddWithValue("$example", profile.Example);
+        command.Parameters.AddWithValue("$ruleOfThumb", profile.RuleOfThumb);
+        command.Parameters.AddWithValue("$createdUtc", profile.CreatedUtc.ToString("O"));
+        command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
+
+        await command.ExecuteNonQueryAsync(cancellationToken);
+        _logger.LogInformation("Style profile persisted: {StyleProfileId}, Name={Name}", profile.Id, profile.Name);
+    }
+
+    public async Task<StyleProfile?> LoadStyleProfileAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT Id, Name, Description, Example, RuleOfThumb, CreatedUtc, UpdatedUtc FROM StyleProfiles WHERE Id = $id";
+        command.Parameters.AddWithValue("$id", id);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return ReadStyleProfile(reader);
+    }
+
+    public async Task<List<StyleProfile>> LoadAllStyleProfilesAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT Id, Name, Description, Example, RuleOfThumb, CreatedUtc, UpdatedUtc FROM StyleProfiles ORDER BY Name";
+
+        var results = new List<StyleProfile>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            results.Add(ReadStyleProfile(reader));
+        }
+
+        return results;
+    }
+
+    public async Task<bool> DeleteStyleProfileAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM StyleProfiles WHERE Id = $id";
+        command.Parameters.AddWithValue("$id", id);
+
+        var rowsAffected = await command.ExecuteNonQueryAsync(cancellationToken);
+        _logger.LogInformation("Style profile deletion attempted: {StyleProfileId}, RowsAffected={RowsAffected}", id, rowsAffected);
+        return rowsAffected > 0;
+    }
+
+    private static StyleProfile ReadStyleProfile(SqliteDataReader reader)
+    {
+        return new StyleProfile
+        {
+            Id = reader.GetString(0),
+            Name = reader.GetString(1),
+            Description = reader.GetString(2),
+            Example = reader.GetString(3),
+            RuleOfThumb = reader.GetString(4),
+            CreatedUtc = DateTime.TryParse(reader.GetString(5), out var created) ? created : DateTime.UtcNow,
+            UpdatedUtc = DateTime.TryParse(reader.GetString(6), out var updated) ? updated : DateTime.UtcNow
         };
     }
 

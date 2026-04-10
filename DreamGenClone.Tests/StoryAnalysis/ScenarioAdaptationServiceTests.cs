@@ -482,6 +482,20 @@ public class ScenarioAdaptationServiceTests
             return Task.FromResult(response);
         }
 
+        public async Task<string> StreamGenerateAsync(string prompt, ResolvedModel resolved, Func<string, Task> onChunk, CancellationToken cancellationToken = default)
+        {
+            await onChunk(response);
+            return response;
+        }
+
+        public async Task<string> StreamGenerateAsync(string systemMessage, string userMessage, ResolvedModel resolved, Func<string, Task> onChunk, CancellationToken cancellationToken = default)
+        {
+            LastSystemMessage = systemMessage;
+            LastUserMessage = userMessage;
+            await onChunk(response);
+            return response;
+        }
+
         public Task<bool> CheckHealthAsync(string providerBaseUrl, int timeoutSeconds, string? decryptedApiKey, CancellationToken cancellationToken = default)
             => Task.FromResult(true);
 

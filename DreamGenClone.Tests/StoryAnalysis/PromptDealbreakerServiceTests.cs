@@ -69,6 +69,48 @@ public sealed class PromptDealbreakerServiceTests
         Assert.Empty(result.ViolatedThemes);
     }
 
+    [Fact]
+    public async Task ValidateAsync_DoesNotTrigger_ForGenericRelationshipPrompt_WhenThemeIsGay()
+    {
+        var service = new PromptDealbreakerService(new FakeThemePreferenceService(new List<ThemePreference>
+        {
+            new()
+            {
+                Id = "t1",
+                ProfileId = "p1",
+                Name = "Gay",
+                Description = "same sex relationship between men",
+                Tier = ThemeTier.HardDealBreaker
+            }
+        }));
+
+        var result = await service.ValidateAsync("Describe the tension between two married women and the men around them.", "p1");
+
+        Assert.True(result.IsAllowed);
+        Assert.Empty(result.ViolatedThemes);
+    }
+
+    [Fact]
+    public async Task ValidateAsync_Triggers_WhenExplicitDealbreakerPhraseIsPresent()
+    {
+        var service = new PromptDealbreakerService(new FakeThemePreferenceService(new List<ThemePreference>
+        {
+            new()
+            {
+                Id = "t1",
+                ProfileId = "p1",
+                Name = "Gay",
+                Description = "same sex relationship between men",
+                Tier = ThemeTier.HardDealBreaker
+            }
+        }));
+
+        var result = await service.ValidateAsync("The prompt asks for a same sex relationship between men.", "p1");
+
+        Assert.False(result.IsAllowed);
+        Assert.Contains("Gay", result.ViolatedThemes);
+    }
+
     private sealed class FakeThemePreferenceService : IThemePreferenceService
     {
         private readonly List<ThemePreference> _themes;

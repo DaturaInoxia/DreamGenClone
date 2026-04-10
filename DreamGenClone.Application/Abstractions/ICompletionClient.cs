@@ -15,6 +15,19 @@ public interface ICompletionClient
         ResolvedModel resolved,
         CancellationToken cancellationToken = default);
 
+    Task<string> StreamGenerateAsync(
+        string prompt,
+        ResolvedModel resolved,
+        Func<string, Task> onChunk,
+        CancellationToken cancellationToken = default);
+
+    Task<string> StreamGenerateAsync(
+        string systemMessage,
+        string userMessage,
+        ResolvedModel resolved,
+        Func<string, Task> onChunk,
+        CancellationToken cancellationToken = default);
+
     Task<bool> CheckHealthAsync(
         string providerBaseUrl,
         int timeoutSeconds,
