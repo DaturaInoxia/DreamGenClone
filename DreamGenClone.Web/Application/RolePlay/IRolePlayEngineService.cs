@@ -41,10 +41,12 @@ public interface IRolePlayEngineService
 
     Task<RolePlayInteraction> SubmitPromptAsync(
         UnifiedPromptSubmission submission,
+        Func<string, Task>? onChunk = null,
         CancellationToken cancellationToken = default);
 
     Task<ContinueAsResult> ContinueAsAsync(
         ContinueAsRequest request,
+        Func<string, Task>? onChunk = null,
         CancellationToken cancellationToken = default);
 
     Task<bool> DeleteSessionAsync(string sessionId, CancellationToken cancellationToken = default);

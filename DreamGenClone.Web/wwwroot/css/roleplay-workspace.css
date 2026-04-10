@@ -42,6 +42,12 @@
     min-width: 0;
 }
 
+.rw-header-right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+}
+
 .rw-back-btn {
     background: transparent;
     border: 1px solid #333;
@@ -55,6 +61,25 @@
 }
 
 .rw-back-btn:hover { border-color: #555; color: #ccc; }
+
+.rw-debug-btn {
+    border: 1px solid #355b63;
+    background: #15272a;
+    color: #91d6e4;
+    border-radius: 8px;
+    padding: 5px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+    cursor: pointer;
+    transition: background 0.1s, border-color 0.1s, color 0.1s;
+}
+
+.rw-debug-btn:hover {
+    background: #1b3338;
+    border-color: #4a8592;
+    color: #c0ebf5;
+}
 
 .rw-session-title {
     font-size: 15px;
@@ -85,6 +110,7 @@
 .rw-story {
     flex: 1;
     overflow-y: auto;
+    overflow-x: clip;
     padding: 18px 14px 6px;
     display: flex;
     flex-direction: column;
@@ -665,10 +691,12 @@
 .rw-settings-content {
     flex: 1;
     overflow-y: auto;
+    overflow-x: hidden;
     padding: 16px;
     display: flex;
     flex-direction: column;
-    gap: 22px;
+    gap: 14px;
+    min-height: 0;  /* critical: allow flex child to shrink below content height */
 }
 
 .rw-settings-section { display: flex; flex-direction: column; gap: 8px; }
@@ -745,6 +773,191 @@
     padding: 3px 0;
 }
 
+/* ─── SCENARIO EDITOR ─── */
+
+.rw-collapsible-section {
+    border: 1px solid #252525;
+    border-radius: 8px;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+.rw-collapsible-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 10px 14px;
+    background: #1a1a1a;
+    border: none;
+    cursor: pointer;
+    transition: background 0.1s;
+    font-size: 13px;
+    color: #ccc;
+}
+
+.rw-collapsible-header:hover {
+    background: #1e1e1e;
+}
+
+.rw-collapsible-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: #ccc;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.rw-collapsible-chevron {
+    font-size: 11px;
+    color: #888;
+    transition: transform 0.15s ease;
+    display: inline-block;
+}
+
+.rw-collapsible-chevron.is-open {
+    transform: rotate(90deg);
+}
+
+.rw-collapsible-body {
+    padding: 14px 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    border-top: 1px solid #252525;
+}
+
+.rw-scenario-field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.rw-scenario-field-label {
+    font-size: 11px;
+    color: #888;
+    font-weight: 500;
+}
+
+.rw-list-item-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 6px;
+}
+
+.rw-list-item-row .rw-settings-input {
+    flex: 1;
+    min-width: 0;
+}
+
+.rw-list-remove-btn {
+    flex-shrink: 0;
+    width: 26px;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 1px solid #3a2020;
+    border-radius: 5px;
+    color: #884444;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.1s, color 0.1s;
+    padding: 0;
+}
+
+.rw-list-remove-btn:hover {
+    background: #3a2020;
+    color: #cc6666;
+}
+
+.rw-list-add-btn {
+    display: inline-block;
+    background: transparent;
+    border: 1px dashed #363636;
+    border-radius: 6px;
+    color: #777;
+    font-size: 11px;
+    padding: 4px 10px;
+    cursor: pointer;
+    transition: background 0.1s, color 0.1s, border-color 0.1s;
+    margin-top: 2px;
+}
+
+.rw-list-add-btn:hover {
+    background: #1e1e1e;
+    color: #aaa;
+    border-color: #505050;
+}
+
+.rw-scenario-save-btn {
+    width: 100%;
+    padding: 9px;
+    background: #1a3a5c;
+    border: 1px solid #2a5a8a;
+    border-radius: 8px;
+    color: #c8ddf0;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+    margin-top: 4px;
+}
+
+.rw-scenario-save-btn:hover:not(.is-disabled) {
+    background: #234b6e;
+    border-color: #3a6a9a;
+}
+
+.rw-scenario-save-btn.is-disabled {
+    background: #1a1a1a;
+    border-color: #2a2a2a;
+    color: #555;
+    cursor: default;
+}
+
+.rw-settings-textarea {
+    width: 100%;
+    background: #222;
+    border: 1px solid #363636;
+    border-radius: 8px;
+    color: #e0e0e0;
+    font-size: 13px;
+    padding: 7px 10px;
+    outline: none;
+    resize: vertical;
+    min-height: 40px;
+    font-family: inherit;
+    line-height: 1.45;
+}
+
+.rw-settings-textarea:focus { border-color: #505050; }
+
+.rw-settings-textarea::placeholder,
+.rw-settings-input::placeholder {
+    color: #555;
+}
+
+.rw-scenario-character {
+    padding: 6px 0;
+    border-top: 1px solid #252525;
+}
+
+.rw-scenario-character:first-child {
+    border-top: none;
+    padding-top: 0;
+}
+
+.rw-scenario-empty {
+    color: #555;
+    font-size: 12px;
+    font-style: italic;
+    text-align: center;
+    padding: 16px 0;
+}
+
 @media (max-width: 900px) {
     .rw-continue-row {
         flex-wrap: wrap;
@@ -759,4 +972,431 @@
         right: 14px;
         min-width: 0;
     }
+}
+
+/* ─── INTERACTION TOOLBAR & COMMAND MENUS ─── */
+
+.rw-interaction-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex-shrink: 0;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+
+.rw-interaction:hover .rw-interaction-toolbar,
+.rw-interaction:focus-within .rw-interaction-toolbar,
+.rw-interaction-toolbar:has(.rw-dropdown-menu),
+.rw-interaction-toolbar:has(.rw-kebab-menu) {
+    opacity: 1;
+}
+
+/* Always show toolbar when in edit mode */
+.rw-interaction:has(.rw-edit-textarea) .rw-interaction-toolbar {
+    opacity: 1;
+}
+
+.rw-toolbar-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border: none;
+    border-radius: 8px;
+    background: #2a2a2a;
+    color: #b0b0b0;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    padding: 0;
+}
+
+.rw-toolbar-btn:hover {
+    background: #3a3a3a;
+    color: #e0e0e0;
+}
+
+.rw-toolbar-btn-danger {
+    background: #5c1a1a;
+    color: #e05050;
+}
+
+.rw-toolbar-btn-danger:hover {
+    background: #7a2020;
+    color: #ff6060;
+}
+
+.rw-icon {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+}
+
+/* ─── Retry & Kebab dropdown containers ─── */
+
+.rw-dropdown-menu {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    z-index: 100;
+    min-width: 200px;
+    background: #1e1e1e;
+    border: 1px solid #333;
+    border-radius: 10px;
+    padding: 4px 0;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    margin-top: 4px;
+}
+
+/* Fixed-position portal dropdown (escapes scroll containers) */
+.rw-dropdown-fixed {
+    position: fixed;
+    top: auto;
+    left: auto;
+    margin-top: 0;
+    z-index: 1000;
+}
+
+/* Invisible backdrop to close menus on outside click */
+.rw-menu-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 999;
+}
+
+
+.rw-dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 14px;
+    border: none;
+    background: transparent;
+    color: #d0d0d0;
+    font-size: 13px;
+    cursor: pointer;
+    text-align: left;
+    white-space: nowrap;
+    transition: background 0.1s;
+}
+
+.rw-dropdown-item:hover {
+    background: #2a2a2a;
+}
+
+.rw-dropdown-item .rw-icon {
+    width: 14px;
+    height: 14px;
+    opacity: 0.7;
+}
+
+.rw-dropdown-separator {
+    height: 1px;
+    background: #333;
+    margin: 4px 0;
+}
+
+/* ─── Submenu (Retry with model / Retry as...) ─── */
+
+.rw-dropdown-submenu {
+    position: relative;
+}
+
+.rw-has-submenu {
+    justify-content: space-between;
+}
+
+.rw-submenu-arrow {
+    font-size: 10px;
+    opacity: 0.5;
+    margin-left: auto;
+}
+
+.rw-dropdown-submenu-content {
+    display: none;
+    position: absolute;
+    right: 100%;
+    left: auto;
+    top: 0;
+    z-index: 1001;
+    min-width: 180px;
+    background: #1e1e1e;
+    border: 1px solid #333;
+    border-radius: 10px;
+    padding: 4px 0;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.rw-dropdown-submenu:hover > .rw-dropdown-submenu-content {
+    display: block;
+}
+
+.rw-identity-initial {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #aaa;
+    flex-shrink: 0;
+}
+
+/* ─── Flag toggle items in kebab ─── */
+
+.rw-flag-toggle {
+    gap: 6px;
+}
+
+.rw-flag-check {
+    font-size: 14px;
+    width: 18px;
+    text-align: center;
+    flex-shrink: 0;
+    opacity: 0.7;
+}
+
+/* ─── Flag indicators in actor name ─── */
+
+.rw-flag-icon {
+    font-size: 11px;
+    margin-left: 4px;
+    opacity: 0.6;
+}
+
+/* Flags only show indicator icons; no visual state changes on the interaction */
+
+/* ─── Edit mode textarea ─── */
+
+.rw-edit-textarea {
+    width: 100%;
+    min-height: 80px;
+    background: #1a1a1a;
+    color: #d4d4d4;
+    border: 1px solid #444;
+    border-radius: 6px;
+    padding: 8px;
+    font-family: inherit;
+    font-size: 14px;
+    line-height: 1.65;
+    resize: vertical;
+}
+
+/* ─── Generating indicator & error ─── */
+
+.rw-generating-indicator {
+    font-size: 13px;
+    color: #888;
+    font-style: italic;
+    padding: 4px 0;
+}
+
+.rw-error-inline {
+    font-size: 12px;
+    color: #e05050;
+    background: #2a1515;
+    border-radius: 4px;
+    padding: 4px 8px;
+    margin-top: 4px;
+}
+
+/* ─── Alternative navigation ─── */
+
+.rw-alt-navigation {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+}
+
+.rw-alt-nav-btn {
+    background: #2a2a2a;
+    border: none;
+    color: #b0b0b0;
+    cursor: pointer;
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 12px;
+}
+
+.rw-alt-nav-btn:hover:not(:disabled) {
+    background: #3a3a3a;
+    color: #e0e0e0;
+}
+
+.rw-alt-nav-btn:disabled {
+    opacity: 0.3;
+    cursor: default;
+}
+
+.rw-alt-counter {
+    font-size: 11px;
+    color: #888;
+}
+
+/* ─── Modal dialogs (delete, rewrite) ─── */
+
+.rw-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+}
+
+.rw-modal {
+    background: #1e1e1e;
+    border: 1px solid #333;
+    border-radius: 12px;
+    padding: 20px 24px;
+    min-width: 340px;
+    max-width: 480px;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+}
+
+.rw-modal-header {
+    font-size: 16px;
+    font-weight: 600;
+    color: #e8e8e8;
+    margin-bottom: 12px;
+}
+
+.rw-modal-body {
+    font-size: 14px;
+    color: #bbb;
+    margin-bottom: 16px;
+}
+
+.rw-modal-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+.rw-btn {
+    padding: 6px 16px;
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.rw-btn-secondary {
+    background: #333;
+    color: #d0d0d0;
+}
+
+.rw-btn-secondary:hover {
+    background: #444;
+}
+
+.rw-btn-primary {
+    background: #e8e8e8;
+    color: #111;
+}
+
+.rw-btn-primary:hover {
+    background: #fff;
+}
+
+.rw-btn-primary:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+
+.rw-btn-danger {
+    background: #5c1a1a;
+    color: #e05050;
+}
+
+.rw-btn-danger:hover {
+    background: #7a2020;
+}
+
+.rw-rewrite-textarea {
+    width: 100%;
+    min-height: 60px;
+    background: #2a2a2a;
+    color: #d4d4d4;
+    border: 1px solid #444;
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-family: inherit;
+    font-size: 14px;
+    resize: vertical;
+}
+
+/* ─── Interaction Info Popup ─── */
+
+.rw-modal-info {
+    min-width: 380px;
+    max-width: 520px;
+}
+
+.rw-info-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.rw-info-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 4px 0;
+    border-bottom: 1px solid #2a2a2a;
+}
+
+.rw-info-row:last-child {
+    border-bottom: none;
+}
+
+.rw-info-label {
+    font-size: 12px;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    min-width: 100px;
+}
+
+.rw-info-value {
+    font-size: 13px;
+    color: #d4d4d4;
+    text-align: right;
+}
+
+/* ─── Delete Alternative Confirmation ─── */
+
+.rw-alt-delete-btn {
+    background: none;
+    border: none;
+    color: #888;
+    cursor: pointer;
+    padding: 2px 4px;
+    font-size: 11px;
+    line-height: 1;
+    border-radius: 3px;
+    transition: color 0.15s, background 0.15s;
+}
+
+.rw-alt-delete-btn:hover {
+    color: #e05050;
+    background: rgba(224, 80, 80, 0.1);
+}
+
+.rw-alt-delete-btn:disabled {
+    opacity: 0.3;
+    cursor: default;
 }

@@ -1,3 +1,4 @@
+using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Infrastructure.Configuration;
 using DreamGenClone.Domain.StoryAnalysis;
 using DreamGenClone.Domain.StoryParser;
@@ -11,11 +12,22 @@ namespace DreamGenClone.Infrastructure.Persistence;
 public sealed class SqlitePersistence : ISqlitePersistence
 {
     private readonly PersistenceOptions _options;
+    private readonly LmStudioOptions _lmStudioOptions;
+    private readonly StoryAnalysisOptions _storyAnalysisOptions;
+    private readonly ScenarioAdaptationOptions _scenarioAdaptationOptions;
     private readonly ILogger<SqlitePersistence> _logger;
 
-    public SqlitePersistence(IOptions<PersistenceOptions> options, ILogger<SqlitePersistence> logger)
+    public SqlitePersistence(
+        IOptions<PersistenceOptions> options,
+        IOptions<LmStudioOptions> lmStudioOptions,
+        IOptions<StoryAnalysisOptions> storyAnalysisOptions,
+        IOptions<ScenarioAdaptationOptions> scenarioAdaptationOptions,
+        ILogger<SqlitePersistence> logger)
     {
         _options = options.Value;
+        _lmStudioOptions = lmStudioOptions.Value;
+        _storyAnalysisOptions = storyAnalysisOptions.Value;
+        _scenarioAdaptationOptions = scenarioAdaptationOptions.Value;
         _logger = logger;
     }
 
@@ -125,6 +137,34 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 UpdatedUtc TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS ToneProfiles (
+                Id TEXT PRIMARY KEY,
+                Name TEXT NOT NULL,
+                Description TEXT NOT NULL,
+                Intensity TEXT NOT NULL,
+                CreatedUtc TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS BaseStatProfiles (
+                Id TEXT PRIMARY KEY,
+                Name TEXT NOT NULL,
+                Description TEXT NOT NULL,
+                DefaultStatsJson TEXT NOT NULL,
+                CreatedUtc TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS StyleProfiles (
+                Id TEXT PRIMARY KEY,
+                Name TEXT NOT NULL,
+                Description TEXT NOT NULL,
+                Example TEXT NOT NULL,
+                RuleOfThumb TEXT NOT NULL,
+                CreatedUtc TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS StoryRankings (
                 Id TEXT PRIMARY KEY,
                 ParsedStoryId TEXT NOT NULL,
@@ -166,7 +206,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
             CREATE TABLE IF NOT EXISTS UserStoryRatings (
                 Id TEXT PRIMARY KEY,
                 ParsedStoryId TEXT NOT NULL UNIQUE,
-                Stars INTEGER NOT NULL CHECK(Stars >= 1 AND Stars <= 5),
+                Stars INTEGER NULL CHECK(Stars IS NULL OR (Stars >= 1 AND Stars <= 5)),
                 Comment TEXT NOT NULL DEFAULT '',
                 CreatedUtc TEXT NOT NULL,
                 UpdatedUtc TEXT NOT NULL,
@@ -174,6 +214,78 @@ public sealed class SqlitePersistence : ISqlitePersistence
             );
 
             CREATE INDEX IF NOT EXISTS IX_UserStoryRatings_ParsedStoryId ON UserStoryRatings (ParsedStoryId);
+
+            CREATE TABLE IF NOT EXISTS Providers (
+                Id TEXT PRIMARY KEY NOT NULL,
+                Name TEXT NOT NULL UNIQUE,
+                ProviderType INTEGER NOT NULL,
+                BaseUrl TEXT NOT NULL,
+                ChatCompletionsPath TEXT NOT NULL DEFAULT '/v1/chat/completions',
+                TimeoutSeconds INTEGER NOT NULL DEFAULT 120,
+                ApiKeyEncrypted TEXT,
+                IsEnabled INTEGER NOT NULL DEFAULT 1,
+                CreatedUtc TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL,
+                Notes TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS RegisteredModels (
+                Id TEXT PRIMARY KEY NOT NULL,
+                ProviderId TEXT NOT NULL,
+                ModelIdentifier TEXT NOT NULL,
+                DisplayName TEXT NOT NULL,
+                IsEnabled INTEGER NOT NULL DEFAULT 1,
+                CreatedUtc TEXT NOT NULL,
+                ContextWindowSize INTEGER NOT NULL DEFAULT 0,
+                Quantization TEXT NOT NULL DEFAULT '',
+                ParameterCount TEXT NOT NULL DEFAULT '',
+                Notes TEXT,
+                FOREIGN KEY (ProviderId) REFERENCES Providers(Id) ON DELETE CASCADE,
+                UNIQUE (ProviderId, ModelIdentifier)
+            );
+
+            CREATE TABLE IF NOT EXISTS FunctionModelDefaults (
+                Id TEXT PRIMARY KEY NOT NULL,
+                FunctionName TEXT NOT NULL UNIQUE,
+                ModelId TEXT NOT NULL,
+                Temperature REAL NOT NULL DEFAULT 0.7,
+                TopP REAL NOT NULL DEFAULT 0.9,
+                MaxTokens INTEGER NOT NULL DEFAULT 500,
+                UpdatedUtc TEXT NOT NULL,
+                FOREIGN KEY (ModelId) REFERENCES RegisteredModels(Id)
+            );
+
+            CREATE TABLE IF NOT EXISTS HealthCheckResults (
+                Id TEXT PRIMARY KEY NOT NULL,
+                EntityType INTEGER NOT NULL,
+                EntityId TEXT NOT NULL,
+                EntityName TEXT NOT NULL,
+                ProviderName TEXT NOT NULL,
+                IsHealthy INTEGER NOT NULL DEFAULT 0,
+                Message TEXT NOT NULL DEFAULT '',
+                CheckedUtc TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS RolePlayDebugEvents (
+                Id TEXT PRIMARY KEY NOT NULL,
+                SessionId TEXT NOT NULL,
+                CorrelationId TEXT NULL,
+                InteractionId TEXT NULL,
+                EventKind TEXT NOT NULL,
+                Severity TEXT NOT NULL,
+                ActorName TEXT NULL,
+                ModelIdentifier TEXT NULL,
+                ProviderName TEXT NULL,
+                DurationMs INTEGER NULL,
+                Summary TEXT NOT NULL DEFAULT '',
+                MetadataJson TEXT NOT NULL DEFAULT '{}',
+                CreatedUtc TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS IX_RolePlayDebugEvents_Session_CreatedUtc
+                ON RolePlayDebugEvents (SessionId, CreatedUtc DESC);
+            CREATE INDEX IF NOT EXISTS IX_RolePlayDebugEvents_Kind_CreatedUtc
+                ON RolePlayDebugEvents (EventKind, CreatedUtc DESC);
 
             """;
 
@@ -257,6 +369,14 @@ public sealed class SqlitePersistence : ISqlitePersistence
             """;
         await rankingIndexCmd.ExecuteNonQueryAsync(cancellationToken);
 
+        var toneIndexCmd = connection.CreateCommand();
+        toneIndexCmd.CommandText = "CREATE INDEX IF NOT EXISTS IX_ToneProfiles_Name ON ToneProfiles (Name)";
+        await toneIndexCmd.ExecuteNonQueryAsync(cancellationToken);
+
+        var baseStatsIndexCmd = connection.CreateCommand();
+        baseStatsIndexCmd.CommandText = "CREATE INDEX IF NOT EXISTS IX_BaseStatProfiles_Name ON BaseStatProfiles (Name)";
+        await baseStatsIndexCmd.ExecuteNonQueryAsync(cancellationToken);
+
         // Migrate: add IsDefault column to RankingProfiles if missing
         var migrateIsDefault = connection.CreateCommand();
         migrateIsDefault.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RankingProfiles') WHERE name='IsDefault'";
@@ -268,6 +388,164 @@ public sealed class SqlitePersistence : ISqlitePersistence
             await alterIsDefault.ExecuteNonQueryAsync(cancellationToken);
             _logger.LogInformation("Migrated RankingProfiles table: added IsDefault column");
         }
+
+        // Migrate: add ThemeVerificationStatusJson column to StoryRankings if missing
+        var checkVerificationStatus = connection.CreateCommand();
+        checkVerificationStatus.CommandText = "SELECT COUNT(*) FROM pragma_table_info('StoryRankings') WHERE name='ThemeVerificationStatusJson'";
+        var hasVerificationStatus = Convert.ToInt64(await checkVerificationStatus.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasVerificationStatus)
+        {
+            var alterVerification = connection.CreateCommand();
+            alterVerification.CommandText = "ALTER TABLE StoryRankings ADD COLUMN ThemeVerificationStatusJson TEXT NOT NULL DEFAULT '{}'";
+            await alterVerification.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated StoryRankings table: added ThemeVerificationStatusJson column");
+        }
+
+        // Migrate: add Notes column to Providers if missing
+        var checkProviderNotes = connection.CreateCommand();
+        checkProviderNotes.CommandText = "SELECT COUNT(*) FROM pragma_table_info('Providers') WHERE name='Notes'";
+        var hasProviderNotes = Convert.ToInt64(await checkProviderNotes.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasProviderNotes)
+        {
+            var alter = connection.CreateCommand();
+            alter.CommandText = "ALTER TABLE Providers ADD COLUMN Notes TEXT";
+            await alter.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated Providers table: added Notes column");
+        }
+
+        // Migrate: add model metadata columns to RegisteredModels if missing
+        var checkContextWindow = connection.CreateCommand();
+        checkContextWindow.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RegisteredModels') WHERE name='ContextWindowSize'";
+        var hasContextWindow = Convert.ToInt64(await checkContextWindow.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasContextWindow)
+        {
+            var alterCtx = connection.CreateCommand();
+            alterCtx.CommandText = "ALTER TABLE RegisteredModels ADD COLUMN ContextWindowSize INTEGER NOT NULL DEFAULT 0";
+            await alterCtx.ExecuteNonQueryAsync(cancellationToken);
+
+            var alterQuant = connection.CreateCommand();
+            alterQuant.CommandText = "ALTER TABLE RegisteredModels ADD COLUMN Quantization TEXT NOT NULL DEFAULT ''";
+            await alterQuant.ExecuteNonQueryAsync(cancellationToken);
+
+            var alterParams = connection.CreateCommand();
+            alterParams.CommandText = "ALTER TABLE RegisteredModels ADD COLUMN ParameterCount TEXT NOT NULL DEFAULT ''";
+            await alterParams.ExecuteNonQueryAsync(cancellationToken);
+
+            var alterNotes = connection.CreateCommand();
+            alterNotes.CommandText = "ALTER TABLE RegisteredModels ADD COLUMN Notes TEXT";
+            await alterNotes.ExecuteNonQueryAsync(cancellationToken);
+
+            _logger.LogInformation("Migrated RegisteredModels table: added ContextWindowSize, Quantization, ParameterCount, Notes columns");
+        }
+
+        // Seed Model Manager tables on first run (empty Providers table)
+        var checkProviders = connection.CreateCommand();
+        checkProviders.CommandText = "SELECT COUNT(*) FROM Providers";
+        var providerCount = Convert.ToInt64(await checkProviders.ExecuteScalarAsync(cancellationToken));
+        if (providerCount == 0)
+        {
+            var providerId = Guid.NewGuid().ToString();
+            var now = DateTime.UtcNow.ToString("o");
+
+            // Resolve model names from options (fallback to LmStudio model)
+            var lmModel = _lmStudioOptions.Model;
+            var analysisModel = _storyAnalysisOptions.Model ?? lmModel;
+            var scenarioModel = _scenarioAdaptationOptions.Model ?? lmModel;
+
+            // Seed LM Studio provider
+            var seedProvider = connection.CreateCommand();
+            seedProvider.CommandText = """
+                INSERT INTO Providers (Id, Name, ProviderType, BaseUrl, ChatCompletionsPath, TimeoutSeconds, ApiKeyEncrypted, IsEnabled, CreatedUtc, UpdatedUtc)
+                VALUES ($id, $name, $type, $baseUrl, $path, $timeout, NULL, 1, $now, $now)
+                """;
+            seedProvider.Parameters.AddWithValue("$id", providerId);
+            seedProvider.Parameters.AddWithValue("$name", "LM Studio (Local)");
+            seedProvider.Parameters.AddWithValue("$type", (int)ProviderType.LmStudio);
+            seedProvider.Parameters.AddWithValue("$baseUrl", _lmStudioOptions.BaseUrl);
+            seedProvider.Parameters.AddWithValue("$path", _lmStudioOptions.ChatCompletionsPath);
+            seedProvider.Parameters.AddWithValue("$timeout", _lmStudioOptions.TimeoutSeconds);
+            seedProvider.Parameters.AddWithValue("$now", now);
+            await seedProvider.ExecuteNonQueryAsync(cancellationToken);
+
+            // Seed models — collect unique model identifiers
+            var modelIds = new Dictionary<string, string>(); // modelIdentifier -> GUID
+
+            void EnsureModel(string identifier, string displayName)
+            {
+                if (!modelIds.ContainsKey(identifier))
+                    modelIds[identifier] = Guid.NewGuid().ToString();
+            }
+
+            EnsureModel(lmModel, lmModel);
+            if (analysisModel != lmModel)
+                EnsureModel(analysisModel, analysisModel);
+            if (scenarioModel != lmModel && scenarioModel != analysisModel)
+                EnsureModel(scenarioModel, scenarioModel);
+
+            foreach (var (identifier, modelId) in modelIds)
+            {
+                var seedModel = connection.CreateCommand();
+                seedModel.CommandText = """
+                    INSERT INTO RegisteredModels (Id, ProviderId, ModelIdentifier, DisplayName, IsEnabled, CreatedUtc)
+                    VALUES ($id, $providerId, $identifier, $displayName, 1, $now)
+                    """;
+                seedModel.Parameters.AddWithValue("$id", modelId);
+                seedModel.Parameters.AddWithValue("$providerId", providerId);
+                seedModel.Parameters.AddWithValue("$identifier", identifier);
+                seedModel.Parameters.AddWithValue("$displayName", identifier);
+                seedModel.Parameters.AddWithValue("$now", now);
+                await seedModel.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            // Seed function defaults
+            var functionDefaults = new (string FunctionName, string ModelIdentifier, double Temp, double TopP, int MaxTokens)[]
+            {
+                ("RolePlayGeneration", lmModel, 0.7, 0.9, 500),
+                ("StoryModeGeneration", lmModel, 0.7, 0.9, 500),
+                ("StorySummarize", analysisModel, _storyAnalysisOptions.SummarizeTemperature, 0.9, _storyAnalysisOptions.SummarizeMaxTokens),
+                ("StoryAnalyze", analysisModel, _storyAnalysisOptions.AnalyzeTemperature, 0.9, _storyAnalysisOptions.AnalyzeMaxTokens),
+                ("StoryRank", analysisModel, _storyAnalysisOptions.RankTemperature, 0.9, _storyAnalysisOptions.RankMaxTokens),
+                ("ScenarioPreview", scenarioModel, _scenarioAdaptationOptions.PreviewTemperature, _scenarioAdaptationOptions.PreviewTopP, _scenarioAdaptationOptions.PreviewMaxTokens),
+                ("ScenarioAdapt", scenarioModel, _scenarioAdaptationOptions.AdaptTemperature, _scenarioAdaptationOptions.AdaptTopP, _scenarioAdaptationOptions.AdaptMaxTokens),
+                ("WritingAssistant", lmModel, 0.7, 0.9, 500),
+                ("RolePlayAssistant", lmModel, 0.7, 0.9, 2000),
+            };
+
+            foreach (var (funcName, modelIdentifier, temp, topP, maxTokens) in functionDefaults)
+            {
+                var seedDefault = connection.CreateCommand();
+                seedDefault.CommandText = """
+                    INSERT INTO FunctionModelDefaults (Id, FunctionName, ModelId, Temperature, TopP, MaxTokens, UpdatedUtc)
+                    VALUES ($id, $funcName, $modelId, $temp, $topP, $maxTokens, $now)
+                    """;
+                seedDefault.Parameters.AddWithValue("$id", Guid.NewGuid().ToString());
+                seedDefault.Parameters.AddWithValue("$funcName", funcName);
+                seedDefault.Parameters.AddWithValue("$modelId", modelIds[modelIdentifier]);
+                seedDefault.Parameters.AddWithValue("$temp", temp);
+                seedDefault.Parameters.AddWithValue("$topP", topP);
+                seedDefault.Parameters.AddWithValue("$maxTokens", maxTokens);
+                seedDefault.Parameters.AddWithValue("$now", now);
+                await seedDefault.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            _logger.LogInformation("Model Manager seed migration completed: 1 provider, {ModelCount} models, {DefaultCount} function defaults",
+                modelIds.Count, functionDefaults.Length);
+        }
+        else
+        {
+            _logger.LogInformation("Model Manager seed migration skipped: {ProviderCount} providers already exist", providerCount);
+        }
+
+        // Migrate: bump RolePlayAssistant max tokens from 500 to 2000 for existing databases
+        var updateAssistantTokens = connection.CreateCommand();
+        updateAssistantTokens.CommandText = """
+            UPDATE FunctionModelDefaults SET MaxTokens = 2000, UpdatedUtc = $now
+            WHERE FunctionName = 'RolePlayAssistant' AND MaxTokens <= 500
+            """;
+        updateAssistantTokens.Parameters.AddWithValue("$now", DateTime.UtcNow.ToString("o"));
+        var updatedRows = await updateAssistantTokens.ExecuteNonQueryAsync(cancellationToken);
+        if (updatedRows > 0)
+            _logger.LogInformation("Migrated RolePlayAssistant function default: MaxTokens 500 → 2000");
 
         _logger.LogInformation("SQLite persistence initialized using {ConnectionString}", _options.ConnectionString);
     }
@@ -592,6 +870,21 @@ public sealed class SqlitePersistence : ISqlitePersistence
 
         var rowsAffected = await purgeCmd.ExecuteNonQueryAsync(cancellationToken);
         _logger.LogInformation("Parsed story purged (partial delete): {ParsedStoryId}, RowsAffected={RowsAffected}", id, rowsAffected);
+        return rowsAffected > 0;
+    }
+
+    public async Task<bool> UpdateCombinedTextAsync(string id, string combinedText, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "UPDATE ParsedStories SET CombinedText = $combinedText WHERE Id = $id";
+        command.Parameters.AddWithValue("$id", id);
+        command.Parameters.AddWithValue("$combinedText", combinedText);
+
+        var rowsAffected = await command.ExecuteNonQueryAsync(cancellationToken);
+        _logger.LogInformation("Combined text updated: {ParsedStoryId}, RowsAffected={RowsAffected}", id, rowsAffected);
         return rowsAffected > 0;
     }
 
@@ -928,9 +1221,9 @@ public sealed class SqlitePersistence : ISqlitePersistence
         await using var connection = new SqliteConnection(_options.ConnectionString);
         await connection.OpenAsync(cancellationToken);
 
-        // Also delete criteria belonging to this profile
+        // Also delete theme preferences belonging to this profile
         var deleteCriteria = connection.CreateCommand();
-        deleteCriteria.CommandText = "DELETE FROM RankingCriteria WHERE ProfileId = $profileId";
+        deleteCriteria.CommandText = "DELETE FROM ThemePreferences WHERE ProfileId = $profileId";
         deleteCriteria.Parameters.AddWithValue("$profileId", id);
         await deleteCriteria.ExecuteNonQueryAsync(cancellationToken);
 
@@ -984,6 +1277,306 @@ public sealed class SqlitePersistence : ISqlitePersistence
         };
     }
 
+    // --- Tone Profile persistence ---
+
+    public async Task SaveToneProfileAsync(ToneProfile profile, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO ToneProfiles (Id, Name, Description, Intensity, CreatedUtc, UpdatedUtc)
+            VALUES ($id, $name, $description, $intensity, $createdUtc, $updatedUtc)
+            ON CONFLICT(Id) DO UPDATE SET
+                Name = $name,
+                Description = $description,
+                Intensity = $intensity,
+                UpdatedUtc = $updatedUtc;
+            """;
+
+        command.Parameters.AddWithValue("$id", profile.Id);
+        command.Parameters.AddWithValue("$name", profile.Name);
+        command.Parameters.AddWithValue("$description", profile.Description);
+        command.Parameters.AddWithValue("$intensity", profile.Intensity.ToString());
+        command.Parameters.AddWithValue("$createdUtc", profile.CreatedUtc.ToString("O"));
+        command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
+
+        await command.ExecuteNonQueryAsync(cancellationToken);
+        _logger.LogInformation("Tone profile persisted: {ToneProfileId}, Name={Name}", profile.Id, profile.Name);
+    }
+
+    public async Task<ToneProfile?> LoadToneProfileAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT Id, Name, Description, Intensity, CreatedUtc, UpdatedUtc FROM ToneProfiles WHERE Id = $id";
+        command.Parameters.AddWithValue("$id", id);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return ReadToneProfile(reader);
+    }
+
+    public async Task<List<ToneProfile>> LoadAllToneProfilesAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT Id, Name, Description, Intensity, CreatedUtc, UpdatedUtc FROM ToneProfiles ORDER BY Name";
+
+        var results = new List<ToneProfile>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            results.Add(ReadToneProfile(reader));
+        }
+
+        return results;
+    }
+
+    public async Task<bool> DeleteToneProfileAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM ToneProfiles WHERE Id = $id";
+        command.Parameters.AddWithValue("$id", id);
+
+        var rowsAffected = await command.ExecuteNonQueryAsync(cancellationToken);
+        _logger.LogInformation("Tone profile deletion attempted: {ToneProfileId}, RowsAffected={RowsAffected}", id, rowsAffected);
+        return rowsAffected > 0;
+    }
+
+    private static ToneProfile ReadToneProfile(SqliteDataReader reader)
+    {
+        return new ToneProfile
+        {
+            Id = reader.GetString(0),
+            Name = reader.GetString(1),
+            Description = reader.GetString(2),
+            Intensity = Enum.TryParse<ToneIntensity>(reader.GetString(3), out var intensity)
+                ? intensity
+                : ToneIntensity.SensualMature,
+            CreatedUtc = DateTime.TryParse(reader.GetString(4), out var created) ? created : DateTime.UtcNow,
+            UpdatedUtc = DateTime.TryParse(reader.GetString(5), out var updated) ? updated : DateTime.UtcNow
+        };
+    }
+
+    // --- Base Stat Profile persistence ---
+
+    public async Task SaveBaseStatProfileAsync(BaseStatProfile profile, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO BaseStatProfiles (Id, Name, Description, DefaultStatsJson, CreatedUtc, UpdatedUtc)
+            VALUES ($id, $name, $description, $defaultStatsJson, $createdUtc, $updatedUtc)
+            ON CONFLICT(Id) DO UPDATE SET
+                Name = $name,
+                Description = $description,
+                DefaultStatsJson = $defaultStatsJson,
+                UpdatedUtc = $updatedUtc;
+            """;
+
+        command.Parameters.AddWithValue("$id", profile.Id);
+        command.Parameters.AddWithValue("$name", profile.Name);
+        command.Parameters.AddWithValue("$description", profile.Description);
+        command.Parameters.AddWithValue("$defaultStatsJson", JsonSerializer.Serialize(profile.DefaultStats));
+        command.Parameters.AddWithValue("$createdUtc", profile.CreatedUtc.ToString("O"));
+        command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
+
+        await command.ExecuteNonQueryAsync(cancellationToken);
+        _logger.LogInformation("Base stat profile persisted: {BaseStatProfileId}, Name={Name}", profile.Id, profile.Name);
+    }
+
+    public async Task<BaseStatProfile?> LoadBaseStatProfileAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT Id, Name, Description, DefaultStatsJson, CreatedUtc, UpdatedUtc FROM BaseStatProfiles WHERE Id = $id";
+        command.Parameters.AddWithValue("$id", id);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return ReadBaseStatProfile(reader);
+    }
+
+    public async Task<List<BaseStatProfile>> LoadAllBaseStatProfilesAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT Id, Name, Description, DefaultStatsJson, CreatedUtc, UpdatedUtc FROM BaseStatProfiles ORDER BY Name";
+
+        var results = new List<BaseStatProfile>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            results.Add(ReadBaseStatProfile(reader));
+        }
+
+        return results;
+    }
+
+    public async Task<bool> DeleteBaseStatProfileAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM BaseStatProfiles WHERE Id = $id";
+        command.Parameters.AddWithValue("$id", id);
+
+        var rowsAffected = await command.ExecuteNonQueryAsync(cancellationToken);
+        _logger.LogInformation("Base stat profile deletion attempted: {BaseStatProfileId}, RowsAffected={RowsAffected}", id, rowsAffected);
+        return rowsAffected > 0;
+    }
+
+    private static BaseStatProfile ReadBaseStatProfile(SqliteDataReader reader)
+    {
+        var defaultStatsJson = reader.GetString(3);
+        Dictionary<string, int>? parsedStats = null;
+        try
+        {
+            parsedStats = JsonSerializer.Deserialize<Dictionary<string, int>>(defaultStatsJson);
+        }
+        catch
+        {
+            parsedStats = null;
+        }
+
+        return new BaseStatProfile
+        {
+            Id = reader.GetString(0),
+            Name = reader.GetString(1),
+            Description = reader.GetString(2),
+            DefaultStats = parsedStats is null
+                ? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+                : new Dictionary<string, int>(parsedStats, StringComparer.OrdinalIgnoreCase),
+            CreatedUtc = DateTime.TryParse(reader.GetString(4), out var created) ? created : DateTime.UtcNow,
+            UpdatedUtc = DateTime.TryParse(reader.GetString(5), out var updated) ? updated : DateTime.UtcNow
+        };
+    }
+
+    // --- Style Profile persistence ---
+
+    public async Task SaveStyleProfileAsync(StyleProfile profile, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO StyleProfiles (Id, Name, Description, Example, RuleOfThumb, CreatedUtc, UpdatedUtc)
+            VALUES ($id, $name, $description, $example, $ruleOfThumb, $createdUtc, $updatedUtc)
+            ON CONFLICT(Id) DO UPDATE SET
+                Name = $name,
+                Description = $description,
+                Example = $example,
+                RuleOfThumb = $ruleOfThumb,
+                UpdatedUtc = $updatedUtc;
+            """;
+
+        command.Parameters.AddWithValue("$id", profile.Id);
+        command.Parameters.AddWithValue("$name", profile.Name);
+        command.Parameters.AddWithValue("$description", profile.Description);
+        command.Parameters.AddWithValue("$example", profile.Example);
+        command.Parameters.AddWithValue("$ruleOfThumb", profile.RuleOfThumb);
+        command.Parameters.AddWithValue("$createdUtc", profile.CreatedUtc.ToString("O"));
+        command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
+
+        await command.ExecuteNonQueryAsync(cancellationToken);
+        _logger.LogInformation("Style profile persisted: {StyleProfileId}, Name={Name}", profile.Id, profile.Name);
+    }
+
+    public async Task<StyleProfile?> LoadStyleProfileAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT Id, Name, Description, Example, RuleOfThumb, CreatedUtc, UpdatedUtc FROM StyleProfiles WHERE Id = $id";
+        command.Parameters.AddWithValue("$id", id);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return ReadStyleProfile(reader);
+    }
+
+    public async Task<List<StyleProfile>> LoadAllStyleProfilesAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT Id, Name, Description, Example, RuleOfThumb, CreatedUtc, UpdatedUtc FROM StyleProfiles ORDER BY Name";
+
+        var results = new List<StyleProfile>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            results.Add(ReadStyleProfile(reader));
+        }
+
+        return results;
+    }
+
+    public async Task<bool> DeleteStyleProfileAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM StyleProfiles WHERE Id = $id";
+        command.Parameters.AddWithValue("$id", id);
+
+        var rowsAffected = await command.ExecuteNonQueryAsync(cancellationToken);
+        _logger.LogInformation("Style profile deletion attempted: {StyleProfileId}, RowsAffected={RowsAffected}", id, rowsAffected);
+        return rowsAffected > 0;
+    }
+
+    private static StyleProfile ReadStyleProfile(SqliteDataReader reader)
+    {
+        return new StyleProfile
+        {
+            Id = reader.GetString(0),
+            Name = reader.GetString(1),
+            Description = reader.GetString(2),
+            Example = reader.GetString(3),
+            RuleOfThumb = reader.GetString(4),
+            CreatedUtc = DateTime.TryParse(reader.GetString(5), out var created) ? created : DateTime.UtcNow,
+            UpdatedUtc = DateTime.TryParse(reader.GetString(6), out var updated) ? updated : DateTime.UtcNow
+        };
+    }
+
     // --- Story Ranking persistence ---
 
     public async Task SaveStoryRankingAsync(StoryRankingResult ranking, CancellationToken cancellationToken = default)
@@ -995,13 +1588,14 @@ public sealed class SqlitePersistence : ISqlitePersistence
 
         var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO StoryRankings (Id, ParsedStoryId, ProfileId, ThemeSnapshotJson, ThemeDetectionsJson, Score, IsDisqualified, GeneratedUtc, UpdatedUtc)
-            VALUES ($id, $parsedStoryId, $profileId, $themeSnapshotJson, $themeDetectionsJson, $score, $isDisqualified, $generatedUtc, $updatedUtc)
+            INSERT INTO StoryRankings (Id, ParsedStoryId, ProfileId, ThemeSnapshotJson, ThemeDetectionsJson, Score, IsDisqualified, ThemeVerificationStatusJson, GeneratedUtc, UpdatedUtc)
+            VALUES ($id, $parsedStoryId, $profileId, $themeSnapshotJson, $themeDetectionsJson, $score, $isDisqualified, $themeVerificationStatusJson, $generatedUtc, $updatedUtc)
             ON CONFLICT(ParsedStoryId, ProfileId) DO UPDATE SET
                 ThemeSnapshotJson = $themeSnapshotJson,
                 ThemeDetectionsJson = $themeDetectionsJson,
                 Score = $score,
                 IsDisqualified = $isDisqualified,
+                ThemeVerificationStatusJson = $themeVerificationStatusJson,
                 UpdatedUtc = $updatedUtc;
             """;
 
@@ -1012,6 +1606,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
         command.Parameters.AddWithValue("$themeDetectionsJson", ranking.ThemeDetectionsJson);
         command.Parameters.AddWithValue("$score", ranking.Score);
         command.Parameters.AddWithValue("$isDisqualified", ranking.IsDisqualified ? 1 : 0);
+        command.Parameters.AddWithValue("$themeVerificationStatusJson", ranking.ThemeVerificationStatusJson);
         command.Parameters.AddWithValue("$generatedUtc", ranking.GeneratedUtc.ToString("O"));
         command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
 
@@ -1025,7 +1620,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
         await connection.OpenAsync(cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, ParsedStoryId, ProfileId, ThemeSnapshotJson, ThemeDetectionsJson, Score, IsDisqualified, GeneratedUtc, UpdatedUtc FROM StoryRankings WHERE ParsedStoryId = $parsedStoryId LIMIT 1";
+        command.CommandText = "SELECT Id, ParsedStoryId, ProfileId, ThemeSnapshotJson, ThemeDetectionsJson, Score, IsDisqualified, GeneratedUtc, UpdatedUtc, ThemeVerificationStatusJson FROM StoryRankings WHERE ParsedStoryId = $parsedStoryId LIMIT 1";
         command.Parameters.AddWithValue("$parsedStoryId", parsedStoryId);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -1041,7 +1636,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
         await connection.OpenAsync(cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, ParsedStoryId, ProfileId, ThemeSnapshotJson, ThemeDetectionsJson, Score, IsDisqualified, GeneratedUtc, UpdatedUtc FROM StoryRankings WHERE ParsedStoryId = $parsedStoryId AND ProfileId = $profileId";
+        command.CommandText = "SELECT Id, ParsedStoryId, ProfileId, ThemeSnapshotJson, ThemeDetectionsJson, Score, IsDisqualified, GeneratedUtc, UpdatedUtc, ThemeVerificationStatusJson FROM StoryRankings WHERE ParsedStoryId = $parsedStoryId AND ProfileId = $profileId";
         command.Parameters.AddWithValue("$parsedStoryId", parsedStoryId);
         command.Parameters.AddWithValue("$profileId", profileId);
 
@@ -1058,7 +1653,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
         await connection.OpenAsync(cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, ParsedStoryId, ProfileId, ThemeSnapshotJson, ThemeDetectionsJson, Score, IsDisqualified, GeneratedUtc, UpdatedUtc FROM StoryRankings WHERE ParsedStoryId = $parsedStoryId ORDER BY GeneratedUtc DESC";
+        command.CommandText = "SELECT Id, ParsedStoryId, ProfileId, ThemeSnapshotJson, ThemeDetectionsJson, Score, IsDisqualified, GeneratedUtc, UpdatedUtc, ThemeVerificationStatusJson FROM StoryRankings WHERE ParsedStoryId = $parsedStoryId ORDER BY GeneratedUtc DESC";
         command.Parameters.AddWithValue("$parsedStoryId", parsedStoryId);
 
         var results = new List<StoryRankingResult>();
@@ -1082,7 +1677,8 @@ public sealed class SqlitePersistence : ISqlitePersistence
             Score = reader.GetDouble(5),
             IsDisqualified = reader.GetInt32(6) != 0,
             GeneratedUtc = DateTime.TryParse(reader.GetString(7), out var gen) ? gen : DateTime.UtcNow,
-            UpdatedUtc = DateTime.TryParse(reader.GetString(8), out var upd) ? upd : DateTime.UtcNow
+            UpdatedUtc = DateTime.TryParse(reader.GetString(8), out var upd) ? upd : DateTime.UtcNow,
+            ThemeVerificationStatusJson = reader.IsDBNull(9) ? "{}" : reader.GetString(9)
         };
     }
 
@@ -1348,7 +1944,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
 
         command.Parameters.AddWithValue("$id", rating.Id);
         command.Parameters.AddWithValue("$parsedStoryId", rating.ParsedStoryId);
-        command.Parameters.AddWithValue("$stars", rating.Stars);
+        command.Parameters.AddWithValue("$stars", rating.Stars.HasValue ? (object)rating.Stars.Value : DBNull.Value);
         command.Parameters.AddWithValue("$comment", rating.Comment);
         command.Parameters.AddWithValue("$createdUtc", rating.CreatedUtc.ToString("O"));
         command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
@@ -1374,7 +1970,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
         {
             Id = reader.GetString(0),
             ParsedStoryId = reader.GetString(1),
-            Stars = reader.GetInt32(2),
+            Stars = reader.IsDBNull(2) ? null : reader.GetInt32(2),
             Comment = reader.GetString(3),
             CreatedUtc = DateTime.TryParse(reader.GetString(4), out var created) ? created : DateTime.UtcNow,
             UpdatedUtc = DateTime.TryParse(reader.GetString(5), out var updated) ? updated : DateTime.UtcNow
@@ -1391,5 +1987,39 @@ public sealed class SqlitePersistence : ISqlitePersistence
         command.Parameters.AddWithValue("$parsedStoryId", parsedStoryId);
 
         return await command.ExecuteNonQueryAsync(cancellationToken) > 0;
+    }
+
+    public async Task<Dictionary<string, UserStoryRating>> LoadUserStoryRatingsBatchAsync(IEnumerable<string> parsedStoryIds, CancellationToken cancellationToken = default)
+    {
+        var result = new Dictionary<string, UserStoryRating>();
+        var idList = parsedStoryIds.ToList();
+        if (idList.Count == 0) return result;
+
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        // SQLite doesn't support array params; use IN with positional parameters
+        var paramNames = idList.Select((_, idx) => $"$p{idx}").ToList();
+        var command = connection.CreateCommand();
+        command.CommandText = $"SELECT Id, ParsedStoryId, Stars, Comment, CreatedUtc, UpdatedUtc FROM UserStoryRatings WHERE ParsedStoryId IN ({string.Join(",", paramNames)})";
+        for (int idx = 0; idx < idList.Count; idx++)
+            command.Parameters.AddWithValue($"$p{idx}", idList[idx]);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var rating = new UserStoryRating
+            {
+                Id = reader.GetString(0),
+                ParsedStoryId = reader.GetString(1),
+                Stars = reader.IsDBNull(2) ? null : reader.GetInt32(2),
+                Comment = reader.GetString(3),
+                CreatedUtc = DateTime.TryParse(reader.GetString(4), out var created) ? created : DateTime.UtcNow,
+                UpdatedUtc = DateTime.TryParse(reader.GetString(5), out var updated) ? updated : DateTime.UtcNow
+            };
+            result[rating.ParsedStoryId] = rating;
+        }
+
+        return result;
     }
 }

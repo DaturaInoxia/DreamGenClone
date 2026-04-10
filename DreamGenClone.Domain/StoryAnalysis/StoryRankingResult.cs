@@ -16,6 +16,8 @@ public sealed class StoryRankingResult
 
     public bool IsDisqualified { get; set; }
 
+    public string ThemeVerificationStatusJson { get; set; } = "{}";
+
     public DateTime GeneratedUtc { get; set; } = DateTime.UtcNow;
 
     public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;

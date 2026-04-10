@@ -1,0 +1,965 @@
+@page "/model-manager"
+@rendermode InteractiveServer
+@using DreamGenClone.Domain.ModelManager
+@using DreamGenClone.Web.Application.ModelManager
+
+@inject ModelManagerFacade Facade
+
+<PageTitle>Model Manager - DreamGenClone</PageTitle>
+
+<div class="container-fluid mt-4">
+    <h1 class="mb-4">Model Manager</h1>
+
+    @if (!string.IsNullOrEmpty(_globalError))
+    {
+        <div class="alert alert-danger alert-dismissible fade show">
+            @_globalError
+            <button type="button" class="btn-close" @onclick="() => _globalError = null"></button>
+        </div>
+    }
+
+    @* ══════════════════════════════════════════════════════════════
+       SECTION 0: System Health Summary
+       ══════════════════════════════════════════════════════════════ *@
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h4 class="mb-0"><i class="bi bi-heart-pulse"></i> System Health</h4>
+            <button class="btn btn-outline-primary btn-sm" @onclick="RunHealthChecks" disabled="@_isHealthChecking">
+                @if (_isHealthChecking) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                else { <i class="bi bi-arrow-clockwise me-1"></i> }
+                Re-check All
+            </button>
+        </div>
+        <div class="card-body">
+            @if (_healthResults.Count == 0)
+            {
+                <div class="alert alert-info mb-0">No health check results yet. Click "Re-check All" or restart the application.</div>
+            }
+            else
+            {
+                var providerResults = _healthResults.Where(r => r.EntityType == HealthCheckEntityType.Provider).ToList();
+                var modelResults = _healthResults.Where(r => r.EntityType == HealthCheckEntityType.Model).ToList();
+                var healthyProviders = providerResults.Count(r => r.IsHealthy);
+                var healthyModels = modelResults.Count(r => r.IsHealthy);
+                var hasFailures = providerResults.Any(r => !r.IsHealthy) || modelResults.Any(r => !r.IsHealthy);
+
+                <div class="d-flex gap-3 mb-3">
+                    <span class="badge @(healthyProviders == providerResults.Count ? "bg-success" : "bg-warning text-dark") fs-6">
+                        <i class="bi bi-hdd-network me-1"></i> @healthyProviders / @providerResults.Count providers healthy
+                    </span>
+                    <span class="badge @(healthyModels == modelResults.Count ? "bg-success" : "bg-warning text-dark") fs-6">
+                        <i class="bi bi-cpu me-1"></i> @healthyModels / @modelResults.Count models healthy
+                    </span>
+                </div>
+
+                @if (hasFailures)
+                {
+                    <div class="alert alert-warning alert-dismissible fade show mb-3">
+                        <i class="bi bi-exclamation-triangle me-1"></i>
+                        <strong>@(providerResults.Count(r => !r.IsHealthy) + modelResults.Count(r => !r.IsHealthy)) connectivity issue(s) detected.</strong>
+                        Check the details below for failing providers or models.
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                }
+
+                @foreach (var providerGroup in _healthResults.GroupBy(r => r.ProviderName))
+                {
+                    var providerResult = providerGroup.FirstOrDefault(r => r.EntityType == HealthCheckEntityType.Provider);
+                    var models = providerGroup.Where(r => r.EntityType == HealthCheckEntityType.Model).ToList();
+
+                    <div class="mb-2">
+                        <div class="d-flex align-items-center">
+                            <i class="bi @(providerResult?.IsHealthy == true ? "bi-check-circle-fill text-success" : "bi-x-circle-fill text-danger") me-2"></i>
+                            <strong>@providerGroup.Key</strong>
+                            <small class="text-muted ms-2">@providerResult?.Message</small>
+                            @if (providerResult is not null)
+                            {
+                                <small class="text-muted ms-auto">@FormatTimestamp(providerResult.CheckedUtc)</small>
+                            }
+                        </div>
+
+                        @foreach (var model in models)
+                        {
+                            <div class="d-flex align-items-center ms-4 mt-1">
+                                <i class="bi @(model.IsHealthy ? "bi-check-circle text-success" : "bi-x-circle text-danger") me-2"></i>
+                                <span>@model.EntityName</span>
+                                <small class="text-muted ms-2">@model.Message</small>
+                            </div>
+                        }
+                    </div>
+                }
+            }
+        </div>
+    </div>
+
+    @* ══════════════════════════════════════════════════════════════
+       SECTION 1: Providers
+       ══════════════════════════════════════════════════════════════ *@
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h4 class="mb-0"><i class="bi bi-hdd-network"></i> Providers</h4>
+            <button class="btn btn-sm btn-primary" @onclick="StartAddProvider" disabled="@_isBusy">
+                <i class="bi bi-plus-lg"></i> Add Provider
+            </button>
+        </div>
+        <div class="card-body">
+            @if (_showProviderForm)
+            {
+                <div class="card mb-3 border-primary">
+                    <div class="card-body">
+                        <h5>@(_editingProvider?.CreatedUtc != null && _existingProviderIds.Contains(_editingProvider.Id) ? "Edit Provider" : "Add Provider")</h5>
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label class="form-label">Name <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control @(string.IsNullOrWhiteSpace(_editingProvider?.Name) ? "is-invalid" : "")"
+                                       @bind="_editingProvider!.Name" maxlength="100" />
+                                <div class="invalid-feedback">Name is required</div>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Type <span class="text-danger">*</span></label>
+                                <select class="form-select" @bind="_editingProviderType">
+                                    <option value="0">LM Studio (Local)</option>
+                                    <option value="1">Together AI (Cloud)</option>
+                                    <option value="2">OpenRouter (Cloud)</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Timeout (seconds)</label>
+                                <input type="number" class="form-control" @bind="_editingProvider!.TimeoutSeconds" min="1" max="600" />
+                            </div>
+                            <div class="col-md-8">
+                                <label class="form-label">Base URL <span class="text-danger">*</span></label>
+                                <input type="url" class="form-control @(string.IsNullOrWhiteSpace(_editingProvider?.BaseUrl) ? "is-invalid" : "")"
+                                       @bind="_editingProvider!.BaseUrl" placeholder="http://127.0.0.1:1234" />
+                                <div class="invalid-feedback">Valid URL is required</div>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Chat Completions Path</label>
+                                <input type="text" class="form-control" @bind="_editingProvider!.ChatCompletionsPath" />
+                            </div>
+                            @if (_editingProviderType != 0)
+                            {
+                                <div class="col-md-8">
+                                    <label class="form-label">
+                                        API Key
+                                        @if (_editingProviderType != 0)
+                                        {
+                                            <span class="text-danger">*</span>
+                                        }
+                                    </label>
+                                    <input type="password" class="form-control" @bind="_editingApiKey"
+                                           placeholder="@(_existingProviderIds.Contains(_editingProvider!.Id) ? "(unchanged — enter new key to replace)" : "Enter API key")" />
+                                    @if (_editingProviderType != 0 && string.IsNullOrEmpty(_editingApiKey) && !_existingProviderIds.Contains(_editingProvider!.Id))
+                                    {
+                                        <div class="text-warning small mt-1">API key is required for cloud providers</div>
+                                    }
+                                </div>
+                            }
+                            <div class="col-12">
+                                <label class="form-label">Notes</label>
+                                <textarea class="form-control" rows="2" @bind="_editingProvider!.Notes" maxlength="1000"
+                                          placeholder="e.g., Free tier, rate-limited to 60 RPM, pricing tier, special capabilities..."></textarea>
+                                <div class="form-text">Optional. Helps the model analysis understand provider capabilities and constraints.</div>
+                            </div>
+                        </div>
+                        @if (!string.IsNullOrEmpty(_providerFormError))
+                        {
+                            <div class="text-danger mt-2">@_providerFormError</div>
+                        }
+                        <div class="mt-3">
+                            <button class="btn btn-success me-2" @onclick="SaveProvider" disabled="@_isBusy">
+                                @if (_isBusy) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                                Save
+                            </button>
+                            <button class="btn btn-outline-secondary" @onclick="CancelProviderForm">Cancel</button>
+                        </div>
+                    </div>
+                </div>
+            }
+
+            @if (_providers.Count == 0 && !_showProviderForm)
+            {
+                <div class="alert alert-info">No providers configured. Add a provider to get started.</div>
+            }
+
+            @foreach (var provider in _providers)
+            {
+                <div class="card mb-2 @(!provider.IsEnabled ? "border-secondary opacity-75" : "")">
+                    <div class="card-body py-2">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <strong>@provider.Name</strong>
+                                <span class="badge ms-2 @(provider.ProviderType switch { ProviderType.LmStudio => "bg-success", ProviderType.TogetherAI => "bg-info", ProviderType.OpenRouter => "bg-warning text-dark", _ => "bg-secondary" })">
+                                    @provider.ProviderType
+                                </span>
+                                @if (!provider.IsEnabled)
+                                {
+                                    <span class="badge bg-secondary ms-1">Disabled</span>
+                                }
+                                <br />
+                                <small class="text-muted">@provider.BaseUrl — Timeout: @(provider.TimeoutSeconds)s</small>
+                                @if (provider.ApiKeyEncrypted is not null)
+                                {
+                                    <small class="text-muted ms-2">
+                                        <i class="bi bi-key"></i> Key: ****
+                                    </small>
+                                }
+                            </div>
+                            <div class="d-flex gap-1 flex-wrap">
+                                <button class="btn btn-outline-primary btn-sm" @onclick="() => TestProvider(provider)" disabled="@_isBusy">
+                                    @if (_testingProviderId == provider.Id) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                                    else { <i class="bi bi-wifi me-1"></i> }
+                                    Test
+                                </button>
+                                <button class="btn btn-outline-secondary btn-sm" @onclick="() => EditProvider(provider)" disabled="@_isBusy">
+                                    <i class="bi bi-pencil me-1"></i> Edit
+                                </button>
+                                <button class="btn @(provider.IsEnabled ? "btn-outline-warning" : "btn-outline-success") btn-sm" @onclick="() => ToggleProvider(provider)" disabled="@_isBusy">
+                                    <i class="bi @(provider.IsEnabled ? "bi-toggle-on" : "bi-toggle-off") me-1"></i> @(provider.IsEnabled ? "Disable" : "Enable")
+                                </button>
+                                <button class="btn btn-outline-danger btn-sm" @onclick="() => ConfirmDeleteProvider(provider)" disabled="@_isBusy">
+                                    <i class="bi bi-trash me-1"></i> Delete
+                                </button>
+                            </div>
+                        </div>
+                        @if (_testResultProviderId == provider.Id && _testResultMessage is not null)
+                        {
+                            <div class="mt-2 small @(_testResultSuccess ? "text-success" : "text-danger")">
+                                <i class="bi @(_testResultSuccess ? "bi-check-circle" : "bi-x-circle")"></i> @_testResultMessage
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+
+    @* ══════════════════════════════════════════════════════════════
+       SECTION 2: Models
+       ══════════════════════════════════════════════════════════════ *@
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h4 class="mb-0"><i class="bi bi-cpu"></i> Models</h4>
+            <button class="btn btn-sm btn-primary" @onclick="StartAddModel" disabled="@(_isBusy || _providers.Count == 0)">
+                <i class="bi bi-plus-lg"></i> Add Model
+            </button>
+        </div>
+        <div class="card-body">
+            @if (_providers.Count == 0)
+            {
+                <div class="alert alert-info">Add a provider first before registering models.</div>
+            }
+            else
+            {
+                @if (_showModelForm)
+                {
+                    <div class="card mb-3 border-primary">
+                        <div class="card-body">
+                            <h5>@(_existingModelIds.Contains(_editingModel!.Id) ? "Edit Model" : "Add Model")</h5>
+                            <div class="row g-3">
+                                <div class="col-md-4">
+                                    <label class="form-label">Provider <span class="text-danger">*</span></label>
+                                    <select class="form-select" @bind="_editingModel!.ProviderId">
+                                        <option value="">-- Select --</option>
+                                        @foreach (var p in _providers)
+                                        {
+                                            <option value="@p.Id">@p.Name</option>
+                                        }
+                                    </select>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Model Identifier <span class="text-danger">*</span></label>
+                                    <input type="text" class="form-control" @bind="_editingModel!.ModelIdentifier" maxlength="200"
+                                           placeholder="e.g., Dolphin3.0-Llama3.1-8B" />
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Display Name <span class="text-danger">*</span></label>
+                                    <input type="text" class="form-control" @bind="_editingModel!.DisplayName" maxlength="200" />
+                                </div>
+                            </div>
+                            @if (!string.IsNullOrEmpty(_modelFormError))
+                            {
+                                <div class="text-danger mt-2">@_modelFormError</div>
+                            }
+                            <div class="mt-3">
+                                <button class="btn btn-success me-2" @onclick="SaveModel" disabled="@_isBusy">Save</button>
+                                <button class="btn btn-outline-secondary" @onclick="() => _showModelForm = false">Cancel</button>
+                            </div>
+                        </div>
+                    </div>
+                }
+
+                @if (_showModelDetails && _detailsModel is not null)
+                {
+                    <ModelDetailsEditor Model="_detailsModel" OnSaved="OnModelDetailsSaved" OnCancelled="OnModelDetailsCancelled" />
+                }
+
+                @foreach (var group in _modelsGrouped)
+                {
+                    <h6 class="mt-3">
+                        <i class="bi bi-hdd-network"></i> @group.Key.Name
+                        @if (!group.Key.IsEnabled) { <span class="badge bg-secondary">Disabled</span> }
+                    </h6>
+                    @if (group.Value.Count == 0)
+                    {
+                        <p class="text-muted small ms-3">No models registered.</p>
+                    }
+                    @foreach (var model in group.Value)
+                    {
+                        <div class="card mb-1 ms-3 @(!model.IsEnabled ? "border-secondary opacity-75" : "")">
+                            <div class="card-body py-2">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <strong>@model.DisplayName</strong>
+                                        @if (!model.IsEnabled) { <span class="badge bg-secondary ms-1">Disabled</span> }
+                                        <br />
+                                        <small class="text-muted font-monospace">@model.ModelIdentifier</small>
+                                    </div>
+                                    <div class="d-flex gap-1 flex-wrap">
+                                        <button class="btn btn-outline-primary btn-sm" @onclick="() => TestModel(model)" disabled="@_isBusy">
+                                            @if (_testingModelId == model.Id) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                                            else { <i class="bi bi-wifi me-1"></i> }
+                                            Test
+                                        </button>
+                                        <button class="btn btn-outline-info btn-sm" @onclick="() => OpenModelDetails(model)" disabled="@_isBusy">
+                                            <i class="bi bi-card-text me-1"></i> Details
+                                        </button>
+                                        <button class="btn @(model.IsEnabled ? "btn-outline-warning" : "btn-outline-success") btn-sm" @onclick="() => ToggleModel(model)" disabled="@_isBusy">
+                                            <i class="bi @(model.IsEnabled ? "bi-toggle-on" : "bi-toggle-off") me-1"></i> @(model.IsEnabled ? "Disable" : "Enable")
+                                        </button>
+                                        <button class="btn btn-outline-danger btn-sm" @onclick="() => ConfirmDeleteModel(model)" disabled="@_isBusy">
+                                            <i class="bi bi-trash me-1"></i> Delete
+                                        </button>
+                                    </div>
+                                </div>
+                                @if (_testResultModelId == model.Id && _testResultModelMessage is not null)
+                                {
+                                    <div class="mt-2 small @(_testResultModelSuccess ? "text-success" : "text-danger")">
+                                        <i class="bi @(_testResultModelSuccess ? "bi-check-circle" : "bi-x-circle")"></i> @_testResultModelMessage
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                }
+            }
+        </div>
+    </div>
+
+    @* ══════════════════════════════════════════════════════════════
+       SECTION 3: Function Defaults
+       ══════════════════════════════════════════════════════════════ *@
+    <div class="card mb-4">
+        <div class="card-header">
+            <h4 class="mb-0"><i class="bi bi-gear"></i> Function Defaults</h4>
+        </div>
+        <div class="card-body">
+            @if (_enabledModelsDropdown.Count == 0)
+            {
+                <div class="alert alert-info">Register and enable a model first to assign function defaults.</div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead>
+                            <tr>
+                                <th>Function</th>
+                                <th>Model</th>
+                                <th style="width:120px">Temperature</th>
+                                <th style="width:100px">Top P</th>
+                                <th style="width:100px">Max Tokens</th>
+                                <th style="width:80px"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var (func, fd) in _functionDefaults)
+                            {
+                                var state = GetFunctionState(func);
+                                <tr>
+                                    <td>
+                                        <strong>@FormatFunctionName(func)</strong>
+                                    </td>
+                                    <td>
+                                        <select class="form-select form-select-sm" value="@state.ModelId" @onchange="e => OnFunctionModelChange(func, e)">
+                                            <option value="">-- Not Assigned --</option>
+                                            @foreach (var group in _enabledModelsDropdown)
+                                            {
+                                                <optgroup label="@group.Provider.Name">
+                                                    @foreach (var m in group.Models)
+                                                    {
+                                                        <option value="@m.Id">@m.DisplayName</option>
+                                                    }
+                                                </optgroup>
+                                            }
+                                        </select>
+                                    </td>
+                                    <td>
+                                        <input type="number" class="form-control form-control-sm" step="0.1" min="0" max="2"
+                                               value="@state.Temperature" @onchange="e => state.Temperature = ParseDouble(e, 0.7)" />
+                                    </td>
+                                    <td>
+                                        <input type="number" class="form-control form-control-sm" step="0.05" min="0" max="1"
+                                               value="@state.TopP" @onchange="e => state.TopP = ParseDouble(e, 0.9)" />
+                                    </td>
+                                    <td>
+                                        <input type="number" class="form-control form-control-sm" min="1" max="8000"
+                                               value="@state.MaxTokens" @onchange="e => state.MaxTokens = ParseInt(e, 500)" />
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-sm btn-outline-success" @onclick="() => SaveFunctionDefault(func)" disabled="@_isBusy">
+                                            <i class="bi bi-check-lg me-1"></i> Save
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+
+    @* Delete Confirmation Modal *@
+    @if (_showDeleteConfirmation)
+    {
+        <div class="modal d-block" tabindex="-1" style="background: rgba(0,0,0,0.5)">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Confirm Delete</h5>
+                    </div>
+                    <div class="modal-body">
+                        <p>@_deleteConfirmMessage</p>
+                        @if (_deleteDependentWarning is not null)
+                        {
+                            <div class="alert alert-warning">@_deleteDependentWarning</div>
+                        }
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" @onclick="CancelDelete">Cancel</button>
+                        <button class="btn btn-danger" @onclick="ExecuteDelete" disabled="@_isBusy">Delete</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<Provider> _providers = [];
+    private Dictionary<Provider, List<RegisteredModel>> _modelsGrouped = [];
+    private List<(AppFunction Function, FunctionModelDefault? Default)> _functionDefaults = [];
+    private List<(Provider Provider, List<RegisteredModel> Models)> _enabledModelsDropdown = [];
+    private List<HealthCheckResult> _healthResults = [];
+
+    private bool _isBusy;
+    private bool _isHealthChecking;
+    private string? _globalError;
+
+    // Provider form state
+    private bool _showProviderForm;
+    private Provider? _editingProvider;
+    private int _editingProviderType;
+    private string? _editingApiKey;
+    private string? _providerFormError;
+    private HashSet<string> _existingProviderIds = [];
+
+    // Provider test state
+    private string? _testingProviderId;
+    private string? _testResultProviderId;
+    private bool _testResultSuccess;
+    private string? _testResultMessage;
+
+    // Model test state
+    private string? _testingModelId;
+    private string? _testResultModelId;
+    private bool _testResultModelSuccess;
+    private string? _testResultModelMessage;
+
+    // Model details state
+    private RegisteredModel? _detailsModel;
+    private bool _showModelDetails;
+
+    // Model form state
+    private bool _showModelForm;
+    private RegisteredModel? _editingModel;
+    private string? _modelFormError;
+    private HashSet<string> _existingModelIds = [];
+
+    // Function default edit state
+    private Dictionary<AppFunction, FunctionEditState> _functionStates = [];
+
+    // Delete confirmation state
+    private bool _showDeleteConfirmation;
+    private string? _deleteConfirmMessage;
+    private string? _deleteDependentWarning;
+    private Func<Task>? _deleteAction;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAllDataAsync();
+    }
+
+    private async Task LoadAllDataAsync()
+    {
+        try
+        {
+            _providers = await Facade.GetAllProvidersAsync();
+            _existingProviderIds = _providers.Select(p => p.Id).ToHashSet();
+
+            _modelsGrouped = await Facade.GetAllModelsGroupedByProviderAsync();
+            _existingModelIds = _modelsGrouped.Values.SelectMany(m => m).Select(m => m.Id).ToHashSet();
+
+            _functionDefaults = await Facade.GetAllFunctionDefaultsAsync();
+            _enabledModelsDropdown = await Facade.GetEnabledModelsForDropdownAsync();
+
+            _healthResults = await Facade.GetHealthCheckSummaryAsync();
+
+            // Initialize function edit states
+            _functionStates.Clear();
+            foreach (var (func, fd) in _functionDefaults)
+            {
+                _functionStates[func] = new FunctionEditState
+                {
+                    ModelId = fd?.ModelId ?? "",
+                    Temperature = fd?.Temperature ?? 0.7,
+                    TopP = fd?.TopP ?? 0.9,
+                    MaxTokens = fd?.MaxTokens ?? 500,
+                    ExistingId = fd?.Id
+                };
+            }
+        }
+        catch (Exception ex)
+        {
+            _globalError = $"Failed to load data: {ex.Message}";
+        }
+    }
+
+    private async Task RunHealthChecks()
+    {
+        _isHealthChecking = true;
+        StateHasChanged();
+        try
+        {
+            _healthResults = await Facade.RunAllHealthChecksAsync();
+        }
+        catch (Exception ex)
+        {
+            _globalError = $"Health check failed: {ex.Message}";
+        }
+        finally
+        {
+            _isHealthChecking = false;
+        }
+    }
+
+    // === Provider methods ===
+
+    private void StartAddProvider()
+    {
+        _editingProvider = new Provider();
+        _editingProviderType = 0;
+        _editingApiKey = null;
+        _providerFormError = null;
+        _showProviderForm = true;
+    }
+
+    private void EditProvider(Provider provider)
+    {
+        _editingProvider = new Provider
+        {
+            Id = provider.Id,
+            Name = provider.Name,
+            ProviderType = provider.ProviderType,
+            BaseUrl = provider.BaseUrl,
+            ChatCompletionsPath = provider.ChatCompletionsPath,
+            TimeoutSeconds = provider.TimeoutSeconds,
+            ApiKeyEncrypted = provider.ApiKeyEncrypted,
+            IsEnabled = provider.IsEnabled,
+            CreatedUtc = provider.CreatedUtc,
+            UpdatedUtc = provider.UpdatedUtc,
+            Notes = provider.Notes
+        };
+        _editingProviderType = (int)provider.ProviderType;
+        _editingApiKey = null;
+        _providerFormError = null;
+        _showProviderForm = true;
+    }
+
+    private void CancelProviderForm()
+    {
+        _showProviderForm = false;
+        _editingProvider = null;
+        _providerFormError = null;
+    }
+
+    private async Task SaveProvider()
+    {
+        if (_editingProvider is null) return;
+
+        _editingProvider.ProviderType = (ProviderType)_editingProviderType;
+
+        // Validation
+        if (string.IsNullOrWhiteSpace(_editingProvider.Name))
+        {
+            _providerFormError = "Name is required.";
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(_editingProvider.BaseUrl) || !Uri.TryCreate(_editingProvider.BaseUrl, UriKind.Absolute, out _))
+        {
+            _providerFormError = "A valid URL is required.";
+            return;
+        }
+        if (_editingProvider.TimeoutSeconds < 1 || _editingProvider.TimeoutSeconds > 600)
+        {
+            _providerFormError = "Timeout must be between 1 and 600 seconds.";
+            return;
+        }
+        if (_editingProviderType != 0 && string.IsNullOrEmpty(_editingApiKey) && !_existingProviderIds.Contains(_editingProvider.Id))
+        {
+            _providerFormError = "API key is required for cloud providers.";
+            return;
+        }
+
+        _isBusy = true;
+        _providerFormError = null;
+        try
+        {
+            await Facade.SaveProviderAsync(_editingProvider, _editingApiKey);
+            _showProviderForm = false;
+            await LoadAllDataAsync();
+        }
+        catch (Exception ex)
+        {
+            _providerFormError = $"Save failed: {ex.Message}";
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task TestProvider(Provider provider)
+    {
+        _testingProviderId = provider.Id;
+        _testResultProviderId = null;
+        _testResultMessage = null;
+        _isBusy = true;
+        StateHasChanged();
+
+        try
+        {
+            var (success, message) = await Facade.TestProviderConnectionAsync(provider);
+            _testResultProviderId = provider.Id;
+            _testResultSuccess = success;
+            _testResultMessage = message;
+        }
+        catch (Exception ex)
+        {
+            _testResultProviderId = provider.Id;
+            _testResultSuccess = false;
+            _testResultMessage = $"Test failed: {ex.Message}";
+        }
+        finally
+        {
+            _testingProviderId = null;
+            _isBusy = false;
+        }
+    }
+
+    private async Task ToggleProvider(Provider provider)
+    {
+        _isBusy = true;
+        try
+        {
+            await Facade.EnableDisableProviderAsync(provider.Id, !provider.IsEnabled);
+            await LoadAllDataAsync();
+        }
+        finally { _isBusy = false; }
+    }
+
+    private async Task ConfirmDeleteProvider(Provider provider)
+    {
+        var models = _modelsGrouped.GetValueOrDefault(provider) ?? [];
+        _deleteConfirmMessage = $"Delete provider '{provider.Name}'?";
+        _deleteDependentWarning = models.Count > 0
+            ? $"This will also delete {models.Count} registered model(s) and clear any associated function defaults."
+            : null;
+        _deleteAction = async () =>
+        {
+            await Facade.DeleteProviderAsync(provider.Id);
+            await LoadAllDataAsync();
+        };
+        _showDeleteConfirmation = true;
+    }
+
+    // === Model methods ===
+
+    private void StartAddModel()
+    {
+        _editingModel = new RegisteredModel();
+        _modelFormError = null;
+        _showModelForm = true;
+    }
+
+    private void EditModel(RegisteredModel model)
+    {
+        _editingModel = new RegisteredModel
+        {
+            Id = model.Id,
+            ProviderId = model.ProviderId,
+            ModelIdentifier = model.ModelIdentifier,
+            DisplayName = model.DisplayName,
+            IsEnabled = model.IsEnabled,
+            CreatedUtc = model.CreatedUtc
+        };
+        _modelFormError = null;
+        _showModelForm = true;
+    }
+
+    private async Task SaveModel()
+    {
+        if (_editingModel is null) return;
+
+        if (string.IsNullOrWhiteSpace(_editingModel.ProviderId))
+        {
+            _modelFormError = "Provider is required.";
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(_editingModel.ModelIdentifier))
+        {
+            _modelFormError = "Model identifier is required.";
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(_editingModel.DisplayName))
+        {
+            _modelFormError = "Display name is required.";
+            return;
+        }
+
+        _isBusy = true;
+        _modelFormError = null;
+        try
+        {
+            await Facade.SaveModelAsync(_editingModel);
+            _showModelForm = false;
+            await LoadAllDataAsync();
+        }
+        catch (Exception ex)
+        {
+            _modelFormError = $"Save failed: {ex.Message}";
+        }
+        finally { _isBusy = false; }
+    }
+
+    private async Task ToggleModel(RegisteredModel model)
+    {
+        _isBusy = true;
+        try
+        {
+            await Facade.EnableDisableModelAsync(model.Id, !model.IsEnabled);
+            await LoadAllDataAsync();
+        }
+        finally { _isBusy = false; }
+    }
+
+    private async Task TestModel(RegisteredModel model)
+    {
+        _testingModelId = model.Id;
+        _testResultModelId = null;
+        _testResultModelMessage = null;
+        _isBusy = true;
+        StateHasChanged();
+
+        try
+        {
+            var (success, message) = await Facade.TestModelConnectionAsync(model);
+            _testResultModelId = model.Id;
+            _testResultModelSuccess = success;
+            _testResultModelMessage = message;
+        }
+        catch (Exception ex)
+        {
+            _testResultModelId = model.Id;
+            _testResultModelSuccess = false;
+            _testResultModelMessage = $"Test failed: {ex.Message}";
+        }
+        finally
+        {
+            _testingModelId = null;
+            _isBusy = false;
+        }
+    }
+
+    private void OpenModelDetails(RegisteredModel model)
+    {
+        _detailsModel = new RegisteredModel
+        {
+            Id = model.Id,
+            ProviderId = model.ProviderId,
+            ModelIdentifier = model.ModelIdentifier,
+            DisplayName = model.DisplayName,
+            IsEnabled = model.IsEnabled,
+            CreatedUtc = model.CreatedUtc,
+            ProviderName = model.ProviderName,
+            ContextWindowSize = model.ContextWindowSize,
+            Quantization = model.Quantization,
+            ParameterCount = model.ParameterCount,
+            Notes = model.Notes
+        };
+        _showModelDetails = true;
+        _showModelForm = false;
+    }
+
+    private async Task OnModelDetailsSaved()
+    {
+        _showModelDetails = false;
+        _detailsModel = null;
+        await LoadAllDataAsync();
+    }
+
+    private void OnModelDetailsCancelled()
+    {
+        _showModelDetails = false;
+        _detailsModel = null;
+    }
+
+    private async Task ConfirmDeleteModel(RegisteredModel model)
+    {
+        var dependents = await Facade.GetDependentFunctionDefaultsAsync(model.Id);
+        _deleteConfirmMessage = $"Delete model '{model.DisplayName}'?";
+        _deleteDependentWarning = dependents.Count > 0
+            ? $"This model is assigned to {dependents.Count} function default(s): {string.Join(", ", dependents.Select(d => d.FunctionName))}. These assignments will be cleared."
+            : null;
+        _deleteAction = async () =>
+        {
+            await Facade.DeleteModelAsync(model.Id);
+            await LoadAllDataAsync();
+        };
+        _showDeleteConfirmation = true;
+    }
+
+    // === Function Default methods ===
+
+    private FunctionEditState GetFunctionState(AppFunction func)
+    {
+        return _functionStates.GetValueOrDefault(func) ?? new FunctionEditState();
+    }
+
+    private void OnFunctionModelChange(AppFunction func, ChangeEventArgs e)
+    {
+        var state = GetFunctionState(func);
+        state.ModelId = e.Value?.ToString() ?? "";
+    }
+
+    private async Task SaveFunctionDefault(AppFunction func)
+    {
+        var state = GetFunctionState(func);
+
+        if (string.IsNullOrEmpty(state.ModelId))
+        {
+            // Clear the function default
+            await Facade.ClearFunctionDefaultAsync(func);
+            await LoadAllDataAsync();
+            return;
+        }
+
+        // Validate ranges
+        state.Temperature = Math.Clamp(state.Temperature, 0.0, 2.0);
+        state.TopP = Math.Clamp(state.TopP, 0.0, 1.0);
+        state.MaxTokens = Math.Clamp(state.MaxTokens, 1, 8000);
+
+        _isBusy = true;
+        try
+        {
+            var fd = new FunctionModelDefault
+            {
+                Id = state.ExistingId ?? Guid.NewGuid().ToString(),
+                FunctionName = func.ToString(),
+                ModelId = state.ModelId,
+                Temperature = state.Temperature,
+                TopP = state.TopP,
+                MaxTokens = state.MaxTokens
+            };
+            await Facade.SaveFunctionDefaultAsync(fd);
+            await LoadAllDataAsync();
+        }
+        catch (Exception ex)
+        {
+            _globalError = $"Failed to save function default: {ex.Message}";
+        }
+        finally { _isBusy = false; }
+    }
+
+    // === Delete confirmation ===
+
+    private void CancelDelete()
+    {
+        _showDeleteConfirmation = false;
+        _deleteAction = null;
+    }
+
+    private async Task ExecuteDelete()
+    {
+        _isBusy = true;
+        _showDeleteConfirmation = false;
+        try
+        {
+            if (_deleteAction is not null)
+                await _deleteAction();
+        }
+        catch (Exception ex)
+        {
+            _globalError = $"Delete failed: {ex.Message}";
+        }
+        finally
+        {
+            _isBusy = false;
+            _deleteAction = null;
+        }
+    }
+
+    // === Helpers ===
+
+    private static string FormatFunctionName(AppFunction func) => func switch
+    {
+        AppFunction.RolePlayGeneration => "Role-Play Generation",
+        AppFunction.StoryModeGeneration => "Story Mode Generation",
+        AppFunction.StorySummarize => "Story Summarize",
+        AppFunction.StoryAnalyze => "Story Analyze",
+        AppFunction.StoryRank => "Story Rank",
+        AppFunction.ScenarioPreview => "Scenario Preview",
+        AppFunction.ScenarioAdapt => "Scenario Adapt",
+        AppFunction.WritingAssistant => "Writing Assistant",
+        AppFunction.RolePlayAssistant => "Role-Play Assistant",
+        AppFunction.ModelAnalysis => "Model Analysis",
+        _ => func.ToString()
+    };
+
+    private static double ParseDouble(ChangeEventArgs e, double fallback)
+    {
+        return double.TryParse(e.Value?.ToString(), out var v) ? v : fallback;
+    }
+
+    private static int ParseInt(ChangeEventArgs e, int fallback)
+    {
+        return int.TryParse(e.Value?.ToString(), out var v) ? v : fallback;
+    }
+
+    private static string FormatTimestamp(string isoTimestamp)
+    {
+        return DateTime.TryParse(isoTimestamp, out var dt)
+            ? dt.ToLocalTime().ToString("g")
+            : isoTimestamp;
+    }
+
+    private sealed class FunctionEditState
+    {
+        public string ModelId { get; set; } = "";
+        public double Temperature { get; set; } = 0.7;
+        public double TopP { get; set; } = 0.9;
+        public int MaxTokens { get; set; } = 500;
+        public string? ExistingId { get; set; }
+    }
+}

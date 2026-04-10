@@ -1,21 +1,26 @@
 using System.Text;
 using DreamGenClone.Application.Abstractions;
+using DreamGenClone.Application.ModelManager;
+using DreamGenClone.Domain.ModelManager;
 using Microsoft.Extensions.Logging;
 
 namespace DreamGenClone.Web.Application.Assistants;
 
 public sealed class RolePlayAssistantService : IRolePlayAssistantService
 {
-    private readonly ILmStudioClient _lmStudioClient;
+    private readonly ICompletionClient _completionClient;
+    private readonly IModelResolutionService _modelResolver;
     private readonly IAssistantContextManager _contextManager;
     private readonly ILogger<RolePlayAssistantService> _logger;
 
     public RolePlayAssistantService(
-        ILmStudioClient lmStudioClient,
+        ICompletionClient completionClient,
+        IModelResolutionService modelResolver,
         IAssistantContextManager contextManager,
         ILogger<RolePlayAssistantService> logger)
     {
-        _lmStudioClient = lmStudioClient;
+        _completionClient = completionClient;
+        _modelResolver = modelResolver;
         _contextManager = contextManager;
         _logger = logger;
     }
@@ -27,27 +32,93 @@ public sealed class RolePlayAssistantService : IRolePlayAssistantService
         string userPrompt,
         CancellationToken cancellationToken = default)
     {
-        // Add pinned scenario context if present and not already added
-        if (!string.IsNullOrWhiteSpace(scenarioSummary))
+        var context = new RolePlayAssistantContext
         {
-            _contextManager.AddPinnedContext(sessionId, $"Scenario: {scenarioSummary}");
-        }
+            SessionId = sessionId,
+            ScenarioSummary = scenarioSummary,
+            RecentInteractions = recentInteractions
+        };
+        return await GenerateSuggestionAsync(context, userPrompt, cancellationToken: cancellationToken);
+    }
+
+    public async Task<string> GenerateSuggestionAsync(
+        RolePlayAssistantContext context,
+        string userPrompt,
+        string? assistantModelId = null,
+        double? assistantTemperature = null,
+        double? assistantTopP = null,
+        int? assistantMaxTokens = null,
+        CancellationToken cancellationToken = default)
+    {
+        var sessionId = context.SessionId;
 
         // Add user message to conversation history
         _contextManager.AddUserMessage(sessionId, userPrompt);
 
-        // Build prompt with conversation context and recent interactions
-        var prompt = BuildAssistantPrompt(sessionId, recentInteractions, userPrompt);
+        // Build the user message with conversation context and session state
+        var userMessage = BuildUserMessage(sessionId, context, userPrompt);
         _logger.LogInformation("Role-play assistant request initiated for session {SessionId}", sessionId);
 
-        var response = await _lmStudioClient.GenerateAsync(prompt, cancellationToken);
+        var resolved = await _modelResolver.ResolveAsync(
+            AppFunction.RolePlayAssistant,
+            sessionModelId: assistantModelId,
+            sessionTemperature: assistantTemperature,
+            sessionTopP: assistantTopP,
+            sessionMaxTokens: assistantMaxTokens,
+            cancellationToken: cancellationToken);
 
-        var trimmedResponse = string.IsNullOrWhiteSpace(response) ? "(No suggestion generated)" : response.Trim();
+        var response = await _completionClient.GenerateAsync(
+            RolePlayAssistantPrompts.SystemPrompt,
+            userMessage,
+            resolved,
+            cancellationToken);
+
+        var trimmedResponse = CleanResponse(response);
 
         // Add assistant response to conversation history
         _contextManager.AddAssistantResponse(sessionId, trimmedResponse);
 
         _logger.LogInformation("Role-play assistant suggestion generated for session {SessionId}", sessionId);
+        return trimmedResponse;
+    }
+
+    public async Task<string> GenerateSuggestionStreamingAsync(
+        RolePlayAssistantContext context,
+        string userPrompt,
+        Func<string, Task> onChunk,
+        string? assistantModelId = null,
+        double? assistantTemperature = null,
+        double? assistantTopP = null,
+        int? assistantMaxTokens = null,
+        CancellationToken cancellationToken = default)
+    {
+        var sessionId = context.SessionId;
+
+        _contextManager.AddUserMessage(sessionId, userPrompt);
+
+        var userMessage = BuildUserMessage(sessionId, context, userPrompt);
+        _logger.LogInformation("Role-play assistant streaming request initiated for session {SessionId}", sessionId);
+
+        var resolved = await _modelResolver.ResolveAsync(
+            AppFunction.RolePlayAssistant,
+            sessionModelId: assistantModelId,
+            sessionTemperature: assistantTemperature,
+            sessionTopP: assistantTopP,
+            sessionMaxTokens: assistantMaxTokens,
+            cancellationToken: cancellationToken);
+
+        var response = await _completionClient.StreamGenerateAsync(
+            RolePlayAssistantPrompts.SystemPrompt,
+            userMessage,
+            resolved,
+            onChunk,
+            cancellationToken);
+
+        var trimmedResponse = CleanResponse(response);
+
+        _contextManager.AddAssistantResponse(sessionId, trimmedResponse);
+
+        _logger.LogInformation("Role-play assistant streaming suggestion generated for session {SessionId}", sessionId);
         return trimmedResponse;
     }
 
@@ -57,36 +128,173 @@ public sealed class RolePlayAssistantService : IRolePlayAssistantService
         _logger.LogInformation("Cleared role-play assistant chat for session {SessionId}", sessionId);
     }
 
-    private string BuildAssistantPrompt(string sessionId, IReadOnlyList<string> recentInteractions, string userPrompt)
+    private string BuildUserMessage(string sessionId, RolePlayAssistantContext context, string userPrompt)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("You are a role-play assistant for an interactive narrative experience.");
+
+        // Scenario context
+        if (!string.IsNullOrWhiteSpace(context.ScenarioSummary))
+        {
+            sb.AppendLine($"[Scenario: {context.ScenarioSummary}]");
+        }
+
+        // Style context — critical for pacing/tone advice
+        if (!string.IsNullOrWhiteSpace(context.ScenarioTone) || !string.IsNullOrWhiteSpace(context.ScenarioWritingStyle))
+        {
+            var styleParts = new List<string>();
+            if (!string.IsNullOrWhiteSpace(context.ScenarioTone)) styleParts.Add($"Tone={context.ScenarioTone}");
+            if (!string.IsNullOrWhiteSpace(context.ScenarioWritingStyle)) styleParts.Add($"WritingStyle={context.ScenarioWritingStyle}");
+            if (!string.IsNullOrWhiteSpace(context.ScenarioPointOfView)) styleParts.Add($"POV={context.ScenarioPointOfView}");
+            sb.AppendLine($"[Current Style: {string.Join(", ", styleParts)}]");
+            if (context.ScenarioStyleGuidelines.Count > 0)
+                sb.AppendLine($"[Style Guidelines: {string.Join("; ", context.ScenarioStyleGuidelines)}]");
+        }
+
+        // Plot drivers
+        if (context.ScenarioConflicts.Count > 0)
+            sb.AppendLine($"[Active Conflicts: {string.Join("; ", context.ScenarioConflicts)}]");
+        if (context.ScenarioGoals.Count > 0)
+            sb.AppendLine($"[Story Goals: {string.Join("; ", context.ScenarioGoals)}]");
+
+        // World rules
+        if (context.ScenarioWorldRules.Count > 0)
+            sb.AppendLine($"[World Rules: {string.Join("; ", context.ScenarioWorldRules)}]");
+
+        // Session state context
+        if (!string.IsNullOrWhiteSpace(context.BehaviorMode))
+        {
+            sb.AppendLine($"[Current Behavior Mode: {context.BehaviorMode}]");
+        }
+
+        if (!string.IsNullOrWhiteSpace(context.EffectiveStyleMode))
+        {
+            sb.AppendLine($"[Effective Style Mode: {context.EffectiveStyleMode}]");
+        }
+
+        if (!string.IsNullOrWhiteSpace(context.StyleResolutionReason))
+        {
+            sb.AppendLine($"[Style Resolution: {context.StyleResolutionReason}]");
+        }
+
+        if (!string.IsNullOrWhiteSpace(context.SelectedRankingProfileId)
+            || !string.IsNullOrWhiteSpace(context.SelectedToneProfileId)
+            || !string.IsNullOrWhiteSpace(context.SelectedStyleProfileId)
+            || !string.IsNullOrWhiteSpace(context.StyleFloorOverride)
+            || !string.IsNullOrWhiteSpace(context.StyleCeilingOverride))
+        {
+            sb.AppendLine($"[Adaptive Profiles: ranking={context.SelectedRankingProfileId ?? "(none)"}, tone={context.SelectedToneProfileId ?? "(none)"}, style={context.SelectedStyleProfileId ?? "(none)"}, floor={context.StyleFloorOverride ?? "(none)"}, ceiling={context.StyleCeilingOverride ?? "(none)"}, manualPin={(context.IsToneManuallyPinned ? "on" : "off")}] ");
+        }
+        else if (context.IsToneManuallyPinned)
+        {
+            sb.AppendLine("[Adaptive Profiles: manualPin=on]");
+        }
+
+        if (context.ProfileSteeringThemes.Count > 0)
+        {
+            sb.AppendLine("[Profile Steering Themes]");
+            foreach (var item in context.ProfileSteeringThemes)
+            {
+                sb.AppendLine($"- {item}");
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(context.PersonaName))
+        {
+            sb.Append($"[Persona: {context.PersonaName}");
+            if (!string.IsNullOrWhiteSpace(context.PersonaDescription))
+                sb.Append($" — {context.PersonaDescription}");
+            sb.AppendLine("]");
+        }
+
+        // Full character details for field-specific advice
+        if (context.FullCharacterDetails.Count > 0)
+        {
+            sb.AppendLine("[Scene Characters]");
+            foreach (var character in context.FullCharacterDetails)
+            {
+                sb.AppendLine($"- {character}");
+            }
+        }
+        else if (context.CharacterSummaries.Count > 0)
+        {
+            sb.AppendLine("[Scene Characters]");
+            foreach (var character in context.CharacterSummaries)
+            {
+                sb.AppendLine($"- {character}");
+            }
+        }
+
+        if (context.ContextWindowSize > 0)
+        {
+            sb.AppendLine($"[Context Window: {context.ContextWindowSize} interactions, {context.PinnedInteractionCount} pinned]");
+        }
+
+        if (!string.IsNullOrWhiteSpace(context.SessionModelId))
+        {
+            sb.AppendLine($"[Generation Model Settings: temp={context.SessionTemperature:F2}, topP={context.SessionTopP:F2}, maxTokens={context.SessionMaxTokens}]");
+        }
 
         // Include conversation history with truncation
-        var context = _contextManager.GetContext(sessionId, maxItems: 15);
-        if (context.Count > 0)
+        var history = _contextManager.GetContext(sessionId, maxItems: 15);
+        if (history.Count > 0)
         {
+            sb.AppendLine();
             sb.AppendLine("Conversation history:");
-            foreach (var item in context)
+            foreach (var item in history)
             {
                 sb.AppendLine(item.Content);
             }
         }
 
         // Include recent role-play interactions as additional context
-        if (recentInteractions.Count > 0)
+        if (context.RecentInteractions.Count > 0)
         {
+            sb.AppendLine();
             sb.AppendLine("Recent role-play interactions:");
-            foreach (var interaction in recentInteractions.TakeLast(8))
+            foreach (var interaction in context.RecentInteractions.TakeLast(8))
             {
                 sb.AppendLine($"- {interaction}");
             }
         }
 
-        sb.AppendLine("Current user request:");
+        sb.AppendLine();
+        sb.AppendLine("User question:");
         sb.AppendLine(userPrompt);
-        sb.AppendLine("Respond with concise, actionable role-play guidance.");
 
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// Cleans up model responses — handles empty responses, reasoning-only output, and formatting.
+    /// </summary>
+    private static string CleanResponse(string response)
+    {
+        if (string.IsNullOrWhiteSpace(response))
+            return "(No suggestion generated)";
+
+        var trimmed = response.Trim();
+
+        // Remove common reasoning model prefixes/wrappers
+        // Some models wrap output in <think>...</think> tags
+        if (trimmed.StartsWith("<think>", StringComparison.OrdinalIgnoreCase))
+        {
+            var endTag = trimmed.IndexOf("</think>", StringComparison.OrdinalIgnoreCase);
+            if (endTag >= 0)
+            {
+                // Content after the think block is the actual answer
+                var afterThink = trimmed[(endTag + 8)..].Trim();
+                if (!string.IsNullOrWhiteSpace(afterThink))
+                    return afterThink;
+                // If nothing after think block, use the thinking content
+                trimmed = trimmed[7..endTag].Trim();
+            }
+            else
+            {
+                // Unclosed think tag — strip it
+                trimmed = trimmed[7..].Trim();
+            }
+        }
+
+        return string.IsNullOrWhiteSpace(trimmed) ? "(No suggestion generated)" : trimmed;
     }
 }

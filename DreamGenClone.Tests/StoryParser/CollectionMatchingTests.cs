@@ -167,7 +167,12 @@ public sealed class CollectionMatchingTests
         {
             ConnectionString = $"Data Source={tempDb}"
         });
-        var persistence = new SqlitePersistence(options, NullLogger<SqlitePersistence>.Instance);
+        var persistence = new SqlitePersistence(
+            options,
+            Options.Create(new LmStudioOptions()),
+            Options.Create(new StoryAnalysisOptions()),
+            Options.Create(new ScenarioAdaptationOptions()),
+            NullLogger<SqlitePersistence>.Instance);
         await persistence.InitializeAsync();
         return persistence;
     }

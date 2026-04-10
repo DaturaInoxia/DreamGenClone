@@ -1,16 +1,27 @@
 @page "/storyparser/detail/{Id}"
 @rendermode InteractiveServer
+@implements IDisposable
 
 @using DreamGenClone.Web.Application.StoryParser
 @using DreamGenClone.Web.Application.StoryAnalysis
+@using DreamGenClone.Web.Application.Scenarios
 @using DreamGenClone.Domain.StoryAnalysis
 @using DreamGenClone.Domain.StoryParser
+@using DreamGenClone.Domain.Templates
+@using DreamGenClone.Application.StoryAnalysis.Models
+@using DreamGenClone.Application.Processing
+@using DreamGenClone.Application.Templates
+@using DreamGenClone.Infrastructure.StoryAnalysis
 @using System.Text.Json
 @using System.Linq
 
 @inject StoryParserFacade ParserFacade
 @inject StoryCollectionFacade CollectionFacade
 @inject StoryAnalysisFacade AnalysisFacade
+@inject IModelProcessingQueue ProcessingQueue
+@inject IScenarioAdaptationService AdaptationService
+@inject IScenarioService ScenarioService
+@inject ITemplateService TemplateService
 @inject NavigationManager Navigation
 
 <PageTitle>StoryParser Detail</PageTitle>
@@ -28,6 +39,8 @@
     }
     else
     {
+        <h2 class="mb-3">@_detail.Title</h2>
+
         @* ── Action Bar at Top ── *@
         <div class="card mb-3 border-primary">
             <div class="card-body d-flex flex-wrap align-items-center gap-2">
@@ -80,6 +93,27 @@
                     <a href="/ranking-profiles" class="btn btn-outline-secondary btn-sm">Create Ranking Profile</a>
                 }
 
+                @if (_summary is not null)
+                {
+                    <div class="vr"></div>
+                    <button class="btn btn-success" @onclick="PreviewScenario" disabled="@_isLlmBusy">
+                        @if (_isPreviewing)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                            <span>Generating Preview...</span>
+                        }
+                        else if (_isAdapting)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                            <span>Adapting...</span>
+                        }
+                        else
+                        {
+                            <span>Adapt as Scenario</span>
+                        }
+                    </button>
+                }
+
                 <div class="vr"></div>
                 <div class="btn-group" style="position: relative;">
                     <button class="btn btn-outline-secondary btn-sm" @onclick="ToggleManageDropdown">
@@ -97,6 +131,182 @@
                 </div>
             </div>
         </div>
+
+        @if (_linkedScenarioId is not null)
+        {
+            <div class="alert alert-info d-flex align-items-center gap-2 mb-3">
+                <span>Adapted as scenario: <strong>@(_linkedScenarioName ?? "Scenario")</strong></span>
+                <a href="/scenarios/editor/@_linkedScenarioId" class="btn btn-sm btn-outline-primary">Open Scenario</a>
+            </div>
+        }
+
+        @* ── Adapt as Scenario Panel ── *@
+        @if (_showAdaptPanel)
+        {
+        <div class="card mb-3 border-success">
+            <div class="card-header bg-success text-white">Adapt as Scenario</div>
+            <div class="card-body">
+
+                @if (!string.IsNullOrEmpty(_adaptError))
+                {
+                    <div class="alert alert-danger">@_adaptError</div>
+                }
+                @if (!string.IsNullOrEmpty(_previewError))
+                {
+                    <div class="alert alert-danger">@_previewError</div>
+                }
+
+                @* ── Preview Section ── *@
+                @if (_scenarioPreview is not null && _scenarioPreview.Success && !_showCharacterMapping)
+                {
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Title</label>
+                        <input class="form-control" @bind="_scenarioPreview.PlotTitle" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Description</label>
+                        <textarea class="form-control" rows="3" @bind="_scenarioPreview.PlotDescription"></textarea>
+                    </div>
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Conflicts</label>
+                            @for (var i = 0; i < _scenarioPreview.Conflicts.Count; i++)
+                            {
+                                var idx = i;
+                                <div class="d-flex align-items-center gap-2 mb-1">
+                                    <input class="form-control form-control-sm" value="@_scenarioPreview.Conflicts[idx]"
+                                           @onchange="(e) => _scenarioPreview.Conflicts[idx] = e.Value?.ToString() ?? string.Empty" />
+                                    <button class="btn btn-outline-danger btn-sm" @onclick="() => _scenarioPreview.Conflicts.RemoveAt(idx)">✕</button>
+                                </div>
+                            }
+                            <button class="btn btn-outline-secondary btn-sm" @onclick="() => _scenarioPreview.Conflicts.Add(string.Empty)">+ Add</button>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Goals</label>
+                            @for (var i = 0; i < _scenarioPreview.Goals.Count; i++)
+                            {
+                                var idx = i;
+                                <div class="d-flex align-items-center gap-2 mb-1">
+                                    <input class="form-control form-control-sm" value="@_scenarioPreview.Goals[idx]"
+                                           @onchange="(e) => _scenarioPreview.Goals[idx] = e.Value?.ToString() ?? string.Empty" />
+                                    <button class="btn btn-outline-danger btn-sm" @onclick="() => _scenarioPreview.Goals.RemoveAt(idx)">✕</button>
+                                </div>
+                            }
+                            <button class="btn btn-outline-secondary btn-sm" @onclick="() => _scenarioPreview.Goals.Add(string.Empty)">+ Add</button>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Setting</label>
+                        <textarea class="form-control" rows="2" @bind="_scenarioPreview.SettingSummary"></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Style</label>
+                        <textarea class="form-control" rows="2" @bind="_scenarioPreview.StyleSummary"></textarea>
+                    </div>
+                    @if (_scenarioPreview.SuggestedRoles.Count > 0)
+                    {
+                        <p class="mb-2"><strong>Suggested Roles:</strong> @string.Join(", ", _scenarioPreview.SuggestedRoles)</p>
+                    }
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-success" @onclick="ContinueToCharacterMapping">
+                            Continue to Character Mapping
+                        </button>
+                        <button class="btn btn-outline-secondary" @onclick="PreviewScenario" disabled="@_isLlmBusy">
+                            Regenerate Preview
+                        </button>
+                        <button class="btn btn-outline-danger" @onclick="CancelAdaptation">
+                            Cancel
+                        </button>
+                    </div>
+                }
+
+                @* ── Character Mapping + Create Section (gated behind preview) ── *@
+                @if (_showCharacterMapping)
+                {
+                    @if (_scenarioPreview is not null && _scenarioPreview.Success)
+                    {
+                        <div class="alert alert-light border mb-3">
+                            <strong>@(_scenarioPreview.PlotTitle ?? "Preview")</strong> — @_scenarioPreview.PlotDescription
+                            @if (_scenarioPreview.SuggestedRoles.Count > 0)
+                            {
+                                <br /><small class="text-muted">Suggested roles: @string.Join(", ", _scenarioPreview.SuggestedRoles)</small>
+                            }
+                        </div>
+                    }
+
+                    @if (_adaptSavedScenarioId is not null)
+                    {
+                        <div class="alert alert-success">
+                            Scenario <strong>@(_scenarioPreview?.PlotTitle ?? "Scenario")</strong> created!
+                            <a href="/scenarios/editor/@_adaptSavedScenarioId" class="alert-link">Open in Editor</a>
+                        </div>
+                    }
+                    else
+                    {
+                        <p class="text-muted mb-2">Select characters to cast into the scenario roles.</p>
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">Characters</label>
+                                @if (_characterTemplates.Count == 0)
+                                {
+                                    <p class="text-muted">No character templates found. <a href="/templates">Create character templates</a> first.</p>
+                                }
+                                else
+                                {
+                                    @for (var i = 0; i < _adaptCharacterSelections.Count; i++)
+                                    {
+                                        var idx = i;
+                                        <div class="d-flex align-items-center gap-2 mb-2">
+                                            <select class="form-select form-select-sm" style="max-width: 200px;"
+                                                    value="@_adaptCharacterSelections[idx].TemplateId"
+                                                    @onchange="(e) => _adaptCharacterSelections[idx].TemplateId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : Guid.Empty">
+                                                <option value="@Guid.Empty">-- Select --</option>
+                                                @foreach (var t in _characterTemplates)
+                                                {
+                                                    <option value="@t.Id">@t.Name</option>
+                                                }
+                                            </select>
+                                            <input class="form-control form-control-sm" style="max-width: 150px;"
+                                                   placeholder="Role (optional)"
+                                                   @bind="_adaptCharacterSelections[idx].TargetRole" />
+                                            @if (_adaptCharacterSelections.Count > 1)
+                                            {
+                                                <button class="btn btn-outline-danger btn-sm" @onclick="() => _adaptCharacterSelections.RemoveAt(idx)">✕</button>
+                                            }
+                                        </div>
+                                    }
+                                    <button class="btn btn-outline-secondary btn-sm" @onclick="() => _adaptCharacterSelections.Add(new CharacterSubstitution())">
+                                        + Add Character
+                                    </button>
+                                }
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">Guidance (optional)</label>
+                                <textarea class="form-control" rows="3" placeholder="e.g., Focus on the jealousy theme, set it on vacation..."
+                                          @bind="_adaptGuidance"></textarea>
+                            </div>
+                        </div>
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-success" @onclick="CreateScenarioFromPreview" disabled="@(_isAdapting || _characterTemplates.Count == 0)">
+                                @if (_isAdapting)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                                    <span>Creating...</span>
+                                }
+                                else
+                                {
+                                    <span>Create Scenario</span>
+                                }
+                            </button>
+                            <button class="btn btn-outline-secondary" @onclick="() => { _showCharacterMapping = false; }">
+                                Back to Preview
+                            </button>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+        }
 
         @* ── Summary Section ── *@
         <div class="card mb-3">
@@ -385,11 +595,15 @@
                         <div class="mb-3">
                             @if (_ranking.IsDisqualified)
                             {
-                                <h5>Score: <span class="badge bg-danger fs-5">DISQUALIFIED</span></h5>
+                                <h5>Score: <span class="badge bg-danger fs-5">DISQUALIFIED</span>
+                                    @if (IsAllVerified) { <span class="badge bg-success ms-1">Verified</span> }
+                                </h5>
                             }
                             else
                             {
-                                <h5>Score: <span class="badge @GetScoreBadgeClass(_ranking.Score) fs-5">@_ranking.Score.ToString("F1")</span> / 100</h5>
+                                <h5>Score: <span class="badge @GetScoreBadgeClass(_ranking.Score) fs-5">@_ranking.Score.ToString("F1")</span> / 100
+                                    @if (IsAllVerified) { <span class="badge bg-success ms-1">Verified</span> }
+                                </h5>
                             }
                         </div>
                         @if (_themeDetections.Count > 0)
@@ -409,21 +623,38 @@
                                     }
                                 }
                             </div>
+                            <h6 class="cursor-pointer" @onclick="() => _showThemeDetails = !_showThemeDetails">
+                                @(_showThemeDetails ? "▼" : "▶") Theme Details
+                            </h6>
+                            @if (_showThemeDetails)
+                            {
                             <table class="table table-sm">
-                                <thead><tr><th>Theme</th><th>Tier</th><th>Detected</th><th>Intensity</th><th>Evidence</th></tr></thead>
+                                <thead><tr><th>Theme</th><th>Tier</th><th>Detected</th><th>Intensity</th><th>Confidence</th><th>Evidence</th><th style="width: 150px;">Status</th></tr></thead>
                                 <tbody>
                                     @foreach (var d in _themeDetections)
                                     {
-                                        <tr class="@(d.Tier == "HardDealBreaker" && d.Detected ? "table-danger" : "")">
+                                        var verStatus = GetVerificationStatus(d.ThemeId);
+                                        <tr class="@(d.Tier == "HardDealBreaker" && d.Detected ? "table-danger" : "") @(verStatus == ThemeVerificationStatus.Dismissed ? "text-decoration-line-through opacity-50" : "")">
                                             <td>@d.ThemeName</td>
                                             <td><span class="badge @GetTierBadgeClassFromString(d.Tier)">@d.Tier</span></td>
                                             <td>@(d.Detected ? "Yes" : "No")</td>
                                             <td>@d.Intensity</td>
+                                            <td>@(d.Confidence.ToString("P0"))</td>
                                             <td class="small">@d.Evidence</td>
+                                            <td>
+                                                <select class="form-select form-select-sm" value="@verStatus" disabled="@_isSavingVerification"
+                                                        @onchange="async (e) => { if (Enum.TryParse<ThemeVerificationStatus>(e.Value?.ToString(), true, out var s)) await SetThemeVerificationAsync(d.ThemeId, s); }">
+                                                    @foreach (var vs in Enum.GetValues<ThemeVerificationStatus>())
+                                                    {
+                                                        <option value="@vs">@vs</option>
+                                                    }
+                                                </select>
+                                            </td>
                                         </tr>
                                     }
                                 </tbody>
                             </table>
+                            }
                         }
                         <small class="text-muted">Generated: @_ranking.GeneratedUtc.ToLocalTime().ToString("g")</small>
                     }
@@ -440,12 +671,12 @@
         <div class="card mb-3">
             <div class="card-header cursor-pointer" @onclick="() => _showRating = !_showRating">
                 @(_showRating ? "▼" : "▶") My Rating
-                @if (_userRating is not null && !_showRating)
+                @if (_userRating is not null && _userRating.Stars.HasValue && !_showRating)
                 {
                     <span class="ms-2">
                         @for (int i = 1; i <= 5; i++)
                         {
-                            <span style="color: @(i <= _userRating.Stars ? "#ffc107" : "#dee2e6"); font-size: 0.9rem;">★</span>
+                            <span style="color: @(i <= _userRating.Stars.Value ? "#ffc107" : "#dee2e6"); font-size: 0.9rem;">★</span>
                         }
                     </span>
                 }
@@ -457,11 +688,11 @@
                         @for (int s = 1; s <= 5; s++)
                         {
                             var star = s;
-                            <span style="cursor: pointer; font-size: 1.5rem; color: @(star <= _ratingStars ? "#ffc107" : "#dee2e6");"
-                                  @onclick="() => _ratingStars = star"
+                            <span style="cursor: pointer; font-size: 1.5rem; color: @(_ratingStars.HasValue && star <= _ratingStars.Value ? "#ffc107" : "#dee2e6");"
+                                  @onclick="() => _ratingStars = _ratingStars == star ? null : star"
                                   title="@star star(s)">★</span>
                         }
-                        <span class="ms-2 text-muted small">@_ratingStars / 5</span>
+                        <span class="ms-2 text-muted small">@(_ratingStars.HasValue ? $"{_ratingStars.Value} / 5" : "Not rated")</span>
                     </div>
                     <div class="mb-2">
                         <textarea class="form-control form-control-sm" rows="2" placeholder="Optional comment..."
@@ -548,8 +779,27 @@
         </div>
 
         <div class="card mb-3">
-            <div class="card-header">Combined Text</div>
-            <div class="card-body" style="white-space: pre-wrap;">@_detail.CombinedText</div>
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>Combined Text</span>
+                @if (!_isEditingCombinedText)
+                {
+                    <button class="btn btn-sm btn-outline-primary" @onclick="StartEditCombinedText">Edit</button>
+                }
+            </div>
+            @if (_isEditingCombinedText)
+            {
+                <div class="card-body">
+                    <textarea class="form-control" rows="20" style="font-family: monospace; white-space: pre-wrap;" @bind="_editCombinedText" @bind:event="oninput"></textarea>
+                    <div class="mt-2 d-flex gap-2">
+                        <button class="btn btn-sm btn-primary" @onclick="SaveCombinedText" disabled="@_isSavingCombinedText">Save</button>
+                        <button class="btn btn-sm btn-secondary" @onclick="CancelEditCombinedText">Cancel</button>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="card-body" style="white-space: pre-wrap;">@_detail.CombinedText</div>
+            }
         </div>
 
         <div class="card">
@@ -615,7 +865,7 @@
     private List<RankingProfile> _profiles = new();
     private string? _selectedProfileId;
     private bool _showRanking;
-    private bool _showThemePrefs = true;
+    private bool _showThemePrefs;
 
     // Theme preferences state
     private List<ThemePreference> _themes = new();
@@ -634,6 +884,9 @@
     private StoryRankingResult? _ranking;
     private List<DetectionEntry> _themeDetections = new();
     private bool _isRanking;
+    private bool _showThemeDetails = true;
+    private Dictionary<string, ThemeVerificationStatus> _themeVerificationStatuses = new();
+    private bool _isSavingVerification;
     private string? _rankingError;
     private Dictionary<string, string> _rankingErrors = new();
     private bool _showManageDropdown;
@@ -645,14 +898,35 @@
 
     // User rating state
     private UserStoryRating? _userRating;
-    private int _ratingStars = 3;
+    private int? _ratingStars;
     private string _ratingComment = string.Empty;
     private bool _showRating = true;
     private bool _isRatingSaving;
 
+    // Combined text edit state
+    private bool _isEditingCombinedText;
+    private bool _isSavingCombinedText;
+    private string _editCombinedText = string.Empty;
+
+    // Scenario adaptation state
+    private bool _showAdaptPanel;
+    private bool _isPreviewing;
+    private string? _previewError;
+    private ScenarioPreviewResult? _scenarioPreview;
+    private bool _showCharacterMapping;
+    private bool _isAdapting;
+    private string? _adaptError;
+    private string? _adaptSavedScenarioId;
+    private string? _linkedScenarioId;
+    private string? _linkedScenarioName;
+    private string _adaptGuidance = string.Empty;
+    private List<CharacterSubstitution> _adaptCharacterSelections = new();
+    private List<TemplateDefinition> _characterTemplates = new();
+
     protected override async Task OnParametersSetAsync()
     {
         _isLoading = true;
+        ProcessingQueue.OnStatusChanged += OnProcessingStatusChanged;
         _detail = await ParserFacade.GetByIdAsync(Id);
 
         if (_detail is not null)
@@ -661,6 +935,7 @@
             _analysis = await AnalysisFacade.GetAnalysisAsync(Id);
             ParseAnalysisViewModels();
             _profiles = await AnalysisFacade.ListProfilesAsync();
+            await LoadCharacterTemplatesAsync();
             if (_profiles.Count > 0)
             {
                 _selectedProfileId ??= _profiles[0].Id;
@@ -668,6 +943,15 @@
             }
             await LoadCollectionsAsync();
             await LoadUserRatingAsync();
+
+            // Check if a scenario was already adapted from this story
+            var allScenarios = await ScenarioService.GetAllScenariosAsync();
+            var linked = allScenarios.FirstOrDefault(s => s.SourceParsedStoryId == Id);
+            if (linked is not null)
+            {
+                _linkedScenarioId = linked.Id;
+                _linkedScenarioName = linked.Name;
+            }
         }
 
         _isLoading = false;
@@ -679,6 +963,7 @@
         _themes = await AnalysisFacade.ListThemesByProfileAsync(_selectedProfileId);
         _ranking = await AnalysisFacade.GetRankingAsync(Id, _selectedProfileId);
         _themeDetections = ParseThemeDetections(_ranking?.ThemeDetectionsJson);
+        _themeVerificationStatuses = ParseVerificationStatuses(_ranking?.ThemeVerificationStatusJson);
         _editingThemeId = null;
         _rankingError = null;
         _rankingErrors.Clear();
@@ -688,6 +973,65 @@
     {
         _selectedProfileId = e.Value?.ToString();
         await LoadProfileData();
+    }
+
+    private async void OnProcessingStatusChanged(ModelProcessingTask task)
+    {
+        if (task.ParsedStoryId != Id) return;
+
+        if (task.Status is ModelProcessingStatus.Completed or ModelProcessingStatus.Failed)
+        {
+            await InvokeAsync(async () =>
+            {
+                // Refresh results for the completed task type
+                if (task.TaskType == ModelProcessingTaskType.Summarize)
+                {
+                    _isSummarizing = false;
+                    if (task.Status == ModelProcessingStatus.Completed)
+                        _summary = await AnalysisFacade.GetSummaryAsync(Id);
+                    else
+                        _summaryError = task.ErrorMessage;
+                }
+                else if (task.TaskType == ModelProcessingTaskType.Analyze)
+                {
+                    _isAnalyzing = false;
+                    if (task.Status == ModelProcessingStatus.Completed)
+                    {
+                        _analysis = await AnalysisFacade.GetAnalysisAsync(Id);
+                        ParseAnalysisViewModels();
+                    }
+                    else
+                        _analysisError = task.ErrorMessage;
+                }
+                else if (task.TaskType == ModelProcessingTaskType.Rank)
+                {
+                    _isRanking = false;
+                    if (task.Status == ModelProcessingStatus.Completed)
+                    {
+                        _ranking = await AnalysisFacade.GetRankingAsync(Id, _selectedProfileId!);
+                        _themeDetections = ParseThemeDetections(_ranking?.ThemeDetectionsJson);
+                        _themeVerificationStatuses = ParseVerificationStatuses(_ranking?.ThemeVerificationStatusJson);
+                    }
+                    else
+                        _rankingError = task.ErrorMessage;
+                }
+
+                // Update _isLlmBusy: true if any task for this story is still Queued or Processing
+                _isLlmBusy = ProcessingQueue.GetTasksForStory(Id)
+                    .Any(t => t.Status is ModelProcessingStatus.Queued or ModelProcessingStatus.Processing);
+
+                StateHasChanged();
+            });
+        }
+        else
+        {
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    public void Dispose()
+    {
+        ProcessingQueue.OnStatusChanged -= OnProcessingStatusChanged;
     }
 
     private async Task LoadCollectionsAsync()
@@ -726,7 +1070,7 @@
         }
         else
         {
-            _ratingStars = 3;
+            _ratingStars = null;
             _ratingComment = string.Empty;
         }
     }
@@ -755,7 +1099,7 @@
         {
             await AnalysisFacade.DeleteUserRatingAsync(Id);
             _userRating = null;
-            _ratingStars = 3;
+            _ratingStars = null;
             _ratingComment = string.Empty;
         }
         finally
@@ -764,69 +1108,63 @@
         }
     }
 
-    private async Task SummarizeStory()
+    private void StartEditCombinedText()
     {
-        if (_isLlmBusy) return;
-        _isLlmBusy = true;
-        _isSummarizing = true;
-        _summaryError = null;
-        StateHasChanged();
+        _editCombinedText = _detail!.CombinedText;
+        _isEditingCombinedText = true;
+    }
 
+    private void CancelEditCombinedText()
+    {
+        _isEditingCombinedText = false;
+    }
+
+    private async Task SaveCombinedText()
+    {
+        _isSavingCombinedText = true;
         try
         {
-            var result = await AnalysisFacade.SummarizeAsync(Id);
-            if (result.Success)
-            {
-                _summary = await AnalysisFacade.GetSummaryAsync(Id);
-            }
-            else
-            {
-                _summaryError = result.ErrorMessage;
-            }
-        }
-        catch (Exception ex)
-        {
-            _summaryError = $"Unexpected error: {ex.Message}";
+            await AnalysisFacade.UpdateCombinedTextAsync(Id, _editCombinedText);
+            _detail!.CombinedText = _editCombinedText;
+            _isEditingCombinedText = false;
         }
         finally
         {
-            _isSummarizing = false;
-            _isLlmBusy = false;
+            _isSavingCombinedText = false;
         }
     }
 
-    private async Task AnalyzeStory()
+    private Task SummarizeStory()
     {
-        if (_isLlmBusy) return;
-        _isLlmBusy = true;
-        _isAnalyzing = true;
+        if (_isLlmBusy) return Task.CompletedTask;
+        _summaryError = null;
+
+        ProcessingQueue.Enqueue(new ModelProcessingTask
+        {
+            ParsedStoryId = Id,
+            StoryTitle = _detail?.Title,
+            TaskType = ModelProcessingTaskType.Summarize
+        });
+        _isSummarizing = true;
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    private Task AnalyzeStory()
+    {
+        if (_isLlmBusy) return Task.CompletedTask;
         _analysisError = null;
         _analysisDimensionErrors.Clear();
-        StateHasChanged();
 
-        try
+        ProcessingQueue.Enqueue(new ModelProcessingTask
         {
-            var result = await AnalysisFacade.AnalyzeAsync(Id);
-            if (result.Success)
-            {
-                _analysis = await AnalysisFacade.GetAnalysisAsync(Id);
-                ParseAnalysisViewModels();
-            }
-            else
-            {
-                _analysisError = "Analysis failed for all dimensions.";
-            }
-            _analysisDimensionErrors = result.DimensionErrors;
-        }
-        catch (Exception ex)
-        {
-            _analysisError = $"Unexpected error: {ex.Message}";
-        }
-        finally
-        {
-            _isAnalyzing = false;
-            _isLlmBusy = false;
-        }
+            ParsedStoryId = Id,
+            StoryTitle = _detail?.Title,
+            TaskType = ModelProcessingTaskType.Analyze
+        });
+        _isAnalyzing = true;
+        StateHasChanged();
+        return Task.CompletedTask;
     }
 
     private void ParseAnalysisViewModels()
@@ -1010,42 +1348,25 @@
         }
     }
 
-    private async Task RankStory()
+    private Task RankStory()
     {
-        if (_isLlmBusy || _selectedProfileId is null) return;
-        _isLlmBusy = true;
-        _isRanking = true;
+        if (_isLlmBusy || _selectedProfileId is null) return Task.CompletedTask;
         _rankingError = null;
         _rankingErrors.Clear();
-        StateHasChanged();
 
-        try
+        ProcessingQueue.Enqueue(new ModelProcessingTask
         {
-            var result = await AnalysisFacade.RankAsync(Id, _selectedProfileId);
-            if (result.Success)
-            {
-                _ranking = await AnalysisFacade.GetRankingAsync(Id, _selectedProfileId);
-                _themeDetections = ParseThemeDetections(_ranking?.ThemeDetectionsJson);
-            }
-            else
-            {
-                _rankingError = result.Errors.Count > 0
-                    ? string.Join("; ", result.Errors.Select(e => $"{e.Key}: {e.Value}"))
-                    : "Ranking failed.";
-            }
-        }
-        catch (Exception ex)
-        {
-            _rankingError = $"Unexpected error: {ex.Message}";
-        }
-        finally
-        {
-            _isRanking = false;
-            _isLlmBusy = false;
-        }
+            ParsedStoryId = Id,
+            StoryTitle = _detail?.Title,
+            TaskType = ModelProcessingTaskType.Rank,
+            RankingProfileId = _selectedProfileId
+        });
+        _isRanking = true;
+        StateHasChanged();
+        return Task.CompletedTask;
     }
 
-    private sealed record DetectionEntry(string ThemeName, string Tier, bool Detected, string Intensity, string Evidence);
+    private sealed record DetectionEntry(string ThemeId, string ThemeName, string Tier, bool Detected, string Intensity, string Evidence, double Confidence);
 
     private static List<DetectionEntry> ParseThemeDetections(string? json)
     {
@@ -1057,11 +1378,13 @@
             foreach (var elem in doc.RootElement.EnumerateArray())
             {
                 list.Add(new DetectionEntry(
+                    elem.TryGetProperty("themeId", out var id) ? id.GetString() ?? "" : "",
                     elem.TryGetProperty("themeName", out var n) ? n.GetString() ?? "—" : "—",
                     elem.TryGetProperty("tier", out var t) ? t.GetString() ?? "Neutral" : "Neutral",
                     elem.TryGetProperty("detected", out var d) && d.GetBoolean(),
                     elem.TryGetProperty("intensity", out var i) ? i.GetString() ?? "None" : "None",
-                    elem.TryGetProperty("evidence", out var e) ? e.GetString() ?? "" : ""
+                    elem.TryGetProperty("evidence", out var e) ? e.GetString() ?? "" : "",
+                    elem.TryGetProperty("confidence", out var c) && c.TryGetDouble(out var cv) ? cv : 0.0
                 ));
             }
             return list;
@@ -1069,6 +1392,73 @@
         catch
         {
             return new();
+        }
+    }
+
+    private static Dictionary<string, ThemeVerificationStatus> ParseVerificationStatuses(string? json)
+    {
+        var result = new Dictionary<string, ThemeVerificationStatus>();
+        if (string.IsNullOrWhiteSpace(json)) return result;
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            foreach (var prop in doc.RootElement.EnumerateObject())
+            {
+                if (Enum.TryParse<ThemeVerificationStatus>(prop.Value.GetString(), true, out var status))
+                    result[prop.Name] = status;
+            }
+        }
+        catch { }
+        return result;
+    }
+
+    private ThemeVerificationStatus GetVerificationStatus(string themeId)
+    {
+        return _themeVerificationStatuses.TryGetValue(themeId, out var status) ? status : ThemeVerificationStatus.Unverified;
+    }
+
+    private bool IsAllVerified =>
+        _themeDetections.Count > 0 &&
+        _themeDetections.All(d => GetVerificationStatus(d.ThemeId) != ThemeVerificationStatus.Unverified);
+
+    private async Task SetThemeVerificationAsync(string themeId, ThemeVerificationStatus status)
+    {
+        if (_ranking is null) return;
+        _isSavingVerification = true;
+        try
+        {
+            _themeVerificationStatuses[themeId] = status;
+
+            // Serialize statuses to JSON
+            var statusDict = _themeVerificationStatuses.ToDictionary(kv => kv.Key, kv => kv.Value.ToString());
+            _ranking.ThemeVerificationStatusJson = JsonSerializer.Serialize(statusDict);
+
+            // Recalculate score excluding dismissed themes
+            var dismissedIds = _themeVerificationStatuses
+                .Where(kv => kv.Value == ThemeVerificationStatus.Dismissed)
+                .Select(kv => kv.Key)
+                .ToHashSet();
+
+            var detections = _themeDetections.Select(d => new ThemeDetection
+            {
+                ThemeId = d.ThemeId,
+                ThemeName = d.ThemeName,
+                Tier = Enum.TryParse<ThemeTier>(d.Tier, true, out var tier) ? tier : ThemeTier.Neutral,
+                Detected = d.Detected,
+                Intensity = Enum.TryParse<ThemeIntensity>(d.Intensity, true, out var intensity) ? intensity : ThemeIntensity.None,
+                Confidence = d.Confidence,
+                Evidence = d.Evidence
+            }).ToList();
+
+            var (score, isDisqualified, _) = ThemeScoreCalculator.Calculate(detections, dismissedIds);
+            _ranking.Score = score;
+            _ranking.IsDisqualified = isDisqualified;
+
+            await AnalysisFacade.UpdateThemeVerificationAsync(_ranking);
+        }
+        finally
+        {
+            _isSavingVerification = false;
         }
     }
 
@@ -1152,5 +1542,120 @@
     private void BackToList()
     {
         Navigation.NavigateTo("/storyparser");
+    }
+
+    private async Task PreviewScenario()
+    {
+        if (_isLlmBusy) return;
+        _isLlmBusy = true;
+        _isPreviewing = true;
+        _previewError = null;
+        _adaptError = null;
+        _scenarioPreview = null;
+        _showCharacterMapping = false;
+        _adaptSavedScenarioId = null;
+        _showAdaptPanel = true;
+        StateHasChanged();
+
+        try
+        {
+            _scenarioPreview = await AdaptationService.PreviewScenarioAsync(Id);
+            if (!_scenarioPreview.Success)
+            {
+                _previewError = _scenarioPreview.ErrorMessage;
+            }
+        }
+        catch (Exception ex)
+        {
+            _previewError = $"Unexpected error: {ex.Message}";
+        }
+        finally
+        {
+            _isPreviewing = false;
+            _isLlmBusy = false;
+        }
+    }
+
+    private async Task ContinueToCharacterMapping()
+    {
+        _showCharacterMapping = true;
+        await LoadCharacterTemplatesAsync();
+    }
+
+    private void CancelAdaptation()
+    {
+        _showAdaptPanel = false;
+        _scenarioPreview = null;
+        _showCharacterMapping = false;
+        _previewError = null;
+        _adaptError = null;
+        _adaptSavedScenarioId = null;
+    }
+
+    private async Task LoadCharacterTemplatesAsync()
+    {
+        _characterTemplates = (await TemplateService.GetAllAsync(TemplateType.Character)).ToList();
+        if (_adaptCharacterSelections.Count == 0 && _characterTemplates.Count >= 2)
+        {
+            _adaptCharacterSelections =
+            [
+                new() { TemplateId = _characterTemplates[0].Id, TargetRole = "protagonist" },
+                new() { TemplateId = _characterTemplates[1].Id, TargetRole = "love interest" }
+            ];
+        }
+        else if (_adaptCharacterSelections.Count == 0 && _characterTemplates.Count == 1)
+        {
+            _adaptCharacterSelections = [new() { TemplateId = _characterTemplates[0].Id }];
+        }
+        else if (_adaptCharacterSelections.Count == 0)
+        {
+            _adaptCharacterSelections = [new()];
+        }
+    }
+
+    private async Task CreateScenarioFromPreview()
+    {
+        if (_scenarioPreview is null || _isAdapting) return;
+        _isAdapting = true;
+        _adaptError = null;
+        _adaptSavedScenarioId = null;
+        StateHasChanged();
+
+        try
+        {
+            var validSubs = _adaptCharacterSelections
+                .Where(s => s.TemplateId != Guid.Empty)
+                .ToList();
+
+            if (validSubs.Count == 0)
+            {
+                _adaptError = "Please select at least one character.";
+                return;
+            }
+
+            var result = await AdaptationService.BuildScenarioFromPreviewAsync(
+                _scenarioPreview, validSubs, Id);
+
+            if (!result.Success)
+            {
+                _adaptError = result.ErrorMessage;
+                return;
+            }
+
+            // Auto-save the scenario
+            result.GeneratedScenario!.SourceParsedStoryId = Id;
+            var saved = await ScenarioService.SaveScenarioAsync(result.GeneratedScenario!);
+            _adaptSavedScenarioId = saved.Id;
+            _linkedScenarioId = saved.Id;
+            _linkedScenarioName = saved.Name;
+        }
+        catch (Exception ex)
+        {
+            _adaptError = $"Unexpected error: {ex.Message}";
+        }
+        finally
+        {
+            _isAdapting = false;
+        }
     }
 }

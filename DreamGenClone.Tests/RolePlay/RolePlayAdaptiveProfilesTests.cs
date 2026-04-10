@@ -1,0 +1,119 @@
+using DreamGenClone.Domain.StoryAnalysis;
+using DreamGenClone.Web.Application.RolePlay;
+using DreamGenClone.Web.Application.Scenarios;
+using DreamGenClone.Web.Domain.RolePlay;
+using DreamGenClone.Web.Domain.Scenarios;
+using Xunit;
+
+namespace DreamGenClone.Tests.RolePlay;
+
+public sealed class RolePlayAdaptiveProfilesTests
+{
+    [Fact]
+    public void ResolveEffectiveStyle_WhenManualTonePinEnabled_SuppressesAdaptiveDeltas()
+    {
+        var session = new RolePlaySession
+        {
+            IsToneManuallyPinned = true,
+            StyleFloorOverride = "(None)",
+            StyleCeilingOverride = "(None)"
+        };
+
+        session.Interactions.AddRange(
+        [
+            new RolePlayInteraction { Content = "1" },
+            new RolePlayInteraction { Content = "2" },
+            new RolePlayInteraction { Content = "3" },
+            new RolePlayInteraction { Content = "4" },
+            new RolePlayInteraction { Content = "5" },
+            new RolePlayInteraction { Content = "6" },
+            new RolePlayInteraction { Content = "7" },
+            new RolePlayInteraction { Content = "8" },
+            new RolePlayInteraction { Content = "9" },
+            new RolePlayInteraction { Content = "10" },
+            new RolePlayInteraction { Content = "11" },
+            new RolePlayInteraction { Content = "12" },
+            new RolePlayInteraction { Content = "13" },
+            new RolePlayInteraction { Content = "14" }
+        ]);
+
+        session.AdaptiveState.CharacterStats["NPC"] = new CharacterStatBlock
+        {
+            Stats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Arousal"] = 95
+            }
+        };
+        session.AdaptiveState.ThemeTracker.PrimaryThemeId = "dominance";
+
+        var (label, reason) = RolePlayStyleResolver.ResolveEffectiveStyle(session, ToneIntensity.Emotional);
+
+        Assert.Equal("Emotional / PG-13", label);
+        Assert.Contains("manual-pin=on", reason, StringComparison.Ordinal);
+        Assert.DoesNotContain("arousal=", reason, StringComparison.Ordinal);
+        Assert.DoesNotContain("progression=", reason, StringComparison.Ordinal);
+        Assert.DoesNotContain("theme=", reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ResolveEffectiveStyle_WhenBoundsInverted_NormalizesAndClamps()
+    {
+        var session = new RolePlaySession
+        {
+            StyleFloorOverride = "Erotic / Explicit",
+            StyleCeilingOverride = "Emotional / PG-13"
+        };
+
+        var (label, reason) = RolePlayStyleResolver.ResolveEffectiveStyle(session, ToneIntensity.SuggestivePg12);
+
+        Assert.Equal("Erotic / Explicit", label);
+        Assert.Contains("bounds=normalized", reason, StringComparison.Ordinal);
+        Assert.Contains("floor=Erotic / Explicit", reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CreateSessionAsync_WhenScenarioHasStyleProfile_SeedsSessionStyleProfile()
+    {
+        var scenario = new Scenario
+        {
+            Id = "scenario-1",
+            Name = "Scenario",
+            DefaultRankingProfileId = "ranking-default",
+            DefaultToneProfileId = "tone-default",
+            Style = new Style
+            {
+                StyleProfileId = "style-default",
+                StyleFloor = "Suggestive / PG-13+",
+                StyleCeiling = "Erotic / Explicit"
+            }
+        };
+
+        var service = RolePlayTestFactory.CreateEngineService(scenarioService: new SingleScenarioService(scenario));
+
+        var session = await service.CreateSessionAsync("Seed Test", scenario.Id);
+
+        Assert.Equal("style-default", session.SelectedStyleProfileId);
+        Assert.Equal("ranking-default", session.SelectedRankingProfileId);
+        Assert.Equal("tone-default", session.SelectedToneProfileId);
+    }
+
+    private sealed class SingleScenarioService(Scenario scenario) : IScenarioService
+    {
+        public Task<Scenario> CreateScenarioAsync(string name, string? description = null) => Task.FromResult(scenario);
+
+        public Task<Scenario?> GetScenarioAsync(string id)
+        {
+            return Task.FromResult(string.Equals(id, scenario.Id, StringComparison.Ordinal)
+                ? scenario
+                : null);
+        }
+
+        public Task<List<Scenario>> GetAllScenariosAsync() => Task.FromResult(new List<Scenario> { scenario });
+
+        public Task<Scenario> SaveScenarioAsync(Scenario scenarioToSave) => Task.FromResult(scenarioToSave);
+
+        public Task<bool> DeleteScenarioAsync(string id) => Task.FromResult(false);
+
+        public Task<Scenario> CloneScenarioAsync(string id, string newName) => throw new NotImplementedException();
+    }
+}

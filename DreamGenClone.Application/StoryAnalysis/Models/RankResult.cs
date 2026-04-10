@@ -31,5 +31,7 @@ public sealed class ThemeDetection
 
     public ThemeIntensity Intensity { get; set; }
 
+    public double Confidence { get; set; }
+
     public string Evidence { get; set; } = string.Empty;
 }

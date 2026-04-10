@@ -172,6 +172,80 @@
 
 **Phase 6 (US4)**: Must wait for US3 (Phase 5) because RankAsync calls IRankingCriteriaService.ListAsync.
 
+---
+
+## Phase 8: Ranking Accuracy Improvements (Post-Launch)
+
+**Purpose**: Improve ranking detection quality by removing premature optimizations and adding confidence-based filtering. Addresses false-positive detections observed with local LLM models.
+
+**Context**: Analysis showed the LLM produces false positives (e.g., confusing infidelity with incest, co-parenting with sexual sharing) and defaults every detection to "Major" intensity. Two changes address this: (1) evaluate all story chunks instead of stopping early, and (2) add confidence scoring to filter ambiguous detections.
+
+### Change 1: Remove Early-Exit Optimization
+
+- [x] T051 [US4] Remove early-exit chunk skip logic from `DreamGenClone.Infrastructure/StoryAnalysis/StoryRankingService.cs`
+- [x] T052 [US4] Update or remove any tests in `DreamGenClone.Tests/StoryAnalysis/StoryRankingServiceChunkTests.cs` that assert early-exit behavior — no tests asserted early-exit, no changes needed
+
+### Change 2: Add Confidence Field to LLM Prompt & Response
+
+- [x] T053 [P] [US4] Add `Confidence` property (double) to `ThemeDetection` class in `DreamGenClone.Application/StoryAnalysis/Models/RankResult.cs`
+- [x] T054 [P] [US4] Add `RankConfidenceThreshold` property (double, default 0.5) to `StoryAnalysisOptions` in `DreamGenClone.Infrastructure/Configuration/StoryAnalysisOptions.cs`
+- [x] T055 [P] [US4] Add `"RankConfidenceThreshold": 0.5` to the StoryAnalysis section in `DreamGenClone.Web/appsettings.json`
+
+### Change 3: Update LLM System Prompt to Request Confidence
+
+- [x] T056 [US4] Update `SystemMessage` constant in `DreamGenClone.Infrastructure/StoryAnalysis/StoryRankingService.cs`
+
+### Change 4: Parse Confidence & Apply Threshold Filter
+
+- [x] T057 [US4] Update `ParseSingleDetection` method in `DreamGenClone.Infrastructure/StoryAnalysis/StoryRankingService.cs`
+- [x] T058 [US4] Add confidence threshold filtering in `RankAsync` method in `DreamGenClone.Infrastructure/StoryAnalysis/StoryRankingService.cs`
+- [x] T059 [US4] Update the ThemeDetectionsJson serialization in `RankAsync` in `DreamGenClone.Infrastructure/StoryAnalysis/StoryRankingService.cs`
+
+### Change 5: Update UI to Display and Parse Confidence
+
+- [x] T060 [P] [US4] Update `DetectionEntry` record in `DreamGenClone.Web/Components/Pages/StoryParserDetail.razor`
+- [x] T061 [US4] Update theme details table in `DreamGenClone.Web/Components/Pages/StoryParserDetail.razor`
+
+### Change 6: Verify & Validate
+
+- [x] T062 [US4] Existing ThemeScoreCalculatorTests pass — calculator is unaffected by Confidence property
+- [x] T063 Build solution — 0 errors, 0 warnings (Web project blocked by running process, all other projects verified)
+- [x] T064 Run all existing tests — 119 passed, 0 failed
+- [ ] T065 Manual test: rank a story in the app and verify logs show (a) all chunks evaluated (no "skipping remaining chunks" message), (b) confidence values logged, (c) low-confidence detections filtered with warning log, (d) confidence column visible in UI theme details table
+
+---
+
+## Dependencies & Execution Order (Phase 8)
+
+### Task Dependencies
+
+- **T051**: No dependencies — standalone removal
+- **T052**: Depends on T051
+- **T053, T054, T055**: All [P] — can run in parallel (different files, no dependencies)
+- **T056**: Depends on T053 (needs Confidence property to exist in model)
+- **T057**: Depends on T053 + T056 (needs model property + updated prompt format)
+- **T058**: Depends on T054 + T057 (needs threshold config + parsed confidence)
+- **T059**: Depends on T053 (needs Confidence on ThemeDetection)
+- **T060**: Depends on T059 (needs confidence in serialized JSON)
+- **T061**: Depends on T060 (needs DetectionEntry with Confidence)
+- **T062–T065**: Depend on all above
+
+### Parallel Opportunities
+
+```
+T051 ─── T052 ──────────────────────────────┐
+                                             │
+T053 ─┬─ T056 ── T057 ── T058              │
+      │                                      ├── T062 → T063 → T064 → T065
+T054 ─┘           T059 ── T060 ── T061      │
+                                             │
+T055 ────────────────────────────────────────┘
+```
+
+**Fastest path**: Start T051 and T053+T054+T055 in parallel, then chain through dependencies.
+
+---
+
 ## Implementation Strategy
 
 **MVP (Minimum Viable Product)**: Phase 1 + Phase 2 + Phase 3 (User Story 1 — Summarize). Delivers the simplest high-value capability with a single LLM call.
@@ -182,3 +256,4 @@
 3. +Ranking Criteria (T036–T040) — user preference configuration, no LLM
 4. +Rank Story (T041–T045) — personalized scoring, N LLM calls
 5. +Polish (T046–T050) — edge cases and validation
+6. +Ranking Accuracy (T051–T065) — remove early-exit, add confidence filtering

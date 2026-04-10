@@ -34,9 +34,9 @@ public sealed class ModelSettingsService : IModelSettingsService
     {
         _sessionSettings[sessionId] = settings.Clone();
         _logger.LogInformation(
-            "Updated model settings for session {SessionId}: Model={Model}, Temperature={Temperature}, TopP={TopP}, MaxTokens={MaxTokens}",
+            "Updated model settings for session {SessionId}: SessionModelId={SessionModelId}, Temperature={Temperature}, TopP={TopP}, MaxTokens={MaxTokens}",
             sessionId,
-            settings.Model,
+            settings.SessionModelId ?? "(default)",
             settings.Temperature,
             settings.TopP,
             settings.MaxTokens);

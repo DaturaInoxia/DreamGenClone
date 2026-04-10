@@ -5,6 +5,64 @@ window.rolePlayWorkspace = {
         if (el) { el.scrollTop = el.scrollHeight; }
     },
 
+    // Check if story view is near bottom before applying auto-follow.
+    isStoryNearBottom: function (thresholdPx) {
+        const el = document.querySelector('.rw-story');
+        if (!el) {
+            return true;
+        }
+
+        const threshold = typeof thresholdPx === 'number' ? thresholdPx : 80;
+        const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+        return distance <= threshold;
+    },
+
+    // Follow new story chunks only when the user is already near the bottom.
+    followStoryIfNearBottom: function (thresholdPx) {
+        const el = document.querySelector('.rw-story');
+        if (!el) {
+            return true;
+        }
+
+        const threshold = typeof thresholdPx === 'number' ? thresholdPx : 80;
+        const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+        const nearBottom = distance <= threshold;
+        if (nearBottom) {
+            el.scrollTop = el.scrollHeight;
+        }
+
+        return nearBottom;
+    },
+
+    scrollElementToBottom: function (element) {
+        if (!element) {
+            return;
+        }
+
+        element.scrollTop = element.scrollHeight;
+    },
+
+    copyTextToClipboard: async function (text) {
+        if (!navigator.clipboard || typeof navigator.clipboard.writeText !== 'function') {
+            return false;
+        }
+
+        try {
+            await navigator.clipboard.writeText(text ?? '');
+            return true;
+        } catch {
+            return false;
+        }
+    },
+
+    // Return the bounding rect of the element matching the selector.
+    getElementRect: function (selector) {
+        const el = document.querySelector(selector);
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return { top: r.top, left: r.left, bottom: r.bottom, right: r.right, width: r.width, height: r.height };
+    },
+
     initPanelResize: function (shellSelector, handleSelector, initialWidth, minWidth, maxWidth, dotNetRef) {
         const shell = document.querySelector(shellSelector);
         const handle = document.querySelector(handleSelector);
@@ -63,5 +121,14 @@ window.rolePlayWorkspace = {
             handle.__rwResizeDispose();
             handle.__rwResizeDispose = null;
         }
+    },
+
+    openDebugWindow: function (url) {
+        if (!url) {
+            return;
+        }
+
+        const features = 'popup=yes,width=1600,height=960,resizable=yes,scrollbars=yes';
+        window.open(url, 'RolePlayDebugWindow', features);
     }
 };

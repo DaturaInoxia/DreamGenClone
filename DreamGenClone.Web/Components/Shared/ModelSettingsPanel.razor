@@ -1,14 +1,29 @@
+@using DreamGenClone.Application.ModelManager
+@using DreamGenClone.Domain.ModelManager
 @using DreamGenClone.Web.Domain.Models
 @using DreamGenClone.Web.Application.Models
 
 @inject IModelSettingsService ModelSettingsService
+@inject IRegisteredModelRepository ModelRepository
+@inject IFunctionDefaultRepository FunctionDefaultRepository
 
 <div class="model-settings-panel">
     <h4>Model Settings</h4>
     
     <div class="form-group">
         <label for="model-@SessionId">Model</label>
-        <input type="text" id="model-@SessionId" class="form-control" @bind="CurrentSettings.Model" @bind:event="oninput" @onchange="OnSettingsChanged" />
+        <select id="model-@SessionId" class="form-control" @bind="SelectedModelId" @bind:event="onchange" @bind:after="OnModelChanged">
+            <option value="">(Use Function Default)</option>
+            @foreach (var group in _groupedModels)
+            {
+                <optgroup label="@group.Key">
+                    @foreach (var model in group.Value)
+                    {
+                        <option value="@model.Id">@(model.DisplayName ?? model.ModelIdentifier)</option>
+                    }
+                </optgroup>
+            }
+        </select>
     </div>
 
     <div class="form-group">
@@ -35,13 +50,50 @@
     public EventCallback OnSettingsUpdated { get; set; }
 
     private ModelSettings CurrentSettings { get; set; } = new();
+    private string SelectedModelId { get; set; } = string.Empty;
+    private Dictionary<string, List<RegisteredModel>> _groupedModels = new();
+    private FunctionModelDefault? _functionDefault;
+    private bool _initialized;
 
-    protected override void OnParametersSet()
+    protected override async Task OnParametersSetAsync()
     {
+        _functionDefault = await FunctionDefaultRepository.GetByFunctionAsync(AppFunction.RolePlayGeneration);
+
+        var enabledModels = await ModelRepository.GetAllEnabledAsync();
+        _groupedModels = enabledModels
+            .GroupBy(m => m.ProviderName ?? "Unknown")
+            .ToDictionary(g => g.Key, g => g.ToList());
+
         if (!string.IsNullOrEmpty(SessionId))
         {
             CurrentSettings = ModelSettingsService.GetSettings(SessionId);
+            SelectedModelId = CurrentSettings.SessionModelId ?? string.Empty;
+
+            // On first load, if no model override is set, show function default values
+            if (!_initialized && !CurrentSettings.HasOverride && _functionDefault is not null)
+            {
+                CurrentSettings.Temperature = _functionDefault.Temperature;
+                CurrentSettings.TopP = _functionDefault.TopP;
+                CurrentSettings.MaxTokens = _functionDefault.MaxTokens;
+                ModelSettingsService.UpdateSettings(SessionId, CurrentSettings);
+            }
+            _initialized = true;
         }
+    }
+
+    private async Task OnModelChanged()
+    {
+        CurrentSettings.SessionModelId = string.IsNullOrEmpty(SelectedModelId) ? null : SelectedModelId;
+
+        // When model changes, reset sliders to function default values
+        if (_functionDefault is not null)
+        {
+            CurrentSettings.Temperature = _functionDefault.Temperature;
+            CurrentSettings.TopP = _functionDefault.TopP;
+            CurrentSettings.MaxTokens = _functionDefault.MaxTokens;
+        }
+
+        await OnSettingsChanged();
     }
 
     private async Task OnSettingsChanged()
@@ -53,42 +105,3 @@
         }
     }
 }
-
-<style>
-    .model-settings-panel {
-        padding: 1rem;
-        border: 1px solid #ddd;
-        border-radius: 4px;
-        margin-bottom: 1rem;
-        background-color: #f9f9f9;
-    }
-
-    .model-settings-panel h4 {
-        margin-top: 0;
-        margin-bottom: 1rem;
-        font-size: 1.125rem;
-        font-weight: 600;
-    }
-
-    .form-group {
-        margin-bottom: 1rem;
-    }
-
-    .form-group label {
-        display: block;
-        margin-bottom: 0.25rem;
-        font-weight: 500;
-        font-size: 0.875rem;
-    }
-
-    .form-control {
-        width: 100%;
-        padding: 0.5rem;
-        border: 1px solid #ccc;
-        border-radius: 4px;
-    }
-
-    input[type="range"] {
-        padding: 0;
-    }
-</style>

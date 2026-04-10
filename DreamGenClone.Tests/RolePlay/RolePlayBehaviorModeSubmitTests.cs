@@ -99,9 +99,13 @@ public sealed class RolePlayBehaviorModeSubmitTests
             behaviorMode,
             router,
             identities,
+            new RolePlayAdaptiveStateService(),
             validator,
             fakeSessionService,
+            new RolePlayTestFactory.NullScenarioService(),
+            new RolePlayTestFactory.FakeBaseStatProfileService(),
             autoSave,
+            new RolePlayTestFactory.NullRolePlayDebugEventSink(),
             NullLogger<RolePlayEngineService>.Instance);
 
         return (service, fakeSessionService);
@@ -115,6 +119,7 @@ public sealed class RolePlayBehaviorModeSubmitTests
             string? customActorName,
             PromptIntent intent,
             string promptText,
+            Func<string, Task>? onChunk = null,
             CancellationToken cancellationToken = default)
         {
             return Task.FromResult(new RolePlayInteraction

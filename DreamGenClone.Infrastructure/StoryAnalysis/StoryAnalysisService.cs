@@ -2,8 +2,10 @@ using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using DreamGenClone.Application.Abstractions;
+using DreamGenClone.Application.ModelManager;
 using DreamGenClone.Application.StoryAnalysis;
 using DreamGenClone.Application.StoryAnalysis.Models;
+using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Domain.StoryAnalysis;
 using DreamGenClone.Infrastructure.Configuration;
 using DreamGenClone.Infrastructure.Persistence;
@@ -14,10 +16,10 @@ namespace DreamGenClone.Infrastructure.StoryAnalysis;
 
 public sealed class StoryAnalysisService : IStoryAnalysisService
 {
-    private readonly ILmStudioClient _lmClient;
+    private readonly ICompletionClient _completionClient;
+    private readonly IModelResolutionService _modelResolver;
     private readonly ISqlitePersistence _persistence;
     private readonly StoryAnalysisOptions _options;
-    private readonly LmStudioOptions _lmOptions;
     private readonly ILogger<StoryAnalysisService> _logger;
 
     private static readonly Dictionary<AnalysisDimension, string> DimensionSystemMessages = new()
@@ -135,16 +137,16 @@ public sealed class StoryAnalysisService : IStoryAnalysisService
     };
 
     public StoryAnalysisService(
-        ILmStudioClient lmClient,
+        ICompletionClient completionClient,
+        IModelResolutionService modelResolver,
         ISqlitePersistence persistence,
         IOptions<StoryAnalysisOptions> options,
-        IOptions<LmStudioOptions> lmOptions,
         ILogger<StoryAnalysisService> logger)
     {
-        _lmClient = lmClient;
+        _completionClient = completionClient;
+        _modelResolver = modelResolver;
         _persistence = persistence;
         _options = options.Value;
-        _lmOptions = lmOptions.Value;
         _logger = logger;
     }
 
@@ -220,13 +222,11 @@ public sealed class StoryAnalysisService : IStoryAnalysisService
                         _logger.LogInformation("Consolidating {Count} chunk results for dimension {Dimension}", chunkResults.Count, dimension);
                         var consolidateInput = string.Join("\n\n---\n\n", chunkResults.Select((r, i) => $"Section {i + 1} analysis:\n{r}"));
 
-                        var consolidateResponse = await _lmClient.GenerateAsync(
+                        var consolidateResolved = await _modelResolver.ResolveAsync(AppFunction.StoryAnalyze, cancellationToken: cancellationToken);
+                        var consolidateResponse = await _completionClient.GenerateAsync(
                             ConsolidateSystemMessages[dimension],
                             $"Section analyses to consolidate:\n\n{consolidateInput}",
-                            _lmOptions.Model,
-                            _options.AnalyzeTemperature,
-                            0.9,
-                            Math.Max(_options.AnalyzeMaxTokens * 2, chunkResults.Count * _options.AnalyzeMaxTokens),
+                            consolidateResolved,
                             cancellationToken);
 
                         json = StripMarkdownFences(consolidateResponse?.Trim() ?? string.Empty);
@@ -300,13 +300,11 @@ public sealed class StoryAnalysisService : IStoryAnalysisService
 
     private async Task<string> AnalyzeChunkAsync(AnalysisDimension dimension, string userMessage, CancellationToken cancellationToken)
     {
-        var response = await _lmClient.GenerateAsync(
+        var resolved = await _modelResolver.ResolveAsync(AppFunction.StoryAnalyze, cancellationToken: cancellationToken);
+        var response = await _completionClient.GenerateAsync(
             DimensionSystemMessages[dimension],
             userMessage,
-            _lmOptions.Model,
-            _options.AnalyzeTemperature,
-            0.9,
-            _options.AnalyzeMaxTokens,
+            resolved,
             cancellationToken);
 
         return StripMarkdownFences(response?.Trim() ?? string.Empty);

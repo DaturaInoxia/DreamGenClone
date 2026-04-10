@@ -1,0 +1,95 @@
+@using DreamGenClone.Application.Processing
+@rendermode InteractiveServer
+@implements IDisposable
+
+@inject IModelProcessingQueue ProcessingQueue
+
+@if (_toasts.Count > 0)
+{
+    <div class="position-fixed bottom-0 end-0 p-3" style="z-index: 1080;">
+        @foreach (var toast in _toasts)
+        {
+            <div class="toast show mb-2 @(toast.IsError ? "border-danger" : "border-success")" role="alert">
+                <div class="toast-header">
+                    <strong class="me-auto">
+                        @(toast.IsError ? "⚠" : "✓") @toast.TaskType
+                    </strong>
+                    <small>@toast.Time.ToLocalTime().ToString("HH:mm:ss")</small>
+                    <button type="button" class="btn-close" @onclick="() => DismissToast(toast.Id)"></button>
+                </div>
+                <div class="toast-body">
+                    @if (toast.IsError)
+                    {
+                        <span class="text-danger">Failed for @(toast.StoryTitle ?? "story"): @toast.Message</span>
+                    }
+                    else
+                    {
+                        <span>@toast.TaskType completed for <strong>@(toast.StoryTitle ?? "story")</strong></span>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private readonly List<ToastItem> _toasts = new();
+    private int _nextToastId;
+
+    protected override void OnInitialized()
+    {
+        ProcessingQueue.OnStatusChanged += OnStatusChanged;
+    }
+
+    private void OnStatusChanged(ModelProcessingTask task)
+    {
+        if (task.Status is not (ModelProcessingStatus.Completed or ModelProcessingStatus.Failed))
+            return;
+
+        _ = InvokeAsync(() =>
+        {
+            var id = ++_nextToastId;
+            _toasts.Add(new ToastItem
+            {
+                Id = id,
+                TaskType = task.TaskType.ToString(),
+                StoryTitle = task.StoryTitle,
+                IsError = task.Status == ModelProcessingStatus.Failed,
+                Message = task.ErrorMessage,
+                Time = DateTime.UtcNow
+            });
+
+            StateHasChanged();
+
+            // Auto-dismiss after 6 seconds
+            _ = Task.Delay(6000).ContinueWith(_ =>
+            {
+                _ = InvokeAsync(() =>
+                {
+                    DismissToast(id);
+                    StateHasChanged();
+                });
+            });
+        });
+    }
+
+    private void DismissToast(int id)
+    {
+        _toasts.RemoveAll(t => t.Id == id);
+    }
+
+    public void Dispose()
+    {
+        ProcessingQueue.OnStatusChanged -= OnStatusChanged;
+    }
+
+    private sealed class ToastItem
+    {
+        public int Id { get; set; }
+        public string TaskType { get; set; } = string.Empty;
+        public string? StoryTitle { get; set; }
+        public bool IsError { get; set; }
+        public string? Message { get; set; }
+        public DateTime Time { get; set; }
+    }
+}

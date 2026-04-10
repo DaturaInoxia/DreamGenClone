@@ -44,6 +44,11 @@ public sealed class SessionCloneForkService : ISessionCloneForkService
             ScenarioId = rolePlay.ScenarioId,
             BehaviorMode = rolePlay.BehaviorMode,
             ParentSessionId = rolePlay.ParentSessionId,
+            PersonaName = rolePlay.PersonaName,
+            PersonaDescription = rolePlay.PersonaDescription,
+            PersonaTemplateId = rolePlay.PersonaTemplateId,
+            PersonaPerspectiveMode = rolePlay.PersonaPerspectiveMode,
+            CharacterPerspectives = rolePlay.CharacterPerspectives.Select(ClonePerspective).ToList(),
             Interactions = rolePlay.Interactions.Select(CloneInteraction).ToList()
         };
 
@@ -93,6 +98,11 @@ public sealed class SessionCloneForkService : ISessionCloneForkService
             ScenarioId = rolePlay.ScenarioId,
             BehaviorMode = rolePlay.BehaviorMode,
             ParentSessionId = rolePlay.Id,
+            PersonaName = rolePlay.PersonaName,
+            PersonaDescription = rolePlay.PersonaDescription,
+            PersonaTemplateId = rolePlay.PersonaTemplateId,
+            PersonaPerspectiveMode = rolePlay.PersonaPerspectiveMode,
+            CharacterPerspectives = rolePlay.CharacterPerspectives.Select(ClonePerspective).ToList(),
             Interactions = rpBounded >= 0
                 ? rolePlay.Interactions.Take(rpBounded + 1).Select(CloneInteraction).ToList()
                 : []
@@ -122,6 +132,16 @@ public sealed class SessionCloneForkService : ISessionCloneForkService
             ActorName = interaction.ActorName,
             Content = interaction.Content,
             CreatedAt = interaction.CreatedAt
+        };
+    }
+
+    private static RolePlayCharacterPerspective ClonePerspective(RolePlayCharacterPerspective perspective)
+    {
+        return new RolePlayCharacterPerspective
+        {
+            CharacterId = perspective.CharacterId,
+            CharacterName = perspective.CharacterName,
+            PerspectiveMode = perspective.PerspectiveMode
         };
     }
 }

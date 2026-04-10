@@ -2,8 +2,10 @@ using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using DreamGenClone.Application.Abstractions;
+using DreamGenClone.Application.ModelManager;
 using DreamGenClone.Application.StoryAnalysis;
 using DreamGenClone.Application.StoryAnalysis.Models;
+using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Domain.StoryAnalysis;
 using DreamGenClone.Infrastructure.Configuration;
 using DreamGenClone.Infrastructure.Persistence;
@@ -14,11 +16,11 @@ namespace DreamGenClone.Infrastructure.StoryAnalysis;
 
 public sealed class StoryRankingService : IStoryRankingService
 {
-    private readonly ILmStudioClient _lmClient;
+    private readonly ICompletionClient _completionClient;
+    private readonly IModelResolutionService _modelResolver;
     private readonly ISqlitePersistence _persistence;
     private readonly IThemePreferenceService _themeService;
     private readonly StoryAnalysisOptions _options;
-    private readonly LmStudioOptions _lmOptions;
     private readonly ILogger<StoryRankingService> _logger;
 
     private const string SystemMessage =
@@ -40,26 +42,29 @@ public sealed class StoryRankingService : IStoryRankingService
         - "Major": a significant recurring element of the text
         - "Central": the primary focus of the text
 
+        Confidence: your certainty that the theme is truly present (0.0 = guessing, 1.0 = absolutely certain).
+        Be honest — if the match is ambiguous or based on inference rather than explicit content, use a low confidence value.
+
         Respond ONLY with valid JSON:
-        {"detected": true/false, "intensity": "None/Minor/Moderate/Major/Central", "evidence": "your reasoning"}
-        When detected is false, set intensity to "None".
+        {"detected": true/false, "intensity": "None/Minor/Moderate/Major/Central", "confidence": 0.0, "evidence": "your reasoning"}
+        When detected is false, set intensity to "None" and confidence to 0.0.
         When detected is true, describe the specific content that matches the theme.
         Do not include any text outside the JSON object.
         """;
 
     public StoryRankingService(
-        ILmStudioClient lmClient,
+        ICompletionClient completionClient,
+        IModelResolutionService modelResolver,
         ISqlitePersistence persistence,
         IThemePreferenceService themeService,
         IOptions<StoryAnalysisOptions> options,
-        IOptions<LmStudioOptions> lmOptions,
         ILogger<StoryRankingService> logger)
     {
-        _lmClient = lmClient;
+        _completionClient = completionClient;
+        _modelResolver = modelResolver;
         _persistence = persistence;
         _themeService = themeService;
         _options = options.Value;
-        _lmOptions = lmOptions.Value;
         _logger = logger;
     }
 
@@ -122,13 +127,11 @@ public sealed class StoryRankingService : IStoryRankingService
 
                 try
                 {
-                    var response = await _lmClient.GenerateAsync(
+                    var resolved = await _modelResolver.ResolveAsync(AppFunction.StoryRank, cancellationToken: cancellationToken);
+                    var response = await _completionClient.GenerateAsync(
                         SystemMessage,
                         userMessage,
-                        _lmOptions.Model,
-                        _options.RankTemperature,
-                        0.5,
-                        200,
+                        resolved,
                         cancellationToken);
 
                     var json = StripMarkdownFences(response?.Trim() ?? string.Empty);
@@ -142,14 +145,6 @@ public sealed class StoryRankingService : IStoryRankingService
                     {
                         bestDetection = detection;
                     }
-
-                    // If we found a strong detection, no need to check remaining chunks for this theme
-                    if (bestDetection.Intensity >= ThemeIntensity.Major)
-                    {
-                        _logger.LogInformation("Theme '{ThemeName}' strong detection in chunk {Chunk}, skipping remaining chunks",
-                            theme.Name, i + 1);
-                        break;
-                    }
                 }
                 catch (Exception ex)
                 {
@@ -160,8 +155,20 @@ public sealed class StoryRankingService : IStoryRankingService
             }
 
             detections.Add(bestDetection);
-            _logger.LogInformation("Theme '{ThemeName}' final result: detected={Detected}, intensity={Intensity}",
-                theme.Name, bestDetection.Detected, bestDetection.Intensity);
+            _logger.LogInformation("Theme '{ThemeName}' final result: detected={Detected}, intensity={Intensity}, confidence={Confidence}",
+                theme.Name, bestDetection.Detected, bestDetection.Intensity, bestDetection.Confidence);
+        }
+
+        // Filter out low-confidence detections
+        foreach (var detection in detections)
+        {
+            if (detection.Detected && detection.Confidence < _options.RankConfidenceThreshold)
+            {
+                _logger.LogWarning("Theme '{ThemeName}' detection filtered: confidence {Confidence:F2} below threshold {Threshold:F2}",
+                    detection.ThemeName, detection.Confidence, _options.RankConfidenceThreshold);
+                detection.Detected = false;
+                detection.Intensity = ThemeIntensity.None;
+            }
         }
 
         sw.Stop();
@@ -183,6 +190,7 @@ public sealed class StoryRankingService : IStoryRankingService
                 tier = d.Tier.ToString(),
                 detected = d.Detected,
                 intensity = d.Intensity.ToString(),
+                confidence = d.Confidence,
                 evidence = d.Evidence
             })),
             ThemeSnapshotJson = themeSnapshotJson,
@@ -243,6 +251,9 @@ public sealed class StoryRankingService : IStoryRankingService
             var detected = elem.TryGetProperty("detected", out var detProp) && detProp.GetBoolean();
             var intensityStr = elem.TryGetProperty("intensity", out var intProp) ? intProp.GetString() ?? "None" : "None";
             var evidence = elem.TryGetProperty("evidence", out var evProp) ? evProp.GetString() ?? string.Empty : string.Empty;
+            var confidence = elem.TryGetProperty("confidence", out var confProp) && confProp.TryGetDouble(out var confVal)
+                ? Math.Clamp(confVal, 0.0, 1.0)
+                : 0.0;
 
             var intensity = Enum.TryParse<ThemeIntensity>(intensityStr, ignoreCase: true, out var parsed)
                 ? parsed
@@ -258,6 +269,7 @@ public sealed class StoryRankingService : IStoryRankingService
                 Tier = theme.Tier,
                 Detected = detected,
                 Intensity = intensity,
+                Confidence = confidence,
                 Evidence = evidence
             };
         }
@@ -274,6 +286,7 @@ public sealed class StoryRankingService : IStoryRankingService
         Tier = theme.Tier,
         Detected = false,
         Intensity = ThemeIntensity.None,
+        Confidence = 0.0,
         Evidence = string.Empty
     };
 

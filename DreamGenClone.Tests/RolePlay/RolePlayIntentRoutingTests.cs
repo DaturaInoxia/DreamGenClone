@@ -156,9 +156,13 @@ public sealed class RolePlayIntentRoutingTests
             behaviorMode,
             router,
             identities,
+            new RolePlayAdaptiveStateService(),
             validator,
             fakeSessionService,
+            new RolePlayTestFactory.NullScenarioService(),
+            new RolePlayTestFactory.FakeBaseStatProfileService(),
             autoSave,
+            new RolePlayTestFactory.NullRolePlayDebugEventSink(),
             NullLogger<RolePlayEngineService>.Instance);
 
         return (service, fakeSessionService);
@@ -167,7 +171,6 @@ public sealed class RolePlayIntentRoutingTests
     private sealed class RecordingContinuationService : IRolePlayContinuationService
     {
         public PromptIntent LastIntent { get; private set; }
-
         public string LastPromptText { get; private set; } = string.Empty;
 
         public string? LastCustomActorName { get; private set; }
@@ -180,6 +183,7 @@ public sealed class RolePlayIntentRoutingTests
             string? customActorName,
             PromptIntent intent,
             string promptText,
+            Func<string, Task>? onChunk = null,
             CancellationToken cancellationToken = default)
         {
             ContinueCallCount++;

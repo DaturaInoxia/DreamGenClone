@@ -1,6 +1,12 @@
-D:\src\DreamGenClone\DreamGenClone.Domain\bin\Debug\net9.0\DreamGenClone.Domain.deps.json
-D:\src\DreamGenClone\DreamGenClone.Domain\bin\Debug\net9.0\DreamGenClone.Domain.dll
-D:\src\DreamGenClone\DreamGenClone.Domain\bin\Debug\net9.0\DreamGenClone.Domain.pdb
+D:\src\DreamGenClone\DreamGenClone.Domain\artifacts\build-verify\DreamGenClone.Domain.deps.json
+D:\src\DreamGenClone\DreamGenClone.Domain\artifacts\build-verify\DreamGenClone.Domain.dll
+D:\src\DreamGenClone\DreamGenClone.Domain\artifacts\build-verify\DreamGenClone.Domain.pdb
+D:\src\DreamGenClone\DreamGenClone.Domain\artifacts\tmpbuild\web\DreamGenClone.Domain.deps.json
+D:\src\DreamGenClone\DreamGenClone.Domain\artifacts\tmpbuild\web\DreamGenClone.Domain.dll
+D:\src\DreamGenClone\DreamGenClone.Domain\artifacts\tmpbuild\web\DreamGenClone.Domain.pdb
+D:\src\DreamGenClone\DreamGenClone.Domain\artifacts\tmpbuild\tests\DreamGenClone.Domain.deps.json
+D:\src\DreamGenClone\DreamGenClone.Domain\artifacts\tmpbuild\tests\DreamGenClone.Domain.dll
+D:\src\DreamGenClone\DreamGenClone.Domain\artifacts\tmpbuild\tests\DreamGenClone.Domain.pdb
 D:\src\DreamGenClone\DreamGenClone.Domain\obj\Debug\net9.0\DreamGenClone.Domain.GeneratedMSBuildEditorConfig.editorconfig
 D:\src\DreamGenClone\DreamGenClone.Domain\obj\Debug\net9.0\DreamGenClone.Domain.AssemblyInfoInputs.cache
 D:\src\DreamGenClone\DreamGenClone.Domain\obj\Debug\net9.0\DreamGenClone.Domain.AssemblyInfo.cs
@@ -10,3 +16,6 @@ D:\src\DreamGenClone\DreamGenClone.Domain\obj\Debug\net9.0\DreamGenClone.Domain.
 D:\src\DreamGenClone\DreamGenClone.Domain\obj\Debug\net9.0\refint\DreamGenClone.Domain.dll
 D:\src\DreamGenClone\DreamGenClone.Domain\obj\Debug\net9.0\DreamGenClone.Domain.pdb
 D:\src\DreamGenClone\DreamGenClone.Domain\obj\Debug\net9.0\ref\DreamGenClone.Domain.dll
+D:\src\DreamGenClone\DreamGenClone.Domain\bin\Debug\net9.0\DreamGenClone.Domain.deps.json
+D:\src\DreamGenClone\DreamGenClone.Domain\bin\Debug\net9.0\DreamGenClone.Domain.dll
+D:\src\DreamGenClone\DreamGenClone.Domain\bin\Debug\net9.0\DreamGenClone.Domain.pdb

@@ -11,4 +11,7 @@ public sealed class ContinueAsResult
     public List<RolePlayInteraction> ParticipantOutputs { get; } = [];
 
     public RolePlayInteraction? NarrativeOutput { get; set; }
+
+    /// <summary>When true, the session has signaled it is the user's turn (TakeTurns mode).</summary>
+    public bool IsUserTurn { get; set; }
 }

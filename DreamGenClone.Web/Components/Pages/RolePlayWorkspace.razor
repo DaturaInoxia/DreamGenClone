@@ -3,15 +3,33 @@
 
 @using DreamGenClone.Web.Application.RolePlay
 @using DreamGenClone.Web.Domain.RolePlay
+@using DreamGenClone.Web.Domain.Models
+@using DreamGenClone.Web.Application.Models
+@using DreamGenClone.Web.Application.Assistants
+@using DreamGenClone.Web.Application.Scenarios
+@using DreamGenClone.Web.Application.StoryAnalysis
+@using DreamGenClone.Web.Domain.Scenarios
+@using DreamGenClone.Application.ModelManager
+@using DreamGenClone.Domain.StoryAnalysis
+@using DreamGenClone.Domain.ModelManager
 
 @inject IRolePlayEngineService RolePlayEngine
 @inject IRolePlayBranchService RolePlayBranchService
+@inject IInteractionCommandService InteractionCommandService
+@inject IInteractionRetryService InteractionRetryService
 @inject IRolePlayIdentityOptionsService IdentityOptionsService
+@inject IRegisteredModelRepository RegisteredModelRepository
+@inject IModelSettingsService ModelSettingsService
 @inject IBehaviorModeService BehaviorModeService
+@inject IRolePlayAssistantService RolePlayAssistant
+@inject IAssistantContextManager AssistantContextManager
+@inject IScenarioService ScenarioService
+@inject StoryAnalysisFacade StoryAnalysisFacade
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
 @inject ILogger<RolePlayWorkspace> Logger
 @implements IAsyncDisposable
+@using System.Text
 
 @code {
     [Parameter]
@@ -27,9 +45,23 @@
     private BehaviorMode _selectedBehaviorMode = BehaviorMode.TakeTurns;
     private string _activeSettingsTab = "settings";
     private readonly WorkspaceSettingsState _workspaceSettings = new();
+
+    // Assistant panel
+    private Scenario? _loadedScenario;
+    private string _assistantSelectedModelId = string.Empty;
+    private Dictionary<string, List<RegisteredModel>> _assistantGroupedModels = new();
+    private List<RolePlayAssistantChatThread> _assistantChats = [];
+    private string? _activeAssistantChatId;
     private DotNetObjectReference<RolePlayWorkspace>? _dotNetRef;
     private bool _resizeInitialized;
     private int _lastRenderedInteractionCount = -1;
+    private bool _shouldFollowStoryUpdates = true;
+    private bool _scenarioDirty;
+    private bool _jsInteropUnavailable;
+    private bool _isDisposed;
+
+    // Scenario section collapse state (all collapsed by default)
+    private readonly HashSet<string> _expandedScenarioSections = new();
 
     // Unified prompt
     private string _promptText = string.Empty;
@@ -45,10 +77,15 @@
     private bool _showCustomInput = false;
     private readonly HashSet<string> _continueSelectedIdentityIds = new(StringComparer.OrdinalIgnoreCase);
     private bool _continueIncludeNarrative;
-
-    // Fork
-    private string _branchTitle = "Forked Path";
-    private int _branchFromIndex = -1;
+    private List<ThemePreference> _activeProfileThemes = [];
+    private List<RankingProfile> _rankingProfiles = [];
+    private List<ToneProfile> _toneProfiles = [];
+    private List<StyleProfile> _styleProfiles = [];
+    private Dictionary<string, ToneProfile> _toneProfilesById = new(StringComparer.OrdinalIgnoreCase);
+    private string _pendingResponseText = string.Empty;
+    private readonly StringBuilder _pendingResponseBuilder = new();
+    private DateTime _lastPendingResponseRenderAt = DateTime.MinValue;
+    private static readonly TimeSpan PendingResponseRenderInterval = TimeSpan.FromMilliseconds(300);
 
     protected override async Task OnParametersSetAsync()
     {
@@ -75,7 +112,11 @@
         var interactionCount = _session?.Interactions.Count ?? 0;
         if (interactionCount != _lastRenderedInteractionCount)
         {
-            await JS.InvokeVoidAsync("rolePlayWorkspace.scrollStoryToBottom");
+            if (_shouldFollowStoryUpdates)
+            {
+                await JS.InvokeVoidAsync("rolePlayWorkspace.scrollStoryToBottom");
+            }
+
             _lastRenderedInteractionCount = interactionCount;
         }
     }
@@ -90,9 +131,117 @@
             return;
         }
 
+        var sessionUpdated = false;
+        if (_session.AssistantMaxTokens < 2000)
+        {
+            _session.AssistantMaxTokens = 2000;
+            sessionUpdated = true;
+        }
+
+        EnsureAssistantChatsInitialized(_session);
+        _assistantChats = _session.AssistantChats
+            .OrderByDescending(c => c.ModifiedAt)
+            .ToList();
+        _activeAssistantChatId = _session.ActiveAssistantChatId;
+
+        if (sessionUpdated)
+        {
+            await RolePlayEngine.SaveSessionAsync(_session);
+        }
+
         _selectedBehaviorMode = _session.BehaviorMode;
 
+        // Sync persisted model settings into the in-memory service
+        var persistedSettings = new ModelSettings
+        {
+            SessionModelId = _session.SessionModelId,
+            Temperature = _session.SessionTemperature,
+            TopP = _session.SessionTopP,
+            MaxTokens = _session.SessionMaxTokens
+        };
+        ModelSettingsService.UpdateSettings(_session.Id, persistedSettings);
+
         _identityOptions = (await IdentityOptionsService.GetIdentityOptionsAsync(_session)).ToList();
+
+        // Load scenario for assistant context
+        if (!string.IsNullOrWhiteSpace(_session.ScenarioId) && _loadedScenario?.Id != _session.ScenarioId)
+        {
+            _loadedScenario = await ScenarioService.GetScenarioAsync(_session.ScenarioId);
+        }
+
+        // Backfill adaptive profile/style fields for sessions that were created before defaults were copied.
+        if (_loadedScenario is not null)
+        {
+            if (string.IsNullOrWhiteSpace(_session.SelectedRankingProfileId) && !string.IsNullOrWhiteSpace(_loadedScenario.DefaultRankingProfileId))
+            {
+                _session.SelectedRankingProfileId = _loadedScenario.DefaultRankingProfileId;
+                sessionUpdated = true;
+            }
+
+            var defaultToneId = _loadedScenario.DefaultToneProfileId ?? _loadedScenario.Style.ToneProfileId;
+            if (string.IsNullOrWhiteSpace(_session.SelectedToneProfileId) && !string.IsNullOrWhiteSpace(defaultToneId))
+            {
+                _session.SelectedToneProfileId = defaultToneId;
+                sessionUpdated = true;
+            }
+
+            if (string.IsNullOrWhiteSpace(_session.SelectedStyleProfileId) && !string.IsNullOrWhiteSpace(_loadedScenario.Style.StyleProfileId))
+            {
+                _session.SelectedStyleProfileId = _loadedScenario.Style.StyleProfileId;
+                sessionUpdated = true;
+            }
+
+            if (string.IsNullOrWhiteSpace(_session.StyleFloorOverride) && !string.IsNullOrWhiteSpace(_loadedScenario.Style.StyleFloor))
+            {
+                _session.StyleFloorOverride = _loadedScenario.Style.StyleFloor;
+                sessionUpdated = true;
+            }
+
+            if (string.IsNullOrWhiteSpace(_session.StyleCeilingOverride) && !string.IsNullOrWhiteSpace(_loadedScenario.Style.StyleCeiling))
+            {
+                _session.StyleCeilingOverride = _loadedScenario.Style.StyleCeiling;
+                sessionUpdated = true;
+            }
+
+            if (!Enum.IsDefined(_session.PersonaPerspectiveMode))
+            {
+                _session.PersonaPerspectiveMode = Enum.IsDefined(_loadedScenario.DefaultPersonaPerspectiveMode)
+                    ? _loadedScenario.DefaultPersonaPerspectiveMode
+                    : CharacterPerspectiveMode.FirstPersonInternalMonologue;
+                sessionUpdated = true;
+            }
+
+            if (EnsureCharacterPerspectiveEntries(_session, _loadedScenario))
+            {
+                sessionUpdated = true;
+            }
+        }
+        else if (!Enum.IsDefined(_session.PersonaPerspectiveMode))
+        {
+            _session.PersonaPerspectiveMode = CharacterPerspectiveMode.FirstPersonInternalMonologue;
+            sessionUpdated = true;
+        }
+
+        if (EnsureAdaptiveThemeSelections(_session))
+        {
+            sessionUpdated = true;
+        }
+
+        var originalFloor = _session.StyleFloorOverride;
+        var originalCeiling = _session.StyleCeilingOverride;
+        NormalizeStyleBounds(_session, preferFloor: true);
+        if (!string.Equals(originalFloor, _session.StyleFloorOverride, StringComparison.Ordinal)
+            || !string.Equals(originalCeiling, _session.StyleCeilingOverride, StringComparison.Ordinal))
+        {
+            sessionUpdated = true;
+        }
+
+        // Load assistant model selection
+        _assistantSelectedModelId = _session.AssistantModelId ?? string.Empty;
+        var enabledModels = await RegisteredModelRepository.GetAllEnabledAsync();
+        _assistantGroupedModels = enabledModels
+            .GroupBy(m => m.ProviderName ?? "Unknown")
+            .ToDictionary(g => g.Key, g => g.ToList());
 
         var selectedIdentityId = _selectedIdentity?.Id;
         if (!string.IsNullOrWhiteSpace(selectedIdentityId))
@@ -114,6 +263,13 @@
         }
 
         _showCustomInput = _selectedIdentity?.SourceType == IdentityOptionSource.CustomCharacter;
+
+        await RefreshActiveProfileThemesAsync();
+
+        if (sessionUpdated)
+        {
+            await RolePlayEngine.SaveSessionAsync(_session);
+        }
     }
 
     private void ToggleIntentPopup()
@@ -165,6 +321,737 @@
         await LoadSessionAsync();
     }
 
+    private async Task OnModelSettingsUpdated()
+    {
+        if (_session is null) return;
+        var settings = ModelSettingsService.GetSettings(_session.Id);
+        _session.SessionModelId = settings.SessionModelId;
+        _session.SessionTemperature = settings.Temperature;
+        _session.SessionTopP = settings.TopP;
+        _session.SessionMaxTokens = settings.MaxTokens;
+        await RolePlayEngine.SaveSessionAsync(_session);
+        Logger.LogInformation(
+            "Model settings persisted to session {SessionId}: model={ModelId}, temp={Temp}, topP={TopP}, maxTokens={MaxTokens}",
+            _session.Id,
+            settings.SessionModelId ?? "(default)",
+            settings.Temperature,
+            settings.TopP,
+            settings.MaxTokens);
+    }
+
+    // --- Assistant Panel ---
+
+    private RolePlayAssistantChatThread? ActiveAssistantChat =>
+        _assistantChats.FirstOrDefault(c => c.Id == _activeAssistantChatId);
+
+    private static void EnsureAssistantChatsInitialized(RolePlaySession session)
+    {
+        if (session.AssistantChats.Count == 0)
+        {
+            var chat = CreateAssistantChatThread("Chat 1");
+            session.AssistantChats.Add(chat);
+            session.ActiveAssistantChatId = chat.Id;
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(session.ActiveAssistantChatId) ||
+            session.AssistantChats.All(c => c.Id != session.ActiveAssistantChatId))
+        {
+            session.ActiveAssistantChatId = session.AssistantChats
+                .OrderByDescending(c => c.ModifiedAt)
+                .Select(c => c.Id)
+                .First();
+        }
+    }
+
+    private static bool EnsureAdaptiveThemeSelections(RolePlaySession session)
+    {
+        var tracker = session.AdaptiveState.ThemeTracker;
+        var ordered = tracker.Themes.Values
+            .OrderByDescending(x => x.Score)
+            .ThenBy(x => x.ThemeId, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (ordered.Count < 2)
+        {
+            return false;
+        }
+
+        var changed = false;
+        if (!string.Equals(tracker.PrimaryThemeId, ordered[0].ThemeId, StringComparison.OrdinalIgnoreCase))
+        {
+            tracker.PrimaryThemeId = ordered[0].ThemeId;
+            changed = true;
+        }
+
+        if (!string.Equals(tracker.SecondaryThemeId, ordered[1].ThemeId, StringComparison.OrdinalIgnoreCase))
+        {
+            tracker.SecondaryThemeId = ordered[1].ThemeId;
+            changed = true;
+        }
+
+        if (!string.Equals(tracker.ThemeSelectionRule, "Top2Blend", StringComparison.Ordinal))
+        {
+            tracker.ThemeSelectionRule = "Top2Blend";
+            changed = true;
+        }
+
+        return changed;
+    }
+
+    private static RolePlayAssistantChatThread CreateAssistantChatThread(string title) => new()
+    {
+        Id = Guid.NewGuid().ToString(),
+        Title = title,
+        CreatedAt = DateTime.UtcNow,
+        ModifiedAt = DateTime.UtcNow,
+        Messages = []
+    };
+
+    private List<AssistantChatSummary> GetAssistantChatSummaries() =>
+        _assistantChats
+            .OrderByDescending(c => c.ModifiedAt)
+            .Select(c => new AssistantChatSummary
+            {
+                Id = c.Id,
+                Title = c.Title,
+                ModifiedAt = c.ModifiedAt
+            })
+            .ToList();
+
+    private List<string> GetActiveAssistantMessages() =>
+        ActiveAssistantChat?.Messages
+            .Select(m => m.Role == "user" ? $"[User] {m.Content}" : $"[Assistant] {m.Content}")
+            .ToList() ?? [];
+
+    private void HydrateAssistantContextFromActiveChat()
+    {
+        if (_session is null) return;
+
+        AssistantContextManager.ClearChat(_session.Id);
+
+        foreach (var message in ActiveAssistantChat?.Messages ?? [])
+        {
+            if (message.Role == "user")
+            {
+                AssistantContextManager.AddUserMessage(_session.Id, message.Content);
+            }
+            else
+            {
+                AssistantContextManager.AddAssistantResponse(_session.Id, message.Content);
+            }
+        }
+    }
+
+    private async Task PersistAssistantChatsAsync()
+    {
+        if (_session is null) return;
+        _session.AssistantChats = _assistantChats;
+        _session.ActiveAssistantChatId = _activeAssistantChatId;
+        await RolePlayEngine.SaveSessionAsync(_session);
+    }
+
+    private async Task OnAssistantGenerateRequest(string userPrompt)
+    {
+        if (_session is null || string.IsNullOrWhiteSpace(userPrompt)) return;
+
+        var activeChat = ActiveAssistantChat;
+        if (activeChat is null) return;
+        RolePlayAssistantChatMessage? pendingAssistantMessage = null;
+
+        try
+        {
+            HydrateAssistantContextFromActiveChat();
+
+            var now = DateTime.UtcNow;
+            var userMessage = new RolePlayAssistantChatMessage { Role = "user", Content = userPrompt, CreatedAt = now };
+            pendingAssistantMessage = new RolePlayAssistantChatMessage { Role = "assistant", Content = string.Empty, CreatedAt = DateTime.UtcNow };
+
+            activeChat.Messages.Add(userMessage);
+            activeChat.Messages.Add(pendingAssistantMessage);
+
+            if (activeChat.Messages.Count == 2 && string.Equals(activeChat.Title, "New Chat", StringComparison.Ordinal))
+            {
+                activeChat.Title = Truncate(userPrompt.Trim(), 36);
+            }
+
+            activeChat.ModifiedAt = DateTime.UtcNow;
+            _assistantChats = _assistantChats.OrderByDescending(c => c.ModifiedAt).ToList();
+            await PersistAssistantChatsAsync();
+            await InvokeAsync(StateHasChanged);
+
+            var context = BuildAssistantContext();
+            var assistantModelId = string.IsNullOrEmpty(_assistantSelectedModelId) ? null : _assistantSelectedModelId;
+            var assistantBuffer = new StringBuilder();
+            var lastAssistantRenderAt = DateTime.MinValue;
+
+            var response = await RolePlayAssistant.GenerateSuggestionStreamingAsync(
+                context,
+                userPrompt,
+                async chunk =>
+                {
+                    if (string.IsNullOrEmpty(chunk))
+                    {
+                        return;
+                    }
+
+                    assistantBuffer.Append(chunk);
+                    var nowAt = DateTime.UtcNow;
+                    if (nowAt - lastAssistantRenderAt < PendingResponseRenderInterval)
+                    {
+                        return;
+                    }
+
+                    lastAssistantRenderAt = nowAt;
+                    var bufferedText = assistantBuffer.ToString();
+
+                    await InvokeAsync(() =>
+                    {
+                        pendingAssistantMessage.Content = bufferedText;
+                        StateHasChanged();
+                    });
+                },
+                assistantModelId: assistantModelId,
+                assistantTemperature: _session.AssistantTemperature,
+                assistantTopP: _session.AssistantTopP,
+                assistantMaxTokens: _session.AssistantMaxTokens);
+
+            pendingAssistantMessage.Content = response;
+            await InvokeAsync(StateHasChanged);
+
+            activeChat.ModifiedAt = DateTime.UtcNow;
+            _assistantChats = _assistantChats.OrderByDescending(c => c.ModifiedAt).ToList();
+            await PersistAssistantChatsAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Assistant generation failed for session {SessionId}", _session.Id);
+            if (pendingAssistantMessage is null)
+            {
+                pendingAssistantMessage = new RolePlayAssistantChatMessage { Role = "assistant", Content = string.Empty, CreatedAt = DateTime.UtcNow };
+                activeChat.Messages.Add(new RolePlayAssistantChatMessage { Role = "user", Content = userPrompt, CreatedAt = DateTime.UtcNow });
+                activeChat.Messages.Add(pendingAssistantMessage);
+            }
+
+            pendingAssistantMessage.Content = $"(Error: {ex.Message})";
+            activeChat.ModifiedAt = DateTime.UtcNow;
+            _assistantChats = _assistantChats.OrderByDescending(c => c.ModifiedAt).ToList();
+            await PersistAssistantChatsAsync();
+        }
+    }
+
+    private async Task OnAssistantClearChat()
+    {
+        if (_session is null) return;
+        var activeChat = ActiveAssistantChat;
+        if (activeChat is null) return;
+
+        activeChat.Messages.Clear();
+        activeChat.ModifiedAt = DateTime.UtcNow;
+        RolePlayAssistant.ClearChat(_session.Id);
+        await PersistAssistantChatsAsync();
+    }
+
+    private async Task OnAssistantCreateChat()
+    {
+        if (_session is null) return;
+
+        var index = _assistantChats.Count + 1;
+        var chat = CreateAssistantChatThread($"Chat {index}");
+        _assistantChats.Insert(0, chat);
+        _activeAssistantChatId = chat.Id;
+        RolePlayAssistant.ClearChat(_session.Id);
+        await PersistAssistantChatsAsync();
+    }
+
+    private async Task OnAssistantSelectChat(string chatId)
+    {
+        if (_session is null) return;
+        if (_assistantChats.All(c => c.Id != chatId)) return;
+
+        _activeAssistantChatId = chatId;
+        await PersistAssistantChatsAsync();
+    }
+
+    private async Task OnAssistantDeleteChat()
+    {
+        if (_session is null || _assistantChats.Count <= 1) return;
+        if (string.IsNullOrWhiteSpace(_activeAssistantChatId)) return;
+
+        var removed = _assistantChats.RemoveAll(c => c.Id == _activeAssistantChatId);
+        if (removed == 0) return;
+
+        var nextChat = _assistantChats.OrderByDescending(c => c.ModifiedAt).First();
+        _activeAssistantChatId = nextChat.Id;
+        RolePlayAssistant.ClearChat(_session.Id);
+        await PersistAssistantChatsAsync();
+    }
+
+    private async Task OnAssistantModelChanged()
+    {
+        if (_session is null) return;
+        _session.AssistantModelId = string.IsNullOrEmpty(_assistantSelectedModelId) ? null : _assistantSelectedModelId;
+        await RolePlayEngine.SaveSessionAsync(_session);
+        Logger.LogInformation(
+            "Assistant model changed for session {SessionId}: model={ModelId}",
+            _session.Id,
+            _session.AssistantModelId ?? "(default)");
+    }
+
+    private RolePlayAssistantContext BuildAssistantContext()
+    {
+        var recentInteractions = (_session?.Interactions ?? [])
+            .Where(i => !i.IsExcluded && i.ParentInteractionId is null)
+            .TakeLast(8)
+            .Select(i => $"[{i.InteractionType}] {i.ActorName}: {Truncate(i.Content, 200)}")
+            .ToList();
+
+        var characterSummaries = (_loadedScenario?.Characters ?? [])
+            .Select(c => $"{c.Name ?? "Unnamed"}" + (string.IsNullOrWhiteSpace(c.Role) ? "" : $" ({c.Role})") +
+                         (string.IsNullOrWhiteSpace(c.Description) ? "" : $" — {Truncate(c.Description, 100)}"))
+            .ToList();
+
+        var fullCharacterDetails = (_loadedScenario?.Characters ?? [])
+            .Select(c =>
+            {
+                var parts = new List<string> { $"Name: {c.Name ?? "Unnamed"}" };
+                if (!string.IsNullOrWhiteSpace(c.Role)) parts.Add($"Role: {c.Role}");
+                if (!string.IsNullOrWhiteSpace(c.Description)) parts.Add($"Description: {c.Description}");
+                return string.Join(" | ", parts);
+            })
+            .ToList();
+
+        var scenarioSummary = _loadedScenario is not null
+            ? $"{_loadedScenario.Name ?? "Unnamed Scenario"}: {_loadedScenario.Plot.Description ?? _loadedScenario.Description ?? ""}"
+            : null;
+
+        var pinnedCount = (_session?.Interactions ?? []).Count(i => i.IsPinned);
+        var profileSteeringThemes = _activeProfileThemes
+            .OrderBy(x => GetTierPriority(x.Tier))
+            .ThenBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(x => $"[{FormatTier(x.Tier)}] {x.Name}: {(string.IsNullOrWhiteSpace(x.Description) ? "(no description)" : x.Description)}")
+            .ToList();
+
+        return new RolePlayAssistantContext
+        {
+            SessionId = _session!.Id,
+            ScenarioSummary = scenarioSummary,
+            RecentInteractions = recentInteractions,
+            BehaviorMode = _session.BehaviorMode.ToString(),
+            PersonaName = _session.PersonaName,
+            PersonaDescription = _session.PersonaDescription,
+            CharacterSummaries = characterSummaries,
+            ContextWindowSize = _session.ContextWindowSize,
+            PinnedInteractionCount = pinnedCount,
+            SessionModelId = _session.SessionModelId,
+            SessionTemperature = _session.SessionTemperature,
+            SessionTopP = _session.SessionTopP,
+            SessionMaxTokens = _session.SessionMaxTokens,
+            // Rich scenario fields
+            ScenarioTone = _loadedScenario?.Style?.Tone,
+            ScenarioWritingStyle = _loadedScenario?.Style?.WritingStyle,
+            ScenarioPointOfView = _loadedScenario?.Style?.PointOfView,
+            ScenarioStyleGuidelines = _loadedScenario?.Style?.StyleGuidelines ?? [],
+            ScenarioConflicts = _loadedScenario?.Plot?.Conflicts ?? [],
+            ScenarioGoals = _loadedScenario?.Plot?.Goals ?? [],
+            ScenarioWorldDescription = _loadedScenario?.Setting?.WorldDescription,
+            ScenarioWorldRules = _loadedScenario?.Setting?.WorldRules ?? [],
+            FullCharacterDetails = fullCharacterDetails,
+            SelectedRankingProfileId = _session.SelectedRankingProfileId,
+            SelectedToneProfileId = _session.SelectedToneProfileId,
+            SelectedStyleProfileId = _session.SelectedStyleProfileId,
+            StyleFloorOverride = _session.StyleFloorOverride,
+            StyleCeilingOverride = _session.StyleCeilingOverride,
+            IsToneManuallyPinned = _session.IsToneManuallyPinned,
+            EffectiveStyleMode = GetEffectiveStyleLabel(),
+            StyleResolutionReason = GetEffectiveStyleReason(),
+            ProfileSteeringThemes = profileSteeringThemes
+        };
+    }
+
+    private static string Truncate(string text, int maxLength)
+    {
+        if (string.IsNullOrEmpty(text) || text.Length <= maxLength) return text;
+        return text[..maxLength] + "…";
+    }
+
+    private static List<string> ParseLines(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return [];
+        return text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                   .Where(l => !string.IsNullOrWhiteSpace(l))
+                   .ToList();
+    }
+
+    private void MarkScenarioDirty() => _scenarioDirty = true;
+
+    private void ToggleScenarioSection(string section)
+    {
+        if (!_expandedScenarioSections.Remove(section))
+            _expandedScenarioSections.Add(section);
+    }
+
+    private async Task OnSaveScenarioClicked()
+    {
+        await SaveScenarioAsync();
+        _scenarioDirty = false;
+    }
+
+    private async Task SaveScenarioAsync()
+    {
+        if (_loadedScenario is null) return;
+        try
+        {
+            await ScenarioService.SaveScenarioAsync(_loadedScenario);
+            Logger.LogInformation("Scenario saved from workspace: {ScenarioId}", _loadedScenario.Id);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to save scenario {ScenarioId}", _loadedScenario.Id);
+        }
+    }
+
+    private async Task SaveSessionSettingsAsync()
+    {
+        if (_session is null) return;
+        try
+        {
+            await RolePlayEngine.SaveSessionAsync(_session);
+            await RefreshActiveProfileThemesAsync();
+            Logger.LogInformation("Session settings saved: {SessionId}", _session.Id);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to save session settings {SessionId}", _session.Id);
+        }
+    }
+
+    private async Task RefreshActiveProfileThemesAsync()
+    {
+        if (_session is null)
+        {
+            _activeProfileThemes = [];
+            _rankingProfiles = [];
+            _toneProfiles = [];
+            _styleProfiles = [];
+            _toneProfilesById = new(StringComparer.OrdinalIgnoreCase);
+            return;
+        }
+
+        _rankingProfiles = (await StoryAnalysisFacade.ListProfilesAsync())
+            .OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        _styleProfiles = (await StoryAnalysisFacade.ListStyleProfilesAsync())
+            .OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var toneProfiles = await StoryAnalysisFacade.ListToneProfilesAsync();
+        _toneProfiles = toneProfiles
+            .OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        _toneProfilesById = toneProfiles.ToDictionary(x => x.Id, StringComparer.OrdinalIgnoreCase);
+
+        if (string.IsNullOrWhiteSpace(_session.SelectedRankingProfileId))
+        {
+            _activeProfileThemes = [];
+            return;
+        }
+
+        _activeProfileThemes = await StoryAnalysisFacade.ListThemesByProfileAsync(_session.SelectedRankingProfileId);
+    }
+
+    private static readonly (string Value, string Label)[] StyleBoundOptions =
+    [
+        ("Intro / PG-12", "Intro / PG-12"),
+        ("Emotional / PG-13", "Emotional / PG-13"),
+        ("Suggestive / PG-13+", "Suggestive / PG-13+"),
+        ("Sensual / Mature", "Sensual / Mature"),
+        ("Erotic / Explicit", "Erotic / Explicit"),
+        ("Hardcore / Explicit+", "Hardcore / Explicit+")
+    ];
+
+    private async Task OnRankingProfileChanged(ChangeEventArgs args)
+    {
+        if (_session is null)
+        {
+            return;
+        }
+
+        _session.SelectedRankingProfileId = string.IsNullOrWhiteSpace(args.Value?.ToString())
+            ? null
+            : args.Value!.ToString();
+
+        await SaveSessionSettingsAsync();
+    }
+
+    private async Task OnToneProfileChanged(ChangeEventArgs args)
+    {
+        if (_session is null)
+        {
+            return;
+        }
+
+        _session.SelectedToneProfileId = string.IsNullOrWhiteSpace(args.Value?.ToString())
+            ? null
+            : args.Value!.ToString();
+
+        await SaveSessionSettingsAsync();
+    }
+
+    private async Task OnStyleProfileChanged(ChangeEventArgs args)
+    {
+        if (_session is null)
+        {
+            return;
+        }
+
+        _session.SelectedStyleProfileId = string.IsNullOrWhiteSpace(args.Value?.ToString())
+            ? null
+            : args.Value!.ToString();
+
+        await SaveSessionSettingsAsync();
+    }
+
+    private async Task OnStyleFloorChanged(ChangeEventArgs args)
+    {
+        if (_session is null)
+        {
+            return;
+        }
+
+        _session.StyleFloorOverride = string.IsNullOrWhiteSpace(args.Value?.ToString())
+            ? null
+            : args.Value!.ToString();
+
+        NormalizeStyleBounds(_session, preferFloor: true);
+
+        await SaveSessionSettingsAsync();
+    }
+
+    private async Task OnStyleCeilingChanged(ChangeEventArgs args)
+    {
+        if (_session is null)
+        {
+            return;
+        }
+
+        _session.StyleCeilingOverride = string.IsNullOrWhiteSpace(args.Value?.ToString())
+            ? null
+            : args.Value!.ToString();
+
+        NormalizeStyleBounds(_session, preferFloor: false);
+
+        await SaveSessionSettingsAsync();
+    }
+
+    private void NormalizeStyleBounds(RolePlaySession session, bool preferFloor)
+    {
+        var floor = RolePlayStyleResolver.ParseBoundScale(session.StyleFloorOverride);
+        var ceiling = RolePlayStyleResolver.ParseBoundScale(session.StyleCeilingOverride);
+        if (!floor.HasValue || !ceiling.HasValue || floor.Value <= ceiling.Value)
+        {
+            return;
+        }
+
+        if (preferFloor)
+        {
+            session.StyleCeilingOverride = session.StyleFloorOverride;
+        }
+        else
+        {
+            session.StyleFloorOverride = session.StyleCeilingOverride;
+        }
+    }
+
+    private async Task OnPersonaPerspectiveChanged(ChangeEventArgs args)
+    {
+        if (_session is null)
+        {
+            return;
+        }
+
+        if (!Enum.TryParse<CharacterPerspectiveMode>(args.Value?.ToString(), out var mode))
+        {
+            mode = CharacterPerspectiveMode.FirstPersonInternalMonologue;
+        }
+
+        _session.PersonaPerspectiveMode = mode;
+        await SaveSessionSettingsAsync();
+    }
+
+    private string GetCharacterPerspectiveModeValue(Character character)
+        => GetCharacterPerspectiveMode(character).ToString();
+
+    private CharacterPerspectiveMode GetCharacterPerspectiveMode(Character character)
+    {
+        if (_session is null)
+        {
+            return Enum.IsDefined(character.PerspectiveMode)
+                ? character.PerspectiveMode
+                : CharacterPerspectiveMode.ThirdPersonExternalOnly;
+        }
+
+        var configured = _session.CharacterPerspectives.FirstOrDefault(x =>
+            string.Equals(x.CharacterId, character.Id, StringComparison.OrdinalIgnoreCase)
+            || (!string.IsNullOrWhiteSpace(character.Name) && string.Equals(x.CharacterName, character.Name, StringComparison.OrdinalIgnoreCase)));
+
+        if (configured is not null && Enum.IsDefined(configured.PerspectiveMode))
+        {
+            return configured.PerspectiveMode;
+        }
+
+        return Enum.IsDefined(character.PerspectiveMode)
+            ? character.PerspectiveMode
+            : CharacterPerspectiveMode.ThirdPersonExternalOnly;
+    }
+
+    private async Task OnCharacterPerspectiveChanged(Character character, ChangeEventArgs args)
+    {
+        if (_session is null)
+        {
+            return;
+        }
+
+        var mode = Enum.TryParse<CharacterPerspectiveMode>(args.Value?.ToString(), out var parsed)
+            ? parsed
+            : CharacterPerspectiveMode.ThirdPersonExternalOnly;
+
+        var existing = _session.CharacterPerspectives.FirstOrDefault(x =>
+            string.Equals(x.CharacterId, character.Id, StringComparison.OrdinalIgnoreCase)
+            || (!string.IsNullOrWhiteSpace(character.Name) && string.Equals(x.CharacterName, character.Name, StringComparison.OrdinalIgnoreCase)));
+
+        if (existing is null)
+        {
+            _session.CharacterPerspectives.Add(new RolePlayCharacterPerspective
+            {
+                CharacterId = character.Id,
+                CharacterName = character.Name?.Trim() ?? string.Empty,
+                PerspectiveMode = mode
+            });
+        }
+        else
+        {
+            existing.CharacterId = character.Id;
+            existing.CharacterName = character.Name?.Trim() ?? existing.CharacterName;
+            existing.PerspectiveMode = mode;
+        }
+
+        await SaveSessionSettingsAsync();
+    }
+
+    private static bool EnsureCharacterPerspectiveEntries(RolePlaySession session, Scenario scenario)
+    {
+        var updated = false;
+
+        foreach (var character in scenario.Characters.Where(x => !string.IsNullOrWhiteSpace(x.Name)))
+        {
+            var existing = session.CharacterPerspectives.FirstOrDefault(x =>
+                string.Equals(x.CharacterId, character.Id, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(x.CharacterName, character.Name, StringComparison.OrdinalIgnoreCase));
+
+            if (existing is null)
+            {
+                session.CharacterPerspectives.Add(new RolePlayCharacterPerspective
+                {
+                    CharacterId = character.Id,
+                    CharacterName = character.Name!.Trim(),
+                    PerspectiveMode = Enum.IsDefined(character.PerspectiveMode)
+                        ? character.PerspectiveMode
+                        : CharacterPerspectiveMode.ThirdPersonExternalOnly
+                });
+                updated = true;
+                continue;
+            }
+
+            if (existing.CharacterId != character.Id)
+            {
+                existing.CharacterId = character.Id;
+                updated = true;
+            }
+
+            var trimmedName = character.Name!.Trim();
+            if (!string.Equals(existing.CharacterName, trimmedName, StringComparison.Ordinal))
+            {
+                existing.CharacterName = trimmedName;
+                updated = true;
+            }
+
+            if (!Enum.IsDefined(existing.PerspectiveMode))
+            {
+                existing.PerspectiveMode = Enum.IsDefined(character.PerspectiveMode)
+                    ? character.PerspectiveMode
+                    : CharacterPerspectiveMode.ThirdPersonExternalOnly;
+                updated = true;
+            }
+        }
+
+        return updated;
+    }
+
+    private string GetEffectiveStyleLabel()
+    {
+        if (_session is null)
+        {
+            return "(session unavailable)";
+        }
+
+        var (label, _) = ResolveEffectiveStyle(_session);
+        return label;
+    }
+
+    private string GetEffectiveStyleReason()
+    {
+        if (_session is null)
+        {
+            return string.Empty;
+        }
+
+        var (_, reason) = ResolveEffectiveStyle(_session);
+        return reason;
+    }
+
+    private (string Label, string Reason) ResolveEffectiveStyle(RolePlaySession session)
+    {
+        ToneIntensity? baseToneIntensity = ToneIntensity.SuggestivePg12;
+
+        if (!string.IsNullOrWhiteSpace(session.SelectedToneProfileId)
+            && _toneProfilesById.TryGetValue(session.SelectedToneProfileId, out var toneProfile))
+        {
+            baseToneIntensity = toneProfile.Intensity;
+        }
+
+        return RolePlayStyleResolver.ResolveEffectiveStyle(session, baseToneIntensity);
+    }
+
+    private static int GetTierPriority(ThemeTier tier)
+    {
+        return tier switch
+        {
+            ThemeTier.MustHave => 0,
+            ThemeTier.StronglyPrefer => 1,
+            ThemeTier.NiceToHave => 2,
+            ThemeTier.Neutral => 3,
+            ThemeTier.Dislike => 4,
+            ThemeTier.HardDealBreaker => 5,
+            _ => 99
+        };
+    }
+
+    private static string FormatTier(ThemeTier tier)
+    {
+        return tier switch
+        {
+            ThemeTier.MustHave => "Must Have",
+            ThemeTier.StronglyPrefer => "Strongly Prefer",
+            ThemeTier.NiceToHave => "Nice To Have",
+            ThemeTier.Neutral => "Neutral",
+            ThemeTier.Dislike => "Dislike",
+            ThemeTier.HardDealBreaker => "Hard Dealbreaker",
+            _ => tier.ToString()
+        };
+    }
+
     private bool CanAddPromptEntry =>
         _session is not null &&
         HasPromptText &&
@@ -178,6 +1065,8 @@
         !_isSubmitting;
 
     private bool HasPromptText => !string.IsNullOrWhiteSpace(_promptText);
+
+    private bool IsSelectionUiLocked => _isSubmitting && !_isAwaitingModelResponse;
 
     private bool ShowPendingResponseIndicator =>
         _isAwaitingModelResponse && !string.IsNullOrWhiteSpace(_pendingResponseLabel);
@@ -210,11 +1099,11 @@
         }
     }
 
-    private bool IsIdentityOptionDisabled(IdentityOption option) => _isSubmitting;
+    private bool IsIdentityOptionDisabled(IdentityOption option) => IsSelectionUiLocked;
 
     private string? GetIdentityOptionTitle(IdentityOption option)
     {
-        if (_isSubmitting)
+        if (IsSelectionUiLocked)
         {
             return "Please wait for the current action to finish.";
         }
@@ -286,7 +1175,7 @@
             return;
         }
 
-        var request = BuildContinueRequest(SubmissionSource.MainOverflowContinue);
+        var request = BuildContinueRequest(SubmissionSource.MainOverflowContinue, useCustomSelections: false);
 
         await ExecuteContinueAsync(request, "Continue failed.");
     }
@@ -312,9 +1201,15 @@
             var awaitsModelResponse = _selectedIntent != PromptIntent.Instruction;
             if (awaitsModelResponse)
             {
+                _shouldFollowStoryUpdates = true;
                 _isAwaitingModelResponse = true;
                 _pendingResponseLabel = BuildPromptPendingResponseLabel();
+                _pendingResponseText = string.Empty;
+                _pendingResponseBuilder.Clear();
+                _lastPendingResponseRenderAt = DateTime.MinValue;
                 await InvokeAsync(StateHasChanged);
+                await Task.Yield();
+                _shouldFollowStoryUpdates = await IsStoryNearBottomAsync();
             }
 
             var submission = new UnifiedPromptSubmission
@@ -335,7 +1230,7 @@
                 _selectedIntent,
                 _selectedBehaviorMode);
 
-            await RolePlayEngine.SubmitPromptAsync(submission);
+            await RolePlayEngine.SubmitPromptAsync(submission, awaitsModelResponse ? OnRolePlayResponseChunkAsync : null);
             _promptText = string.Empty;
             await LoadSessionAsync();
         }
@@ -348,6 +1243,9 @@
         {
             _isAwaitingModelResponse = false;
             _pendingResponseLabel = string.Empty;
+            _pendingResponseText = string.Empty;
+            _pendingResponseBuilder.Clear();
+            _lastPendingResponseRenderAt = DateTime.MinValue;
             _isSubmitting = false;
         }
     }
@@ -396,6 +1294,11 @@
         }
 
         _continueIncludeNarrative = false;
+        if (_isSubmitting)
+        {
+            return;
+        }
+
         var request = BuildContinueRequest(SubmissionSource.ContinueAsPopupContinue);
         await ExecuteContinueAsync(request, "Continue As failed.");
     }
@@ -410,6 +1313,11 @@
         }
 
         _continueIncludeNarrative = true;
+        if (_isSubmitting)
+        {
+            return;
+        }
+
         var request = BuildContinueRequest(SubmissionSource.ContinueAsPopupContinue);
         await ExecuteContinueAsync(request, "Continue As failed.");
     }
@@ -453,19 +1361,21 @@
         }
     }
 
-    private ContinueAsRequest BuildContinueRequest(SubmissionSource source)
+    private ContinueAsRequest BuildContinueRequest(SubmissionSource source, bool useCustomSelections = true)
     {
-        var selectedOptions = ContinueIdentityOptions
-            .Where(x => _continueSelectedIdentityIds.Contains(x.Id))
-            .ToList();
+        var selectedOptions = useCustomSelections
+            ? ContinueIdentityOptions.Where(x => _continueSelectedIdentityIds.Contains(x.Id)).ToList()
+            : [];
 
         return new ContinueAsRequest
         {
             SessionId = _session!.Id,
             SelectedIdentityIds = selectedOptions.Select(x => x.Id).ToList(),
             SelectedParticipants = selectedOptions.Select(x => x.Actor).ToList(),
-            IncludeNarrative = _continueIncludeNarrative,
-            CustomIdentityName = string.IsNullOrWhiteSpace(_customIdentityName) ? null : _customIdentityName.Trim(),
+            IncludeNarrative = useCustomSelections && _continueIncludeNarrative,
+            CustomIdentityName = useCustomSelections && !string.IsNullOrWhiteSpace(_customIdentityName)
+                ? _customIdentityName.Trim()
+                : null,
             TriggeredBy = source
         };
     }
@@ -475,13 +1385,19 @@
         _isSubmitting = true;
         _statusMessage = string.Empty;
         CloseAllPopups();
+        _shouldFollowStoryUpdates = true;
         _isAwaitingModelResponse = true;
         _pendingResponseLabel = BuildContinuePendingResponseLabel(request);
+        _pendingResponseText = string.Empty;
+        _pendingResponseBuilder.Clear();
+        _lastPendingResponseRenderAt = DateTime.MinValue;
         await InvokeAsync(StateHasChanged);
+        await Task.Yield();
+        _shouldFollowStoryUpdates = await IsStoryNearBottomAsync();
 
         try
         {
-            var result = await RolePlayEngine.ContinueAsAsync(request);
+            var result = await RolePlayEngine.ContinueAsAsync(request, OnRolePlayResponseChunkAsync);
             if (!result.Success)
             {
                 _statusMessage = result.ValidationError ?? defaultErrorMessage;
@@ -502,20 +1418,56 @@
         {
             _isAwaitingModelResponse = false;
             _pendingResponseLabel = string.Empty;
+            _pendingResponseText = string.Empty;
+            _pendingResponseBuilder.Clear();
+            _lastPendingResponseRenderAt = DateTime.MinValue;
             _isSubmitting = false;
         }
     }
 
-    private async Task ForkAsync()
+    private async Task<bool> IsStoryNearBottomAsync()
     {
-        if (_session is null) return;
-        var title = string.IsNullOrWhiteSpace(_branchTitle) ? $"Fork of {_session.Title}" : _branchTitle.Trim();
-        var fork = await RolePlayBranchService.ForkSessionAsync(_session.Id, title, _branchFromIndex);
-        if (fork is null) { _statusMessage = "Fork failed."; return; }
-        Navigation.NavigateTo(RolePlayRoutes.GetWorkspace(fork.Id));
+        try
+        {
+            return await JS.InvokeAsync<bool>("rolePlayWorkspace.isStoryNearBottom", 120);
+        }
+        catch
+        {
+            return true;
+        }
+    }
+
+    private Task OnRolePlayResponseChunkAsync(string chunk)
+    {
+        if (string.IsNullOrEmpty(chunk) || _isDisposed)
+        {
+            return Task.CompletedTask;
+        }
+
+        _pendingResponseBuilder.Append(chunk);
+
+        var now = DateTime.UtcNow;
+        if (now - _lastPendingResponseRenderAt < PendingResponseRenderInterval)
+        {
+            return Task.CompletedTask;
+        }
+
+        _lastPendingResponseRenderAt = now;
+        _pendingResponseText = _pendingResponseBuilder.ToString();
+        return InvokeAsync(StateHasChanged);
     }
 
     private void GoToSavedSessions() => Navigation.NavigateTo(RolePlayRoutes.Sessions);
+
+    private async Task OpenDebugWindowAsync()
+    {
+        if (_session is null)
+        {
+            return;
+        }
+
+        await JS.InvokeVoidAsync("rolePlayWorkspace.openDebugWindow", RolePlayRoutes.GetDebug(_session.Id));
+    }
 
     [JSInvokable]
     public Task OnSettingsPanelResized(int width)
@@ -536,9 +1488,24 @@
 
     public async ValueTask DisposeAsync()
     {
+        _isDisposed = true;
+        _jsInteropUnavailable = true;
+
         if (_resizeInitialized)
         {
-            await JS.InvokeVoidAsync("rolePlayWorkspace.disposePanelResize", ".rw-panel-resize-handle");
+            try
+            {
+                await JS.InvokeVoidAsync("rolePlayWorkspace.disposePanelResize", ".rw-panel-resize-handle");
+            }
+            catch (Microsoft.JSInterop.JSDisconnectedException)
+            {
+            }
+            catch (TaskCanceledException)
+            {
+            }
+            catch (OperationCanceledException)
+            {
+            }
         }
 
         _dotNetRef?.Dispose();
@@ -546,6 +1513,326 @@
 
     private static string GetInitial(string name) =>
         string.IsNullOrWhiteSpace(name) ? "?" : name.Trim()[0].ToString().ToUpper();
+
+    // --- Interaction Commands ---
+
+    private string? _deleteConfirmInteractionId;
+    private string? _deleteAlternativeConfirmId;
+    private string? _infoPopupInteractionId;
+    private readonly Dictionary<string, string> _editSnapshots = new();
+    private readonly Dictionary<string, string> _editContent = new();
+    private string? _retryMenuInteractionId;
+    private readonly HashSet<string> _generatingIds = new();
+    private readonly Dictionary<string, string> _retryErrors = new();
+    private List<RegisteredModel>? _availableModels;
+    private string? _rewriteDialogInteractionId;
+    private string? _rewriteInstruction;
+    private string? _kebabMenuInteractionId;
+    private (double Top, double Left) _menuPosition;
+
+    private List<RolePlayInteraction> GetDisplayInteractions()
+    {
+        if (_session is null) return [];
+        // Show originals (no parent) and resolve active alternative; hide hidden interactions
+        var originals = _session.Interactions.Where(i => i.ParentInteractionId is null).ToList();
+        var result = new List<RolePlayInteraction>(originals.Count);
+        foreach (var original in originals)
+        {
+            var active = _session.ResolveActiveAlternative(original);
+            result.Add(active);
+        }
+        return result;
+    }
+
+    private async Task ToggleFlagAsync(string interactionId, InteractionFlag flag)
+    {
+        if (_session is null) return;
+        try
+        {
+            await InteractionCommandService.ToggleFlagAsync(_session, interactionId, flag);
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to toggle {Flag} on interaction {InteractionId}", flag, interactionId);
+        }
+    }
+
+    private void ShowDeleteConfirmation(string interactionId)
+    {
+        _deleteConfirmInteractionId = interactionId;
+    }
+
+    private void ShowInteractionInfo(string interactionId)
+    {
+        _infoPopupInteractionId = interactionId;
+    }
+
+    private void CloseInteractionInfo()
+    {
+        _infoPopupInteractionId = null;
+    }
+
+    private void ShowDeleteAlternativeConfirmation(string interactionId)
+    {
+        _deleteAlternativeConfirmId = interactionId;
+    }
+
+    private void CancelDeleteAlternative()
+    {
+        _deleteAlternativeConfirmId = null;
+    }
+
+    private async Task ConfirmDeleteAlternativeAsync()
+    {
+        if (_session is null || _deleteAlternativeConfirmId is null) return;
+        try
+        {
+            await InteractionCommandService.DeleteAlternativeAsync(_session, _deleteAlternativeConfirmId);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to delete alternative {InteractionId}", _deleteAlternativeConfirmId);
+        }
+        _deleteAlternativeConfirmId = null;
+        StateHasChanged();
+    }
+
+    private void CancelDelete()
+    {
+        _deleteConfirmInteractionId = null;
+    }
+
+    private async Task ConfirmDeleteAsync(bool deleteBelow)
+    {
+        if (_session is null || _deleteConfirmInteractionId is null) return;
+        try
+        {
+            await InteractionCommandService.DeleteInteractionAsync(_session, _deleteConfirmInteractionId, deleteBelow);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to delete interaction {InteractionId}", _deleteConfirmInteractionId);
+        }
+        _deleteConfirmInteractionId = null;
+        StateHasChanged();
+    }
+
+    private void StartEdit(string interactionId, string currentContent)
+    {
+        _editSnapshots[interactionId] = currentContent;
+        _editContent[interactionId] = currentContent;
+        _retryMenuInteractionId = null;
+    }
+
+    private async Task SaveEditAsync(string interactionId)
+    {
+        if (_session is null || !_editContent.TryGetValue(interactionId, out var newContent)) return;
+        try
+        {
+            await InteractionCommandService.UpdateContentAsync(_session, interactionId, newContent);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to save edit for interaction {InteractionId}", interactionId);
+        }
+        _editContent.Remove(interactionId);
+        _editSnapshots.Remove(interactionId);
+        StateHasChanged();
+    }
+
+    private void CancelEdit(string interactionId)
+    {
+        _editContent.Remove(interactionId);
+        _editSnapshots.Remove(interactionId);
+        _kebabMenuInteractionId = null;
+    }
+
+    private async Task ToggleKebabMenu(string interactionId)
+    {
+        if (_kebabMenuInteractionId == interactionId)
+        {
+            _kebabMenuInteractionId = null;
+            return;
+        }
+
+        var rect = await JS.InvokeAsync<MenuRect?>("rolePlayWorkspace.getElementRect", $"[data-kebab-btn='{interactionId}']");
+        if (rect is not null)
+        {
+            _menuPosition = (rect.Bottom + 4, rect.Left);
+        }
+
+        _kebabMenuInteractionId = interactionId;
+        _retryMenuInteractionId = null;
+    }
+
+    private void UndoEdit(string interactionId)
+    {
+        if (_editSnapshots.TryGetValue(interactionId, out var snapshot))
+        {
+            _editContent[interactionId] = snapshot;
+        }
+    }
+
+    // --- Retry / Regenerate Commands ---
+
+    private async Task ToggleRetryMenu(string interactionId)
+    {
+        if (_retryMenuInteractionId == interactionId)
+        {
+            _retryMenuInteractionId = null;
+            return;
+        }
+
+        var rect = await JS.InvokeAsync<MenuRect?>("rolePlayWorkspace.getElementRect", $"[data-retry-btn='{interactionId}']");
+        if (rect is not null)
+        {
+            _menuPosition = (rect.Bottom + 4, rect.Left);
+        }
+
+        _retryMenuInteractionId = interactionId;
+        _kebabMenuInteractionId = null;
+        _availableModels ??= await RegisteredModelRepository.GetAllEnabledAsync();
+    }
+
+    private async Task RetryAsync(string interactionId)
+    {
+        _retryMenuInteractionId = null;
+        await RunRetryAsync(interactionId, () => InteractionRetryService.RetryAsync(_session!, interactionId));
+    }
+
+    private async Task RetryWithModelAsync(string interactionId, string modelId)
+    {
+        _retryMenuInteractionId = null;
+        await RunRetryAsync(interactionId, () => InteractionRetryService.RetryWithModelAsync(_session!, interactionId, modelId));
+    }
+
+    private async Task RetryAsAsync(string interactionId, ContinueAsActor actor, string actorName)
+    {
+        _retryMenuInteractionId = null;
+        await RunRetryAsync(interactionId, () => InteractionRetryService.RetryAsAsync(_session!, interactionId, actor, actorName));
+    }
+
+    private async Task MakeLongerAsync(string interactionId)
+    {
+        _retryMenuInteractionId = null;
+        await RunRetryAsync(interactionId, () => InteractionRetryService.MakeLongerAsync(_session!, interactionId));
+    }
+
+    private async Task MakeShorterAsync(string interactionId)
+    {
+        _retryMenuInteractionId = null;
+        await RunRetryAsync(interactionId, () => InteractionRetryService.MakeShorterAsync(_session!, interactionId));
+    }
+
+    private void ShowRewriteDialog(string interactionId)
+    {
+        _retryMenuInteractionId = null;
+        _rewriteDialogInteractionId = interactionId;
+        _rewriteInstruction = null;
+    }
+
+    private void CancelRewriteDialog()
+    {
+        _rewriteDialogInteractionId = null;
+        _rewriteInstruction = null;
+    }
+
+    private async Task ConfirmRewriteAsync()
+    {
+        if (_session is null || _rewriteDialogInteractionId is null || string.IsNullOrWhiteSpace(_rewriteInstruction)) return;
+        var interactionId = _rewriteDialogInteractionId;
+        _rewriteDialogInteractionId = null;
+        await RunRetryAsync(interactionId, () => InteractionRetryService.AskToRewriteAsync(_session, interactionId, _rewriteInstruction!));
+        _rewriteInstruction = null;
+    }
+
+    private async Task RunRetryAsync(string interactionId, Func<Task<RolePlayInteraction>> retryFunc)
+    {
+        if (_session is null) return;
+        _retryErrors.Remove(interactionId);
+        _generatingIds.Add(interactionId);
+        StateHasChanged();
+        try
+        {
+            await retryFunc();
+        }
+        catch (Exception ex)
+        {
+            _retryErrors[interactionId] = ex.Message;
+            Logger.LogWarning(ex, "Retry failed for interaction {InteractionId}", interactionId);
+        }
+        finally
+        {
+            _generatingIds.Remove(interactionId);
+            StateHasChanged();
+        }
+    }
+
+    // --- Alternative Navigation ---
+
+    private int GetAlternativeCount(string originalId)
+    {
+        if (_session is null) return 0;
+        return _session.Interactions.Count(i => i.ParentInteractionId == originalId);
+    }
+
+    private int GetActiveAlternativeIndex(string originalId)
+    {
+        if (_session is null) return 0;
+        var original = _session.Interactions.FirstOrDefault(i => i.Id == originalId);
+        return original?.ActiveAlternativeIndex ?? 0;
+    }
+
+    private async Task NavigateAlternativeAsync(string interactionId, int direction)
+    {
+        if (_session is null) return;
+        try
+        {
+            await InteractionCommandService.NavigateAlternativeAsync(_session, interactionId, direction);
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to navigate alternative for interaction {InteractionId}", interactionId);
+        }
+    }
+
+    // --- Fork Commands ---
+
+    private async Task ForkAboveAsync(string interactionId)
+    {
+        if (_session is null) return;
+        try
+        {
+            var forked = await RolePlayBranchService.ForkAboveAsync(_session.Id, interactionId, $"{_session.Title} (fork above)");
+            if (forked is not null)
+            {
+                Navigation.NavigateTo($"/roleplay/workspace/{forked.Id}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to fork above at interaction {InteractionId}", interactionId);
+        }
+    }
+
+    private async Task ForkBelowAsync(string interactionId)
+    {
+        if (_session is null) return;
+        try
+        {
+            var forked = await RolePlayBranchService.ForkBelowAsync(_session.Id, interactionId, $"{_session.Title} (fork below)");
+            if (forked is not null)
+            {
+                Navigation.NavigateTo($"/roleplay/workspace/{forked.Id}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to fork below at interaction {InteractionId}", interactionId);
+        }
+    }
 
     private string IntentLabel => _selectedIntent switch
     {
@@ -671,6 +1958,9 @@
                     <span class="rw-session-meta">@_session.Interactions.Count interactions · @_session.BehaviorMode</span>
                 }
             </div>
+            <div class="rw-header-right">
+                <button class="rw-debug-btn" @onclick="OpenDebugWindowAsync" @onclick:stopPropagation>Debug View</button>
+            </div>
         </div>
 
         @if (!string.IsNullOrWhiteSpace(_statusMessage))
@@ -691,15 +1981,204 @@
                 }
                 else
                 {
-                    @foreach (var interaction in _session.Interactions)
+                    @foreach (var interaction in GetDisplayInteractions())
                     {
+                        var interactionId = interaction.Id;
                         <div class="rw-interaction rw-type-@interaction.InteractionType.ToString().ToLower()">
                             <div class="rw-actor-badge">@GetInitial(interaction.ActorName)</div>
                             <div class="rw-interaction-body">
-                                <div class="rw-actor-name">@interaction.ActorName</div>
-                                <div class="rw-interaction-text">@interaction.Content</div>
+                                <div class="rw-actor-name">
+                                    @interaction.ActorName
+                                    @if (interaction.IsExcluded)
+                                    {
+                                        <span class="rw-flag-icon rw-flag-excluded" title="This interaction is hidden from the AI">&#x1F6AB;</span>
+                                    }
+                                    @if (interaction.IsHidden)
+                                    {
+                                        <span class="rw-flag-icon rw-flag-hidden" title="This interaction is hidden from the user interface">&#x1F441;</span>
+                                    }
+                                    @if (interaction.IsPinned)
+                                    {
+                                        <span class="rw-flag-icon rw-flag-pinned" title="This interaction is pinned for AI context retention">&#x1F4CC;</span>
+                                    }
+                                </div>
+                                <div class="rw-interaction-text">
+                                    @if (_generatingIds.Contains(interactionId))
+                                    {
+                                        <div class="rw-generating-indicator">Generating...</div>
+                                    }
+                                    @if (_editContent.ContainsKey(interactionId))
+                                    {
+                                        <textarea class="rw-edit-textarea" @bind="_editContent[interactionId]" @bind:event="oninput"></textarea>
+                                    }
+                                    else
+                                    {
+                                        @interaction.Content
+                                    }
+                                    @if (_retryErrors.TryGetValue(interactionId, out var errorMsg))
+                                    {
+                                        <div class="rw-error-inline">@errorMsg</div>
+                                    }
+                                </div>
+                                @{
+                                    var originalId = interaction.ParentInteractionId ?? interaction.Id;
+                                    var altCount = GetAlternativeCount(originalId);
+                                    var activeIdx = GetActiveAlternativeIndex(originalId);
+                                }
+                                @if (altCount > 0)
+                                {
+                                    <div class="rw-alt-navigation">
+                                        <button class="rw-alt-nav-btn" disabled="@(activeIdx <= 0)" @onclick="@(() => NavigateAlternativeAsync(originalId, -1))">&#x25C0;</button>
+                                        <span class="rw-alt-counter">@(activeIdx + 1) of @(altCount + 1)</span>
+                                        <button class="rw-alt-nav-btn" disabled="@(activeIdx >= altCount)" @onclick="@(() => NavigateAlternativeAsync(originalId, 1))">&#x25B6;</button>
+                                        @if (activeIdx > 0)
+                                        {
+                                            <button class="rw-alt-delete-btn" title="Delete this alternative" @onclick="@(() => ShowDeleteAlternativeConfirmation(interactionId))">
+                                                <svg class="rw-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                                            </button>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                            <div class="rw-interaction-toolbar">
+                                @if (_editContent.ContainsKey(interactionId))
+                                {
+                                    @* Edit-mode toolbar: Delete | ⋮ Kebab | Undo | Save | Cancel *@
+                                    <button class="rw-toolbar-btn rw-toolbar-btn-danger" title="Delete interaction"
+                                            @onclick="@(() => ShowDeleteConfirmation(interactionId))">
+                                        <svg class="rw-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                                    </button>
+                                    <button class="rw-toolbar-btn" data-kebab-btn="@interactionId" title="More options" @onclick="@(() => ToggleKebabMenu(interactionId))">
+                                        <svg class="rw-icon" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
+                                    </button>
+                                    <button class="rw-toolbar-btn" title="Undo changes" @onclick="@(() => UndoEdit(interactionId))">
+                                        <svg class="rw-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+                                    </button>
+                                    <button class="rw-toolbar-btn" title="Save edit" @onclick="@(() => SaveEditAsync(interactionId))">
+                                        <svg class="rw-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+                                    </button>
+                                    <button class="rw-toolbar-btn" title="Cancel edit" @onclick="@(() => CancelEdit(interactionId))">
+                                        <svg class="rw-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                                    </button>
+                                }
+                                else
+                                {
+                                    @* Default toolbar: Retry | Edit | Info *@
+                                    <button class="rw-toolbar-btn" data-retry-btn="@interactionId" title="Retry / Regenerate" @onclick="@(() => ToggleRetryMenu(interactionId))">
+                                        <svg class="rw-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/><path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14"/></svg>
+                                    </button>
+                                    <button class="rw-toolbar-btn" title="Edit interaction" @onclick="@(() => StartEdit(interactionId, interaction.Content))">
+                                        <svg class="rw-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                                    </button>
+                                    <button class="rw-toolbar-btn" title="Generation info" @onclick="@(() => ShowInteractionInfo(interactionId))">
+                                        <svg class="rw-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                                    </button>
+                                }
                             </div>
                         </div>
+                    }
+
+                    @if (_deleteConfirmInteractionId is not null)
+                    {
+                        <div class="rw-modal-overlay" @onclick="CancelDelete">
+                            <div class="rw-modal" @onclick:stopPropagation>
+                                <div class="rw-modal-header">Delete Interaction</div>
+                                <div class="rw-modal-body">
+                                    <p>This can't be undone.</p>
+                                </div>
+                                <div class="rw-modal-actions">
+                                    <button class="rw-btn rw-btn-secondary" @onclick="CancelDelete">Cancel</button>
+                                    <button class="rw-btn rw-btn-danger" @onclick="@(() => ConfirmDeleteAsync(true))">Delete + below</button>
+                                    <button class="rw-btn rw-btn-danger" @onclick="@(() => ConfirmDeleteAsync(false))">Delete</button>
+                                </div>
+                            </div>
+                        </div>
+                    }
+
+                    @if (_deleteAlternativeConfirmId is not null)
+                    {
+                        <div class="rw-modal-overlay" @onclick="CancelDeleteAlternative">
+                            <div class="rw-modal" @onclick:stopPropagation>
+                                <div class="rw-modal-header">Delete Alternative</div>
+                                <div class="rw-modal-body">
+                                    <p>Delete this rewrite alternative? Remaining alternatives will be renumbered. This can't be undone.</p>
+                                </div>
+                                <div class="rw-modal-actions">
+                                    <button class="rw-btn rw-btn-secondary" @onclick="CancelDeleteAlternative">Cancel</button>
+                                    <button class="rw-btn rw-btn-danger" @onclick="ConfirmDeleteAlternativeAsync">Delete</button>
+                                </div>
+                            </div>
+                        </div>
+                    }
+
+                    @if (_rewriteDialogInteractionId is not null)
+                    {
+                        <div class="rw-modal-overlay" @onclick="CancelRewriteDialog">
+                            <div class="rw-modal" @onclick:stopPropagation>
+                                <div class="rw-modal-header">Custom Rewrite Instruction</div>
+                                <div class="rw-modal-body">
+                                    <textarea class="rw-rewrite-textarea" @bind="_rewriteInstruction" @bind:event="oninput" placeholder="Describe how to rewrite this interaction..."></textarea>
+                                </div>
+                                <div class="rw-modal-actions">
+                                    <button class="rw-btn rw-btn-secondary" @onclick="CancelRewriteDialog">Cancel</button>
+                                    <button class="rw-btn rw-btn-primary" disabled="@string.IsNullOrWhiteSpace(_rewriteInstruction)" @onclick="ConfirmRewriteAsync">Rewrite</button>
+                                </div>
+                            </div>
+                        </div>
+                    }
+
+                    @if (_infoPopupInteractionId is not null && _session is not null)
+                    {
+                        var infoInteraction = _session.Interactions.FirstOrDefault(i => i.Id == _infoPopupInteractionId);
+                        if (infoInteraction is not null)
+                        {
+                            <div class="rw-modal-overlay" @onclick="CloseInteractionInfo">
+                                <div class="rw-modal rw-modal-info" @onclick:stopPropagation>
+                                    <div class="rw-modal-header">Interaction Info</div>
+                                    <div class="rw-modal-body">
+                                        <div class="rw-info-grid">
+                                            <div class="rw-info-row"><span class="rw-info-label">Actor</span><span class="rw-info-value">@infoInteraction.ActorName</span></div>
+                                            <div class="rw-info-row"><span class="rw-info-label">Type</span><span class="rw-info-value">@infoInteraction.InteractionType</span></div>
+                                            <div class="rw-info-row"><span class="rw-info-label">Created</span><span class="rw-info-value">@infoInteraction.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss")</span></div>
+                                            @if (infoInteraction.ParentInteractionId is not null)
+                                            {
+                                                <div class="rw-info-row"><span class="rw-info-label">Alternative #</span><span class="rw-info-value">@infoInteraction.AlternativeIndex</span></div>
+                                            }
+                                            @if (!string.IsNullOrWhiteSpace(infoInteraction.GeneratedByCommand))
+                                            {
+                                                <div class="rw-info-row"><span class="rw-info-label">Command</span><span class="rw-info-value">@infoInteraction.GeneratedByCommand</span></div>
+                                            }
+                                            @if (!string.IsNullOrWhiteSpace(infoInteraction.GeneratedByModelName))
+                                            {
+                                                <div class="rw-info-row"><span class="rw-info-label">Model</span><span class="rw-info-value">@infoInteraction.GeneratedByModelName</span></div>
+                                            }
+                                            @if (!string.IsNullOrWhiteSpace(infoInteraction.GeneratedByProvider))
+                                            {
+                                                <div class="rw-info-row"><span class="rw-info-label">Provider</span><span class="rw-info-value">@infoInteraction.GeneratedByProvider</span></div>
+                                            }
+                                            @if (infoInteraction.GeneratedTemperature.HasValue)
+                                            {
+                                                <div class="rw-info-row"><span class="rw-info-label">Temperature</span><span class="rw-info-value">@infoInteraction.GeneratedTemperature.Value.ToString("F2")</span></div>
+                                            }
+                                            @if (infoInteraction.GeneratedTopP.HasValue)
+                                            {
+                                                <div class="rw-info-row"><span class="rw-info-label">Top-P</span><span class="rw-info-value">@infoInteraction.GeneratedTopP.Value.ToString("F2")</span></div>
+                                            }
+                                            @if (infoInteraction.GeneratedMaxTokens.HasValue)
+                                            {
+                                                <div class="rw-info-row"><span class="rw-info-label">Max Tokens</span><span class="rw-info-value">@infoInteraction.GeneratedMaxTokens.Value</span></div>
+                                            }
+                                            <div class="rw-info-row"><span class="rw-info-label">Excluded</span><span class="rw-info-value">@(infoInteraction.IsExcluded ? "Yes" : "No")</span></div>
+                                            <div class="rw-info-row"><span class="rw-info-label">Pinned</span><span class="rw-info-value">@(infoInteraction.IsPinned ? "Yes" : "No")</span></div>
+                                            <div class="rw-info-row"><span class="rw-info-label">Hidden</span><span class="rw-info-value">@(infoInteraction.IsHidden ? "Yes" : "No")</span></div>
+                                        </div>
+                                    </div>
+                                    <div class="rw-modal-actions">
+                                        <button class="rw-btn rw-btn-secondary" @onclick="CloseInteractionInfo">Close</button>
+                                    </div>
+                                </div>
+                            </div>
+                        }
                     }
 
                     @if (ShowPendingResponseIndicator)
@@ -710,12 +2189,115 @@
                             </div>
                             <div class="rw-interaction-body">
                                 <div class="rw-actor-name">Generating</div>
-                                <div class="rw-pending-response-text">@_pendingResponseLabel</div>
+                                <div class="rw-pending-response-text">@(string.IsNullOrWhiteSpace(_pendingResponseText) ? _pendingResponseLabel : _pendingResponseText)</div>
                             </div>
                         </div>
                     }
                 }
             </div>
+
+            @* ─── Portal: Retry dropdown menu (fixed position, escapes scroll container) ─── *@
+            @if (_retryMenuInteractionId is not null)
+            {
+                var retryId = _retryMenuInteractionId;
+                <div class="rw-menu-backdrop" @onclick="@(() => { _retryMenuInteractionId = null; })"></div>
+                <div class="rw-dropdown-menu rw-dropdown-fixed" style="top: @(_menuPosition.Top)px; left: @(_menuPosition.Left)px;">
+                    <button class="rw-dropdown-item" @onclick="@(() => RetryAsync(retryId))">
+                        <svg class="rw-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/><path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14"/></svg>
+                        Retry
+                    </button>
+                    <div class="rw-dropdown-submenu">
+                        <button class="rw-dropdown-item rw-has-submenu">
+                            <svg class="rw-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/><path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14"/></svg>
+                            Retry with model
+                            <span class="rw-submenu-arrow">&#x25B6;</span>
+                        </button>
+                        <div class="rw-dropdown-submenu-content">
+                            @if (_availableModels is not null)
+                            {
+                                @foreach (var model in _availableModels)
+                                {
+                                    <button class="rw-dropdown-item" @onclick="@(() => RetryWithModelAsync(retryId, model.Id))">@model.DisplayName</button>
+                                }
+                            }
+                        </div>
+                    </div>
+                    <div class="rw-dropdown-submenu">
+                        <button class="rw-dropdown-item rw-has-submenu">
+                            <svg class="rw-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/><path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14"/></svg>
+                            Retry as...
+                            <span class="rw-submenu-arrow">&#x25B6;</span>
+                        </button>
+                        <div class="rw-dropdown-submenu-content">
+                            <button class="rw-dropdown-item" @onclick="@(() => RetryAsAsync(retryId, ContinueAsActor.Npc, "Narrative"))">
+                                <span class="rw-identity-initial">&#x1F4D6;</span> Narrative
+                            </button>
+                            @if (_identityOptions is not null)
+                            {
+                                @foreach (var identity in _identityOptions)
+                                {
+                                    <button class="rw-dropdown-item" @onclick="@(() => RetryAsAsync(retryId, identity.Actor, identity.DisplayName))">
+                                        <span class="rw-identity-initial">@GetInitial(identity.DisplayName)</span> @identity.DisplayName
+                                    </button>
+                                }
+                            }
+                        </div>
+                    </div>
+                    <button class="rw-dropdown-item" @onclick="@(() => MakeLongerAsync(retryId))">
+                        <svg class="rw-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="8" x2="21" y2="8"/><line x1="3" y1="12" x2="18" y2="12"/><line x1="3" y1="16" x2="15" y2="16"/></svg>
+                        Make longer
+                    </button>
+                    <button class="rw-dropdown-item" @onclick="@(() => MakeShorterAsync(retryId))">
+                        <svg class="rw-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="8" x2="18" y2="8"/><line x1="3" y1="12" x2="13" y2="12"/><line x1="3" y1="16" x2="8" y2="16"/></svg>
+                        Make shorter
+                    </button>
+                    <button class="rw-dropdown-item" @onclick="@(() => ShowRewriteDialog(retryId))">
+                        <svg class="rw-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                        Ask to rewrite
+                    </button>
+                </div>
+            }
+
+            @* ─── Portal: Kebab dropdown menu (fixed position, escapes scroll container) ─── *@
+            @if (_kebabMenuInteractionId is not null && _session is not null)
+            {
+                var kebabId = _kebabMenuInteractionId;
+                var kebabInteraction = _session.Interactions.FirstOrDefault(i => i.Id == kebabId);
+                var kebabOriginalId = kebabInteraction?.ParentInteractionId ?? kebabId;
+                <div class="rw-menu-backdrop" @onclick="@(() => { _kebabMenuInteractionId = null; })"></div>
+                <div class="rw-dropdown-menu rw-dropdown-fixed" style="top: @(_menuPosition.Top)px; left: @(_menuPosition.Left)px;">
+                    @if (kebabInteraction is not null)
+                    {
+                        <button class="rw-dropdown-item rw-flag-toggle" @onclick="@(() => ToggleFlagAsync(kebabId, InteractionFlag.Excluded))"
+                                title="Excluded interactions are not sent to the AI, but are still visible in the user interface.">
+                            <span class="rw-flag-check">@(kebabInteraction.IsExcluded ? "☑" : "☐")</span>
+                            <svg class="rw-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+                            Excluded
+                        </button>
+                        <button class="rw-dropdown-item rw-flag-toggle" @onclick="@(() => ToggleFlagAsync(kebabId, InteractionFlag.Pinned))"
+                                title="Pinned interactions are always included in AI context.">
+                            <span class="rw-flag-check">@(kebabInteraction.IsPinned ? "☑" : "☐")</span>
+                            <svg class="rw-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v8l4 4v2H8v-2l4-4V2z"/><line x1="8" y1="22" x2="16" y2="22"/></svg>
+                            Pinned
+                        </button>
+                        <button class="rw-dropdown-item rw-flag-toggle" @onclick="@(() => ToggleFlagAsync(kebabId, InteractionFlag.Hidden))"
+                                title="Hiding will hide the interactions from the user interface, but will still be sent to the AI.">
+                            <span class="rw-flag-check">@(kebabInteraction.IsHidden ? "☑" : "☐")</span>
+                            <svg class="rw-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                            Hidden
+                        </button>
+                    }
+                    <div class="rw-dropdown-separator"></div>
+                    <button class="rw-dropdown-item" @onclick="@(() => ForkAboveAsync(kebabOriginalId))">
+                        <svg class="rw-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 17l5-5 5 5"/><path d="M7 7h10"/></svg>
+                        Fork Here &amp; Above
+                    </button>
+                    <button class="rw-dropdown-item" @onclick="@(() => ForkBelowAsync(kebabOriginalId))">
+                        <svg class="rw-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 7l5 5 5-5"/><path d="M7 17h10"/></svg>
+                        Fork Here &amp; Below
+                    </button>
+                </div>
+            }
 
             
             <div class="rw-prompt-area" @onclick:stopPropagation>
@@ -797,19 +2379,19 @@
                     <span class="rw-continue-label">Continue As</span>
                     <button class="rw-continue-chip @(HasPersonaContinueSelection && !_continueIncludeNarrative ? "is-active" : string.Empty)"
                             @onclick="ContinueAsYouQuickAsync"
-                            disabled="@_isSubmitting"
+                            disabled="@IsSelectionUiLocked"
                             @onclick:stopPropagation>
                         You
                     </button>
                     <button class="rw-continue-chip @(HasNpcContinueSelection && _continueIncludeNarrative ? "is-active" : string.Empty)"
                             @onclick="ContinueAsNpcQuickAsync"
-                            disabled="@_isSubmitting"
+                            disabled="@IsSelectionUiLocked"
                             @onclick:stopPropagation>
                         NPC
                     </button>
                     <button class="rw-continue-chip rw-continue-chip-custom @((HasCustomContinueSelection || ContinueSelectionCount > 0 || _continueIncludeNarrative || _continueCustomPopupOpen) ? "is-active" : string.Empty)"
                             @onclick="ToggleContinueCustomPopup"
-                            disabled="@_isSubmitting"
+                            disabled="@IsSelectionUiLocked"
                             @onclick:stopPropagation>
                         Custom
                     </button>
@@ -823,14 +2405,14 @@
                         </div>
                         <div class="rw-continue-options-row">
                             <button class="rw-popup-action-btn @(_continueIncludeNarrative ? "is-primary" : string.Empty)"
-                                    disabled="@_isSubmitting"
+                                    disabled="@IsSelectionUiLocked"
                                     @onclick="ToggleContinueNarrative">
                                 Narrative @(_continueIncludeNarrative ? "✓" : string.Empty)
                             </button>
                             @if (ContinueCustomIdentityOption is not null)
                             {
                                 <button class="rw-popup-action-btn @(HasCustomContinueSelection ? "is-primary" : string.Empty)"
-                                        disabled="@_isSubmitting"
+                                        disabled="@IsSelectionUiLocked"
                                         @onclick="SelectContinueCustomIdentityShortcut">
                                     Custom @((HasCustomContinueSelection) ? "✓" : string.Empty)
                                 </button>
@@ -839,8 +2421,8 @@
                         <div class="rw-identity-list rw-continue-identity-list">
                             @foreach (var option in _identityOptions)
                             {
-                                <button class="rw-identity-item @(IsContinueIdentitySelected(option) ? "is-selected" : string.Empty) @(_isSubmitting ? "is-disabled" : "")"
-                                        disabled="@_isSubmitting"
+                                <button class="rw-identity-item @(IsContinueIdentitySelected(option) ? "is-selected" : string.Empty) @(IsSelectionUiLocked ? "is-disabled" : "")"
+                                        disabled="@IsSelectionUiLocked"
                                         @onclick="@(() => ToggleContinueIdentitySelection(option.Id))">
                                     <span class="rw-identity-badge">@GetInitial(option.DisplayName)</span>
                                     <span class="rw-identity-name">@option.DisplayName</span>
@@ -856,7 +2438,7 @@
                         {
                             <div class="rw-custom-name-row">
                                 <input class="rw-custom-name-input" placeholder="Character name..."
-                                       @bind="_customIdentityName" @bind:event="oninput" disabled="@_isSubmitting" />
+                                       @bind="_customIdentityName" @bind:event="oninput" disabled="@IsSelectionUiLocked" />
                             </div>
                         }
                         <div class="rw-popup-actions rw-continue-popup-actions">
@@ -888,10 +2470,10 @@
                                   rows="2"
                                   @bind="_promptText"
                                   @bind:event="oninput"
-                                  disabled="@_isSubmitting"></textarea>
+                                  disabled="@IsSelectionUiLocked"></textarea>
                         <div class="rw-prompt-toolbar">
                             <div class="rw-toolbar-left">
-                                <button class="rw-intent-btn" @onclick="ToggleIntentPopup" @onclick:stopPropagation disabled="@_isSubmitting" title="Change message type">
+                                <button class="rw-intent-btn" @onclick="ToggleIntentPopup" @onclick:stopPropagation disabled="@IsSelectionUiLocked" title="Change message type">
                                     @IntentLabel <span class="rw-chevron">⌃</span>
                                 </button>
                             </div>
@@ -943,6 +2525,16 @@
                     <path d="M9.796 1.343c-.527-1.79-3.065-1.79-3.592 0l-.094.319a.873.873 0 0 1-1.255.52l-.292-.16c-1.64-.892-3.433.902-2.54 2.541l.159.292a.873.873 0 0 1-.52 1.255l-.319.094c-1.79.527-1.79 3.065 0 3.592l.319.094a.873.873 0 0 1 .52 1.255l-.16.292c-.892 1.64.901 3.434 2.541 2.54l.292-.159a.873.873 0 0 1 1.255.52l.094.319c.527 1.79 3.065 1.79 3.592 0l.094-.319a.873.873 0 0 1 1.255-.52l.292.16c1.64.893 3.434-.902 2.54-2.541l-.159-.292a.873.873 0 0 1 .52-1.255l.319-.094c1.79-.527 1.79-3.065 0-3.592l-.319-.094a.873.873 0 0 1-.52-1.255l.16-.292c.893-1.64-.902-3.433-2.541-2.54l-.292.159a.873.873 0 0 1-1.255-.52l-.094-.319zm-2.633.283c.246-.835 1.428-.835 1.674 0l.094.319a1.873 1.873 0 0 0 2.693 1.115l.291-.16c.764-.415 1.6.42 1.184 1.185l-.159.292a1.873 1.873 0 0 0 1.116 2.692l.318.094c.835.246.835 1.428 0 1.674l-.319.094a1.873 1.873 0 0 0-1.115 2.693l.16.291c.415.764-.42 1.6-1.185 1.184l-.291-.159a1.873 1.873 0 0 0-2.693 1.116l-.094.318c-.246.835-1.428.835-1.674 0l-.094-.319a1.873 1.873 0 0 0-2.692-1.115l-.292.16c-.764.415-1.6-.42-1.184-1.185l.159-.291A1.873 1.873 0 0 0 1.945 8.93l-.319-.094c-.835-.246-.835-1.428 0-1.674l.319-.094A1.873 1.873 0 0 0 3.06 4.47l-.16-.292c-.415-.764.42-1.6 1.185-1.184l.292.159a1.873 1.873 0 0 0 2.692-1.115l.094-.319z"/>
                 </svg>Settings
             </button>
+            <button class="rw-settings-tab @(_activeSettingsTab == "assistant" ? "is-active" : "")"
+                    @onclick="@(() => _activeSettingsTab = "assistant")">
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" style="margin-right:4px;vertical-align:-1px">
+                    <path d="M2.678 11.894a1 1 0 0 1 .287.801 10.97 10.97 0 0 1-.398 2c1.395-.323 2.247-.697 2.634-.893a1 1 0 0 1 .71-.074A8.06 8.06 0 0 0 8 14c3.996 0 7-2.807 7-6 0-3.192-3.004-6-7-6S1 4.808 1 8c0 1.468.617 2.83 1.678 3.894z"/>
+                </svg>Assistant
+            </button>
+            <button class="rw-settings-tab @(_activeSettingsTab == "adaptive" ? "is-active" : "")"
+                    @onclick="@(() => _activeSettingsTab = "adaptive")">
+                Adaptive
+            </button>
         </div>
 
         @if (_session is not null)
@@ -961,13 +2553,8 @@
                     </div>
 
                     <div class="rw-settings-section">
-                        <div class="rw-settings-section-label">Fork Session</div>
-                        <input class="rw-settings-input" placeholder="Branch title" @bind="_branchTitle" />
-                        <div class="rw-settings-row">
-                            <span class="rw-settings-small-label">From index</span>
-                            <input type="number" class="rw-settings-input rw-settings-input-sm" min="-1" @bind="_branchFromIndex" />
-                        </div>
-                        <button class="rw-fork-btn" @onclick="ForkAsync">Fork Session</button>
+                        <div class="rw-settings-section-label">Model Override</div>
+                        <ModelSettingsPanel SessionId="@_session.Id" OnSettingsUpdated="OnModelSettingsUpdated" />
                     </div>
 
                 </div>
@@ -983,6 +2570,474 @@
                         <div class="rw-settings-info-row"><span>Persona</span><span>@_session.PersonaName</span></div>
                         <div class="rw-settings-info-row"><span>Created</span><span>@_session.CreatedAt.ToString("MMM d")</span></div>
                     </div>
+
+                    @if (_loadedScenario is not null)
+                    {
+                        @* ── Style ── *@
+                        <div class="rw-collapsible-section">
+                            <button class="rw-collapsible-header" @onclick="@(() => ToggleScenarioSection("style"))">
+                                <span class="rw-collapsible-chevron @(_expandedScenarioSections.Contains("style") ? "is-open" : "")">▸</span>
+                                <span class="rw-collapsible-title">Style</span>
+                            </button>
+                            @if (_expandedScenarioSections.Contains("style"))
+                            {
+                                <div class="rw-collapsible-body">
+                                    <div class="rw-scenario-field">
+                                        <label class="rw-scenario-field-label">Style Profile</label>
+                                        <select class="rw-mode-select"
+                                                value="@_loadedScenario.Style.StyleProfileId"
+                                                @onchange="@(e => { _loadedScenario.Style.StyleProfileId = string.IsNullOrWhiteSpace(e.Value?.ToString()) ? null : e.Value?.ToString(); MarkScenarioDirty(); })">
+                                            <option value="">(None)</option>
+                                            @foreach (var style in _styleProfiles)
+                                            {
+                                                <option value="@style.Id">@style.Name</option>
+                                            }
+                                        </select>
+                                    </div>
+                                    <div class="rw-scenario-field">
+                                        <label class="rw-scenario-field-label">Tone</label>
+                                        <input class="rw-settings-input" placeholder="e.g. slow-burn, tense, playful"
+                                               value="@_loadedScenario.Style.Tone"
+                                               @onchange="@(e => { _loadedScenario.Style.Tone = e.Value?.ToString(); MarkScenarioDirty(); })" />
+                                    </div>
+                                    <div class="rw-scenario-field">
+                                        <label class="rw-scenario-field-label">Writing Style</label>
+                                        <input class="rw-settings-input" placeholder="e.g. literary, dialog-driven"
+                                               value="@_loadedScenario.Style.WritingStyle"
+                                               @onchange="@(e => { _loadedScenario.Style.WritingStyle = e.Value?.ToString(); MarkScenarioDirty(); })" />
+                                    </div>
+                                    <div class="rw-scenario-field">
+                                        <label class="rw-scenario-field-label">Point of View</label>
+                                        <input class="rw-settings-input" placeholder="e.g. third-person limited"
+                                               value="@_loadedScenario.Style.PointOfView"
+                                               @onchange="@(e => { _loadedScenario.Style.PointOfView = e.Value?.ToString(); MarkScenarioDirty(); })" />
+                                    </div>
+                                    <div class="rw-scenario-field">
+                                        <label class="rw-scenario-field-label">Style Guidelines</label>
+                                        @for (var i = 0; i < _loadedScenario.Style.StyleGuidelines.Count; i++)
+                                        {
+                                            var idx = i;
+                                            <div class="rw-list-item-row">
+                                                <input class="rw-settings-input" value="@_loadedScenario.Style.StyleGuidelines[idx]"
+                                                       @onchange="@(e => { _loadedScenario.Style.StyleGuidelines[idx] = e.Value?.ToString() ?? ""; MarkScenarioDirty(); })" />
+                                                <button class="rw-list-remove-btn" @onclick="@(() => { _loadedScenario.Style.StyleGuidelines.RemoveAt(idx); MarkScenarioDirty(); })">✕</button>
+                                            </div>
+                                        }
+                                        <button class="rw-list-add-btn" @onclick="@(() => _loadedScenario.Style.StyleGuidelines.Add(""))">+ Add Guideline</button>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+
+                        @* ── Plot ── *@
+                        <div class="rw-collapsible-section">
+                            <button class="rw-collapsible-header" @onclick="@(() => ToggleScenarioSection("plot"))">
+                                <span class="rw-collapsible-chevron @(_expandedScenarioSections.Contains("plot") ? "is-open" : "")">▸</span>
+                                <span class="rw-collapsible-title">Plot</span>
+                            </button>
+                            @if (_expandedScenarioSections.Contains("plot"))
+                            {
+                                <div class="rw-collapsible-body">
+                                    <div class="rw-scenario-field">
+                                        <label class="rw-scenario-field-label">Description</label>
+                                        <textarea class="rw-settings-textarea" rows="3"
+                                                  placeholder="The overarching story"
+                                                  value="@_loadedScenario.Plot.Description"
+                                                  @onchange="@(e => { _loadedScenario.Plot.Description = e.Value?.ToString(); MarkScenarioDirty(); })"></textarea>
+                                    </div>
+                                    <div class="rw-scenario-field">
+                                        <label class="rw-scenario-field-label">Conflicts</label>
+                                        @for (var i = 0; i < _loadedScenario.Plot.Conflicts.Count; i++)
+                                        {
+                                            var idx = i;
+                                            <div class="rw-list-item-row">
+                                                <input class="rw-settings-input" value="@_loadedScenario.Plot.Conflicts[idx]"
+                                                       @onchange="@(e => { _loadedScenario.Plot.Conflicts[idx] = e.Value?.ToString() ?? ""; MarkScenarioDirty(); })" />
+                                                <button class="rw-list-remove-btn" @onclick="@(() => { _loadedScenario.Plot.Conflicts.RemoveAt(idx); MarkScenarioDirty(); })">✕</button>
+                                            </div>
+                                        }
+                                        <button class="rw-list-add-btn" @onclick="@(() => _loadedScenario.Plot.Conflicts.Add(""))">+ Add Conflict</button>
+                                    </div>
+                                    <div class="rw-scenario-field">
+                                        <label class="rw-scenario-field-label">Goals</label>
+                                        @for (var i = 0; i < _loadedScenario.Plot.Goals.Count; i++)
+                                        {
+                                            var idx = i;
+                                            <div class="rw-list-item-row">
+                                                <input class="rw-settings-input" value="@_loadedScenario.Plot.Goals[idx]"
+                                                       @onchange="@(e => { _loadedScenario.Plot.Goals[idx] = e.Value?.ToString() ?? ""; MarkScenarioDirty(); })" />
+                                                <button class="rw-list-remove-btn" @onclick="@(() => { _loadedScenario.Plot.Goals.RemoveAt(idx); MarkScenarioDirty(); })">✕</button>
+                                            </div>
+                                        }
+                                        <button class="rw-list-add-btn" @onclick="@(() => _loadedScenario.Plot.Goals.Add(""))">+ Add Goal</button>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+
+                        @* ── Setting ── *@
+                        <div class="rw-collapsible-section">
+                            <button class="rw-collapsible-header" @onclick="@(() => ToggleScenarioSection("setting"))">
+                                <span class="rw-collapsible-chevron @(_expandedScenarioSections.Contains("setting") ? "is-open" : "")">▸</span>
+                                <span class="rw-collapsible-title">Setting</span>
+                            </button>
+                            @if (_expandedScenarioSections.Contains("setting"))
+                            {
+                                <div class="rw-collapsible-body">
+                                    <div class="rw-scenario-field">
+                                        <label class="rw-scenario-field-label">World Description</label>
+                                        <textarea class="rw-settings-textarea" rows="2"
+                                                  placeholder="The world/environment"
+                                                  value="@_loadedScenario.Setting.WorldDescription"
+                                                  @onchange="@(e => { _loadedScenario.Setting.WorldDescription = e.Value?.ToString(); MarkScenarioDirty(); })"></textarea>
+                                    </div>
+                                    <div class="rw-scenario-field">
+                                        <label class="rw-scenario-field-label">World Rules</label>
+                                        @for (var i = 0; i < _loadedScenario.Setting.WorldRules.Count; i++)
+                                        {
+                                            var idx = i;
+                                            <div class="rw-list-item-row">
+                                                <input class="rw-settings-input" value="@_loadedScenario.Setting.WorldRules[idx]"
+                                                       @onchange="@(e => { _loadedScenario.Setting.WorldRules[idx] = e.Value?.ToString() ?? ""; MarkScenarioDirty(); })" />
+                                                <button class="rw-list-remove-btn" @onclick="@(() => { _loadedScenario.Setting.WorldRules.RemoveAt(idx); MarkScenarioDirty(); })">✕</button>
+                                            </div>
+                                        }
+                                        <button class="rw-list-add-btn" @onclick="@(() => _loadedScenario.Setting.WorldRules.Add(""))">+ Add Rule</button>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+
+                        @* ── Characters ── *@
+                        <div class="rw-collapsible-section">
+                            <button class="rw-collapsible-header" @onclick="@(() => ToggleScenarioSection("characters"))">
+                                <span class="rw-collapsible-chevron @(_expandedScenarioSections.Contains("characters") ? "is-open" : "")">▸</span>
+                                <span class="rw-collapsible-title">Characters (@_loadedScenario.Characters.Count)</span>
+                            </button>
+                            @if (_expandedScenarioSections.Contains("characters"))
+                            {
+                                <div class="rw-collapsible-body">
+                                    @foreach (var character in _loadedScenario.Characters)
+                                    {
+                                        <div class="rw-scenario-character">
+                                            <div class="rw-scenario-field">
+                                                <label class="rw-scenario-field-label">@(character.Name ?? "Unnamed") @(!string.IsNullOrWhiteSpace(character.Role) ? $"({character.Role})" : "")</label>
+                                                <textarea class="rw-settings-textarea" rows="3"
+                                                          placeholder="Character description, personality, motivations..."
+                                                          value="@character.Description"
+                                                          @onchange="@(e => { character.Description = e.Value?.ToString(); MarkScenarioDirty(); })"></textarea>
+                                            </div>
+                                            <div class="rw-scenario-field">
+                                                <label class="rw-scenario-field-label">Role</label>
+                                                <input class="rw-settings-input"
+                                                       placeholder="e.g., antagonist, catalyst, love interest"
+                                                       value="@character.Role"
+                                                       @onchange="@(e => { character.Role = e.Value?.ToString(); MarkScenarioDirty(); })" />
+                                            </div>
+                                            <div class="rw-scenario-field">
+                                                <label class="rw-scenario-field-label">Session Perspective</label>
+                                                <select class="rw-mode-select"
+                                                        value="@GetCharacterPerspectiveModeValue(character)"
+                                                        @onchange="@(e => OnCharacterPerspectiveChanged(character, e))">
+                                                    @foreach (var mode in CharacterPerspectiveModes.All)
+                                                    {
+                                                        <option value="@mode.Mode">@mode.DisplayName</option>
+                                                    }
+                                                </select>
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+
+                        @* ── Persona ── *@
+                        <div class="rw-collapsible-section">
+                            <button class="rw-collapsible-header" @onclick="@(() => ToggleScenarioSection("persona"))">
+                                <span class="rw-collapsible-chevron @(_expandedScenarioSections.Contains("persona") ? "is-open" : "")">▸</span>
+                                <span class="rw-collapsible-title">Persona</span>
+                            </button>
+                            @if (_expandedScenarioSections.Contains("persona"))
+                            {
+                                <div class="rw-collapsible-body">
+                                    <div class="rw-scenario-field">
+                                        <label class="rw-scenario-field-label">Name</label>
+                                        <input class="rw-settings-input"
+                                               value="@_session.PersonaName"
+                                               @onchange="@(e => { _session.PersonaName = e.Value?.ToString() ?? "You"; _ = SaveSessionSettingsAsync(); })" />
+                                    </div>
+                                    <div class="rw-scenario-field">
+                                        <label class="rw-scenario-field-label">Description</label>
+                                        <textarea class="rw-settings-textarea" rows="2"
+                                                  placeholder="Persona description, perspective..."
+                                                  value="@_session.PersonaDescription"
+                                                  @onchange="@(e => { _session.PersonaDescription = e.Value?.ToString() ?? ""; _ = SaveSessionSettingsAsync(); })"></textarea>
+                                    </div>
+                                    <div class="rw-scenario-field">
+                                        <label class="rw-scenario-field-label">Perspective</label>
+                                        <select class="rw-mode-select"
+                                                value="@_session.PersonaPerspectiveMode"
+                                                @onchange="OnPersonaPerspectiveChanged">
+                                            @foreach (var mode in CharacterPerspectiveModes.All)
+                                            {
+                                                <option value="@mode.Mode">@mode.DisplayName</option>
+                                            }
+                                        </select>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+
+                        @* ── Save Button ── *@
+                        <button class="rw-scenario-save-btn @(_scenarioDirty ? "" : "is-disabled")"
+                                disabled="@(!_scenarioDirty)"
+                                @onclick="OnSaveScenarioClicked">
+                            @(_scenarioDirty ? "Save Scenario Changes" : "No Changes")
+                        </button>
+                    }
+                    else
+                    {
+                        <div class="rw-settings-section">
+                            <p class="rw-scenario-empty">No scenario linked to this session.</p>
+                        </div>
+                    }
+                </div>
+            }
+
+            @if (_activeSettingsTab == "assistant")
+            {
+                <div class="rw-settings-content">
+                    <div class="rw-settings-section">
+                        <div class="rw-settings-section-label">Assistant Model</div>
+                        <select class="rw-mode-select" @bind="_assistantSelectedModelId" @bind:after="OnAssistantModelChanged">
+                            <option value="">(Use Function Default)</option>
+                            @foreach (var group in _assistantGroupedModels)
+                            {
+                                <optgroup label="@group.Key">
+                                    @foreach (var model in group.Value)
+                                    {
+                                        <option value="@model.Id">@(model.DisplayName ?? model.ModelIdentifier)</option>
+                                    }
+                                </optgroup>
+                            }
+                        </select>
+                    </div>
+                    <AssistantPanel Title="Role-Play Assistant"
+                                    SessionId="@_session.Id"
+                                    Messages="@GetActiveAssistantMessages()"
+                                    Chats="@GetAssistantChatSummaries()"
+                                    ActiveChatId="@_activeAssistantChatId"
+                                    OnSelectChatRequest="OnAssistantSelectChat"
+                                    OnCreateChatRequest="OnAssistantCreateChat"
+                                    OnDeleteChatRequest="OnAssistantDeleteChat"
+                                    OnGenerateRequest="OnAssistantGenerateRequest"
+                                    OnClearChatRequest="OnAssistantClearChat" />
+                </div>
+            }
+
+            @if (_activeSettingsTab == "adaptive")
+            {
+                <div class="rw-settings-content">
+                    <div class="rw-settings-section">
+                        <div class="rw-settings-section-label">Active Profiles</div>
+                        <div class="rw-scenario-field">
+                            <label class="rw-scenario-field-label">Content Preference Profile</label>
+                            <select class="rw-mode-select"
+                                    value="@_session.SelectedRankingProfileId"
+                                    @onchange="OnRankingProfileChanged">
+                                <option value="">(None)</option>
+                                @foreach (var profile in _rankingProfiles)
+                                {
+                                    <option value="@profile.Id">@profile.Name</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="rw-scenario-field">
+                            <label class="rw-scenario-field-label">Tone Profile</label>
+                            <select class="rw-mode-select"
+                                    value="@_session.SelectedToneProfileId"
+                                    @onchange="OnToneProfileChanged">
+                                <option value="">(None)</option>
+                                @foreach (var profile in _toneProfiles)
+                                {
+                                    <option value="@profile.Id">@profile.Name</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="rw-scenario-field">
+                            <label class="rw-scenario-field-label">Style Profile</label>
+                            <select class="rw-mode-select"
+                                    value="@_session.SelectedStyleProfileId"
+                                    @onchange="OnStyleProfileChanged">
+                                <option value="">(None)</option>
+                                @foreach (var profile in _styleProfiles)
+                                {
+                                    <option value="@profile.Id">@profile.Name</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="rw-scenario-field">
+                            <label class="rw-scenario-field-label">Style Floor</label>
+                            <select class="rw-mode-select"
+                                    value="@_session.StyleFloorOverride"
+                                    @onchange="OnStyleFloorChanged">
+                                <option value="">(None)</option>
+                                @foreach (var option in StyleBoundOptions)
+                                {
+                                    <option value="@option.Value">@option.Label</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="rw-scenario-field">
+                            <label class="rw-scenario-field-label">Style Ceiling</label>
+                            <select class="rw-mode-select"
+                                    value="@_session.StyleCeilingOverride"
+                                    @onchange="OnStyleCeilingChanged">
+                                <option value="">(None)</option>
+                                @foreach (var option in StyleBoundOptions)
+                                {
+                                    <option value="@option.Value">@option.Label</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="rw-settings-info-row">
+                            <span>Manual Tone Pin</span>
+                            <input type="checkbox"
+                                   checked="@_session.IsToneManuallyPinned"
+                                   @onchange="@(e => { _session.IsToneManuallyPinned = e.Value is bool b && b; _ = SaveSessionSettingsAsync(); })" />
+                        </div>
+                        <div class="rw-settings-info-row">
+                            <span>Effective Style Mode</span>
+                            <span>@GetEffectiveStyleLabel()</span>
+                        </div>
+                        <div class="rw-settings-info-row">
+                            <span>Style Resolution</span>
+                            <span>@GetEffectiveStyleReason()</span>
+                        </div>
+                    </div>
+
+                    <div class="rw-settings-section">
+                        <div class="rw-settings-section-label">Profile Steering (Prompt Input)</div>
+                        @if (string.IsNullOrWhiteSpace(_session.SelectedRankingProfileId))
+                        {
+                            <p class="rw-scenario-empty">No ranking profile selected for this session.</p>
+                        }
+                        else if (_activeProfileThemes.Count == 0)
+                        {
+                            <p class="rw-scenario-empty">Selected profile has no themes.</p>
+                        }
+                        else
+                        {
+                            @foreach (var group in _activeProfileThemes.GroupBy(x => x.Tier).OrderBy(g => GetTierPriority(g.Key)))
+                            {
+                                <div class="rw-scenario-field" style="margin-bottom:10px;">
+                                    <label class="rw-scenario-field-label">@FormatTier(group.Key) (@group.Count())</label>
+                                    @foreach (var theme in group.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
+                                    {
+                                        <div class="rw-settings-info-row">
+                                            <span>@theme.Name</span>
+                                            <span>@(string.IsNullOrWhiteSpace(theme.Description) ? "(no description)" : theme.Description)</span>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        }
+                    </div>
+
+                    <div class="rw-settings-section">
+                        <div class="rw-settings-section-label">Character Stats</div>
+                        @if (_session.AdaptiveState.CharacterStats.Count == 0)
+                        {
+                            <p class="rw-scenario-empty">No adaptive stats yet. Generate interactions to populate.</p>
+                        }
+                        else
+                        {
+                            @foreach (var actorStats in _session.AdaptiveState.CharacterStats.OrderBy(x => x.Key))
+                            {
+                                <div class="rw-scenario-field" style="margin-bottom:10px;">
+                                    <label class="rw-scenario-field-label">@actorStats.Key</label>
+                                    @foreach (var stat in actorStats.Value.Stats.OrderBy(x => x.Key))
+                                    {
+                                        <div class="rw-settings-info-row"><span>@stat.Key</span><span>@stat.Value</span></div>
+                                    }
+                                </div>
+                            }
+                        }
+                    </div>
+
+                    <div class="rw-settings-section">
+                        <div class="rw-settings-section-label">Theme Tracker</div>
+                        <div class="rw-settings-info-row"><span>Selection Rule</span><span>@_session.AdaptiveState.ThemeTracker.ThemeSelectionRule</span></div>
+                        <div class="rw-settings-info-row">
+                            <span>Primary Theme</span>
+                            <span>
+                                @if (!string.IsNullOrWhiteSpace(_session.AdaptiveState.ThemeTracker.PrimaryThemeId)
+                                    && _session.AdaptiveState.ThemeTracker.Themes.TryGetValue(_session.AdaptiveState.ThemeTracker.PrimaryThemeId, out var primaryTheme))
+                                {
+                                    @primaryTheme.ThemeName
+                                }
+                                else
+                                {
+                                    @("(none)")
+                                }
+                            </span>
+                        </div>
+                        <div class="rw-settings-info-row">
+                            <span>Secondary Theme</span>
+                            <span>
+                                @if (!string.IsNullOrWhiteSpace(_session.AdaptiveState.ThemeTracker.SecondaryThemeId)
+                                    && _session.AdaptiveState.ThemeTracker.Themes.TryGetValue(_session.AdaptiveState.ThemeTracker.SecondaryThemeId, out var secondaryTheme))
+                                {
+                                    @secondaryTheme.ThemeName
+                                }
+                                else
+                                {
+                                    @("(none)")
+                                }
+                            </span>
+                        </div>
+                        @if (_session.AdaptiveState.ThemeTracker.Themes.Count == 0)
+                        {
+                            <p class="rw-scenario-empty">No tracked themes yet.</p>
+                        }
+                        else
+                        {
+                            @foreach (var theme in _session.AdaptiveState.ThemeTracker.Themes.Values.OrderByDescending(x => x.Score))
+                            {
+                                <div class="rw-scenario-field" style="margin-bottom:10px;">
+                                    <label class="rw-scenario-field-label">@theme.ThemeName</label>
+                                    <div class="rw-settings-info-row"><span>Intensity</span><span>@theme.Intensity</span></div>
+                                    <div class="rw-settings-info-row"><span>Score</span><span>@theme.Score.ToString("F1")</span></div>
+                                    <div class="rw-settings-info-row"><span>Choice Signal</span><span>@theme.Breakdown.ChoiceSignal.ToString("F1")</span></div>
+                                    <div class="rw-settings-info-row"><span>Character Signal</span><span>@theme.Breakdown.CharacterStateSignal.ToString("F1")</span></div>
+                                    <div class="rw-settings-info-row"><span>Interaction Signal</span><span>@theme.Breakdown.InteractionEvidenceSignal.ToString("F1")</span></div>
+                                    <div class="rw-settings-info-row"><span>Phase Signal</span><span>@theme.Breakdown.ScenarioPhaseSignal.ToString("F1")</span></div>
+                                </div>
+                            }
+                        }
+                    </div>
+
+                    <div class="rw-settings-section">
+                        <div class="rw-settings-section-label">Explainability Events</div>
+                        @if (_session.AdaptiveState.ThemeTracker.RecentEvidence.Count == 0)
+                        {
+                            <p class="rw-scenario-empty">No evidence events yet.</p>
+                        }
+                        else
+                        {
+                            @foreach (var ev in _session.AdaptiveState.ThemeTracker.RecentEvidence.TakeLast(20).Reverse())
+                            {
+                                <div class="rw-scenario-field" style="margin-bottom:10px;">
+                                    <div class="rw-settings-info-row"><span>Theme</span><span>@ev.ThemeId</span></div>
+                                    <div class="rw-settings-info-row"><span>Signal</span><span>@ev.SignalType</span></div>
+                                    <div class="rw-settings-info-row"><span>Delta</span><span>@ev.Delta.ToString("F1")</span></div>
+                                    <div class="rw-settings-info-row"><span>Confidence</span><span>@ev.Confidence.ToString("F2")</span></div>
+                                    <div class="rw-settings-info-row"><span>Interaction</span><span>@ev.InteractionId</span></div>
+                                    <div class="rw-settings-info-row"><span>Why</span><span>@ev.Rationale</span></div>
+                                </div>
+                            }
+                        }
+                    </div>
                 </div>
             }
         }
@@ -990,3 +3045,7 @@
     </div>
 
 </div>
+
+@code {
+    private sealed record MenuRect(double Top, double Left, double Bottom, double Right, double Width, double Height);
+}

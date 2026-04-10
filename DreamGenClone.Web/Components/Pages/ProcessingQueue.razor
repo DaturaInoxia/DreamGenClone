@@ -1,0 +1,134 @@
+@page "/processing-queue"
+@rendermode InteractiveServer
+@implements IDisposable
+
+@using DreamGenClone.Application.Processing
+
+@inject IModelProcessingQueue Queue
+
+<PageTitle>Processing Queue</PageTitle>
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h1>Processing Queue</h1>
+        <button class="btn btn-outline-secondary btn-sm" @onclick="ClearCompleted">Clear Completed</button>
+    </div>
+
+    @{
+        var allTasks = Queue.GetAllTasks();
+        var processing = allTasks.Where(t => t.Status == ModelProcessingStatus.Processing).ToList();
+        var queued = allTasks.Where(t => t.Status == ModelProcessingStatus.Queued).ToList();
+        var completed = allTasks.Where(t => t.Status == ModelProcessingStatus.Completed).ToList();
+        var failed = allTasks.Where(t => t.Status == ModelProcessingStatus.Failed).ToList();
+    }
+
+    @if (allTasks.Count == 0)
+    {
+        <div class="alert alert-info">No processing tasks.</div>
+    }
+    else
+    {
+
+        @if (processing.Count > 0)
+        {
+            <h5 class="mt-3">Processing</h5>
+            <div class="list-group mb-3">
+                @foreach (var task in processing)
+                {
+                    <div class="list-group-item list-group-item-warning d-flex justify-content-between align-items-center">
+                        <div>
+                            <span class="fw-semibold">⏳ @task.TaskType</span>
+                            <span class="ms-2">@(task.StoryTitle ?? task.ParsedStoryId)</span>
+                        </div>
+                        <div class="text-end">
+                            <small>Started: @task.StartedUtc?.ToLocalTime().ToString("HH:mm:ss")</small>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+
+        @if (queued.Count > 0)
+        {
+            <h5 class="mt-3">Queued (@queued.Count)</h5>
+            <div class="list-group mb-3">
+                @foreach (var task in queued)
+                {
+                    <div class="list-group-item d-flex justify-content-between align-items-center">
+                        <div>
+                            <span class="fw-semibold">🕐 @task.TaskType</span>
+                            <span class="ms-2">@(task.StoryTitle ?? task.ParsedStoryId)</span>
+                        </div>
+                        <div class="text-end">
+                            <small>Queued: @task.EnqueuedUtc.ToLocalTime().ToString("HH:mm:ss")</small>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+
+        @if (completed.Count > 0)
+        {
+            <h5 class="mt-3">Completed (@completed.Count)</h5>
+            <div class="list-group mb-3">
+                @foreach (var task in completed)
+                {
+                    <div class="list-group-item list-group-item-success d-flex justify-content-between align-items-center">
+                        <div>
+                            <span class="fw-semibold">✓ @task.TaskType</span>
+                            <span class="ms-2">@(task.StoryTitle ?? task.ParsedStoryId)</span>
+                        </div>
+                        <div class="text-end">
+                            <small>Completed: @task.CompletedUtc?.ToLocalTime().ToString("HH:mm:ss")</small>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+
+        @if (failed.Count > 0)
+        {
+            <h5 class="mt-3">Failed (@failed.Count)</h5>
+            <div class="list-group mb-3">
+                @foreach (var task in failed)
+                {
+                    <div class="list-group-item list-group-item-danger d-flex justify-content-between align-items-center">
+                        <div>
+                            <span class="fw-semibold">⚠ @task.TaskType</span>
+                            <span class="ms-2">@(task.StoryTitle ?? task.ParsedStoryId)</span>
+                            @if (!string.IsNullOrEmpty(task.ErrorMessage))
+                            {
+                                <div><small class="text-danger">@task.ErrorMessage</small></div>
+                            }
+                        </div>
+                        <div class="text-end">
+                            <small>Failed: @task.CompletedUtc?.ToLocalTime().ToString("HH:mm:ss")</small>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    }
+</div>
+
+@code {
+    protected override void OnInitialized()
+    {
+        Queue.OnStatusChanged += OnStatusChanged;
+    }
+
+    private void OnStatusChanged(ModelProcessingTask task)
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void ClearCompleted()
+    {
+        Queue.ClearCompleted();
+    }
+
+    public void Dispose()
+    {
+        Queue.OnStatusChanged -= OnStatusChanged;
+    }
+}

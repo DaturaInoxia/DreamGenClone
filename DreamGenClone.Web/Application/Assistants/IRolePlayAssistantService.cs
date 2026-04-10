@@ -1,5 +1,47 @@
 namespace DreamGenClone.Web.Application.Assistants;
 
+/// <summary>
+/// Snapshot of the current role-play session state provided to the assistant for context-aware advice.
+/// </summary>
+public sealed class RolePlayAssistantContext
+{
+    public string SessionId { get; init; } = string.Empty;
+    public string? ScenarioSummary { get; init; }
+    public IReadOnlyList<string> RecentInteractions { get; init; } = [];
+    public string? BehaviorMode { get; init; }
+    public string? PersonaName { get; init; }
+    public string? PersonaDescription { get; init; }
+    public IReadOnlyList<string> CharacterSummaries { get; init; } = [];
+    public int ContextWindowSize { get; init; }
+    public int PinnedInteractionCount { get; init; }
+    public string? SessionModelId { get; init; }
+    public double SessionTemperature { get; init; }
+    public double SessionTopP { get; init; }
+    public int SessionMaxTokens { get; init; }
+
+    // Rich scenario fields for field-specific advice
+    public string? ScenarioTone { get; init; }
+    public string? ScenarioWritingStyle { get; init; }
+    public string? ScenarioPointOfView { get; init; }
+    public IReadOnlyList<string> ScenarioStyleGuidelines { get; init; } = [];
+    public IReadOnlyList<string> ScenarioConflicts { get; init; } = [];
+    public IReadOnlyList<string> ScenarioGoals { get; init; } = [];
+    public string? ScenarioWorldDescription { get; init; }
+    public IReadOnlyList<string> ScenarioWorldRules { get; init; } = [];
+    public IReadOnlyList<string> FullCharacterDetails { get; init; } = [];
+
+    // Adaptive/profile steering visibility for assistant guidance
+    public string? SelectedRankingProfileId { get; init; }
+    public string? SelectedToneProfileId { get; init; }
+    public string? SelectedStyleProfileId { get; init; }
+    public string? StyleFloorOverride { get; init; }
+    public string? StyleCeilingOverride { get; init; }
+    public bool IsToneManuallyPinned { get; init; }
+    public string? EffectiveStyleMode { get; init; }
+    public string? StyleResolutionReason { get; init; }
+    public IReadOnlyList<string> ProfileSteeringThemes { get; init; } = [];
+}
+
 public interface IRolePlayAssistantService
 {
     /// <summary>
@@ -11,6 +53,28 @@ public interface IRolePlayAssistantService
         string? scenarioSummary,
         IReadOnlyList<string> recentInteractions,
         string userPrompt,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Generates a context-aware role-play suggestion using rich session state and optional model override.
+    /// </summary>
+    Task<string> GenerateSuggestionAsync(
+        RolePlayAssistantContext context,
+        string userPrompt,
+        string? assistantModelId = null,
+        double? assistantTemperature = null,
+        double? assistantTopP = null,
+        int? assistantMaxTokens = null,
+        CancellationToken cancellationToken = default);
+
+    Task<string> GenerateSuggestionStreamingAsync(
+        RolePlayAssistantContext context,
+        string userPrompt,
+        Func<string, Task> onChunk,
+        string? assistantModelId = null,
+        double? assistantTemperature = null,
+        double? assistantTopP = null,
+        int? assistantMaxTokens = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

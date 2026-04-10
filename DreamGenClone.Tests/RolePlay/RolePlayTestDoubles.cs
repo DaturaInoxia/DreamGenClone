@@ -1,8 +1,13 @@
 using CoreAutoSaveCoordinator = DreamGenClone.Application.Sessions.IAutoSaveCoordinator;
+using DreamGenClone.Application.Abstractions;
 using DreamGenClone.Web.Application.RolePlay;
+using DreamGenClone.Web.Application.Scenarios;
 using DreamGenClone.Web.Application.Sessions;
 using DreamGenClone.Web.Domain.RolePlay;
+using DreamGenClone.Web.Domain.Scenarios;
 using DreamGenClone.Web.Domain.Story;
+using DreamGenClone.Application.StoryAnalysis;
+using DreamGenClone.Domain.StoryAnalysis;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace DreamGenClone.Tests.RolePlay;
@@ -11,7 +16,9 @@ internal static class RolePlayTestFactory
 {
     internal static RolePlayEngineService CreateEngineService(
         IRolePlayContinuationService? continuationService = null,
-        IRolePlayIdentityOptionsService? identityOptionsService = null)
+        IRolePlayIdentityOptionsService? identityOptionsService = null,
+        IScenarioService? scenarioService = null,
+        IBaseStatProfileService? baseStatProfileService = null)
     {
         var sessionService = new FakeSessionService();
         var coreAutoSave = new FakeCoreAutoSaveCoordinator();
@@ -24,9 +31,13 @@ internal static class RolePlayTestFactory
             behaviorMode,
             new RolePlayPromptRouter(),
             identityOptionsService ?? new DefaultIdentityOptionsService(),
+            new RolePlayAdaptiveStateService(),
             validator,
             sessionService,
+            scenarioService ?? new NullScenarioService(),
+            baseStatProfileService ?? new FakeBaseStatProfileService(),
             autoSave,
+            new NullRolePlayDebugEventSink(),
             NullLogger<RolePlayEngineService>.Instance);
     }
 
@@ -38,6 +49,7 @@ internal static class RolePlayTestFactory
             string? customActorName,
             PromptIntent intent,
             string promptText,
+            Func<string, Task>? onChunk = null,
             CancellationToken cancellationToken = default)
         {
             return Task.FromResult(new RolePlayInteraction
@@ -135,6 +147,55 @@ internal static class RolePlayTestFactory
         }
     }
 
+    internal sealed class NullRolePlayDebugEventSink : IRolePlayDebugEventSink
+    {
+        public Task WriteAsync(RolePlayDebugEventRecord record, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+    }
+
+    internal sealed class FakeBaseStatProfileService : IBaseStatProfileService
+    {
+        private readonly Dictionary<string, BaseStatProfile> _profiles = new(StringComparer.OrdinalIgnoreCase);
+
+        public Task<BaseStatProfile> CreateAsync(string name, string description, IReadOnlyDictionary<string, int> defaultStats, CancellationToken cancellationToken = default)
+        {
+            var profile = new BaseStatProfile
+            {
+                Name = name,
+                Description = description,
+                DefaultStats = new Dictionary<string, int>(defaultStats, StringComparer.OrdinalIgnoreCase)
+            };
+
+            _profiles[profile.Id] = profile;
+            return Task.FromResult(profile);
+        }
+
+        public Task<List<BaseStatProfile>> ListAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(_profiles.Values.OrderBy(x => x.Name).ToList());
+
+        public Task<BaseStatProfile?> GetAsync(string id, CancellationToken cancellationToken = default)
+        {
+            _profiles.TryGetValue(id, out var profile);
+            return Task.FromResult(profile);
+        }
+
+        public Task<BaseStatProfile?> UpdateAsync(string id, string name, string description, IReadOnlyDictionary<string, int> defaultStats, CancellationToken cancellationToken = default)
+        {
+            if (!_profiles.TryGetValue(id, out var existing))
+            {
+                return Task.FromResult<BaseStatProfile?>(null);
+            }
+
+            existing.Name = name;
+            existing.Description = description;
+            existing.DefaultStats = new Dictionary<string, int>(defaultStats, StringComparer.OrdinalIgnoreCase);
+            return Task.FromResult<BaseStatProfile?>(existing);
+        }
+
+        public Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default)
+            => Task.FromResult(_profiles.Remove(id));
+    }
+
     internal sealed class FakeCoreAutoSaveCoordinator : CoreAutoSaveCoordinator
     {
         public void RequestSave(string reason, Func<CancellationToken, Task> saveAction)
@@ -173,5 +234,19 @@ internal static class RolePlayTestFactory
 
         public Task<bool> DeleteAsync(string sessionId, CancellationToken cancellationToken = default)
             => Task.FromResult(_sessions.Remove(sessionId));
+    }
+
+    /// <summary>
+    /// Scenario service that returns no scenarios. Used by engine service tests 
+    /// that don't need scenario-aware multi-actor continue behavior.
+    /// </summary>
+    internal sealed class NullScenarioService : IScenarioService
+    {
+        public Task<Scenario> CreateScenarioAsync(string name, string? description = null) => throw new NotImplementedException();
+        public Task<Scenario?> GetScenarioAsync(string id) => Task.FromResult<Scenario?>(null);
+        public Task<List<Scenario>> GetAllScenariosAsync() => Task.FromResult(new List<Scenario>());
+        public Task<Scenario> SaveScenarioAsync(Scenario scenario) => throw new NotImplementedException();
+        public Task<bool> DeleteScenarioAsync(string id) => throw new NotImplementedException();
+        public Task<Scenario> CloneScenarioAsync(string id, string newName) => throw new NotImplementedException();
     }
 }

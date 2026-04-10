@@ -1,14 +1,14 @@
 namespace DreamGenClone.Web.Domain.Models;
 
 /// <summary>
-/// Per-session model configuration for LM Studio generation.
+/// Per-session model configuration for generation overrides.
 /// </summary>
 public sealed class ModelSettings
 {
     /// <summary>
-    /// LM Studio model name (e.g., "utena-7b-nsfw-v2-i1").
+    /// Registered model ID (GUID string) for session override, or null to use function default.
     /// </summary>
-    public string Model { get; set; } = "utena-7b-nsfw-v2-i1";
+    public string? SessionModelId { get; set; }
 
     /// <summary>
     /// Temperature for sampling (0.0 = deterministic, 1.0+ = creative).
@@ -26,13 +26,18 @@ public sealed class ModelSettings
     public int MaxTokens { get; set; } = 500;
 
     /// <summary>
+    /// Whether the user has explicitly set an override (any field changed from default).
+    /// </summary>
+    public bool HasOverride => SessionModelId != null;
+
+    /// <summary>
     /// Creates a shallow copy of this model settings.
     /// </summary>
     public ModelSettings Clone()
     {
         return new ModelSettings
         {
-            Model = Model,
+            SessionModelId = SessionModelId,
             Temperature = Temperature,
             TopP = TopP,
             MaxTokens = MaxTokens

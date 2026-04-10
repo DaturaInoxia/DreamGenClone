@@ -7,11 +7,11 @@ namespace DreamGenClone.Tests.StoryAnalysis;
 public class ThemeScoreCalculatorTests
 {
     [Fact]
-    public void EmptyDetections_ReturnsBaseline50()
+    public void EmptyDetections_ReturnsZero()
     {
         var (score, isDisqualified, disqualifying) = ThemeScoreCalculator.Calculate(new List<ThemeDetection>());
 
-        Assert.Equal(50.0, score);
+        Assert.Equal(0.0, score); // no themes = maxPossible 0 = 0
         Assert.False(isDisqualified);
         Assert.Empty(disqualifying);
     }
@@ -26,7 +26,7 @@ public class ThemeScoreCalculatorTests
 
         var (score, isDisqualified, _) = ThemeScoreCalculator.Calculate(detections);
 
-        Assert.Equal(60.0, score); // 50 + 10 * 1.0
+        Assert.Equal(100.0, score); // 10/10 * 100 = 100
         Assert.False(isDisqualified);
     }
 
@@ -40,7 +40,7 @@ public class ThemeScoreCalculatorTests
 
         var (score, _, _) = ThemeScoreCalculator.Calculate(detections);
 
-        Assert.Equal(52.5, score); // 50 + 10 * 0.25
+        Assert.Equal(25.0, score); // 2.5/10 * 100 = 25
     }
 
     [Fact]
@@ -53,7 +53,7 @@ public class ThemeScoreCalculatorTests
 
         var (score, _, _) = ThemeScoreCalculator.Calculate(detections);
 
-        Assert.Equal(54.5, score); // 50 + 6 * 0.75
+        Assert.Equal(75.0, score); // 4.5/6 * 100 = 75
     }
 
     [Fact]
@@ -66,7 +66,7 @@ public class ThemeScoreCalculatorTests
 
         var (score, isDisqualified, _) = ThemeScoreCalculator.Calculate(detections);
 
-        Assert.Equal(44.0, score); // 50 + (-6) * 1.0
+        Assert.Equal(0.0, score); // only Dislike, no positive tiers, maxPossible=0
         Assert.False(isDisqualified);
     }
 
@@ -97,7 +97,7 @@ public class ThemeScoreCalculatorTests
 
         var (score, isDisqualified, disqualifying) = ThemeScoreCalculator.Calculate(detections);
 
-        Assert.Equal(50.0, score);
+        Assert.Equal(0.0, score); // no positive tiers, maxPossible=0
         Assert.False(isDisqualified);
         Assert.Empty(disqualifying);
     }
@@ -112,7 +112,7 @@ public class ThemeScoreCalculatorTests
 
         var (score, _, _) = ThemeScoreCalculator.Calculate(detections);
 
-        Assert.Equal(50.0, score); // 50 + 0 * 1.0
+        Assert.Equal(0.0, score); // Neutral tier has 0 points, maxPossible=0
     }
 
     [Fact]
@@ -126,7 +126,7 @@ public class ThemeScoreCalculatorTests
 
         var (score, _, _) = ThemeScoreCalculator.Calculate(detections);
 
-        Assert.Equal(50.0, score);
+        Assert.Equal(0.0, score); // maxPossible=16 but rawScore=0 (nothing detected)
     }
 
     [Fact]
@@ -141,7 +141,7 @@ public class ThemeScoreCalculatorTests
 
         var (score, _, _) = ThemeScoreCalculator.Calculate(detections);
 
-        Assert.Equal(63.5, score); // 50 + 10 + 3 + 0.5
+        Assert.Equal(84.4, score); // 13.5/16 * 100 = 84.4 (NiceToHave excluded from denominator)
     }
 
     [Fact]
@@ -155,7 +155,7 @@ public class ThemeScoreCalculatorTests
 
         var (score, _, _) = ThemeScoreCalculator.Calculate(detections);
 
-        Assert.Equal(0.0, score); // 50 + 20 * (-6) = -70, clamped to 0
+        Assert.Equal(0.0, score); // only Dislikes, maxPossible=0
     }
 
     [Fact]
@@ -169,7 +169,7 @@ public class ThemeScoreCalculatorTests
 
         var (score, _, _) = ThemeScoreCalculator.Calculate(detections);
 
-        Assert.Equal(100.0, score); // 50 + 20 * 10 = 250, clamped to 100
+        Assert.Equal(100.0, score); // 200/200 * 100 = 100
     }
 
     [Fact]
@@ -200,6 +200,39 @@ public class ThemeScoreCalculatorTests
 
         var (score, _, _) = ThemeScoreCalculator.Calculate(detections);
 
-        Assert.Equal(51.0, score); // 50 + 2 * 0.5
+        Assert.Equal(50.0, score); // 1.0/2.0 * 100 = 50
+    }
+
+    [Fact]
+    public void DislikeDetected_ReducesNormalizedScore()
+    {
+        var detections = new List<ThemeDetection>
+        {
+            new() { ThemeName = "Romance", Tier = ThemeTier.MustHave, Intensity = ThemeIntensity.Central },   // +10
+            new() { ThemeName = "Gore", Tier = ThemeTier.Dislike, Intensity = ThemeIntensity.Central }         // -6
+        };
+
+        var (score, _, _) = ThemeScoreCalculator.Calculate(detections);
+
+        Assert.Equal(40.0, score); // (10-6)/10 * 100 = 40
+    }
+
+    [Fact]
+    public void UserScenario_MostThemesUndetected_LowScore()
+    {
+        // User's exact scenario: 5 themes, only Sex Scene detected as Minor
+        var detections = new List<ThemeDetection>
+        {
+            new() { ThemeName = "Incest", Tier = ThemeTier.Dislike, Intensity = ThemeIntensity.None },
+            new() { ThemeName = "Cheating", Tier = ThemeTier.StronglyPrefer, Intensity = ThemeIntensity.None },
+            new() { ThemeName = "Sharing", Tier = ThemeTier.NiceToHave, Intensity = ThemeIntensity.None },
+            new() { ThemeName = "Voyeur", Tier = ThemeTier.NiceToHave, Intensity = ThemeIntensity.None },
+            new() { ThemeName = "Sex Scene", Tier = ThemeTier.MustHave, Intensity = ThemeIntensity.Minor }      // +2.5
+        };
+
+        var (score, _, _) = ThemeScoreCalculator.Calculate(detections);
+
+        // maxPossible = 6+10 = 16 (NiceToHave excluded from denominator), rawScore = 2.5
+        Assert.Equal(15.6, score); // 2.5/16 * 100 = 15.6
     }
 }

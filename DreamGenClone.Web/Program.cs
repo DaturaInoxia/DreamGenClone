@@ -23,7 +23,12 @@ using DreamGenClone.Web.Application.Sessions;
 using DreamGenClone.Web.Application.StoryParser;
 using DreamGenClone.Web.Application.Story;
 using DreamGenClone.Web.Application.StoryAnalysis;
+using DreamGenClone.Application.Processing;
+using DreamGenClone.Infrastructure.Processing;
 using Microsoft.Extensions.Options;
+using DreamGenClone.Application.ModelManager;
+using DreamGenClone.Infrastructure.ModelManager;
+using DreamGenClone.Web.Application.ModelManager;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -35,17 +40,11 @@ builder.Services.Configure<LmStudioOptions>(builder.Configuration.GetSection(LmS
 builder.Services.Configure<PersistenceOptions>(builder.Configuration.GetSection(PersistenceOptions.SectionName));
 builder.Services.Configure<StoryParserOptions>(builder.Configuration.GetSection(StoryParserOptions.SectionName));
 builder.Services.Configure<StoryAnalysisOptions>(builder.Configuration.GetSection(StoryAnalysisOptions.SectionName));
+builder.Services.Configure<ScenarioAdaptationOptions>(builder.Configuration.GetSection(ScenarioAdaptationOptions.SectionName));
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
-
-builder.Services.AddHttpClient<ILmStudioClient, LmStudioClient>((serviceProvider, httpClient) =>
-{
-    var options = serviceProvider.GetRequiredService<IOptions<LmStudioOptions>>().Value;
-    httpClient.BaseAddress = new Uri(options.BaseUrl);
-    httpClient.Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds);
-});
 
 builder.Services.AddHttpClient<HtmlFetchClient>((serviceProvider, httpClient) =>
 {
@@ -59,6 +58,7 @@ builder.Services.AddScoped<ITemplateService, TemplateService>();
 builder.Services.AddSingleton<SessionImportValidator>();
 builder.Services.AddSingleton<CoreAutoSaveCoordinatorContract, CoreAutoSaveCoordinator>();
 builder.Services.AddScoped<IScenarioService, ScenarioService>();
+builder.Services.AddScoped<IScenarioAdaptationService, ScenarioAdaptationService>();
 builder.Services.AddScoped<IScenarioTokenCounter, ScenarioTokenCounter>();
 builder.Services.AddScoped<ISessionService, SessionService>();
 builder.Services.AddScoped<ISessionCloneForkService, SessionCloneForkService>();
@@ -70,13 +70,19 @@ builder.Services.AddScoped<IStoryCommandService, StoryCommandService>();
 builder.Services.AddSingleton<IAssistantContextManager, AssistantContextManager>();
 builder.Services.AddScoped<IWritingAssistantService, WritingAssistantService>();
 builder.Services.AddScoped<IRolePlayAssistantService, RolePlayAssistantService>();
+builder.Services.AddScoped<IScenarioAssistantService, ScenarioAssistantService>();
 builder.Services.AddScoped<IRolePlayEngineService, RolePlayEngineService>();
 builder.Services.AddScoped<IRolePlayContinuationService, RolePlayContinuationService>();
+builder.Services.AddScoped<IRolePlayAdaptiveStateService, RolePlayAdaptiveStateService>();
 builder.Services.AddScoped<IRolePlayPromptRouter, RolePlayPromptRouter>();
 builder.Services.AddScoped<IRolePlayIdentityOptionsService, RolePlayIdentityOptionsService>();
 builder.Services.AddScoped<IBehaviorModeService, BehaviorModeService>();
 builder.Services.AddScoped<IRolePlayCommandValidator, RolePlayCommandValidator>();
 builder.Services.AddScoped<IRolePlayBranchService, RolePlayBranchService>();
+builder.Services.AddScoped<IInteractionCommandService, InteractionCommandService>();
+builder.Services.AddScoped<IInteractionRetryService, InteractionRetryService>();
+builder.Services.AddScoped<RolePlayDebugEventService>();
+builder.Services.AddScoped<IRolePlayDebugEventSink>(sp => sp.GetRequiredService<RolePlayDebugEventService>());
 builder.Services.AddSingleton<IModelSettingsService, ModelSettingsService>();
 builder.Services.AddScoped<IModelRetryService, ModelRetryService>();
 builder.Services.AddSingleton<PaginationDiscoveryService>();
@@ -93,8 +99,35 @@ builder.Services.AddScoped<IStorySummaryService, StorySummaryService>();
 builder.Services.AddScoped<IStoryAnalysisService, StoryAnalysisService>();
 builder.Services.AddScoped<IRankingProfileService, RankingProfileService>();
 builder.Services.AddScoped<IThemePreferenceService, ThemePreferenceService>();
+builder.Services.AddScoped<IToneProfileService, ToneProfileService>();
+builder.Services.AddScoped<IStyleProfileService, StyleProfileService>();
+builder.Services.AddScoped<IBaseStatProfileService, BaseStatProfileService>();
+builder.Services.AddScoped<IPromptDealbreakerService, PromptDealbreakerService>();
 builder.Services.AddScoped<IStoryRankingService, StoryRankingService>();
 builder.Services.AddScoped<StoryAnalysisFacade>();
+
+// Model Manager services
+builder.Services.AddSingleton<IProviderRepository, ProviderRepository>();
+builder.Services.AddSingleton<IRegisteredModelRepository, RegisteredModelRepository>();
+builder.Services.AddSingleton<IFunctionDefaultRepository, FunctionDefaultRepository>();
+builder.Services.AddSingleton<IHealthCheckRepository, HealthCheckRepository>();
+builder.Services.AddSingleton<IApiKeyEncryptionService, ApiKeyEncryptionService>();
+builder.Services.AddSingleton<ICompletionClient, CompletionClient>();
+builder.Services.AddHttpClient("CompletionClient");
+builder.Services.AddScoped<IModelResolutionService, ModelResolutionService>();
+builder.Services.AddScoped<IHealthCheckService, HealthCheckService>();
+builder.Services.AddScoped<ModelManagerFacade>();
+builder.Services.AddScoped<ProviderTestService>();
+builder.Services.AddScoped<ModelAnalysisService>();
+builder.Services.AddScoped<ModelMetadataService>();
+
+// Background model processing queue
+builder.Services.AddSingleton<ModelProcessingQueue>();
+builder.Services.AddSingleton<IModelProcessingQueue>(sp => sp.GetRequiredService<ModelProcessingQueue>());
+builder.Services.AddHostedService<ModelProcessingWorker>();
+
+// Increase SignalR message size for large text editing (combined story text)
+builder.Services.AddSignalR(o => o.MaximumReceiveMessageSize = 1024 * 1024); // 1 MB
 
 var app = builder.Build();
 
@@ -103,6 +136,22 @@ using (var scope = app.Services.CreateScope())
     var sqlitePersistence = scope.ServiceProvider.GetRequiredService<ISqlitePersistence>();
     await sqlitePersistence.InitializeAsync();
 }
+
+// Run startup health checks for all configured providers and models
+_ = Task.Run(async () =>
+{
+    try
+    {
+        using var healthScope = app.Services.CreateScope();
+        var healthCheckService = healthScope.ServiceProvider.GetRequiredService<IHealthCheckService>();
+        await healthCheckService.RunAllHealthChecksAsync();
+    }
+    catch (Exception ex)
+    {
+        var logger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Startup");
+        logger.LogWarning(ex, "Startup health checks failed — results may be stale");
+    }
+});
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())

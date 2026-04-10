@@ -1,6 +1,7 @@
 # .NET build artifacts
 bin/
 obj/
+artifacts/
 
 # User-specific files
 *.user
@@ -12,6 +13,9 @@ packages/
 # Logs and environment
 *.log
 .env*
+
+# Application data (SQLite database with encrypted API keys)
+data/
 
 # IDE/editor
 .vscode/

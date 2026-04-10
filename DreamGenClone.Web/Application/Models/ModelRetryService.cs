@@ -1,4 +1,6 @@
 using DreamGenClone.Application.Abstractions;
+using DreamGenClone.Application.ModelManager;
+using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Web.Domain.Models;
 using Microsoft.Extensions.Logging;
 
@@ -23,16 +25,19 @@ public interface IModelRetryService
 /// </summary>
 public sealed class ModelRetryService : IModelRetryService
 {
-    private readonly ILmStudioClient _lmStudioClient;
+    private readonly ICompletionClient _completionClient;
+    private readonly IModelResolutionService _modelResolver;
     private readonly IModelSettingsService _modelSettingsService;
     private readonly ILogger<ModelRetryService> _logger;
 
     public ModelRetryService(
-        ILmStudioClient lmStudioClient,
+        ICompletionClient completionClient,
+        IModelResolutionService modelResolver,
         IModelSettingsService modelSettingsService,
         ILogger<ModelRetryService> logger)
     {
-        _lmStudioClient = lmStudioClient;
+        _completionClient = completionClient;
+        _modelResolver = modelResolver;
         _modelSettingsService = modelSettingsService;
         _logger = logger;
     }
@@ -45,20 +50,21 @@ public sealed class ModelRetryService : IModelRetryService
         var settings = _modelSettingsService.GetSettings(sessionId);
 
         _logger.LogInformation(
-            "Retrying generation for session {SessionId} with Model={Model}, Temperature={Temperature}, TopP={TopP}, MaxTokens={MaxTokens}",
+            "Retrying generation for session {SessionId} with Temperature={Temperature}, TopP={TopP}, MaxTokens={MaxTokens}",
             sessionId,
-            settings.Model,
             settings.Temperature,
             settings.TopP,
             settings.MaxTokens);
 
-        var result = await _lmStudioClient.GenerateAsync(
-            prompt,
-            settings.Model,
-            settings.Temperature,
-            settings.TopP,
-            settings.MaxTokens,
-            cancellationToken);
+        var resolved = await _modelResolver.ResolveAsync(
+            AppFunction.RolePlayGeneration,
+            sessionModelId: null,
+            sessionTemperature: settings.Temperature,
+            sessionTopP: settings.TopP,
+            sessionMaxTokens: settings.MaxTokens,
+            cancellationToken: cancellationToken);
+
+        var result = await _completionClient.GenerateAsync(prompt, resolved, cancellationToken);
 
         _logger.LogInformation("Retry generation completed for session {SessionId}", sessionId);
 

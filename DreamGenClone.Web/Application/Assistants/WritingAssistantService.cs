@@ -1,21 +1,26 @@
 using System.Text;
 using DreamGenClone.Application.Abstractions;
+using DreamGenClone.Application.ModelManager;
+using DreamGenClone.Domain.ModelManager;
 using Microsoft.Extensions.Logging;
 
 namespace DreamGenClone.Web.Application.Assistants;
 
 public sealed class WritingAssistantService : IWritingAssistantService
 {
-    private readonly ILmStudioClient _lmStudioClient;
+    private readonly ICompletionClient _completionClient;
+    private readonly IModelResolutionService _modelResolver;
     private readonly IAssistantContextManager _contextManager;
     private readonly ILogger<WritingAssistantService> _logger;
 
     public WritingAssistantService(
-        ILmStudioClient lmStudioClient,
+        ICompletionClient completionClient,
+        IModelResolutionService modelResolver,
         IAssistantContextManager contextManager,
         ILogger<WritingAssistantService> logger)
     {
-        _lmStudioClient = lmStudioClient;
+        _completionClient = completionClient;
+        _modelResolver = modelResolver;
         _contextManager = contextManager;
         _logger = logger;
     }
@@ -40,7 +45,7 @@ public sealed class WritingAssistantService : IWritingAssistantService
         var prompt = BuildAssistantPrompt(sessionId, recentStoryBlocks, userPrompt);
         _logger.LogInformation("Writing assistant request initiated for session {SessionId}", sessionId);
 
-        var response = await _lmStudioClient.GenerateAsync(prompt, cancellationToken);
+        var response = await _completionClient.GenerateAsync(prompt, await _modelResolver.ResolveAsync(AppFunction.WritingAssistant, cancellationToken: cancellationToken), cancellationToken);
 
         var trimmedResponse = string.IsNullOrWhiteSpace(response) ? "(No suggestion generated)" : response.Trim();
 
