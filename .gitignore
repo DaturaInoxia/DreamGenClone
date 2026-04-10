@@ -2,6 +2,9 @@
 bin/
 obj/
 artifacts/
+**/bin/
+**/obj/
+**/artifacts/tmpbuild/
 
 # User-specific files
 *.user
@@ -26,4 +29,3 @@ data/
 Thumbs.db
 *.tmp
 *.swp
-DreamGenClone.Web/obj/Debug/net9.0/DreamGenClone.AssemblyInfo.cs
