@@ -1,0 +1,22 @@
+{
+  "models": [
+    {
+      "name": "OR Main Planner",
+      "provider": "openrouter",
+      "model": "anthropic/claude-3.7-sonnet",
+      "enabled": true,
+      "roles": ["chat", "edit", "apply"],
+      "temperature": 0.2,
+      "maxTokens": 12000
+    },
+    {
+      "name": "OR Fast Draft",
+      "provider": "openrouter",
+      "model": "openai/gpt-4.1-mini",
+      "enabled": true,
+      "roles": ["chat", "edit"],
+      "temperature": 0.2,
+      "maxTokens": 6000
+    }
+  ]
+}

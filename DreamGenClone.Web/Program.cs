@@ -1,6 +1,7 @@
 using CoreAutoSaveCoordinator = DreamGenClone.Application.Sessions.AutoSaveCoordinator;
 using CoreAutoSaveCoordinatorContract = DreamGenClone.Application.Sessions.IAutoSaveCoordinator;
 using DreamGenClone.Components;
+using DreamGenClone.Application.Administration;
 using DreamGenClone.Application.Abstractions;
 using DreamGenClone.Application.StoryParser;
 using DreamGenClone.Application.Templates;
@@ -27,7 +28,9 @@ using DreamGenClone.Application.Processing;
 using DreamGenClone.Infrastructure.Processing;
 using Microsoft.Extensions.Options;
 using DreamGenClone.Application.ModelManager;
+using DreamGenClone.Infrastructure.Administration;
 using DreamGenClone.Infrastructure.ModelManager;
+using DreamGenClone.Web.Application.Administration;
 using DreamGenClone.Web.Application.ModelManager;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -97,10 +100,11 @@ builder.Services.AddScoped<ICollectionMatchingService, CollectionMatchingService
 builder.Services.AddScoped<StoryCollectionFacade>();
 builder.Services.AddScoped<IStorySummaryService, StorySummaryService>();
 builder.Services.AddScoped<IStoryAnalysisService, StoryAnalysisService>();
-builder.Services.AddScoped<IRankingProfileService, RankingProfileService>();
+builder.Services.AddScoped<IThemeProfileService, ThemeProfileService>();
 builder.Services.AddScoped<IThemePreferenceService, ThemePreferenceService>();
-builder.Services.AddScoped<IToneProfileService, ToneProfileService>();
-builder.Services.AddScoped<IStyleProfileService, StyleProfileService>();
+builder.Services.AddScoped<IIntensityProfileService, IntensityProfileService>();
+builder.Services.AddScoped<ISteeringProfileService, SteeringProfileService>();
+builder.Services.AddScoped<IThemeCatalogService, ThemeCatalogService>();
 builder.Services.AddScoped<IBaseStatProfileService, BaseStatProfileService>();
 builder.Services.AddScoped<IPromptDealbreakerService, PromptDealbreakerService>();
 builder.Services.AddScoped<IStoryRankingService, StoryRankingService>();
@@ -111,12 +115,14 @@ builder.Services.AddSingleton<IProviderRepository, ProviderRepository>();
 builder.Services.AddSingleton<IRegisteredModelRepository, RegisteredModelRepository>();
 builder.Services.AddSingleton<IFunctionDefaultRepository, FunctionDefaultRepository>();
 builder.Services.AddSingleton<IHealthCheckRepository, HealthCheckRepository>();
+builder.Services.AddSingleton<IDatabaseBackupRepository, DatabaseBackupRepository>();
 builder.Services.AddSingleton<IApiKeyEncryptionService, ApiKeyEncryptionService>();
 builder.Services.AddSingleton<ICompletionClient, CompletionClient>();
 builder.Services.AddHttpClient("CompletionClient");
 builder.Services.AddScoped<IModelResolutionService, ModelResolutionService>();
 builder.Services.AddScoped<IHealthCheckService, HealthCheckService>();
 builder.Services.AddScoped<ModelManagerFacade>();
+builder.Services.AddScoped<AdministrationFacade>();
 builder.Services.AddScoped<ProviderTestService>();
 builder.Services.AddScoped<ModelAnalysisService>();
 builder.Services.AddScoped<ModelMetadataService>();
@@ -135,6 +141,12 @@ using (var scope = app.Services.CreateScope())
 {
     var sqlitePersistence = scope.ServiceProvider.GetRequiredService<ISqlitePersistence>();
     await sqlitePersistence.InitializeAsync();
+
+    var themeCatalogService = scope.ServiceProvider.GetRequiredService<IThemeCatalogService>();
+    await themeCatalogService.SeedDefaultsAsync();
+
+    var themePreferenceService = scope.ServiceProvider.GetRequiredService<IThemePreferenceService>();
+    await themePreferenceService.AutoLinkToCatalogAsync();
 }
 
 // Run startup health checks for all configured providers and models
@@ -170,6 +182,16 @@ if (!app.Environment.IsDevelopment())
 app.UseAntiforgery();
 
 app.MapStaticAssets();
+app.MapGet("/administration/backups/{backupId}/download", async (string backupId, AdministrationFacade facade, CancellationToken cancellationToken) =>
+{
+    var download = await facade.GetBackupDownloadAsync(backupId, cancellationToken);
+    if (download is null)
+    {
+        return Results.NotFound();
+    }
+
+    return Results.File(download.Value.FilePath, "application/octet-stream", download.Value.Backup.FileName);
+});
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 

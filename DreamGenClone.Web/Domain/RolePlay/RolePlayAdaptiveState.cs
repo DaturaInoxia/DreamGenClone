@@ -55,6 +55,10 @@ public sealed class ThemeTrackerItem
     public double Score { get; set; }
 
     public ThemeScoreBreakdown Breakdown { get; set; } = new();
+
+    public bool Blocked { get; set; }
+
+    public int SuppressedHitCount { get; set; }
 }
 
 public sealed class ThemeScoreBreakdown

@@ -29,3 +29,11 @@ D:\src\DreamGenClone\DreamGenClone.Application\bin\Debug\net9.0\DreamGenClone.Ap
 D:\src\DreamGenClone\DreamGenClone.Application\bin\Debug\net9.0\DreamGenClone.Application.pdb
 D:\src\DreamGenClone\DreamGenClone.Application\bin\Debug\net9.0\DreamGenClone.Domain.dll
 D:\src\DreamGenClone\DreamGenClone.Application\bin\Debug\net9.0\DreamGenClone.Domain.pdb
+D:\src\DreamGenClone\DreamGenClone.Application\artifacts\tmpbuild\web-intensity\DreamGenClone.Application.deps.json
+D:\src\DreamGenClone\DreamGenClone.Application\artifacts\tmpbuild\web-intensity\DreamGenClone.Application.dll
+D:\src\DreamGenClone\DreamGenClone.Application\artifacts\tmpbuild\web-intensity\DreamGenClone.Application.pdb
+D:\src\DreamGenClone\DreamGenClone.Application\artifacts\tmpbuild\web-intensity\DreamGenClone.Domain.dll
+D:\src\DreamGenClone\DreamGenClone.Application\artifacts\tmpbuild\web-intensity\DreamGenClone.Domain.pdb
+D:\src\DreamGenClone\artifacts\tmp\testout\DreamGenClone.Application.deps.json
+D:\src\DreamGenClone\artifacts\tmp\testout\DreamGenClone.Application.dll
+D:\src\DreamGenClone\artifacts\tmp\testout\DreamGenClone.Application.pdb

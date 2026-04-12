@@ -156,7 +156,7 @@ public sealed class RolePlayIntentRoutingTests
             behaviorMode,
             router,
             identities,
-            new RolePlayAdaptiveStateService(),
+            new RolePlayAdaptiveStateService(new RolePlayTestFactory.FakeThemeCatalogService()),
             validator,
             fakeSessionService,
             new RolePlayTestFactory.NullScenarioService(),

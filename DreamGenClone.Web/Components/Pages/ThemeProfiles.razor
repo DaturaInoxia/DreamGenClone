@@ -1,5 +1,7 @@
 @page "/profiles"
 @page "/profiles/{ProfileId}"
+@page "/theme-profiles"
+@page "/theme-profiles/{ProfileId}"
 @page "/ranking-profiles"
 @page "/ranking-profiles/{ProfileId}"
 @rendermode InteractiveServer
@@ -17,29 +19,33 @@
     <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-end gap-3 mb-4">
         <div>
             <h3 class="mb-1">Profiles</h3>
-            <p class="text-muted mb-0">Manage ranking, tone, and style profiles in one place, and keep Character Perspective Modes close at hand as a reference.</p>
+            <p class="text-muted mb-0">Manage theme, intensity, and writing-style profiles in one place, and keep Character Perspective Modes close at hand as a reference.</p>
         </div>
         <div class="d-flex flex-wrap gap-2">
-            <span class="badge bg-primary-subtle text-primary-emphasis border">Ranking: @_profiles.Count</span>
-            <span class="badge bg-secondary-subtle text-secondary-emphasis border">Tone: @_toneProfiles.Count</span>
-            <span class="badge bg-dark-subtle text-dark-emphasis border">Style: @_styleProfiles.Count</span>
-            <span class="badge bg-success-subtle text-success-emphasis border">Base Stats: @_baseStatProfiles.Count</span>
+            <span class="badge bg-primary-subtle text-primary-emphasis border">Theme: @_profiles.Count</span>
+            <span class="badge bg-secondary-subtle text-secondary-emphasis border">Intensity: @_intensityProfiles.Count</span>
+            <span class="badge bg-dark-subtle text-dark-emphasis border">Steering: @_steeringProfiles.Count</span>
+            <span class="badge bg-info-subtle text-info-emphasis border">Catalog: @_catalogEntries.Count</span>
+            <span class="badge bg-success-subtle text-success-emphasis border">Character State: @_baseStatProfiles.Count</span>
             <span class="badge bg-light text-dark border">Perspective Modes: @CharacterPerspectiveModes.All.Count</span>
         </div>
     </div>
 
     <ul class="nav nav-pills flex-nowrap overflow-auto mb-4" role="tablist" style="gap:0.5rem; white-space:nowrap;">
         <li class="nav-item" role="presentation">
-            <button type="button" class="nav-link @GetTabClass("ranking")" @onclick='() => _activeTab = "ranking"'>Ranking</button>
+            <button type="button" class="nav-link @GetTabClass("ranking")" @onclick='() => _activeTab = "ranking"'>Theme</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button type="button" class="nav-link @GetTabClass("tone")" @onclick='() => _activeTab = "tone"'>Tone</button>
+            <button type="button" class="nav-link @GetTabClass("tone")" @onclick='() => _activeTab = "tone"'>Intensity</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button type="button" class="nav-link @GetTabClass("style")" @onclick='() => _activeTab = "style"'>Style</button>
+            <button type="button" class="nav-link @GetTabClass("style")" @onclick='() => _activeTab = "style"'>Writing Style</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button type="button" class="nav-link @GetTabClass("base-stats")" @onclick='() => _activeTab = "base-stats"'>Base Stats</button>
+            <button type="button" class="nav-link @GetTabClass("catalog")" @onclick='() => _activeTab = "catalog"'>Theme Catalog</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button type="button" class="nav-link @GetTabClass("base-stats")" @onclick='() => _activeTab = "base-stats"'>Character State</button>
         </li>
         <li class="nav-item" role="presentation">
             <button type="button" class="nav-link @GetTabClass("perspective")" @onclick='() => _activeTab = "perspective"'>Perspective</button>
@@ -52,7 +58,7 @@
             <div class="col-lg-4">
                 <div class="card h-100">
                     <div class="card-header d-flex justify-content-between align-items-center">
-                        <span>Ranking Profiles</span>
+                        <span>Theme Profiles</span>
                         <button class="btn btn-sm btn-primary" @onclick="CreateProfile" disabled="@_isBusy">Create</button>
                     </div>
                     <div class="card-body">
@@ -87,11 +93,11 @@
                         }
                         else
                         {
-                            <p class="text-muted mb-0">No ranking profiles yet. Create one to start steering themes.</p>
+                            <p class="text-muted mb-0">No theme profiles yet. Create one to define what the story should lean toward.</p>
                         }
 
                         <div class="border rounded p-3 mt-3 bg-light-subtle">
-                            <label class="form-label">New Ranking Profile</label>
+                            <label class="form-label">New Theme Profile</label>
                             <div class="input-group input-group-sm">
                                 <input type="text" class="form-control" placeholder="e.g. Voyeur Suspense" @bind="_newProfileName" />
                                 <button class="btn btn-primary" @onclick="CreateProfile" disabled="@_isBusy">Add</button>
@@ -168,7 +174,19 @@
                                                 if (_editingThemeId == theme.Id)
                                                 {
                                                     <tr>
-                                                        <td><input type="text" class="form-control form-control-sm" @bind="_editThemeName" /></td>
+                                                        <td>
+                                                            <select class="form-select form-select-sm" @bind="_editThemeCatalogId" @bind:after="OnEditCatalogChanged">
+                                                                <option value="">-- Custom --</option>
+                                                                @foreach (var entry in _catalogEntries)
+                                                                {
+                                                                    <option value="@entry.Id">@entry.Label</option>
+                                                                }
+                                                            </select>
+                                                            @if (string.IsNullOrEmpty(_editThemeCatalogId))
+                                                            {
+                                                                <input type="text" class="form-control form-control-sm mt-1" @bind="_editThemeName" placeholder="Custom theme name" />
+                                                            }
+                                                        </td>
                                                         <td><input type="text" class="form-control form-control-sm" @bind="_editThemeDescription" /></td>
                                                         <td>
                                                             <select class="form-select form-select-sm" @bind="_editThemeTier">
@@ -187,7 +205,13 @@
                                                 else
                                                 {
                                                     <tr>
-                                                        <td>@theme.Name</td>
+                                                        <td>
+                                                            @theme.Name
+                                                            @if (string.IsNullOrWhiteSpace(theme.CatalogId))
+                                                            {
+                                                                <span class="badge bg-warning text-dark ms-1" title="Not linked to theme catalog">⚠ unlinked</span>
+                                                            }
+                                                        </td>
                                                         <td class="text-muted small">@theme.Description</td>
                                                         <td><span class="badge @GetTierBadgeClass(theme.Tier)">@FormatTier(theme.Tier)</span></td>
                                                         <td>
@@ -210,8 +234,18 @@
                                 <h6 class="mb-3">Add Theme</h6>
                                 <div class="row g-2 align-items-end">
                                     <div class="col-md-4">
-                                        <label class="form-label">Name</label>
-                                        <input type="text" class="form-control form-control-sm" @bind="_newThemeName" placeholder="e.g. Slow-burn secrecy" />
+                                        <label class="form-label">Theme</label>
+                                        <select class="form-select form-select-sm" @bind="_newThemeCatalogId" @bind:after="OnNewCatalogChanged">
+                                            <option value="">-- Custom --</option>
+                                            @foreach (var entry in _catalogEntries)
+                                            {
+                                                <option value="@entry.Id">@entry.Label</option>
+                                            }
+                                        </select>
+                                        @if (string.IsNullOrEmpty(_newThemeCatalogId))
+                                        {
+                                            <input type="text" class="form-control form-control-sm mt-1" @bind="_newThemeName" placeholder="Custom theme name" />
+                                        }
                                     </div>
                                     <div class="col-md-4">
                                         <label class="form-label">Description</label>
@@ -241,7 +275,7 @@
                 else
                 {
                     <div class="card">
-                        <div class="card-body text-muted">Select a ranking profile to edit its theme preferences.</div>
+                        <div class="card-body text-muted">Select a theme profile to edit its theme preferences.</div>
                     </div>
                 }
             </div>
@@ -253,24 +287,24 @@
             <div class="col-lg-4">
                 <div class="card h-100">
                     <div class="card-header d-flex justify-content-between align-items-center">
-                        <span>Tone Profiles</span>
-                        <button class="btn btn-sm btn-primary" @onclick="StartCreateTone">New</button>
+                        <span>Intensity Profiles</span>
+                        <button class="btn btn-sm btn-primary" @onclick="StartCreateIntensity">New</button>
                     </div>
                     <div class="card-body">
-                        @if (_toneProfiles.Count > 0)
+                        @if (_intensityProfiles.Count > 0)
                         {
                             <div class="list-group">
-                                @foreach (var tone in _toneProfiles)
+                                @foreach (var tone in _intensityProfiles)
                                 {
                                     <button type="button"
                                             class="list-group-item list-group-item-action @(tone.Id == _selectedToneId ? "active" : "")"
-                                            @onclick="() => SelectTone(tone.Id)">
+                                            @onclick="() => SelectIntensity(tone.Id)">
                                         <div class="d-flex justify-content-between align-items-start gap-2">
                                             <div>
-                                                <strong>@tone.Name</strong>
+                                                <strong>@DreamGenClone.Domain.StoryAnalysis.IntensityLadder.GetLabel(tone.Intensity)</strong>
                                                 <small class="d-block @(tone.Id == _selectedToneId ? "text-light" : "text-muted")">@Truncate(tone.Description, 90)</small>
                                             </div>
-                                            <span class="badge @(tone.Id == _selectedToneId ? "bg-light text-dark" : "bg-secondary")">@tone.Intensity</span>
+                                            <span class="badge @(tone.Id == _selectedToneId ? "bg-light text-dark" : "bg-secondary")">@DreamGenClone.Domain.StoryAnalysis.IntensityLadder.GetLabel(tone.Intensity)</span>
                                         </div>
                                     </button>
                                 }
@@ -278,7 +312,7 @@
                         }
                         else
                         {
-                            <p class="text-muted mb-0">No tone profiles yet.</p>
+                            <p class="text-muted mb-0">No intensity profiles yet.</p>
                         }
                     </div>
                 </div>
@@ -288,12 +322,12 @@
                 <div class="card">
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <div>
-                            <strong>@(_selectedToneId is null ? "Create Tone Profile" : "Edit Tone Profile")</strong>
-                            <div class="text-muted small">Tone profiles set the emotional intensity baseline and adaptive style floor or ceiling behavior.</div>
+                            <strong>@(_selectedToneId is null ? "Create Intensity Profile" : "Edit Intensity Profile")</strong>
+                            <div class="text-muted small">Intensity profiles set the baseline rung on the shared intensity ladder and work with intensity floor and ceiling clamps.</div>
                         </div>
                         @if (_selectedToneId is not null)
                         {
-                            <button class="btn btn-sm btn-outline-danger" @onclick="DeleteTone" disabled="@_isBusy">Delete</button>
+                            <button class="btn btn-sm btn-outline-danger" @onclick="DeleteIntensity" disabled="@_isBusy">Delete</button>
                         }
                     </div>
                     <div class="card-body">
@@ -305,9 +339,9 @@
                             <div class="col-md-6">
                                 <label class="form-label">Intensity</label>
                                 <select class="form-select" @bind="_toneFormIntensity">
-                                    @foreach (var intensity in Enum.GetValues<ToneIntensity>())
+                                    @foreach (var intensity in Enum.GetValues<IntensityLevel>())
                                     {
-                                        <option value="@intensity">@intensity</option>
+                                        <option value="@intensity">@DreamGenClone.Domain.StoryAnalysis.IntensityLadder.GetLabel(intensity)</option>
                                     }
                                 </select>
                             </div>
@@ -321,8 +355,8 @@
                             <div class="text-danger mt-3 small">@_toneError</div>
                         }
                         <div class="d-flex flex-wrap gap-2 mt-3">
-                            <button class="btn btn-primary" @onclick="SaveTone" disabled="@_isBusy">@(_selectedToneId is null ? "Create Tone" : "Save Changes")</button>
-                            <button class="btn btn-outline-secondary" @onclick="StartCreateTone" disabled="@_isBusy">Reset</button>
+                            <button class="btn btn-primary" @onclick="SaveIntensity" disabled="@_isBusy">@(_selectedToneId is null ? "Create Intensity Profile" : "Save Changes")</button>
+                            <button class="btn btn-outline-secondary" @onclick="StartCreateIntensity" disabled="@_isBusy">Reset</button>
                         </div>
                     </div>
                 </div>
@@ -335,18 +369,18 @@
             <div class="col-lg-4">
                 <div class="card h-100">
                     <div class="card-header d-flex justify-content-between align-items-center">
-                        <span>Style Profiles</span>
-                        <button class="btn btn-sm btn-primary" @onclick="StartCreateStyle">New</button>
+                        <span>Writing Style Profiles</span>
+                        <button class="btn btn-sm btn-primary" @onclick="StartCreateSteering">New</button>
                     </div>
                     <div class="card-body">
-                        @if (_styleProfiles.Count > 0)
+                        @if (_steeringProfiles.Count > 0)
                         {
                             <div class="list-group">
-                                @foreach (var style in _styleProfiles)
+                                @foreach (var style in _steeringProfiles)
                                 {
                                     <button type="button"
                                             class="list-group-item list-group-item-action @(style.Id == _selectedStyleId ? "active" : "")"
-                                            @onclick="() => SelectStyle(style.Id)">
+                                            @onclick="() => SelectSteering(style.Id)">
                                         <strong>@style.Name</strong>
                                         <small class="d-block @(style.Id == _selectedStyleId ? "text-light" : "text-muted")">@Truncate(style.Description, 100)</small>
                                     </button>
@@ -355,7 +389,7 @@
                         }
                         else
                         {
-                            <p class="text-muted mb-0">No style profiles yet.</p>
+                            <p class="text-muted mb-0">No writing-style profiles yet.</p>
                         }
                     </div>
                 </div>
@@ -365,12 +399,12 @@
                 <div class="card">
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <div>
-                            <strong>@(_selectedStyleId is null ? "Create Style Profile" : "Edit Style Profile")</strong>
-                            <div class="text-muted small">Styles capture reusable writing voice, example phrasing, and a simple rule of thumb for authors and prompts.</div>
+                            <strong>@(_selectedStyleId is null ? "Create Writing Style Profile" : "Edit Writing Style Profile")</strong>
+                            <div class="text-muted small">Writing-style profiles capture prose voice, adaptive weighting, escalation behavior, and authoring guidance.</div>
                         </div>
                         @if (_selectedStyleId is not null)
                         {
-                            <button class="btn btn-sm btn-outline-danger" @onclick="DeleteStyle" disabled="@_isBusy">Delete</button>
+                            <button class="btn btn-sm btn-outline-danger" @onclick="DeleteSteering" disabled="@_isBusy">Delete</button>
                         }
                     </div>
                     <div class="card-body">
@@ -391,17 +425,237 @@
                                 <label class="form-label">Rule of Thumb</label>
                                 <textarea class="form-control" rows="2" @bind="_styleFormRuleOfThumb"></textarea>
                             </div>
+                            <div class="col-12">
+                                <label class="form-label">Theme Affinities</label>
+                                <div class="small text-muted mb-2">Set per-theme score multiplier bias (-10 to +10). Positive values boost that theme during scoring.</div>
+                                @foreach (var entry in _catalogEntries)
+                                {
+                                    <div class="input-group input-group-sm mb-1" style="max-width: 400px;">
+                                        <span class="input-group-text" style="min-width: 180px;">@entry.Label</span>
+                                        <input type="number"
+                                               class="form-control"
+                                               min="-10"
+                                               max="10"
+                                               value="@GetThemeAffinityValue(entry.Id)"
+                                               @onchange="@(e => SetThemeAffinityValue(entry.Id, e.Value?.ToString()))" />
+                                    </div>
+                                }
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Escalating Theme IDs</label>
+                                <div class="small text-muted mb-2">Select themes considered escalating for this writing-style profile.</div>
+                                @foreach (var entry in _catalogEntries)
+                                {
+                                    var isChecked = _styleFormEscalatingThemeIds.Contains(entry.Id);
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="esc-@entry.Id"
+                                               checked="@isChecked"
+                                               @onchange="@(e => ToggleEscalatingTheme(entry.Id, (bool)(e.Value ?? false)))" />
+                                        <label class="form-check-label" for="esc-@entry.Id">@entry.Label</label>
+                                    </div>
+                                }
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Stat Bias</label>
+                                <div class="small text-muted mb-2">Additive character-state bias applied to all characters when this writing-style profile is active (-20 to +20).</div>
+                                @foreach (var statName in BaseStatNames)
+                                {
+                                    <div class="input-group input-group-sm mb-1" style="max-width: 400px;">
+                                        <span class="input-group-text" style="min-width: 180px;">@statName</span>
+                                        <input type="number"
+                                               class="form-control"
+                                               min="-20"
+                                               max="20"
+                                               value="@GetStatBiasValue(statName)"
+                                               @onchange="@(e => SetStatBiasValue(statName, e.Value?.ToString()))" />
+                                    </div>
+                                }
+                            </div>
                         </div>
                         @if (!string.IsNullOrEmpty(_styleError))
                         {
                             <div class="text-danger mt-3 small">@_styleError</div>
                         }
                         <div class="d-flex flex-wrap gap-2 mt-3">
-                            <button class="btn btn-primary" @onclick="SaveStyle" disabled="@_isBusy">@(_selectedStyleId is null ? "Create Style" : "Save Changes")</button>
-                            <button class="btn btn-outline-secondary" @onclick="StartCreateStyle" disabled="@_isBusy">Reset</button>
+                            <button class="btn btn-primary" @onclick="SaveSteering" disabled="@_isBusy">@(_selectedStyleId is null ? "Create Writing Style Profile" : "Save Changes")</button>
+                            <button class="btn btn-outline-secondary" @onclick="StartCreateSteering" disabled="@_isBusy">Reset</button>
                         </div>
                     </div>
                 </div>
+            </div>
+        </div>
+    }
+    else if (_activeTab == "catalog")
+    {
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <div>
+                    <strong>Theme Catalog</strong>
+                    <div class="text-muted small">Shared list of recognized themes used for scoring. Built-in entries cannot be deleted.</div>
+                </div>
+                <button class="btn btn-sm btn-primary" @onclick="StartAddCatalogEntry" disabled="@_isBusy">Add Entry</button>
+            </div>
+            <div class="card-body">
+                @if (!string.IsNullOrEmpty(_catalogError))
+                {
+                    <div class="alert alert-danger">@_catalogError</div>
+                }
+                @if (_catalogEntries.Count > 0)
+                {
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle">
+                            <thead>
+                                <tr>
+                                    <th style="width:160px;">Id</th>
+                                    <th>Label</th>
+                                    <th>Description</th>
+                                    <th style="width:220px;">Keywords</th>
+                                    <th style="width:140px;">Category</th>
+                                    <th style="width:220px;">Stat Affinities</th>
+                                    <th style="width:100px;">Weight</th>
+                                    <th style="width:100px;">Enabled</th>
+                                    <th style="width:160px;">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var entry in _catalogEntries)
+                                {
+                                    if (_editingCatalogId == entry.Id)
+                                    {
+                                        <tr>
+                                            <td><input type="text" class="form-control form-control-sm" value="@entry.Id" disabled /></td>
+                                            <td><input type="text" class="form-control form-control-sm" @bind="_editCatalogLabel" /></td>
+                                            <td><input type="text" class="form-control form-control-sm" @bind="_editCatalogDescription" /></td>
+                                            <td><textarea class="form-control form-control-sm" rows="2" @bind="_editCatalogKeywordsText"></textarea></td>
+                                            <td><input type="text" class="form-control form-control-sm" @bind="_editCatalogCategory" /></td>
+                                            <td>
+                                                @foreach (var statName in BaseStatNames)
+                                                {
+                                                    <div class="input-group input-group-sm mb-1">
+                                                        <span class="input-group-text" style="min-width: 100px;">@statName</span>
+                                                        <input type="number"
+                                                               class="form-control"
+                                                               min="-5"
+                                                               max="5"
+                                                               value="@GetEditCatalogStatAffinityValue(statName)"
+                                                               @onchange="@(e => SetEditCatalogStatAffinityValue(statName, e.Value?.ToString()))" />
+                                                    </div>
+                                                }
+                                            </td>
+                                            <td><input type="number" class="form-control form-control-sm" min="1" max="10" @bind="_editCatalogWeight" /></td>
+                                            <td>
+                                                <select class="form-select form-select-sm" @bind="_editCatalogEnabled">
+                                                    <option value="True">Yes</option>
+                                                    <option value="False">No</option>
+                                                </select>
+                                            </td>
+                                            <td>
+                                                <button class="btn btn-sm btn-success me-1" @onclick="SaveEditCatalogEntry" disabled="@_isBusy">Save</button>
+                                                <button class="btn btn-sm btn-outline-secondary" @onclick="CancelEditCatalogEntry">Cancel</button>
+                                            </td>
+                                        </tr>
+                                    }
+                                    else
+                                    {
+                                        <tr class="@(entry.IsEnabled ? "" : "table-secondary")">
+                                            <td>
+                                                <code>@entry.Id</code>
+                                            </td>
+                                            <td>
+                                                @entry.Label
+                                                @if (entry.IsBuiltIn)
+                                                {
+                                                    <span class="badge bg-info text-dark ms-1">built-in</span>
+                                                }
+                                            </td>
+                                            <td class="text-muted small">@Truncate(entry.Description, 80)</td>
+                                            <td class="text-muted small">@FormatKeywords(entry.Keywords)</td>
+                                            <td class="text-muted small">@entry.Category</td>
+                                            <td class="text-muted small">@FormatStatAffinities(entry.StatAffinities)</td>
+                                            <td>@entry.Weight</td>
+                                            <td>
+                                                @if (entry.IsEnabled)
+                                                {
+                                                    <span class="badge bg-success">On</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge bg-secondary">Off</span>
+                                                }
+                                            </td>
+                                            <td>
+                                                <button class="btn btn-sm btn-outline-primary me-1" @onclick="() => StartEditCatalogEntry(entry)" disabled="@_isBusy">Edit</button>
+                                                @if (!entry.IsBuiltIn)
+                                                {
+                                                    <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteCatalogEntry(entry.Id)" disabled="@_isBusy">Delete</button>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else
+                {
+                    <p class="text-muted">No catalog entries. Built-in defaults will be seeded on app startup.</p>
+                }
+
+                @if (_isAddingCatalog)
+                {
+                    <div class="border rounded p-3 mt-3 bg-light-subtle">
+                        <h6 class="mb-3">New Catalog Entry</h6>
+                        <div class="row g-2 align-items-end">
+                            <div class="col-md-3">
+                                <label class="form-label">Id</label>
+                                <input type="text" class="form-control form-control-sm" @bind="_newCatalogId" placeholder="e.g. jealousy-triangle" />
+                                <div class="form-text">Leave blank to auto-generate from the label.</div>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">Label</label>
+                                <input type="text" class="form-control form-control-sm" @bind="_newCatalogLabel" placeholder="e.g. Jealousy" />
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Description</label>
+                                <input type="text" class="form-control form-control-sm" @bind="_newCatalogDescription" placeholder="Short description" />
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label">Category</label>
+                                <input type="text" class="form-control form-control-sm" @bind="_newCatalogCategory" placeholder="Emotional" />
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label">Weight</label>
+                                <input type="number" class="form-control form-control-sm" min="1" max="10" @bind="_newCatalogWeight" />
+                            </div>
+                            <div class="col-md-12">
+                                <label class="form-label">Keywords</label>
+                                <textarea class="form-control form-control-sm" rows="2" @bind="_newCatalogKeywordsText" placeholder="Comma or newline separated keywords"></textarea>
+                            </div>
+                            <div class="col-md-12">
+                                <label class="form-label">Stat Affinities</label>
+                                <div class="row g-2">
+                                    @foreach (var statName in BaseStatNames)
+                                    {
+                                        <div class="col-md-4 col-lg-2">
+                                            <label class="form-label small">@statName</label>
+                                            <input type="number"
+                                                   class="form-control form-control-sm"
+                                                   min="-5"
+                                                   max="5"
+                                                   value="@GetNewCatalogStatAffinityValue(statName)"
+                                                   @onchange="@(e => SetNewCatalogStatAffinityValue(statName, e.Value?.ToString()))" />
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <button class="btn btn-sm btn-primary me-1" @onclick="AddCatalogEntry" disabled="@_isBusy">Add</button>
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => _isAddingCatalog = false">Cancel</button>
+                            </div>
+                        </div>
+                    </div>
+                }
             </div>
         </div>
     }
@@ -411,7 +665,7 @@
             <div class="col-lg-4">
                 <div class="card h-100">
                     <div class="card-header d-flex justify-content-between align-items-center">
-                        <span>Base Stat Profiles</span>
+                        <span>Character State Profiles</span>
                         <button class="btn btn-sm btn-primary" @onclick="StartCreateBaseStatProfile">New</button>
                     </div>
                     <div class="card-body">
@@ -431,7 +685,7 @@
                         }
                         else
                         {
-                            <p class="text-muted mb-0">No base stat profiles yet.</p>
+                            <p class="text-muted mb-0">No character state profiles yet.</p>
                         }
                     </div>
                 </div>
@@ -441,7 +695,7 @@
                 <div class="card">
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <div>
-                            <strong>@(_selectedBaseStatProfileId is null ? "Create Base Stat Profile" : "Edit Base Stat Profile")</strong>
+                            <strong>@(_selectedBaseStatProfileId is null ? "Create Character State Profile" : "Edit Character State Profile")</strong>
                             <div class="text-muted small">Defines default per-character stat seeds for scenario session initialization.</div>
                         </div>
                         @if (_selectedBaseStatProfileId is not null)
@@ -575,9 +829,9 @@
     private string _activeTab = "ranking";
     private bool _isBusy;
 
-    private List<RankingProfile> _profiles = [];
+    private List<ThemeProfile> _profiles = [];
     private string? _selectedProfileId;
-    private RankingProfile? _selectedProfile;
+    private ThemeProfile? _selectedProfile;
     private List<ThemePreference> _themes = [];
     private string _newProfileName = string.Empty;
     private string? _profileError;
@@ -588,25 +842,51 @@
     private string _newThemeName = string.Empty;
     private string _newThemeDescription = string.Empty;
     private ThemeTier _newThemeTier = ThemeTier.NiceToHave;
+    private string _newThemeCatalogId = string.Empty;
     private string? _editingThemeId;
     private string _editThemeName = string.Empty;
     private string _editThemeDescription = string.Empty;
     private ThemeTier _editThemeTier = ThemeTier.NiceToHave;
+    private string _editThemeCatalogId = string.Empty;
 
-    private List<ToneProfile> _toneProfiles = [];
+    private List<IntensityProfile> _intensityProfiles = [];
     private string? _selectedToneId;
     private string _toneFormName = string.Empty;
     private string _toneFormDescription = string.Empty;
-    private ToneIntensity _toneFormIntensity = ToneIntensity.Emotional;
+    private IntensityLevel _toneFormIntensity = IntensityLevel.Emotional;
     private string? _toneError;
 
-    private List<StyleProfile> _styleProfiles = [];
+    private List<SteeringProfile> _steeringProfiles = [];
     private string? _selectedStyleId;
     private string _styleFormName = string.Empty;
     private string _styleFormDescription = string.Empty;
     private string _styleFormExample = string.Empty;
     private string _styleFormRuleOfThumb = string.Empty;
+    private Dictionary<string, int> _styleFormThemeAffinities = new(StringComparer.OrdinalIgnoreCase);
+    private HashSet<string> _styleFormEscalatingThemeIds = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, int> _styleFormStatBias = new(StringComparer.OrdinalIgnoreCase);
     private string? _styleError;
+
+    private IReadOnlyList<ThemeCatalogEntry> _catalogEntries = [];
+
+    // Catalog tab state
+    private string? _catalogError;
+    private bool _isAddingCatalog;
+    private string _newCatalogId = string.Empty;
+    private string _newCatalogLabel = string.Empty;
+    private string _newCatalogDescription = string.Empty;
+    private string _newCatalogKeywordsText = string.Empty;
+    private string _newCatalogCategory = string.Empty;
+    private Dictionary<string, int> _newCatalogStatAffinities = new(StringComparer.OrdinalIgnoreCase);
+    private int _newCatalogWeight = 3;
+    private string? _editingCatalogId;
+    private string _editCatalogLabel = string.Empty;
+    private string _editCatalogDescription = string.Empty;
+    private string _editCatalogKeywordsText = string.Empty;
+    private string _editCatalogCategory = string.Empty;
+    private Dictionary<string, int> _editCatalogStatAffinities = new(StringComparer.OrdinalIgnoreCase);
+    private int _editCatalogWeight = 3;
+    private bool _editCatalogEnabled = true;
 
     private List<BaseStatProfile> _baseStatProfiles = [];
     private string? _selectedBaseStatProfileId;
@@ -617,26 +897,26 @@
 
     private static readonly IReadOnlyDictionary<string, string> StatEngineEffects = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
-        ["Arousal"] = "Primary intensity driver. Higher values can raise effective style intensity and reinforce escalation themes.",
-        ["Inhibition"] = "Restraint brake. Lower values permit bolder progression; higher values slow escalation and preserve caution.",
+        ["Desire"] = "Primary intensity driver. Higher values can raise effective style intensity and reinforce escalation themes.",
+        ["Restraint"] = "Restraint brake. Lower values permit bolder progression; higher values slow escalation and preserve caution.",
         ["Tension"] = "Conflict pressure. Higher values bias output toward volatility, uncertainty, and risk-laden beats.",
-        ["Trust"] = "Safety confidence. Higher values enable openness and vulnerability; lower values reinforce defensiveness.",
-        ["Agency"] = "Control signal. Higher values favor decisive initiative; lower values bias toward passivity and reduced control."
+        ["Connection"] = "Safety confidence. Higher values enable openness and vulnerability; lower values reinforce defensiveness.",
+        ["Dominance"] = "Control signal. Higher values favor decisive initiative; lower values bias toward passivity and reduced control."
     };
 
     private static readonly (string Pair, string Effect)[] StatInteractionPatterns =
     [
-        ("High Trust + Low Inhibition", "Usually increases openness and accelerates consent-forward progression."),
-        ("High Arousal + High Inhibition", "Creates push-pull tension: strong desire paired with restraint and hesitation."),
-        ("High Tension + Low Trust", "Increases conflict tone and defensive reactions; de-escalation cues become more important."),
-        ("High Agency + High Tension", "Biases toward assertive, high-stakes actions and explicit directional choices."),
-        ("Low Agency + High Trust", "Can read as receptive surrender when safety is high, but less initiative from the actor.")
+        ("High Connection + Low Restraint", "Usually increases openness and accelerates consent-forward progression."),
+        ("High Desire + High Restraint", "Creates push-pull tension: strong desire paired with restraint and hesitation."),
+        ("High Tension + Low Connection", "Increases conflict tone and defensive reactions; de-escalation cues become more important."),
+        ("High Dominance + High Tension", "Biases toward assertive, high-stakes actions and explicit directional choices."),
+        ("Low Dominance + High Connection", "Can read as receptive surrender when safety is high, but less initiative from the actor.")
     ];
 
     private static readonly string[] CrossCharacterBehaviorNotes =
     [
         "Each character currently tracks their own independent stat block.",
-        "There is no pairwise relational matrix yet (for example, Trust[A->B] vs Trust[A->C]).",
+        "There is no pairwise relational matrix yet (for example, Connection[A->B] vs Connection[A->C]).",
         "Theme tracking is session-level, so dominant themes can influence style resolution globally.",
         "Direct cross-character stat transfer effects are not implemented in v1; they are planned for a later phase."
     ];
@@ -656,14 +936,14 @@
             await SelectProfile(_profiles[0].Id);
         }
 
-        if (_selectedToneId is null && _toneProfiles.Count > 0)
+        if (_selectedToneId is null && _intensityProfiles.Count > 0)
         {
-            SelectTone(_toneProfiles[0].Id);
+            SelectIntensity(_intensityProfiles[0].Id);
         }
 
-        if (_selectedStyleId is null && _styleProfiles.Count > 0)
+        if (_selectedStyleId is null && _steeringProfiles.Count > 0)
         {
-            SelectStyle(_styleProfiles[0].Id);
+            SelectSteering(_steeringProfiles[0].Id);
         }
 
         if (_selectedBaseStatProfileId is null && _baseStatProfiles.Count > 0)
@@ -684,9 +964,10 @@
     private async Task ReloadAsync()
     {
         _profiles = await Facade.ListProfilesAsync();
-        _toneProfiles = await Facade.ListToneProfilesAsync();
-        _styleProfiles = await Facade.ListStyleProfilesAsync();
+        _intensityProfiles = await Facade.ListIntensityProfilesAsync();
+        _steeringProfiles = await Facade.ListSteeringProfilesAsync();
         _baseStatProfiles = await Facade.ListBaseStatProfilesAsync();
+        _catalogEntries = await Facade.ListCatalogEntriesAsync(includeDisabled: true);
     }
 
     private string GetTabClass(string tab) => _activeTab == tab ? "active" : string.Empty;
@@ -844,11 +1125,13 @@
         _isBusy = true;
         try
         {
-            await Facade.CreateThemeAsync(_selectedProfileId, name, description, _newThemeTier);
+            var catalogId = string.IsNullOrEmpty(_newThemeCatalogId) ? null : _newThemeCatalogId;
+            await Facade.CreateThemeAsync(_selectedProfileId, name, description, _newThemeTier, catalogId);
             _themes = await Facade.ListThemesByProfileAsync(_selectedProfileId);
             _newThemeName = string.Empty;
             _newThemeDescription = string.Empty;
             _newThemeTier = ThemeTier.NiceToHave;
+            _newThemeCatalogId = string.Empty;
         }
         catch (Exception ex)
         {
@@ -866,6 +1149,7 @@
         _editThemeName = theme.Name;
         _editThemeDescription = theme.Description;
         _editThemeTier = theme.Tier;
+        _editThemeCatalogId = theme.CatalogId;
     }
 
     private void CancelEditTheme() => _editingThemeId = null;
@@ -893,7 +1177,8 @@
         _isBusy = true;
         try
         {
-            await Facade.UpdateThemeAsync(_editingThemeId, _editThemeName, _editThemeDescription, _editThemeTier);
+            var catalogId = string.IsNullOrWhiteSpace(_editThemeCatalogId) ? null : _editThemeCatalogId;
+            await Facade.UpdateThemeAsync(_editingThemeId, _editThemeName, _editThemeDescription, _editThemeTier, catalogId);
             _themes = await Facade.ListThemesByProfileAsync(_selectedProfileId);
             _editingThemeId = null;
         }
@@ -930,18 +1215,18 @@
         }
     }
 
-    private void StartCreateTone()
+    private void StartCreateIntensity()
     {
         _selectedToneId = null;
         _toneFormName = string.Empty;
         _toneFormDescription = string.Empty;
-        _toneFormIntensity = ToneIntensity.Emotional;
+        _toneFormIntensity = IntensityLevel.Emotional;
         _toneError = null;
     }
 
-    private void SelectTone(string toneId)
+    private void SelectIntensity(string toneId)
     {
-        var tone = _toneProfiles.FirstOrDefault(x => x.Id == toneId);
+        var tone = _intensityProfiles.FirstOrDefault(x => x.Id == toneId);
         if (tone is null)
         {
             return;
@@ -954,12 +1239,12 @@
         _toneError = null;
     }
 
-    private async Task SaveTone()
+    private async Task SaveIntensity()
     {
         _toneError = null;
         if (string.IsNullOrWhiteSpace(_toneFormName.Trim()))
         {
-            _toneError = "Tone profile name is required.";
+            _toneError = "Intensity profile name is required.";
             return;
         }
 
@@ -968,15 +1253,15 @@
         {
             if (_selectedToneId is null)
             {
-                var created = await Facade.CreateToneProfileAsync(_toneFormName, _toneFormDescription, _toneFormIntensity);
+                var created = await Facade.CreateIntensityProfileAsync(_toneFormName, _toneFormDescription, _toneFormIntensity);
                 await ReloadAsync();
-                SelectTone(created.Id);
+                SelectIntensity(created.Id);
             }
             else
             {
-                await Facade.UpdateToneProfileAsync(_selectedToneId, _toneFormName, _toneFormDescription, _toneFormIntensity);
+                await Facade.UpdateIntensityProfileAsync(_selectedToneId, _toneFormName, _toneFormDescription, _toneFormIntensity);
                 await ReloadAsync();
-                SelectTone(_selectedToneId);
+                SelectIntensity(_selectedToneId);
             }
         }
         catch (Exception ex)
@@ -989,7 +1274,7 @@
         }
     }
 
-    private async Task DeleteTone()
+    private async Task DeleteIntensity()
     {
         if (_selectedToneId is null)
         {
@@ -1000,15 +1285,15 @@
         _isBusy = true;
         try
         {
-            await Facade.DeleteToneProfileAsync(_selectedToneId);
+            await Facade.DeleteIntensityProfileAsync(_selectedToneId);
             await ReloadAsync();
-            if (_toneProfiles.Count > 0)
+            if (_intensityProfiles.Count > 0)
             {
-                SelectTone(_toneProfiles[0].Id);
+                SelectIntensity(_intensityProfiles[0].Id);
             }
             else
             {
-                StartCreateTone();
+                StartCreateIntensity();
             }
         }
         catch (Exception ex)
@@ -1021,19 +1306,22 @@
         }
     }
 
-    private void StartCreateStyle()
+    private void StartCreateSteering()
     {
         _selectedStyleId = null;
         _styleFormName = string.Empty;
         _styleFormDescription = string.Empty;
         _styleFormExample = string.Empty;
         _styleFormRuleOfThumb = string.Empty;
+        _styleFormThemeAffinities = new(StringComparer.OrdinalIgnoreCase);
+        _styleFormEscalatingThemeIds = new(StringComparer.OrdinalIgnoreCase);
+        _styleFormStatBias = new(StringComparer.OrdinalIgnoreCase);
         _styleError = null;
     }
 
-    private void SelectStyle(string styleId)
+    private void SelectSteering(string styleId)
     {
-        var style = _styleProfiles.FirstOrDefault(x => x.Id == styleId);
+        var style = _steeringProfiles.FirstOrDefault(x => x.Id == styleId);
         if (style is null)
         {
             return;
@@ -1044,32 +1332,39 @@
         _styleFormDescription = style.Description;
         _styleFormExample = style.Example;
         _styleFormRuleOfThumb = style.RuleOfThumb;
+        _styleFormThemeAffinities = new(style.ThemeAffinities, StringComparer.OrdinalIgnoreCase);
+        _styleFormEscalatingThemeIds = new(style.EscalatingThemeIds, StringComparer.OrdinalIgnoreCase);
+        _styleFormStatBias = new(style.StatBias, StringComparer.OrdinalIgnoreCase);
         _styleError = null;
     }
 
-    private async Task SaveStyle()
+    private async Task SaveSteering()
     {
         _styleError = null;
         if (string.IsNullOrWhiteSpace(_styleFormName.Trim()))
         {
-            _styleError = "Style profile name is required.";
+            _styleError = "Writing style profile name is required.";
             return;
         }
 
         _isBusy = true;
         try
         {
+            var affinities = _styleFormThemeAffinities.Where(kv => kv.Value != 0).ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.OrdinalIgnoreCase);
+            var escalating = _styleFormEscalatingThemeIds.ToList();
+            var bias = _styleFormStatBias.Where(kv => kv.Value != 0).ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.OrdinalIgnoreCase);
+
             if (_selectedStyleId is null)
             {
-                var created = await Facade.CreateStyleProfileAsync(_styleFormName, _styleFormDescription, _styleFormExample, _styleFormRuleOfThumb);
+                var created = await Facade.CreateSteeringProfileAsync(_styleFormName, _styleFormDescription, _styleFormExample, _styleFormRuleOfThumb, affinities, escalating, bias);
                 await ReloadAsync();
-                SelectStyle(created.Id);
+                SelectSteering(created.Id);
             }
             else
             {
-                await Facade.UpdateStyleProfileAsync(_selectedStyleId, _styleFormName, _styleFormDescription, _styleFormExample, _styleFormRuleOfThumb);
+                await Facade.UpdateSteeringProfileAsync(_selectedStyleId, _styleFormName, _styleFormDescription, _styleFormExample, _styleFormRuleOfThumb, affinities, escalating, bias);
                 await ReloadAsync();
-                SelectStyle(_selectedStyleId);
+                SelectSteering(_selectedStyleId);
             }
         }
         catch (Exception ex)
@@ -1082,7 +1377,7 @@
         }
     }
 
-    private async Task DeleteStyle()
+    private async Task DeleteSteering()
     {
         if (_selectedStyleId is null)
         {
@@ -1093,15 +1388,15 @@
         _isBusy = true;
         try
         {
-            await Facade.DeleteStyleProfileAsync(_selectedStyleId);
+            await Facade.DeleteSteeringProfileAsync(_selectedStyleId);
             await ReloadAsync();
-            if (_styleProfiles.Count > 0)
+            if (_steeringProfiles.Count > 0)
             {
-                SelectStyle(_styleProfiles[0].Id);
+                SelectSteering(_steeringProfiles[0].Id);
             }
             else
             {
-                StartCreateStyle();
+                StartCreateSteering();
             }
         }
         catch (Exception ex)
@@ -1154,7 +1449,7 @@
         _baseStatError = null;
         if (string.IsNullOrWhiteSpace(_baseStatFormName.Trim()))
         {
-            _baseStatError = "Base stat profile name is required.";
+            _baseStatError = "Character state profile name is required.";
             return;
         }
 
@@ -1258,6 +1553,62 @@
         _ => tier.ToString()
     };
 
+    private void OnNewCatalogChanged()
+    {
+        if (!string.IsNullOrEmpty(_newThemeCatalogId))
+        {
+            var entry = _catalogEntries.FirstOrDefault(e => e.Id == _newThemeCatalogId);
+            if (entry is not null)
+            {
+                _newThemeName = entry.Label;
+                if (string.IsNullOrWhiteSpace(_newThemeDescription))
+                    _newThemeDescription = entry.Description;
+            }
+        }
+    }
+
+    private void OnEditCatalogChanged()
+    {
+        if (!string.IsNullOrEmpty(_editThemeCatalogId))
+        {
+            var entry = _catalogEntries.FirstOrDefault(e => e.Id == _editThemeCatalogId);
+            if (entry is not null)
+            {
+                _editThemeName = entry.Label;
+            }
+        }
+    }
+
+    private int GetThemeAffinityValue(string themeId)
+    {
+        _styleFormThemeAffinities.TryGetValue(themeId, out var value);
+        return value;
+    }
+
+    private void SetThemeAffinityValue(string themeId, string? rawValue)
+    {
+        if (!int.TryParse(rawValue, out var value)) value = 0;
+        _styleFormThemeAffinities[themeId] = Math.Clamp(value, -10, 10);
+    }
+
+    private void ToggleEscalatingTheme(string themeId, bool isChecked)
+    {
+        if (isChecked) _styleFormEscalatingThemeIds.Add(themeId);
+        else _styleFormEscalatingThemeIds.Remove(themeId);
+    }
+
+    private int GetStatBiasValue(string statName)
+    {
+        _styleFormStatBias.TryGetValue(statName, out var value);
+        return value;
+    }
+
+    private void SetStatBiasValue(string statName, string? rawValue)
+    {
+        if (!int.TryParse(rawValue, out var value)) value = 0;
+        _styleFormStatBias[statName] = Math.Clamp(value, -20, 20);
+    }
+
     private static string GetTierBadgeClass(ThemeTier tier) => tier switch
     {
         ThemeTier.MustHave => "bg-success",
@@ -1268,4 +1619,193 @@
         ThemeTier.HardDealBreaker => "bg-danger",
         _ => "bg-secondary"
     };
+
+    // Catalog management
+    private void StartAddCatalogEntry()
+    {
+        _isAddingCatalog = true;
+        _catalogError = null;
+        _newCatalogId = string.Empty;
+        _newCatalogLabel = string.Empty;
+        _newCatalogDescription = string.Empty;
+        _newCatalogKeywordsText = string.Empty;
+        _newCatalogCategory = string.Empty;
+        _newCatalogStatAffinities = new(StringComparer.OrdinalIgnoreCase);
+        _newCatalogWeight = 3;
+    }
+
+    private async Task AddCatalogEntry()
+    {
+        _catalogError = null;
+        if (string.IsNullOrWhiteSpace(_newCatalogLabel))
+        {
+            _catalogError = "Label is required.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_newCatalogKeywordsText))
+        {
+            _catalogError = "At least one keyword is required for enabled catalog entries.";
+            return;
+        }
+
+        _isBusy = true;
+        try
+        {
+            var entry = new ThemeCatalogEntry
+            {
+                Id = string.IsNullOrWhiteSpace(_newCatalogId) ? Slugify(_newCatalogLabel) : _newCatalogId.Trim().ToLowerInvariant(),
+                Label = _newCatalogLabel.Trim(),
+                Description = _newCatalogDescription.Trim(),
+                Keywords = ParseKeywordList(_newCatalogKeywordsText),
+                Category = _newCatalogCategory.Trim(),
+                StatAffinities = BuildFilteredAffinities(_newCatalogStatAffinities),
+                Weight = _newCatalogWeight,
+                IsEnabled = true,
+                IsBuiltIn = false,
+                CreatedUtc = DateTime.UtcNow,
+                UpdatedUtc = DateTime.UtcNow
+            };
+            await Facade.SaveCatalogEntryAsync(entry);
+            _isAddingCatalog = false;
+            await ReloadAsync();
+        }
+        catch (Exception ex)
+        {
+            _catalogError = ex.Message;
+        }
+        finally { _isBusy = false; }
+    }
+
+    private void StartEditCatalogEntry(ThemeCatalogEntry entry)
+    {
+        _editingCatalogId = entry.Id;
+        _editCatalogLabel = entry.Label;
+        _editCatalogDescription = entry.Description;
+        _editCatalogKeywordsText = string.Join(", ", entry.Keywords);
+        _editCatalogCategory = entry.Category;
+        _editCatalogStatAffinities = new(entry.StatAffinities, StringComparer.OrdinalIgnoreCase);
+        _editCatalogWeight = entry.Weight;
+        _editCatalogEnabled = entry.IsEnabled;
+        _catalogError = null;
+    }
+
+    private int GetNewCatalogStatAffinityValue(string statName)
+    {
+        _newCatalogStatAffinities.TryGetValue(statName, out var value);
+        return value;
+    }
+
+    private void SetNewCatalogStatAffinityValue(string statName, string? rawValue)
+    {
+        if (!int.TryParse(rawValue, out var value)) value = 0;
+        _newCatalogStatAffinities[statName] = Math.Clamp(value, -5, 5);
+    }
+
+    private int GetEditCatalogStatAffinityValue(string statName)
+    {
+        _editCatalogStatAffinities.TryGetValue(statName, out var value);
+        return value;
+    }
+
+    private void SetEditCatalogStatAffinityValue(string statName, string? rawValue)
+    {
+        if (!int.TryParse(rawValue, out var value)) value = 0;
+        _editCatalogStatAffinities[statName] = Math.Clamp(value, -5, 5);
+    }
+
+    private static List<string> ParseKeywordList(string? rawValue)
+    {
+        return (rawValue ?? string.Empty)
+            .Split([',', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static Dictionary<string, int> BuildFilteredAffinities(Dictionary<string, int> values)
+    {
+        return values
+            .Where(kv => kv.Value != 0)
+            .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static string FormatKeywords(IReadOnlyList<string> keywords)
+        => keywords.Count == 0 ? "-" : string.Join(", ", keywords);
+
+    private static string FormatStatAffinities(IReadOnlyDictionary<string, int> affinities)
+    {
+        if (affinities.Count == 0)
+        {
+            return "-";
+        }
+
+        return string.Join(", ", affinities.Select(kv => $"{kv.Key} {(kv.Value >= 0 ? "+" : string.Empty)}{kv.Value}"));
+    }
+
+    private static string Slugify(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        var slug = value.Trim().ToLowerInvariant();
+        slug = System.Text.RegularExpressions.Regex.Replace(slug, "[^a-z0-9]+", "-");
+        slug = slug.Trim('-');
+        return slug;
+    }
+
+    private async Task SaveEditCatalogEntry()
+    {
+        _catalogError = null;
+        if (string.IsNullOrWhiteSpace(_editCatalogLabel))
+        {
+            _catalogError = "Label is required.";
+            return;
+        }
+
+        _isBusy = true;
+        try
+        {
+            var existing = _catalogEntries.FirstOrDefault(e => e.Id == _editingCatalogId);
+            if (existing is not null)
+            {
+                existing.Label = _editCatalogLabel.Trim();
+                existing.Description = _editCatalogDescription.Trim();
+                existing.Keywords = ParseKeywordList(_editCatalogKeywordsText);
+                existing.Category = _editCatalogCategory.Trim();
+                existing.StatAffinities = BuildFilteredAffinities(_editCatalogStatAffinities);
+                existing.Weight = _editCatalogWeight;
+                existing.IsEnabled = _editCatalogEnabled;
+                existing.UpdatedUtc = DateTime.UtcNow;
+                await Facade.SaveCatalogEntryAsync(existing);
+            }
+            _editingCatalogId = null;
+            await ReloadAsync();
+        }
+        catch (Exception ex)
+        {
+            _catalogError = ex.Message;
+        }
+        finally { _isBusy = false; }
+    }
+
+    private void CancelEditCatalogEntry() => _editingCatalogId = null;
+
+    private async Task DeleteCatalogEntry(string id)
+    {
+        _catalogError = null;
+        _isBusy = true;
+        try
+        {
+            await Facade.DeleteCatalogEntryAsync(id);
+            await ReloadAsync();
+        }
+        catch (Exception ex)
+        {
+            _catalogError = ex.Message;
+        }
+        finally { _isBusy = false; }
+    }
 }

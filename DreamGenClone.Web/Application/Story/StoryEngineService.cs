@@ -147,7 +147,7 @@ public sealed class StoryEngineService : IStoryEngineService
                 sb.AppendLine($"- Description: {scenario.Description}");
                 sb.AppendLine($"- Plot: {scenario.Plot.Description}");
                 sb.AppendLine($"- Setting: {scenario.Setting.WorldDescription}");
-                sb.AppendLine($"- Style: {scenario.Style.WritingStyle} / {scenario.Style.Tone}");
+                sb.AppendLine($"- Narrative: {scenario.Narrative.ProseStyle} / {scenario.Narrative.NarrativeTone}");
             }
         }
 

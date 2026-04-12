@@ -55,7 +55,7 @@ public class ModelProcessingQueueTests
 
         queue.Enqueue(new ModelProcessingTask { ParsedStoryId = "s1", TaskType = ModelProcessingTaskType.Summarize });
         queue.Enqueue(new ModelProcessingTask { ParsedStoryId = "s1", TaskType = ModelProcessingTaskType.Analyze });
-        queue.Enqueue(new ModelProcessingTask { ParsedStoryId = "s1", TaskType = ModelProcessingTaskType.Rank, RankingProfileId = "p1" });
+        queue.Enqueue(new ModelProcessingTask { ParsedStoryId = "s1", TaskType = ModelProcessingTaskType.Rank, ThemeProfileId = "p1" });
 
         Assert.Equal(3, queue.GetAllTasks().Count);
     }
@@ -85,7 +85,7 @@ public class ModelProcessingQueueTests
         Assert.Equal(3, tasks.Count);
         Assert.Contains(tasks, t => t.TaskType == ModelProcessingTaskType.Summarize);
         Assert.Contains(tasks, t => t.TaskType == ModelProcessingTaskType.Analyze);
-        Assert.Contains(tasks, t => t.TaskType == ModelProcessingTaskType.Rank && t.RankingProfileId == "profile1");
+        Assert.Contains(tasks, t => t.TaskType == ModelProcessingTaskType.Rank && t.ThemeProfileId == "profile1");
     }
 
     [Fact]

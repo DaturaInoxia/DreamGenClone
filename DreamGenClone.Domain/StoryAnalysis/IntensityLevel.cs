@@ -1,6 +1,6 @@
 namespace DreamGenClone.Domain.StoryAnalysis;
 
-public enum ToneIntensity
+public enum IntensityLevel
 {
     Intro = 0,
     Emotional = 1,

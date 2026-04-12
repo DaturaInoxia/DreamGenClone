@@ -1,0 +1,194 @@
+@page "/administration"
+@rendermode InteractiveServer
+@using DreamGenClone.Domain.Administration
+@using DreamGenClone.Web.Application.Administration
+
+@inject AdministrationFacade Facade
+
+<PageTitle>Administration - DreamGenClone</PageTitle>
+
+<div class="container-fluid mt-4">
+    <h1 class="mb-4">Administration</h1>
+
+    @if (!string.IsNullOrWhiteSpace(_globalError))
+    {
+        <div class="alert alert-danger alert-dismissible fade show">
+            @_globalError
+            <button type="button" class="btn-close" @onclick="() => _globalError = null"></button>
+        </div>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(_statusMessage))
+    {
+        <div class="alert @(_lastActionSucceeded ? "alert-success" : "alert-warning") alert-dismissible fade show">
+            @_statusMessage
+            <button type="button" class="btn-close" @onclick="() => _statusMessage = null"></button>
+        </div>
+    }
+
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h4 class="mb-0"><i class="bi bi-database"></i> Database Backups</h4>
+            <button class="btn btn-outline-secondary btn-sm" @onclick="ReloadAsync" disabled="@_isBusy">
+                <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+            </button>
+        </div>
+        <div class="card-body">
+            <p class="text-muted">Create a point-in-time SQLite backup, keep it on the server, and download it later from the history list.</p>
+
+            <div class="row g-3 align-items-end mb-3">
+                <div class="col-md-8 col-lg-6">
+                    <label class="form-label">Backup name</label>
+                    <input type="text" class="form-control" @bind="_backupName" maxlength="100" placeholder="Optional label, e.g. pre-release or before-import" />
+                    <div class="form-text">Leave blank to generate a timestamped backup name automatically.</div>
+                </div>
+                <div class="col-md-4 col-lg-3">
+                    <button class="btn btn-primary w-100" @onclick="CreateBackupAsync" disabled="@_isBusy">
+                        @if (_isBusy)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-cloud-arrow-down me-1"></i>
+                        }
+                        Create Backup
+                    </button>
+                </div>
+            </div>
+
+            @if (_backups.Count == 0)
+            {
+                <div class="alert alert-info mb-0">No database backups have been created yet.</div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table table-striped table-hover align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Created</th>
+                                <th>Size</th>
+                                <th>File</th>
+                                <th class="text-end">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var backup in _backups)
+                            {
+                                <tr>
+                                    <td>
+                                        <strong>@backup.DisplayName</strong>
+                                        <div><small class="text-muted">Triggered by @backup.TriggeredBy</small></div>
+                                    </td>
+                                    <td>@backup.CreatedUtc.ToLocalTime().ToString("g")</td>
+                                    <td>@FormatSize(backup.FileSizeBytes)</td>
+                                    <td><small class="text-muted">@backup.FileName</small></td>
+                                    <td class="text-end">
+                                        <a class="btn btn-outline-primary btn-sm" href="@GetDownloadUrl(backup.Id)">
+                                            <i class="bi bi-download me-1"></i> Download
+                                        </a>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h4 class="mb-0"><i class="bi bi-sliders"></i> Future Administration Tools</h4>
+        </div>
+        <div class="card-body">
+            <p class="mb-0 text-muted">This module is the landing zone for operational features beyond backups, such as maintenance, cleanup, and other administration workflows.</p>
+        </div>
+    </div>
+</div>
+
+@code {
+    private readonly List<DatabaseBackup> _backups = [];
+    private bool _isBusy;
+    private bool _lastActionSucceeded = true;
+    private string? _backupName;
+    private string? _globalError;
+    private string? _statusMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadBackupsAsync();
+    }
+
+    private async Task CreateBackupAsync()
+    {
+        _isBusy = true;
+        _globalError = null;
+        _statusMessage = null;
+
+        try
+        {
+            var backup = await Facade.CreateDatabaseBackupAsync(_backupName);
+            _backupName = null;
+            _lastActionSucceeded = true;
+            _statusMessage = $"Created backup '{backup.DisplayName}'.";
+            await LoadBackupsAsync();
+        }
+        catch (Exception ex)
+        {
+            _lastActionSucceeded = false;
+            _globalError = $"Backup failed: {ex.Message}";
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task ReloadAsync()
+    {
+        _isBusy = true;
+        _globalError = null;
+
+        try
+        {
+            await LoadBackupsAsync();
+        }
+        catch (Exception ex)
+        {
+            _globalError = $"Could not load backups: {ex.Message}";
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task LoadBackupsAsync()
+    {
+        _backups.Clear();
+        _backups.AddRange(await Facade.GetDatabaseBackupsAsync());
+    }
+
+    private static string GetDownloadUrl(string backupId) => $"/administration/backups/{backupId}/download";
+
+    private static string FormatSize(long bytes)
+    {
+        const long kilobyte = 1024;
+        const long megabyte = 1024 * 1024;
+
+        if (bytes >= megabyte)
+        {
+            return $"{bytes / (double)megabyte:F2} MB";
+        }
+
+        if (bytes >= kilobyte)
+        {
+            return $"{bytes / (double)kilobyte:F2} KB";
+        }
+
+        return $"{bytes} B";
+    }
+}

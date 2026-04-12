@@ -16,7 +16,7 @@ public sealed class RolePlaySessionBaseStatInitializationTests
             "Defaults",
             new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
             {
-                ["Trust"] = 30,
+                ["Connection"] = 30,
                 ["Tension"] = 60
             });
 
@@ -32,7 +32,7 @@ public sealed class RolePlaySessionBaseStatInitializationTests
                     Name = "Alice",
                     BaseStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
                     {
-                        ["Trust"] = 80
+                        ["Connection"] = 80
                     }
                 }
             ]
@@ -45,7 +45,7 @@ public sealed class RolePlaySessionBaseStatInitializationTests
         var session = await service.CreateSessionAsync("Base Stats", scenario.Id);
 
         var stats = session.AdaptiveState.CharacterStats["Alice"].Stats;
-        Assert.Equal(80, stats["Trust"]);
+        Assert.Equal(80, stats["Connection"]);
         Assert.Equal(60, stats["Tension"]);
     }
 
@@ -58,7 +58,7 @@ public sealed class RolePlaySessionBaseStatInitializationTests
             BaseStatProfileId = "missing-profile",
             ResolvedBaseStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
             {
-                ["Arousal"] = 40
+                ["Desire"] = 40
             },
             Characters =
             [
@@ -77,7 +77,7 @@ public sealed class RolePlaySessionBaseStatInitializationTests
         var session = await service.CreateSessionAsync("Fallback", scenario.Id);
 
         var stats = session.AdaptiveState.CharacterStats["Alice"].Stats;
-        Assert.Equal(40, stats["Arousal"]);
+        Assert.Equal(40, stats["Desire"]);
     }
 
     [Fact]

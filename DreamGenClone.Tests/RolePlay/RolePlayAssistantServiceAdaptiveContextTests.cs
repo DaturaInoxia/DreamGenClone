@@ -10,7 +10,7 @@ namespace DreamGenClone.Tests.RolePlay;
 public sealed class RolePlayAssistantServiceAdaptiveContextTests
 {
     [Fact]
-    public async Task GenerateSuggestionAsync_IncludesStyleProfileAndManualPinInAdaptiveContext()
+    public async Task GenerateSuggestionAsync_IncludesSteeringProfileAndManualPinInAdaptiveContext()
     {
         var completion = new RecordingCompletionClient();
         var resolver = new StubModelResolutionService();
@@ -24,18 +24,19 @@ public sealed class RolePlayAssistantServiceAdaptiveContextTests
         var context = new RolePlayAssistantContext
         {
             SessionId = "session-1",
-            SelectedRankingProfileId = "ranking-a",
-            SelectedToneProfileId = "tone-a",
-            SelectedStyleProfileId = "style-a",
-            StyleFloorOverride = "Emotional / PG-13",
-            StyleCeilingOverride = "Erotic / Explicit",
-            IsToneManuallyPinned = true
+            SelectedThemeProfileId = "ranking-a",
+            SelectedIntensityProfileId = "tone-a",
+            SelectedSteeringProfileId = "style-a",
+            IntensityFloorOverride = "Emotional",
+            IntensityCeilingOverride = "Erotic",
+            IsIntensityManuallyPinned = true
         };
 
         var response = await service.GenerateSuggestionAsync(context, "How do I make this slower?");
 
         Assert.Equal("ok", response);
-        Assert.Contains("style=style-a", completion.LastUserMessage, StringComparison.Ordinal);
+        Assert.Contains("steering=style-a", completion.LastUserMessage, StringComparison.Ordinal);
+        Assert.Contains("baseIntensity=tone-a", completion.LastUserMessage, StringComparison.Ordinal);
         Assert.Contains("manualPin=on", completion.LastUserMessage, StringComparison.Ordinal);
     }
 

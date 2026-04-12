@@ -257,6 +257,10 @@ public sealed class InteractionRetryService : IInteractionRetryService
             sb.AppendLine($"POV Persona: {session.PersonaName}");
         }
 
+        List<string> scenarioGoals = [];
+        List<string> scenarioConflicts = [];
+        List<string> scenarioNarrativeGuidelines = [];
+
         if (!string.IsNullOrWhiteSpace(session.ScenarioId))
         {
             var scenario = await _scenarioService.GetScenarioAsync(session.ScenarioId);
@@ -267,23 +271,33 @@ public sealed class InteractionRetryService : IInteractionRetryService
                 sb.AppendLine($"- Description: {scenario.Description}");
                 sb.AppendLine($"- Plot: {scenario.Plot.Description}");
                 sb.AppendLine($"- Setting: {scenario.Setting.WorldDescription}");
-                sb.AppendLine($"- Style: {scenario.Style.WritingStyle} / {scenario.Style.Tone}");
+                sb.AppendLine($"- Narrative: {scenario.Narrative.ProseStyle} / {scenario.Narrative.NarrativeTone}");
 
                 if (scenario.Plot.Goals.Count > 0)
                 {
+                    scenarioGoals = scenario.Plot.Goals
+                        .Where(x => !string.IsNullOrWhiteSpace(x))
+                        .Select(x => x.Trim())
+                        .ToList();
+
                     sb.AppendLine("- Plot Goals:");
-                    foreach (var goal in scenario.Plot.Goals.Where(x => !string.IsNullOrWhiteSpace(x)))
+                    foreach (var goal in scenarioGoals)
                     {
-                        sb.AppendLine($"  - {goal.Trim()}");
+                        sb.AppendLine($"  - {goal}");
                     }
                 }
 
                 if (scenario.Plot.Conflicts.Count > 0)
                 {
+                    scenarioConflicts = scenario.Plot.Conflicts
+                        .Where(x => !string.IsNullOrWhiteSpace(x))
+                        .Select(x => x.Trim())
+                        .ToList();
+
                     sb.AppendLine("- Plot Conflicts:");
-                    foreach (var conflict in scenario.Plot.Conflicts.Where(x => !string.IsNullOrWhiteSpace(x)))
+                    foreach (var conflict in scenarioConflicts)
                     {
-                        sb.AppendLine($"  - {conflict.Trim()}");
+                        sb.AppendLine($"  - {conflict}");
                     }
                 }
 
@@ -296,12 +310,17 @@ public sealed class InteractionRetryService : IInteractionRetryService
                     }
                 }
 
-                if (scenario.Style.StyleGuidelines.Count > 0)
+                if (scenario.Narrative.NarrativeGuidelines.Count > 0)
                 {
-                    sb.AppendLine("- Style Guidelines:");
-                    foreach (var guideline in scenario.Style.StyleGuidelines.Where(x => !string.IsNullOrWhiteSpace(x)))
+                    scenarioNarrativeGuidelines = scenario.Narrative.NarrativeGuidelines
+                        .Where(x => !string.IsNullOrWhiteSpace(x))
+                        .Select(x => x.Trim())
+                        .ToList();
+
+                    sb.AppendLine("- Narrative Guidelines:");
+                    foreach (var guideline in scenarioNarrativeGuidelines)
                     {
-                        sb.AppendLine($"  - {guideline.Trim()}");
+                        sb.AppendLine($"  - {guideline}");
                     }
                 }
 
@@ -366,6 +385,27 @@ public sealed class InteractionRetryService : IInteractionRetryService
             sb.AppendLine(additionalInstruction);
         }
 
+        if (scenarioGoals.Count > 0 || scenarioConflicts.Count > 0 || scenarioNarrativeGuidelines.Count > 0)
+        {
+            sb.AppendLine("Scenario Priorities For This Rewrite:");
+            foreach (var goal in scenarioGoals)
+            {
+                sb.AppendLine($"- Higher priority: move toward this goal when it fits naturally: {goal}");
+            }
+
+            foreach (var conflict in scenarioConflicts)
+            {
+                sb.AppendLine($"- Higher priority: keep this conflict active, meaningful, or unresolved unless a natural scene turn changes it: {conflict}");
+            }
+
+            foreach (var guideline in scenarioNarrativeGuidelines)
+            {
+                sb.AppendLine($"- Lower priority than goals/conflicts, but still prefer this when it fits naturally: {guideline}");
+            }
+
+            sb.AppendLine("Treat goals and conflicts as higher-level soft priorities than narrative guidelines. Advance them when the scene allows, but do not force abrupt jumps or resolve everything immediately. Ignore any of these only when the rewrite request, scene reality, or hard safety constraints require otherwise.");
+        }
+
         var styleHint = BuildRetryStyleHint(session);
         var perspectiveMode = session.ResolvePerspectiveMode(target.InteractionType, target.ActorName);
         RolePlayPerspectivePromptBuilder.AppendInteractionInstruction(
@@ -382,14 +422,14 @@ public sealed class InteractionRetryService : IInteractionRetryService
     {
         var parts = new List<string>();
 
-        if (!string.IsNullOrWhiteSpace(session.SelectedToneProfileId))
+        if (!string.IsNullOrWhiteSpace(session.SelectedIntensityProfileId))
         {
-            parts.Add($"tone profile: {session.SelectedToneProfileId}");
+            parts.Add($"intensity profile: {session.SelectedIntensityProfileId}");
         }
 
-        if (!string.IsNullOrWhiteSpace(session.StyleFloorOverride) || !string.IsNullOrWhiteSpace(session.StyleCeilingOverride))
+        if (!string.IsNullOrWhiteSpace(session.IntensityFloorOverride) || !string.IsNullOrWhiteSpace(session.IntensityCeilingOverride))
         {
-            parts.Add($"bounds: {session.StyleFloorOverride ?? "(none)"} to {session.StyleCeilingOverride ?? "(none)"}");
+            parts.Add($"bounds: {session.IntensityFloorOverride ?? "(none)"} to {session.IntensityCeilingOverride ?? "(none)"}");
         }
 
         return parts.Count == 0 ? "current scene style" : string.Join(" | ", parts);

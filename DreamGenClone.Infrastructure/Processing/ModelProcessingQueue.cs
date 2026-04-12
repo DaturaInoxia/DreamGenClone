@@ -30,7 +30,7 @@ public sealed class ModelProcessingQueue : IModelProcessingQueue
         OnStatusChanged?.Invoke(task);
     }
 
-    public void EnqueueStoryProcessing(string parsedStoryId, string? storyTitle, string? rankingProfileId = null)
+    public void EnqueueStoryProcessing(string parsedStoryId, string? storyTitle, string? themeProfileId = null)
     {
         Enqueue(new ModelProcessingTask
         {
@@ -46,14 +46,14 @@ public sealed class ModelProcessingQueue : IModelProcessingQueue
             TaskType = ModelProcessingTaskType.Analyze
         });
 
-        if (rankingProfileId is not null)
+        if (themeProfileId is not null)
         {
             Enqueue(new ModelProcessingTask
             {
                 ParsedStoryId = parsedStoryId,
                 StoryTitle = storyTitle,
                 TaskType = ModelProcessingTaskType.Rank,
-                RankingProfileId = rankingProfileId
+                ThemeProfileId = themeProfileId
             });
         }
     }

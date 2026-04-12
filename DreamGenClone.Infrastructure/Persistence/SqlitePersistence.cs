@@ -1,7 +1,8 @@
+using DreamGenClone.Domain.Administration;
 using DreamGenClone.Domain.ModelManager;
-using DreamGenClone.Infrastructure.Configuration;
 using DreamGenClone.Domain.StoryAnalysis;
 using DreamGenClone.Domain.StoryParser;
+using DreamGenClone.Infrastructure.Configuration;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -125,11 +126,12 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 Name TEXT NOT NULL,
                 Description TEXT NOT NULL DEFAULT '',
                 Tier TEXT NOT NULL DEFAULT 'Neutral',
+                CatalogId TEXT NOT NULL DEFAULT '',
                 CreatedUtc TEXT NOT NULL,
                 UpdatedUtc TEXT NOT NULL
             );
 
-            CREATE TABLE IF NOT EXISTS RankingProfiles (
+            CREATE TABLE IF NOT EXISTS ThemeProfiles (
                 Id TEXT PRIMARY KEY,
                 Name TEXT NOT NULL,
                 IsDefault INTEGER NOT NULL DEFAULT 0,
@@ -161,6 +163,20 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 Description TEXT NOT NULL,
                 Example TEXT NOT NULL,
                 RuleOfThumb TEXT NOT NULL,
+                CreatedUtc TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS ThemeCatalog (
+                Id TEXT PRIMARY KEY,
+                Label TEXT NOT NULL,
+                Description TEXT NOT NULL DEFAULT '',
+                Keywords TEXT NOT NULL DEFAULT '[]',
+                Weight INTEGER NOT NULL DEFAULT 1,
+                Category TEXT NOT NULL DEFAULT '',
+                StatAffinities TEXT NOT NULL DEFAULT '{}',
+                IsEnabled INTEGER NOT NULL DEFAULT 1,
+                IsBuiltIn INTEGER NOT NULL DEFAULT 0,
                 CreatedUtc TEXT NOT NULL,
                 UpdatedUtc TEXT NOT NULL
             );
@@ -214,6 +230,18 @@ public sealed class SqlitePersistence : ISqlitePersistence
             );
 
             CREATE INDEX IF NOT EXISTS IX_UserStoryRatings_ParsedStoryId ON UserStoryRatings (ParsedStoryId);
+
+            CREATE TABLE IF NOT EXISTS DatabaseBackups (
+                Id TEXT PRIMARY KEY,
+                DisplayName TEXT NOT NULL,
+                FileName TEXT NOT NULL,
+                RelativePath TEXT NOT NULL,
+                FileSizeBytes INTEGER NOT NULL,
+                TriggeredBy TEXT NOT NULL,
+                CreatedUtc TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS IX_DatabaseBackups_CreatedUtc ON DatabaseBackups (CreatedUtc DESC);
 
             CREATE TABLE IF NOT EXISTS Providers (
                 Id TEXT PRIMARY KEY NOT NULL,
@@ -377,16 +405,58 @@ public sealed class SqlitePersistence : ISqlitePersistence
         baseStatsIndexCmd.CommandText = "CREATE INDEX IF NOT EXISTS IX_BaseStatProfiles_Name ON BaseStatProfiles (Name)";
         await baseStatsIndexCmd.ExecuteNonQueryAsync(cancellationToken);
 
-        // Migrate: add IsDefault column to RankingProfiles if missing
+        // Migrate: handle RankingProfiles -> ThemeProfiles safely.
+        // If both tables exist, merge rows and drop the legacy table to avoid rename collisions.
+        var checkOldTable = connection.CreateCommand();
+        checkOldTable.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='RankingProfiles'";
+        var hasOldTable = Convert.ToInt64(await checkOldTable.ExecuteScalarAsync(cancellationToken)) > 0;
+
+        var checkNewTable = connection.CreateCommand();
+        checkNewTable.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='ThemeProfiles'";
+        var hasThemeProfilesTable = Convert.ToInt64(await checkNewTable.ExecuteScalarAsync(cancellationToken)) > 0;
+
+        if (hasOldTable && !hasThemeProfilesTable)
+        {
+            var renameTable = connection.CreateCommand();
+            renameTable.CommandText = "ALTER TABLE RankingProfiles RENAME TO ThemeProfiles";
+            await renameTable.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated: renamed RankingProfiles table to ThemeProfiles");
+        }
+        else if (hasOldTable && hasThemeProfilesTable)
+        {
+            var oldHasIsDefaultCmd = connection.CreateCommand();
+            oldHasIsDefaultCmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RankingProfiles') WHERE name='IsDefault'";
+            var oldHasIsDefault = Convert.ToInt64(await oldHasIsDefaultCmd.ExecuteScalarAsync(cancellationToken)) > 0;
+
+            var mergeCmd = connection.CreateCommand();
+            mergeCmd.CommandText = oldHasIsDefault
+                ? """
+                    INSERT OR IGNORE INTO ThemeProfiles (Id, Name, IsDefault, CreatedUtc, UpdatedUtc)
+                    SELECT Id, Name, IsDefault, CreatedUtc, UpdatedUtc FROM RankingProfiles;
+                  """
+                : """
+                    INSERT OR IGNORE INTO ThemeProfiles (Id, Name, IsDefault, CreatedUtc, UpdatedUtc)
+                    SELECT Id, Name, 0, CreatedUtc, UpdatedUtc FROM RankingProfiles;
+                  """;
+            await mergeCmd.ExecuteNonQueryAsync(cancellationToken);
+
+            var dropOldTable = connection.CreateCommand();
+            dropOldTable.CommandText = "DROP TABLE IF EXISTS RankingProfiles";
+            await dropOldTable.ExecuteNonQueryAsync(cancellationToken);
+
+            _logger.LogInformation("Migrated: merged RankingProfiles data into ThemeProfiles and dropped legacy table");
+        }
+
+        // Migrate: add IsDefault column to ThemeProfiles if missing
         var migrateIsDefault = connection.CreateCommand();
-        migrateIsDefault.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RankingProfiles') WHERE name='IsDefault'";
+        migrateIsDefault.CommandText = "SELECT COUNT(*) FROM pragma_table_info('ThemeProfiles') WHERE name='IsDefault'";
         var hasIsDefault = Convert.ToInt64(await migrateIsDefault.ExecuteScalarAsync(cancellationToken)) > 0;
         if (!hasIsDefault)
         {
             var alterIsDefault = connection.CreateCommand();
-            alterIsDefault.CommandText = "ALTER TABLE RankingProfiles ADD COLUMN IsDefault INTEGER NOT NULL DEFAULT 0";
+            alterIsDefault.CommandText = "ALTER TABLE ThemeProfiles ADD COLUMN IsDefault INTEGER NOT NULL DEFAULT 0";
             await alterIsDefault.ExecuteNonQueryAsync(cancellationToken);
-            _logger.LogInformation("Migrated RankingProfiles table: added IsDefault column");
+            _logger.LogInformation("Migrated ThemeProfiles table: added IsDefault column");
         }
 
         // Migrate: add ThemeVerificationStatusJson column to StoryRankings if missing
@@ -436,6 +506,40 @@ public sealed class SqlitePersistence : ISqlitePersistence
             await alterNotes.ExecuteNonQueryAsync(cancellationToken);
 
             _logger.LogInformation("Migrated RegisteredModels table: added ContextWindowSize, Quantization, ParameterCount, Notes columns");
+        }
+
+        // Migrate: add ThemeAffinities, EscalatingThemeIds, StatBias columns to StyleProfiles if missing
+        var checkThemeAffinities = connection.CreateCommand();
+        checkThemeAffinities.CommandText = "SELECT COUNT(*) FROM pragma_table_info('StyleProfiles') WHERE name='ThemeAffinities'";
+        var hasThemeAffinities = Convert.ToInt64(await checkThemeAffinities.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasThemeAffinities)
+        {
+            var alterAffinities = connection.CreateCommand();
+            alterAffinities.CommandText = "ALTER TABLE StyleProfiles ADD COLUMN ThemeAffinities TEXT NOT NULL DEFAULT '{}'";
+            await alterAffinities.ExecuteNonQueryAsync(cancellationToken);
+
+            var alterEscalating = connection.CreateCommand();
+            alterEscalating.CommandText = "ALTER TABLE StyleProfiles ADD COLUMN EscalatingThemeIds TEXT NOT NULL DEFAULT '[]'";
+            await alterEscalating.ExecuteNonQueryAsync(cancellationToken);
+
+            var alterStatBias = connection.CreateCommand();
+            alterStatBias.CommandText = "ALTER TABLE StyleProfiles ADD COLUMN StatBias TEXT NOT NULL DEFAULT '{}'";
+            await alterStatBias.ExecuteNonQueryAsync(cancellationToken);
+
+            _logger.LogInformation("Migrated StyleProfiles table: added ThemeAffinities, EscalatingThemeIds, StatBias columns");
+        }
+
+        // Migrate: add CatalogId column to ThemePreferences if missing
+        var checkCatalogId = connection.CreateCommand();
+        checkCatalogId.CommandText = "SELECT COUNT(*) FROM pragma_table_info('ThemePreferences') WHERE name='CatalogId'";
+        var hasCatalogId = Convert.ToInt64(await checkCatalogId.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasCatalogId)
+        {
+            var alterCatalogId = connection.CreateCommand();
+            alterCatalogId.CommandText = "ALTER TABLE ThemePreferences ADD COLUMN CatalogId TEXT NOT NULL DEFAULT ''";
+            await alterCatalogId.ExecuteNonQueryAsync(cancellationToken);
+
+            _logger.LogInformation("Migrated ThemePreferences table: added CatalogId column");
         }
 
         // Seed Model Manager tables on first run (empty Providers table)
@@ -548,6 +652,51 @@ public sealed class SqlitePersistence : ISqlitePersistence
             _logger.LogInformation("Migrated RolePlayAssistant function default: MaxTokens 500 → 2000");
 
         _logger.LogInformation("SQLite persistence initialized using {ConnectionString}", _options.ConnectionString);
+    }
+
+    public async Task<DatabaseBackup> CreateDatabaseBackupAsync(string? displayName, CancellationToken cancellationToken = default)
+    {
+        var databasePath = ResolveDatabasePath();
+        var dataDirectory = Path.GetDirectoryName(databasePath)
+            ?? throw new InvalidOperationException("Could not resolve the SQLite data directory.");
+        var backupDirectory = Path.Combine(dataDirectory, "backups");
+        Directory.CreateDirectory(backupDirectory);
+
+        var backupId = Guid.NewGuid().ToString("N");
+        var createdUtc = DateTime.UtcNow;
+        var normalizedName = string.IsNullOrWhiteSpace(displayName)
+            ? $"Database Backup {createdUtc:yyyy-MM-dd HH:mm:ss} UTC"
+            : displayName.Trim();
+        var safeLabel = SanitizeFileToken(normalizedName);
+        var fileName = $"dreamgenclone-backup-{createdUtc:yyyyMMdd-HHmmss}-{safeLabel}-{backupId[..8]}.db";
+        var backupPath = Path.Combine(backupDirectory, fileName);
+        var escapedBackupPath = backupPath.Replace("'", "''");
+
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = $"VACUUM INTO '{escapedBackupPath}'";
+        await command.ExecuteNonQueryAsync(cancellationToken);
+
+        var fileInfo = new FileInfo(backupPath);
+        if (!fileInfo.Exists)
+        {
+            throw new InvalidOperationException("SQLite backup completed without creating the expected backup file.");
+        }
+
+        _logger.LogInformation("Database backup created at {BackupPath}", backupPath);
+
+        return new DatabaseBackup
+        {
+            Id = backupId,
+            DisplayName = normalizedName,
+            FileName = fileName,
+            RelativePath = Path.GetRelativePath(dataDirectory, backupPath).Replace('\\', '/'),
+            FileSizeBytes = fileInfo.Length,
+            TriggeredBy = "manual",
+            CreatedUtc = createdUtc
+        };
     }
 
     public async Task SaveScenarioAsync(string id, string name, string payloadJson, CancellationToken cancellationToken = default)
@@ -1035,13 +1184,14 @@ public sealed class SqlitePersistence : ISqlitePersistence
 
         var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO ThemePreferences (Id, ProfileId, Name, Description, Tier, CreatedUtc, UpdatedUtc)
-            VALUES ($id, $profileId, $name, $description, $tier, $createdUtc, $updatedUtc)
+            INSERT INTO ThemePreferences (Id, ProfileId, Name, Description, Tier, CatalogId, CreatedUtc, UpdatedUtc)
+            VALUES ($id, $profileId, $name, $description, $tier, $catalogId, $createdUtc, $updatedUtc)
             ON CONFLICT(Id) DO UPDATE SET
                 ProfileId = $profileId,
                 Name = $name,
                 Description = $description,
                 Tier = $tier,
+                CatalogId = $catalogId,
                 UpdatedUtc = $updatedUtc;
             """;
 
@@ -1050,6 +1200,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
         command.Parameters.AddWithValue("$name", preference.Name);
         command.Parameters.AddWithValue("$description", preference.Description);
         command.Parameters.AddWithValue("$tier", preference.Tier.ToString());
+        command.Parameters.AddWithValue("$catalogId", preference.CatalogId);
         command.Parameters.AddWithValue("$createdUtc", preference.CreatedUtc.ToString("O"));
         command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
 
@@ -1063,7 +1214,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
         await connection.OpenAsync(cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, ProfileId, Name, Description, Tier, CreatedUtc, UpdatedUtc FROM ThemePreferences WHERE Id = $id";
+        command.CommandText = "SELECT Id, ProfileId, Name, Description, Tier, CatalogId, CreatedUtc, UpdatedUtc FROM ThemePreferences WHERE Id = $id";
         command.Parameters.AddWithValue("$id", id);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -1079,7 +1230,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
         await connection.OpenAsync(cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, ProfileId, Name, Description, Tier, CreatedUtc, UpdatedUtc FROM ThemePreferences ORDER BY UpdatedUtc DESC";
+        command.CommandText = "SELECT Id, ProfileId, Name, Description, Tier, CatalogId, CreatedUtc, UpdatedUtc FROM ThemePreferences ORDER BY UpdatedUtc DESC";
 
         var results = new List<ThemePreference>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -1098,7 +1249,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
         await connection.OpenAsync(cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, ProfileId, Name, Description, Tier, CreatedUtc, UpdatedUtc FROM ThemePreferences WHERE ProfileId = $profileId ORDER BY UpdatedUtc DESC";
+        command.CommandText = "SELECT Id, ProfileId, Name, Description, Tier, CatalogId, CreatedUtc, UpdatedUtc FROM ThemePreferences WHERE ProfileId = $profileId ORDER BY UpdatedUtc DESC";
         command.Parameters.AddWithValue("$profileId", profileId);
 
         var results = new List<ThemePreference>();
@@ -1134,14 +1285,15 @@ public sealed class SqlitePersistence : ISqlitePersistence
             Name = reader.GetString(2),
             Description = reader.GetString(3),
             Tier = Enum.TryParse<ThemeTier>(reader.GetString(4), out var tier) ? tier : ThemeTier.Neutral,
-            CreatedUtc = DateTime.TryParse(reader.GetString(5), out var cre) ? cre : DateTime.UtcNow,
-            UpdatedUtc = DateTime.TryParse(reader.GetString(6), out var upd) ? upd : DateTime.UtcNow
+            CatalogId = reader.IsDBNull(5) ? string.Empty : reader.GetString(5),
+            CreatedUtc = DateTime.TryParse(reader.GetString(6), out var cre) ? cre : DateTime.UtcNow,
+            UpdatedUtc = DateTime.TryParse(reader.GetString(7), out var upd) ? upd : DateTime.UtcNow
         };
     }
 
     // --- Ranking Profile persistence ---
 
-    public async Task SaveRankingProfileAsync(RankingProfile profile, CancellationToken cancellationToken = default)
+    public async Task SaveThemeProfileAsync(ThemeProfile profile, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(profile);
 
@@ -1150,7 +1302,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
 
         var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO RankingProfiles (Id, Name, IsDefault, CreatedUtc, UpdatedUtc)
+            INSERT INTO ThemeProfiles (Id, Name, IsDefault, CreatedUtc, UpdatedUtc)
             VALUES ($id, $name, $isDefault, $createdUtc, $updatedUtc)
             ON CONFLICT(Id) DO UPDATE SET
                 Name = $name,
@@ -1165,23 +1317,23 @@ public sealed class SqlitePersistence : ISqlitePersistence
         command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
 
         await command.ExecuteNonQueryAsync(cancellationToken);
-        _logger.LogInformation("Ranking profile persisted: {ProfileId}, Name={Name}", profile.Id, profile.Name);
+        _logger.LogInformation("Theme profile persisted: {ProfileId}, Name={Name}", profile.Id, profile.Name);
     }
 
-    public async Task<RankingProfile?> LoadRankingProfileAsync(string id, CancellationToken cancellationToken = default)
+    public async Task<ThemeProfile?> LoadThemeProfileAsync(string id, CancellationToken cancellationToken = default)
     {
         await using var connection = new SqliteConnection(_options.ConnectionString);
         await connection.OpenAsync(cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, Name, IsDefault, CreatedUtc, UpdatedUtc FROM RankingProfiles WHERE Id = $id";
+        command.CommandText = "SELECT Id, Name, IsDefault, CreatedUtc, UpdatedUtc FROM ThemeProfiles WHERE Id = $id";
         command.Parameters.AddWithValue("$id", id);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         if (!await reader.ReadAsync(cancellationToken))
             return null;
 
-        return new RankingProfile
+        return new ThemeProfile
         {
             Id = reader.GetString(0),
             Name = reader.GetString(1),
@@ -1191,19 +1343,19 @@ public sealed class SqlitePersistence : ISqlitePersistence
         };
     }
 
-    public async Task<List<RankingProfile>> LoadAllRankingProfilesAsync(CancellationToken cancellationToken = default)
+    public async Task<List<ThemeProfile>> LoadAllThemeProfilesAsync(CancellationToken cancellationToken = default)
     {
         await using var connection = new SqliteConnection(_options.ConnectionString);
         await connection.OpenAsync(cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, Name, IsDefault, CreatedUtc, UpdatedUtc FROM RankingProfiles ORDER BY Name";
+        command.CommandText = "SELECT Id, Name, IsDefault, CreatedUtc, UpdatedUtc FROM ThemeProfiles ORDER BY Name";
 
-        var results = new List<RankingProfile>();
+        var results = new List<ThemeProfile>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
-            results.Add(new RankingProfile
+            results.Add(new ThemeProfile
             {
                 Id = reader.GetString(0),
                 Name = reader.GetString(1),
@@ -1216,7 +1368,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
         return results;
     }
 
-    public async Task<bool> DeleteRankingProfileAsync(string id, CancellationToken cancellationToken = default)
+    public async Task<bool> DeleteThemeProfileAsync(string id, CancellationToken cancellationToken = default)
     {
         await using var connection = new SqliteConnection(_options.ConnectionString);
         await connection.OpenAsync(cancellationToken);
@@ -1228,46 +1380,46 @@ public sealed class SqlitePersistence : ISqlitePersistence
         await deleteCriteria.ExecuteNonQueryAsync(cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = "DELETE FROM RankingProfiles WHERE Id = $id";
+        command.CommandText = "DELETE FROM ThemeProfiles WHERE Id = $id";
         command.Parameters.AddWithValue("$id", id);
 
         var rowsAffected = await command.ExecuteNonQueryAsync(cancellationToken);
-        _logger.LogInformation("Ranking profile deletion attempted: {ProfileId}, RowsAffected={RowsAffected}", id, rowsAffected);
+        _logger.LogInformation("Theme profile deletion attempted: {ProfileId}, RowsAffected={RowsAffected}", id, rowsAffected);
         return rowsAffected > 0;
     }
 
-    public async Task SetDefaultRankingProfileAsync(string id, CancellationToken cancellationToken = default)
+    public async Task SetDefaultThemeProfileAsync(string id, CancellationToken cancellationToken = default)
     {
         await using var connection = new SqliteConnection(_options.ConnectionString);
         await connection.OpenAsync(cancellationToken);
 
         // Clear all defaults, then set the requested one
         var clearCmd = connection.CreateCommand();
-        clearCmd.CommandText = "UPDATE RankingProfiles SET IsDefault = 0 WHERE IsDefault = 1";
+        clearCmd.CommandText = "UPDATE ThemeProfiles SET IsDefault = 0 WHERE IsDefault = 1";
         await clearCmd.ExecuteNonQueryAsync(cancellationToken);
 
         var setCmd = connection.CreateCommand();
-        setCmd.CommandText = "UPDATE RankingProfiles SET IsDefault = 1, UpdatedUtc = $updatedUtc WHERE Id = $id";
+        setCmd.CommandText = "UPDATE ThemeProfiles SET IsDefault = 1, UpdatedUtc = $updatedUtc WHERE Id = $id";
         setCmd.Parameters.AddWithValue("$id", id);
         setCmd.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
         await setCmd.ExecuteNonQueryAsync(cancellationToken);
 
-        _logger.LogInformation("Set default ranking profile: {ProfileId}", id);
+        _logger.LogInformation("Set default theme profile: {ProfileId}", id);
     }
 
-    public async Task<RankingProfile?> LoadDefaultRankingProfileAsync(CancellationToken cancellationToken = default)
+    public async Task<ThemeProfile?> LoadDefaultThemeProfileAsync(CancellationToken cancellationToken = default)
     {
         await using var connection = new SqliteConnection(_options.ConnectionString);
         await connection.OpenAsync(cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, Name, IsDefault, CreatedUtc, UpdatedUtc FROM RankingProfiles WHERE IsDefault = 1 LIMIT 1";
+        command.CommandText = "SELECT Id, Name, IsDefault, CreatedUtc, UpdatedUtc FROM ThemeProfiles WHERE IsDefault = 1 LIMIT 1";
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         if (!await reader.ReadAsync(cancellationToken))
             return null;
 
-        return new RankingProfile
+        return new ThemeProfile
         {
             Id = reader.GetString(0),
             Name = reader.GetString(1),
@@ -1279,7 +1431,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
 
     // --- Tone Profile persistence ---
 
-    public async Task SaveToneProfileAsync(ToneProfile profile, CancellationToken cancellationToken = default)
+    public async Task SaveToneProfileAsync(IntensityProfile profile, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(profile);
 
@@ -1308,7 +1460,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
         _logger.LogInformation("Tone profile persisted: {ToneProfileId}, Name={Name}", profile.Id, profile.Name);
     }
 
-    public async Task<ToneProfile?> LoadToneProfileAsync(string id, CancellationToken cancellationToken = default)
+    public async Task<IntensityProfile?> LoadToneProfileAsync(string id, CancellationToken cancellationToken = default)
     {
         await using var connection = new SqliteConnection(_options.ConnectionString);
         await connection.OpenAsync(cancellationToken);
@@ -1326,7 +1478,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
         return ReadToneProfile(reader);
     }
 
-    public async Task<List<ToneProfile>> LoadAllToneProfilesAsync(CancellationToken cancellationToken = default)
+    public async Task<List<IntensityProfile>> LoadAllToneProfilesAsync(CancellationToken cancellationToken = default)
     {
         await using var connection = new SqliteConnection(_options.ConnectionString);
         await connection.OpenAsync(cancellationToken);
@@ -1334,7 +1486,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
         var command = connection.CreateCommand();
         command.CommandText = "SELECT Id, Name, Description, Intensity, CreatedUtc, UpdatedUtc FROM ToneProfiles ORDER BY Name";
 
-        var results = new List<ToneProfile>();
+        var results = new List<IntensityProfile>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
@@ -1358,16 +1510,16 @@ public sealed class SqlitePersistence : ISqlitePersistence
         return rowsAffected > 0;
     }
 
-    private static ToneProfile ReadToneProfile(SqliteDataReader reader)
+    private static IntensityProfile ReadToneProfile(SqliteDataReader reader)
     {
-        return new ToneProfile
+        return new IntensityProfile
         {
             Id = reader.GetString(0),
             Name = reader.GetString(1),
             Description = reader.GetString(2),
-            Intensity = Enum.TryParse<ToneIntensity>(reader.GetString(3), out var intensity)
+            Intensity = Enum.TryParse<IntensityLevel>(reader.GetString(3), out var intensity)
                 ? intensity
-                : ToneIntensity.SensualMature,
+                : IntensityLevel.SensualMature,
             CreatedUtc = DateTime.TryParse(reader.GetString(4), out var created) ? created : DateTime.UtcNow,
             UpdatedUtc = DateTime.TryParse(reader.GetString(5), out var updated) ? updated : DateTime.UtcNow
         };
@@ -1482,7 +1634,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
 
     // --- Style Profile persistence ---
 
-    public async Task SaveStyleProfileAsync(StyleProfile profile, CancellationToken cancellationToken = default)
+    public async Task SaveStyleProfileAsync(SteeringProfile profile, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(profile);
 
@@ -1491,13 +1643,16 @@ public sealed class SqlitePersistence : ISqlitePersistence
 
         var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO StyleProfiles (Id, Name, Description, Example, RuleOfThumb, CreatedUtc, UpdatedUtc)
-            VALUES ($id, $name, $description, $example, $ruleOfThumb, $createdUtc, $updatedUtc)
+            INSERT INTO StyleProfiles (Id, Name, Description, Example, RuleOfThumb, ThemeAffinities, EscalatingThemeIds, StatBias, CreatedUtc, UpdatedUtc)
+            VALUES ($id, $name, $description, $example, $ruleOfThumb, $themeAffinities, $escalatingThemeIds, $statBias, $createdUtc, $updatedUtc)
             ON CONFLICT(Id) DO UPDATE SET
                 Name = $name,
                 Description = $description,
                 Example = $example,
                 RuleOfThumb = $ruleOfThumb,
+                ThemeAffinities = $themeAffinities,
+                EscalatingThemeIds = $escalatingThemeIds,
+                StatBias = $statBias,
                 UpdatedUtc = $updatedUtc;
             """;
 
@@ -1506,6 +1661,9 @@ public sealed class SqlitePersistence : ISqlitePersistence
         command.Parameters.AddWithValue("$description", profile.Description);
         command.Parameters.AddWithValue("$example", profile.Example);
         command.Parameters.AddWithValue("$ruleOfThumb", profile.RuleOfThumb);
+        command.Parameters.AddWithValue("$themeAffinities", JsonSerializer.Serialize(profile.ThemeAffinities));
+        command.Parameters.AddWithValue("$escalatingThemeIds", JsonSerializer.Serialize(profile.EscalatingThemeIds));
+        command.Parameters.AddWithValue("$statBias", JsonSerializer.Serialize(profile.StatBias));
         command.Parameters.AddWithValue("$createdUtc", profile.CreatedUtc.ToString("O"));
         command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
 
@@ -1513,13 +1671,13 @@ public sealed class SqlitePersistence : ISqlitePersistence
         _logger.LogInformation("Style profile persisted: {StyleProfileId}, Name={Name}", profile.Id, profile.Name);
     }
 
-    public async Task<StyleProfile?> LoadStyleProfileAsync(string id, CancellationToken cancellationToken = default)
+    public async Task<SteeringProfile?> LoadStyleProfileAsync(string id, CancellationToken cancellationToken = default)
     {
         await using var connection = new SqliteConnection(_options.ConnectionString);
         await connection.OpenAsync(cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, Name, Description, Example, RuleOfThumb, CreatedUtc, UpdatedUtc FROM StyleProfiles WHERE Id = $id";
+        command.CommandText = "SELECT Id, Name, Description, Example, RuleOfThumb, ThemeAffinities, EscalatingThemeIds, StatBias, CreatedUtc, UpdatedUtc FROM StyleProfiles WHERE Id = $id";
         command.Parameters.AddWithValue("$id", id);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -1531,15 +1689,15 @@ public sealed class SqlitePersistence : ISqlitePersistence
         return ReadStyleProfile(reader);
     }
 
-    public async Task<List<StyleProfile>> LoadAllStyleProfilesAsync(CancellationToken cancellationToken = default)
+    public async Task<List<SteeringProfile>> LoadAllStyleProfilesAsync(CancellationToken cancellationToken = default)
     {
         await using var connection = new SqliteConnection(_options.ConnectionString);
         await connection.OpenAsync(cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, Name, Description, Example, RuleOfThumb, CreatedUtc, UpdatedUtc FROM StyleProfiles ORDER BY Name";
+        command.CommandText = "SELECT Id, Name, Description, Example, RuleOfThumb, ThemeAffinities, EscalatingThemeIds, StatBias, CreatedUtc, UpdatedUtc FROM StyleProfiles ORDER BY Name";
 
-        var results = new List<StyleProfile>();
+        var results = new List<SteeringProfile>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
@@ -1563,17 +1721,128 @@ public sealed class SqlitePersistence : ISqlitePersistence
         return rowsAffected > 0;
     }
 
-    private static StyleProfile ReadStyleProfile(SqliteDataReader reader)
+    private static SteeringProfile ReadStyleProfile(SqliteDataReader reader)
     {
-        return new StyleProfile
+        return new SteeringProfile
         {
             Id = reader.GetString(0),
             Name = reader.GetString(1),
             Description = reader.GetString(2),
             Example = reader.GetString(3),
             RuleOfThumb = reader.GetString(4),
-            CreatedUtc = DateTime.TryParse(reader.GetString(5), out var created) ? created : DateTime.UtcNow,
-            UpdatedUtc = DateTime.TryParse(reader.GetString(6), out var updated) ? updated : DateTime.UtcNow
+            ThemeAffinities = JsonSerializer.Deserialize<Dictionary<string, int>>(reader.GetString(5)) ?? new(StringComparer.OrdinalIgnoreCase),
+            EscalatingThemeIds = JsonSerializer.Deserialize<List<string>>(reader.GetString(6)) ?? [],
+            StatBias = JsonSerializer.Deserialize<Dictionary<string, int>>(reader.GetString(7)) ?? new(StringComparer.OrdinalIgnoreCase),
+            CreatedUtc = DateTime.TryParse(reader.GetString(8), out var created) ? created : DateTime.UtcNow,
+            UpdatedUtc = DateTime.TryParse(reader.GetString(9), out var updated) ? updated : DateTime.UtcNow
+        };
+    }
+
+    // --- Theme Catalog persistence ---
+
+    public async Task SaveThemeCatalogEntryAsync(ThemeCatalogEntry entry, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO ThemeCatalog (Id, Label, Description, Keywords, Weight, Category, StatAffinities, IsEnabled, IsBuiltIn, CreatedUtc, UpdatedUtc)
+            VALUES ($id, $label, $description, $keywords, $weight, $category, $statAffinities, $isEnabled, $isBuiltIn, $createdUtc, $updatedUtc)
+            ON CONFLICT(Id) DO UPDATE SET
+                Label = $label,
+                Description = $description,
+                Keywords = $keywords,
+                Weight = $weight,
+                Category = $category,
+                StatAffinities = $statAffinities,
+                IsEnabled = $isEnabled,
+                UpdatedUtc = $updatedUtc;
+            """;
+
+        command.Parameters.AddWithValue("$id", entry.Id);
+        command.Parameters.AddWithValue("$label", entry.Label);
+        command.Parameters.AddWithValue("$description", entry.Description);
+        command.Parameters.AddWithValue("$keywords", JsonSerializer.Serialize(entry.Keywords));
+        command.Parameters.AddWithValue("$weight", entry.Weight);
+        command.Parameters.AddWithValue("$category", entry.Category);
+        command.Parameters.AddWithValue("$statAffinities", JsonSerializer.Serialize(entry.StatAffinities));
+        command.Parameters.AddWithValue("$isEnabled", entry.IsEnabled ? 1 : 0);
+        command.Parameters.AddWithValue("$isBuiltIn", entry.IsBuiltIn ? 1 : 0);
+        command.Parameters.AddWithValue("$createdUtc", entry.CreatedUtc.ToString("O"));
+        command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
+
+        await command.ExecuteNonQueryAsync(cancellationToken);
+        _logger.LogInformation("Theme catalog entry persisted: {EntryId}, Label={Label}", entry.Id, entry.Label);
+    }
+
+    public async Task<ThemeCatalogEntry?> LoadThemeCatalogEntryAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT Id, Label, Description, Keywords, Weight, Category, StatAffinities, IsEnabled, IsBuiltIn, CreatedUtc, UpdatedUtc FROM ThemeCatalog WHERE Id = $id";
+        command.Parameters.AddWithValue("$id", id);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+            return null;
+
+        return ReadThemeCatalogEntry(reader);
+    }
+
+    public async Task<List<ThemeCatalogEntry>> LoadAllThemeCatalogEntriesAsync(bool includeDisabled = false, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = includeDisabled
+            ? "SELECT Id, Label, Description, Keywords, Weight, Category, StatAffinities, IsEnabled, IsBuiltIn, CreatedUtc, UpdatedUtc FROM ThemeCatalog ORDER BY Label"
+            : "SELECT Id, Label, Description, Keywords, Weight, Category, StatAffinities, IsEnabled, IsBuiltIn, CreatedUtc, UpdatedUtc FROM ThemeCatalog WHERE IsEnabled = 1 ORDER BY Label";
+
+        var results = new List<ThemeCatalogEntry>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            results.Add(ReadThemeCatalogEntry(reader));
+        }
+
+        return results;
+    }
+
+    public async Task<bool> DeleteThemeCatalogEntryAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM ThemeCatalog WHERE Id = $id";
+        command.Parameters.AddWithValue("$id", id);
+
+        var rowsAffected = await command.ExecuteNonQueryAsync(cancellationToken);
+        _logger.LogInformation("Theme catalog entry deletion attempted: {EntryId}, RowsAffected={RowsAffected}", id, rowsAffected);
+        return rowsAffected > 0;
+    }
+
+    private static ThemeCatalogEntry ReadThemeCatalogEntry(SqliteDataReader reader)
+    {
+        return new ThemeCatalogEntry
+        {
+            Id = reader.GetString(0),
+            Label = reader.GetString(1),
+            Description = reader.GetString(2),
+            Keywords = JsonSerializer.Deserialize<List<string>>(reader.GetString(3)) ?? [],
+            Weight = reader.GetInt32(4),
+            Category = reader.GetString(5),
+            StatAffinities = JsonSerializer.Deserialize<Dictionary<string, int>>(reader.GetString(6)) ?? new(),
+            IsEnabled = reader.GetInt32(7) != 0,
+            IsBuiltIn = reader.GetInt32(8) != 0,
+            CreatedUtc = DateTime.TryParse(reader.GetString(9), out var cre) ? cre : DateTime.UtcNow,
+            UpdatedUtc = DateTime.TryParse(reader.GetString(10), out var upd) ? upd : DateTime.UtcNow
         };
     }
 
@@ -2021,5 +2290,38 @@ public sealed class SqlitePersistence : ISqlitePersistence
         }
 
         return result;
+    }
+
+    private string ResolveDatabasePath()
+    {
+        var connectionStringBuilder = new SqliteConnectionStringBuilder(_options.ConnectionString);
+        if (string.IsNullOrWhiteSpace(connectionStringBuilder.DataSource))
+        {
+            throw new InvalidOperationException("Persistence connection string does not contain a SQLite data source.");
+        }
+
+        return Path.GetFullPath(connectionStringBuilder.DataSource);
+    }
+
+    private static string SanitizeFileToken(string value)
+    {
+        var invalidFileNameChars = Path.GetInvalidFileNameChars();
+        var sanitized = new string(value
+            .Select(ch => invalidFileNameChars.Contains(ch) ? '-' : ch)
+            .ToArray())
+            .Trim()
+            .Replace(' ', '-');
+
+        while (sanitized.Contains("--", StringComparison.Ordinal))
+        {
+            sanitized = sanitized.Replace("--", "-", StringComparison.Ordinal);
+        }
+
+        if (string.IsNullOrWhiteSpace(sanitized))
+        {
+            return "backup";
+        }
+
+        return sanitized.Length > 32 ? sanitized[..32] : sanitized;
     }
 }

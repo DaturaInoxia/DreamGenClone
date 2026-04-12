@@ -37,3 +37,13 @@ D:\src\DreamGenClone\DreamGenClone.Infrastructure\bin\Debug\net9.0\DreamGenClone
 D:\src\DreamGenClone\DreamGenClone.Infrastructure\bin\Debug\net9.0\DreamGenClone.Domain.dll
 D:\src\DreamGenClone\DreamGenClone.Infrastructure\bin\Debug\net9.0\DreamGenClone.Application.pdb
 D:\src\DreamGenClone\DreamGenClone.Infrastructure\bin\Debug\net9.0\DreamGenClone.Domain.pdb
+D:\src\DreamGenClone\DreamGenClone.Infrastructure\artifacts\tmpbuild\web-intensity\DreamGenClone.Infrastructure.deps.json
+D:\src\DreamGenClone\DreamGenClone.Infrastructure\artifacts\tmpbuild\web-intensity\DreamGenClone.Infrastructure.dll
+D:\src\DreamGenClone\DreamGenClone.Infrastructure\artifacts\tmpbuild\web-intensity\DreamGenClone.Infrastructure.pdb
+D:\src\DreamGenClone\DreamGenClone.Infrastructure\artifacts\tmpbuild\web-intensity\DreamGenClone.Application.dll
+D:\src\DreamGenClone\DreamGenClone.Infrastructure\artifacts\tmpbuild\web-intensity\DreamGenClone.Domain.dll
+D:\src\DreamGenClone\DreamGenClone.Infrastructure\artifacts\tmpbuild\web-intensity\DreamGenClone.Application.pdb
+D:\src\DreamGenClone\DreamGenClone.Infrastructure\artifacts\tmpbuild\web-intensity\DreamGenClone.Domain.pdb
+D:\src\DreamGenClone\artifacts\tmp\testout\DreamGenClone.Infrastructure.deps.json
+D:\src\DreamGenClone\artifacts\tmp\testout\DreamGenClone.Infrastructure.dll
+D:\src\DreamGenClone\artifacts\tmp\testout\DreamGenClone.Infrastructure.pdb

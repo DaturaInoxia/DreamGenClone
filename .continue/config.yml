@@ -1,0 +1,78 @@
+﻿name: DreamGen Planning Setup
+version: 1.0.0
+schema: v1
+
+models:
+  # AUTO-GENERATED MODELS START
+  - name: OR Main Planner
+    provider: openrouter
+    model: anthropic/claude-3.7-sonnet
+    apiKey: ${OPENROUTER_API_KEY}
+    roles:
+      - chat
+      - edit
+      - apply
+    defaultCompletionOptions:
+      temperature: 0.2
+      maxTokens: 12000
+
+  - name: OR Fast Draft
+    provider: openrouter
+    model: openai/gpt-4.1-mini
+    apiKey: ${OPENROUTER_API_KEY}
+    roles:
+      - chat
+      - edit
+    defaultCompletionOptions:
+      temperature: 0.2
+      maxTokens: 6000
+  # AUTO-GENERATED MODELS END
+
+context:
+  - provider: code
+  - provider: diff
+  - provider: terminal
+  - provider: problems
+  - provider: folder
+
+slashCommands:
+  - name: arch
+    description: Deep architecture analysis with concrete recommendations
+    prompt: |
+      You are a senior software architect.
+      Analyze this codebase and produce an architecture report with:
+      1) Current architecture map (layers, boundaries, dependencies, data flow).
+      2) Coupling hotspots and risk areas.
+      3) Violations of clean architecture or layering.
+      4) Refactor options with tradeoffs (cost, risk, payoff).
+      5) Recommended target architecture.
+      6) Migration plan in phases with safety checkpoints.
+      7) Test strategy for each phase.
+      8) Explicit assumptions and open questions.
+
+      Rules:
+      - Be exhaustive and concrete.
+      - Reference real project files/classes when possible.
+      - Prefer actionable changes over generic advice.
+      - If uncertain, label uncertainty clearly.
+
+  - name: plan
+    description: Implementation plan with ordered tasks and acceptance criteria
+    prompt: |
+      You are a technical lead creating an execution plan.
+      Build an implementation plan for the requested feature/change:
+
+      Output format:
+      1) Goal and non-goals
+      2) Scope and impacted components
+      3) Task breakdown (small, dependency-ordered)
+      4) For each task: files to change, code-level approach, risks
+      5) Test plan (unit/integration/e2e as applicable)
+      6) Rollout and rollback strategy
+      7) Definition of done and acceptance criteria
+      8) Time/complexity estimate (S/M/L) per task
+
+      Rules:
+      - Keep tasks atomic and executable.
+      - Highlight blockers early.
+      - Include validation steps after each major change.

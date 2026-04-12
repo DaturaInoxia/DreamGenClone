@@ -14,9 +14,9 @@ public sealed class RolePlayAdaptiveProfilesTests
     {
         var session = new RolePlaySession
         {
-            IsToneManuallyPinned = true,
-            StyleFloorOverride = "(None)",
-            StyleCeilingOverride = "(None)"
+            IsIntensityManuallyPinned = true,
+            IntensityFloorOverride = "(None)",
+            IntensityCeilingOverride = "(None)"
         };
 
         session.Interactions.AddRange(
@@ -41,16 +41,16 @@ public sealed class RolePlayAdaptiveProfilesTests
         {
             Stats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
             {
-                ["Arousal"] = 95
+                ["Desire"] = 95
             }
         };
         session.AdaptiveState.ThemeTracker.PrimaryThemeId = "dominance";
 
-        var (label, reason) = RolePlayStyleResolver.ResolveEffectiveStyle(session, ToneIntensity.Emotional);
+        var (label, reason) = RolePlayStyleResolver.ResolveEffectiveStyle(session, IntensityLevel.Emotional);
 
-        Assert.Equal("Emotional / PG-13", label);
+        Assert.Equal("Emotional", label);
         Assert.Contains("manual-pin=on", reason, StringComparison.Ordinal);
-        Assert.DoesNotContain("arousal=", reason, StringComparison.Ordinal);
+        Assert.DoesNotContain("desire=", reason, StringComparison.Ordinal);
         Assert.DoesNotContain("progression=", reason, StringComparison.Ordinal);
         Assert.DoesNotContain("theme=", reason, StringComparison.Ordinal);
     }
@@ -60,15 +60,15 @@ public sealed class RolePlayAdaptiveProfilesTests
     {
         var session = new RolePlaySession
         {
-            StyleFloorOverride = "Erotic / Explicit",
-            StyleCeilingOverride = "Emotional / PG-13"
+            IntensityFloorOverride = "Erotic",
+            IntensityCeilingOverride = "Emotional"
         };
 
-        var (label, reason) = RolePlayStyleResolver.ResolveEffectiveStyle(session, ToneIntensity.SuggestivePg12);
+        var (label, reason) = RolePlayStyleResolver.ResolveEffectiveStyle(session, IntensityLevel.SuggestivePg12);
 
-        Assert.Equal("Erotic / Explicit", label);
+        Assert.Equal("Erotic", label);
         Assert.Contains("bounds=normalized", reason, StringComparison.Ordinal);
-        Assert.Contains("floor=Erotic / Explicit", reason, StringComparison.Ordinal);
+        Assert.Contains("floor=Erotic", reason, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -78,23 +78,20 @@ public sealed class RolePlayAdaptiveProfilesTests
         {
             Id = "scenario-1",
             Name = "Scenario",
-            DefaultRankingProfileId = "ranking-default",
-            DefaultToneProfileId = "tone-default",
-            Style = new Style
-            {
-                StyleProfileId = "style-default",
-                StyleFloor = "Suggestive / PG-13+",
-                StyleCeiling = "Erotic / Explicit"
-            }
+            DefaultThemeProfileId = "ranking-default",
+            DefaultIntensityProfileId = "tone-default",
+            DefaultSteeringProfileId = "style-default",
+            DefaultIntensityFloor = "Suggestive",
+            DefaultIntensityCeiling = "Erotic"
         };
 
         var service = RolePlayTestFactory.CreateEngineService(scenarioService: new SingleScenarioService(scenario));
 
         var session = await service.CreateSessionAsync("Seed Test", scenario.Id);
 
-        Assert.Equal("style-default", session.SelectedStyleProfileId);
-        Assert.Equal("ranking-default", session.SelectedRankingProfileId);
-        Assert.Equal("tone-default", session.SelectedToneProfileId);
+        Assert.Equal("style-default", session.SelectedSteeringProfileId);
+        Assert.Equal("ranking-default", session.SelectedThemeProfileId);
+        Assert.Equal("tone-default", session.SelectedIntensityProfileId);
     }
 
     private sealed class SingleScenarioService(Scenario scenario) : IScenarioService

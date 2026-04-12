@@ -31,7 +31,7 @@ internal static class RolePlayTestFactory
             behaviorMode,
             new RolePlayPromptRouter(),
             identityOptionsService ?? new DefaultIdentityOptionsService(),
-            new RolePlayAdaptiveStateService(),
+            new RolePlayAdaptiveStateService(new FakeThemeCatalogService()),
             validator,
             sessionService,
             scenarioService ?? new NullScenarioService(),
@@ -248,5 +248,37 @@ internal static class RolePlayTestFactory
         public Task<Scenario> SaveScenarioAsync(Scenario scenario) => throw new NotImplementedException();
         public Task<bool> DeleteScenarioAsync(string id) => throw new NotImplementedException();
         public Task<Scenario> CloneScenarioAsync(string id, string newName) => throw new NotImplementedException();
+    }
+
+    internal sealed class FakeThemeCatalogService : IThemeCatalogService
+    {
+        private static readonly List<ThemeCatalogEntry> DefaultEntries =
+        [
+            new() { Id = "intimacy", Label = "Intimacy", Keywords = ["close", "touch", "tender", "soft", "gentle", "warm"], Weight = 3, Category = "Emotional", IsEnabled = true, IsBuiltIn = true },
+            new() { Id = "trust-building", Label = "Trust Building", Keywords = ["trust", "safe", "reassure", "honest", "promise"], Weight = 3, Category = "Emotional", IsEnabled = true, IsBuiltIn = true },
+            new() { Id = "power-dynamics", Label = "Power Dynamics", Keywords = ["control", "command", "obey", "submit", "claim"], Weight = 4, Category = "Power", IsEnabled = true, IsBuiltIn = true },
+            new() { Id = "jealousy-triangle", Label = "Jealousy Triangle", Keywords = ["jealous", "envy", "comparison", "rival"], Weight = 4, Category = "Emotional", IsEnabled = true, IsBuiltIn = true },
+            new() { Id = "forbidden-risk", Label = "Forbidden Risk", Keywords = ["secret", "hide", "risk", "danger", "caught", "forbidden"], Weight = 4, Category = "Power", IsEnabled = true, IsBuiltIn = true },
+            new() { Id = "confession", Label = "Confession", Keywords = ["confess", "admit", "truth", "reveal", "tell you"], Weight = 3, Category = "Emotional", IsEnabled = true, IsBuiltIn = true },
+            new() { Id = "voyeurism", Label = "Voyeurism", Keywords = ["watch", "hidden", "shadows", "peek", "observed"], Weight = 4, Category = "Power", IsEnabled = true, IsBuiltIn = true },
+            new() { Id = "infidelity", Label = "Infidelity", Keywords = ["cheat", "betray", "affair", "husband", "wife"], Weight = 4, Category = "Power", IsEnabled = true, IsBuiltIn = true },
+            new() { Id = "humiliation", Label = "Humiliation", Keywords = ["humiliate", "inferior", "embarrass", "degrade", "shame"], Weight = 4, Category = "Power", IsEnabled = true, IsBuiltIn = true },
+            new() { Id = "dominance", Label = "Dominance", Keywords = ["dominate", "command", "control", "kneel", "order"], Weight = 4, Category = "Power", IsEnabled = true, IsBuiltIn = true }
+        ];
+
+        public Task<ThemeCatalogEntry?> GetByIdAsync(string id, CancellationToken cancellationToken = default)
+            => Task.FromResult(DefaultEntries.FirstOrDefault(e => string.Equals(e.Id, id, StringComparison.OrdinalIgnoreCase)));
+
+        public Task<IReadOnlyList<ThemeCatalogEntry>> GetAllAsync(bool includeDisabled = false, CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<ThemeCatalogEntry>>(DefaultEntries);
+
+        public Task SaveAsync(ThemeCatalogEntry entry, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task DeleteAsync(string id, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task SeedDefaultsAsync(CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
     }
 }

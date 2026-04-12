@@ -8,15 +8,17 @@ namespace DreamGenClone.Infrastructure.StoryAnalysis;
 public sealed class ThemePreferenceService : IThemePreferenceService
 {
     private readonly ISqlitePersistence _persistence;
+    private readonly IThemeCatalogService _themeCatalogService;
     private readonly ILogger<ThemePreferenceService> _logger;
 
-    public ThemePreferenceService(ISqlitePersistence persistence, ILogger<ThemePreferenceService> logger)
+    public ThemePreferenceService(ISqlitePersistence persistence, IThemeCatalogService themeCatalogService, ILogger<ThemePreferenceService> logger)
     {
         _persistence = persistence;
+        _themeCatalogService = themeCatalogService;
         _logger = logger;
     }
 
-    public async Task<ThemePreference> CreateAsync(string profileId, string name, string description, ThemeTier tier, CancellationToken cancellationToken = default)
+    public async Task<ThemePreference> CreateAsync(string profileId, string name, string description, ThemeTier tier, string? catalogId = null, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(profileId))
             throw new ArgumentException("ProfileId cannot be empty.", nameof(profileId));
@@ -35,6 +37,7 @@ public sealed class ThemePreferenceService : IThemePreferenceService
             Name = trimmedName,
             Description = trimmedDescription,
             Tier = tier,
+            CatalogId = catalogId ?? string.Empty,
             CreatedUtc = DateTime.UtcNow,
             UpdatedUtc = DateTime.UtcNow
         };
@@ -58,7 +61,7 @@ public sealed class ThemePreferenceService : IThemePreferenceService
         return themes;
     }
 
-    public async Task<ThemePreference?> UpdateAsync(string id, string name, string description, ThemeTier tier, CancellationToken cancellationToken = default)
+    public async Task<ThemePreference?> UpdateAsync(string id, string name, string description, ThemeTier tier, string? catalogId = null, CancellationToken cancellationToken = default)
     {
         var existing = await _persistence.LoadThemePreferenceAsync(id, cancellationToken);
         if (existing is null)
@@ -76,6 +79,7 @@ public sealed class ThemePreferenceService : IThemePreferenceService
         existing.Name = trimmedName;
         existing.Description = trimmedDescription;
         existing.Tier = tier;
+        existing.CatalogId = catalogId ?? string.Empty;
         existing.UpdatedUtc = DateTime.UtcNow;
 
         await _persistence.SaveThemePreferenceAsync(existing, cancellationToken);
@@ -88,5 +92,43 @@ public sealed class ThemePreferenceService : IThemePreferenceService
         var deleted = await _persistence.DeleteThemePreferenceAsync(id, cancellationToken);
         _logger.LogInformation("Theme preference deleted: {Id}, Success={Deleted}", id, deleted);
         return deleted;
+    }
+
+    public async Task<int> AutoLinkToCatalogAsync(CancellationToken cancellationToken = default)
+    {
+        var allPreferences = await _persistence.LoadAllThemePreferencesAsync(cancellationToken);
+        var catalogEntries = await _themeCatalogService.GetAllAsync(includeDisabled: false, cancellationToken);
+
+        var linked = 0;
+        var unlinked = new List<string>();
+
+        foreach (var pref in allPreferences)
+        {
+            if (!string.IsNullOrWhiteSpace(pref.CatalogId)) continue;
+
+            var match = catalogEntries.FirstOrDefault(e =>
+                string.Equals(e.Label, pref.Name, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(e.Id, pref.Name, StringComparison.OrdinalIgnoreCase));
+
+            if (match is not null)
+            {
+                pref.CatalogId = match.Id;
+                pref.UpdatedUtc = DateTime.UtcNow;
+                await _persistence.SaveThemePreferenceAsync(pref, cancellationToken);
+                linked++;
+            }
+            else
+            {
+                unlinked.Add($"{pref.Name} (profile={pref.ProfileId})");
+            }
+        }
+
+        if (unlinked.Count > 0)
+        {
+            _logger.LogInformation("Unlinked theme preferences (no catalog match): {Unlinked}", string.Join(", ", unlinked));
+        }
+
+        _logger.LogInformation("Auto-linked {Linked} theme preferences to catalog entries", linked);
+        return linked;
     }
 }

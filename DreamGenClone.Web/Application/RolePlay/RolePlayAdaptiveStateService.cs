@@ -1,39 +1,45 @@
 using DreamGenClone.Web.Domain.RolePlay;
+using DreamGenClone.Web.Domain.Scenarios;
 using System.Text.Json;
 using DreamGenClone.Application.Abstractions;
 using DreamGenClone.Application.StoryAnalysis;
+using DreamGenClone.Domain.StoryAnalysis;
 
 namespace DreamGenClone.Web.Application.RolePlay;
 
 public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
 {
-    private sealed record ThemeRule(string ThemeId, string ThemeName, string[] Keywords, int Weight);
-
-    private static readonly ThemeRule[] ThemeCatalog =
-    {
-        new("intimacy", "Intimacy", new[] { "close", "touch", "tender", "soft", "gentle", "warm" }, 3),
-        new("trust-building", "Trust Building", new[] { "trust", "safe", "reassure", "honest", "promise" }, 3),
-        new("power-dynamics", "Power Dynamics", new[] { "control", "command", "obey", "submit", "claim" }, 4),
-        new("jealousy-triangle", "Jealousy Triangle", new[] { "jealous", "envy", "comparison", "rival" }, 4),
-        new("forbidden-risk", "Forbidden Risk", new[] { "secret", "hide", "risk", "danger", "caught", "forbidden" }, 4),
-        new("confession", "Confession", new[] { "confess", "admit", "truth", "reveal", "tell you" }, 3),
-        new("voyeurism", "Voyeurism", new[] { "watch", "hidden", "shadows", "peek", "observed" }, 4),
-        new("infidelity", "Infidelity", new[] { "cheat", "betray", "affair", "husband", "wife" }, 4),
-        new("humiliation", "Humiliation", new[] { "humiliate", "inferior", "embarrass", "degrade", "shame" }, 4),
-        new("dominance", "Dominance", new[] { "dominate", "command", "control", "kneel", "order" }, 4)
-    };
-
+    private readonly IThemeCatalogService _themeCatalogService;
+    private readonly IThemePreferenceService? _themePreferenceService;
+    private readonly ISteeringProfileService? _steeringProfileService;
     private readonly IRolePlayDebugEventSink? _debugEventSink;
     private readonly ILogger<RolePlayAdaptiveStateService>? _logger;
 
-    public RolePlayAdaptiveStateService()
+    public RolePlayAdaptiveStateService(IThemeCatalogService themeCatalogService)
     {
+        _themeCatalogService = themeCatalogService;
     }
 
     public RolePlayAdaptiveStateService(
+        IThemeCatalogService themeCatalogService,
         IRolePlayDebugEventSink debugEventSink,
         ILogger<RolePlayAdaptiveStateService> logger)
     {
+        _themeCatalogService = themeCatalogService;
+        _debugEventSink = debugEventSink;
+        _logger = logger;
+    }
+
+    public RolePlayAdaptiveStateService(
+        IThemeCatalogService themeCatalogService,
+        IThemePreferenceService themePreferenceService,
+        ISteeringProfileService styleProfileService,
+        IRolePlayDebugEventSink debugEventSink,
+        ILogger<RolePlayAdaptiveStateService> logger)
+    {
+        _themeCatalogService = themeCatalogService;
+        _themePreferenceService = themePreferenceService;
+        _steeringProfileService = styleProfileService;
         _debugEventSink = debugEventSink;
         _logger = logger;
     }
@@ -46,8 +52,10 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(interaction);
 
+        var catalogEntries = await _themeCatalogService.GetAllAsync(includeDisabled: false, cancellationToken);
+
         var state = session.AdaptiveState ?? new RolePlayAdaptiveState();
-        EnsureThemeCatalog(state.ThemeTracker);
+        EnsureThemeCatalog(state.ThemeTracker, catalogEntries);
         RemoveNonCharacterStats(state);
 
         var actorKey = string.IsNullOrWhiteSpace(interaction.ActorName) ? "Unknown" : interaction.ActorName.Trim();
@@ -69,18 +77,62 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         // Lightweight keyword heuristics for v1 foundation.
         if (actorStats is not null)
         {
-            ApplyDelta(actorStats.Stats, "Arousal", Score(contentLower, ["kiss", "touch", "desire", "want", "close", "heat"], 3));
-            ApplyDelta(actorStats.Stats, "Inhibition", -Score(contentLower, ["can't", "wrong", "shouldn't", "hesitate", "guilt"], 2));
-            ApplyDelta(actorStats.Stats, "Tension", Score(contentLower, ["fear", "caught", "risk", "panic", "nervous"], 3));
-            ApplyDelta(actorStats.Stats, "Trust", Score(contentLower, ["safe", "comfort", "trust", "reassure"], 2));
-            ApplyDelta(actorStats.Stats, "Agency", Score(contentLower, ["control", "command", "obey", "claim", "choose", "decide", "insist"], 2));
+            ApplyDelta(actorStats.Stats, "Desire", ScoreStatSignal(contentLower, ["kiss", "touch", "desire", "want", "close", "heat"], 1, 4));
+            ApplyDelta(actorStats.Stats, "Restraint", ScoreStatSignal(contentLower, ["can't", "wrong", "shouldn't", "hesitate", "guilt"], 1, 3));
+            ApplyDelta(actorStats.Stats, "Tension", ScoreStatSignal(contentLower, ["fear", "caught", "risk", "panic", "nervous"], 1, 4));
+            ApplyDelta(actorStats.Stats, "Connection", ScoreStatSignal(contentLower, ["safe", "comfort", "trust", "reassure"], 1, 3));
+            ApplyDelta(actorStats.Stats, "Dominance", ScoreStatSignal(contentLower, ["control", "command", "obey", "claim", "choose", "decide", "insist"], 1, 3));
 
             actorStats.UpdatedUtc = DateTime.UtcNow;
         }
 
-        foreach (var theme in ThemeCatalog)
+        // T042: Load StyleProfile for ThemeAffinities multiplication
+        SteeringProfile? interactionStyleProfile = null;
+        if (_steeringProfileService is not null && !string.IsNullOrWhiteSpace(session.SelectedSteeringProfileId))
         {
-            UpdateTheme(state, interaction, theme.ThemeName, theme.ThemeId, contentLower, theme.Keywords, theme.Weight);
+            interactionStyleProfile = await _steeringProfileService.GetAsync(session.SelectedSteeringProfileId, cancellationToken);
+        }
+
+        foreach (var entry in catalogEntries)
+        {
+            // T044: Skip blocked themes, increment SuppressedHitCount
+            if (state.ThemeTracker.Themes.TryGetValue(entry.Id, out var trackerItem) && trackerItem.Blocked)
+            {
+                var blockedSignal = Score(contentLower, entry.Keywords, entry.Weight);
+                if (blockedSignal > 0)
+                {
+                    trackerItem.SuppressedHitCount++;
+                }
+                continue;
+            }
+
+            // T042: Apply ThemeAffinities multiplier
+            var affinityMultiplier = 1.0;
+            if (interactionStyleProfile?.ThemeAffinities is { Count: > 0 }
+                && interactionStyleProfile.ThemeAffinities.TryGetValue(entry.Id, out var affinity)
+                && affinity != 0)
+            {
+                affinityMultiplier = 1.0 + affinity * 0.1;
+            }
+
+            UpdateTheme(state, interaction, entry.Label, entry.Id, contentLower, entry.Keywords, entry.Weight, affinityMultiplier);
+
+            // T043: Apply StatAffinities to acting character when theme scores
+            if (actorStats is not null && entry.StatAffinities is { Count: > 0 })
+            {
+                if (state.ThemeTracker.Themes.TryGetValue(entry.Id, out var item) && item.Score > 0)
+                {
+                    var themeSignal = Score(contentLower, entry.Keywords, entry.Weight);
+                    if (themeSignal > 0)
+                    {
+                        foreach (var (statName, affinityDelta) in entry.StatAffinities)
+                        {
+                            var normalized = AdaptiveStatCatalog.NormalizeLegacyStatName(statName);
+                            ApplyDelta(actorStats.Stats, normalized, NormalizeInteractionAffinityDelta(affinityDelta));
+                        }
+                    }
+                }
+            }
         }
 
         RecalculateSelectedThemes(state, interaction);
@@ -142,23 +194,23 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         return state;
     }
 
-    private static void EnsureThemeCatalog(ThemeTrackerState tracker)
+    private static void EnsureThemeCatalog(ThemeTrackerState tracker, IReadOnlyList<ThemeCatalogEntry> catalogEntries)
     {
-        var validIds = ThemeCatalog.Select(x => x.ThemeId).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var validIds = catalogEntries.Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var unknownIds = tracker.Themes.Keys.Where(x => !validIds.Contains(x)).ToList();
         foreach (var unknownId in unknownIds)
         {
             tracker.Themes.Remove(unknownId);
         }
 
-        foreach (var theme in ThemeCatalog)
+        foreach (var entry in catalogEntries)
         {
-            if (!tracker.Themes.ContainsKey(theme.ThemeId))
+            if (!tracker.Themes.ContainsKey(entry.Id))
             {
-                tracker.Themes[theme.ThemeId] = new ThemeTrackerItem
+                tracker.Themes[entry.Id] = new ThemeTrackerItem
                 {
-                    ThemeId = theme.ThemeId,
-                    ThemeName = theme.ThemeName,
+                    ThemeId = entry.Id,
+                    ThemeName = entry.Label,
                     Intensity = "None",
                     Score = 0
                 };
@@ -200,6 +252,28 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         return Math.Min(12, matches * weight);
     }
 
+    private static int ScoreStatSignal(string content, IReadOnlyList<string> keywords, int perKeywordDelta, int maxDelta)
+    {
+        var matches = keywords.Count(content.Contains);
+        if (matches <= 0)
+        {
+            return 0;
+        }
+
+        return Math.Clamp(matches * perKeywordDelta, 0, maxDelta);
+    }
+
+    private static int NormalizeInteractionAffinityDelta(int affinityDelta)
+    {
+        if (affinityDelta == 0)
+        {
+            return 0;
+        }
+
+        var scaledMagnitude = (int)Math.Ceiling(Math.Abs(affinityDelta) / 3.0);
+        return Math.Sign(affinityDelta) * Math.Clamp(scaledMagnitude, 1, 2);
+    }
+
     private static void ApplyDelta(Dictionary<string, int> stats, string statName, int delta)
     {
         if (!stats.TryGetValue(statName, out var current))
@@ -218,13 +292,17 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         string themeId,
         string contentLower,
         IReadOnlyList<string> keywords,
-        int weight)
+        int weight,
+        double affinityMultiplier = 1.0)
     {
-        var signal = Score(contentLower, keywords, weight);
-        if (signal <= 0)
+        var rawSignal = Score(contentLower, keywords, weight);
+        if (rawSignal <= 0)
         {
             return;
         }
+
+        // T042: Apply affinity multiplier
+        var signal = rawSignal * affinityMultiplier;
 
         var trackerItem = state.ThemeTracker.Themes[themeId];
 
@@ -323,5 +401,255 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         {
             state.CharacterStats.Remove(key);
         }
+    }
+
+    public async Task SeedFromScenarioAsync(
+        RolePlaySession session,
+        Scenario scenario,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(scenario);
+
+        var state = session.AdaptiveState ?? new RolePlayAdaptiveState();
+
+        // --- T030: Initialize ThemeTracker from catalog entries ---
+        var catalogEntries = await _themeCatalogService.GetAllAsync(includeDisabled: false, cancellationToken);
+        EnsureThemeCatalog(state.ThemeTracker, catalogEntries);
+
+        // --- T030: Resolve ThemeProfile preferences and apply ChoiceSignal ---
+        var blockedCount = 0;
+        if (_themePreferenceService is not null && !string.IsNullOrWhiteSpace(session.SelectedThemeProfileId))
+        {
+            var preferences = await _themePreferenceService.ListByProfileAsync(session.SelectedThemeProfileId, cancellationToken);
+            foreach (var pref in preferences)
+            {
+                var matchedEntry = FindCatalogEntryByPreference(catalogEntries, pref);
+                if (matchedEntry is null) continue;
+
+                if (!state.ThemeTracker.Themes.TryGetValue(matchedEntry.Id, out var trackerItem)) continue;
+
+                if (pref.Tier == ThemeTier.HardDealBreaker)
+                {
+                    trackerItem.Blocked = true;
+                    trackerItem.Score = 0;
+                    trackerItem.Breakdown.ChoiceSignal = 0;
+                    blockedCount++;
+                    continue;
+                }
+
+                var choiceSignal = pref.Tier switch
+                {
+                    ThemeTier.MustHave => 15,
+                    ThemeTier.StronglyPrefer => 8,
+                    ThemeTier.NiceToHave => 3,
+                    ThemeTier.Dislike => -5,
+                    _ => 0
+                };
+
+                trackerItem.Breakdown.ChoiceSignal = choiceSignal;
+                trackerItem.Score = Math.Clamp(trackerItem.Score + choiceSignal, 0, 100);
+
+                // MustHave +3 persistent affinity bonus
+                if (pref.Tier == ThemeTier.MustHave)
+                {
+                    trackerItem.Score = Math.Clamp(trackerItem.Score + 3, 0, 100);
+                }
+
+                trackerItem.Intensity = trackerItem.Score switch
+                {
+                    < 20 => "Minor",
+                    < 45 => "Moderate",
+                    < 70 => "Major",
+                    _ => "Central"
+                };
+            }
+        }
+
+        // --- T031: Scenario text keyword scoring ---
+        SteeringProfile? styleProfile = null;
+        if (_steeringProfileService is not null && !string.IsNullOrWhiteSpace(session.SelectedSteeringProfileId))
+        {
+            styleProfile = await _steeringProfileService.GetAsync(session.SelectedSteeringProfileId, cancellationToken);
+        }
+
+        foreach (var entry in catalogEntries)
+        {
+            if (!state.ThemeTracker.Themes.TryGetValue(entry.Id, out var trackerItem)) continue;
+            if (trackerItem.Blocked) continue;
+
+            var scenarioPhaseSignal = ScoreScenarioKeywords(scenario, entry.Keywords, entry.Weight, styleProfile, entry.Id);
+            if (scenarioPhaseSignal > 0)
+            {
+                trackerItem.Breakdown.ScenarioPhaseSignal = Math.Clamp(scenarioPhaseSignal, 0, 100);
+                trackerItem.Score = Math.Clamp(trackerItem.Score + scenarioPhaseSignal, 0, 100);
+                trackerItem.Intensity = trackerItem.Score switch
+                {
+                    < 20 => "Minor",
+                    < 45 => "Moderate",
+                    < 70 => "Major",
+                    _ => "Central"
+                };
+            }
+        }
+
+        // --- T032: Apply StyleProfile.StatBias and ThemeCatalogEntry.StatAffinities ---
+        if (styleProfile?.StatBias is { Count: > 0 })
+        {
+            foreach (var (actorKey, charBlock) in state.CharacterStats)
+            {
+                foreach (var (statName, bias) in styleProfile.StatBias)
+                {
+                    var normalized = AdaptiveStatCatalog.NormalizeLegacyStatName(statName);
+                    if (!charBlock.Stats.TryGetValue(normalized, out var current))
+                    {
+                        current = AdaptiveStatCatalog.DefaultValue;
+                    }
+                    charBlock.Stats[normalized] = Math.Clamp(current + bias, 0, 100);
+                }
+            }
+        }
+
+        // Apply StatAffinities deltas from scoring catalog themes
+        foreach (var entry in catalogEntries)
+        {
+            if (entry.StatAffinities is not { Count: > 0 }) continue;
+            if (!state.ThemeTracker.Themes.TryGetValue(entry.Id, out var trackerItem)) continue;
+            if (trackerItem.Blocked || trackerItem.Score <= 0) continue;
+
+            foreach (var (actorKey, charBlock) in state.CharacterStats)
+            {
+                foreach (var (statName, affinityDelta) in entry.StatAffinities)
+                {
+                    var normalized = AdaptiveStatCatalog.NormalizeLegacyStatName(statName);
+                    if (!charBlock.Stats.TryGetValue(normalized, out var current))
+                    {
+                        current = AdaptiveStatCatalog.DefaultValue;
+                    }
+                    charBlock.Stats[normalized] = Math.Clamp(current + affinityDelta, 0, 100);
+                }
+            }
+        }
+
+        state.ThemeTracker.UpdatedUtc = DateTime.UtcNow;
+        session.AdaptiveState = state;
+
+        // --- T034: Logging ---
+        var topSeeded = state.ThemeTracker.Themes.Values
+            .Where(t => !t.Blocked && t.Score > 0)
+            .OrderByDescending(t => t.Score)
+            .Take(3)
+            .Select(t => $"{t.ThemeName}={t.Score:F0}")
+            .ToList();
+
+        _logger?.LogInformation(
+            "Seeded adaptive state for session {SessionId}: {ThemeCount} themes, {BlockedCount} blocked, StatBias={StatBiasApplied}, top=[{TopThemes}]",
+            session.Id,
+            catalogEntries.Count,
+            blockedCount,
+            styleProfile?.StatBias?.Count > 0,
+            string.Join(", ", topSeeded));
+    }
+
+    private static ThemeCatalogEntry? FindCatalogEntryByPreference(
+        IReadOnlyList<ThemeCatalogEntry> catalogEntries,
+        ThemePreference pref)
+    {
+        // Match by name (case-insensitive) against catalog entry label or id
+        return catalogEntries.FirstOrDefault(e =>
+            string.Equals(e.Label, pref.Name, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(e.Id, pref.Name, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static double ScoreScenarioKeywords(
+        Scenario scenario,
+        IReadOnlyList<string> keywords,
+        int weight,
+        SteeringProfile? styleProfile,
+        string themeId)
+    {
+        if (keywords.Count == 0) return 0;
+
+        double total = 0;
+
+        // Opening/Example text at 0.6× weight
+        foreach (var opening in scenario.Openings)
+        {
+            if (!string.IsNullOrWhiteSpace(opening.Text))
+            {
+                total += ScoreText(opening.Text, keywords, weight) * 0.6;
+            }
+        }
+        foreach (var example in scenario.Examples)
+        {
+            if (!string.IsNullOrWhiteSpace(example.Text))
+            {
+                total += ScoreText(example.Text, keywords, weight) * 0.6;
+            }
+        }
+
+        // Plot/Setting/Narrative/Characters/Locations/Objects at 0.4× weight
+        total += ScoreText(scenario.Plot.Description, keywords, weight) * 0.4;
+        foreach (var conflict in scenario.Plot.Conflicts)
+            total += ScoreText(conflict, keywords, weight) * 0.4;
+        foreach (var goal in scenario.Plot.Goals)
+            total += ScoreText(goal, keywords, weight) * 0.4;
+
+        total += ScoreText(scenario.Setting.WorldDescription, keywords, weight) * 0.4;
+        foreach (var detail in scenario.Setting.EnvironmentalDetails)
+            total += ScoreText(detail, keywords, weight) * 0.4;
+
+        total += ScoreText(scenario.Narrative.NarrativeTone, keywords, weight) * 0.4;
+        total += ScoreText(scenario.Narrative.ProseStyle, keywords, weight) * 0.4;
+        foreach (var guideline in scenario.Narrative.NarrativeGuidelines)
+            total += ScoreText(guideline, keywords, weight) * 0.4;
+
+        foreach (var character in scenario.Characters)
+        {
+            total += ScoreText(character.Name, keywords, weight) * 0.4;
+            total += ScoreText(character.Description, keywords, weight) * 0.4;
+        }
+
+        foreach (var location in scenario.Locations)
+        {
+            total += ScoreText(location.Name, keywords, weight) * 0.4;
+            total += ScoreText(location.Description, keywords, weight) * 0.4;
+        }
+
+        foreach (var obj in scenario.Objects)
+        {
+            total += ScoreText(obj.Name, keywords, weight) * 0.4;
+            total += ScoreText(obj.Description, keywords, weight) * 0.4;
+        }
+
+        // Character stat deltas at 0.3× weight
+        foreach (var character in scenario.Characters)
+        {
+            if (character.BaseStats.Count > 0)
+            {
+                foreach (var (statName, _) in character.BaseStats)
+                {
+                    total += ScoreText(statName, keywords, weight) * 0.3;
+                }
+            }
+        }
+
+        // Multiply by StyleProfile.ThemeAffinities when present
+        if (styleProfile?.ThemeAffinities is { Count: > 0 }
+            && styleProfile.ThemeAffinities.TryGetValue(themeId, out var affinityMultiplier)
+            && affinityMultiplier != 0)
+        {
+            total *= (1.0 + affinityMultiplier * 0.1);
+        }
+
+        return total;
+    }
+
+    private static double ScoreText(string? text, IReadOnlyList<string> keywords, int weight)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return 0;
+        var lower = text.ToLowerInvariant();
+        var matches = keywords.Count(k => lower.Contains(k, StringComparison.OrdinalIgnoreCase));
+        return Math.Min(12, matches * weight);
     }
 }

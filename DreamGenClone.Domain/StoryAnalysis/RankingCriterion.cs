@@ -12,6 +12,8 @@ public sealed class ThemePreference
 
     public ThemeTier Tier { get; set; } = ThemeTier.Neutral;
 
+    public string CatalogId { get; set; } = string.Empty;
+
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
 
     public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;

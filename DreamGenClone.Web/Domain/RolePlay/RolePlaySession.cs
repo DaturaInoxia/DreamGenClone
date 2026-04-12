@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace DreamGenClone.Web.Domain.RolePlay;
 
 public sealed class RolePlaySession
@@ -73,23 +75,33 @@ public sealed class RolePlaySession
     /// <summary>Persisted assistant max tokens override.</summary>
     public int AssistantMaxTokens { get; set; } = 2000;
 
-    /// <summary>Selected ranking profile for this session.</summary>
-    public string? SelectedRankingProfileId { get; set; }
+    /// <summary>Selected theme profile for this session.</summary>
+    [JsonPropertyName("SelectedThemeProfileId")]
+    public string? SelectedThemeProfileId { get; set; }
 
-    /// <summary>Selected tone profile for this session.</summary>
-    public string? SelectedToneProfileId { get; set; }
+    /// <summary>Legacy alias — maps old SelectedRankingProfileId → SelectedThemeProfileId during deserialization.</summary>
+    [JsonInclude]
+    [JsonPropertyName("SelectedRankingProfileId")]
+    public string? LegacySelectedRankingProfileId
+    {
+        get => null; // never serialize under old name
+        set { if (value is not null && SelectedThemeProfileId is null) SelectedThemeProfileId = value; }
+    }
 
-    /// <summary>Selected style profile for this session.</summary>
-    public string? SelectedStyleProfileId { get; set; }
+    /// <summary>Selected intensity profile for this session.</summary>
+    public string? SelectedIntensityProfileId { get; set; }
 
-    /// <summary>Session-level style floor override.</summary>
-    public string? StyleFloorOverride { get; set; }
+    /// <summary>Selected steering profile for this session.</summary>
+    public string? SelectedSteeringProfileId { get; set; }
 
-    /// <summary>Session-level style ceiling override.</summary>
-    public string? StyleCeilingOverride { get; set; }
+    /// <summary>Session-level intensity floor override.</summary>
+    public string? IntensityFloorOverride { get; set; }
 
-    /// <summary>When true, style/tone profile is pinned by the user and auto-adaptation is suppressed.</summary>
-    public bool IsToneManuallyPinned { get; set; }
+    /// <summary>Session-level intensity ceiling override.</summary>
+    public string? IntensityCeilingOverride { get; set; }
+
+    /// <summary>When true, the intensity profile is pinned by the user and auto-adaptation is suppressed.</summary>
+    public bool IsIntensityManuallyPinned { get; set; }
 
     /// <summary>Adaptive theme and stat state updated per interaction.</summary>
     public RolePlayAdaptiveState AdaptiveState { get; set; } = new();

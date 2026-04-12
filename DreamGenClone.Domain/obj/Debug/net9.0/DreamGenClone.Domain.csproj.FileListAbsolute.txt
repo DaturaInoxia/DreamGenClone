@@ -19,3 +19,9 @@ D:\src\DreamGenClone\DreamGenClone.Domain\obj\Debug\net9.0\ref\DreamGenClone.Dom
 D:\src\DreamGenClone\DreamGenClone.Domain\bin\Debug\net9.0\DreamGenClone.Domain.deps.json
 D:\src\DreamGenClone\DreamGenClone.Domain\bin\Debug\net9.0\DreamGenClone.Domain.dll
 D:\src\DreamGenClone\DreamGenClone.Domain\bin\Debug\net9.0\DreamGenClone.Domain.pdb
+D:\src\DreamGenClone\DreamGenClone.Domain\artifacts\tmpbuild\web-intensity\DreamGenClone.Domain.deps.json
+D:\src\DreamGenClone\DreamGenClone.Domain\artifacts\tmpbuild\web-intensity\DreamGenClone.Domain.dll
+D:\src\DreamGenClone\DreamGenClone.Domain\artifacts\tmpbuild\web-intensity\DreamGenClone.Domain.pdb
+D:\src\DreamGenClone\artifacts\tmp\testout\DreamGenClone.Domain.deps.json
+D:\src\DreamGenClone\artifacts\tmp\testout\DreamGenClone.Domain.dll
+D:\src\DreamGenClone\artifacts\tmp\testout\DreamGenClone.Domain.pdb

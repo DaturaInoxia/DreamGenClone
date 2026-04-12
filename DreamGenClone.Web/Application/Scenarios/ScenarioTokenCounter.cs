@@ -49,11 +49,11 @@ public class ScenarioTokenCounter : IScenarioTokenCounter
         tokenCount += scenario.Setting.EnvironmentalDetails.Sum(d => CalculateTokenCount(d));
         tokenCount += scenario.Setting.WorldRules.Sum(r => CalculateTokenCount(r));
         
-        // Style
-        tokenCount += CalculateTokenCount(scenario.Style.Tone);
-        tokenCount += CalculateTokenCount(scenario.Style.WritingStyle);
-        tokenCount += CalculateTokenCount(scenario.Style.PointOfView);
-        tokenCount += scenario.Style.StyleGuidelines.Sum(g => CalculateTokenCount(g));
+        // Narrative
+        tokenCount += CalculateTokenCount(scenario.Narrative.NarrativeTone);
+        tokenCount += CalculateTokenCount(scenario.Narrative.ProseStyle);
+        tokenCount += CalculateTokenCount(scenario.Narrative.PointOfView);
+        tokenCount += scenario.Narrative.NarrativeGuidelines.Sum(g => CalculateTokenCount(g));
         
         // Entities
         foreach (var character in scenario.Characters)

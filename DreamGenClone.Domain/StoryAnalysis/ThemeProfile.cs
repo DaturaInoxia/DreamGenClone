@@ -1,6 +1,6 @@
 namespace DreamGenClone.Domain.StoryAnalysis;
 
-public sealed class RankingProfile
+public sealed class ThemeProfile
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
 

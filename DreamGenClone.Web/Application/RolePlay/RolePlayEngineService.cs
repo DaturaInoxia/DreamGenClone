@@ -78,11 +78,11 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             if (scenario is not null)
             {
                 session.PersonaPerspectiveMode = scenario.DefaultPersonaPerspectiveMode;
-                session.SelectedRankingProfileId = scenario.DefaultRankingProfileId;
-                session.SelectedToneProfileId = scenario.DefaultToneProfileId ?? scenario.Style.ToneProfileId;
-                session.SelectedStyleProfileId = scenario.Style.StyleProfileId;
-                session.StyleFloorOverride = scenario.Style.StyleFloor;
-                session.StyleCeilingOverride = scenario.Style.StyleCeiling;
+                session.SelectedThemeProfileId = scenario.DefaultThemeProfileId;
+                session.SelectedIntensityProfileId = scenario.DefaultIntensityProfileId;
+                session.SelectedSteeringProfileId = scenario.DefaultSteeringProfileId;
+                session.IntensityFloorOverride = scenario.DefaultIntensityFloor;
+                session.IntensityCeilingOverride = scenario.DefaultIntensityCeiling;
 
                 var resolvedBaseStats = AdaptiveStatCatalog.NormalizePartial(scenario.ResolvedBaseStats);
                 if (!string.IsNullOrWhiteSpace(scenario.BaseStatProfileId))
@@ -130,6 +130,8 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                         Stats = mergedStats
                     };
                 }
+
+                await _adaptiveStateService.SeedFromScenarioAsync(session, scenario, cancellationToken);
             }
         }
 
@@ -224,6 +226,16 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         _autoSaveCoordinator.QueueRolePlaySessionSave(session, "roleplay-session-updated");
         _logger.LogInformation("Role-play session saved: {SessionId}, interactions={Count}, mode={Mode}", session.Id, session.Interactions.Count, session.BehaviorMode);
         return Task.FromResult(session);
+    }
+
+    public async Task<RolePlaySession> RebuildAdaptiveStateAsync(string sessionId, CancellationToken cancellationToken = default)
+    {
+        var session = await GetSessionAsync(sessionId, cancellationToken)
+            ?? throw new InvalidOperationException($"Role-play session '{sessionId}' not found.");
+
+        await RebuildAdaptiveStateInternalAsync(session, cancellationToken);
+        await SaveSessionAsync(session, cancellationToken);
+        return session;
     }
 
     public async Task<bool> DeleteSessionAsync(string sessionId, CancellationToken cancellationToken = default)
@@ -630,6 +642,14 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             // Determine which scene characters should naturally respond,
             // generate sequentially so each sees the prior output in context.
             var sceneActors = await ResolveSceneContinueActorsAsync(session, cancellationToken);
+            var preferredOverflowActor = ResolveDefaultContinueActor(session);
+            if (preferredOverflowActor == ContinueAsActor.You)
+            {
+                var personaName = string.IsNullOrWhiteSpace(session.PersonaName) ? "You" : session.PersonaName.Trim();
+                sceneActors.RemoveAll(x => x.Actor == ContinueAsActor.You);
+                sceneActors.Insert(0, (ContinueAsActor.You, personaName));
+            }
+
             var batchSize = Math.Max(1, Math.Min(session.SceneContinueBatchSize, sceneActors.Count));
 
             for (var i = 0; i < batchSize; i++)
@@ -749,20 +769,24 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             return actors;
         }
 
-        // Determine conversation order: characters who haven't spoken recently go first,
-        // alternate between characters for natural flow
+        // Determine conversation order by recency: characters who haven't spoken recently,
+        // or never spoke at all, go first.
         var recentActors = session.Interactions
-            .Where(i => i.InteractionType == InteractionType.Npc && !i.IsExcluded)
+            .Where(i => (i.InteractionType == InteractionType.Npc || i.InteractionType == InteractionType.Custom) && !i.IsExcluded)
             .TakeLast(6)
-            .Select(i => i.ActorName)
+            .Select(i => i.ActorName?.Trim())
             .ToList();
 
-        // Find the last speaker to avoid starting with the same character
-        var lastNpcSpeaker = recentActors.LastOrDefault();
-
-        // Order: characters who didn't speak last go first
         var ordered = sceneCharacterNames
-            .OrderBy(name => string.Equals(name, lastNpcSpeaker, StringComparison.OrdinalIgnoreCase) ? 1 : 0)
+            .Select((name, scenarioOrder) => new
+            {
+                Name = name,
+                ScenarioOrder = scenarioOrder,
+                LastSeenIndex = recentActors.FindLastIndex(actorName => string.Equals(actorName, name, StringComparison.OrdinalIgnoreCase))
+            })
+            .OrderBy(x => x.LastSeenIndex < 0 ? int.MinValue : x.LastSeenIndex)
+            .ThenBy(x => x.ScenarioOrder)
+            .Select(x => x.Name)
             .ToList();
 
         foreach (var name in ordered)
@@ -771,6 +795,84 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         }
 
         return actors;
+    }
+
+    private async Task RebuildAdaptiveStateInternalAsync(RolePlaySession session, CancellationToken cancellationToken)
+    {
+        session.AdaptiveState = new RolePlayAdaptiveState();
+
+        if (!string.IsNullOrWhiteSpace(session.ScenarioId))
+        {
+            var scenario = await _scenarioService.GetScenarioAsync(session.ScenarioId);
+            if (scenario is not null)
+            {
+                await SeedAdaptiveStateFromScenarioAsync(session, scenario, cancellationToken);
+            }
+        }
+
+        foreach (var interaction in session.Interactions.Where(x => !x.IsExcluded))
+        {
+            session.AdaptiveState = await _adaptiveStateService.UpdateFromInteractionAsync(session, interaction, cancellationToken);
+        }
+
+        _logger.LogInformation(
+            "Adaptive state rebuilt for session {SessionId}: interactionsReplayed={InteractionCount}, primaryTheme={PrimaryTheme}, secondaryTheme={SecondaryTheme}",
+            session.Id,
+            session.Interactions.Count(x => !x.IsExcluded),
+            session.AdaptiveState.ThemeTracker.PrimaryThemeId ?? "(none)",
+            session.AdaptiveState.ThemeTracker.SecondaryThemeId ?? "(none)");
+    }
+
+    private async Task SeedAdaptiveStateFromScenarioAsync(RolePlaySession session, DreamGenClone.Web.Domain.Scenarios.Scenario scenario, CancellationToken cancellationToken)
+    {
+        var resolvedBaseStats = AdaptiveStatCatalog.NormalizePartial(scenario.ResolvedBaseStats);
+        if (!string.IsNullOrWhiteSpace(scenario.BaseStatProfileId))
+        {
+            var baseStatProfile = await _baseStatProfileService.GetAsync(scenario.BaseStatProfileId, cancellationToken);
+            if (baseStatProfile is not null)
+            {
+                resolvedBaseStats = AdaptiveStatCatalog.NormalizeComplete(baseStatProfile.DefaultStats);
+                scenario.ResolvedBaseStats = new Dictionary<string, int>(resolvedBaseStats, StringComparer.OrdinalIgnoreCase);
+            }
+        }
+
+        session.CharacterPerspectives = scenario.Characters
+            .Where(x => !string.IsNullOrWhiteSpace(x.Name))
+            .Select(x => new RolePlayCharacterPerspective
+            {
+                CharacterId = x.Id,
+                CharacterName = x.Name!.Trim(),
+                PerspectiveMode = x.PerspectiveMode
+            })
+            .ToList();
+
+        foreach (var character in scenario.Characters)
+        {
+            if (string.IsNullOrWhiteSpace(character.Name))
+            {
+                continue;
+            }
+
+            var mergedStats = new Dictionary<string, int>(resolvedBaseStats, StringComparer.OrdinalIgnoreCase);
+            var normalizedCharacterOverrides = AdaptiveStatCatalog.NormalizePartial(character.BaseStats);
+            foreach (var (statName, statValue) in normalizedCharacterOverrides)
+            {
+                mergedStats[statName] = statValue;
+            }
+
+            if (mergedStats.Count == 0)
+            {
+                continue;
+            }
+
+            session.AdaptiveState.CharacterStats[character.Name.Trim()] = new CharacterStatBlock
+            {
+                CharacterId = character.Id,
+                Stats = mergedStats
+            };
+        }
+
+        await _adaptiveStateService.SeedFromScenarioAsync(session, scenario, cancellationToken);
     }
 
     /// <summary>
