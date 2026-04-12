@@ -1,3 +1,5 @@
+using DreamGenClone.Domain.Administration;
+
 namespace DreamGenClone.Infrastructure.Persistence;
 
 using DreamGenClone.Domain.StoryAnalysis;
@@ -6,6 +8,8 @@ using DreamGenClone.Domain.StoryParser;
 public interface ISqlitePersistence
 {
     Task InitializeAsync(CancellationToken cancellationToken = default);
+
+    Task<DatabaseBackup> CreateDatabaseBackupAsync(string? displayName, CancellationToken cancellationToken = default);
 
     // Scenario operations
     Task SaveScenarioAsync(string id, string name, string payloadJson, CancellationToken cancellationToken = default);
@@ -41,18 +45,18 @@ public interface ISqlitePersistence
     Task<List<ThemePreference>> LoadThemePreferencesByProfileAsync(string profileId, CancellationToken cancellationToken = default);
     Task<bool> DeleteThemePreferenceAsync(string id, CancellationToken cancellationToken = default);
 
-    // Ranking profile operations
-    Task SaveRankingProfileAsync(RankingProfile profile, CancellationToken cancellationToken = default);
-    Task<RankingProfile?> LoadRankingProfileAsync(string id, CancellationToken cancellationToken = default);
-    Task<List<RankingProfile>> LoadAllRankingProfilesAsync(CancellationToken cancellationToken = default);
-    Task<bool> DeleteRankingProfileAsync(string id, CancellationToken cancellationToken = default);
-    Task SetDefaultRankingProfileAsync(string id, CancellationToken cancellationToken = default);
-    Task<RankingProfile?> LoadDefaultRankingProfileAsync(CancellationToken cancellationToken = default);
+    // Theme profile operations
+    Task SaveThemeProfileAsync(ThemeProfile profile, CancellationToken cancellationToken = default);
+    Task<ThemeProfile?> LoadThemeProfileAsync(string id, CancellationToken cancellationToken = default);
+    Task<List<ThemeProfile>> LoadAllThemeProfilesAsync(CancellationToken cancellationToken = default);
+    Task<bool> DeleteThemeProfileAsync(string id, CancellationToken cancellationToken = default);
+    Task SetDefaultThemeProfileAsync(string id, CancellationToken cancellationToken = default);
+    Task<ThemeProfile?> LoadDefaultThemeProfileAsync(CancellationToken cancellationToken = default);
 
     // Tone profile operations
-    Task SaveToneProfileAsync(ToneProfile profile, CancellationToken cancellationToken = default);
-    Task<ToneProfile?> LoadToneProfileAsync(string id, CancellationToken cancellationToken = default);
-    Task<List<ToneProfile>> LoadAllToneProfilesAsync(CancellationToken cancellationToken = default);
+    Task SaveToneProfileAsync(IntensityProfile profile, CancellationToken cancellationToken = default);
+    Task<IntensityProfile?> LoadToneProfileAsync(string id, CancellationToken cancellationToken = default);
+    Task<List<IntensityProfile>> LoadAllToneProfilesAsync(CancellationToken cancellationToken = default);
     Task<bool> DeleteToneProfileAsync(string id, CancellationToken cancellationToken = default);
 
     // Base stat profile operations
@@ -62,10 +66,16 @@ public interface ISqlitePersistence
     Task<bool> DeleteBaseStatProfileAsync(string id, CancellationToken cancellationToken = default);
 
     // Style profile operations
-    Task SaveStyleProfileAsync(StyleProfile profile, CancellationToken cancellationToken = default);
-    Task<StyleProfile?> LoadStyleProfileAsync(string id, CancellationToken cancellationToken = default);
-    Task<List<StyleProfile>> LoadAllStyleProfilesAsync(CancellationToken cancellationToken = default);
+    Task SaveStyleProfileAsync(SteeringProfile profile, CancellationToken cancellationToken = default);
+    Task<SteeringProfile?> LoadStyleProfileAsync(string id, CancellationToken cancellationToken = default);
+    Task<List<SteeringProfile>> LoadAllStyleProfilesAsync(CancellationToken cancellationToken = default);
     Task<bool> DeleteStyleProfileAsync(string id, CancellationToken cancellationToken = default);
+
+    // Theme catalog operations
+    Task SaveThemeCatalogEntryAsync(ThemeCatalogEntry entry, CancellationToken cancellationToken = default);
+    Task<ThemeCatalogEntry?> LoadThemeCatalogEntryAsync(string id, CancellationToken cancellationToken = default);
+    Task<List<ThemeCatalogEntry>> LoadAllThemeCatalogEntriesAsync(bool includeDisabled, CancellationToken cancellationToken = default);
+    Task<bool> DeleteThemeCatalogEntryAsync(string id, CancellationToken cancellationToken = default);
 
     // Story ranking operations
     Task SaveStoryRankingAsync(StoryRankingResult ranking, CancellationToken cancellationToken = default);

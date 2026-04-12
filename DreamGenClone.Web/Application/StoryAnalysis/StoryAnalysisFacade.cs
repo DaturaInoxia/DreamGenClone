@@ -10,32 +10,35 @@ public sealed class StoryAnalysisFacade
     private readonly IStorySummaryService _summaryService;
     private readonly IStoryAnalysisService _analysisService;
     private readonly IThemePreferenceService _themeService;
-    private readonly IRankingProfileService _profileService;
-    private readonly IToneProfileService _toneProfileService;
-    private readonly IStyleProfileService _styleProfileService;
+    private readonly IThemeProfileService _profileService;
+    private readonly IIntensityProfileService _intensityProfileService;
+    private readonly ISteeringProfileService _steeringProfileService;
     private readonly IBaseStatProfileService _baseStatProfileService;
     private readonly IStoryRankingService _rankingService;
+    private readonly IThemeCatalogService _themeCatalogService;
     private readonly ISqlitePersistence _persistence;
 
     public StoryAnalysisFacade(
         IStorySummaryService summaryService,
         IStoryAnalysisService analysisService,
         IThemePreferenceService themeService,
-        IRankingProfileService profileService,
-        IToneProfileService toneProfileService,
-        IStyleProfileService styleProfileService,
+        IThemeProfileService profileService,
+        IIntensityProfileService toneProfileService,
+        ISteeringProfileService styleProfileService,
         IBaseStatProfileService baseStatProfileService,
         IStoryRankingService rankingService,
+        IThemeCatalogService themeCatalogService,
         ISqlitePersistence persistence)
     {
         _summaryService = summaryService;
         _analysisService = analysisService;
         _themeService = themeService;
         _profileService = profileService;
-        _toneProfileService = toneProfileService;
-        _styleProfileService = styleProfileService;
+        _intensityProfileService = toneProfileService;
+        _steeringProfileService = styleProfileService;
         _baseStatProfileService = baseStatProfileService;
         _rankingService = rankingService;
+        _themeCatalogService = themeCatalogService;
         _persistence = persistence;
     }
 
@@ -54,16 +57,16 @@ public sealed class StoryAnalysisFacade
         => _analysisService.GetAnalysisAsync(parsedStoryId, cancellationToken);
 
     // Ranking Profiles
-    public Task<RankingProfile> CreateProfileAsync(string name, CancellationToken cancellationToken = default)
+    public Task<ThemeProfile> CreateProfileAsync(string name, CancellationToken cancellationToken = default)
         => _profileService.CreateAsync(name, cancellationToken);
 
-    public Task<List<RankingProfile>> ListProfilesAsync(CancellationToken cancellationToken = default)
+    public Task<List<ThemeProfile>> ListProfilesAsync(CancellationToken cancellationToken = default)
         => _profileService.ListAsync(cancellationToken);
 
-    public Task<RankingProfile?> GetProfileAsync(string id, CancellationToken cancellationToken = default)
+    public Task<ThemeProfile?> GetProfileAsync(string id, CancellationToken cancellationToken = default)
         => _profileService.GetAsync(id, cancellationToken);
 
-    public Task<RankingProfile?> UpdateProfileAsync(string id, string name, CancellationToken cancellationToken = default)
+    public Task<ThemeProfile?> UpdateProfileAsync(string id, string name, CancellationToken cancellationToken = default)
         => _profileService.UpdateAsync(id, name, cancellationToken);
 
     public Task<bool> DeleteProfileAsync(string id, CancellationToken cancellationToken = default)
@@ -72,12 +75,12 @@ public sealed class StoryAnalysisFacade
     public Task SetProfileDefaultAsync(string id, CancellationToken cancellationToken = default)
         => _profileService.SetDefaultAsync(id, cancellationToken);
 
-    public Task<RankingProfile?> GetDefaultProfileAsync(CancellationToken cancellationToken = default)
+    public Task<ThemeProfile?> GetDefaultProfileAsync(CancellationToken cancellationToken = default)
         => _profileService.GetDefaultAsync(cancellationToken);
 
     // Theme Preferences
-    public Task<ThemePreference> CreateThemeAsync(string profileId, string name, string description, ThemeTier tier, CancellationToken cancellationToken = default)
-        => _themeService.CreateAsync(profileId, name, description, tier, cancellationToken);
+    public Task<ThemePreference> CreateThemeAsync(string profileId, string name, string description, ThemeTier tier, string? catalogId = null, CancellationToken cancellationToken = default)
+        => _themeService.CreateAsync(profileId, name, description, tier, catalogId, cancellationToken);
 
     public Task<List<ThemePreference>> ListThemesAsync(CancellationToken cancellationToken = default)
         => _themeService.ListAsync(cancellationToken);
@@ -85,43 +88,43 @@ public sealed class StoryAnalysisFacade
     public Task<List<ThemePreference>> ListThemesByProfileAsync(string profileId, CancellationToken cancellationToken = default)
         => _themeService.ListByProfileAsync(profileId, cancellationToken);
 
-    public Task<ThemePreference?> UpdateThemeAsync(string id, string name, string description, ThemeTier tier, CancellationToken cancellationToken = default)
-        => _themeService.UpdateAsync(id, name, description, tier, cancellationToken);
+    public Task<ThemePreference?> UpdateThemeAsync(string id, string name, string description, ThemeTier tier, string? catalogId = null, CancellationToken cancellationToken = default)
+        => _themeService.UpdateAsync(id, name, description, tier, catalogId, cancellationToken);
 
     public Task<bool> DeleteThemeAsync(string id, CancellationToken cancellationToken = default)
         => _themeService.DeleteAsync(id, cancellationToken);
 
-    // Tone Profiles
-    public Task<ToneProfile> CreateToneProfileAsync(string name, string description, ToneIntensity intensity, CancellationToken cancellationToken = default)
-        => _toneProfileService.CreateAsync(name, description, intensity, cancellationToken);
+    // Intensity Profiles
+    public Task<IntensityProfile> CreateIntensityProfileAsync(string name, string description, IntensityLevel intensity, CancellationToken cancellationToken = default)
+        => _intensityProfileService.CreateAsync(name, description, intensity, cancellationToken);
 
-    public Task<List<ToneProfile>> ListToneProfilesAsync(CancellationToken cancellationToken = default)
-        => _toneProfileService.ListAsync(cancellationToken);
+    public Task<List<IntensityProfile>> ListIntensityProfilesAsync(CancellationToken cancellationToken = default)
+        => _intensityProfileService.ListAsync(cancellationToken);
 
-    public Task<ToneProfile?> GetToneProfileAsync(string id, CancellationToken cancellationToken = default)
-        => _toneProfileService.GetAsync(id, cancellationToken);
+    public Task<IntensityProfile?> GetIntensityProfileAsync(string id, CancellationToken cancellationToken = default)
+        => _intensityProfileService.GetAsync(id, cancellationToken);
 
-    public Task<ToneProfile?> UpdateToneProfileAsync(string id, string name, string description, ToneIntensity intensity, CancellationToken cancellationToken = default)
-        => _toneProfileService.UpdateAsync(id, name, description, intensity, cancellationToken);
+    public Task<IntensityProfile?> UpdateIntensityProfileAsync(string id, string name, string description, IntensityLevel intensity, CancellationToken cancellationToken = default)
+        => _intensityProfileService.UpdateAsync(id, name, description, intensity, cancellationToken);
 
-    public Task<bool> DeleteToneProfileAsync(string id, CancellationToken cancellationToken = default)
-        => _toneProfileService.DeleteAsync(id, cancellationToken);
+    public Task<bool> DeleteIntensityProfileAsync(string id, CancellationToken cancellationToken = default)
+        => _intensityProfileService.DeleteAsync(id, cancellationToken);
 
-    // Style Profiles
-    public Task<StyleProfile> CreateStyleProfileAsync(string name, string description, string example, string ruleOfThumb, CancellationToken cancellationToken = default)
-        => _styleProfileService.CreateAsync(name, description, example, ruleOfThumb, cancellationToken);
+    // Steering Profiles
+    public Task<SteeringProfile> CreateSteeringProfileAsync(string name, string description, string example, string ruleOfThumb, Dictionary<string, int>? themeAffinities = null, List<string>? escalatingThemeIds = null, Dictionary<string, int>? statBias = null, CancellationToken cancellationToken = default)
+        => _steeringProfileService.CreateAsync(name, description, example, ruleOfThumb, themeAffinities, escalatingThemeIds, statBias, cancellationToken);
 
-    public Task<List<StyleProfile>> ListStyleProfilesAsync(CancellationToken cancellationToken = default)
-        => _styleProfileService.ListAsync(cancellationToken);
+    public Task<List<SteeringProfile>> ListSteeringProfilesAsync(CancellationToken cancellationToken = default)
+        => _steeringProfileService.ListAsync(cancellationToken);
 
-    public Task<StyleProfile?> GetStyleProfileAsync(string id, CancellationToken cancellationToken = default)
-        => _styleProfileService.GetAsync(id, cancellationToken);
+    public Task<SteeringProfile?> GetSteeringProfileAsync(string id, CancellationToken cancellationToken = default)
+        => _steeringProfileService.GetAsync(id, cancellationToken);
 
-    public Task<StyleProfile?> UpdateStyleProfileAsync(string id, string name, string description, string example, string ruleOfThumb, CancellationToken cancellationToken = default)
-        => _styleProfileService.UpdateAsync(id, name, description, example, ruleOfThumb, cancellationToken);
+    public Task<SteeringProfile?> UpdateSteeringProfileAsync(string id, string name, string description, string example, string ruleOfThumb, Dictionary<string, int>? themeAffinities = null, List<string>? escalatingThemeIds = null, Dictionary<string, int>? statBias = null, CancellationToken cancellationToken = default)
+        => _steeringProfileService.UpdateAsync(id, name, description, example, ruleOfThumb, themeAffinities, escalatingThemeIds, statBias, cancellationToken);
 
-    public Task<bool> DeleteStyleProfileAsync(string id, CancellationToken cancellationToken = default)
-        => _styleProfileService.DeleteAsync(id, cancellationToken);
+    public Task<bool> DeleteSteeringProfileAsync(string id, CancellationToken cancellationToken = default)
+        => _steeringProfileService.DeleteAsync(id, cancellationToken);
 
     // Base Stat Profiles
     public Task<BaseStatProfile> CreateBaseStatProfileAsync(string name, string description, IReadOnlyDictionary<string, int> defaultStats, CancellationToken cancellationToken = default)
@@ -171,4 +174,14 @@ public sealed class StoryAnalysisFacade
     // Combined Text
     public Task<bool> UpdateCombinedTextAsync(string id, string combinedText, CancellationToken cancellationToken = default)
         => _persistence.UpdateCombinedTextAsync(id, combinedText, cancellationToken);
+
+    // Theme Catalog
+    public Task<IReadOnlyList<ThemeCatalogEntry>> ListCatalogEntriesAsync(bool includeDisabled = false, CancellationToken cancellationToken = default)
+        => _themeCatalogService.GetAllAsync(includeDisabled, cancellationToken);
+
+    public Task SaveCatalogEntryAsync(ThemeCatalogEntry entry, CancellationToken cancellationToken = default)
+        => _themeCatalogService.SaveAsync(entry, cancellationToken);
+
+    public Task DeleteCatalogEntryAsync(string id, CancellationToken cancellationToken = default)
+        => _themeCatalogService.DeleteAsync(id, cancellationToken);
 }

@@ -45,11 +45,11 @@ public static class RolePlayAssistantPrompts
           - *Take Turns*: User and NPCs alternate. After the threshold, engine signals user's turn.
           - *Spectate*: Only NPCs act; user watches.
           - *NPC Only*: Fully autonomous.
-            - **Content Preference Profile** — Session ranking profile used for safety/theme steering.
-            - **Tone Profile** — Session tone profile that sets base style intensity.
-            - **Style Profile** — Session prose guidance profile used to steer wording and texture.
-            - **Style Floor / Style Ceiling** — Hard lower/upper clamps on effective style intensity.
-            - **Manual Tone Pin** — Freezes style resolution to base tone intensity (adaptive deltas suppressed), while floor/ceiling clamps still apply.
+            - **Theme Profile** — Session story-direction profile. It tells the engine what the story should lean toward, avoid, or block. Themes from the Theme Catalog are scored by the adaptive engine and influence intensity resolution.
+            - **Intensity Profile** — Session intensity profile that sets the base rung on the shared intensity ladder.
+            - **Writing Style Profile** — Session prose guidance profile used to steer wording and texture only. Includes ThemeAffinities (per-theme score multipliers), EscalatingThemeIds (themes considered escalating), and StatBias (additive character state adjustments).
+            - **Intensity Floor / Intensity Ceiling** — Hard lower/upper clamps on resolved intensity.
+            - **Manual Intensity Pin** — Freezes resolved intensity to the intensity profile's base rung (adaptive deltas suppressed), while floor/ceiling clamps still apply.
         - **Turn-Taking Threshold** — How many consecutive NPC turns before the engine pauses for the user.
         - **Auto-Narrative** — When ON, generates atmospheric narrative blocks between character turns during batch continuation.
         - **Context Window Size** — Number of recent interactions sent to the AI (default 30). Pinned interactions survive trimming.
@@ -58,6 +58,11 @@ public static class RolePlayAssistantPrompts
         - **Temperature** — Creativity dial. Lower (0.3–0.5) = focused/predictable. Higher (0.8–1.2) = creative/varied.
         - **Top-P** — Vocabulary diversity. Lower (0.7–0.85) = more coherent. Higher (0.9–1.0) = more varied word choice.
         - **Max Tokens** — Response length cap.
+
+        ### Adaptive Engine
+        - **Theme Catalog** — The shared list of all recognized themes (e.g. "intimacy", "power-dynamics"). Each entry has keywords, a weight, and optional StatAffinities. Themes selected from the catalog are used for scoring during session seeding and per-interaction updates.
+        - **Theme Tracker** — Per-session live scores for each catalog theme. Scores are driven by four signals: ChoiceSignal (from ThemeProfile tier preferences), CharacterStateSignal (from character stats), InteractionEvidenceSignal (from keyword hits in AI output), and ScenarioPhaseSignal (from scenario text keywords at session start). Blocked themes (HardDealBreaker tier) have score locked at 0 with SuppressedHitCount tracking.
+        - **Character State** — Per-character adaptive stats: Desire, Restraint, Tension, Connection, Dominance. These are initialized from the Base Stat Profile, adjusted by StyleProfile.StatBias, and updated each interaction. They influence theme scoring and style resolution.
 
         ---
 

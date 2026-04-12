@@ -99,7 +99,7 @@ public sealed class RolePlayBehaviorModeSubmitTests
             behaviorMode,
             router,
             identities,
-            new RolePlayAdaptiveStateService(),
+            new RolePlayAdaptiveStateService(new RolePlayTestFactory.FakeThemeCatalogService()),
             validator,
             fakeSessionService,
             new RolePlayTestFactory.NullScenarioService(),

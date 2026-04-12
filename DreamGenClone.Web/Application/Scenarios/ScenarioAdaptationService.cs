@@ -143,9 +143,9 @@ public sealed class ScenarioAdaptationService : IScenarioAdaptationService
             {
                 WorldDescription = preview.SettingSummary
             },
-            Style = new Style
+            Narrative = new NarrativeSettings
             {
-                Tone = preview.StyleSummary
+                NarrativeTone = preview.StyleSummary
             },
             Characters = characters
         };
@@ -454,15 +454,15 @@ public sealed class ScenarioAdaptationService : IScenarioAdaptationService
                 };
             }
 
-            // Style
+            // Narrative
             if (root.TryGetProperty("style", out var styleEl))
             {
-                scenario.Style = new Style
+                scenario.Narrative = new NarrativeSettings
                 {
-                    Tone = GetString(styleEl, "tone"),
-                    WritingStyle = GetString(styleEl, "writingStyle"),
+                    NarrativeTone = GetString(styleEl, "tone"),
+                    ProseStyle = GetString(styleEl, "writingStyle"),
                     PointOfView = GetString(styleEl, "pointOfView"),
-                    StyleGuidelines = GetStringArray(styleEl, "styleGuidelines")
+                    NarrativeGuidelines = GetStringArray(styleEl, "styleGuidelines")
                 };
             }
 

@@ -394,10 +394,10 @@ public class ScenarioAdaptationServiceTests
         var result = await service.AdaptStoryToScenarioAsync(CreateRequest());
 
         Assert.True(result.Success);
-        var style = result.GeneratedScenario!.Style;
-        Assert.Equal("Sensual and tension-filled", style.Tone);
-        Assert.Equal("Descriptive with internal monologue", style.WritingStyle);
-        Assert.Equal("Third person limited", style.PointOfView);
+        var narrative = result.GeneratedScenario!.Narrative;
+        Assert.Equal("Sensual and tension-filled", narrative.NarrativeTone);
+        Assert.Equal("Descriptive with internal monologue", narrative.ProseStyle);
+        Assert.Equal("Third person limited", narrative.PointOfView);
     }
 
     private ScenarioAdaptationService CreateServiceWithClient(FakeCompletionClient completionClient)

@@ -120,7 +120,7 @@ public sealed class PromptDealbreakerServiceTests
             _themes = themes;
         }
 
-        public Task<ThemePreference> CreateAsync(string profileId, string name, string description, ThemeTier tier, CancellationToken cancellationToken = default)
+        public Task<ThemePreference> CreateAsync(string profileId, string name, string description, ThemeTier tier, string? catalogId = null, CancellationToken cancellationToken = default)
             => throw new NotImplementedException();
 
         public Task<List<ThemePreference>> ListAsync(CancellationToken cancellationToken = default)
@@ -129,10 +129,13 @@ public sealed class PromptDealbreakerServiceTests
         public Task<List<ThemePreference>> ListByProfileAsync(string profileId, CancellationToken cancellationToken = default)
             => Task.FromResult(_themes.Where(x => x.ProfileId == profileId).ToList());
 
-        public Task<ThemePreference?> UpdateAsync(string id, string name, string description, ThemeTier tier, CancellationToken cancellationToken = default)
+        public Task<ThemePreference?> UpdateAsync(string id, string name, string description, ThemeTier tier, string? catalogId = null, CancellationToken cancellationToken = default)
             => throw new NotImplementedException();
 
         public Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default)
             => throw new NotImplementedException();
+
+        public Task<int> AutoLinkToCatalogAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(0);
     }
 }

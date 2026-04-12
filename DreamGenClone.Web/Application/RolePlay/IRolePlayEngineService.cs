@@ -23,6 +23,8 @@ public interface IRolePlayEngineService
 
     Task<RolePlaySession> SaveSessionAsync(RolePlaySession session, CancellationToken cancellationToken = default);
 
+    Task<RolePlaySession> RebuildAdaptiveStateAsync(string sessionId, CancellationToken cancellationToken = default);
+
     Task<bool> UpdateBehaviorModeAsync(string sessionId, BehaviorMode mode, CancellationToken cancellationToken = default);
 
     Task<RolePlayInteraction> AddInteractionAsync(

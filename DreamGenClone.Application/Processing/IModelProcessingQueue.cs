@@ -7,7 +7,7 @@ public interface IModelProcessingQueue
     /// <summary>
     /// Convenience method: enqueues Summarize, Analyze, and (optionally) Rank tasks for a story.
     /// </summary>
-    void EnqueueStoryProcessing(string parsedStoryId, string? storyTitle, string? rankingProfileId = null);
+    void EnqueueStoryProcessing(string parsedStoryId, string? storyTitle, string? themeProfileId = null);
 
     IReadOnlyList<ModelProcessingTask> GetAllTasks();
 

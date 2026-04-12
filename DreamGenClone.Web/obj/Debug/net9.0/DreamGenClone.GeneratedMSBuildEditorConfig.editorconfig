@@ -24,6 +24,10 @@ build_property.EnableCodeStyleSeverity =
 build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xBcHAucmF6b3I=
 build_metadata.AdditionalFiles.CssScope = 
 
+[D:/src/DreamGenClone/DreamGenClone.Web/Components/Pages/Administration.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xQYWdlc1xBZG1pbmlzdHJhdGlvbi5yYXpvcg==
+build_metadata.AdditionalFiles.CssScope = 
+
 [D:/src/DreamGenClone/DreamGenClone.Web/Components/Pages/Counter.razor]
 build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xQYWdlc1xDb3VudGVyLnJhem9y
 build_metadata.AdditionalFiles.CssScope = 
@@ -42,10 +46,6 @@ build_metadata.AdditionalFiles.CssScope =
 
 [D:/src/DreamGenClone/DreamGenClone.Web/Components/Pages/ProcessingQueue.razor]
 build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xQYWdlc1xQcm9jZXNzaW5nUXVldWUucmF6b3I=
-build_metadata.AdditionalFiles.CssScope = 
-
-[D:/src/DreamGenClone/DreamGenClone.Web/Components/Pages/RankingProfiles.razor]
-build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xQYWdlc1xSYW5raW5nUHJvZmlsZXMucmF6b3I=
 build_metadata.AdditionalFiles.CssScope = 
 
 [D:/src/DreamGenClone/DreamGenClone.Web/Components/Pages/RolePlayCreate.razor]
@@ -98,6 +98,10 @@ build_metadata.AdditionalFiles.CssScope =
 
 [D:/src/DreamGenClone/DreamGenClone.Web/Components/Pages/Templates.razor]
 build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xQYWdlc1xUZW1wbGF0ZXMucmF6b3I=
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/src/DreamGenClone/DreamGenClone.Web/Components/Pages/ThemeProfiles.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xQYWdlc1xUaGVtZVByb2ZpbGVzLnJhem9y
 build_metadata.AdditionalFiles.CssScope = 
 
 [D:/src/DreamGenClone/DreamGenClone.Web/Components/Pages/Weather.razor]

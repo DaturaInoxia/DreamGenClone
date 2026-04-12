@@ -155,26 +155,28 @@
                     </div>
                 </div>
                 
-                <!-- Style -->
+                <!-- Story Direction, Intensity & Writing -->
                 <div class="card mb-4">
                     <div class="card-header">
-                        <h5>Style / Tone</h5>
+                        <h5>Story Direction, Intensity & Writing</h5>
                     </div>
                     <div class="card-body">
+                        <div class="form-text mb-3">Theme Profile steers what the story is pushed toward. Writing Style Profile only affects prose voice and texture, such as Sultry.</div>
                         <div class="mb-3">
-                            <label class="form-label">Default Ranking Profile</label>
-                            <select class="form-select" @bind="CurrentScenario.DefaultRankingProfileId">
+                            <label class="form-label">Default Story Theme Profile</label>
+                            <select class="form-select" @bind="CurrentScenario.DefaultThemeProfileId">
                                 <option value="">(None)</option>
                                 @foreach (var profile in RankingProfiles)
                                 {
                                     <option value="@profile.Id">@profile.Name</option>
                                 }
                             </select>
+                            <div class="form-text">Use this to steer what the story should emphasize or avoid.</div>
                         </div>
 
                         <div class="mb-3">
-                            <label class="form-label">Default Tone Profile</label>
-                            <select class="form-select" @bind="CurrentScenario.DefaultToneProfileId">
+                            <label class="form-label">Default Intensity Profile</label>
+                            <select class="form-select" @bind="CurrentScenario.DefaultIntensityProfileId">
                                 <option value="">(None)</option>
                                 @foreach (var tone in ToneProfiles)
                                 {
@@ -184,7 +186,7 @@
                         </div>
 
                         <div class="mb-3">
-                            <label class="form-label">Default Base Stat Profile</label>
+                            <label class="form-label">Default Character State Profile</label>
                             <select class="form-select" @bind="CurrentScenario.BaseStatProfileId">
                                 <option value="">(None)</option>
                                 @foreach (var profile in BaseStatProfiles)
@@ -192,18 +194,19 @@
                                     <option value="@profile.Id">@profile.Name</option>
                                 }
                             </select>
-                            <div class="form-text">Session seeding starts from this profile; each character's Base Stats are applied as overrides.</div>
+                            <div class="form-text">Session seeding starts from this profile; each character's state overrides are applied on top.</div>
                         </div>
 
                         <div class="mb-3">
-                            <label class="form-label">Default Style Profile</label>
-                            <select class="form-select" @bind="CurrentScenario.Style.StyleProfileId">
+                            <label class="form-label">Default Writing Style Profile</label>
+                            <select class="form-select" @bind="CurrentScenario.DefaultSteeringProfileId">
                                 <option value="">(None)</option>
                                 @foreach (var style in StyleProfiles)
                                 {
                                     <option value="@style.Id">@style.Name</option>
                                 }
                             </select>
+                            <div class="form-text">This controls how the prose is written, not what themes the story is driven toward.</div>
                         </div>
 
                         <div class="mb-3">
@@ -218,23 +221,23 @@
                         </div>
 
                         <div class="mb-3">
-                            <label class="form-label">Tone</label>
-                            <input type="text" class="form-control" @bind="CurrentScenario.Style.Tone" placeholder="e.g., Dark, Humorous, Serious" />
+                            <label class="form-label">Narrative Tone</label>
+                            <input type="text" class="form-control" @bind="CurrentScenario.Narrative.NarrativeTone" placeholder="e.g., Dark, Humorous, Serious" />
                         </div>
                         
                         <div class="mb-3">
-                            <label class="form-label">Writing Style</label>
-                            <input type="text" class="form-control" @bind="CurrentScenario.Style.WritingStyle" placeholder="e.g., Descriptive, Minimalist, Prose" />
+                            <label class="form-label">Prose Style</label>
+                            <input type="text" class="form-control" @bind="CurrentScenario.Narrative.ProseStyle" placeholder="e.g., Descriptive, Minimalist, Prose" />
                         </div>
                         
                         <div class="mb-3">
                             <label class="form-label">Point of View</label>
-                            <input type="text" class="form-control" @bind="CurrentScenario.Style.PointOfView" placeholder="e.g., First Person, Third Person" />
+                            <input type="text" class="form-control" @bind="CurrentScenario.Narrative.PointOfView" placeholder="e.g., First Person, Third Person" />
                         </div>
 
                         <div class="mb-3">
-                            <label class="form-label">Style Floor</label>
-                            <select class="form-select" @bind="CurrentScenario.Style.StyleFloor">
+                            <label class="form-label">Intensity Floor</label>
+                            <select class="form-select" @bind="CurrentScenario.DefaultIntensityFloor">
                                 <option value="">(None)</option>
                                 @foreach (var option in StyleBoundOptions)
                                 {
@@ -244,8 +247,8 @@
                         </div>
 
                         <div class="mb-3">
-                            <label class="form-label">Style Ceiling</label>
-                            <select class="form-select" @bind="CurrentScenario.Style.StyleCeiling">
+                            <label class="form-label">Intensity Ceiling</label>
+                            <select class="form-select" @bind="CurrentScenario.DefaultIntensityCeiling">
                                 <option value="">(None)</option>
                                 @foreach (var option in StyleBoundOptions)
                                 {
@@ -255,17 +258,17 @@
                         </div>
                         
                         <div class="mb-3">
-                            <label class="form-label">Style Guidelines</label>
+                            <label class="form-label">Narrative Guidelines</label>
                             <div class="guidelines-list">
-                                @foreach (var (guideline, index) in CurrentScenario.Style.StyleGuidelines.Select((g, i) => (g, i)))
+                                @foreach (var (guideline, index) in CurrentScenario.Narrative.NarrativeGuidelines.Select((g, i) => (g, i)))
                                 {
                                     <div class="input-group mb-2">
-                                        <input type="text" class="form-control" @bind="CurrentScenario.Style.StyleGuidelines[index]" />
-                                        <button class="btn btn-outline-danger" @onclick="@(() => CurrentScenario.Style.StyleGuidelines.RemoveAt(index))">Remove</button>
+                                        <input type="text" class="form-control" @bind="CurrentScenario.Narrative.NarrativeGuidelines[index]" />
+                                        <button class="btn btn-outline-danger" @onclick="@(() => CurrentScenario.Narrative.NarrativeGuidelines.RemoveAt(index))">Remove</button>
                                     </div>
                                 }
                             </div>
-                            <button class="btn btn-outline-secondary btn-sm" @onclick="@(() => CurrentScenario.Style.StyleGuidelines.Add(string.Empty))">+ Add Guideline</button>
+                            <button class="btn btn-outline-secondary btn-sm" @onclick="@(() => CurrentScenario.Narrative.NarrativeGuidelines.Add(string.Empty))">+ Add Guideline</button>
                         </div>
                     </div>
                 </div>
@@ -304,7 +307,7 @@
                                                         </select>
                                                     </div>
                                                     <div class="mt-2">
-                                                        <div class="small text-muted mb-1">Character Base Stat Overrides (applied after scenario profile defaults at session start)</div>
+                                                        <div class="small text-muted mb-1">Character State Overrides (applied after scenario profile defaults at session start)</div>
                                                         @foreach (var statName in BaseStatNames)
                                                         {
                                                             <div class="input-group input-group-sm mb-1">
@@ -571,9 +574,9 @@
     private string NewOpeningText = string.Empty;
     private string NewExampleTitle = string.Empty;
     private string NewExampleText = string.Empty;
-    private List<RankingProfile> RankingProfiles = [];
-    private List<ToneProfile> ToneProfiles = [];
-    private List<StyleProfile> StyleProfiles = [];
+    private List<ThemeProfile> RankingProfiles = [];
+    private List<IntensityProfile> ToneProfiles = [];
+    private List<SteeringProfile> StyleProfiles = [];
     private List<RolePlayAssistantChatThread> _assistantChats = [];
     private string? _activeAssistantChatId;
     private ScenarioAssistantTarget _assistantApplyTarget = ScenarioAssistantTarget.General;
@@ -583,12 +586,12 @@
     private string AssistantConversationHeightCss => _assistantExpanded ? "52vh" : "450px";
     private static readonly (string Value, string Label)[] StyleBoundOptions =
     [
-        ("Intro / PG-12", "Intro / PG-12"),
-        ("Emotional / PG-13", "Emotional / PG-13"),
-        ("Suggestive / PG-13+", "Suggestive / PG-13+"),
-        ("Sensual / Mature", "Sensual / Mature"),
-        ("Erotic / Explicit", "Erotic / Explicit"),
-        ("Hardcore / Explicit+", "Hardcore / Explicit+")
+        ("Atmospheric", "Atmospheric"),
+        ("Emotional", "Emotional"),
+        ("Suggestive", "Suggestive"),
+        ("Sensual", "Sensual"),
+        ("Erotic", "Erotic"),
+        ("Hardcore", "Hardcore")
     ];
     private List<BaseStatProfile> BaseStatProfiles = [];
     private static readonly string[] BaseStatNames = GetBaseStatNames();
@@ -596,8 +599,8 @@
     protected override async Task OnInitializedAsync()
     {
         RankingProfiles = await StoryAnalysisFacade.ListProfilesAsync();
-        ToneProfiles = await StoryAnalysisFacade.ListToneProfilesAsync();
-        StyleProfiles = await StoryAnalysisFacade.ListStyleProfilesAsync();
+        ToneProfiles = await StoryAnalysisFacade.ListIntensityProfilesAsync();
+        StyleProfiles = await StoryAnalysisFacade.ListSteeringProfilesAsync();
         BaseStatProfiles = await StoryAnalysisFacade.ListBaseStatProfilesAsync();
 
         if (!string.IsNullOrEmpty(ScenarioId))
@@ -902,14 +905,14 @@
 
                 if (!_assistantApplyAppendStyleGuidelines)
                 {
-                    CurrentScenario.Style.StyleGuidelines.Clear();
+                    CurrentScenario.Narrative.NarrativeGuidelines.Clear();
                 }
 
                 foreach (var item in items)
                 {
-                    if (!CurrentScenario.Style.StyleGuidelines.Any(x => string.Equals(x, item, StringComparison.OrdinalIgnoreCase)))
+                    if (!CurrentScenario.Narrative.NarrativeGuidelines.Any(x => string.Equals(x, item, StringComparison.OrdinalIgnoreCase)))
                     {
-                        CurrentScenario.Style.StyleGuidelines.Add(item);
+                        CurrentScenario.Narrative.NarrativeGuidelines.Add(item);
                     }
                 }
 
@@ -1296,10 +1299,10 @@
             TimeFrame = scenario.Setting.TimeFrame?.Trim() ?? string.Empty,
             WorldRules = scenario.Setting.WorldRules,
             EnvironmentalDetails = scenario.Setting.EnvironmentalDetails,
-            Tone = scenario.Style.Tone?.Trim() ?? string.Empty,
-            WritingStyle = scenario.Style.WritingStyle?.Trim() ?? string.Empty,
-            PointOfView = scenario.Style.PointOfView?.Trim() ?? string.Empty,
-            StyleGuidelines = scenario.Style.StyleGuidelines,
+            Tone = scenario.Narrative.NarrativeTone?.Trim() ?? string.Empty,
+            WritingStyle = scenario.Narrative.ProseStyle?.Trim() ?? string.Empty,
+            PointOfView = scenario.Narrative.PointOfView?.Trim() ?? string.Empty,
+            StyleGuidelines = scenario.Narrative.NarrativeGuidelines,
             CharacterSummaries = characters,
             LocationSummaries = locations,
             ObjectSummaries = objects,
@@ -1332,10 +1335,10 @@
             },
             Style = new
             {
-                scenario.Style.Tone,
-                scenario.Style.WritingStyle,
-                scenario.Style.PointOfView,
-                scenario.Style.StyleGuidelines
+                scenario.Narrative.NarrativeTone,
+                scenario.Narrative.ProseStyle,
+                scenario.Narrative.PointOfView,
+                scenario.Narrative.NarrativeGuidelines
             },
             Characters = scenario.Characters.Select(c => new { c.Name, c.Role, c.Description }).ToList(),
             Locations = scenario.Locations.Select(l => new { l.Name, l.Description }).ToList(),

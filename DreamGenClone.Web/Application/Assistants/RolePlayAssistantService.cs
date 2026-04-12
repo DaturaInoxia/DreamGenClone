@@ -138,16 +138,16 @@ public sealed class RolePlayAssistantService : IRolePlayAssistantService
             sb.AppendLine($"[Scenario: {context.ScenarioSummary}]");
         }
 
-        // Style context — critical for pacing/tone advice
-        if (!string.IsNullOrWhiteSpace(context.ScenarioTone) || !string.IsNullOrWhiteSpace(context.ScenarioWritingStyle))
+        // Narrative context — critical for pacing and prose guidance
+        if (!string.IsNullOrWhiteSpace(context.ScenarioNarrativeTone) || !string.IsNullOrWhiteSpace(context.ScenarioProseStyle))
         {
             var styleParts = new List<string>();
-            if (!string.IsNullOrWhiteSpace(context.ScenarioTone)) styleParts.Add($"Tone={context.ScenarioTone}");
-            if (!string.IsNullOrWhiteSpace(context.ScenarioWritingStyle)) styleParts.Add($"WritingStyle={context.ScenarioWritingStyle}");
+            if (!string.IsNullOrWhiteSpace(context.ScenarioNarrativeTone)) styleParts.Add($"NarrativeTone={context.ScenarioNarrativeTone}");
+            if (!string.IsNullOrWhiteSpace(context.ScenarioProseStyle)) styleParts.Add($"ProseStyle={context.ScenarioProseStyle}");
             if (!string.IsNullOrWhiteSpace(context.ScenarioPointOfView)) styleParts.Add($"POV={context.ScenarioPointOfView}");
-            sb.AppendLine($"[Current Style: {string.Join(", ", styleParts)}]");
-            if (context.ScenarioStyleGuidelines.Count > 0)
-                sb.AppendLine($"[Style Guidelines: {string.Join("; ", context.ScenarioStyleGuidelines)}]");
+            sb.AppendLine($"[Narrative Surface: {string.Join(", ", styleParts)}]");
+            if (context.ScenarioNarrativeGuidelines.Count > 0)
+                sb.AppendLine($"[Narrative Guidelines: {string.Join("; ", context.ScenarioNarrativeGuidelines)}]");
         }
 
         // Plot drivers
@@ -168,23 +168,29 @@ public sealed class RolePlayAssistantService : IRolePlayAssistantService
 
         if (!string.IsNullOrWhiteSpace(context.EffectiveStyleMode))
         {
-            sb.AppendLine($"[Effective Style Mode: {context.EffectiveStyleMode}]");
+            sb.AppendLine($"[Resolved Intensity: {context.EffectiveStyleMode}]");
+        }
+
+        if (!string.IsNullOrWhiteSpace(context.ActiveIntensityProfile))
+        {
+            sb.AppendLine($"[Active Intensity Profile: {context.ActiveIntensityProfile}]");
         }
 
         if (!string.IsNullOrWhiteSpace(context.StyleResolutionReason))
         {
-            sb.AppendLine($"[Style Resolution: {context.StyleResolutionReason}]");
+            sb.AppendLine($"[Resolution Reason: {context.StyleResolutionReason}]");
         }
 
-        if (!string.IsNullOrWhiteSpace(context.SelectedRankingProfileId)
-            || !string.IsNullOrWhiteSpace(context.SelectedToneProfileId)
-            || !string.IsNullOrWhiteSpace(context.SelectedStyleProfileId)
-            || !string.IsNullOrWhiteSpace(context.StyleFloorOverride)
-            || !string.IsNullOrWhiteSpace(context.StyleCeilingOverride))
+        if (!string.IsNullOrWhiteSpace(context.SelectedThemeProfileId)
+            || !string.IsNullOrWhiteSpace(context.SelectedIntensityProfileId)
+            || !string.IsNullOrWhiteSpace(context.ActiveIntensityProfile)
+            || !string.IsNullOrWhiteSpace(context.SelectedSteeringProfileId)
+            || !string.IsNullOrWhiteSpace(context.IntensityFloorOverride)
+            || !string.IsNullOrWhiteSpace(context.IntensityCeilingOverride))
         {
-            sb.AppendLine($"[Adaptive Profiles: ranking={context.SelectedRankingProfileId ?? "(none)"}, tone={context.SelectedToneProfileId ?? "(none)"}, style={context.SelectedStyleProfileId ?? "(none)"}, floor={context.StyleFloorOverride ?? "(none)"}, ceiling={context.StyleCeilingOverride ?? "(none)"}, manualPin={(context.IsToneManuallyPinned ? "on" : "off")}] ");
+            sb.AppendLine($"[Adaptive Profiles: theme={context.SelectedThemeProfileId ?? "(none)"}, baseIntensity={context.SelectedIntensityProfileId ?? "(none)"}, activeIntensity={context.ActiveIntensityProfile ?? context.EffectiveStyleMode ?? "(none)"}, steering={context.SelectedSteeringProfileId ?? "(none)"}, intensityFloor={context.IntensityFloorOverride ?? "(none)"}, intensityCeiling={context.IntensityCeilingOverride ?? "(none)"}, manualPin={(context.IsIntensityManuallyPinned ? "on" : "off")}] ");
         }
-        else if (context.IsToneManuallyPinned)
+        else if (context.IsIntensityManuallyPinned)
         {
             sb.AppendLine("[Adaptive Profiles: manualPin=on]");
         }

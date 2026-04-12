@@ -21,8 +21,8 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
     private readonly IScenarioService _scenarioService;
     private readonly IPromptDealbreakerService _dealbreakerService;
     private readonly IThemePreferenceService _themePreferenceService;
-    private readonly IToneProfileService _toneProfileService;
-    private readonly IStyleProfileService _styleProfileService;
+    private readonly IIntensityProfileService _intensityProfileService;
+    private readonly ISteeringProfileService _steeringProfileService;
     private readonly IRolePlayDebugEventSink _debugEventSink;
     private readonly ILogger<RolePlayContinuationService> _logger;
 
@@ -33,8 +33,8 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         IScenarioService scenarioService,
         IPromptDealbreakerService dealbreakerService,
         IThemePreferenceService themePreferenceService,
-        IToneProfileService toneProfileService,
-        IStyleProfileService styleProfileService,
+        IIntensityProfileService toneProfileService,
+        ISteeringProfileService styleProfileService,
         IRolePlayDebugEventSink debugEventSink,
         ILogger<RolePlayContinuationService> logger)
     {
@@ -44,8 +44,8 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         _scenarioService = scenarioService;
         _dealbreakerService = dealbreakerService;
         _themePreferenceService = themePreferenceService;
-        _toneProfileService = toneProfileService;
-        _styleProfileService = styleProfileService;
+        _intensityProfileService = toneProfileService;
+        _steeringProfileService = styleProfileService;
         _debugEventSink = debugEventSink;
         _logger = logger;
     }
@@ -280,13 +280,13 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
 
     private async Task ValidateDirectiveTextAsync(RolePlaySession session, string directiveText, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(session.SelectedRankingProfileId)
+        if (string.IsNullOrWhiteSpace(session.SelectedThemeProfileId)
             || string.IsNullOrWhiteSpace(directiveText))
         {
             return;
         }
 
-        var validation = await _dealbreakerService.ValidateAsync(directiveText, session.SelectedRankingProfileId, cancellationToken);
+        var validation = await _dealbreakerService.ValidateAsync(directiveText, session.SelectedThemeProfileId, cancellationToken);
         if (!validation.IsAllowed)
         {
             throw new InvalidOperationException(validation.Message ?? "Prompt violated a hard dealbreaker.");
@@ -317,8 +317,11 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         }
 
         string scenarioStyle = string.Empty;
-        ToneIntensity? baseToneIntensity = null;
-        string? scenarioStyleProfileId = null;
+        IntensityLevel? baseIntensityLevel = null;
+        string? scenarioSteeringProfileId = null;
+        List<string> scenarioGoals = [];
+        List<string> scenarioConflicts = [];
+        List<string> scenarioNarrativeGuidelines = [];
 
         if (!string.IsNullOrWhiteSpace(session.ScenarioId))
         {
@@ -330,30 +333,40 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                 sb.AppendLine($"- Description: {scenario.Description}");
                 sb.AppendLine($"- Plot: {scenario.Plot.Description}");
                 sb.AppendLine($"- Setting: {scenario.Setting.WorldDescription}");
-                scenarioStyle = $"{scenario.Style.WritingStyle} / {scenario.Style.Tone}".Trim();
-                scenarioStyleProfileId = scenario.Style.StyleProfileId;
-                sb.AppendLine($"- Style: {scenarioStyle}");
+                scenarioStyle = $"{scenario.Narrative.ProseStyle} / {scenario.Narrative.NarrativeTone}".Trim();
+                scenarioSteeringProfileId = scenario.DefaultSteeringProfileId;
+                sb.AppendLine($"- Narrative: {scenarioStyle}");
 
-                if (!string.IsNullOrWhiteSpace(scenario.Style.PointOfView))
+                if (!string.IsNullOrWhiteSpace(scenario.Narrative.PointOfView))
                 {
-                    sb.AppendLine($"- Preferred POV: {scenario.Style.PointOfView}");
+                    sb.AppendLine($"- Preferred POV: {scenario.Narrative.PointOfView}");
                 }
 
                 if (scenario.Plot.Goals.Count > 0)
                 {
+                    scenarioGoals = scenario.Plot.Goals
+                        .Where(x => !string.IsNullOrWhiteSpace(x))
+                        .Select(x => x.Trim())
+                        .ToList();
+
                     sb.AppendLine("- Plot Goals:");
-                    foreach (var goal in scenario.Plot.Goals.Where(x => !string.IsNullOrWhiteSpace(x)))
+                    foreach (var goal in scenarioGoals)
                     {
-                        sb.AppendLine($"  - {goal.Trim()}");
+                        sb.AppendLine($"  - {goal}");
                     }
                 }
 
                 if (scenario.Plot.Conflicts.Count > 0)
                 {
+                    scenarioConflicts = scenario.Plot.Conflicts
+                        .Where(x => !string.IsNullOrWhiteSpace(x))
+                        .Select(x => x.Trim())
+                        .ToList();
+
                     sb.AppendLine("- Plot Conflicts:");
-                    foreach (var conflict in scenario.Plot.Conflicts.Where(x => !string.IsNullOrWhiteSpace(x)))
+                    foreach (var conflict in scenarioConflicts)
                     {
-                        sb.AppendLine($"  - {conflict.Trim()}");
+                        sb.AppendLine($"  - {conflict}");
                     }
                 }
 
@@ -375,32 +388,37 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                     }
                 }
 
-                if (scenario.Style.StyleGuidelines.Count > 0)
+                if (scenario.Narrative.NarrativeGuidelines.Count > 0)
                 {
-                    sb.AppendLine("- Style Guidelines:");
-                    foreach (var guideline in scenario.Style.StyleGuidelines.Where(x => !string.IsNullOrWhiteSpace(x)))
+                    scenarioNarrativeGuidelines = scenario.Narrative.NarrativeGuidelines
+                        .Where(x => !string.IsNullOrWhiteSpace(x))
+                        .Select(x => x.Trim())
+                        .ToList();
+
+                    sb.AppendLine("- Narrative Guidelines:");
+                    foreach (var guideline in scenarioNarrativeGuidelines)
                     {
-                        sb.AppendLine($"  - {guideline.Trim()}");
+                        sb.AppendLine($"  - {guideline}");
                     }
                 }
 
-                sb.AppendLine("Follow scenario goals, rules, and style guidelines unless they conflict with hard safety constraints.");
-                if (!string.IsNullOrWhiteSpace(session.SelectedToneProfileId) || !string.IsNullOrWhiteSpace(scenario.Style.ToneProfileId))
+                sb.AppendLine("Follow scenario goals, rules, and narrative guidelines unless they conflict with hard safety constraints.");
+                if (!string.IsNullOrWhiteSpace(session.SelectedIntensityProfileId) || !string.IsNullOrWhiteSpace(scenario.DefaultIntensityProfileId))
                 {
-                    var toneProfileId = session.SelectedToneProfileId ?? scenario.Style.ToneProfileId;
-                    sb.AppendLine($"- Tone Profile: {toneProfileId}");
-                    if (!string.IsNullOrWhiteSpace(toneProfileId))
+                    var intensityProfileId = session.SelectedIntensityProfileId ?? scenario.DefaultIntensityProfileId;
+                    sb.AppendLine($"- Intensity Profile: {intensityProfileId}");
+                    if (!string.IsNullOrWhiteSpace(intensityProfileId))
                     {
-                        var toneProfile = await _toneProfileService.GetAsync(toneProfileId, cancellationToken);
+                        var toneProfile = await _intensityProfileService.GetAsync(intensityProfileId, cancellationToken);
                         if (toneProfile is not null)
                         {
-                            baseToneIntensity = toneProfile.Intensity;
+                            baseIntensityLevel = toneProfile.Intensity;
                         }
                     }
                 }
-                if (!string.IsNullOrWhiteSpace(session.StyleFloorOverride) || !string.IsNullOrWhiteSpace(session.StyleCeilingOverride))
+                if (!string.IsNullOrWhiteSpace(session.IntensityFloorOverride) || !string.IsNullOrWhiteSpace(session.IntensityCeilingOverride))
                 {
-                    sb.AppendLine($"- Style Bounds: floor={session.StyleFloorOverride ?? "(none)"}, ceiling={session.StyleCeilingOverride ?? "(none)"}");
+                    sb.AppendLine($"- Intensity Bounds: floor={session.IntensityFloorOverride ?? "(none)"}, ceiling={session.IntensityCeilingOverride ?? "(none)"}");
                 }
 
                 // Include all character details so the AI can portray them accurately.
@@ -449,26 +467,26 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             }
         }
 
-        var selectedStyleProfileId = session.SelectedStyleProfileId ?? scenarioStyleProfileId;
+        var selectedStyleProfileId = session.SelectedSteeringProfileId ?? scenarioSteeringProfileId;
         if (!string.IsNullOrWhiteSpace(selectedStyleProfileId))
         {
-            sb.AppendLine($"Style Profile: {selectedStyleProfileId}");
-            var styleProfile = await _styleProfileService.GetAsync(selectedStyleProfileId, cancellationToken);
+            sb.AppendLine($"Writing Style Profile: {selectedStyleProfileId}");
+            var styleProfile = await _steeringProfileService.GetAsync(selectedStyleProfileId, cancellationToken);
             if (styleProfile is not null)
             {
                 if (!string.IsNullOrWhiteSpace(styleProfile.Description))
                 {
-                    sb.AppendLine($"- Style Profile Description: {styleProfile.Description}");
+                    sb.AppendLine($"- Writing Style Description: {styleProfile.Description}");
                 }
 
                 if (!string.IsNullOrWhiteSpace(styleProfile.Example))
                 {
-                    sb.AppendLine($"- Style Profile Example: {styleProfile.Example}");
+                    sb.AppendLine($"- Writing Style Example: {styleProfile.Example}");
                 }
 
                 if (!string.IsNullOrWhiteSpace(styleProfile.RuleOfThumb))
                 {
-                    sb.AppendLine($"- Style Profile Rule of Thumb: {styleProfile.RuleOfThumb}");
+                    sb.AppendLine($"- Writing Style Rule of Thumb: {styleProfile.RuleOfThumb}");
                 }
             }
         }
@@ -552,10 +570,12 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             sb.AppendLine(promptText.Trim());
         }
 
-        if (!string.IsNullOrWhiteSpace(session.SelectedRankingProfileId))
+        AppendScenarioPriorities(sb, scenarioGoals, scenarioConflicts, scenarioNarrativeGuidelines);
+
+        if (!string.IsNullOrWhiteSpace(session.SelectedThemeProfileId))
         {
-            sb.AppendLine($"Hard safety constraints for this session derive from ranking profile '{session.SelectedRankingProfileId}'.");
-            var profileThemes = await _themePreferenceService.ListByProfileAsync(session.SelectedRankingProfileId, cancellationToken);
+            sb.AppendLine($"Hard safety constraints for this session derive from theme profile '{session.SelectedThemeProfileId}'.");
+            var profileThemes = await _themePreferenceService.ListByProfileAsync(session.SelectedThemeProfileId, cancellationToken);
 
             if (profileThemes.Count > 0)
             {
@@ -659,10 +679,10 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         // Persona   = 1st person POV ("I felt...", "I watched...")
         // NPC       = 3rd person external (dialogue + observable behavior only)
         var personaName = string.IsNullOrWhiteSpace(session.PersonaName) ? "You" : session.PersonaName;
-        var (effectiveStyleLabel, effectiveStyleReason) = RolePlayStyleResolver.ResolveEffectiveStyle(session, baseToneIntensity);
-        sb.AppendLine($"Effective Style Mode: {effectiveStyleLabel}");
-        sb.AppendLine($"Style Resolution: {effectiveStyleReason}");
-        sb.AppendLine($"Manual Tone Pin: {(session.IsToneManuallyPinned ? "ON" : "OFF")}");
+        var (effectiveStyleLabel, effectiveStyleReason) = RolePlayStyleResolver.ResolveEffectiveStyle(session, baseIntensityLevel);
+        sb.AppendLine($"Resolved Intensity: {effectiveStyleLabel}");
+        sb.AppendLine($"Resolution Reason: {effectiveStyleReason}");
+        sb.AppendLine($"Manual Intensity Pin: {(session.IsIntensityManuallyPinned ? "ON" : "OFF")}");
 
         var styleHint = string.IsNullOrWhiteSpace(scenarioStyle)
             ? effectiveStyleLabel
@@ -690,6 +710,36 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         }
 
         return sb.ToString();
+    }
+
+    private static void AppendScenarioPriorities(
+        StringBuilder sb,
+        IReadOnlyList<string> goals,
+        IReadOnlyList<string> conflicts,
+        IReadOnlyList<string> guidelines)
+    {
+        if (goals.Count == 0 && conflicts.Count == 0 && guidelines.Count == 0)
+        {
+            return;
+        }
+
+        sb.AppendLine("Scenario Priorities For The Next Response:");
+        foreach (var goal in goals)
+        {
+            sb.AppendLine($"- Higher priority: move toward this goal when it fits naturally: {goal}");
+        }
+
+        foreach (var conflict in conflicts)
+        {
+            sb.AppendLine($"- Higher priority: keep this conflict active, meaningful, or unresolved unless a natural scene turn changes it: {conflict}");
+        }
+
+        foreach (var guideline in guidelines)
+        {
+            sb.AppendLine($"- Lower priority than goals/conflicts, but still prefer this when it fits naturally: {guideline}");
+        }
+
+        sb.AppendLine("Treat goals and conflicts as higher-level soft priorities than narrative guidelines. Advance them when the scene allows, but do not force abrupt jumps or resolve everything immediately. Ignore any of these only when the current instruction, scene reality, or hard safety constraints require otherwise.");
     }
 
 }

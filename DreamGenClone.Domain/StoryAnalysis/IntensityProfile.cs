@@ -1,6 +1,6 @@
 namespace DreamGenClone.Domain.StoryAnalysis;
 
-public sealed class StyleProfile
+public sealed class IntensityProfile
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
 
@@ -8,9 +8,7 @@ public sealed class StyleProfile
 
     public string Description { get; set; } = string.Empty;
 
-    public string Example { get; set; } = string.Empty;
-
-    public string RuleOfThumb { get; set; } = string.Empty;
+    public IntensityLevel Intensity { get; set; } = IntensityLevel.SensualMature;
 
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
 

@@ -23,14 +23,14 @@ public static class AdaptiveStatCatalog
     [
         new AdaptiveStatDefinition
         {
-            Name = "Arousal",
+            Name = "Desire",
             Description = "Overall intensity of desire and physical activation.",
             LowMeaning = "Calm, detached, or emotionally cool.",
             HighMeaning = "Strong attraction, urgency, and physical pull."
         },
         new AdaptiveStatDefinition
         {
-            Name = "Inhibition",
+            Name = "Restraint",
             Description = "Strength of restraint and internal brakes.",
             LowMeaning = "Impulsive, permissive, and less self-restrained.",
             HighMeaning = "Cautious, guarded, and likely to hold back."
@@ -44,14 +44,14 @@ public static class AdaptiveStatCatalog
         },
         new AdaptiveStatDefinition
         {
-            Name = "Trust",
+            Name = "Connection",
             Description = "Personal confidence that the current dynamic feels safe and reliable.",
             LowMeaning = "Defensive, suspicious, and emotionally guarded.",
             HighMeaning = "Open, reassured, and more willing to engage."
         },
         new AdaptiveStatDefinition
         {
-            Name = "Agency",
+            Name = "Dominance",
             Description = "Perceived ability to choose, act, and steer outcomes.",
             LowMeaning = "Passive, cornered, or acted upon.",
             HighMeaning = "Decisive, self-directed, and in control of choices."
@@ -65,11 +65,24 @@ public static class AdaptiveStatCatalog
 
     private static readonly IReadOnlyDictionary<string, string> LegacyStatToCanonical = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
+        ["Arousal"] = "Desire",
+        ["Inhibition"] = "Restraint",
+        ["Trust"] = "Connection",
+        ["Agency"] = "Dominance",
         ["Jealousy"] = "Tension",
-        ["DominanceDrive"] = "Agency",
-        ["Shame"] = "Inhibition",
-        ["RiskAppetite"] = "Agency"
+        ["DominanceDrive"] = "Dominance",
+        ["Shame"] = "Restraint",
+        ["RiskAppetite"] = "Dominance"
     };
+
+    public static string NormalizeLegacyStatName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return name;
+        var trimmed = name.Trim();
+        if (CanonicalNameLookup.TryGetValue(trimmed, out var canonical)) return canonical;
+        if (LegacyStatToCanonical.TryGetValue(trimmed, out var mapped)) return mapped;
+        return trimmed;
+    }
 
     public static Dictionary<string, int> CreateDefaultStatMap()
     {

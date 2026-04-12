@@ -72,10 +72,10 @@ public sealed class ModelProcessingWorker : BackgroundService
                 break;
 
             case ModelProcessingTaskType.Rank:
-                if (task.RankingProfileId is null)
-                    throw new InvalidOperationException("RankingProfileId is required for Rank tasks");
+                if (task.ThemeProfileId is null)
+                    throw new InvalidOperationException("ThemeProfileId is required for Rank tasks");
                 var rankingService = services.GetRequiredService<IStoryRankingService>();
-                await rankingService.RankAsync(task.ParsedStoryId, task.RankingProfileId, ct);
+                await rankingService.RankAsync(task.ParsedStoryId, task.ThemeProfileId, ct);
                 break;
 
             default:

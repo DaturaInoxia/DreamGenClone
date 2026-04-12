@@ -5,29 +5,30 @@ using Microsoft.Extensions.Logging;
 
 namespace DreamGenClone.Infrastructure.StoryAnalysis;
 
-public sealed class ToneProfileService : IToneProfileService
+public sealed class IntensityProfileService : IIntensityProfileService
 {
-    private sealed record DefaultToneProfile(string Name, string Description, ToneIntensity Intensity);
+    private sealed record DefaultToneProfile(string Name, string Description, IntensityLevel Intensity);
 
     private static readonly DefaultToneProfile[] PocDefaultProfiles =
     [
-        new("Intro", "Low-intensity setup and atmosphere-first tone.", ToneIntensity.Intro),
-        new("Emotional", "Emotion-forward intimacy and relationship focus.", ToneIntensity.Emotional),
-        new("Suggestive", "Flirty, suggestive tone with restrained explicitness.", ToneIntensity.SuggestivePg12),
-        new("Sensual", "Sensory, mature tone emphasizing tension and pacing.", ToneIntensity.SensualMature),
-        new("Explicit", "Direct, explicit language and high-intensity delivery.", ToneIntensity.Explicit)
+        new(IntensityLadder.GetLabel(IntensityLevel.Intro), IntensityLadder.GetDefaultDescription(IntensityLevel.Intro), IntensityLevel.Intro),
+        new(IntensityLadder.GetLabel(IntensityLevel.Emotional), IntensityLadder.GetDefaultDescription(IntensityLevel.Emotional), IntensityLevel.Emotional),
+        new(IntensityLadder.GetLabel(IntensityLevel.SuggestivePg12), IntensityLadder.GetDefaultDescription(IntensityLevel.SuggestivePg12), IntensityLevel.SuggestivePg12),
+        new(IntensityLadder.GetLabel(IntensityLevel.SensualMature), IntensityLadder.GetDefaultDescription(IntensityLevel.SensualMature), IntensityLevel.SensualMature),
+        new(IntensityLadder.GetLabel(IntensityLevel.Explicit), IntensityLadder.GetDefaultDescription(IntensityLevel.Explicit), IntensityLevel.Explicit),
+        new(IntensityLadder.GetLabel(IntensityLevel.Hardcore), IntensityLadder.GetDefaultDescription(IntensityLevel.Hardcore), IntensityLevel.Hardcore)
     ];
 
     private readonly ISqlitePersistence _persistence;
-    private readonly ILogger<ToneProfileService> _logger;
+    private readonly ILogger<IntensityProfileService> _logger;
 
-    public ToneProfileService(ISqlitePersistence persistence, ILogger<ToneProfileService> logger)
+    public IntensityProfileService(ISqlitePersistence persistence, ILogger<IntensityProfileService> logger)
     {
         _persistence = persistence;
         _logger = logger;
     }
 
-    public async Task<ToneProfile> CreateAsync(string name, string description, ToneIntensity intensity, CancellationToken cancellationToken = default)
+    public async Task<IntensityProfile> CreateAsync(string name, string description, IntensityLevel intensity, CancellationToken cancellationToken = default)
     {
         await EnsureDefaultProfilesAsync(cancellationToken);
 
@@ -48,7 +49,7 @@ public sealed class ToneProfileService : IToneProfileService
             throw new InvalidOperationException("Tone profile name already exists.");
         }
 
-        var profile = new ToneProfile
+        var profile = new IntensityProfile
         {
             Name = trimmedName,
             Description = description?.Trim() ?? string.Empty,
@@ -62,17 +63,17 @@ public sealed class ToneProfileService : IToneProfileService
         return profile;
     }
 
-    public Task<List<ToneProfile>> ListAsync(CancellationToken cancellationToken = default)
+    public Task<List<IntensityProfile>> ListAsync(CancellationToken cancellationToken = default)
     {
         return ListInternalAsync(cancellationToken);
     }
 
-    public Task<ToneProfile?> GetAsync(string id, CancellationToken cancellationToken = default)
+    public Task<IntensityProfile?> GetAsync(string id, CancellationToken cancellationToken = default)
     {
         return _persistence.LoadToneProfileAsync(id, cancellationToken);
     }
 
-    public async Task<ToneProfile?> UpdateAsync(string id, string name, string description, ToneIntensity intensity, CancellationToken cancellationToken = default)
+    public async Task<IntensityProfile?> UpdateAsync(string id, string name, string description, IntensityLevel intensity, CancellationToken cancellationToken = default)
     {
         await EnsureDefaultProfilesAsync(cancellationToken);
 
@@ -114,7 +115,7 @@ public sealed class ToneProfileService : IToneProfileService
         return deleted;
     }
 
-    private async Task<List<ToneProfile>> ListInternalAsync(CancellationToken cancellationToken)
+    private async Task<List<IntensityProfile>> ListInternalAsync(CancellationToken cancellationToken)
     {
         await EnsureDefaultProfilesAsync(cancellationToken);
         return await _persistence.LoadAllToneProfilesAsync(cancellationToken);
@@ -123,25 +124,41 @@ public sealed class ToneProfileService : IToneProfileService
     private async Task EnsureDefaultProfilesAsync(CancellationToken cancellationToken)
     {
         var profiles = await _persistence.LoadAllToneProfilesAsync(cancellationToken);
-        if (profiles.Count > 0)
-        {
-            return;
-        }
+        var changed = false;
 
         foreach (var item in PocDefaultProfiles)
         {
-            var profile = new ToneProfile
+            var existing = profiles.FirstOrDefault(x => x.Intensity == item.Intensity);
+            if (existing is null)
             {
-                Name = item.Name,
-                Description = item.Description,
-                Intensity = item.Intensity,
-                CreatedUtc = DateTime.UtcNow,
-                UpdatedUtc = DateTime.UtcNow
-            };
+                var profile = new IntensityProfile
+                {
+                    Name = item.Name,
+                    Description = item.Description,
+                    Intensity = item.Intensity,
+                    CreatedUtc = DateTime.UtcNow,
+                    UpdatedUtc = DateTime.UtcNow
+                };
 
-            await _persistence.SaveToneProfileAsync(profile, cancellationToken);
+                await _persistence.SaveToneProfileAsync(profile, cancellationToken);
+                changed = true;
+                continue;
+            }
+
+            if (!string.Equals(existing.Name, item.Name, StringComparison.Ordinal)
+                || !string.Equals(existing.Description, item.Description, StringComparison.Ordinal))
+            {
+                existing.Name = item.Name;
+                existing.Description = item.Description;
+                existing.UpdatedUtc = DateTime.UtcNow;
+                await _persistence.SaveToneProfileAsync(existing, cancellationToken);
+                changed = true;
+            }
         }
 
-        _logger.LogInformation("Seeded {Count} default tone profiles for adaptive POC.", PocDefaultProfiles.Length);
+        if (changed)
+        {
+            _logger.LogInformation("Ensured {Count} canonical tone profiles for adaptive POC.", PocDefaultProfiles.Length);
+        }
     }
 }

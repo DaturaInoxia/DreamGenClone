@@ -1,5 +1,6 @@
 using DreamGenClone.Web.Application.RolePlay;
 using DreamGenClone.Web.Domain.RolePlay;
+using static DreamGenClone.Tests.RolePlay.RolePlayTestFactory;
 
 namespace DreamGenClone.Tests.RolePlay;
 
@@ -8,7 +9,7 @@ public sealed class RolePlayAdaptiveStateServiceTests
     [Fact]
     public async Task UpdateFromInteractionAsync_InitializesCharacterStatsAndThemes()
     {
-        var service = new RolePlayAdaptiveStateService();
+        var service = new RolePlayAdaptiveStateService(new FakeThemeCatalogService());
         var session = new RolePlaySession { PersonaName = "Ken" };
         var interaction = new RolePlayInteraction
         {
@@ -30,7 +31,7 @@ public sealed class RolePlayAdaptiveStateServiceTests
     [Fact]
     public async Task UpdateFromInteractionAsync_ClampsStatValues()
     {
-        var service = new RolePlayAdaptiveStateService();
+        var service = new RolePlayAdaptiveStateService(new FakeThemeCatalogService());
         var session = new RolePlaySession();
 
         // High repetition should not push deltas beyond clamp rules.
@@ -49,7 +50,7 @@ public sealed class RolePlayAdaptiveStateServiceTests
     [Fact]
     public async Task UpdateFromInteractionAsync_SelectsTop2Blend_WhenTopThemesAreClose()
     {
-        var service = new RolePlayAdaptiveStateService();
+        var service = new RolePlayAdaptiveStateService(new FakeThemeCatalogService());
         var session = new RolePlaySession();
 
         var interaction = new RolePlayInteraction
@@ -68,7 +69,7 @@ public sealed class RolePlayAdaptiveStateServiceTests
     [Fact]
     public async Task UpdateFromInteractionAsync_DoesNotTrackNarrativeAsCharacterStats()
     {
-        var service = new RolePlayAdaptiveStateService();
+        var service = new RolePlayAdaptiveStateService(new FakeThemeCatalogService());
         var session = new RolePlaySession();
 
         var interaction = new RolePlayInteraction

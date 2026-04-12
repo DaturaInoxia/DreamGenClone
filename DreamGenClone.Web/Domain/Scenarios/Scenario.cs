@@ -1,10 +1,11 @@
 namespace DreamGenClone.Web.Domain.Scenarios;
 
+using System.Text.Json.Serialization;
 using DreamGenClone.Web.Domain.RolePlay;
 
 /// <summary>
 /// Represents a complete scenario definition.
-/// Scenarios contain plot, setting, style, characters, locations, objects, openings, and examples.
+/// Scenarios contain plot, setting, narrative defaults, engine defaults, characters, locations, objects, openings, and examples.
 /// </summary>
 public class Scenario
 {
@@ -23,9 +24,39 @@ public class Scenario
     public Setting Setting { get; set; } = new();
     
     /// <summary>
-    /// Narrative style and tone component.
+    /// Prose-focused narrative defaults.
     /// </summary>
-    public Style Style { get; set; } = new();
+    public NarrativeSettings Narrative { get; set; } = new();
+
+    /// <summary>Legacy alias — maps old Style object shape during deserialization.</summary>
+    [JsonInclude]
+    [JsonPropertyName("Style")]
+    public LegacyScenarioStyle? LegacyStyle
+    {
+        get => null;
+        set
+        {
+            if (value is null)
+            {
+                return;
+            }
+
+            Narrative = new NarrativeSettings
+            {
+                NarrativeTone = value.NarrativeTone,
+                ProseStyle = value.ProseStyle,
+                PointOfView = value.PointOfView,
+                NarrativeGuidelines = value.NarrativeGuidelines.Count > 0
+                    ? new List<string>(value.NarrativeGuidelines)
+                    : []
+            };
+
+            DefaultIntensityProfileId ??= value.IntensityProfileId;
+            DefaultSteeringProfileId ??= value.SteeringProfileId;
+            DefaultIntensityFloor ??= value.IntensityFloor;
+            DefaultIntensityCeiling ??= value.IntensityCeiling;
+        }
+    }
     
     /// <summary>
     /// Characters available in this scenario.
@@ -74,14 +105,39 @@ public class Scenario
     public string? SourceParsedStoryId { get; set; }
 
     /// <summary>
-    /// Default ranking profile to use when creating sessions from this scenario.
+    /// Default theme profile to use when creating sessions from this scenario.
     /// </summary>
-    public string? DefaultRankingProfileId { get; set; }
+    [JsonPropertyName("DefaultThemeProfileId")]
+    public string? DefaultThemeProfileId { get; set; }
+
+    /// <summary>Legacy alias — maps old DefaultRankingProfileId during deserialization.</summary>
+    [JsonInclude]
+    [JsonPropertyName("DefaultRankingProfileId")]
+    public string? LegacyDefaultRankingProfileId
+    {
+        get => null;
+        set { if (value is not null && DefaultThemeProfileId is null) DefaultThemeProfileId = value; }
+    }
 
     /// <summary>
-    /// Default tone profile to use when creating sessions from this scenario.
+    /// Default intensity profile to use when creating sessions from this scenario.
     /// </summary>
-    public string? DefaultToneProfileId { get; set; }
+    public string? DefaultIntensityProfileId { get; set; }
+
+    /// <summary>
+    /// Default steering profile to use when creating sessions from this scenario.
+    /// </summary>
+    public string? DefaultSteeringProfileId { get; set; }
+
+    /// <summary>
+    /// Optional lower intensity boundary for this scenario.
+    /// </summary>
+    public string? DefaultIntensityFloor { get; set; }
+
+    /// <summary>
+    /// Optional upper intensity boundary for this scenario.
+    /// </summary>
+    public string? DefaultIntensityCeiling { get; set; }
 
     /// <summary>
     /// Base stat profile to resolve default session stat seeds for scenario characters.
@@ -108,4 +164,30 @@ public class Scenario
     /// Currently selected assistant chat thread ID in scenario editor.
     /// </summary>
     public string? ActiveAssistantChatId { get; set; }
+}
+
+public sealed class LegacyScenarioStyle
+{
+    public string? NarrativeTone { get; set; }
+    public string? ProseStyle { get; set; }
+    public string? PointOfView { get; set; }
+    public List<string> NarrativeGuidelines { get; set; } = [];
+    public string? IntensityProfileId { get; set; }
+    public string? SteeringProfileId { get; set; }
+    public string? IntensityFloor { get; set; }
+    public string? IntensityCeiling { get; set; }
+
+    [JsonInclude]
+    [JsonPropertyName("StyleGuidelines")]
+    public List<string>? LegacyStyleGuidelines
+    {
+        get => null;
+        set
+        {
+            if (value is not null && NarrativeGuidelines.Count == 0)
+            {
+                NarrativeGuidelines = value;
+            }
+        }
+    }
 }

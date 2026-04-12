@@ -5,36 +5,45 @@ namespace DreamGenClone.Web.Application.RolePlay;
 
 public static class RolePlayStyleResolver
 {
-    public static (string Label, string Reason) ResolveEffectiveStyle(RolePlaySession session, ToneIntensity? baseToneIntensity)
+    private static readonly HashSet<string> LegacyEscalatingThemes = new(StringComparer.OrdinalIgnoreCase)
     {
-        var baseScale = baseToneIntensity.HasValue ? (int)baseToneIntensity.Value : 2;
+        "dominance", "power-dynamics", "forbidden-risk", "humiliation", "infidelity"
+    };
+
+    public static (string Label, string Reason) ResolveEffectiveStyle(
+        RolePlaySession session,
+        IntensityLevel? baseIntensityLevel,
+        SteeringProfile? styleProfile = null,
+        IReadOnlyList<ThemePreference>? themePreferences = null)
+    {
+        var baseScale = baseIntensityLevel.HasValue ? (int)baseIntensityLevel.Value : 2;
         var reasonParts = new List<string>
         {
-            $"base={(ToneIntensity)Math.Clamp(baseScale, 0, 5)}"
+            $"base={(IntensityLevel)Math.Clamp(baseScale, 0, 5)}"
         };
 
-        if (!session.IsToneManuallyPinned)
+        if (!session.IsIntensityManuallyPinned)
         {
-            var arousalValues = session.AdaptiveState.CharacterStats.Values
-                .SelectMany(x => x.Stats.Where(kvp => string.Equals(kvp.Key, "Arousal", StringComparison.OrdinalIgnoreCase)).Select(kvp => kvp.Value))
+            var desireValues = session.AdaptiveState.CharacterStats.Values
+                .SelectMany(x => x.Stats.Where(kvp => string.Equals(kvp.Key, "Desire", StringComparison.OrdinalIgnoreCase)).Select(kvp => kvp.Value))
                 .ToList();
-            if (arousalValues.Count > 0)
+            if (desireValues.Count > 0)
             {
-                var avgArousal = arousalValues.Average();
-                if (avgArousal >= 85)
+                var avgDesire = desireValues.Average();
+                if (avgDesire >= 85)
                 {
                     baseScale += 2;
-                    reasonParts.Add("arousal=very-high(+2)");
+                    reasonParts.Add("desire=very-high(+2)");
                 }
-                else if (avgArousal >= 70)
+                else if (avgDesire >= 70)
                 {
                     baseScale += 1;
-                    reasonParts.Add("arousal=high(+1)");
+                    reasonParts.Add("desire=high(+1)");
                 }
-                else if (avgArousal <= 35)
+                else if (avgDesire <= 35)
                 {
                     baseScale -= 1;
-                    reasonParts.Add("arousal=low(-1)");
+                    reasonParts.Add("desire=low(-1)");
                 }
             }
 
@@ -49,12 +58,48 @@ public static class RolePlayStyleResolver
                 reasonParts.Add("progression=early(-1)");
             }
 
+            // T039: HardDealBreaker suppression — check before escalation
             var primary = session.AdaptiveState.ThemeTracker.PrimaryThemeId ?? string.Empty;
             var secondary = session.AdaptiveState.ThemeTracker.SecondaryThemeId ?? string.Empty;
-            if (IsEscalatingTheme(primary) || IsEscalatingTheme(secondary))
+            var dealBreakerSuppressed = false;
+
+            if (themePreferences is not null)
             {
-                baseScale += 1;
-                reasonParts.Add("theme=escalating(+1)");
+                dealBreakerSuppressed = themePreferences.Any(p =>
+                    p.Tier == ThemeTier.HardDealBreaker
+                    && (string.Equals(p.Name, primary, StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(p.Name, secondary, StringComparison.OrdinalIgnoreCase)));
+            }
+
+            if (dealBreakerSuppressed)
+            {
+                reasonParts.Add("dealbreaker-suppressed");
+            }
+            else
+            {
+                // T036/T037: Profile-driven escalating theme check with legacy fallback
+                var escalatingThemeIds = styleProfile?.EscalatingThemeIds is { Count: > 0 }
+                    ? styleProfile.EscalatingThemeIds
+                    : null;
+
+                if (IsEscalatingTheme(primary, escalatingThemeIds) || IsEscalatingTheme(secondary, escalatingThemeIds))
+                {
+                    baseScale += 1;
+                    reasonParts.Add("theme=escalating(+1)");
+                }
+
+                // T038: MustHave +1 push
+                if (themePreferences is not null)
+                {
+                    var mustHaveMatch = themePreferences.Any(p =>
+                        p.Tier == ThemeTier.MustHave
+                        && string.Equals(p.Name, primary, StringComparison.OrdinalIgnoreCase));
+                    if (mustHaveMatch)
+                    {
+                        baseScale += 1;
+                        reasonParts.Add("musthave-push(+1)");
+                    }
+                }
             }
         }
         else
@@ -62,8 +107,8 @@ public static class RolePlayStyleResolver
             reasonParts.Add("manual-pin=on(adaptive-deltas-suppressed)");
         }
 
-        var floor = ParseBoundScale(session.StyleFloorOverride);
-        var ceiling = ParseBoundScale(session.StyleCeilingOverride);
+        var floor = ParseBoundScale(session.IntensityFloorOverride);
+        var ceiling = ParseBoundScale(session.IntensityCeilingOverride);
 
         if (floor.HasValue && ceiling.HasValue && floor.Value > ceiling.Value)
         {
@@ -89,40 +134,26 @@ public static class RolePlayStyleResolver
 
     public static int? ParseBoundScale(string? bound)
     {
-        if (string.IsNullOrWhiteSpace(bound))
-        {
-            return null;
-        }
-
-        var value = bound.Trim().ToLowerInvariant();
-        if (value.Contains("intro") || value.Contains("pg12") || value.Contains("pg-12")) return 0;
-        if (value.Contains("emotional") || value.Contains("pg13") || value.Contains("pg-13")) return 1;
-        if (value.Contains("suggestive")) return 2;
-        if (value.Contains("sensual") || value.Contains("mature")) return 3;
-        if (value.Contains("explicit") || value.Contains("erotic")) return 4;
-        if (value.Contains("hardcore")) return 5;
-        return null;
+        return IntensityLadder.ParseScale(bound);
     }
 
     public static string ToStyleLabel(int scale)
     {
-        return scale switch
-        {
-            0 => "Intro / PG-12",
-            1 => "Emotional / PG-13",
-            2 => "Suggestive / PG-13+",
-            3 => "Sensual / Mature",
-            4 => "Erotic / Explicit",
-            _ => "Hardcore / Explicit+"
-        };
+        return IntensityLadder.GetLabel(scale);
     }
 
-    private static bool IsEscalatingTheme(string themeId)
+    private static bool IsEscalatingTheme(string themeId, IReadOnlyList<string>? profileEscalatingThemeIds)
     {
-        return string.Equals(themeId, "dominance", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(themeId, "power-dynamics", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(themeId, "forbidden-risk", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(themeId, "humiliation", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(themeId, "infidelity", StringComparison.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(themeId)) return false;
+
+        // T036: Use profile-driven list when available
+        if (profileEscalatingThemeIds is not null)
+        {
+            return profileEscalatingThemeIds.Any(id =>
+                string.Equals(id, themeId, StringComparison.OrdinalIgnoreCase));
+        }
+
+        // T037: Fallback to legacy hardcoded list
+        return LegacyEscalatingThemes.Contains(themeId);
     }
 }

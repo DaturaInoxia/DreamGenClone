@@ -20,10 +20,10 @@ public sealed class RolePlayAssistantContext
     public int SessionMaxTokens { get; init; }
 
     // Rich scenario fields for field-specific advice
-    public string? ScenarioTone { get; init; }
-    public string? ScenarioWritingStyle { get; init; }
+    public string? ScenarioNarrativeTone { get; init; }
+    public string? ScenarioProseStyle { get; init; }
     public string? ScenarioPointOfView { get; init; }
-    public IReadOnlyList<string> ScenarioStyleGuidelines { get; init; } = [];
+    public IReadOnlyList<string> ScenarioNarrativeGuidelines { get; init; } = [];
     public IReadOnlyList<string> ScenarioConflicts { get; init; } = [];
     public IReadOnlyList<string> ScenarioGoals { get; init; } = [];
     public string? ScenarioWorldDescription { get; init; }
@@ -31,12 +31,13 @@ public sealed class RolePlayAssistantContext
     public IReadOnlyList<string> FullCharacterDetails { get; init; } = [];
 
     // Adaptive/profile steering visibility for assistant guidance
-    public string? SelectedRankingProfileId { get; init; }
-    public string? SelectedToneProfileId { get; init; }
-    public string? SelectedStyleProfileId { get; init; }
-    public string? StyleFloorOverride { get; init; }
-    public string? StyleCeilingOverride { get; init; }
-    public bool IsToneManuallyPinned { get; init; }
+    public string? SelectedThemeProfileId { get; init; }
+    public string? SelectedIntensityProfileId { get; init; }
+    public string? ActiveIntensityProfile { get; init; }
+    public string? SelectedSteeringProfileId { get; init; }
+    public string? IntensityFloorOverride { get; init; }
+    public string? IntensityCeilingOverride { get; init; }
+    public bool IsIntensityManuallyPinned { get; init; }
     public string? EffectiveStyleMode { get; init; }
     public string? StyleResolutionReason { get; init; }
     public IReadOnlyList<string> ProfileSteeringThemes { get; init; } = [];

@@ -66,6 +66,13 @@ public static class ScenarioAssistantPrompts
 
           Ground your advice in the provided saved scenario snapshot and current scenario fields.
           Keep output compact and deterministic.
+
+        Adaptive Engine Scoring Context:
+        When a session starts from this scenario, the adaptive engine scores theme keywords found in scenario text with these weights:
+        - Opening text and Example text: 0.6× weight (highest influence)
+        - Plot description, World description, Style/Tone text, Character descriptions, Location descriptions, Object descriptions: 0.4× weight
+        - Character stat names (Desire, Restraint, Tension, Connection, Dominance): 0.3× weight
+        StyleProfile ThemeAffinities multiply theme scores further. Placing relevant theme keywords in Opening and Example text is the most effective way to seed session themes.
         """;
 
     public static string BuildUserMessage(ScenarioAssistantContext context, string userPrompt)

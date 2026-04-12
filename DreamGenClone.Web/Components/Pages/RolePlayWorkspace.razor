@@ -78,10 +78,10 @@
     private readonly HashSet<string> _continueSelectedIdentityIds = new(StringComparer.OrdinalIgnoreCase);
     private bool _continueIncludeNarrative;
     private List<ThemePreference> _activeProfileThemes = [];
-    private List<RankingProfile> _rankingProfiles = [];
-    private List<ToneProfile> _toneProfiles = [];
-    private List<StyleProfile> _styleProfiles = [];
-    private Dictionary<string, ToneProfile> _toneProfilesById = new(StringComparer.OrdinalIgnoreCase);
+    private List<ThemeProfile> _rankingProfiles = [];
+    private List<IntensityProfile> _intensityProfiles = [];
+    private List<SteeringProfile> _steeringProfiles = [];
+    private Dictionary<string, IntensityProfile> _intensityProfilesById = new(StringComparer.OrdinalIgnoreCase);
     private string _pendingResponseText = string.Empty;
     private readonly StringBuilder _pendingResponseBuilder = new();
     private DateTime _lastPendingResponseRenderAt = DateTime.MinValue;
@@ -172,34 +172,33 @@
         // Backfill adaptive profile/style fields for sessions that were created before defaults were copied.
         if (_loadedScenario is not null)
         {
-            if (string.IsNullOrWhiteSpace(_session.SelectedRankingProfileId) && !string.IsNullOrWhiteSpace(_loadedScenario.DefaultRankingProfileId))
+            if (string.IsNullOrWhiteSpace(_session.SelectedThemeProfileId) && !string.IsNullOrWhiteSpace(_loadedScenario.DefaultThemeProfileId))
             {
-                _session.SelectedRankingProfileId = _loadedScenario.DefaultRankingProfileId;
+                _session.SelectedThemeProfileId = _loadedScenario.DefaultThemeProfileId;
                 sessionUpdated = true;
             }
 
-            var defaultToneId = _loadedScenario.DefaultToneProfileId ?? _loadedScenario.Style.ToneProfileId;
-            if (string.IsNullOrWhiteSpace(_session.SelectedToneProfileId) && !string.IsNullOrWhiteSpace(defaultToneId))
+            if (string.IsNullOrWhiteSpace(_session.SelectedIntensityProfileId) && !string.IsNullOrWhiteSpace(_loadedScenario.DefaultIntensityProfileId))
             {
-                _session.SelectedToneProfileId = defaultToneId;
+                _session.SelectedIntensityProfileId = _loadedScenario.DefaultIntensityProfileId;
                 sessionUpdated = true;
             }
 
-            if (string.IsNullOrWhiteSpace(_session.SelectedStyleProfileId) && !string.IsNullOrWhiteSpace(_loadedScenario.Style.StyleProfileId))
+            if (string.IsNullOrWhiteSpace(_session.SelectedSteeringProfileId) && !string.IsNullOrWhiteSpace(_loadedScenario.DefaultSteeringProfileId))
             {
-                _session.SelectedStyleProfileId = _loadedScenario.Style.StyleProfileId;
+                _session.SelectedSteeringProfileId = _loadedScenario.DefaultSteeringProfileId;
                 sessionUpdated = true;
             }
 
-            if (string.IsNullOrWhiteSpace(_session.StyleFloorOverride) && !string.IsNullOrWhiteSpace(_loadedScenario.Style.StyleFloor))
+            if (string.IsNullOrWhiteSpace(_session.IntensityFloorOverride) && !string.IsNullOrWhiteSpace(_loadedScenario.DefaultIntensityFloor))
             {
-                _session.StyleFloorOverride = _loadedScenario.Style.StyleFloor;
+                _session.IntensityFloorOverride = _loadedScenario.DefaultIntensityFloor;
                 sessionUpdated = true;
             }
 
-            if (string.IsNullOrWhiteSpace(_session.StyleCeilingOverride) && !string.IsNullOrWhiteSpace(_loadedScenario.Style.StyleCeiling))
+            if (string.IsNullOrWhiteSpace(_session.IntensityCeilingOverride) && !string.IsNullOrWhiteSpace(_loadedScenario.DefaultIntensityCeiling))
             {
-                _session.StyleCeilingOverride = _loadedScenario.Style.StyleCeiling;
+                _session.IntensityCeilingOverride = _loadedScenario.DefaultIntensityCeiling;
                 sessionUpdated = true;
             }
 
@@ -227,11 +226,11 @@
             sessionUpdated = true;
         }
 
-        var originalFloor = _session.StyleFloorOverride;
-        var originalCeiling = _session.StyleCeilingOverride;
+        var originalFloor = _session.IntensityFloorOverride;
+        var originalCeiling = _session.IntensityCeilingOverride;
         NormalizeStyleBounds(_session, preferFloor: true);
-        if (!string.Equals(originalFloor, _session.StyleFloorOverride, StringComparison.Ordinal)
-            || !string.Equals(originalCeiling, _session.StyleCeilingOverride, StringComparison.Ordinal))
+        if (!string.Equals(originalFloor, _session.IntensityFloorOverride, StringComparison.Ordinal)
+            || !string.Equals(originalCeiling, _session.IntensityCeilingOverride, StringComparison.Ordinal))
         {
             sessionUpdated = true;
         }
@@ -648,21 +647,22 @@
             SessionTopP = _session.SessionTopP,
             SessionMaxTokens = _session.SessionMaxTokens,
             // Rich scenario fields
-            ScenarioTone = _loadedScenario?.Style?.Tone,
-            ScenarioWritingStyle = _loadedScenario?.Style?.WritingStyle,
-            ScenarioPointOfView = _loadedScenario?.Style?.PointOfView,
-            ScenarioStyleGuidelines = _loadedScenario?.Style?.StyleGuidelines ?? [],
+            ScenarioNarrativeTone = _loadedScenario?.Narrative?.NarrativeTone,
+            ScenarioProseStyle = _loadedScenario?.Narrative?.ProseStyle,
+            ScenarioPointOfView = _loadedScenario?.Narrative?.PointOfView,
+            ScenarioNarrativeGuidelines = _loadedScenario?.Narrative?.NarrativeGuidelines ?? [],
             ScenarioConflicts = _loadedScenario?.Plot?.Conflicts ?? [],
             ScenarioGoals = _loadedScenario?.Plot?.Goals ?? [],
             ScenarioWorldDescription = _loadedScenario?.Setting?.WorldDescription,
             ScenarioWorldRules = _loadedScenario?.Setting?.WorldRules ?? [],
             FullCharacterDetails = fullCharacterDetails,
-            SelectedRankingProfileId = _session.SelectedRankingProfileId,
-            SelectedToneProfileId = _session.SelectedToneProfileId,
-            SelectedStyleProfileId = _session.SelectedStyleProfileId,
-            StyleFloorOverride = _session.StyleFloorOverride,
-            StyleCeilingOverride = _session.StyleCeilingOverride,
-            IsToneManuallyPinned = _session.IsToneManuallyPinned,
+            SelectedThemeProfileId = _session.SelectedThemeProfileId,
+            SelectedIntensityProfileId = _session.SelectedIntensityProfileId,
+            ActiveIntensityProfile = GetActiveIntensityProfileLabel(),
+            SelectedSteeringProfileId = _session.SelectedSteeringProfileId,
+            IntensityFloorOverride = _session.IntensityFloorOverride,
+            IntensityCeilingOverride = _session.IntensityCeilingOverride,
+            IsIntensityManuallyPinned = _session.IsIntensityManuallyPinned,
             EffectiveStyleMode = GetEffectiveStyleLabel(),
             StyleResolutionReason = GetEffectiveStyleReason(),
             ProfileSteeringThemes = profileSteeringThemes
@@ -703,6 +703,11 @@
         try
         {
             await ScenarioService.SaveScenarioAsync(_loadedScenario);
+            if (_session is not null)
+            {
+                _session = await RolePlayEngine.RebuildAdaptiveStateAsync(_session.Id);
+                await RefreshActiveProfileThemesAsync();
+            }
             Logger.LogInformation("Scenario saved from workspace: {ScenarioId}", _loadedScenario.Id);
         }
         catch (Exception ex)
@@ -732,9 +737,9 @@
         {
             _activeProfileThemes = [];
             _rankingProfiles = [];
-            _toneProfiles = [];
-            _styleProfiles = [];
-            _toneProfilesById = new(StringComparer.OrdinalIgnoreCase);
+            _intensityProfiles = [];
+            _steeringProfiles = [];
+            _intensityProfilesById = new(StringComparer.OrdinalIgnoreCase);
             return;
         }
 
@@ -742,33 +747,33 @@
             .OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        _styleProfiles = (await StoryAnalysisFacade.ListStyleProfilesAsync())
+        _steeringProfiles = (await StoryAnalysisFacade.ListSteeringProfilesAsync())
             .OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        var toneProfiles = await StoryAnalysisFacade.ListToneProfilesAsync();
-        _toneProfiles = toneProfiles
+        var intensityProfiles = await StoryAnalysisFacade.ListIntensityProfilesAsync();
+        _intensityProfiles = intensityProfiles
             .OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
-        _toneProfilesById = toneProfiles.ToDictionary(x => x.Id, StringComparer.OrdinalIgnoreCase);
+        _intensityProfilesById = intensityProfiles.ToDictionary(x => x.Id, StringComparer.OrdinalIgnoreCase);
 
-        if (string.IsNullOrWhiteSpace(_session.SelectedRankingProfileId))
+        if (string.IsNullOrWhiteSpace(_session.SelectedThemeProfileId))
         {
             _activeProfileThemes = [];
             return;
         }
 
-        _activeProfileThemes = await StoryAnalysisFacade.ListThemesByProfileAsync(_session.SelectedRankingProfileId);
+        _activeProfileThemes = await StoryAnalysisFacade.ListThemesByProfileAsync(_session.SelectedThemeProfileId);
     }
 
     private static readonly (string Value, string Label)[] StyleBoundOptions =
     [
-        ("Intro / PG-12", "Intro / PG-12"),
-        ("Emotional / PG-13", "Emotional / PG-13"),
-        ("Suggestive / PG-13+", "Suggestive / PG-13+"),
-        ("Sensual / Mature", "Sensual / Mature"),
-        ("Erotic / Explicit", "Erotic / Explicit"),
-        ("Hardcore / Explicit+", "Hardcore / Explicit+")
+        ("Atmospheric", "Atmospheric"),
+        ("Emotional", "Emotional"),
+        ("Suggestive", "Suggestive"),
+        ("Sensual", "Sensual"),
+        ("Erotic", "Erotic"),
+        ("Hardcore", "Hardcore")
     ];
 
     private async Task OnRankingProfileChanged(ChangeEventArgs args)
@@ -778,39 +783,43 @@
             return;
         }
 
-        _session.SelectedRankingProfileId = string.IsNullOrWhiteSpace(args.Value?.ToString())
+        _session.SelectedThemeProfileId = string.IsNullOrWhiteSpace(args.Value?.ToString())
             ? null
             : args.Value!.ToString();
 
         await SaveSessionSettingsAsync();
+        _session = await RolePlayEngine.RebuildAdaptiveStateAsync(_session.Id);
+        await RefreshActiveProfileThemesAsync();
     }
 
-    private async Task OnToneProfileChanged(ChangeEventArgs args)
+    private async Task OnIntensityProfileChanged(ChangeEventArgs args)
     {
         if (_session is null)
         {
             return;
         }
 
-        _session.SelectedToneProfileId = string.IsNullOrWhiteSpace(args.Value?.ToString())
+        _session.SelectedIntensityProfileId = string.IsNullOrWhiteSpace(args.Value?.ToString())
             ? null
             : args.Value!.ToString();
 
         await SaveSessionSettingsAsync();
     }
 
-    private async Task OnStyleProfileChanged(ChangeEventArgs args)
+    private async Task OnSteeringProfileChanged(ChangeEventArgs args)
     {
         if (_session is null)
         {
             return;
         }
 
-        _session.SelectedStyleProfileId = string.IsNullOrWhiteSpace(args.Value?.ToString())
+        _session.SelectedSteeringProfileId = string.IsNullOrWhiteSpace(args.Value?.ToString())
             ? null
             : args.Value!.ToString();
 
         await SaveSessionSettingsAsync();
+        _session = await RolePlayEngine.RebuildAdaptiveStateAsync(_session.Id);
+        await RefreshActiveProfileThemesAsync();
     }
 
     private async Task OnStyleFloorChanged(ChangeEventArgs args)
@@ -820,7 +829,7 @@
             return;
         }
 
-        _session.StyleFloorOverride = string.IsNullOrWhiteSpace(args.Value?.ToString())
+        _session.IntensityFloorOverride = string.IsNullOrWhiteSpace(args.Value?.ToString())
             ? null
             : args.Value!.ToString();
 
@@ -836,7 +845,7 @@
             return;
         }
 
-        _session.StyleCeilingOverride = string.IsNullOrWhiteSpace(args.Value?.ToString())
+        _session.IntensityCeilingOverride = string.IsNullOrWhiteSpace(args.Value?.ToString())
             ? null
             : args.Value!.ToString();
 
@@ -847,8 +856,8 @@
 
     private void NormalizeStyleBounds(RolePlaySession session, bool preferFloor)
     {
-        var floor = RolePlayStyleResolver.ParseBoundScale(session.StyleFloorOverride);
-        var ceiling = RolePlayStyleResolver.ParseBoundScale(session.StyleCeilingOverride);
+        var floor = RolePlayStyleResolver.ParseBoundScale(session.IntensityFloorOverride);
+        var ceiling = RolePlayStyleResolver.ParseBoundScale(session.IntensityCeilingOverride);
         if (!floor.HasValue || !ceiling.HasValue || floor.Value <= ceiling.Value)
         {
             return;
@@ -856,11 +865,11 @@
 
         if (preferFloor)
         {
-            session.StyleCeilingOverride = session.StyleFloorOverride;
+            session.IntensityCeilingOverride = session.IntensityFloorOverride;
         }
         else
         {
-            session.StyleFloorOverride = session.StyleCeilingOverride;
+            session.IntensityFloorOverride = session.IntensityCeilingOverride;
         }
     }
 
@@ -1011,17 +1020,43 @@
         return reason;
     }
 
-    private (string Label, string Reason) ResolveEffectiveStyle(RolePlaySession session)
+    private string GetActiveIntensityProfileLabel()
     {
-        ToneIntensity? baseToneIntensity = ToneIntensity.SuggestivePg12;
-
-        if (!string.IsNullOrWhiteSpace(session.SelectedToneProfileId)
-            && _toneProfilesById.TryGetValue(session.SelectedToneProfileId, out var toneProfile))
+        if (_session is null)
         {
-            baseToneIntensity = toneProfile.Intensity;
+            return "(session unavailable)";
         }
 
-        return RolePlayStyleResolver.ResolveEffectiveStyle(session, baseToneIntensity);
+        return GetEffectiveStyleLabel();
+    }
+
+    private string GetBaseIntensityProfileLabel()
+    {
+        if (_session is null)
+        {
+            return "(session unavailable)";
+        }
+
+        if (!string.IsNullOrWhiteSpace(_session.SelectedIntensityProfileId)
+            && _intensityProfilesById.TryGetValue(_session.SelectedIntensityProfileId, out var intensityProfile))
+        {
+            return intensityProfile.Name;
+        }
+
+        return "(none)";
+    }
+
+    private (string Label, string Reason) ResolveEffectiveStyle(RolePlaySession session)
+    {
+        IntensityLevel? baseIntensityLevel = IntensityLevel.SuggestivePg12;
+
+        if (!string.IsNullOrWhiteSpace(session.SelectedIntensityProfileId)
+            && _intensityProfilesById.TryGetValue(session.SelectedIntensityProfileId, out var intensityProfile))
+        {
+            baseIntensityLevel = intensityProfile.Intensity;
+        }
+
+        return RolePlayStyleResolver.ResolveEffectiveStyle(session, baseIntensityLevel);
     }
 
     private static int GetTierPriority(ThemeTier tier)
@@ -2577,53 +2612,54 @@
                         <div class="rw-collapsible-section">
                             <button class="rw-collapsible-header" @onclick="@(() => ToggleScenarioSection("style"))">
                                 <span class="rw-collapsible-chevron @(_expandedScenarioSections.Contains("style") ? "is-open" : "")">▸</span>
-                                <span class="rw-collapsible-title">Style</span>
+                                <span class="rw-collapsible-title">Writing Voice</span>
                             </button>
                             @if (_expandedScenarioSections.Contains("style"))
                             {
                                 <div class="rw-collapsible-body">
+                                    <div class="text-muted small mb-3">Story Theme Profile controls story direction. Writing Style Profile controls prose voice and texture.</div>
                                     <div class="rw-scenario-field">
-                                        <label class="rw-scenario-field-label">Style Profile</label>
+                                        <label class="rw-scenario-field-label">Writing Style Profile</label>
                                         <select class="rw-mode-select"
-                                                value="@_loadedScenario.Style.StyleProfileId"
-                                                @onchange="@(e => { _loadedScenario.Style.StyleProfileId = string.IsNullOrWhiteSpace(e.Value?.ToString()) ? null : e.Value?.ToString(); MarkScenarioDirty(); })">
+                                                value="@_loadedScenario.DefaultSteeringProfileId"
+                                                @onchange="@(e => { _loadedScenario.DefaultSteeringProfileId = string.IsNullOrWhiteSpace(e.Value?.ToString()) ? null : e.Value?.ToString(); MarkScenarioDirty(); })">
                                             <option value="">(None)</option>
-                                            @foreach (var style in _styleProfiles)
+                                            @foreach (var style in _steeringProfiles)
                                             {
                                                 <option value="@style.Id">@style.Name</option>
                                             }
                                         </select>
                                     </div>
                                     <div class="rw-scenario-field">
-                                        <label class="rw-scenario-field-label">Tone</label>
+                                        <label class="rw-scenario-field-label">Narrative Tone</label>
                                         <input class="rw-settings-input" placeholder="e.g. slow-burn, tense, playful"
-                                               value="@_loadedScenario.Style.Tone"
-                                               @onchange="@(e => { _loadedScenario.Style.Tone = e.Value?.ToString(); MarkScenarioDirty(); })" />
+                                               value="@_loadedScenario.Narrative.NarrativeTone"
+                                               @onchange="@(e => { _loadedScenario.Narrative.NarrativeTone = e.Value?.ToString(); MarkScenarioDirty(); })" />
                                     </div>
                                     <div class="rw-scenario-field">
-                                        <label class="rw-scenario-field-label">Writing Style</label>
+                                        <label class="rw-scenario-field-label">Prose Style</label>
                                         <input class="rw-settings-input" placeholder="e.g. literary, dialog-driven"
-                                               value="@_loadedScenario.Style.WritingStyle"
-                                               @onchange="@(e => { _loadedScenario.Style.WritingStyle = e.Value?.ToString(); MarkScenarioDirty(); })" />
+                                               value="@_loadedScenario.Narrative.ProseStyle"
+                                               @onchange="@(e => { _loadedScenario.Narrative.ProseStyle = e.Value?.ToString(); MarkScenarioDirty(); })" />
                                     </div>
                                     <div class="rw-scenario-field">
                                         <label class="rw-scenario-field-label">Point of View</label>
                                         <input class="rw-settings-input" placeholder="e.g. third-person limited"
-                                               value="@_loadedScenario.Style.PointOfView"
-                                               @onchange="@(e => { _loadedScenario.Style.PointOfView = e.Value?.ToString(); MarkScenarioDirty(); })" />
+                                               value="@_loadedScenario.Narrative.PointOfView"
+                                               @onchange="@(e => { _loadedScenario.Narrative.PointOfView = e.Value?.ToString(); MarkScenarioDirty(); })" />
                                     </div>
                                     <div class="rw-scenario-field">
-                                        <label class="rw-scenario-field-label">Style Guidelines</label>
-                                        @for (var i = 0; i < _loadedScenario.Style.StyleGuidelines.Count; i++)
+                                        <label class="rw-scenario-field-label">Narrative Guidelines</label>
+                                        @for (var i = 0; i < _loadedScenario.Narrative.NarrativeGuidelines.Count; i++)
                                         {
                                             var idx = i;
                                             <div class="rw-list-item-row">
-                                                <input class="rw-settings-input" value="@_loadedScenario.Style.StyleGuidelines[idx]"
-                                                       @onchange="@(e => { _loadedScenario.Style.StyleGuidelines[idx] = e.Value?.ToString() ?? ""; MarkScenarioDirty(); })" />
-                                                <button class="rw-list-remove-btn" @onclick="@(() => { _loadedScenario.Style.StyleGuidelines.RemoveAt(idx); MarkScenarioDirty(); })">✕</button>
+                                                <input class="rw-settings-input" value="@_loadedScenario.Narrative.NarrativeGuidelines[idx]"
+                                                       @onchange="@(e => { _loadedScenario.Narrative.NarrativeGuidelines[idx] = e.Value?.ToString() ?? ""; MarkScenarioDirty(); })" />
+                                                <button class="rw-list-remove-btn" @onclick="@(() => { _loadedScenario.Narrative.NarrativeGuidelines.RemoveAt(idx); MarkScenarioDirty(); })">✕</button>
                                             </div>
                                         }
-                                        <button class="rw-list-add-btn" @onclick="@(() => _loadedScenario.Style.StyleGuidelines.Add(""))">+ Add Guideline</button>
+                                        <button class="rw-list-add-btn" @onclick="@(() => _loadedScenario.Narrative.NarrativeGuidelines.Add(""))">+ Add Guideline</button>
                                     </div>
                                 </div>
                             }
@@ -2840,10 +2876,11 @@
                 <div class="rw-settings-content">
                     <div class="rw-settings-section">
                         <div class="rw-settings-section-label">Active Profiles</div>
+                        <div class="text-muted small mb-2">Theme Profile steers story direction. Writing Style Profile steers wording, texture, and voice.</div>
                         <div class="rw-scenario-field">
-                            <label class="rw-scenario-field-label">Content Preference Profile</label>
+                            <label class="rw-scenario-field-label">Story Theme Profile</label>
                             <select class="rw-mode-select"
-                                    value="@_session.SelectedRankingProfileId"
+                                    value="@_session.SelectedThemeProfileId"
                                     @onchange="OnRankingProfileChanged">
                                 <option value="">(None)</option>
                                 @foreach (var profile in _rankingProfiles)
@@ -2853,33 +2890,33 @@
                             </select>
                         </div>
                         <div class="rw-scenario-field">
-                            <label class="rw-scenario-field-label">Tone Profile</label>
+                            <label class="rw-scenario-field-label">Base Intensity Profile</label>
                             <select class="rw-mode-select"
-                                    value="@_session.SelectedToneProfileId"
-                                    @onchange="OnToneProfileChanged">
+                                    value="@_session.SelectedIntensityProfileId"
+                                    @onchange="OnIntensityProfileChanged">
                                 <option value="">(None)</option>
-                                @foreach (var profile in _toneProfiles)
+                                @foreach (var profile in _intensityProfiles)
                                 {
                                     <option value="@profile.Id">@profile.Name</option>
                                 }
                             </select>
                         </div>
                         <div class="rw-scenario-field">
-                            <label class="rw-scenario-field-label">Style Profile</label>
+                            <label class="rw-scenario-field-label">Writing Style Profile</label>
                             <select class="rw-mode-select"
-                                    value="@_session.SelectedStyleProfileId"
-                                    @onchange="OnStyleProfileChanged">
+                                    value="@_session.SelectedSteeringProfileId"
+                                    @onchange="OnSteeringProfileChanged">
                                 <option value="">(None)</option>
-                                @foreach (var profile in _styleProfiles)
+                                @foreach (var profile in _steeringProfiles)
                                 {
                                     <option value="@profile.Id">@profile.Name</option>
                                 }
                             </select>
                         </div>
                         <div class="rw-scenario-field">
-                            <label class="rw-scenario-field-label">Style Floor</label>
+                            <label class="rw-scenario-field-label">Intensity Floor</label>
                             <select class="rw-mode-select"
-                                    value="@_session.StyleFloorOverride"
+                                    value="@_session.IntensityFloorOverride"
                                     @onchange="OnStyleFloorChanged">
                                 <option value="">(None)</option>
                                 @foreach (var option in StyleBoundOptions)
@@ -2889,9 +2926,9 @@
                             </select>
                         </div>
                         <div class="rw-scenario-field">
-                            <label class="rw-scenario-field-label">Style Ceiling</label>
+                            <label class="rw-scenario-field-label">Intensity Ceiling</label>
                             <select class="rw-mode-select"
-                                    value="@_session.StyleCeilingOverride"
+                                    value="@_session.IntensityCeilingOverride"
                                     @onchange="OnStyleCeilingChanged">
                                 <option value="">(None)</option>
                                 @foreach (var option in StyleBoundOptions)
@@ -2901,26 +2938,34 @@
                             </select>
                         </div>
                         <div class="rw-settings-info-row">
-                            <span>Manual Tone Pin</span>
+                            <span>Manual Intensity Pin</span>
                             <input type="checkbox"
-                                   checked="@_session.IsToneManuallyPinned"
-                                   @onchange="@(e => { _session.IsToneManuallyPinned = e.Value is bool b && b; _ = SaveSessionSettingsAsync(); })" />
+                                   checked="@_session.IsIntensityManuallyPinned"
+                                   @onchange="@(e => { _session.IsIntensityManuallyPinned = e.Value is bool b && b; _ = SaveSessionSettingsAsync(); })" />
                         </div>
                         <div class="rw-settings-info-row">
-                            <span>Effective Style Mode</span>
+                            <span>Base Intensity Profile</span>
+                            <span>@GetBaseIntensityProfileLabel()</span>
+                        </div>
+                        <div class="rw-settings-info-row">
+                            <span>Active Intensity Profile</span>
+                            <span>@GetActiveIntensityProfileLabel()</span>
+                        </div>
+                        <div class="rw-settings-info-row">
+                            <span>Resolved Intensity</span>
                             <span>@GetEffectiveStyleLabel()</span>
                         </div>
                         <div class="rw-settings-info-row">
-                            <span>Style Resolution</span>
+                            <span>Resolution Reason</span>
                             <span>@GetEffectiveStyleReason()</span>
                         </div>
                     </div>
 
                     <div class="rw-settings-section">
                         <div class="rw-settings-section-label">Profile Steering (Prompt Input)</div>
-                        @if (string.IsNullOrWhiteSpace(_session.SelectedRankingProfileId))
+                        @if (string.IsNullOrWhiteSpace(_session.SelectedThemeProfileId))
                         {
-                            <p class="rw-scenario-empty">No ranking profile selected for this session.</p>
+                            <p class="rw-scenario-empty">No theme profile selected for this session.</p>
                         }
                         else if (_activeProfileThemes.Count == 0)
                         {
@@ -3005,9 +3050,19 @@
                             @foreach (var theme in _session.AdaptiveState.ThemeTracker.Themes.Values.OrderByDescending(x => x.Score))
                             {
                                 <div class="rw-scenario-field" style="margin-bottom:10px;">
-                                    <label class="rw-scenario-field-label">@theme.ThemeName</label>
+                                    <label class="rw-scenario-field-label">
+                                        @theme.ThemeName
+                                        @if (theme.Blocked)
+                                        {
+                                            <span style="margin-left:6px;" title="Blocked (HardDealBreaker)">🔒</span>
+                                        }
+                                    </label>
                                     <div class="rw-settings-info-row"><span>Intensity</span><span>@theme.Intensity</span></div>
                                     <div class="rw-settings-info-row"><span>Score</span><span>@theme.Score.ToString("F1")</span></div>
+                                    @if (theme.Blocked)
+                                    {
+                                        <div class="rw-settings-info-row"><span>Suppressed Hits</span><span>🔒 @theme.SuppressedHitCount</span></div>
+                                    }
                                     <div class="rw-settings-info-row"><span>Choice Signal</span><span>@theme.Breakdown.ChoiceSignal.ToString("F1")</span></div>
                                     <div class="rw-settings-info-row"><span>Character Signal</span><span>@theme.Breakdown.CharacterStateSignal.ToString("F1")</span></div>
                                     <div class="rw-settings-info-row"><span>Interaction Signal</span><span>@theme.Breakdown.InteractionEvidenceSignal.ToString("F1")</span></div>

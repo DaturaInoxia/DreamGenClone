@@ -7,7 +7,7 @@ public sealed class ModelProcessingTask
     public string? StoryTitle { get; set; }
     public ModelProcessingTaskType TaskType { get; set; }
     public ModelProcessingStatus Status { get; set; } = ModelProcessingStatus.Queued;
-    public string? RankingProfileId { get; set; }
+    public string? ThemeProfileId { get; set; }
     public DateTime EnqueuedUtc { get; set; } = DateTime.UtcNow;
     public DateTime? StartedUtc { get; set; }
     public DateTime? CompletedUtc { get; set; }

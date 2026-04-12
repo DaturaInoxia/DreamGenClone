@@ -153,16 +153,12 @@ public class ScenarioService : IScenarioService
                 EnvironmentalDetails = new List<string>(original.Setting.EnvironmentalDetails),
                 WorldRules = new List<string>(original.Setting.WorldRules)
             },
-            Style = new Style
+            Narrative = new NarrativeSettings
             {
-                Tone = original.Style.Tone,
-                WritingStyle = original.Style.WritingStyle,
-                PointOfView = original.Style.PointOfView,
-                StyleGuidelines = new List<string>(original.Style.StyleGuidelines),
-                ToneProfileId = original.Style.ToneProfileId,
-                StyleProfileId = original.Style.StyleProfileId,
-                StyleFloor = original.Style.StyleFloor,
-                StyleCeiling = original.Style.StyleCeiling
+                NarrativeTone = original.Narrative.NarrativeTone,
+                ProseStyle = original.Narrative.ProseStyle,
+                PointOfView = original.Narrative.PointOfView,
+                NarrativeGuidelines = new List<string>(original.Narrative.NarrativeGuidelines)
             },
             Characters = original.Characters.Select(c => new Character
             {
@@ -196,8 +192,11 @@ public class ScenarioService : IScenarioService
                 Text = e.Text
             }).ToList(),
             EstimatedTokenCount = original.EstimatedTokenCount,
-            DefaultRankingProfileId = original.DefaultRankingProfileId,
-            DefaultToneProfileId = original.DefaultToneProfileId,
+            DefaultThemeProfileId = original.DefaultThemeProfileId,
+            DefaultIntensityProfileId = original.DefaultIntensityProfileId,
+            DefaultSteeringProfileId = original.DefaultSteeringProfileId,
+            DefaultIntensityFloor = original.DefaultIntensityFloor,
+            DefaultIntensityCeiling = original.DefaultIntensityCeiling,
             BaseStatProfileId = original.BaseStatProfileId,
             ResolvedBaseStats = new Dictionary<string, int>(original.ResolvedBaseStats, StringComparer.OrdinalIgnoreCase),
             DefaultPersonaPerspectiveMode = original.DefaultPersonaPerspectiveMode,
