@@ -8,6 +8,7 @@
 
 @using DreamGenClone.Web.Application.StoryAnalysis
 @using DreamGenClone.Application.StoryAnalysis
+@using DreamGenClone.Application.StoryAnalysis.Models
 @using DreamGenClone.Web.Domain.RolePlay
 @using DreamGenClone.Domain.StoryAnalysis
 
@@ -26,6 +27,7 @@
             <span class="badge bg-secondary-subtle text-secondary-emphasis border">Intensity: @_intensityProfiles.Count</span>
             <span class="badge bg-dark-subtle text-dark-emphasis border">Steering: @_steeringProfiles.Count</span>
             <span class="badge bg-info-subtle text-info-emphasis border">Catalog: @_catalogEntries.Count</span>
+            <span class="badge bg-primary-subtle text-primary-emphasis border">Theme Definitions: @_themeDefinitions.Count</span>
             <span class="badge bg-success-subtle text-success-emphasis border">Character State: @_baseStatProfiles.Count</span>
             <span class="badge bg-light text-dark border">Perspective Modes: @CharacterPerspectiveModes.All.Count</span>
         </div>
@@ -43,6 +45,9 @@
         </li>
         <li class="nav-item" role="presentation">
             <button type="button" class="nav-link @GetTabClass("catalog")" @onclick='() => _activeTab = "catalog"'>Theme Catalog</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button type="button" class="nav-link @GetTabClass("definitions")" @onclick='() => _activeTab = "definitions"'>Theme Definitions</button>
         </li>
         <li class="nav-item" role="presentation">
             <button type="button" class="nav-link @GetTabClass("base-stats")" @onclick='() => _activeTab = "base-stats"'>Character State</button>
@@ -659,6 +664,78 @@
             </div>
         </div>
     }
+    else if (_activeTab == "definitions")
+    {
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <div>
+                    <strong>Theme Definitions</strong>
+                    <div class="text-muted small">Source markdown files loaded from specs/ThemeDefinitaions for future import-ready refactoring.</div>
+                </div>
+                <span class="badge bg-secondary">@_themeDefinitions.Count files</span>
+            </div>
+            <div class="card-body">
+                @if (!string.IsNullOrWhiteSpace(_themeDefinitionsError))
+                {
+                    <div class="alert alert-danger">@_themeDefinitionsError</div>
+                }
+
+                @if (_themeDefinitions.Count == 0)
+                {
+                    <p class="text-muted mb-0">No theme definition markdown files found.</p>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle">
+                            <thead>
+                                <tr>
+                                    <th style="width: 220px;">ID</th>
+                                    <th>Label</th>
+                                    <th style="width: 140px;">Category</th>
+                                    <th style="width: 90px;">Weight</th>
+                                    <th style="width: 180px;">Source</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var definition in _themeDefinitions)
+                                {
+                                    var isSelected = string.Equals(_selectedThemeDefinition?.SourceFilePath, definition.SourceFilePath, StringComparison.OrdinalIgnoreCase);
+                                    <tr class="@(isSelected ? "table-primary" : string.Empty)" style="cursor:pointer" @onclick="() => SelectThemeDefinition(definition)">
+                                        <td><code>@definition.Id</code></td>
+                                        <td>@definition.Label</td>
+                                        <td>@definition.Category</td>
+                                        <td>@definition.Weight</td>
+                                        <td class="text-muted small">@definition.SourceFileName</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+
+                    @if (_selectedThemeDefinition is not null)
+                    {
+                        <div class="border rounded p-3 mt-3 bg-light-subtle">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <strong>@_selectedThemeDefinition.Label</strong>
+                                <span class="badge bg-light text-dark border">@_selectedThemeDefinition.SourceFileName</span>
+                            </div>
+
+                            @if (_selectedThemeDefinition.ParseWarnings.Count > 0)
+                            {
+                                <div class="alert alert-warning py-2 small">
+                                    @string.Join(" | ", _selectedThemeDefinition.ParseWarnings)
+                                </div>
+                            }
+
+                            <label class="form-label small text-muted">Raw markdown dump</label>
+                            <pre class="mb-0 p-3 border rounded bg-body-tertiary" style="max-height: 460px; overflow:auto; white-space: pre-wrap;">@_selectedThemeDefinition.RawContent</pre>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+    }
     else if (_activeTab == "base-stats")
     {
         <div class="row g-4">
@@ -868,6 +945,9 @@
     private string? _styleError;
 
     private IReadOnlyList<ThemeCatalogEntry> _catalogEntries = [];
+    private IReadOnlyList<ThemeDefinitionDocument> _themeDefinitions = [];
+    private ThemeDefinitionDocument? _selectedThemeDefinition;
+    private string? _themeDefinitionsError;
 
     // Catalog tab state
     private string? _catalogError;
@@ -968,6 +1048,28 @@
         _steeringProfiles = await Facade.ListSteeringProfilesAsync();
         _baseStatProfiles = await Facade.ListBaseStatProfilesAsync();
         _catalogEntries = await Facade.ListCatalogEntriesAsync(includeDisabled: true);
+
+        try
+        {
+            _themeDefinitions = await Facade.ListThemeDefinitionsAsync();
+            if (_selectedThemeDefinition is null || !_themeDefinitions.Any(d => string.Equals(d.SourceFilePath, _selectedThemeDefinition.SourceFilePath, StringComparison.OrdinalIgnoreCase)))
+            {
+                _selectedThemeDefinition = _themeDefinitions.FirstOrDefault();
+            }
+
+            _themeDefinitionsError = null;
+        }
+        catch (Exception ex)
+        {
+            _themeDefinitions = [];
+            _selectedThemeDefinition = null;
+            _themeDefinitionsError = ex.Message;
+        }
+    }
+
+    private void SelectThemeDefinition(ThemeDefinitionDocument definition)
+    {
+        _selectedThemeDefinition = definition;
     }
 
     private string GetTabClass(string tab) => _activeTab == tab ? "active" : string.Empty;

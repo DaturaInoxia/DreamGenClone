@@ -1,4 +1,5 @@
 using System.Text.Json;
+using DreamGenClone.Domain.StoryAnalysis;
 using DreamGenClone.Infrastructure.Configuration;
 using DreamGenClone.Web.Domain.RolePlay;
 using DreamGenClone.Web.Domain.Story;
@@ -53,7 +54,9 @@ public sealed class SessionService : ISessionService
             return null;
         }
 
-        return JsonSerializer.Deserialize<RolePlaySession>(row.PayloadJson, JsonOptions);
+        var session = JsonSerializer.Deserialize<RolePlaySession>(row.PayloadJson, JsonOptions);
+        NormalizeRolePlaySession(session);
+        return session;
     }
 
     public async Task<IReadOnlyList<SessionListItem>> GetSessionsByTypeAsync(string sessionType, CancellationToken cancellationToken = default)
@@ -96,6 +99,8 @@ public sealed class SessionService : ISessionService
                 var rolePlay = JsonSerializer.Deserialize<RolePlaySession>(payloadJson, JsonOptions);
                 if (rolePlay is not null)
                 {
+                    NormalizeRolePlaySession(rolePlay);
+
                     var status = rolePlay.Status;
                     if (status == RolePlaySessionStatus.NotStarted && rolePlay.Interactions.Count > 0)
                     {
@@ -211,4 +216,40 @@ public sealed class SessionService : ISessionService
     }
 
     private sealed record SessionRow(string Id, string SessionType, string Name, string PayloadJson, DateTime UpdatedUtc);
+
+    private static void NormalizeRolePlaySession(RolePlaySession? session)
+    {
+        if (session is null)
+        {
+            return;
+        }
+
+        session.AdaptiveState ??= new RolePlayAdaptiveState();
+        session.AdaptiveState.ThemeTracker ??= new ThemeTrackerState();
+        session.AdaptiveState.ThemeTracker.Themes ??= new Dictionary<string, ThemeTrackerItem>(StringComparer.OrdinalIgnoreCase);
+        session.AdaptiveState.ThemeTracker.RecentEvidence ??= [];
+        session.AdaptiveState.CharacterStats ??= new Dictionary<string, CharacterStatBlock>(StringComparer.OrdinalIgnoreCase);
+        session.AdaptiveState.PairwiseStats ??= new Dictionary<string, PairwiseStatBlock>(StringComparer.OrdinalIgnoreCase);
+        session.AdaptiveState.ScenarioHistory ??= [];
+
+        session.AdaptiveState.CompletedScenarios = Math.Max(
+            session.AdaptiveState.CompletedScenarios,
+            session.AdaptiveState.ScenarioHistory.Count);
+        session.AdaptiveState.InteractionsSinceCommitment = Math.Max(0, session.AdaptiveState.InteractionsSinceCommitment);
+        session.AdaptiveState.InteractionsInApproaching = Math.Max(0, session.AdaptiveState.InteractionsInApproaching);
+
+        if (session.AdaptiveState.ActiveScenarioId is null)
+        {
+            if (session.AdaptiveState.CurrentNarrativePhase is NarrativePhase.Committed
+                or NarrativePhase.Approaching
+                or NarrativePhase.Climax)
+            {
+                session.AdaptiveState.CurrentNarrativePhase = NarrativePhase.BuildUp;
+            }
+        }
+        else if (session.AdaptiveState.CurrentNarrativePhase is NarrativePhase.BuildUp or NarrativePhase.Reset)
+        {
+            session.AdaptiveState.CurrentNarrativePhase = NarrativePhase.Committed;
+        }
+    }
 }
