@@ -106,6 +106,9 @@ public sealed class RolePlaySession
     /// <summary>Adaptive theme and stat state updated per interaction.</summary>
     public RolePlayAdaptiveState AdaptiveState { get; set; } = new();
 
+    /// <summary>Decision points already applied in this session.</summary>
+    public List<string> AppliedDecisionPointIds { get; set; } = [];
+
     /// <summary>Persisted assistant chat threads for standard chat CRUD behavior.</summary>
     public List<RolePlayAssistantChatThread> AssistantChats { get; set; } = [];
 
@@ -115,6 +118,9 @@ public sealed class RolePlaySession
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public DateTime ModifiedAt { get; set; } = DateTime.UtcNow;
+
+    /// <summary>Schema compatibility marker used by RolePlay v2 validation.</summary>
+    public string RolePlayV2SchemaVersion { get; set; } = "v2";
 }
 
 public sealed class RolePlayAssistantChatThread

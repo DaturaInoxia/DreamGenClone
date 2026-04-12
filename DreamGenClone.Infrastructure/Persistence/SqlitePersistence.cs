@@ -55,6 +55,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 SessionType TEXT NOT NULL,
                 Name TEXT NOT NULL,
                 PayloadJson TEXT NOT NULL,
+                SchemaVersion TEXT NOT NULL DEFAULT 'v1',
                 UpdatedUtc TEXT NOT NULL
             );
 
@@ -315,6 +316,113 @@ public sealed class SqlitePersistence : ISqlitePersistence
             CREATE INDEX IF NOT EXISTS IX_RolePlayDebugEvents_Kind_CreatedUtc
                 ON RolePlayDebugEvents (EventKind, CreatedUtc DESC);
 
+            CREATE TABLE IF NOT EXISTS RolePlayV2AdaptiveStates (
+                SessionId TEXT PRIMARY KEY,
+                ActiveScenarioId TEXT NULL,
+                CurrentPhase TEXT NOT NULL,
+                InteractionCountInPhase INTEGER NOT NULL,
+                ConsecutiveLeadCount INTEGER NOT NULL,
+                LastEvaluationUtc TEXT NOT NULL,
+                CycleIndex INTEGER NOT NULL,
+                ActiveFormulaVersion TEXT NOT NULL,
+                CharacterSnapshotsJson TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS RolePlayV2CandidateEvaluations (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                SessionId TEXT NOT NULL,
+                EvaluationId TEXT NOT NULL,
+                ScenarioId TEXT NOT NULL,
+                StageAWillingnessTier TEXT NOT NULL,
+                StageBEligible INTEGER NOT NULL,
+                FitScore REAL NOT NULL,
+                Confidence REAL NOT NULL,
+                TieBreakKey TEXT NOT NULL,
+                Rationale TEXT NOT NULL,
+                EvaluatedUtc TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS IX_RolePlayV2CandidateEvaluations_Session_EvaluatedUtc
+                ON RolePlayV2CandidateEvaluations (SessionId, EvaluatedUtc DESC);
+
+            CREATE TABLE IF NOT EXISTS RolePlayV2PhaseTransitions (
+                TransitionId TEXT PRIMARY KEY,
+                SessionId TEXT NOT NULL,
+                FromPhase TEXT NOT NULL,
+                ToPhase TEXT NOT NULL,
+                TriggerType TEXT NOT NULL,
+                EvidencePayload TEXT NOT NULL,
+                ReasonCode TEXT NOT NULL,
+                OccurredUtc TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS IX_RolePlayV2PhaseTransitions_Session_OccurredUtc
+                ON RolePlayV2PhaseTransitions (SessionId, OccurredUtc DESC);
+
+            CREATE TABLE IF NOT EXISTS RolePlayV2CompletionMetadata (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                SessionId TEXT NOT NULL,
+                CycleIndex INTEGER NOT NULL,
+                ScenarioId TEXT NOT NULL,
+                PeakPhase TEXT NOT NULL,
+                ResetReason TEXT NOT NULL,
+                StartedUtc TEXT NOT NULL,
+                CompletedUtc TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS RolePlayV2ConceptInjections (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                SessionId TEXT NOT NULL,
+                PayloadJson TEXT NOT NULL,
+                CreatedUtc TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS RolePlayV2DecisionPoints (
+                DecisionPointId TEXT PRIMARY KEY,
+                SessionId TEXT NOT NULL,
+                ScenarioId TEXT NOT NULL,
+                Phase TEXT NOT NULL,
+                TriggerSource TEXT NOT NULL,
+                TransparencyMode TEXT NOT NULL,
+                OptionIdsJson TEXT NOT NULL,
+                CreatedUtc TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS IX_RolePlayV2DecisionPoints_Session_CreatedUtc
+                ON RolePlayV2DecisionPoints (SessionId, CreatedUtc DESC);
+
+            CREATE TABLE IF NOT EXISTS RolePlayV2DecisionOptions (
+                OptionId TEXT PRIMARY KEY,
+                DecisionPointId TEXT NOT NULL,
+                DisplayText TEXT NOT NULL,
+                VisibilityMode TEXT NOT NULL,
+                Prerequisites TEXT NOT NULL,
+                StatDeltaMap TEXT NOT NULL,
+                IsCustomResponseFallback INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS RolePlayV2FormulaVersionRefs (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                SessionId TEXT NOT NULL,
+                CycleIndex INTEGER NOT NULL,
+                FormulaVersionId TEXT NOT NULL,
+                Name TEXT NOT NULL,
+                ParameterPayload TEXT NOT NULL,
+                EffectiveFromUtc TEXT NOT NULL,
+                IsDefault INTEGER NOT NULL,
+                CreatedUtc TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS RolePlayV2UnsupportedSessionErrors (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ErrorCode TEXT NOT NULL,
+                SessionId TEXT NOT NULL,
+                DetectedSchemaVersion TEXT NULL,
+                MissingCanonicalStatsJson TEXT NOT NULL,
+                RecoveryGuidance TEXT NOT NULL,
+                EmittedUtc TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS IX_RolePlayV2UnsupportedErrors_Session_EmittedUtc
+                ON RolePlayV2UnsupportedSessionErrors (SessionId, EmittedUtc DESC);
+
             """;
 
         await command.ExecuteNonQueryAsync(cancellationToken);
@@ -334,6 +442,17 @@ public sealed class SqlitePersistence : ISqlitePersistence
         var indexCmd = connection.CreateCommand();
         indexCmd.CommandText = "CREATE INDEX IF NOT EXISTS IX_ParsedStories_Author ON ParsedStories (Author)";
         await indexCmd.ExecuteNonQueryAsync(cancellationToken);
+
+        var checkSchemaVersionColumn = connection.CreateCommand();
+        checkSchemaVersionColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('Sessions') WHERE name='SchemaVersion'";
+        var hasSchemaVersionColumn = Convert.ToInt64(await checkSchemaVersionColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasSchemaVersionColumn)
+        {
+            var alterSchemaVersion = connection.CreateCommand();
+            alterSchemaVersion.CommandText = "ALTER TABLE Sessions ADD COLUMN SchemaVersion TEXT NOT NULL DEFAULT 'v1'";
+            await alterSchemaVersion.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated Sessions table: added SchemaVersion column");
+        }
 
         // Migrate: add IsArchived column to ParsedStories if missing
         var checkIsArchived = connection.CreateCommand();

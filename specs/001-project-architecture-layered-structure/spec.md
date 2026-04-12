@@ -32,6 +32,11 @@ DreamGenClone must not include AdventureEngine or emotional-simulation features.
 - Q: How should auto-save be triggered? -> A: Save on meaningful changes using a short debounce window.
 - Q: What UI visual baseline should be used during current implementation phases? -> A: Keep the default new Blazor template styling (layout, colors, spacing, and nav visual language) unless a later approved phase explicitly changes theme/styling.
 
+### Session 2026-04-12
+
+- Q: How should generation requests behave when LM Studio is unavailable? -> A: Fail fast per request with an explicit actionable error; allow manual retry and retry-with-model.
+- Q: What auto-save debounce policy should be used? -> A: Configurable debounce with default 1 second and validation bounds (min 250 ms, max 5000 ms).
+
 ## Scope and Boundaries
 
 ### In Scope
@@ -122,6 +127,7 @@ Core domain models include:
 - Persisted data must use SQLite.
 - Template image binaries are stored on local disk; SQLite stores image metadata and file references.
 - Session export/import remains JSON-based file interchange.
+- Auto-save debounce duration must be externally configurable with default 1 second and bounds validation (min 250 ms, max 5000 ms).
 
 ### Import/Export Validation
 
@@ -145,6 +151,12 @@ Core domain models include:
 - Assistant context truncation must be deterministic by recency.
 - Pinned critical context must be retained when context limits are reached.
 - Non-pinned older context may be truncated first.
+
+### LM Studio Unavailable Handling
+
+- Generation requests must fail fast per request when LM Studio is unavailable.
+- Failures must return explicit actionable errors so users can recover without ambiguity.
+- Users must be able to manually retry generation and use retry-with-model where available.
 
 ### UI Baseline Style
 
@@ -270,7 +282,7 @@ Implements session lifecycle operations.
 - Markdown and JSON exports are valid and complete
 - JSON import restores session content, structure, and metadata only when schema/version validation passes
 - Invalid JSON import attempts are rejected with explicit validation errors and no partial session mutation
-- Auto-save triggers on meaningful session changes with a short debounce window to avoid excessive write churn
+- Auto-save triggers on meaningful session changes with configurable debounce (default 1 second; valid range 250 ms to 5000 ms) to avoid excessive write churn
 
 ### Part 7 - Model Settings
 
@@ -289,6 +301,7 @@ Implements per-session model and generation configuration.
 - Settings persist at session scope
 - Retry uses currently selected retry model/settings
 - LM Studio request payload matches configured generation parameters
+- When LM Studio is unavailable, generation requests fail fast with explicit actionable errors; users can retry manually and via retry-with-model
 
 ### Part 8 - Assistants
 

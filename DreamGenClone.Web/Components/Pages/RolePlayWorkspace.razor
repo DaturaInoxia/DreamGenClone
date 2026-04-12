@@ -8,9 +8,11 @@
 @using DreamGenClone.Web.Application.Assistants
 @using DreamGenClone.Web.Application.Scenarios
 @using DreamGenClone.Web.Application.StoryAnalysis
+@using DreamGenClone.Application.StoryAnalysis
+@using DreamGenClone.Domain.StoryAnalysis
 @using DreamGenClone.Web.Domain.Scenarios
 @using DreamGenClone.Application.ModelManager
-@using DreamGenClone.Domain.StoryAnalysis
+@using DreamGenClone.Application.RolePlay
 @using DreamGenClone.Domain.ModelManager
 
 @inject IRolePlayEngineService RolePlayEngine
@@ -22,6 +24,7 @@
 @inject IModelSettingsService ModelSettingsService
 @inject IBehaviorModeService BehaviorModeService
 @inject IRolePlayAssistantService RolePlayAssistant
+@inject IRolePlayDiagnosticsService RolePlayDiagnostics
 @inject IAssistantContextManager AssistantContextManager
 @inject IScenarioService ScenarioService
 @inject StoryAnalysisFacade StoryAnalysisFacade
@@ -86,6 +89,12 @@
     private readonly StringBuilder _pendingResponseBuilder = new();
     private DateTime _lastPendingResponseRenderAt = DateTime.MinValue;
     private static readonly TimeSpan PendingResponseRenderInterval = TimeSpan.FromMilliseconds(300);
+    private RolePlayV2DiagnosticsSnapshot? _v2Diagnostics;
+    private RolePlayPendingDecisionPrompt? _pendingDecisionPrompt;
+    private string? _dismissedDecisionPointId;
+    private bool _decisionPromptSubmitting;
+    private string _decisionCustomResponse = string.Empty;
+    private string _decisionPromptError = string.Empty;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -269,6 +278,39 @@
         {
             await RolePlayEngine.SaveSessionAsync(_session);
         }
+
+        _v2Diagnostics = await RolePlayDiagnostics.GetSnapshotAsync(_session.Id);
+        _pendingDecisionPrompt = await RolePlayEngine.GetPendingDecisionPromptAsync(_session.Id);
+        if (_pendingDecisionPrompt is null)
+        {
+            _dismissedDecisionPointId = null;
+        }
+        else if (!string.Equals(_dismissedDecisionPointId, _pendingDecisionPrompt.DecisionPoint.DecisionPointId, StringComparison.OrdinalIgnoreCase))
+        {
+            _dismissedDecisionPointId = null;
+        }
+
+        _decisionPromptError = string.Empty;
+    }
+
+    private bool ShouldShowDecisionPrompt =>
+        _pendingDecisionPrompt is not null
+        && !string.Equals(_dismissedDecisionPointId, _pendingDecisionPrompt.DecisionPoint.DecisionPointId, StringComparison.OrdinalIgnoreCase);
+
+    private void DeferDecisionPrompt()
+    {
+        if (_pendingDecisionPrompt is null)
+        {
+            return;
+        }
+
+        _dismissedDecisionPointId = _pendingDecisionPrompt.DecisionPoint.DecisionPointId;
+        _decisionPromptError = string.Empty;
+    }
+
+    private void ReopenDecisionPrompt()
+    {
+        _dismissedDecisionPointId = null;
     }
 
     private void ToggleIntentPopup()
@@ -1030,7 +1072,7 @@
         return GetEffectiveStyleLabel();
     }
 
-    private string GetBaseIntensityProfileLabel()
+    private string GetSelectedIntensityProfileName()
     {
         if (_session is null)
         {
@@ -1044,6 +1086,16 @@
         }
 
         return "(none)";
+    }
+
+    private static int GetCharacterStatValue(CharacterStatBlock block, string statName)
+    {
+        if (block.Stats.TryGetValue(statName, out var value))
+        {
+            return value;
+        }
+
+        return AdaptiveStatCatalog.DefaultValue;
     }
 
     private (string Label, string Reason) ResolveEffectiveStyle(RolePlaySession session)
@@ -1457,6 +1509,70 @@
             _pendingResponseBuilder.Clear();
             _lastPendingResponseRenderAt = DateTime.MinValue;
             _isSubmitting = false;
+        }
+    }
+
+    private static string FormatDecisionDeltas(string statDeltaJson)
+    {
+        if (string.IsNullOrWhiteSpace(statDeltaJson) || statDeltaJson == "{}")
+        {
+            return "Narrative impact without explicit stat deltas.";
+        }
+
+        try
+        {
+            var deltas = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, int>>(statDeltaJson);
+            if (deltas is null || deltas.Count == 0)
+            {
+                return "Narrative impact without explicit stat deltas.";
+            }
+
+            return string.Join(", ", deltas.Select(x => $"{x.Key} {(x.Value >= 0 ? "+" : string.Empty)}{x.Value}"));
+        }
+        catch
+        {
+            return "Unable to parse stat impact.";
+        }
+    }
+
+    private async Task ApplyDecisionOptionAsync(DreamGenClone.Domain.RolePlay.DecisionOption option)
+    {
+        if (_session is null || _pendingDecisionPrompt is null)
+        {
+            return;
+        }
+
+        _decisionPromptSubmitting = true;
+        _decisionPromptError = string.Empty;
+        try
+        {
+            var customResponse = option.IsCustomResponseFallback
+                ? (string.IsNullOrWhiteSpace(_decisionCustomResponse) ? null : _decisionCustomResponse.Trim())
+                : null;
+
+            var outcome = await RolePlayEngine.ApplyDecisionAsync(
+                _session.Id,
+                _pendingDecisionPrompt.DecisionPoint.DecisionPointId,
+                option.OptionId,
+                customResponse);
+
+            if (outcome is null || !outcome.Applied)
+            {
+                _decisionPromptError = "Could not apply the selected decision.";
+                return;
+            }
+
+            _decisionCustomResponse = string.Empty;
+            _dismissedDecisionPointId = null;
+            await LoadSessionAsync();
+        }
+        catch (Exception ex)
+        {
+            _decisionPromptError = ex.Message;
+        }
+        finally
+        {
+            _decisionPromptSubmitting = false;
         }
     }
 
@@ -2157,6 +2273,69 @@
                                 <div class="rw-modal-actions">
                                     <button class="rw-btn rw-btn-secondary" @onclick="CancelRewriteDialog">Cancel</button>
                                     <button class="rw-btn rw-btn-primary" disabled="@string.IsNullOrWhiteSpace(_rewriteInstruction)" @onclick="ConfirmRewriteAsync">Rewrite</button>
+                                </div>
+                            </div>
+                        </div>
+                    }
+
+                    @if (_pendingDecisionPrompt is not null && !ShouldShowDecisionPrompt)
+                    {
+                        <div class="rw-settings-info-row" style="margin-top:12px;">
+                            <span>Decision pending</span>
+                            <button class="rw-btn rw-btn-secondary" @onclick="ReopenDecisionPrompt">Review Decision</button>
+                        </div>
+                    }
+
+                    @if (_pendingDecisionPrompt is not null && _session is not null && ShouldShowDecisionPrompt)
+                    {
+                        <div class="rw-modal-overlay" @onclick:stopPropagation>
+                            <div class="rw-modal rw-modal-info" @onclick:stopPropagation>
+                                <div class="rw-modal-header">Decision Prompt</div>
+                                <div class="rw-modal-body">
+                                    <div class="rw-info-grid">
+                                        <div class="rw-info-row"><span class="rw-info-label">Character</span><span class="rw-info-value">@_session.PersonaName</span></div>
+                                        <div class="rw-info-row"><span class="rw-info-label">Scenario</span><span class="rw-info-value">@_pendingDecisionPrompt.DecisionPoint.ScenarioId</span></div>
+                                        <div class="rw-info-row"><span class="rw-info-label">Phase</span><span class="rw-info-value">@_pendingDecisionPrompt.DecisionPoint.Phase</span></div>
+                                        <div class="rw-info-row"><span class="rw-info-label">Trigger</span><span class="rw-info-value">@_pendingDecisionPrompt.DecisionPoint.TriggerSource</span></div>
+                                    </div>
+
+                                    @if (!string.IsNullOrWhiteSpace(_decisionPromptError))
+                                    {
+                                        <div class="rw-error-inline" style="margin-top:10px;">@_decisionPromptError</div>
+                                    }
+
+                                    <div class="rw-modal-actions" style="justify-content:flex-end; padding:8px 0 0 0;">
+                                        <button class="rw-btn rw-btn-secondary"
+                                                disabled="@_decisionPromptSubmitting"
+                                                @onclick="DeferDecisionPrompt">
+                                            Ask Me Later
+                                        </button>
+                                    </div>
+
+                                    @foreach (var option in _pendingDecisionPrompt.Options)
+                                    {
+                                        <div class="rw-scenario-field" style="margin-top:10px;">
+                                            <label class="rw-scenario-field-label">@option.DisplayText</label>
+                                            <div class="rw-settings-info-row"><span>Choice Id</span><span>@option.OptionId</span></div>
+                                            <div class="rw-settings-info-row"><span>Result</span><span>@FormatDecisionDeltas(option.StatDeltaMap)</span></div>
+
+                                            @if (option.IsCustomResponseFallback)
+                                            {
+                                                <textarea class="rw-rewrite-textarea"
+                                                          placeholder="Describe your custom choice..."
+                                                          @bind="_decisionCustomResponse"
+                                                          @bind:event="oninput"></textarea>
+                                            }
+
+                                            <div class="rw-modal-actions" style="justify-content:flex-end; padding:8px 0 0 0;">
+                                                <button class="rw-btn rw-btn-primary"
+                                                        disabled="@(_decisionPromptSubmitting || (option.IsCustomResponseFallback && string.IsNullOrWhiteSpace(_decisionCustomResponse)))"
+                                                        @onclick="@(() => ApplyDecisionOptionAsync(option))">
+                                                    Apply Choice
+                                                </button>
+                                            </div>
+                                        </div>
+                                    }
                                 </div>
                             </div>
                         </div>
@@ -2890,7 +3069,7 @@
                             </select>
                         </div>
                         <div class="rw-scenario-field">
-                            <label class="rw-scenario-field-label">Base Intensity Profile</label>
+                            <label class="rw-scenario-field-label">Active Intensity Profile</label>
                             <select class="rw-mode-select"
                                     value="@_session.SelectedIntensityProfileId"
                                     @onchange="OnIntensityProfileChanged">
@@ -2944,11 +3123,11 @@
                                    @onchange="@(e => { _session.IsIntensityManuallyPinned = e.Value is bool b && b; _ = SaveSessionSettingsAsync(); })" />
                         </div>
                         <div class="rw-settings-info-row">
-                            <span>Base Intensity Profile</span>
-                            <span>@GetBaseIntensityProfileLabel()</span>
+                            <span>Selected Intensity Profile</span>
+                            <span>@GetSelectedIntensityProfileName()</span>
                         </div>
                         <div class="rw-settings-info-row">
-                            <span>Active Intensity Profile</span>
+                            <span>Adaptive Intensity Profile</span>
                             <span>@GetActiveIntensityProfileLabel()</span>
                         </div>
                         <div class="rw-settings-info-row">
@@ -2959,34 +3138,6 @@
                             <span>Resolution Reason</span>
                             <span>@GetEffectiveStyleReason()</span>
                         </div>
-                    </div>
-
-                    <div class="rw-settings-section">
-                        <div class="rw-settings-section-label">Profile Steering (Prompt Input)</div>
-                        @if (string.IsNullOrWhiteSpace(_session.SelectedThemeProfileId))
-                        {
-                            <p class="rw-scenario-empty">No theme profile selected for this session.</p>
-                        }
-                        else if (_activeProfileThemes.Count == 0)
-                        {
-                            <p class="rw-scenario-empty">Selected profile has no themes.</p>
-                        }
-                        else
-                        {
-                            @foreach (var group in _activeProfileThemes.GroupBy(x => x.Tier).OrderBy(g => GetTierPriority(g.Key)))
-                            {
-                                <div class="rw-scenario-field" style="margin-bottom:10px;">
-                                    <label class="rw-scenario-field-label">@FormatTier(group.Key) (@group.Count())</label>
-                                    @foreach (var theme in group.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
-                                    {
-                                        <div class="rw-settings-info-row">
-                                            <span>@theme.Name</span>
-                                            <span>@(string.IsNullOrWhiteSpace(theme.Description) ? "(no description)" : theme.Description)</span>
-                                        </div>
-                                    }
-                                </div>
-                            }
-                        }
                     </div>
 
                     <div class="rw-settings-section">
@@ -3001,7 +3152,13 @@
                             {
                                 <div class="rw-scenario-field" style="margin-bottom:10px;">
                                     <label class="rw-scenario-field-label">@actorStats.Key</label>
-                                    @foreach (var stat in actorStats.Value.Stats.OrderBy(x => x.Key))
+                                    @foreach (var statName in AdaptiveStatCatalog.CanonicalStatNames)
+                                    {
+                                        <div class="rw-settings-info-row"><span>@statName</span><span>@GetCharacterStatValue(actorStats.Value, statName)</span></div>
+                                    }
+                                    @foreach (var stat in actorStats.Value.Stats
+                                        .Where(x => !AdaptiveStatCatalog.CanonicalStatNames.Contains(x.Key, StringComparer.OrdinalIgnoreCase))
+                                        .OrderBy(x => x.Key))
                                     {
                                         <div class="rw-settings-info-row"><span>@stat.Key</span><span>@stat.Value</span></div>
                                     }
@@ -3011,86 +3168,64 @@
                     </div>
 
                     <div class="rw-settings-section">
-                        <div class="rw-settings-section-label">Theme Tracker</div>
-                        <div class="rw-settings-info-row"><span>Selection Rule</span><span>@_session.AdaptiveState.ThemeTracker.ThemeSelectionRule</span></div>
-                        <div class="rw-settings-info-row">
-                            <span>Primary Theme</span>
-                            <span>
-                                @if (!string.IsNullOrWhiteSpace(_session.AdaptiveState.ThemeTracker.PrimaryThemeId)
-                                    && _session.AdaptiveState.ThemeTracker.Themes.TryGetValue(_session.AdaptiveState.ThemeTracker.PrimaryThemeId, out var primaryTheme))
-                                {
-                                    @primaryTheme.ThemeName
-                                }
-                                else
-                                {
-                                    @("(none)")
-                                }
-                            </span>
-                        </div>
-                        <div class="rw-settings-info-row">
-                            <span>Secondary Theme</span>
-                            <span>
-                                @if (!string.IsNullOrWhiteSpace(_session.AdaptiveState.ThemeTracker.SecondaryThemeId)
-                                    && _session.AdaptiveState.ThemeTracker.Themes.TryGetValue(_session.AdaptiveState.ThemeTracker.SecondaryThemeId, out var secondaryTheme))
-                                {
-                                    @secondaryTheme.ThemeName
-                                }
-                                else
-                                {
-                                    @("(none)")
-                                }
-                            </span>
-                        </div>
-                        @if (_session.AdaptiveState.ThemeTracker.Themes.Count == 0)
+                        <div class="rw-settings-section-label">RolePlay v2 Runtime</div>
+                        <div class="rw-settings-info-row"><span>Current Phase</span><span>@_session.AdaptiveState.CurrentNarrativePhase</span></div>
+                        <div class="rw-settings-info-row"><span>Active Scenario</span><span>@(string.IsNullOrWhiteSpace(_session.AdaptiveState.ActiveScenarioId) ? "(none)" : _session.AdaptiveState.ActiveScenarioId)</span></div>
+                        <div class="rw-settings-info-row"><span>Interactions Since Commitment</span><span>@_session.AdaptiveState.InteractionsSinceCommitment</span></div>
+                        <div class="rw-settings-info-row"><span>Interactions In Approaching</span><span>@_session.AdaptiveState.InteractionsInApproaching</span></div>
+                        <div class="rw-settings-info-row"><span>Completed Scenarios</span><span>@_session.AdaptiveState.CompletedScenarios</span></div>
+                        @if (_v2Diagnostics is not null)
                         {
-                            <p class="rw-scenario-empty">No tracked themes yet.</p>
+                            var latestTransition = _v2Diagnostics.TransitionEvents.OrderByDescending(x => x.OccurredUtc).FirstOrDefault();
+                            var latestDecision = _v2Diagnostics.DecisionPoints.OrderByDescending(x => x.CreatedUtc).FirstOrDefault();
+                            var topCandidate = _v2Diagnostics.CandidateEvaluations.OrderByDescending(x => x.Confidence).ThenByDescending(x => x.FitScore).FirstOrDefault();
+
+                            if (latestTransition is not null)
+                            {
+                                <div class="rw-settings-info-row"><span>Latest Transition</span><span>@($"{latestTransition.FromPhase} -> {latestTransition.ToPhase}")</span></div>
+                                <div class="rw-settings-info-row"><span>Transition Reason</span><span>@latestTransition.ReasonCode</span></div>
+                            }
+                            else
+                            {
+                                <div class="rw-settings-info-row"><span>Latest Transition</span><span>(none)</span></div>
+                            }
+
+                            if (latestDecision is not null)
+                            {
+                                <div class="rw-settings-info-row"><span>Latest Decision Trigger</span><span>@latestDecision.TriggerSource</span></div>
+                                <div class="rw-settings-info-row"><span>Latest Decision Options</span><span>@string.Join(" | ", latestDecision.OptionIds)</span></div>
+                            }
+                            else
+                            {
+                                <div class="rw-settings-info-row"><span>Latest Decision</span><span>(none)</span></div>
+                            }
+
+                            if (topCandidate is not null)
+                            {
+                                <div class="rw-settings-info-row"><span>Top Candidate</span><span>@topCandidate.ScenarioId</span></div>
+                                <div class="rw-settings-info-row"><span>Top Candidate Confidence</span><span>@topCandidate.Confidence.ToString("F2")</span></div>
+                                <div class="rw-settings-info-row"><span>Top Candidate Fit</span><span>@topCandidate.FitScore.ToString("F1")</span></div>
+                            }
                         }
                         else
                         {
-                            @foreach (var theme in _session.AdaptiveState.ThemeTracker.Themes.Values.OrderByDescending(x => x.Score))
-                            {
-                                <div class="rw-scenario-field" style="margin-bottom:10px;">
-                                    <label class="rw-scenario-field-label">
-                                        @theme.ThemeName
-                                        @if (theme.Blocked)
-                                        {
-                                            <span style="margin-left:6px;" title="Blocked (HardDealBreaker)">🔒</span>
-                                        }
-                                    </label>
-                                    <div class="rw-settings-info-row"><span>Intensity</span><span>@theme.Intensity</span></div>
-                                    <div class="rw-settings-info-row"><span>Score</span><span>@theme.Score.ToString("F1")</span></div>
-                                    @if (theme.Blocked)
-                                    {
-                                        <div class="rw-settings-info-row"><span>Suppressed Hits</span><span>🔒 @theme.SuppressedHitCount</span></div>
-                                    }
-                                    <div class="rw-settings-info-row"><span>Choice Signal</span><span>@theme.Breakdown.ChoiceSignal.ToString("F1")</span></div>
-                                    <div class="rw-settings-info-row"><span>Character Signal</span><span>@theme.Breakdown.CharacterStateSignal.ToString("F1")</span></div>
-                                    <div class="rw-settings-info-row"><span>Interaction Signal</span><span>@theme.Breakdown.InteractionEvidenceSignal.ToString("F1")</span></div>
-                                    <div class="rw-settings-info-row"><span>Phase Signal</span><span>@theme.Breakdown.ScenarioPhaseSignal.ToString("F1")</span></div>
-                                </div>
-                            }
+                            <p class="rw-scenario-empty">v2 runtime diagnostics are not available yet.</p>
                         }
                     </div>
 
                     <div class="rw-settings-section">
-                        <div class="rw-settings-section-label">Explainability Events</div>
-                        @if (_session.AdaptiveState.ThemeTracker.RecentEvidence.Count == 0)
+                        <div class="rw-settings-section-label">RolePlay v2 Diagnostics</div>
+                        @if (_v2Diagnostics is null)
                         {
-                            <p class="rw-scenario-empty">No evidence events yet.</p>
+                            <p class="rw-scenario-empty">Diagnostics are not available yet.</p>
                         }
                         else
                         {
-                            @foreach (var ev in _session.AdaptiveState.ThemeTracker.RecentEvidence.TakeLast(20).Reverse())
-                            {
-                                <div class="rw-scenario-field" style="margin-bottom:10px;">
-                                    <div class="rw-settings-info-row"><span>Theme</span><span>@ev.ThemeId</span></div>
-                                    <div class="rw-settings-info-row"><span>Signal</span><span>@ev.SignalType</span></div>
-                                    <div class="rw-settings-info-row"><span>Delta</span><span>@ev.Delta.ToString("F1")</span></div>
-                                    <div class="rw-settings-info-row"><span>Confidence</span><span>@ev.Confidence.ToString("F2")</span></div>
-                                    <div class="rw-settings-info-row"><span>Interaction</span><span>@ev.InteractionId</span></div>
-                                    <div class="rw-settings-info-row"><span>Why</span><span>@ev.Rationale</span></div>
-                                </div>
-                            }
+                            <div class="rw-settings-info-row"><span>Correlation</span><span>@_v2Diagnostics.CorrelationId</span></div>
+                            <div class="rw-settings-info-row"><span>Candidate Evaluations</span><span>@_v2Diagnostics.CandidateEvaluations.Count</span></div>
+                            <div class="rw-settings-info-row"><span>Transitions</span><span>@_v2Diagnostics.TransitionEvents.Count</span></div>
+                            <div class="rw-settings-info-row"><span>Decision Points</span><span>@_v2Diagnostics.DecisionPoints.Count</span></div>
+                            <div class="rw-settings-info-row"><span>Compatibility Errors</span><span>@_v2Diagnostics.CompatibilityErrors.Count</span></div>
                         }
                     </div>
                 </div>

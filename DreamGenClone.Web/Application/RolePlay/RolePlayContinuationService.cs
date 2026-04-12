@@ -4,10 +4,12 @@ using System.Diagnostics;
 using System.Text.RegularExpressions;
 using DreamGenClone.Application.Abstractions;
 using DreamGenClone.Application.ModelManager;
+using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Application.StoryAnalysis;
 using DreamGenClone.Application.StoryAnalysis.Models;
 using DreamGenClone.Domain.StoryAnalysis;
 using DreamGenClone.Domain.ModelManager;
+using DreamGenClone.Infrastructure.Logging;
 using DreamGenClone.Web.Application.Models;
 using DreamGenClone.Web.Application.Scenarios;
 using DreamGenClone.Web.Domain.RolePlay;
@@ -37,6 +39,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
     private readonly ISteeringProfileService _steeringProfileService;
     private readonly IScenarioGuidanceContextFactory _scenarioGuidanceContextFactory;
     private readonly IRolePlayDebugEventSink _debugEventSink;
+    private readonly IRolePlayDiagnosticsService? _diagnosticsService;
     private readonly ILogger<RolePlayContinuationService> _logger;
 
     public RolePlayContinuationService(
@@ -50,7 +53,8 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         ISteeringProfileService styleProfileService,
         IScenarioGuidanceContextFactory scenarioGuidanceContextFactory,
         IRolePlayDebugEventSink debugEventSink,
-        ILogger<RolePlayContinuationService> logger)
+        ILogger<RolePlayContinuationService> logger,
+        IRolePlayDiagnosticsService? diagnosticsService = null)
     {
         _completionClient = completionClient;
         _modelResolver = modelResolver;
@@ -62,6 +66,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         _steeringProfileService = styleProfileService;
         _scenarioGuidanceContextFactory = scenarioGuidanceContextFactory;
         _debugEventSink = debugEventSink;
+        _diagnosticsService = diagnosticsService;
         _logger = logger;
     }
 
@@ -78,7 +83,23 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
 
         var correlationId = Guid.NewGuid().ToString("N");
         var actorLabel = string.IsNullOrWhiteSpace(customActorName) ? actor.ToString() : customActorName;
+        var diagnostics = _diagnosticsService is null
+            ? null
+            : await _diagnosticsService.GetSnapshotAsync(session.Id, correlationId, cancellationToken);
+
         var prompt = await BuildPromptAsync(session, actor, customActorName, intent, promptText, cancellationToken);
+        if (diagnostics is not null)
+        {
+            prompt = $"[V2 Diagnostics: candidates={diagnostics.CandidateEvaluations.Count}, transitions={diagnostics.TransitionEvents.Count}, decisions={diagnostics.DecisionPoints.Count}]\n{prompt}";
+            _logger.LogInformation(
+                RolePlayV2LogEvents.DiagnosticsSnapshotPublished,
+                diagnostics.SessionId,
+                diagnostics.CorrelationId,
+                diagnostics.CandidateEvaluations.Count,
+                diagnostics.TransitionEvents.Count,
+                diagnostics.DecisionPoints.Count,
+                diagnostics.CompatibilityErrors.Count);
+        }
         await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
         {
             SessionId = session.Id,

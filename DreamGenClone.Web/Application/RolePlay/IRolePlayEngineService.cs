@@ -1,4 +1,5 @@
 using DreamGenClone.Web.Domain.RolePlay;
+using DreamGenClone.Application.RolePlay;
 
 namespace DreamGenClone.Web.Application.RolePlay;
 
@@ -49,6 +50,15 @@ public interface IRolePlayEngineService
     Task<ContinueAsResult> ContinueAsAsync(
         ContinueAsRequest request,
         Func<string, Task>? onChunk = null,
+        CancellationToken cancellationToken = default);
+
+    Task<RolePlayPendingDecisionPrompt?> GetPendingDecisionPromptAsync(string sessionId, CancellationToken cancellationToken = default);
+
+    Task<DecisionOutcome?> ApplyDecisionAsync(
+        string sessionId,
+        string decisionPointId,
+        string optionId,
+        string? customResponseText = null,
         CancellationToken cancellationToken = default);
 
     Task<bool> DeleteSessionAsync(string sessionId, CancellationToken cancellationToken = default);
