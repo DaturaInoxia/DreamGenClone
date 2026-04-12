@@ -1,9 +1,13 @@
 using CoreAutoSaveCoordinator = DreamGenClone.Application.Sessions.IAutoSaveCoordinator;
+using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Infrastructure.Configuration;
+using DreamGenClone.Infrastructure.RolePlay;
 using DreamGenClone.Web.Application.RolePlay;
 using DreamGenClone.Web.Application.Sessions;
 using DreamGenClone.Web.Domain.RolePlay;
 using DreamGenClone.Web.Domain.Story;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Xunit;
 
 namespace DreamGenClone.Tests.RolePlay;
@@ -43,6 +47,55 @@ public sealed class RolePlaySessionLifecycleTests
         Assert.True(deleted);
         Assert.Equal(created.Id, sessionService.LastDeletedSessionId);
         Assert.Null(loaded);
+    }
+
+    [Fact]
+    public async Task V2StatePersistenceReload_RemainsConsistent()
+    {
+        var dbPath = Path.Combine(Path.GetTempPath(), $"dreamgenclone-v2-{Guid.NewGuid():N}.db");
+        try
+        {
+            var repository = new RolePlayStateRepository(Options.Create(new PersistenceOptions { ConnectionString = $"Data Source={dbPath}" }));
+            await CreateV2TablesAsync(dbPath);
+
+            var state = new AdaptiveScenarioState
+            {
+                SessionId = "session-v2",
+                ActiveScenarioId = "scenario-a",
+                CurrentPhase = NarrativePhase.Committed,
+                InteractionCountInPhase = 2,
+                ConsecutiveLeadCount = 1,
+                CycleIndex = 3,
+                ActiveFormulaVersion = "rpv2-default",
+                CharacterSnapshots =
+                [
+                    new CharacterStatProfileV2 { CharacterId = "char-a", Desire = 60, Restraint = 45, Tension = 58, Connection = 55, Dominance = 50, Loyalty = 60, SelfRespect = 50 }
+                ]
+            };
+
+            await repository.SaveAdaptiveStateAsync(state);
+            var reloaded = await repository.LoadAdaptiveStateAsync("session-v2");
+
+            Assert.NotNull(reloaded);
+            Assert.Equal(state.ActiveScenarioId, reloaded!.ActiveScenarioId);
+            Assert.Equal(state.CurrentPhase, reloaded.CurrentPhase);
+            Assert.Single(reloaded.CharacterSnapshots);
+            Assert.Equal(60, reloaded.CharacterSnapshots[0].Desire);
+        }
+        finally
+        {
+            if (File.Exists(dbPath))
+            {
+                try
+                {
+                    File.Delete(dbPath);
+                }
+                catch (IOException)
+                {
+                    // SQLite may briefly hold file handles after async disposal on some systems.
+                }
+            }
+        }
     }
 
     private static (RolePlayEngineService Service, FakeSessionService SessionService) CreateService()
@@ -175,5 +228,27 @@ public sealed class RolePlaySessionLifecycleTests
             LastDeletedSessionId = sessionId;
             return Task.FromResult(_sessions.Remove(sessionId));
         }
+    }
+
+    private static async Task CreateV2TablesAsync(string dbPath)
+    {
+        await using var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath}");
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            CREATE TABLE IF NOT EXISTS RolePlayV2AdaptiveStates (
+                SessionId TEXT PRIMARY KEY,
+                ActiveScenarioId TEXT NULL,
+                CurrentPhase TEXT NOT NULL,
+                InteractionCountInPhase INTEGER NOT NULL,
+                ConsecutiveLeadCount INTEGER NOT NULL,
+                LastEvaluationUtc TEXT NOT NULL,
+                CycleIndex INTEGER NOT NULL,
+                ActiveFormulaVersion TEXT NOT NULL,
+                CharacterSnapshotsJson TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL
+            );
+            """;
+        await command.ExecuteNonQueryAsync();
     }
 }

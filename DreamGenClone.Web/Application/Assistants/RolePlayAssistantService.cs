@@ -1,7 +1,9 @@
 using System.Text;
 using DreamGenClone.Application.Abstractions;
 using DreamGenClone.Application.ModelManager;
+using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Domain.ModelManager;
+using DreamGenClone.Infrastructure.Logging;
 using Microsoft.Extensions.Logging;
 
 namespace DreamGenClone.Web.Application.Assistants;
@@ -11,17 +13,20 @@ public sealed class RolePlayAssistantService : IRolePlayAssistantService
     private readonly ICompletionClient _completionClient;
     private readonly IModelResolutionService _modelResolver;
     private readonly IAssistantContextManager _contextManager;
+    private readonly IRolePlayDiagnosticsService? _diagnosticsService;
     private readonly ILogger<RolePlayAssistantService> _logger;
 
     public RolePlayAssistantService(
         ICompletionClient completionClient,
         IModelResolutionService modelResolver,
         IAssistantContextManager contextManager,
-        ILogger<RolePlayAssistantService> logger)
+        ILogger<RolePlayAssistantService> logger,
+        IRolePlayDiagnosticsService? diagnosticsService = null)
     {
         _completionClient = completionClient;
         _modelResolver = modelResolver;
         _contextManager = contextManager;
+        _diagnosticsService = diagnosticsService;
         _logger = logger;
     }
 
@@ -56,7 +61,11 @@ public sealed class RolePlayAssistantService : IRolePlayAssistantService
         _contextManager.AddUserMessage(sessionId, userPrompt);
 
         // Build the user message with conversation context and session state
-        var userMessage = BuildUserMessage(sessionId, context, userPrompt);
+        var diagnostics = _diagnosticsService is null
+            ? null
+            : await _diagnosticsService.GetSnapshotAsync(sessionId, cancellationToken: cancellationToken);
+
+        var userMessage = BuildUserMessage(sessionId, context, userPrompt, diagnostics);
         _logger.LogInformation("Role-play assistant request initiated for session {SessionId}", sessionId);
 
         var resolved = await _modelResolver.ResolveAsync(
@@ -78,6 +87,18 @@ public sealed class RolePlayAssistantService : IRolePlayAssistantService
         // Add assistant response to conversation history
         _contextManager.AddAssistantResponse(sessionId, trimmedResponse);
 
+        if (diagnostics is not null)
+        {
+            _logger.LogInformation(
+                RolePlayV2LogEvents.DiagnosticsSnapshotPublished,
+                diagnostics.SessionId,
+                diagnostics.CorrelationId,
+                diagnostics.CandidateEvaluations.Count,
+                diagnostics.TransitionEvents.Count,
+                diagnostics.DecisionPoints.Count,
+                diagnostics.CompatibilityErrors.Count);
+        }
+
         _logger.LogInformation("Role-play assistant suggestion generated for session {SessionId}", sessionId);
         return trimmedResponse;
     }
@@ -96,7 +117,11 @@ public sealed class RolePlayAssistantService : IRolePlayAssistantService
 
         _contextManager.AddUserMessage(sessionId, userPrompt);
 
-        var userMessage = BuildUserMessage(sessionId, context, userPrompt);
+        var diagnostics = _diagnosticsService is null
+            ? null
+            : await _diagnosticsService.GetSnapshotAsync(sessionId, cancellationToken: cancellationToken);
+
+        var userMessage = BuildUserMessage(sessionId, context, userPrompt, diagnostics);
         _logger.LogInformation("Role-play assistant streaming request initiated for session {SessionId}", sessionId);
 
         var resolved = await _modelResolver.ResolveAsync(
@@ -118,6 +143,18 @@ public sealed class RolePlayAssistantService : IRolePlayAssistantService
 
         _contextManager.AddAssistantResponse(sessionId, trimmedResponse);
 
+        if (diagnostics is not null)
+        {
+            _logger.LogInformation(
+                RolePlayV2LogEvents.DiagnosticsSnapshotPublished,
+                diagnostics.SessionId,
+                diagnostics.CorrelationId,
+                diagnostics.CandidateEvaluations.Count,
+                diagnostics.TransitionEvents.Count,
+                diagnostics.DecisionPoints.Count,
+                diagnostics.CompatibilityErrors.Count);
+        }
+
         _logger.LogInformation("Role-play assistant streaming suggestion generated for session {SessionId}", sessionId);
         return trimmedResponse;
     }
@@ -128,7 +165,7 @@ public sealed class RolePlayAssistantService : IRolePlayAssistantService
         _logger.LogInformation("Cleared role-play assistant chat for session {SessionId}", sessionId);
     }
 
-    private string BuildUserMessage(string sessionId, RolePlayAssistantContext context, string userPrompt)
+    private string BuildUserMessage(string sessionId, RolePlayAssistantContext context, string userPrompt, RolePlayV2DiagnosticsSnapshot? diagnostics)
     {
         var sb = new StringBuilder();
 
@@ -238,6 +275,11 @@ public sealed class RolePlayAssistantService : IRolePlayAssistantService
         if (!string.IsNullOrWhiteSpace(context.SessionModelId))
         {
             sb.AppendLine($"[Generation Model Settings: temp={context.SessionTemperature:F2}, topP={context.SessionTopP:F2}, maxTokens={context.SessionMaxTokens}]");
+        }
+
+        if (diagnostics is not null)
+        {
+            sb.AppendLine($"[Diagnostics: candidates={diagnostics.CandidateEvaluations.Count}, transitions={diagnostics.TransitionEvents.Count}, decisions={diagnostics.DecisionPoints.Count}, errors={diagnostics.CompatibilityErrors.Count}]");
         }
 
         // Include conversation history with truncation

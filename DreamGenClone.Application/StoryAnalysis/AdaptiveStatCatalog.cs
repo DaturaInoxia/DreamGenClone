@@ -55,6 +55,20 @@ public static class AdaptiveStatCatalog
             Description = "Perceived ability to choose, act, and steer outcomes.",
             LowMeaning = "Passive, cornered, or acted upon.",
             HighMeaning = "Decisive, self-directed, and in control of choices."
+        },
+        new AdaptiveStatDefinition
+        {
+            Name = "Loyalty",
+            Description = "Strength of commitment and bond to the current relationship dynamic.",
+            LowMeaning = "Detached, opportunistic, or weakly committed.",
+            HighMeaning = "Steadfast, committed, and invested in continuity."
+        },
+        new AdaptiveStatDefinition
+        {
+            Name = "SelfRespect",
+            Description = "Stability of personal boundaries and self-valuing under pressure.",
+            LowMeaning = "Boundary erosion, self-compromise, or diminished self-regard.",
+            HighMeaning = "Firm boundaries, self-valuing, and principled choices."
         }
     ];
 

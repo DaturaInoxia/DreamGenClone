@@ -32,6 +32,9 @@ using DreamGenClone.Infrastructure.Administration;
 using DreamGenClone.Infrastructure.ModelManager;
 using DreamGenClone.Web.Application.Administration;
 using DreamGenClone.Web.Application.ModelManager;
+using DreamGenClone.Application.RolePlay;
+using DreamGenClone.Infrastructure.RolePlay;
+using Serilog.Context;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -74,6 +77,7 @@ builder.Services.AddSingleton<IAssistantContextManager, AssistantContextManager>
 builder.Services.AddScoped<IWritingAssistantService, WritingAssistantService>();
 builder.Services.AddScoped<IRolePlayAssistantService, RolePlayAssistantService>();
 builder.Services.AddScoped<IScenarioAssistantService, ScenarioAssistantService>();
+builder.Services.AddScoped<RolePlayPromptComposer>();
 builder.Services.AddScoped<IRolePlayEngineService, RolePlayEngineService>();
 builder.Services.AddScoped<IRolePlayContinuationService, RolePlayContinuationService>();
 builder.Services.AddScoped<IRolePlayAdaptiveStateService, RolePlayAdaptiveStateService>();
@@ -84,6 +88,15 @@ builder.Services.AddScoped<IRolePlayCommandValidator, RolePlayCommandValidator>(
 builder.Services.AddScoped<IRolePlayBranchService, RolePlayBranchService>();
 builder.Services.AddScoped<IInteractionCommandService, InteractionCommandService>();
 builder.Services.AddScoped<IInteractionRetryService, InteractionRetryService>();
+builder.Services.AddScoped<IScenarioSelectionService, ScenarioSelectionService>();
+builder.Services.AddScoped<IScenarioLifecycleService, ScenarioLifecycleService>();
+builder.Services.AddScoped<IConceptInjectionService, ConceptInjectionService>();
+builder.Services.AddScoped<IDecisionPointService, DecisionPointService>();
+builder.Services.AddScoped<IOverrideAuthorizationService, OverrideAuthorizationService>();
+builder.Services.AddScoped<IRolePlayV2StateRepository, RolePlayStateRepository>();
+builder.Services.AddScoped<IRolePlayDiagnosticsRepository, RolePlayDiagnosticsRepository>();
+builder.Services.AddScoped<IRolePlayDiagnosticsService, RolePlayDiagnosticsService>();
+builder.Services.AddScoped<RolePlaySessionCompatibilityService>();
 builder.Services.AddScoped<RolePlayDebugEventService>();
 builder.Services.AddScoped<IRolePlayDebugEventSink>(sp => sp.GetRequiredService<RolePlayDebugEventService>());
 builder.Services.AddSingleton<IModelSettingsService, ModelSettingsService>();
@@ -182,6 +195,14 @@ if (!app.Environment.IsDevelopment())
 {
     app.UseHttpsRedirection();
 }
+
+app.Use(async (context, next) =>
+{
+    using (LogContext.PushProperty("CorrelationId", context.TraceIdentifier))
+    {
+        await next();
+    }
+});
 
 
 app.UseAntiforgery();
