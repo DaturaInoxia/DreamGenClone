@@ -105,8 +105,13 @@ builder.Services.AddScoped<IThemePreferenceService, ThemePreferenceService>();
 builder.Services.AddScoped<IIntensityProfileService, IntensityProfileService>();
 builder.Services.AddScoped<ISteeringProfileService, SteeringProfileService>();
 builder.Services.AddScoped<IThemeCatalogService, ThemeCatalogService>();
+builder.Services.AddScoped<IThemeDefinitionParser, ThemeDefinitionParser>();
+builder.Services.AddScoped<IThemeDefinitionService, ThemeDefinitionService>();
 builder.Services.AddScoped<IBaseStatProfileService, BaseStatProfileService>();
 builder.Services.AddScoped<IPromptDealbreakerService, PromptDealbreakerService>();
+builder.Services.AddScoped<IScenarioSelectionEngine, ScenarioSelectionEngine>();
+builder.Services.AddScoped<INarrativePhaseManager, NarrativePhaseManager>();
+builder.Services.AddScoped<IScenarioGuidanceContextFactory, ScenarioGuidanceContextFactory>();
 builder.Services.AddScoped<IStoryRankingService, StoryRankingService>();
 builder.Services.AddScoped<StoryAnalysisFacade>();
 

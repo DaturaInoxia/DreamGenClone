@@ -1,9 +1,11 @@
 using System.Text;
 using System.Text.Json;
 using System.Diagnostics;
+using System.Text.RegularExpressions;
 using DreamGenClone.Application.Abstractions;
 using DreamGenClone.Application.ModelManager;
 using DreamGenClone.Application.StoryAnalysis;
+using DreamGenClone.Application.StoryAnalysis.Models;
 using DreamGenClone.Domain.StoryAnalysis;
 using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Web.Application.Models;
@@ -15,6 +17,16 @@ namespace DreamGenClone.Web.Application.RolePlay;
 
 public sealed class RolePlayContinuationService : IRolePlayContinuationService
 {
+    private const int NarrativeValidationRetryLimit = 1;
+    private const int NarrativeQuotedBlockRetryThreshold = 2;
+    private const int NarrativeQuotedBlockHardViolationThreshold = 4;
+    private const double NarrativeQuotedTextRatioRetryThreshold = 0.20;
+
+    private static readonly Regex QuotedBlockRegex = new("\"[^\"\\r\\n]{2,}\"", RegexOptions.Compiled);
+    private static readonly Regex FirstPersonLeakRegex = new("\\b(I|me|my|mine|myself)\\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex CharacterInteriorityRegex = new("\\b[A-Z][a-zA-Z'-]{1,}\\s+(thought|felt|wondered|remembered|realized|decided|knew)\\b", RegexOptions.Compiled);
+    private static readonly Regex DialogueAttributionRegex = new("\\b(said|asked|whispered|murmured|replied|snapped|called)\\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
     private readonly ICompletionClient _completionClient;
     private readonly IModelResolutionService _modelResolver;
     private readonly IModelSettingsService _modelSettingsService;
@@ -23,6 +35,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
     private readonly IThemePreferenceService _themePreferenceService;
     private readonly IIntensityProfileService _intensityProfileService;
     private readonly ISteeringProfileService _steeringProfileService;
+    private readonly IScenarioGuidanceContextFactory _scenarioGuidanceContextFactory;
     private readonly IRolePlayDebugEventSink _debugEventSink;
     private readonly ILogger<RolePlayContinuationService> _logger;
 
@@ -35,6 +48,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         IThemePreferenceService themePreferenceService,
         IIntensityProfileService toneProfileService,
         ISteeringProfileService styleProfileService,
+        IScenarioGuidanceContextFactory scenarioGuidanceContextFactory,
         IRolePlayDebugEventSink debugEventSink,
         ILogger<RolePlayContinuationService> logger)
     {
@@ -46,6 +60,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         _themePreferenceService = themePreferenceService;
         _intensityProfileService = toneProfileService;
         _steeringProfileService = styleProfileService;
+        _scenarioGuidanceContextFactory = scenarioGuidanceContextFactory;
         _debugEventSink = debugEventSink;
         _logger = logger;
     }
@@ -259,7 +274,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                 sessionTopP: narrativeSettings.SessionModelId != null ? narrativeSettings.TopP : null,
                 sessionMaxTokens: narrativeSettings.SessionModelId != null ? narrativeSettings.MaxTokens : null,
                 cancellationToken: cancellationToken);
-            var output = await _completionClient.GenerateAsync(prompt, narrativeResolved, cancellationToken);
+            var output = await GenerateNarrativeWithValidationAsync(session, prompt, narrativeResolved, cancellationToken);
             result.NarrativeOutput = new RolePlayInteraction
             {
                 InteractionType = InteractionType.System,
@@ -545,6 +560,40 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             }
         }
 
+        var currentPhase = session.AdaptiveState.CurrentNarrativePhase.ToString();
+        var activeScenarioId = session.AdaptiveState.ActiveScenarioId;
+        var suppressedScenarioIds = session.AdaptiveState.ThemeTracker.Themes.Values
+            .Where(x => !string.Equals(x.ThemeId, activeScenarioId, StringComparison.OrdinalIgnoreCase)
+                && (x.SuppressedHitCount > 0 || x.IsScenarioCandidate))
+            .Select(x => x.ThemeId)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(6)
+            .ToList();
+
+        var guidanceContext = await _scenarioGuidanceContextFactory.CreateAsync(
+            new ScenarioGuidanceInput(
+                SessionId: session.Id,
+                CurrentPhase: currentPhase,
+                ActiveScenarioId: activeScenarioId,
+                AverageDesire: session.AdaptiveState.CharacterStats.Count == 0
+                    ? 50
+                    : session.AdaptiveState.CharacterStats.Values.Average(x => x.Stats.TryGetValue("Desire", out var v) ? v : 50),
+                AverageRestraint: session.AdaptiveState.CharacterStats.Count == 0
+                    ? 50
+                    : session.AdaptiveState.CharacterStats.Values.Average(x => x.Stats.TryGetValue("Restraint", out var v) ? v : 50),
+                SuppressedScenarioIds: suppressedScenarioIds),
+            cancellationToken);
+
+        var framingGuards = RolePlayAssistantPrompts.BuildFramingGuards(currentPhase, activeScenarioId);
+        RolePlayAssistantPrompts.AppendScenarioGuidance(sb, guidanceContext, framingGuards);
+
+        _logger.LogInformation(
+            "Guidance context generated for session {SessionId}: phase={Phase}, activeScenarioId={ActiveScenarioId}, excludedCount={ExcludedCount}",
+            session.Id,
+            currentPhase,
+            activeScenarioId,
+            guidanceContext.ExcludedScenarioIds.Count);
+
         var actorName = !string.IsNullOrWhiteSpace(customActorName)
             ? customActorName.Trim()
             : actor switch
@@ -694,7 +743,11 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                 $"Refer to {personaName} by name when needed — NEVER use \"I\" or first person. " +
                 "Treat this as omniscient scene narration: describe environment, pacing, transitions, and multi-character flow. " +
                 "Do not center the passage on one character's private feelings or inner monologue unless the user explicitly asks for that. " +
-                "Prefer externally observable actions, dialogue, body language, and scene-level state changes. " +
+                "Keep this section focused on scene description and transitions, not character back-and-forth dialogue. " +
+                "Use at most one short quoted line only when needed to bridge the scene naturally. " +
+                "Do NOT write extended dialogue exchanges in Narrative; those belong in character responses. " +
+                "Wrong: multiple quoted lines with character ping-pong. Right: a descriptive transition with maybe one brief spoken fragment. " +
+                "Prefer externally observable actions, body language, and scene-level state changes. " +
                 $"Use vivid sensory details and match the established tone ({styleHint}). Output 100-300 words.");
         }
         else
@@ -741,5 +794,167 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
 
         sb.AppendLine("Treat goals and conflicts as higher-level soft priorities than narrative guidelines. Advance them when the scene allows, but do not force abrupt jumps or resolve everything immediately. Ignore any of these only when the current instruction, scene reality, or hard safety constraints require otherwise.");
     }
+
+    private async Task<string> GenerateNarrativeWithValidationAsync(
+        RolePlaySession session,
+        string prompt,
+        ResolvedModel resolved,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = Guid.NewGuid().ToString("N");
+
+        var firstOutput = await _completionClient.GenerateAsync(prompt, resolved, cancellationToken);
+        var firstAnalysis = AnalyzeNarrativeOutput(firstOutput);
+        await WriteNarrativeValidationEventAsync(session, correlationId, 0, firstAnalysis, cancellationToken);
+
+        if (!firstAnalysis.ShouldRetry)
+        {
+            return string.IsNullOrWhiteSpace(firstOutput) ? "(No output generated)" : firstOutput.Trim();
+        }
+
+        var retryPrompt = BuildNarrativeCorrectionPrompt(prompt);
+        var bestOutput = firstOutput;
+        var bestAnalysis = firstAnalysis;
+
+        for (var attempt = 1; attempt <= NarrativeValidationRetryLimit; attempt++)
+        {
+            var retryOutput = await _completionClient.GenerateAsync(retryPrompt, resolved, cancellationToken);
+            var retryAnalysis = AnalyzeNarrativeOutput(retryOutput);
+            await WriteNarrativeValidationEventAsync(session, correlationId, attempt, retryAnalysis, cancellationToken);
+
+            if (retryAnalysis.Score <= bestAnalysis.Score)
+            {
+                bestOutput = retryOutput;
+                bestAnalysis = retryAnalysis;
+            }
+
+            if (!retryAnalysis.ShouldRetry)
+            {
+                break;
+            }
+        }
+
+        if (bestAnalysis.HasViolation)
+        {
+            _logger.LogWarning(
+                "Narrative validation retained best-effort output in session {SessionId}; score={Score}, quotedBlocks={QuotedBlocks}",
+                session.Id,
+                bestAnalysis.Score,
+                bestAnalysis.QuotedBlockCount);
+        }
+
+        return string.IsNullOrWhiteSpace(bestOutput) ? "(No output generated)" : bestOutput.Trim();
+    }
+
+    private async Task WriteNarrativeValidationEventAsync(
+        RolePlaySession session,
+        string correlationId,
+        int attempt,
+        NarrativeValidationResult analysis,
+        CancellationToken cancellationToken)
+    {
+        await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+        {
+            SessionId = session.Id,
+            CorrelationId = correlationId,
+            EventKind = "NarrativeValidation",
+            Severity = analysis.HasViolation ? "Warning" : "Info",
+            ActorName = "Narrative",
+            Summary = analysis.HasViolation
+                ? $"Narrative output flagged on attempt {attempt}"
+                : $"Narrative output accepted on attempt {attempt}",
+            MetadataJson = JsonSerializer.Serialize(new
+            {
+                attempt,
+                analysis.Score,
+                analysis.HasViolation,
+                analysis.ShouldRetry,
+                analysis.QuotedBlockCount,
+                analysis.QuotedTextRatio,
+                analysis.DialogueAttributionCount,
+                analysis.FirstPersonLeakCount,
+                analysis.CharacterInteriorityCount
+            })
+        }, cancellationToken);
+    }
+
+    private static string BuildNarrativeCorrectionPrompt(string originalPrompt)
+    {
+        return $"{originalPrompt}\n\nRevision required: rewrite as pure scene narration and transitions. Keep third person only. Avoid dialogue exchanges; use zero or one short quoted fragment at most. Remove character-centered inner-thought sentences.";
+    }
+
+    private static NarrativeValidationResult AnalyzeNarrativeOutput(string? output)
+    {
+        if (string.IsNullOrWhiteSpace(output))
+        {
+            return new NarrativeValidationResult(HasViolation: false, ShouldRetry: false, Score: 0, QuotedBlockCount: 0, QuotedTextRatio: 0d, DialogueAttributionCount: 0, FirstPersonLeakCount: 0, CharacterInteriorityCount: 0);
+        }
+
+        var text = output.Trim();
+        var quotedMatches = QuotedBlockRegex.Matches(text);
+        var quotedLength = quotedMatches.Cast<Match>().Sum(m => m.Length);
+        var quotedRatio = text.Length == 0 ? 0d : (double)quotedLength / text.Length;
+        var quotedCount = quotedMatches.Count;
+        var attributionCount = DialogueAttributionRegex.Matches(text).Count;
+        var firstPersonCount = FirstPersonLeakRegex.Matches(text).Count;
+        var interiorityCount = CharacterInteriorityRegex.Matches(text).Count;
+
+        var score = 0;
+        if (quotedCount >= NarrativeQuotedBlockRetryThreshold)
+        {
+            score += 3;
+        }
+
+        if (quotedCount >= NarrativeQuotedBlockHardViolationThreshold)
+        {
+            score += 3;
+        }
+
+        if (quotedRatio >= NarrativeQuotedTextRatioRetryThreshold)
+        {
+            score += 2;
+        }
+
+        if (attributionCount >= 2 && quotedCount >= 2)
+        {
+            score += 2;
+        }
+
+        if (firstPersonCount > 0)
+        {
+            score += 2;
+        }
+
+        if (interiorityCount > 0)
+        {
+            score += 2;
+        }
+
+        var hasViolation = score > 0;
+        var shouldRetry = quotedCount >= NarrativeQuotedBlockRetryThreshold
+            || quotedRatio >= NarrativeQuotedTextRatioRetryThreshold
+            || (attributionCount >= 2 && quotedCount >= 2)
+            || firstPersonCount > 0;
+
+        return new NarrativeValidationResult(
+            HasViolation: hasViolation,
+            ShouldRetry: shouldRetry,
+            Score: score,
+            QuotedBlockCount: quotedCount,
+            QuotedTextRatio: Math.Round(quotedRatio, 4),
+            DialogueAttributionCount: attributionCount,
+            FirstPersonLeakCount: firstPersonCount,
+            CharacterInteriorityCount: interiorityCount);
+    }
+
+    private sealed record NarrativeValidationResult(
+        bool HasViolation,
+        bool ShouldRetry,
+        int Score,
+        int QuotedBlockCount,
+        double QuotedTextRatio,
+        int DialogueAttributionCount,
+        int FirstPersonLeakCount,
+        int CharacterInteriorityCount);
 
 }

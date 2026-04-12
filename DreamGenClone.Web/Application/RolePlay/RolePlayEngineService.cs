@@ -12,6 +12,7 @@ namespace DreamGenClone.Web.Application.RolePlay;
 public sealed class RolePlayEngineService : IRolePlayEngineService
 {
     private static readonly ConcurrentDictionary<string, RolePlaySession> Sessions = new();
+    private const bool EnableRolePlayStreaming = false;
 
     private readonly IRolePlayContinuationService _continuationService;
     private readonly IBehaviorModeService _behaviorModeService;
@@ -453,6 +454,8 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             route.TargetCommand,
             identity.Id);
 
+        var effectiveOnChunk = EnableRolePlayStreaming ? onChunk : null;
+
         RolePlayInteraction interaction;
         if (submission.Intent == PromptIntent.Instruction)
         {
@@ -497,7 +500,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                     selectedActorName,
                     submission.Intent,
                     BuildContinuationPromptText(submission.Intent, submission.PromptText),
-                    onChunk,
+                    effectiveOnChunk,
                     cancellationToken);
 
                 session.Interactions.Add(interaction);
@@ -588,6 +591,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             session.CurrentTurnState = TurnState.NpcTurn;
         }
 
+        var effectiveOnChunk = EnableRolePlayStreaming ? onChunk : null;
         var selectedIdentityOptions = await ResolveSelectedIdentityOptionsAsync(session, request, cancellationToken);
         var result = new ContinueAsResult { Success = true };
 
@@ -605,7 +609,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 PromptIntent.Narrative,
                 "Set the opening scene. Establish the setting, atmosphere, and the characters present. " +
                 "Describe the environment and the initial situation the characters find themselves in.",
-                onChunk,
+                effectiveOnChunk,
                 cancellationToken);
 
             openingNarrative.InteractionType = InteractionType.System;
@@ -627,7 +631,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                     actorName,
                     PromptIntent.Message,
                     "Continue role-play for the selected character.",
-                    onChunk,
+                    effectiveOnChunk,
                     cancellationToken);
 
                 result.ParticipantOutputs.Add(interaction);
@@ -660,7 +664,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                     : "Continue the conversation naturally, building on the previous response.";
 
                 var interaction = await _continuationService.ContinueAsync(
-                    session, actor, actorName, PromptIntent.Message, promptText, onChunk, cancellationToken);
+                    session, actor, actorName, PromptIntent.Message, promptText, effectiveOnChunk, cancellationToken);
 
                 result.ParticipantOutputs.Add(interaction);
                 // Append to session so next iteration's prompt sees this interaction
@@ -679,7 +683,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 fallbackActorName,
                 PromptIntent.Message,
                 "Continue naturally with the next interaction that best fits recent context.",
-                onChunk,
+                effectiveOnChunk,
                 cancellationToken);
 
             result.ParticipantOutputs.Add(interaction);
@@ -703,7 +707,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 "Narrative",
                 PromptIntent.Narrative,
                 narrativePrompt,
-                onChunk,
+                effectiveOnChunk,
                 cancellationToken);
 
             narrative.InteractionType = InteractionType.System;

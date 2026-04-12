@@ -16,6 +16,7 @@ public sealed class StoryAnalysisFacade
     private readonly IBaseStatProfileService _baseStatProfileService;
     private readonly IStoryRankingService _rankingService;
     private readonly IThemeCatalogService _themeCatalogService;
+    private readonly IThemeDefinitionService _themeDefinitionService;
     private readonly ISqlitePersistence _persistence;
 
     public StoryAnalysisFacade(
@@ -28,6 +29,7 @@ public sealed class StoryAnalysisFacade
         IBaseStatProfileService baseStatProfileService,
         IStoryRankingService rankingService,
         IThemeCatalogService themeCatalogService,
+        IThemeDefinitionService themeDefinitionService,
         ISqlitePersistence persistence)
     {
         _summaryService = summaryService;
@@ -39,6 +41,7 @@ public sealed class StoryAnalysisFacade
         _baseStatProfileService = baseStatProfileService;
         _rankingService = rankingService;
         _themeCatalogService = themeCatalogService;
+        _themeDefinitionService = themeDefinitionService;
         _persistence = persistence;
     }
 
@@ -184,4 +187,7 @@ public sealed class StoryAnalysisFacade
 
     public Task DeleteCatalogEntryAsync(string id, CancellationToken cancellationToken = default)
         => _themeCatalogService.DeleteAsync(id, cancellationToken);
+
+    public Task<IReadOnlyList<ThemeDefinitionDocument>> ListThemeDefinitionsAsync(CancellationToken cancellationToken = default)
+        => _themeDefinitionService.LoadAllAsync(cancellationToken);
 }

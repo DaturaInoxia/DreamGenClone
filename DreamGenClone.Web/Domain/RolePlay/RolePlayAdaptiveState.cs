@@ -1,3 +1,5 @@
+using DreamGenClone.Domain.StoryAnalysis;
+
 namespace DreamGenClone.Web.Domain.RolePlay;
 
 public sealed class RolePlayAdaptiveState
@@ -7,6 +9,20 @@ public sealed class RolePlayAdaptiveState
     public Dictionary<string, PairwiseStatBlock> PairwiseStats { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     public ThemeTrackerState ThemeTracker { get; set; } = new();
+
+    public string? ActiveScenarioId { get; set; }
+
+    public DateTime? ScenarioCommitmentTimeUtc { get; set; }
+
+    public NarrativePhase CurrentNarrativePhase { get; set; } = NarrativePhase.BuildUp;
+
+    public int CompletedScenarios { get; set; }
+
+    public int InteractionsSinceCommitment { get; set; }
+
+    public int InteractionsInApproaching { get; set; }
+
+    public List<ScenarioMetadata> ScenarioHistory { get; set; } = [];
 }
 
 public sealed class CharacterStatBlock
@@ -59,6 +75,12 @@ public sealed class ThemeTrackerItem
     public bool Blocked { get; set; }
 
     public int SuppressedHitCount { get; set; }
+
+    public bool IsScenarioCandidate { get; set; }
+
+    public double NarrativeFitScore { get; set; }
+
+    public DateTime? LastCandidateEvaluationTimeUtc { get; set; }
 }
 
 public sealed class ThemeScoreBreakdown
