@@ -14,8 +14,11 @@ public sealed class StoryAnalysisFacade
     private readonly IIntensityProfileService _intensityProfileService;
     private readonly ISteeringProfileService _steeringProfileService;
     private readonly IBaseStatProfileService _baseStatProfileService;
+    private readonly IStatWillingnessProfileService _statWillingnessProfileService;
+    private readonly IHusbandAwarenessProfileService _husbandAwarenessProfileService;
     private readonly IStoryRankingService _rankingService;
     private readonly IThemeCatalogService _themeCatalogService;
+    private readonly IScenarioDefinitionService _scenarioDefinitionService;
     private readonly IThemeDefinitionService _themeDefinitionService;
     private readonly ISqlitePersistence _persistence;
 
@@ -27,8 +30,11 @@ public sealed class StoryAnalysisFacade
         IIntensityProfileService toneProfileService,
         ISteeringProfileService styleProfileService,
         IBaseStatProfileService baseStatProfileService,
+        IStatWillingnessProfileService statWillingnessProfileService,
+        IHusbandAwarenessProfileService husbandAwarenessProfileService,
         IStoryRankingService rankingService,
         IThemeCatalogService themeCatalogService,
+        IScenarioDefinitionService scenarioDefinitionService,
         IThemeDefinitionService themeDefinitionService,
         ISqlitePersistence persistence)
     {
@@ -39,8 +45,11 @@ public sealed class StoryAnalysisFacade
         _intensityProfileService = toneProfileService;
         _steeringProfileService = styleProfileService;
         _baseStatProfileService = baseStatProfileService;
+        _statWillingnessProfileService = statWillingnessProfileService;
+        _husbandAwarenessProfileService = husbandAwarenessProfileService;
         _rankingService = rankingService;
         _themeCatalogService = themeCatalogService;
+        _scenarioDefinitionService = scenarioDefinitionService;
         _themeDefinitionService = themeDefinitionService;
         _persistence = persistence;
     }
@@ -145,6 +154,35 @@ public sealed class StoryAnalysisFacade
     public Task<bool> DeleteBaseStatProfileAsync(string id, CancellationToken cancellationToken = default)
         => _baseStatProfileService.DeleteAsync(id, cancellationToken);
 
+    // Stat Willingness Profiles
+    public Task<StatWillingnessProfile> SaveStatWillingnessProfileAsync(StatWillingnessProfile profile, CancellationToken cancellationToken = default)
+        => _statWillingnessProfileService.SaveAsync(profile, cancellationToken);
+
+    public Task<List<StatWillingnessProfile>> ListStatWillingnessProfilesAsync(CancellationToken cancellationToken = default)
+        => _statWillingnessProfileService.ListAsync(cancellationToken);
+
+    public Task<StatWillingnessProfile?> GetStatWillingnessProfileAsync(string id, CancellationToken cancellationToken = default)
+        => _statWillingnessProfileService.GetAsync(id, cancellationToken);
+
+    public Task<StatWillingnessProfile?> GetDefaultStatWillingnessProfileAsync(CancellationToken cancellationToken = default)
+        => _statWillingnessProfileService.GetDefaultAsync(cancellationToken);
+
+    public Task<bool> DeleteStatWillingnessProfileAsync(string id, CancellationToken cancellationToken = default)
+        => _statWillingnessProfileService.DeleteAsync(id, cancellationToken);
+
+    // Husband Awareness Profiles
+    public Task<HusbandAwarenessProfile> SaveHusbandAwarenessProfileAsync(HusbandAwarenessProfile profile, CancellationToken cancellationToken = default)
+        => _husbandAwarenessProfileService.SaveAsync(profile, cancellationToken);
+
+    public Task<List<HusbandAwarenessProfile>> ListHusbandAwarenessProfilesAsync(CancellationToken cancellationToken = default)
+        => _husbandAwarenessProfileService.ListAsync(cancellationToken);
+
+    public Task<HusbandAwarenessProfile?> GetHusbandAwarenessProfileAsync(string id, CancellationToken cancellationToken = default)
+        => _husbandAwarenessProfileService.GetAsync(id, cancellationToken);
+
+    public Task<bool> DeleteHusbandAwarenessProfileAsync(string id, CancellationToken cancellationToken = default)
+        => _husbandAwarenessProfileService.DeleteAsync(id, cancellationToken);
+
     // Ranking
     public Task<ThemeRankResult> RankAsync(string parsedStoryId, string profileId, CancellationToken cancellationToken = default)
         => _rankingService.RankAsync(parsedStoryId, profileId, cancellationToken);
@@ -187,6 +225,16 @@ public sealed class StoryAnalysisFacade
 
     public Task DeleteCatalogEntryAsync(string id, CancellationToken cancellationToken = default)
         => _themeCatalogService.DeleteAsync(id, cancellationToken);
+
+    // Scenario Definitions
+    public Task<IReadOnlyList<ScenarioDefinitionEntity>> ListScenarioDefinitionsAsync(bool includeDisabled = false, CancellationToken cancellationToken = default)
+        => _scenarioDefinitionService.GetAllAsync(includeDisabled, cancellationToken);
+
+    public Task SaveScenarioDefinitionAsync(ScenarioDefinitionEntity definition, CancellationToken cancellationToken = default)
+        => _scenarioDefinitionService.SaveAsync(definition, cancellationToken);
+
+    public Task DeleteScenarioDefinitionAsync(string id, CancellationToken cancellationToken = default)
+        => _scenarioDefinitionService.DeleteAsync(id, cancellationToken);
 
     public Task<IReadOnlyList<ThemeDefinitionDocument>> ListThemeDefinitionsAsync(CancellationToken cancellationToken = default)
         => _themeDefinitionService.LoadAllAsync(cancellationToken);

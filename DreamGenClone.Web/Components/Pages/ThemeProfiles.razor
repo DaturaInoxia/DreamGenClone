@@ -28,7 +28,10 @@
             <span class="badge bg-dark-subtle text-dark-emphasis border">Steering: @_steeringProfiles.Count</span>
             <span class="badge bg-info-subtle text-info-emphasis border">Catalog: @_catalogEntries.Count</span>
             <span class="badge bg-primary-subtle text-primary-emphasis border">Theme Definitions: @_themeDefinitions.Count</span>
+            <span class="badge bg-success-subtle text-success-emphasis border">Scenario Definitions: @_scenarioDefinitions.Count</span>
             <span class="badge bg-success-subtle text-success-emphasis border">Character State: @_baseStatProfiles.Count</span>
+            <span class="badge bg-warning-subtle text-warning-emphasis border">Willingness: @_willingnessProfiles.Count</span>
+            <span class="badge bg-danger-subtle text-danger-emphasis border">Husband Awareness: @_husbandAwarenessProfiles.Count</span>
             <span class="badge bg-light text-dark border">Perspective Modes: @CharacterPerspectiveModes.All.Count</span>
         </div>
     </div>
@@ -50,7 +53,16 @@
             <button type="button" class="nav-link @GetTabClass("definitions")" @onclick='() => _activeTab = "definitions"'>Theme Definitions</button>
         </li>
         <li class="nav-item" role="presentation">
+            <button type="button" class="nav-link @GetTabClass("scenario-definitions")" @onclick='() => _activeTab = "scenario-definitions"'>Scenario Definitions</button>
+        </li>
+        <li class="nav-item" role="presentation">
             <button type="button" class="nav-link @GetTabClass("base-stats")" @onclick='() => _activeTab = "base-stats"'>Character State</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button type="button" class="nav-link @GetTabClass("willingness")" @onclick='() => _activeTab = "willingness"'>Willingness</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button type="button" class="nav-link @GetTabClass("husband-awareness")" @onclick='() => _activeTab = "husband-awareness"'>Husband Awareness</button>
         </li>
         <li class="nav-item" role="presentation">
             <button type="button" class="nav-link @GetTabClass("perspective")" @onclick='() => _activeTab = "perspective"'>Perspective</button>
@@ -867,6 +879,318 @@
             </div>
         </div>
     }
+    else if (_activeTab == "scenario-definitions")
+    {
+        <div class="row g-4">
+            <div class="col-lg-4">
+                <div class="card h-100">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span>Scenario Definitions</span>
+                        <button class="btn btn-sm btn-primary" @onclick="StartCreateScenarioDefinition">New</button>
+                    </div>
+                    <div class="card-body">
+                        @if (_scenarioDefinitions.Count > 0)
+                        {
+                            <div class="list-group">
+                                @foreach (var definition in _scenarioDefinitions)
+                                {
+                                    <button type="button"
+                                            class="list-group-item list-group-item-action @(definition.Id == _selectedScenarioDefinitionId ? "active" : "")"
+                                            @onclick="() => SelectScenarioDefinition(definition.Id)">
+                                        <div class="d-flex justify-content-between align-items-start gap-2">
+                                            <div>
+                                                <strong>@definition.Label</strong>
+                                                <small class="d-block @(definition.Id == _selectedScenarioDefinitionId ? "text-light" : "text-muted")">
+                                                    @definition.Id • @definition.Category
+                                                </small>
+                                            </div>
+                                            <span class="badge @(definition.IsEnabled ? "bg-success" : "bg-secondary")">
+                                                @(definition.IsEnabled ? "Enabled" : "Disabled")
+                                            </span>
+                                        </div>
+                                    </button>
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <p class="text-muted mb-0">No scenario definitions yet.</p>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-8">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>@(_selectedScenarioDefinitionId is null ? "Create Scenario Definition" : "Edit Scenario Definition")</strong>
+                            <div class="text-muted small">DB-native scenario-definition records used by adaptive runtime when the feature flag is enabled.</div>
+                        </div>
+                        @if (_selectedScenarioDefinitionId is not null)
+                        {
+                            <button class="btn btn-sm btn-outline-danger" @onclick="DeleteScenarioDefinition" disabled="@_isBusy">Delete</button>
+                        }
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">ID</label>
+                                <input type="text" class="form-control" @bind="_scenarioDefinitionFormId" placeholder="e.g. infidelity-public-facade" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Label</label>
+                                <input type="text" class="form-control" @bind="_scenarioDefinitionFormLabel" />
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Description</label>
+                                <textarea class="form-control" rows="3" @bind="_scenarioDefinitionFormDescription"></textarea>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Category</label>
+                                <input type="text" class="form-control" @bind="_scenarioDefinitionFormCategory" />
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label">Weight</label>
+                                <input type="number" min="1" max="10" class="form-control" @bind="_scenarioDefinitionFormWeight" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Variant Of</label>
+                                <input type="text" class="form-control" @bind="_scenarioDefinitionFormVariantOf" placeholder="optional parent id" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Keywords (comma/newline)</label>
+                                <textarea class="form-control" rows="3" @bind="_scenarioDefinitionKeywordsText"></textarea>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Directional Keywords (comma/newline)</label>
+                                <textarea class="form-control" rows="3" @bind="_scenarioDefinitionDirectionalKeywordsText"></textarea>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Stat Affinities JSON</label>
+                                <textarea class="form-control font-monospace" rows="4" @bind="_scenarioDefinitionStatAffinitiesJson"></textarea>
+                                <div class="form-text">Example: { "Tension": 3, "Restraint": 3, "Connection": -2, "Desire": 2, "Dominance": -1 }</div>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Scenario Fit Rules JSON</label>
+                                <textarea class="form-control font-monospace" rows="8" @bind="_scenarioDefinitionScenarioFitRules"></textarea>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Phase Guidance JSON</label>
+                                <textarea class="form-control font-monospace" rows="8" @bind="_scenarioDefinitionPhaseGuidance"></textarea>
+                            </div>
+                            <div class="col-md-3 form-check ms-2">
+                                <input id="scenarioDefiningCheck" type="checkbox" class="form-check-input" @bind="_scenarioDefinitionIsScenarioDefining" />
+                                <label class="form-check-label" for="scenarioDefiningCheck">Scenario Defining</label>
+                            </div>
+                            <div class="col-md-3 form-check ms-2">
+                                <input id="scenarioEnabledCheck" type="checkbox" class="form-check-input" @bind="_scenarioDefinitionIsEnabled" />
+                                <label class="form-check-label" for="scenarioEnabledCheck">Enabled</label>
+                            </div>
+                        </div>
+
+                        @if (!string.IsNullOrEmpty(_scenarioDefinitionError))
+                        {
+                            <div class="text-danger mt-3 small">@_scenarioDefinitionError</div>
+                        }
+
+                        <div class="d-flex flex-wrap gap-2 mt-3">
+                            <button class="btn btn-primary" @onclick="SaveScenarioDefinition" disabled="@_isBusy">@(_selectedScenarioDefinitionId is null ? "Create Definition" : "Save Changes")</button>
+                            <button class="btn btn-outline-secondary" @onclick="StartCreateScenarioDefinition" disabled="@_isBusy">Reset</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+    else if (_activeTab == "willingness")
+    {
+        <div class="row g-4">
+            <div class="col-lg-4">
+                <div class="card h-100">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span>Willingness Profiles</span>
+                        <button class="btn btn-sm btn-primary" @onclick="StartCreateWillingnessProfile">New</button>
+                    </div>
+                    <div class="card-body">
+                        @if (_willingnessProfiles.Count > 0)
+                        {
+                            <div class="list-group">
+                                @foreach (var profile in _willingnessProfiles)
+                                {
+                                    <button type="button"
+                                            class="list-group-item list-group-item-action @(profile.Id == _selectedWillingnessProfileId ? "active" : "")"
+                                            @onclick="() => SelectWillingnessProfile(profile.Id)">
+                                        <strong>@profile.Name</strong>
+                                        @if (profile.IsDefault)
+                                        {
+                                            <span class="badge bg-warning text-dark ms-1">Default</span>
+                                        }
+                                        <small class="d-block @(profile.Id == _selectedWillingnessProfileId ? "text-light" : "text-muted")">@profile.TargetStatName • @profile.Thresholds.Count thresholds</small>
+                                    </button>
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <p class="text-muted mb-0">No willingness profiles yet.</p>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-8">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>@(_selectedWillingnessProfileId is null ? "Create Willingness Profile" : "Edit Willingness Profile")</strong>
+                            <div class="text-muted small">Every threshold row is stored as part of this profile's table payload.</div>
+                        </div>
+                        @if (_selectedWillingnessProfileId is not null)
+                        {
+                            <button class="btn btn-sm btn-outline-danger" @onclick="DeleteWillingnessProfile" disabled="@_isBusy">Delete</button>
+                        }
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Name</label>
+                                <input type="text" class="form-control" @bind="_willingnessFormName" />
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Target Stat</label>
+                                <input type="text" class="form-control" @bind="_willingnessFormTargetStat" />
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label">Default</label>
+                                <select class="form-select" @bind="_willingnessFormIsDefault">
+                                    <option value="False">No</option>
+                                    <option value="True">Yes</option>
+                                </select>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Description</label>
+                                <textarea class="form-control" rows="2" @bind="_willingnessFormDescription"></textarea>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Thresholds JSON</label>
+                                <textarea class="form-control font-monospace" rows="10" @bind="_willingnessThresholdsJson"></textarea>
+                                <div class="form-text">Format: array of objects with SortOrder, MinValue, MaxValue, ExplicitnessLevel, Description, PromptGuideline, ExampleScenarios.</div>
+                            </div>
+                        </div>
+                        @if (!string.IsNullOrEmpty(_willingnessError))
+                        {
+                            <div class="text-danger mt-3 small">@_willingnessError</div>
+                        }
+                        <div class="d-flex flex-wrap gap-2 mt-3">
+                            <button class="btn btn-primary" @onclick="SaveWillingnessProfile" disabled="@_isBusy">@(_selectedWillingnessProfileId is null ? "Create Profile" : "Save Changes")</button>
+                            <button class="btn btn-outline-secondary" @onclick="StartCreateWillingnessProfile" disabled="@_isBusy">Reset</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+    else if (_activeTab == "husband-awareness")
+    {
+        <div class="row g-4">
+            <div class="col-lg-4">
+                <div class="card h-100">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span>Husband Awareness Profiles</span>
+                        <button class="btn btn-sm btn-primary" @onclick="StartCreateHusbandAwarenessProfile">New</button>
+                    </div>
+                    <div class="card-body">
+                        @if (_husbandAwarenessProfiles.Count > 0)
+                        {
+                            <div class="list-group">
+                                @foreach (var profile in _husbandAwarenessProfiles)
+                                {
+                                    <button type="button"
+                                            class="list-group-item list-group-item-action @(profile.Id == _selectedHusbandAwarenessProfileId ? "active" : "")"
+                                            @onclick="() => SelectHusbandAwarenessProfile(profile.Id)">
+                                        <strong>@profile.Name</strong>
+                                        <small class="d-block @(profile.Id == _selectedHusbandAwarenessProfileId ? "text-light" : "text-muted")">Awareness @profile.AwarenessLevel / Encouragement @profile.EncouragementLevel</small>
+                                    </button>
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <p class="text-muted mb-0">No husband awareness profiles yet.</p>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-8">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>@(_selectedHusbandAwarenessProfileId is null ? "Create Husband Awareness Profile" : "Edit Husband Awareness Profile")</strong>
+                            <div class="text-muted small">This table controls awareness/involvement taxonomy available to V2 guidance.</div>
+                        </div>
+                        @if (_selectedHusbandAwarenessProfileId is not null)
+                        {
+                            <button class="btn btn-sm btn-outline-danger" @onclick="DeleteHusbandAwarenessProfile" disabled="@_isBusy">Delete</button>
+                        }
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Name</label>
+                                <input type="text" class="form-control" @bind="_husbandAwarenessFormName" />
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Description</label>
+                                <textarea class="form-control" rows="2" @bind="_husbandAwarenessFormDescription"></textarea>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Awareness</label>
+                                <input type="number" min="0" max="100" class="form-control" @bind="_husbandAwarenessLevel" />
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Acceptance</label>
+                                <input type="number" min="0" max="100" class="form-control" @bind="_husbandAcceptanceLevel" />
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Voyeurism</label>
+                                <input type="number" min="0" max="100" class="form-control" @bind="_husbandVoyeurismLevel" />
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Participation</label>
+                                <input type="number" min="0" max="100" class="form-control" @bind="_husbandParticipationLevel" />
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Humiliation Desire</label>
+                                <input type="number" min="0" max="100" class="form-control" @bind="_husbandHumiliationDesire" />
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Encouragement</label>
+                                <input type="number" min="0" max="100" class="form-control" @bind="_husbandEncouragementLevel" />
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Risk Tolerance</label>
+                                <input type="number" min="0" max="100" class="form-control" @bind="_husbandRiskTolerance" />
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Notes</label>
+                                <textarea class="form-control" rows="3" @bind="_husbandAwarenessNotes"></textarea>
+                            </div>
+                        </div>
+                        @if (!string.IsNullOrEmpty(_husbandAwarenessError))
+                        {
+                            <div class="text-danger mt-3 small">@_husbandAwarenessError</div>
+                        }
+                        <div class="d-flex flex-wrap gap-2 mt-3">
+                            <button class="btn btn-primary" @onclick="SaveHusbandAwarenessProfile" disabled="@_isBusy">@(_selectedHusbandAwarenessProfileId is null ? "Create Profile" : "Save Changes")</button>
+                            <button class="btn btn-outline-secondary" @onclick="StartCreateHusbandAwarenessProfile" disabled="@_isBusy">Reset</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
     else
     {
         <div class="row g-4">
@@ -975,6 +1299,46 @@
     private Dictionary<string, int> _baseStatFormStats = new(StringComparer.OrdinalIgnoreCase);
     private string? _baseStatError;
 
+    private List<ScenarioDefinitionEntity> _scenarioDefinitions = [];
+    private string? _selectedScenarioDefinitionId;
+    private string _scenarioDefinitionFormId = string.Empty;
+    private string _scenarioDefinitionFormLabel = string.Empty;
+    private string _scenarioDefinitionFormDescription = string.Empty;
+    private string _scenarioDefinitionFormCategory = string.Empty;
+    private int _scenarioDefinitionFormWeight = 3;
+    private string _scenarioDefinitionFormVariantOf = string.Empty;
+    private bool _scenarioDefinitionIsScenarioDefining = true;
+    private bool _scenarioDefinitionIsEnabled = true;
+    private string _scenarioDefinitionKeywordsText = string.Empty;
+    private string _scenarioDefinitionDirectionalKeywordsText = string.Empty;
+    private string _scenarioDefinitionStatAffinitiesJson = "{}";
+    private string _scenarioDefinitionScenarioFitRules = "{}";
+    private string _scenarioDefinitionPhaseGuidance = "{}";
+    private string? _scenarioDefinitionError;
+
+    private List<StatWillingnessProfile> _willingnessProfiles = [];
+    private string? _selectedWillingnessProfileId;
+    private string _willingnessFormName = string.Empty;
+    private string _willingnessFormDescription = string.Empty;
+    private string _willingnessFormTargetStat = "Desire";
+    private bool _willingnessFormIsDefault;
+    private string _willingnessThresholdsJson = "[]";
+    private string? _willingnessError;
+
+    private List<HusbandAwarenessProfile> _husbandAwarenessProfiles = [];
+    private string? _selectedHusbandAwarenessProfileId;
+    private string _husbandAwarenessFormName = string.Empty;
+    private string _husbandAwarenessFormDescription = string.Empty;
+    private int _husbandAwarenessLevel = 20;
+    private int _husbandAcceptanceLevel = 20;
+    private int _husbandVoyeurismLevel;
+    private int _husbandParticipationLevel;
+    private int _husbandHumiliationDesire;
+    private int _husbandEncouragementLevel;
+    private int _husbandRiskTolerance = 10;
+    private string _husbandAwarenessNotes = string.Empty;
+    private string? _husbandAwarenessError;
+
     private static readonly IReadOnlyDictionary<string, string> StatEngineEffects = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
         ["Desire"] = "Primary intensity driver. Higher values can raise effective style intensity and reinforce escalation themes.",
@@ -1034,6 +1398,33 @@
         {
             StartCreateBaseStatProfile();
         }
+
+        if (_selectedWillingnessProfileId is null && _willingnessProfiles.Count > 0)
+        {
+            SelectWillingnessProfile(_willingnessProfiles[0].Id);
+        }
+        else if (_selectedWillingnessProfileId is null && _willingnessProfiles.Count == 0)
+        {
+            StartCreateWillingnessProfile();
+        }
+
+        if (_selectedHusbandAwarenessProfileId is null && _husbandAwarenessProfiles.Count > 0)
+        {
+            SelectHusbandAwarenessProfile(_husbandAwarenessProfiles[0].Id);
+        }
+        else if (_selectedHusbandAwarenessProfileId is null && _husbandAwarenessProfiles.Count == 0)
+        {
+            StartCreateHusbandAwarenessProfile();
+        }
+
+        if (_selectedScenarioDefinitionId is null && _scenarioDefinitions.Count > 0)
+        {
+            SelectScenarioDefinition(_scenarioDefinitions[0].Id);
+        }
+        else if (_selectedScenarioDefinitionId is null && _scenarioDefinitions.Count == 0)
+        {
+            StartCreateScenarioDefinition();
+        }
     }
 
     private static string[] GetBaseStatNames()
@@ -1047,6 +1438,9 @@
         _intensityProfiles = await Facade.ListIntensityProfilesAsync();
         _steeringProfiles = await Facade.ListSteeringProfilesAsync();
         _baseStatProfiles = await Facade.ListBaseStatProfilesAsync();
+        _scenarioDefinitions = (await Facade.ListScenarioDefinitionsAsync(includeDisabled: true)).ToList();
+        _willingnessProfiles = await Facade.ListStatWillingnessProfilesAsync();
+        _husbandAwarenessProfiles = await Facade.ListHusbandAwarenessProfilesAsync();
         _catalogEntries = await Facade.ListCatalogEntriesAsync(includeDisabled: true);
 
         try
@@ -1606,6 +2000,360 @@
         catch (Exception ex)
         {
             _baseStatError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private void StartCreateScenarioDefinition()
+    {
+        _selectedScenarioDefinitionId = null;
+        _scenarioDefinitionFormId = string.Empty;
+        _scenarioDefinitionFormLabel = string.Empty;
+        _scenarioDefinitionFormDescription = string.Empty;
+        _scenarioDefinitionFormCategory = string.Empty;
+        _scenarioDefinitionFormWeight = 3;
+        _scenarioDefinitionFormVariantOf = string.Empty;
+        _scenarioDefinitionIsScenarioDefining = true;
+        _scenarioDefinitionIsEnabled = true;
+        _scenarioDefinitionKeywordsText = string.Empty;
+        _scenarioDefinitionDirectionalKeywordsText = string.Empty;
+        _scenarioDefinitionStatAffinitiesJson = "{}";
+        _scenarioDefinitionScenarioFitRules = "{}";
+        _scenarioDefinitionPhaseGuidance = "{}";
+        _scenarioDefinitionError = null;
+    }
+
+    private void SelectScenarioDefinition(string definitionId)
+    {
+        var definition = _scenarioDefinitions.FirstOrDefault(x => string.Equals(x.Id, definitionId, StringComparison.OrdinalIgnoreCase));
+        if (definition is null)
+        {
+            return;
+        }
+
+        _selectedScenarioDefinitionId = definition.Id;
+        _scenarioDefinitionFormId = definition.Id;
+        _scenarioDefinitionFormLabel = definition.Label;
+        _scenarioDefinitionFormDescription = definition.Description;
+        _scenarioDefinitionFormCategory = definition.Category;
+        _scenarioDefinitionFormWeight = definition.Weight;
+        _scenarioDefinitionFormVariantOf = definition.VariantOf;
+        _scenarioDefinitionIsScenarioDefining = definition.IsScenarioDefining;
+        _scenarioDefinitionIsEnabled = definition.IsEnabled;
+        _scenarioDefinitionKeywordsText = string.Join(", ", definition.Keywords);
+        _scenarioDefinitionDirectionalKeywordsText = string.Join(", ", definition.DirectionalKeywords);
+        _scenarioDefinitionStatAffinitiesJson = System.Text.Json.JsonSerializer.Serialize(
+            definition.StatAffinities,
+            new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+        _scenarioDefinitionScenarioFitRules = string.IsNullOrWhiteSpace(definition.ScenarioFitRules) ? "{}" : definition.ScenarioFitRules;
+        _scenarioDefinitionPhaseGuidance = string.IsNullOrWhiteSpace(definition.PhaseGuidance) ? "{}" : definition.PhaseGuidance;
+        _scenarioDefinitionError = null;
+    }
+
+    private async Task SaveScenarioDefinition()
+    {
+        _scenarioDefinitionError = null;
+
+        Dictionary<string, int>? statAffinities;
+        try
+        {
+            statAffinities = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, int>>(_scenarioDefinitionStatAffinitiesJson);
+        }
+        catch (Exception ex)
+        {
+            _scenarioDefinitionError = $"Stat Affinities JSON is invalid: {ex.Message}";
+            return;
+        }
+
+        if (statAffinities is null)
+        {
+            _scenarioDefinitionError = "Stat Affinities JSON cannot be empty.";
+            return;
+        }
+
+        var id = _scenarioDefinitionFormId.Trim();
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            id = Slugify(_scenarioDefinitionFormLabel);
+        }
+
+        var definition = new ScenarioDefinitionEntity
+        {
+            Id = id,
+            Label = _scenarioDefinitionFormLabel,
+            Description = _scenarioDefinitionFormDescription,
+            Category = _scenarioDefinitionFormCategory,
+            Weight = _scenarioDefinitionFormWeight,
+            VariantOf = _scenarioDefinitionFormVariantOf,
+            IsScenarioDefining = _scenarioDefinitionIsScenarioDefining,
+            Keywords = ParseKeywordList(_scenarioDefinitionKeywordsText),
+            DirectionalKeywords = ParseKeywordList(_scenarioDefinitionDirectionalKeywordsText),
+            StatAffinities = statAffinities,
+            ScenarioFitRules = _scenarioDefinitionScenarioFitRules,
+            PhaseGuidance = _scenarioDefinitionPhaseGuidance,
+            IsEnabled = _scenarioDefinitionIsEnabled,
+            CreatedUtc = DateTime.UtcNow,
+            UpdatedUtc = DateTime.UtcNow
+        };
+
+        _isBusy = true;
+        try
+        {
+            await Facade.SaveScenarioDefinitionAsync(definition);
+            await ReloadAsync();
+            SelectScenarioDefinition(definition.Id);
+        }
+        catch (Exception ex)
+        {
+            _scenarioDefinitionError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task DeleteScenarioDefinition()
+    {
+        if (string.IsNullOrWhiteSpace(_selectedScenarioDefinitionId))
+        {
+            return;
+        }
+
+        _scenarioDefinitionError = null;
+        _isBusy = true;
+        try
+        {
+            await Facade.DeleteScenarioDefinitionAsync(_selectedScenarioDefinitionId);
+            await ReloadAsync();
+            if (_scenarioDefinitions.Count > 0)
+            {
+                SelectScenarioDefinition(_scenarioDefinitions[0].Id);
+            }
+            else
+            {
+                StartCreateScenarioDefinition();
+            }
+        }
+        catch (Exception ex)
+        {
+            _scenarioDefinitionError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private void StartCreateWillingnessProfile()
+    {
+        _selectedWillingnessProfileId = null;
+        _willingnessFormName = string.Empty;
+        _willingnessFormDescription = string.Empty;
+        _willingnessFormTargetStat = "Desire";
+        _willingnessFormIsDefault = false;
+        _willingnessThresholdsJson = "[]";
+        _willingnessError = null;
+    }
+
+    private void SelectWillingnessProfile(string profileId)
+    {
+        var profile = _willingnessProfiles.FirstOrDefault(x => x.Id == profileId);
+        if (profile is null)
+        {
+            return;
+        }
+
+        _selectedWillingnessProfileId = profile.Id;
+        _willingnessFormName = profile.Name;
+        _willingnessFormDescription = profile.Description;
+        _willingnessFormTargetStat = profile.TargetStatName;
+        _willingnessFormIsDefault = profile.IsDefault;
+        _willingnessThresholdsJson = System.Text.Json.JsonSerializer.Serialize(profile.Thresholds, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+        _willingnessError = null;
+    }
+
+    private async Task SaveWillingnessProfile()
+    {
+        _willingnessError = null;
+
+        List<WillingnessThreshold>? thresholds;
+        try
+        {
+            thresholds = System.Text.Json.JsonSerializer.Deserialize<List<WillingnessThreshold>>(_willingnessThresholdsJson);
+        }
+        catch (Exception ex)
+        {
+            _willingnessError = $"Threshold JSON is invalid: {ex.Message}";
+            return;
+        }
+
+        if (thresholds is null)
+        {
+            _willingnessError = "Threshold JSON cannot be empty.";
+            return;
+        }
+
+        var profile = new StatWillingnessProfile
+        {
+            Id = _selectedWillingnessProfileId ?? Guid.NewGuid().ToString(),
+            Name = _willingnessFormName,
+            Description = _willingnessFormDescription,
+            TargetStatName = _willingnessFormTargetStat,
+            IsDefault = _willingnessFormIsDefault,
+            Thresholds = thresholds
+        };
+
+        _isBusy = true;
+        try
+        {
+            var saved = await Facade.SaveStatWillingnessProfileAsync(profile);
+            await ReloadAsync();
+            SelectWillingnessProfile(saved.Id);
+        }
+        catch (Exception ex)
+        {
+            _willingnessError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task DeleteWillingnessProfile()
+    {
+        if (_selectedWillingnessProfileId is null)
+        {
+            return;
+        }
+
+        _willingnessError = null;
+        _isBusy = true;
+        try
+        {
+            await Facade.DeleteStatWillingnessProfileAsync(_selectedWillingnessProfileId);
+            await ReloadAsync();
+            if (_willingnessProfiles.Count > 0)
+            {
+                SelectWillingnessProfile(_willingnessProfiles[0].Id);
+            }
+            else
+            {
+                StartCreateWillingnessProfile();
+            }
+        }
+        catch (Exception ex)
+        {
+            _willingnessError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private void StartCreateHusbandAwarenessProfile()
+    {
+        _selectedHusbandAwarenessProfileId = null;
+        _husbandAwarenessFormName = string.Empty;
+        _husbandAwarenessFormDescription = string.Empty;
+        _husbandAwarenessLevel = 20;
+        _husbandAcceptanceLevel = 20;
+        _husbandVoyeurismLevel = 0;
+        _husbandParticipationLevel = 0;
+        _husbandHumiliationDesire = 0;
+        _husbandEncouragementLevel = 0;
+        _husbandRiskTolerance = 10;
+        _husbandAwarenessNotes = string.Empty;
+        _husbandAwarenessError = null;
+    }
+
+    private void SelectHusbandAwarenessProfile(string profileId)
+    {
+        var profile = _husbandAwarenessProfiles.FirstOrDefault(x => x.Id == profileId);
+        if (profile is null)
+        {
+            return;
+        }
+
+        _selectedHusbandAwarenessProfileId = profile.Id;
+        _husbandAwarenessFormName = profile.Name;
+        _husbandAwarenessFormDescription = profile.Description;
+        _husbandAwarenessLevel = profile.AwarenessLevel;
+        _husbandAcceptanceLevel = profile.AcceptanceLevel;
+        _husbandVoyeurismLevel = profile.VoyeurismLevel;
+        _husbandParticipationLevel = profile.ParticipationLevel;
+        _husbandHumiliationDesire = profile.HumiliationDesire;
+        _husbandEncouragementLevel = profile.EncouragementLevel;
+        _husbandRiskTolerance = profile.RiskTolerance;
+        _husbandAwarenessNotes = profile.Notes;
+        _husbandAwarenessError = null;
+    }
+
+    private async Task SaveHusbandAwarenessProfile()
+    {
+        _husbandAwarenessError = null;
+        var profile = new HusbandAwarenessProfile
+        {
+            Id = _selectedHusbandAwarenessProfileId ?? Guid.NewGuid().ToString(),
+            Name = _husbandAwarenessFormName,
+            Description = _husbandAwarenessFormDescription,
+            AwarenessLevel = _husbandAwarenessLevel,
+            AcceptanceLevel = _husbandAcceptanceLevel,
+            VoyeurismLevel = _husbandVoyeurismLevel,
+            ParticipationLevel = _husbandParticipationLevel,
+            HumiliationDesire = _husbandHumiliationDesire,
+            EncouragementLevel = _husbandEncouragementLevel,
+            RiskTolerance = _husbandRiskTolerance,
+            Notes = _husbandAwarenessNotes
+        };
+
+        _isBusy = true;
+        try
+        {
+            var saved = await Facade.SaveHusbandAwarenessProfileAsync(profile);
+            await ReloadAsync();
+            SelectHusbandAwarenessProfile(saved.Id);
+        }
+        catch (Exception ex)
+        {
+            _husbandAwarenessError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task DeleteHusbandAwarenessProfile()
+    {
+        if (_selectedHusbandAwarenessProfileId is null)
+        {
+            return;
+        }
+
+        _husbandAwarenessError = null;
+        _isBusy = true;
+        try
+        {
+            await Facade.DeleteHusbandAwarenessProfileAsync(_selectedHusbandAwarenessProfileId);
+            await ReloadAsync();
+            if (_husbandAwarenessProfiles.Count > 0)
+            {
+                SelectHusbandAwarenessProfile(_husbandAwarenessProfiles[0].Id);
+            }
+            else
+            {
+                StartCreateHusbandAwarenessProfile();
+            }
+        }
+        catch (Exception ex)
+        {
+            _husbandAwarenessError = ex.Message;
         }
         finally
         {

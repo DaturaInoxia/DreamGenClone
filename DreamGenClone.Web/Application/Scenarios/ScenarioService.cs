@@ -193,6 +193,7 @@ public class ScenarioService : IScenarioService
             }).ToList(),
             EstimatedTokenCount = original.EstimatedTokenCount,
             DefaultThemeProfileId = original.DefaultThemeProfileId,
+            DefaultRPThemeProfileId = original.DefaultRPThemeProfileId,
             DefaultIntensityProfileId = original.DefaultIntensityProfileId,
             DefaultSteeringProfileId = original.DefaultSteeringProfileId,
             DefaultIntensityFloor = original.DefaultIntensityFloor,

@@ -65,6 +65,19 @@ public interface ISqlitePersistence
     Task<List<BaseStatProfile>> LoadAllBaseStatProfilesAsync(CancellationToken cancellationToken = default);
     Task<bool> DeleteBaseStatProfileAsync(string id, CancellationToken cancellationToken = default);
 
+    // Stat willingness profile operations
+    Task SaveStatWillingnessProfileAsync(StatWillingnessProfile profile, CancellationToken cancellationToken = default);
+    Task<StatWillingnessProfile?> LoadStatWillingnessProfileAsync(string id, CancellationToken cancellationToken = default);
+    Task<StatWillingnessProfile?> LoadDefaultStatWillingnessProfileAsync(CancellationToken cancellationToken = default);
+    Task<List<StatWillingnessProfile>> LoadAllStatWillingnessProfilesAsync(CancellationToken cancellationToken = default);
+    Task<bool> DeleteStatWillingnessProfileAsync(string id, CancellationToken cancellationToken = default);
+
+    // Husband awareness profile operations
+    Task SaveHusbandAwarenessProfileAsync(HusbandAwarenessProfile profile, CancellationToken cancellationToken = default);
+    Task<HusbandAwarenessProfile?> LoadHusbandAwarenessProfileAsync(string id, CancellationToken cancellationToken = default);
+    Task<List<HusbandAwarenessProfile>> LoadAllHusbandAwarenessProfilesAsync(CancellationToken cancellationToken = default);
+    Task<bool> DeleteHusbandAwarenessProfileAsync(string id, CancellationToken cancellationToken = default);
+
     // Style profile operations
     Task SaveStyleProfileAsync(SteeringProfile profile, CancellationToken cancellationToken = default);
     Task<SteeringProfile?> LoadStyleProfileAsync(string id, CancellationToken cancellationToken = default);
@@ -76,6 +89,12 @@ public interface ISqlitePersistence
     Task<ThemeCatalogEntry?> LoadThemeCatalogEntryAsync(string id, CancellationToken cancellationToken = default);
     Task<List<ThemeCatalogEntry>> LoadAllThemeCatalogEntriesAsync(bool includeDisabled, CancellationToken cancellationToken = default);
     Task<bool> DeleteThemeCatalogEntryAsync(string id, CancellationToken cancellationToken = default);
+
+    // Scenario definition operations
+    Task SaveScenarioDefinitionAsync(ScenarioDefinitionEntity definition, CancellationToken cancellationToken = default);
+    Task<ScenarioDefinitionEntity?> LoadScenarioDefinitionAsync(string id, CancellationToken cancellationToken = default);
+    Task<List<ScenarioDefinitionEntity>> LoadAllScenarioDefinitionsAsync(bool includeDisabled, CancellationToken cancellationToken = default);
+    Task<bool> DeleteScenarioDefinitionAsync(string id, CancellationToken cancellationToken = default);
 
     // Story ranking operations
     Task SaveStoryRankingAsync(StoryRankingResult ranking, CancellationToken cancellationToken = default);

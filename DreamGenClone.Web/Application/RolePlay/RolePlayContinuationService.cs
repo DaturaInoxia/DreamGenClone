@@ -354,6 +354,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
 
         string scenarioStyle = string.Empty;
         IntensityLevel? baseIntensityLevel = null;
+        IntensityLevel? adaptiveIntensityLevel = null;
         string? scenarioSteeringProfileId = null;
         List<string> scenarioGoals = [];
         List<string> scenarioConflicts = [];
@@ -452,6 +453,16 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                         }
                     }
                 }
+
+                if (!string.IsNullOrWhiteSpace(session.AdaptiveIntensityProfileId))
+                {
+                    var adaptiveProfile = await _intensityProfileService.GetAsync(session.AdaptiveIntensityProfileId, cancellationToken);
+                    if (adaptiveProfile is not null)
+                    {
+                        adaptiveIntensityLevel = adaptiveProfile.Intensity;
+                    }
+                }
+
                 if (!string.IsNullOrWhiteSpace(session.IntensityFloorOverride) || !string.IsNullOrWhiteSpace(session.IntensityCeilingOverride))
                 {
                     sb.AppendLine($"- Intensity Bounds: floor={session.IntensityFloorOverride ?? "(none)"}, ceiling={session.IntensityCeilingOverride ?? "(none)"}");
@@ -596,12 +607,27 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                 SessionId: session.Id,
                 CurrentPhase: currentPhase,
                 ActiveScenarioId: activeScenarioId,
+                VariantId: session.AdaptiveState.ActiveVariantId,
                 AverageDesire: session.AdaptiveState.CharacterStats.Count == 0
                     ? 50
                     : session.AdaptiveState.CharacterStats.Values.Average(x => x.Stats.TryGetValue("Desire", out var v) ? v : 50),
                 AverageRestraint: session.AdaptiveState.CharacterStats.Count == 0
                     ? 50
                     : session.AdaptiveState.CharacterStats.Values.Average(x => x.Stats.TryGetValue("Restraint", out var v) ? v : 50),
+                AverageTension: session.AdaptiveState.CharacterStats.Count == 0
+                    ? 50
+                    : session.AdaptiveState.CharacterStats.Values.Average(x => x.Stats.TryGetValue("Tension", out var v) ? v : 50),
+                AverageConnection: session.AdaptiveState.CharacterStats.Count == 0
+                    ? 50
+                    : session.AdaptiveState.CharacterStats.Values.Average(x => x.Stats.TryGetValue("Connection", out var v) ? v : 50),
+                AverageDominance: session.AdaptiveState.CharacterStats.Count == 0
+                    ? 50
+                    : session.AdaptiveState.CharacterStats.Values.Average(x => x.Stats.TryGetValue("Dominance", out var v) ? v : 50),
+                AverageLoyalty: session.AdaptiveState.CharacterStats.Count == 0
+                    ? 50
+                    : session.AdaptiveState.CharacterStats.Values.Average(x => x.Stats.TryGetValue("Loyalty", out var v) ? v : 50),
+                SelectedWillingnessProfileId: session.AdaptiveState.SelectedWillingnessProfileId,
+                HusbandAwarenessProfileId: session.AdaptiveState.HusbandAwarenessProfileId,
                 SuppressedScenarioIds: suppressedScenarioIds),
             cancellationToken);
 
@@ -749,10 +775,10 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         // Persona   = 1st person POV ("I felt...", "I watched...")
         // NPC       = 3rd person external (dialogue + observable behavior only)
         var personaName = string.IsNullOrWhiteSpace(session.PersonaName) ? "You" : session.PersonaName;
-        var (effectiveStyleLabel, effectiveStyleReason) = RolePlayStyleResolver.ResolveEffectiveStyle(session, baseIntensityLevel);
+        var (effectiveStyleLabel, effectiveStyleReason) = RolePlayStyleResolver.ResolveEffectiveStyle(session, baseIntensityLevel, adaptiveIntensityLevel);
         sb.AppendLine($"Resolved Intensity: {effectiveStyleLabel}");
         sb.AppendLine($"Resolution Reason: {effectiveStyleReason}");
-        sb.AppendLine($"Manual Intensity Pin: {(session.IsIntensityManuallyPinned ? "ON" : "OFF")}");
+        sb.AppendLine($"Manual Intensity Pin: {(session.IsIntensityManuallyPinned ? "ON (resolved follows selected)" : "OFF (adaptive mode)")}");
 
         var styleHint = string.IsNullOrWhiteSpace(scenarioStyle)
             ? effectiveStyleLabel

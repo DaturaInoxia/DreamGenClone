@@ -52,16 +52,16 @@ public sealed class StyleResolverProfileDrivenTests
         Assert.DoesNotContain("theme=escalating", reason);
     }
 
-    // --- Fallback to legacy hardcoded list ---
+    // --- No fallback behavior ---
 
     [Fact]
-    public void NoProfile_FallsBackToLegacyEscalatingThemes()
+    public void NoProfile_NoFallbackEscalation()
     {
         var session = CreateSession(primaryThemeId: "dominance");
 
         var (_, reason) = RolePlayStyleResolver.ResolveEffectiveStyle(session, IntensityLevel.SuggestivePg12);
 
-        Assert.Contains("theme=escalating(+1)", reason);
+        Assert.DoesNotContain("theme=escalating", reason);
     }
 
     [Fact]
@@ -75,7 +75,7 @@ public sealed class StyleResolverProfileDrivenTests
     }
 
     [Fact]
-    public void EmptyEscalatingThemeIds_FallsBackToLegacy()
+    public void EmptyEscalatingThemeIds_NoEscalation()
     {
         var session = CreateSession(primaryThemeId: "forbidden-risk");
         var profile = new SteeringProfile
@@ -85,8 +85,7 @@ public sealed class StyleResolverProfileDrivenTests
 
         var (_, reason) = RolePlayStyleResolver.ResolveEffectiveStyle(session, IntensityLevel.SuggestivePg12, styleProfile: profile);
 
-        // Empty list means fallback to legacy
-        Assert.Contains("theme=escalating(+1)", reason);
+        Assert.DoesNotContain("theme=escalating", reason);
     }
 
     // --- MustHave +1 push ---
@@ -183,9 +182,41 @@ public sealed class StyleResolverProfileDrivenTests
             new() { Name = "custom-theme", Tier = ThemeTier.MustHave }
         };
 
-        var (_, reason) = RolePlayStyleResolver.ResolveEffectiveStyle(session, IntensityLevel.SuggestivePg12, profile, preferences);
+        var (_, reason) = RolePlayStyleResolver.ResolveEffectiveStyle(session, IntensityLevel.SuggestivePg12, styleProfile: profile, themePreferences: preferences);
 
         Assert.Contains("theme=escalating(+1)", reason);
         Assert.Contains("musthave-push(+1)", reason);
+    }
+
+    [Fact]
+    public void ManualPin_On_ResolvedUsesSelectedScale()
+    {
+        var session = CreateSession(primaryThemeId: "custom-theme", desireStat: 90);
+        session.IsIntensityManuallyPinned = true;
+
+        var (label, reason) = RolePlayStyleResolver.ResolveEffectiveStyle(
+            session,
+            baseIntensityLevel: IntensityLevel.Emotional,
+            adaptiveIntensityLevel: IntensityLevel.Hardcore);
+
+        Assert.Equal("Emotional", label);
+        Assert.Contains("manual-pin=on(resolved=selected)", reason);
+        Assert.DoesNotContain("desire=", reason);
+    }
+
+    [Fact]
+    public void ManualPin_Off_ResolvedStartsFromAdaptiveScale()
+    {
+        var session = CreateSession(primaryThemeId: null, desireStat: 50);
+        session.IsIntensityManuallyPinned = false;
+
+        var (label, reason) = RolePlayStyleResolver.ResolveEffectiveStyle(
+            session,
+            baseIntensityLevel: IntensityLevel.Emotional,
+            adaptiveIntensityLevel: IntensityLevel.Explicit);
+
+        Assert.Equal("Erotic", label);
+        Assert.Contains("selected=Emotional", reason);
+        Assert.Contains("adaptive=Erotic", reason);
     }
 }

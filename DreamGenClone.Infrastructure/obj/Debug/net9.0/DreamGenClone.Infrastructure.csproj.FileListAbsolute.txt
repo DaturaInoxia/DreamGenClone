@@ -47,3 +47,17 @@ D:\src\DreamGenClone\DreamGenClone.Infrastructure\artifacts\tmpbuild\web-intensi
 D:\src\DreamGenClone\artifacts\tmp\testout\DreamGenClone.Infrastructure.deps.json
 D:\src\DreamGenClone\artifacts\tmp\testout\DreamGenClone.Infrastructure.dll
 D:\src\DreamGenClone\artifacts\tmp\testout\DreamGenClone.Infrastructure.pdb
+D:\src\DreamGenClone\DreamGenClone.Infrastructure\artifacts\tmp\verify-web\DreamGenClone.Infrastructure.deps.json
+D:\src\DreamGenClone\DreamGenClone.Infrastructure\artifacts\tmp\verify-web\DreamGenClone.Infrastructure.dll
+D:\src\DreamGenClone\DreamGenClone.Infrastructure\artifacts\tmp\verify-web\DreamGenClone.Infrastructure.pdb
+D:\src\DreamGenClone\DreamGenClone.Infrastructure\artifacts\tmp\verify-web\DreamGenClone.Application.dll
+D:\src\DreamGenClone\DreamGenClone.Infrastructure\artifacts\tmp\verify-web\DreamGenClone.Domain.dll
+D:\src\DreamGenClone\DreamGenClone.Infrastructure\artifacts\tmp\verify-web\DreamGenClone.Application.pdb
+D:\src\DreamGenClone\DreamGenClone.Infrastructure\artifacts\tmp\verify-web\DreamGenClone.Domain.pdb
+D:\src\DreamGenClone\DreamGenClone.Infrastructure\artifacts\tmp\verify-web-phase2\DreamGenClone.Infrastructure.deps.json
+D:\src\DreamGenClone\DreamGenClone.Infrastructure\artifacts\tmp\verify-web-phase2\DreamGenClone.Infrastructure.dll
+D:\src\DreamGenClone\DreamGenClone.Infrastructure\artifacts\tmp\verify-web-phase2\DreamGenClone.Infrastructure.pdb
+D:\src\DreamGenClone\DreamGenClone.Infrastructure\artifacts\tmp\verify-web-phase2\DreamGenClone.Application.dll
+D:\src\DreamGenClone\DreamGenClone.Infrastructure\artifacts\tmp\verify-web-phase2\DreamGenClone.Domain.dll
+D:\src\DreamGenClone\DreamGenClone.Infrastructure\artifacts\tmp\verify-web-phase2\DreamGenClone.Application.pdb
+D:\src\DreamGenClone\DreamGenClone.Infrastructure\artifacts\tmp\verify-web-phase2\DreamGenClone.Domain.pdb

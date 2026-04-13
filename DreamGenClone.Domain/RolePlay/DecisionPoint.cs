@@ -7,6 +7,9 @@ public sealed class DecisionPoint
     public string ScenarioId { get; set; } = string.Empty;
     public NarrativePhase Phase { get; set; }
     public string TriggerSource { get; set; } = string.Empty;
+    public string ContextSummary { get; set; } = string.Empty;
+    public string AskingActorName { get; set; } = string.Empty;
+    public string TargetActorId { get; set; } = string.Empty;
     public TransparencyMode TransparencyMode { get; set; } = TransparencyMode.Directional;
     public List<string> OptionIds { get; set; } = [];
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;

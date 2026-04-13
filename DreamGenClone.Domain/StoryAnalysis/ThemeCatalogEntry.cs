@@ -16,6 +16,8 @@ public sealed class ThemeCatalogEntry
 
     public Dictionary<string, int> StatAffinities { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
+    public string ScenarioFitRules { get; set; } = string.Empty;
+
     public bool IsEnabled { get; set; } = true;
 
     public bool IsBuiltIn { get; set; }

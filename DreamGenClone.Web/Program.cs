@@ -90,9 +90,13 @@ builder.Services.AddScoped<IInteractionCommandService, InteractionCommandService
 builder.Services.AddScoped<IInteractionRetryService, InteractionRetryService>();
 builder.Services.AddScoped<IScenarioSelectionService, ScenarioSelectionService>();
 builder.Services.AddScoped<IScenarioLifecycleService, ScenarioLifecycleService>();
+builder.Services.AddScoped<ICharacterStateScenarioMapper, CharacterStateScenarioMapper>();
+builder.Services.AddScoped<IScenarioGuidanceGenerator, ScenarioGuidanceGenerator>();
+builder.Services.AddScoped<ScenarioGuidanceTemplateSeedService>();
 builder.Services.AddScoped<IConceptInjectionService, ConceptInjectionService>();
 builder.Services.AddScoped<IDecisionPointService, DecisionPointService>();
 builder.Services.AddScoped<IOverrideAuthorizationService, OverrideAuthorizationService>();
+builder.Services.AddScoped<IRPThemeService, RPThemeService>();
 builder.Services.AddScoped<IRolePlayV2StateRepository, RolePlayStateRepository>();
 builder.Services.AddScoped<IRolePlayDiagnosticsRepository, RolePlayDiagnosticsRepository>();
 builder.Services.AddScoped<IRolePlayDiagnosticsService, RolePlayDiagnosticsService>();
@@ -118,9 +122,12 @@ builder.Services.AddScoped<IThemePreferenceService, ThemePreferenceService>();
 builder.Services.AddScoped<IIntensityProfileService, IntensityProfileService>();
 builder.Services.AddScoped<ISteeringProfileService, SteeringProfileService>();
 builder.Services.AddScoped<IThemeCatalogService, ThemeCatalogService>();
+builder.Services.AddScoped<IScenarioDefinitionService, ScenarioDefinitionService>();
 builder.Services.AddScoped<IThemeDefinitionParser, ThemeDefinitionParser>();
 builder.Services.AddScoped<IThemeDefinitionService, ThemeDefinitionService>();
 builder.Services.AddScoped<IBaseStatProfileService, BaseStatProfileService>();
+builder.Services.AddScoped<IStatWillingnessProfileService, StatWillingnessProfileService>();
+builder.Services.AddScoped<IHusbandAwarenessProfileService, HusbandAwarenessProfileService>();
 builder.Services.AddScoped<IPromptDealbreakerService, PromptDealbreakerService>();
 builder.Services.AddScoped<IScenarioSelectionEngine, ScenarioSelectionEngine>();
 builder.Services.AddScoped<INarrativePhaseManager, NarrativePhaseManager>();
@@ -162,6 +169,9 @@ using (var scope = app.Services.CreateScope())
 
     var themeCatalogService = scope.ServiceProvider.GetRequiredService<IThemeCatalogService>();
     await themeCatalogService.SeedDefaultsAsync();
+
+    var scenarioGuidanceSeedService = scope.ServiceProvider.GetRequiredService<ScenarioGuidanceTemplateSeedService>();
+    await scenarioGuidanceSeedService.SeedDefaultsAsync();
 
     var themePreferenceService = scope.ServiceProvider.GetRequiredService<IThemePreferenceService>();
     await themePreferenceService.AutoLinkToCatalogAsync();

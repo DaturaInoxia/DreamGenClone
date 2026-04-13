@@ -3,6 +3,8 @@
 @using DreamGenClone.Web.Application.Assistants
 @using DreamGenClone.Web.Application.Scenarios
 @using DreamGenClone.Web.Application.StoryAnalysis
+@using DreamGenClone.Application.RolePlay
+@using DreamGenClone.Domain.RolePlay
 @using DreamGenClone.Web.Domain.RolePlay
 @using DreamGenClone.Web.Domain.Scenarios
 @using DreamGenClone.Application.StoryAnalysis
@@ -13,6 +15,7 @@
 @inject IScenarioTokenCounter TokenCounter
 @inject StoryAnalysisFacade StoryAnalysisFacade
 @inject IScenarioAssistantService ScenarioAssistant
+@inject IRPThemeService RPThemeService
 @inject NavigationManager Navigation
 
 <PageTitle>Scenario Editor - DreamGenClone</PageTitle>
@@ -161,17 +164,17 @@
                         <h5>Story Direction, Intensity & Writing</h5>
                     </div>
                     <div class="card-body">
-                        <div class="form-text mb-3">Theme Profile steers what the story is pushed toward. Writing Style Profile only affects prose voice and texture, such as Sultry.</div>
+                        <div class="form-text mb-3">RP Theme Profile steers role-play theme direction. Writing Style Profile only affects prose voice and texture.</div>
                         <div class="mb-3">
-                            <label class="form-label">Default Story Theme Profile</label>
-                            <select class="form-select" @bind="CurrentScenario.DefaultThemeProfileId">
+                            <label class="form-label">Default RP Theme Profile</label>
+                            <select class="form-select" @bind="CurrentScenario.DefaultRPThemeProfileId">
                                 <option value="">(None)</option>
-                                @foreach (var profile in RankingProfiles)
+                                @foreach (var profile in RpThemeProfiles)
                                 {
                                     <option value="@profile.Id">@profile.Name</option>
                                 }
                             </select>
-                            <div class="form-text">Use this to steer what the story should emphasize or avoid.</div>
+                            <div class="form-text">Use this to steer RP theme selection and guidance for sessions created from this scenario.</div>
                         </div>
 
                         <div class="mb-3">
@@ -575,6 +578,7 @@
     private string NewExampleTitle = string.Empty;
     private string NewExampleText = string.Empty;
     private List<ThemeProfile> RankingProfiles = [];
+    private List<RPThemeProfile> RpThemeProfiles = [];
     private List<IntensityProfile> ToneProfiles = [];
     private List<SteeringProfile> StyleProfiles = [];
     private List<RolePlayAssistantChatThread> _assistantChats = [];
@@ -599,6 +603,10 @@
     protected override async Task OnInitializedAsync()
     {
         RankingProfiles = await StoryAnalysisFacade.ListProfilesAsync();
+        RpThemeProfiles = (await RPThemeService.ListProfilesAsync())
+            .Where(x => !string.Equals(x.Id, IRPThemeService.GlobalThemeLibraryProfileId, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
         ToneProfiles = await StoryAnalysisFacade.ListIntensityProfilesAsync();
         StyleProfiles = await StoryAnalysisFacade.ListSteeringProfilesAsync();
         BaseStatProfiles = await StoryAnalysisFacade.ListBaseStatProfilesAsync();
@@ -610,6 +618,14 @@
         else
         {
             CurrentScenario = new Scenario { Name = "New Scenario" };
+        }
+
+        // One-time migration fallback for existing scenarios still carrying legacy default profile.
+        if (CurrentScenario is not null
+            && string.IsNullOrWhiteSpace(CurrentScenario.DefaultRPThemeProfileId)
+            && !string.IsNullOrWhiteSpace(CurrentScenario.DefaultThemeProfileId))
+        {
+            CurrentScenario.DefaultRPThemeProfileId = CurrentScenario.DefaultThemeProfileId;
         }
 
         EnsureBaseStatsInitialized();

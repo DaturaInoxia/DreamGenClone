@@ -5,21 +5,20 @@ namespace DreamGenClone.Web.Application.RolePlay;
 
 public static class RolePlayStyleResolver
 {
-    private static readonly HashSet<string> LegacyEscalatingThemes = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "dominance", "power-dynamics", "forbidden-risk", "humiliation", "infidelity"
-    };
-
     public static (string Label, string Reason) ResolveEffectiveStyle(
         RolePlaySession session,
         IntensityLevel? baseIntensityLevel,
+        IntensityLevel? adaptiveIntensityLevel = null,
         SteeringProfile? styleProfile = null,
         IReadOnlyList<ThemePreference>? themePreferences = null)
     {
-        var baseScale = baseIntensityLevel.HasValue ? (int)baseIntensityLevel.Value : 2;
+        var selectedScale = baseIntensityLevel.HasValue ? (int)baseIntensityLevel.Value : 2;
+        var adaptiveScale = adaptiveIntensityLevel.HasValue ? (int)adaptiveIntensityLevel.Value : selectedScale;
+        var baseScale = session.IsIntensityManuallyPinned ? selectedScale : adaptiveScale;
         var reasonParts = new List<string>
         {
-            $"base={(IntensityLevel)Math.Clamp(baseScale, 0, 5)}"
+            $"selected={(IntensityLevel)Math.Clamp(selectedScale, 0, 5)}",
+            $"adaptive={(IntensityLevel)Math.Clamp(adaptiveScale, 0, 5)}"
         };
 
         if (!session.IsIntensityManuallyPinned)
@@ -77,10 +76,7 @@ public static class RolePlayStyleResolver
             }
             else
             {
-                // T036/T037: Profile-driven escalating theme check with legacy fallback
-                var escalatingThemeIds = styleProfile?.EscalatingThemeIds is { Count: > 0 }
-                    ? styleProfile.EscalatingThemeIds
-                    : null;
+                var escalatingThemeIds = styleProfile?.EscalatingThemeIds;
 
                 if (IsEscalatingTheme(primary, escalatingThemeIds) || IsEscalatingTheme(secondary, escalatingThemeIds))
                 {
@@ -104,7 +100,7 @@ public static class RolePlayStyleResolver
         }
         else
         {
-            reasonParts.Add("manual-pin=on(adaptive-deltas-suppressed)");
+            reasonParts.Add("manual-pin=on(resolved=selected)");
         }
 
         var floor = ParseBoundScale(session.IntensityFloorOverride);
@@ -146,14 +142,12 @@ public static class RolePlayStyleResolver
     {
         if (string.IsNullOrWhiteSpace(themeId)) return false;
 
-        // T036: Use profile-driven list when available
-        if (profileEscalatingThemeIds is not null)
+        if (profileEscalatingThemeIds is { Count: > 0 })
         {
             return profileEscalatingThemeIds.Any(id =>
                 string.Equals(id, themeId, StringComparison.OrdinalIgnoreCase));
         }
 
-        // T037: Fallback to legacy hardcoded list
-        return LegacyEscalatingThemes.Contains(themeId);
+        return false;
     }
 }

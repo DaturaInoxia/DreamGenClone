@@ -21,8 +21,15 @@ public sealed class RolePlayContinuationScenarioGuidanceTests
             SessionId: "s1",
             CurrentPhase: phase,
             ActiveScenarioId: "dominance",
+            VariantId: null,
             AverageDesire: 70,
             AverageRestraint: 35,
+            AverageTension: 50,
+            AverageConnection: 50,
+            AverageDominance: 50,
+            AverageLoyalty: 50,
+            SelectedWillingnessProfileId: null,
+            HusbandAwarenessProfileId: null,
             SuppressedScenarioIds: ["infidelity"]));
 
         Assert.Equal(phase, context.Phase);

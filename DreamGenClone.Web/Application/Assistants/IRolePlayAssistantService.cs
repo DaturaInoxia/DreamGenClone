@@ -33,7 +33,9 @@ public sealed class RolePlayAssistantContext
     // Adaptive/profile steering visibility for assistant guidance
     public string? SelectedThemeProfileId { get; init; }
     public string? SelectedIntensityProfileId { get; init; }
+    public string? AdaptiveIntensityProfileId { get; init; }
     public string? ActiveIntensityProfile { get; init; }
+    public string? ResolvedIntensityProfile { get; init; }
     public string? SelectedSteeringProfileId { get; init; }
     public string? IntensityFloorOverride { get; init; }
     public string? IntensityCeilingOverride { get; init; }

@@ -1,0 +1,1095 @@
+@page "/rp-themes"
+@rendermode InteractiveServer
+
+@using DreamGenClone.Application.RolePlay
+@using DreamGenClone.Domain.RolePlay
+@using DreamGenClone.Infrastructure.Configuration
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.Extensions.Options
+
+@inject IRPThemeService RPThemeService
+@inject IOptions<StoryAnalysisOptions> StoryAnalysisOptions
+
+<PageTitle>RP Themes</PageTitle>
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-end mb-3">
+        <div>
+            <h3 class="mb-1">RP Themes</h3>
+            <p class="text-muted mb-0">Profiles manage their own theme lists and tier assignments.</p>
+        </div>
+        <span class="badge bg-primary-subtle text-primary-emphasis border">Themes: @_themes.Count</span>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="alert alert-danger">@_error</div>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(_status))
+    {
+        <div class="alert alert-info">@_status</div>
+    }
+
+    <ul class="nav nav-tabs mb-3">
+        <li class="nav-item">
+            <button type="button" class="nav-link @(_activeTab == "profiles" ? "active" : "")" @onclick="ShowProfilesTab">Profiles</button>
+        </li>
+        <li class="nav-item">
+            <button type="button" class="nav-link @(_activeTab == "themes" ? "active" : "")" @onclick="ShowThemesTab">Themes</button>
+        </li>
+    </ul>
+
+    <div class="row g-4">
+        @if (_activeTab == "profiles")
+        {
+        <div class="col-lg-3">
+            <div class="card h-100">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span>Theme Profiles</span>
+                    <button class="btn btn-sm btn-primary" @onclick="CreateProfileAsync" disabled="@_isBusy">Create</button>
+                </div>
+                <div class="card-body">
+                    <div class="input-group input-group-sm mb-3">
+                        <input class="form-control" placeholder="New profile name" @bind="_newProfileName" />
+                        <button class="btn btn-primary" @onclick="CreateProfileAsync" disabled="@_isBusy">Add</button>
+                    </div>
+
+                    @if (_profiles.Count == 0)
+                    {
+                        <p class="text-muted mb-0">No RP theme profiles yet.</p>
+                    }
+                    else
+                    {
+                        <div class="list-group">
+                            @foreach (var profile in _profiles)
+                            {
+                                <button type="button"
+                                        class="list-group-item list-group-item-action @(profile.Id == _selectedProfileId ? "active" : "")"
+                                        @onclick="() => SelectProfileAsync(profile.Id)">
+                                    <div class="d-flex justify-content-between align-items-start gap-2">
+                                        <div>
+                                            <strong>@profile.Name</strong>
+                                            @if (profile.IsDefault)
+                                            {
+                                                <span class="badge bg-warning text-dark ms-1">Default</span>
+                                            }
+                                        </div>
+                                    </div>
+                                </button>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+        }
+
+        <div class="@(_activeTab == "profiles" ? "col-lg-9" : "col-12")">
+            @if (_activeTab == "themes")
+            {
+            <div class="card mb-3">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span>Themes</span>
+                    <span class="badge bg-secondary">Profile-scoped list management</span>
+                </div>
+                <div class="card-body">
+                    <div class="row g-2 align-items-end mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Active Profile</label>
+                            <select class="form-select form-select-sm" value="@(_selectedProfileId ?? string.Empty)" @onchange="OnThemeProfileChangedAsync">
+                                <option value="">Select profile...</option>
+                                @foreach (var profile in _profiles)
+                                {
+                                    <option value="@profile.Id">@profile.Name</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+
+                    @if (_selectedProfile is null)
+                    {
+                        <div class="alert alert-warning mb-3">Select a profile to manage its theme list.</div>
+                    }
+
+                    <div class="mb-2">
+                        <label class="form-label">Upload .md files</label>
+                        <InputFile OnChange="OnFilesPickedAsync" multiple accept=".md,text/markdown" />
+                    </div>
+
+                    <div class="row g-2 align-items-end mb-2">
+                        <div class="col-md-4">
+                            <label class="form-label">Inline Source Path</label>
+                            <input class="form-control form-control-sm" @bind="_inlineSourcePath" placeholder="inline/theme.md" />
+                        </div>
+                        <div class="col-md-8">
+                            <label class="form-label">Inline Markdown</label>
+                            <textarea class="form-control form-control-sm" rows="5" @bind="_inlineMarkdown"></textarea>
+                        </div>
+                    </div>
+
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-sm btn-primary" @onclick="ImportInlineMarkdownAsync" disabled="@_isBusy">Import Inline</button>
+                        <button class="btn btn-sm btn-outline-primary" @onclick="SyncDefinitionsFolderAsync" disabled="@_isBusy">Sync Definitions Folder</button>
+                    </div>
+
+                    <div class="small text-muted mt-2">Source: @_syncSourcePath</div>
+
+                    <hr />
+
+                    <h6 class="mb-2">Theme Editor</h6>
+                    <div class="row g-2 align-items-end mb-2">
+                        <div class="col-md-4">
+                            <label class="form-label">Theme Id</label>
+                            <input class="form-control form-control-sm" @bind="_themeFormId" placeholder="infidelity-public-facade" disabled="@_isEditingTheme" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Label</label>
+                            <input class="form-control form-control-sm" @bind="_themeFormLabel" />
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">Category</label>
+                            <input class="form-control form-control-sm" @bind="_themeFormCategory" />
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">Weight</label>
+                            <input class="form-control form-control-sm" type="number" min="1" max="10" @bind="_themeFormWeight" />
+                        </div>
+                    </div>
+
+                    <div class="row g-2 align-items-end mb-2">
+                        <div class="col-12">
+                            <label class="form-label">Description</label>
+                            <input class="form-control form-control-sm" @bind="_themeFormDescription" />
+                        </div>
+                    </div>
+
+                    <div class="d-flex gap-2 mb-3">
+                        <button class="btn btn-sm btn-primary" @onclick="SaveThemeFromFormAsync" disabled="@_isBusy">@(_isEditingTheme ? "Update Theme" : "Create Theme")</button>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="ResetThemeForm">Clear</button>
+                    </div>
+
+                    @if (_lastImportResults.Count > 0)
+                    {
+                        <div class="table-responsive mt-3">
+                            <table class="table table-sm align-middle">
+                                <thead>
+                                    <tr><th>Source</th><th>ThemeId</th><th>Status</th><th>Message</th></tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var result in _lastImportResults)
+                                    {
+                                        <tr>
+                                            <td>@result.SourcePath</td>
+                                            <td>@result.ThemeId</td>
+                                            <td>
+                                                @if (result.Imported)
+                                                {
+                                                    <span class="badge bg-success">Imported</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge bg-danger">Failed</span>
+                                                }
+                                            </td>
+                                            <td>
+                                                @if (!string.IsNullOrWhiteSpace(result.Error))
+                                                {
+                                                    @result.Error
+                                                }
+                                                else if (result.Warnings.Count > 0)
+                                                {
+                                                    @string.Join(" | ", result.Warnings)
+                                                }
+                                                else
+                                                {
+                                                    <span class="text-muted">-</span>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+
+                    <div class="table-responsive mt-3">
+                        <table class="table table-sm align-middle">
+                            <thead>
+                                <tr>
+                                    <th>Theme Id</th>
+                                    <th>Label</th>
+                                    <th>Category</th>
+                                    <th>Weight</th>
+                                    <th>Description</th>
+                                    <th style="width: 300px;">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @if (_profileThemes.Count == 0)
+                                {
+                                    <tr><td colspan="6" class="text-muted">No themes assigned to this profile yet.</td></tr>
+                                }
+                                else
+                                {
+                                    @foreach (var theme in _profileThemes)
+                                    {
+                                        var assignment = _assignments.FirstOrDefault(x => string.Equals(x.ThemeId, theme.Id, StringComparison.OrdinalIgnoreCase));
+                                        var isExpanded = _expandedThemeIds.Contains(theme.Id);
+                                        <tr>
+                                            <td>@theme.Id</td>
+                                            <td>@theme.Label</td>
+                                            <td>@theme.Category</td>
+                                            <td>@theme.Weight</td>
+                                            <td>@theme.Description</td>
+                                            <td>
+                                                <button class="btn btn-sm btn-outline-dark me-1" @onclick="() => ToggleThemeDetailsAsync(theme.Id)">@(isExpanded ? "Hide Details" : "View All Data")</button>
+                                                <button class="btn btn-sm btn-outline-primary me-1" @onclick="() => EditTheme(theme.Id)">Edit</button>
+                                                <button class="btn btn-sm btn-outline-secondary me-1" @onclick="() => RemoveThemeFromProfileAsync(theme.Id)">Remove From Profile</button>
+                                                <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteThemeDefinitionAsync(theme.Id)">Delete Theme</button>
+                                            </td>
+                                        </tr>
+
+                                        @if (isExpanded)
+                                        {
+                                            <tr>
+                                                <td colspan="7" class="bg-light">
+                                                    <div class="p-2 small">
+                                                        <div class="fw-semibold mb-1">Theme Metadata</div>
+                                                        <div class="row g-2 mb-3">
+                                                            <div class="col-md-3"><strong>Id:</strong> @theme.Id</div>
+                                                            <div class="col-md-3"><strong>Label:</strong> @theme.Label</div>
+                                                            <div class="col-md-2"><strong>Category:</strong> @theme.Category</div>
+                                                            <div class="col-md-2"><strong>Weight:</strong> @theme.Weight</div>
+                                                            <div class="col-md-2"><strong>Enabled:</strong> @(theme.IsEnabled ? "Yes" : "No")</div>
+                                                            <div class="col-md-6"><strong>Parent Theme:</strong> @(string.IsNullOrWhiteSpace(theme.ParentThemeId) ? "(none)" : theme.ParentThemeId)</div>
+                                                            <div class="col-md-3"><strong>CreatedUtc:</strong> @theme.CreatedUtc.ToString("u")</div>
+                                                            <div class="col-md-3"><strong>UpdatedUtc:</strong> @theme.UpdatedUtc.ToString("u")</div>
+                                                            <div class="col-12"><strong>Description:</strong> @theme.Description</div>
+                                                        </div>
+
+                                                        <div class="fw-semibold mb-1">Profile Assignment Data</div>
+                                                        @if (assignment is null)
+                                                        {
+                                                            <div class="text-muted mb-3">No assignment found for current profile.</div>
+                                                        }
+                                                        else
+                                                        {
+                                                            <div class="row g-2 mb-3">
+                                                                <div class="col-md-3"><strong>Assignment Id:</strong> @assignment.Id</div>
+                                                                <div class="col-md-3"><strong>Profile Id:</strong> @assignment.ProfileId</div>
+                                                                <div class="col-md-2"><strong>Tier:</strong> @assignment.Tier</div>
+                                                                <div class="col-md-2"><strong>Weight:</strong> @assignment.Weight.ToString("0.00")</div>
+                                                                <div class="col-md-1"><strong>Sort:</strong> @assignment.SortOrder</div>
+                                                                <div class="col-md-1"><strong>Enabled:</strong> @(assignment.IsEnabled ? "Yes" : "No")</div>
+                                                            </div>
+                                                        }
+
+                                                        <div class="fw-semibold mb-1">Keywords (@theme.Keywords.Count)</div>
+                                                        @if (theme.Keywords.Count == 0)
+                                                        {
+                                                            <div class="text-muted mb-3">No keywords.</div>
+                                                        }
+                                                        else
+                                                        {
+                                                            <div class="table-responsive mb-3">
+                                                                <table class="table table-sm table-bordered mb-0">
+                                                                    <thead>
+                                                                        <tr><th>Group</th><th>Keyword</th><th>Sort</th></tr>
+                                                                    </thead>
+                                                                    <tbody>
+                                                                        @foreach (var keyword in theme.Keywords.OrderBy(x => x.GroupName).ThenBy(x => x.SortOrder))
+                                                                        {
+                                                                            <tr>
+                                                                                <td>@keyword.GroupName</td>
+                                                                                <td>@keyword.Keyword</td>
+                                                                                <td>@keyword.SortOrder</td>
+                                                                            </tr>
+                                                                        }
+                                                                    </tbody>
+                                                                </table>
+                                                            </div>
+                                                        }
+
+                                                        <div class="fw-semibold mb-1">Stat Affinities (@theme.StatAffinities.Count)</div>
+                                                        @if (theme.StatAffinities.Count == 0)
+                                                        {
+                                                            <div class="text-muted mb-3">No stat affinities.</div>
+                                                        }
+                                                        else
+                                                        {
+                                                            <div class="table-responsive mb-3">
+                                                                <table class="table table-sm table-bordered mb-0">
+                                                                    <thead>
+                                                                        <tr><th>Stat</th><th>Value</th><th>Rationale</th></tr>
+                                                                    </thead>
+                                                                    <tbody>
+                                                                        @foreach (var affinity in theme.StatAffinities.OrderBy(x => x.StatName))
+                                                                        {
+                                                                            <tr>
+                                                                                <td>@affinity.StatName</td>
+                                                                                <td>@affinity.Value</td>
+                                                                                <td>@affinity.Rationale</td>
+                                                                            </tr>
+                                                                        }
+                                                                    </tbody>
+                                                                </table>
+                                                            </div>
+                                                        }
+
+                                                        <div class="fw-semibold mb-1">Phase Guidance (@theme.PhaseGuidance.Count)</div>
+                                                        @if (theme.PhaseGuidance.Count == 0)
+                                                        {
+                                                            <div class="text-muted mb-3">No phase guidance.</div>
+                                                        }
+                                                        else
+                                                        {
+                                                            <div class="table-responsive mb-3">
+                                                                <table class="table table-sm table-bordered mb-0">
+                                                                    <thead>
+                                                                        <tr><th>Phase</th><th>Guidance</th></tr>
+                                                                    </thead>
+                                                                    <tbody>
+                                                                        @foreach (var guidance in theme.PhaseGuidance.OrderBy(x => x.Phase))
+                                                                        {
+                                                                            <tr>
+                                                                                <td>@guidance.Phase</td>
+                                                                                <td>@guidance.GuidanceText</td>
+                                                                            </tr>
+                                                                        }
+                                                                    </tbody>
+                                                                </table>
+                                                            </div>
+                                                        }
+
+                                                        <div class="fw-semibold mb-1">Guidance Points (@theme.GuidancePoints.Count)</div>
+                                                        @if (theme.GuidancePoints.Count == 0)
+                                                        {
+                                                            <div class="text-muted">No guidance points.</div>
+                                                        }
+                                                        else
+                                                        {
+                                                            <div class="table-responsive">
+                                                                <table class="table table-sm table-bordered mb-0">
+                                                                    <thead>
+                                                                        <tr><th>Phase</th><th>Type</th><th>Text</th><th>Sort</th></tr>
+                                                                    </thead>
+                                                                    <tbody>
+                                                                        @foreach (var point in theme.GuidancePoints.OrderBy(x => x.Phase).ThenBy(x => x.SortOrder))
+                                                                        {
+                                                                            <tr>
+                                                                                <td>@point.Phase</td>
+                                                                                <td>@point.PointType</td>
+                                                                                <td>@point.Text</td>
+                                                                                <td>@point.SortOrder</td>
+                                                                            </tr>
+                                                                        }
+                                                                    </tbody>
+                                                                </table>
+                                                            </div>
+                                                        }
+
+                                                        <div class="fw-semibold mt-3 mb-1">Source Markdown (Full Theme Data)</div>
+                                                        @if (_themeSourceMarkdownById.TryGetValue(theme.Id, out var sourceMarkdown) && !string.IsNullOrWhiteSpace(sourceMarkdown))
+                                                        {
+                                                            <pre class="border rounded p-2 bg-white" style="max-height: 420px; overflow: auto; white-space: pre-wrap;">@sourceMarkdown</pre>
+                                                        }
+                                                        else
+                                                        {
+                                                            <div class="text-muted">No source markdown file was found for this theme id in the configured definitions folder.</div>
+                                                        }
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        }
+                                    }
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            }
+
+            @if (_activeTab == "profiles" && _selectedProfile is null)
+            {
+                <div class="card"><div class="card-body text-muted">Select a profile to assign tiers to themes.</div></div>
+            }
+            else if (_activeTab == "profiles")
+            {
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <strong>Assign Tiers: @_selectedProfile!.Name</strong>
+                        <button class="btn btn-sm btn-outline-danger" @onclick="DeleteProfileAsync" disabled="@_isBusy">Delete Profile</button>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-2 align-items-end mb-3">
+                            <div class="col-md-9">
+                                <label class="form-label">Add Theme To Profile</label>
+                                <select class="form-select form-select-sm" @bind="_profileAddThemeId">
+                                    <option value="">Select theme...</option>
+                                    @foreach (var theme in _themes
+                                        .Where(t => !_assignments.Any(a => string.Equals(a.ThemeId, t.Id, StringComparison.OrdinalIgnoreCase)))
+                                        .OrderBy(t => t.Label, StringComparer.OrdinalIgnoreCase))
+                                    {
+                                        <option value="@theme.Id">@theme.Label (@theme.Id)</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <button class="btn btn-sm btn-primary w-100" @onclick="AddThemeToProfileAsync" disabled="@_isBusy">Add To Profile</button>
+                            </div>
+                        </div>
+
+                        <div class="table-responsive">
+                            <table class="table table-sm align-middle">
+                                <thead>
+                                    <tr>
+                                        <th>Theme</th>
+                                        <th>Current Tier</th>
+                                        <th>Weight</th>
+                                        <th>Assign Tier</th>
+                                        <th style="width: 170px;">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @if (_profileThemes.Count == 0)
+                                    {
+                                        <tr><td colspan="5" class="text-muted">No themes assigned to this profile yet.</td></tr>
+                                    }
+                                    else
+                                    {
+                                        @foreach (var theme in _profileThemes)
+                                        {
+                                            var assigned = _assignments.FirstOrDefault(x => string.Equals(x.ThemeId, theme.Id, StringComparison.OrdinalIgnoreCase));
+                                            var effectiveWeight = assigned?.Weight > 0m ? assigned.Weight : DefaultTierWeight(assigned?.Tier ?? RPThemeTier.Neutral);
+                                            <tr>
+                                                <td>
+                                                    <div><strong>@theme.Label</strong></div>
+                                                    <div class="small text-muted">@theme.Id</div>
+                                                </td>
+                                                <td>
+                                                    @if (assigned is null)
+                                                    {
+                                                        <span class="text-muted">Not assigned</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="badge bg-secondary">@assigned.Tier</span>
+                                                    }
+                                                </td>
+                                                <td>@effectiveWeight.ToString("0.00")</td>
+                                                <td>
+                                                    <select class="form-select form-select-sm" @bind="_pendingTiers[theme.Id]">
+                                                        @foreach (var tier in Enum.GetValues<RPThemeTier>())
+                                                        {
+                                                            <option value="@tier">@tier</option>
+                                                        }
+                                                    </select>
+                                                </td>
+                                                <td>
+                                                    <button class="btn btn-sm btn-primary me-1" @onclick="() => SaveThemeTierAsync(theme.Id)">Save</button>
+                                                    <button class="btn btn-sm btn-outline-danger" @onclick="() => RemoveThemeFromProfileAsync(theme.Id)" disabled="@(assigned is null)">Remove</button>
+                                                </td>
+                                            </tr>
+                                        }
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private readonly List<RPThemeProfile> _profiles = [];
+    private readonly List<RPTheme> _themes = [];
+    private readonly List<RPTheme> _profileThemes = [];
+    private readonly List<RPThemeProfileThemeAssignment> _assignments = [];
+    private readonly Dictionary<string, RPThemeTier> _pendingTiers = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _expandedThemeIds = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> _themeSourceMarkdownById = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<RPThemeImportResult> _lastImportResults = [];
+
+    private string? _selectedProfileId;
+    private RPThemeProfile? _selectedProfile;
+    private bool _isBusy;
+    private string _newProfileName = string.Empty;
+    private string _inlineSourcePath = "inline-theme.md";
+    private string _inlineMarkdown = string.Empty;
+    private string _syncSourcePath = "specs/v2/ThemeDefinitaions";
+    private string _themeFormId = string.Empty;
+    private string _themeFormLabel = string.Empty;
+    private string _themeFormCategory = string.Empty;
+    private int _themeFormWeight = 1;
+    private string _themeFormDescription = string.Empty;
+    private string _profileAddThemeId = string.Empty;
+    private bool _isEditingTheme;
+    private string? _editingThemeId;
+    private string _status = string.Empty;
+    private string _error = string.Empty;
+    private string _activeTab = "profiles";
+
+    private void ShowProfilesTab() => _activeTab = "profiles";
+
+    private void ShowThemesTab() => _activeTab = "themes";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var configuredPath = StoryAnalysisOptions.Value.RpThemeMarkdownSourcePath;
+        if (!string.IsNullOrWhiteSpace(configuredPath))
+        {
+            _syncSourcePath = configuredPath.Trim();
+        }
+
+        await ReloadAllAsync();
+    }
+
+    private async Task ReloadAllAsync()
+    {
+        _profiles.Clear();
+        _profiles.AddRange((await RPThemeService.ListProfilesAsync())
+            .Where(x => !string.Equals(x.Id, IRPThemeService.GlobalThemeLibraryProfileId, StringComparison.OrdinalIgnoreCase)));
+
+        _themes.Clear();
+        _themes.AddRange(await RPThemeService.ListThemesAsync(includeDisabled: false));
+
+        if (string.IsNullOrWhiteSpace(_selectedProfileId) && _profiles.Count > 0)
+        {
+            _selectedProfileId = _profiles[0].Id;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_selectedProfileId))
+        {
+            await SelectProfileAsync(_selectedProfileId);
+        }
+        else
+        {
+            _selectedProfile = null;
+            _assignments.Clear();
+            _profileThemes.Clear();
+        }
+
+        EnsurePendingTierDefaults();
+    }
+
+    private async Task SelectProfileAsync(string profileId)
+    {
+        _selectedProfileId = profileId;
+        _selectedProfile = _profiles.FirstOrDefault(x => string.Equals(x.Id, profileId, StringComparison.OrdinalIgnoreCase));
+        _assignments.Clear();
+
+        if (_selectedProfile is not null)
+        {
+            _assignments.AddRange(await RPThemeService.ListProfileAssignmentsAsync(_selectedProfile.Id));
+            RebuildProfileThemes();
+        }
+        else
+        {
+            _profileThemes.Clear();
+        }
+
+        EnsurePendingTierDefaults();
+    }
+
+    private void EnsurePendingTierDefaults()
+    {
+        foreach (var theme in _themes)
+        {
+            var current = _assignments.FirstOrDefault(x => string.Equals(x.ThemeId, theme.Id, StringComparison.OrdinalIgnoreCase));
+            _pendingTiers[theme.Id] = current?.Tier ?? RPThemeTier.Neutral;
+        }
+    }
+
+    private void RebuildProfileThemes()
+    {
+        _profileThemes.Clear();
+        var assignedIds = _assignments
+            .Where(x => x.IsEnabled)
+            .Select(x => x.ThemeId)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        _profileThemes.AddRange(_themes
+            .Where(t => assignedIds.Contains(t.Id))
+            .OrderBy(t => t.Label, StringComparer.OrdinalIgnoreCase));
+
+        _expandedThemeIds.RemoveWhere(id => _profileThemes.All(t => !string.Equals(t.Id, id, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    private async Task ToggleThemeDetailsAsync(string themeId)
+    {
+        if (_expandedThemeIds.Contains(themeId))
+        {
+            _expandedThemeIds.Remove(themeId);
+        }
+        else
+        {
+            _expandedThemeIds.Add(themeId);
+            await EnsureThemeSourceMarkdownLoadedAsync(themeId);
+        }
+    }
+
+    private async Task EnsureThemeSourceMarkdownLoadedAsync(string themeId)
+    {
+        if (_themeSourceMarkdownById.ContainsKey(themeId))
+        {
+            return;
+        }
+
+        var sourceDirectory = ResolveThemeSourceDirectoryPath(_syncSourcePath);
+        if (sourceDirectory is null)
+        {
+            _themeSourceMarkdownById[themeId] = string.Empty;
+            return;
+        }
+
+        var candidatePath = Path.Combine(sourceDirectory, $"{themeId}.md");
+        if (!File.Exists(candidatePath))
+        {
+            _themeSourceMarkdownById[themeId] = string.Empty;
+            return;
+        }
+
+        _themeSourceMarkdownById[themeId] = await File.ReadAllTextAsync(candidatePath);
+    }
+
+    private static string? ResolveThemeSourceDirectoryPath(string configuredPath)
+    {
+        if (string.IsNullOrWhiteSpace(configuredPath))
+        {
+            return null;
+        }
+
+        if (Path.IsPathRooted(configuredPath) && Directory.Exists(configuredPath))
+        {
+            return configuredPath;
+        }
+
+        var current = new DirectoryInfo(Directory.GetCurrentDirectory());
+        while (current is not null)
+        {
+            var candidate = Path.GetFullPath(Path.Combine(current.FullName, configuredPath));
+            if (Directory.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            current = current.Parent;
+        }
+
+        return null;
+    }
+
+    private static decimal DefaultTierWeight(RPThemeTier tier)
+        => tier switch
+        {
+            RPThemeTier.MustHave => 1.00m,
+            RPThemeTier.StronglyPrefer => 0.80m,
+            RPThemeTier.NiceToHave => 0.60m,
+            RPThemeTier.Neutral => 0.50m,
+            RPThemeTier.Discouraged => 0.20m,
+            RPThemeTier.HardDealBreaker => 0m,
+            _ => 0.50m
+        };
+
+    private async Task CreateProfileAsync()
+    {
+        await RunBusyAsync(async () =>
+        {
+            if (string.IsNullOrWhiteSpace(_newProfileName))
+            {
+                throw new InvalidOperationException("Profile name is required.");
+            }
+
+            await RPThemeService.SaveProfileAsync(new RPThemeProfile
+            {
+                Name = _newProfileName.Trim(),
+                Description = string.Empty
+            });
+
+            _newProfileName = string.Empty;
+            _status = "Profile created.";
+            await ReloadAllAsync();
+        });
+    }
+
+    private async Task DeleteProfileAsync()
+    {
+        await RunBusyAsync(async () =>
+        {
+            if (string.IsNullOrWhiteSpace(_selectedProfileId))
+            {
+                return;
+            }
+
+            await RPThemeService.DeleteProfileAsync(_selectedProfileId);
+            _status = "Profile deleted.";
+            _selectedProfileId = null;
+            await ReloadAllAsync();
+        });
+    }
+
+    private async Task SaveThemeTierAsync(string themeId)
+    {
+        await RunBusyAsync(async () =>
+        {
+            if (string.IsNullOrWhiteSpace(_selectedProfileId))
+            {
+                throw new InvalidOperationException("Select a profile first.");
+            }
+
+            if (!_pendingTiers.TryGetValue(themeId, out var selectedTier))
+            {
+                selectedTier = RPThemeTier.Neutral;
+            }
+
+            var existing = _assignments.FirstOrDefault(x => string.Equals(x.ThemeId, themeId, StringComparison.OrdinalIgnoreCase));
+            await RPThemeService.SaveProfileAssignmentAsync(new RPThemeProfileThemeAssignment
+            {
+                Id = existing?.Id ?? Guid.NewGuid().ToString("N"),
+                ProfileId = _selectedProfileId,
+                ThemeId = themeId,
+                Tier = selectedTier,
+                SortOrder = existing?.SortOrder ?? (_assignments.Count + 1),
+                IsEnabled = true
+            });
+
+            _status = "Tier assignment saved.";
+            await SelectProfileAsync(_selectedProfileId);
+        });
+    }
+
+    private async Task ClearThemeTierAsync(string themeId)
+    {
+        await RunBusyAsync(async () =>
+        {
+            var existing = _assignments.FirstOrDefault(x => string.Equals(x.ThemeId, themeId, StringComparison.OrdinalIgnoreCase));
+            if (existing is null)
+            {
+                return;
+            }
+
+            await RPThemeService.DeleteProfileAssignmentAsync(existing.Id);
+            _pendingTiers[themeId] = RPThemeTier.Neutral;
+            _status = "Tier assignment cleared.";
+
+            if (!string.IsNullOrWhiteSpace(_selectedProfileId))
+            {
+                await SelectProfileAsync(_selectedProfileId);
+            }
+        });
+    }
+
+    private async Task OnFilesPickedAsync(InputFileChangeEventArgs args)
+    {
+        await RunBusyAsync(async () =>
+        {
+            var filesToImport = new List<RPThemeImportFile>();
+            foreach (var file in args.GetMultipleFiles())
+            {
+                using var stream = file.OpenReadStream(maxAllowedSize: 2 * 1024 * 1024);
+                using var reader = new StreamReader(stream);
+                var content = await reader.ReadToEndAsync();
+                filesToImport.Add(new RPThemeImportFile(file.Name, content));
+            }
+
+            _lastImportResults.Clear();
+            var results = await RPThemeService.ImportFromMarkdownAsync(filesToImport);
+            _lastImportResults.AddRange(results);
+
+            if (!string.IsNullOrWhiteSpace(_selectedProfileId))
+            {
+                await AssignImportedThemesToCurrentProfileAsync(results);
+            }
+
+            _status = $"Imported {results.Count(x => x.Imported)} of {results.Count} markdown file(s).";
+            await ReloadAllAsync();
+        });
+    }
+
+    private async Task ImportInlineMarkdownAsync()
+    {
+        await RunBusyAsync(async () =>
+        {
+            if (string.IsNullOrWhiteSpace(_inlineMarkdown))
+            {
+                throw new InvalidOperationException("Inline markdown is empty.");
+            }
+
+            _lastImportResults.Clear();
+            var sourcePath = string.IsNullOrWhiteSpace(_inlineSourcePath) ? "inline-theme.md" : _inlineSourcePath.Trim();
+            var files = new List<RPThemeImportFile> { new(sourcePath, _inlineMarkdown) };
+            var results = await RPThemeService.ImportFromMarkdownAsync(files);
+            _lastImportResults.AddRange(results);
+
+            if (!string.IsNullOrWhiteSpace(_selectedProfileId))
+            {
+                await AssignImportedThemesToCurrentProfileAsync(results);
+            }
+
+            _inlineMarkdown = string.Empty;
+            _status = results.Count > 0 && results[0].Imported
+                ? "Inline theme import completed."
+                : "Inline theme import failed.";
+            await ReloadAllAsync();
+        });
+    }
+
+    private async Task SyncDefinitionsFolderAsync()
+    {
+        await RunBusyAsync(async () =>
+        {
+            _lastImportResults.Clear();
+            var results = await RPThemeService.SyncFromMarkdownDirectoryAsync(_syncSourcePath);
+            _lastImportResults.AddRange(results);
+
+            if (!string.IsNullOrWhiteSpace(_selectedProfileId))
+            {
+                await AssignImportedThemesToCurrentProfileAsync(results);
+            }
+
+            _status = $"Definitions sync completed: imported {results.Count(x => x.Imported)} of {results.Count}.";
+            await ReloadAllAsync();
+        });
+    }
+
+    private async Task OnThemeProfileChangedAsync(ChangeEventArgs args)
+    {
+        var profileId = args.Value?.ToString();
+        if (string.IsNullOrWhiteSpace(profileId))
+        {
+            _selectedProfileId = null;
+            _selectedProfile = null;
+            _assignments.Clear();
+            _profileThemes.Clear();
+            return;
+        }
+
+        await SelectProfileAsync(profileId);
+    }
+
+    private async Task SaveThemeFromFormAsync()
+    {
+        await RunBusyAsync(async () =>
+        {
+            if (_selectedProfile is null)
+            {
+                throw new InvalidOperationException("Select a profile before creating or editing themes.");
+            }
+
+            if (string.IsNullOrWhiteSpace(_themeFormLabel))
+            {
+                throw new InvalidOperationException("Theme label is required.");
+            }
+
+            var existing = !string.IsNullOrWhiteSpace(_editingThemeId)
+                ? await RPThemeService.GetThemeAsync(_editingThemeId)
+                : null;
+
+            var themeId = string.IsNullOrWhiteSpace(_themeFormId)
+                ? ToThemeId(_themeFormLabel)
+                : _themeFormId.Trim();
+
+            var saved = await RPThemeService.SaveThemeAsync(new RPTheme
+            {
+                Id = existing?.Id ?? themeId,
+                ParentThemeId = existing?.ParentThemeId,
+                Label = _themeFormLabel.Trim(),
+                Category = _themeFormCategory.Trim(),
+                Weight = Math.Clamp(_themeFormWeight, 1, 10),
+                Description = _themeFormDescription.Trim(),
+                IsEnabled = true,
+                Keywords = existing?.Keywords ?? [],
+                StatAffinities = existing?.StatAffinities ?? [],
+                PhaseGuidance = existing?.PhaseGuidance ?? [],
+                GuidancePoints = existing?.GuidancePoints ?? []
+            });
+
+            var assignment = _assignments.FirstOrDefault(x => string.Equals(x.ThemeId, saved.Id, StringComparison.OrdinalIgnoreCase));
+            await RPThemeService.SaveProfileAssignmentAsync(new RPThemeProfileThemeAssignment
+            {
+                Id = assignment?.Id ?? Guid.NewGuid().ToString("N"),
+                ProfileId = _selectedProfile.Id,
+                ThemeId = saved.Id,
+                Tier = assignment?.Tier ?? RPThemeTier.Neutral,
+                SortOrder = assignment?.SortOrder ?? (_assignments.Count + 1),
+                IsEnabled = true,
+                Weight = assignment?.Weight ?? 0m
+            });
+
+            _status = _isEditingTheme ? "Theme updated." : "Theme created and assigned to profile.";
+            ResetThemeForm();
+            await ReloadAllAsync();
+        });
+    }
+
+    private void EditTheme(string themeId)
+    {
+        var theme = _themes.FirstOrDefault(x => string.Equals(x.Id, themeId, StringComparison.OrdinalIgnoreCase));
+        if (theme is null)
+        {
+            return;
+        }
+
+        var assignment = _assignments.FirstOrDefault(x => string.Equals(x.ThemeId, theme.Id, StringComparison.OrdinalIgnoreCase));
+
+        _isEditingTheme = true;
+        _editingThemeId = theme.Id;
+        _themeFormId = theme.Id;
+        _themeFormLabel = theme.Label;
+        _themeFormCategory = theme.Category;
+        _themeFormWeight = theme.Weight;
+        _themeFormDescription = theme.Description;
+    }
+
+    private async Task AddThemeToProfileAsync()
+    {
+        await RunBusyAsync(async () =>
+        {
+            if (_selectedProfile is null)
+            {
+                throw new InvalidOperationException("Select a profile first.");
+            }
+
+            var themeId = (_profileAddThemeId ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(themeId))
+            {
+                throw new InvalidOperationException("Select a theme to add.");
+            }
+
+            var existing = _assignments.FirstOrDefault(x => string.Equals(x.ThemeId, themeId, StringComparison.OrdinalIgnoreCase));
+            await RPThemeService.SaveProfileAssignmentAsync(new RPThemeProfileThemeAssignment
+            {
+                Id = existing?.Id ?? Guid.NewGuid().ToString("N"),
+                ProfileId = _selectedProfile.Id,
+                ThemeId = themeId,
+                Tier = existing?.Tier ?? RPThemeTier.Neutral,
+                SortOrder = existing?.SortOrder ?? (_assignments.Count + 1),
+                IsEnabled = true,
+                Weight = existing?.Weight ?? 0m
+            });
+
+            _profileAddThemeId = string.Empty;
+            _status = "Theme added to profile.";
+            await ReloadAllAsync();
+        });
+    }
+
+    private async Task RemoveThemeFromProfileAsync(string themeId)
+    {
+        await RunBusyAsync(async () =>
+        {
+            var assignment = _assignments.FirstOrDefault(x => string.Equals(x.ThemeId, themeId, StringComparison.OrdinalIgnoreCase));
+            if (assignment is null)
+            {
+                return;
+            }
+
+            await RPThemeService.DeleteProfileAssignmentAsync(assignment.Id);
+            _status = "Theme removed from profile.";
+            await ReloadAllAsync();
+        });
+    }
+
+    private async Task DeleteThemeDefinitionAsync(string themeId)
+    {
+        await RunBusyAsync(async () =>
+        {
+            var deleted = await RPThemeService.DeleteThemeAsync(themeId);
+            _status = deleted
+                ? "Theme deleted."
+                : "Theme cannot be deleted because it is referenced by one or more profiles.";
+
+            await ReloadAllAsync();
+        });
+    }
+
+    private async Task AssignImportedThemesToCurrentProfileAsync(IReadOnlyList<RPThemeImportResult> results)
+    {
+        if (_selectedProfile is null)
+        {
+            return;
+        }
+
+        var current = await RPThemeService.ListProfileAssignmentsAsync(_selectedProfile.Id);
+        var byTheme = current.ToDictionary(x => x.ThemeId, StringComparer.OrdinalIgnoreCase);
+        var nextSort = current.Count == 0 ? 1 : current.Max(x => x.SortOrder) + 1;
+
+        foreach (var result in results.Where(x => x.Imported && !string.IsNullOrWhiteSpace(x.ThemeId)))
+        {
+            if (byTheme.ContainsKey(result.ThemeId))
+            {
+                continue;
+            }
+
+            await RPThemeService.SaveProfileAssignmentAsync(new RPThemeProfileThemeAssignment
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                ProfileId = _selectedProfile.Id,
+                ThemeId = result.ThemeId,
+                Tier = RPThemeTier.Neutral,
+                SortOrder = nextSort++,
+                IsEnabled = true
+            });
+        }
+    }
+
+    private void ResetThemeForm()
+    {
+        _isEditingTheme = false;
+        _editingThemeId = null;
+        _themeFormId = string.Empty;
+        _themeFormLabel = string.Empty;
+        _themeFormCategory = string.Empty;
+        _themeFormWeight = 1;
+        _themeFormDescription = string.Empty;
+    }
+
+    private static string ToThemeId(string label)
+    {
+        var chars = label.Trim().ToLowerInvariant().Select(ch =>
+        {
+            if ((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9'))
+            {
+                return ch;
+            }
+
+            return '-';
+        }).ToArray();
+
+        var collapsed = new string(chars);
+        while (collapsed.Contains("--", StringComparison.Ordinal))
+        {
+            collapsed = collapsed.Replace("--", "-", StringComparison.Ordinal);
+        }
+
+        return collapsed.Trim('-');
+    }
+
+    private async Task RunBusyAsync(Func<Task> action)
+    {
+        if (_isBusy)
+        {
+            return;
+        }
+
+        _isBusy = true;
+        _error = string.Empty;
+
+        try
+        {
+            await action();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+}

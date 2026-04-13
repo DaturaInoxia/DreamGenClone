@@ -49,6 +49,11 @@ public sealed class IntensityProfileService : IIntensityProfileService
             throw new InvalidOperationException("Tone profile name already exists.");
         }
 
+        if (existingProfiles.Any(x => x.Intensity == intensity))
+        {
+            throw new InvalidOperationException($"An intensity profile already exists for level '{intensity}'. Exactly one profile per intensity level is supported.");
+        }
+
         var profile = new IntensityProfile
         {
             Name = trimmedName,
@@ -94,6 +99,12 @@ public sealed class IntensityProfileService : IIntensityProfileService
             && string.Equals(x.Name, trimmedName, StringComparison.OrdinalIgnoreCase)))
         {
             throw new InvalidOperationException("Tone profile name already exists.");
+        }
+
+        if (profiles.Any(x => !string.Equals(x.Id, id, StringComparison.OrdinalIgnoreCase)
+            && x.Intensity == intensity))
+        {
+            throw new InvalidOperationException($"An intensity profile already exists for level '{intensity}'. Exactly one profile per intensity level is supported.");
         }
 
         existing.Name = trimmedName;

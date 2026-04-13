@@ -238,6 +238,12 @@ public sealed class SessionService : ISessionService
         session.AdaptiveState.InteractionsSinceCommitment = Math.Max(0, session.AdaptiveState.InteractionsSinceCommitment);
         session.AdaptiveState.InteractionsInApproaching = Math.Max(0, session.AdaptiveState.InteractionsInApproaching);
 
+        if (string.IsNullOrWhiteSpace(session.AdaptiveIntensityProfileId)
+            && !string.IsNullOrWhiteSpace(session.SelectedIntensityProfileId))
+        {
+            session.AdaptiveIntensityProfileId = session.SelectedIntensityProfileId;
+        }
+
         if (session.AdaptiveState.ActiveScenarioId is null)
         {
             if (session.AdaptiveState.CurrentNarrativePhase is NarrativePhase.Committed

@@ -59,6 +59,16 @@ public sealed class ThemePreferenceCatalogLinkTests
         public Task<bool> DeleteThemePreferenceAsync(string id, CancellationToken ct = default)
             => Task.FromResult(_preferences.RemoveAll(p => p.Id == id) > 0);
 
+        public Task SaveStatWillingnessProfileAsync(StatWillingnessProfile profile, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<StatWillingnessProfile?> LoadStatWillingnessProfileAsync(string id, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<StatWillingnessProfile?> LoadDefaultStatWillingnessProfileAsync(CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<List<StatWillingnessProfile>> LoadAllStatWillingnessProfilesAsync(CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<bool> DeleteStatWillingnessProfileAsync(string id, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task SaveHusbandAwarenessProfileAsync(HusbandAwarenessProfile profile, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<HusbandAwarenessProfile?> LoadHusbandAwarenessProfileAsync(string id, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<List<HusbandAwarenessProfile>> LoadAllHusbandAwarenessProfilesAsync(CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<bool> DeleteHusbandAwarenessProfileAsync(string id, CancellationToken ct = default) => throw new NotImplementedException();
+
         // Stubs for remaining ISqlitePersistence members
         public Task InitializeAsync(CancellationToken ct = default) => Task.CompletedTask;
         public Task SaveScenarioAsync(string id, string name, string payloadJson, CancellationToken ct = default) => throw new NotImplementedException();

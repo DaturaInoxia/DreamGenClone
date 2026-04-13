@@ -23,10 +23,12 @@ public sealed class RolePlayStateRepository : IRolePlayV2StateRepository
         command.CommandText = """
             INSERT INTO RolePlayV2AdaptiveStates (
                 SessionId, ActiveScenarioId, CurrentPhase, InteractionCountInPhase, ConsecutiveLeadCount,
-                LastEvaluationUtc, CycleIndex, ActiveFormulaVersion, CharacterSnapshotsJson, UpdatedUtc)
+                LastEvaluationUtc, CycleIndex, ActiveFormulaVersion, ActiveVariantId,
+                SelectedWillingnessProfileId, HusbandAwarenessProfileId, CharacterSnapshotsJson, UpdatedUtc)
             VALUES (
                 $sessionId, $activeScenarioId, $currentPhase, $interactionCountInPhase, $consecutiveLeadCount,
-                $lastEvaluationUtc, $cycleIndex, $activeFormulaVersion, $characterSnapshotsJson, $updatedUtc)
+                $lastEvaluationUtc, $cycleIndex, $activeFormulaVersion, $activeVariantId,
+                $selectedWillingnessProfileId, $husbandAwarenessProfileId, $characterSnapshotsJson, $updatedUtc)
             ON CONFLICT(SessionId) DO UPDATE SET
                 ActiveScenarioId = excluded.ActiveScenarioId,
                 CurrentPhase = excluded.CurrentPhase,
@@ -35,6 +37,9 @@ public sealed class RolePlayStateRepository : IRolePlayV2StateRepository
                 LastEvaluationUtc = excluded.LastEvaluationUtc,
                 CycleIndex = excluded.CycleIndex,
                 ActiveFormulaVersion = excluded.ActiveFormulaVersion,
+                ActiveVariantId = excluded.ActiveVariantId,
+                SelectedWillingnessProfileId = excluded.SelectedWillingnessProfileId,
+                HusbandAwarenessProfileId = excluded.HusbandAwarenessProfileId,
                 CharacterSnapshotsJson = excluded.CharacterSnapshotsJson,
                 UpdatedUtc = excluded.UpdatedUtc;
             """;
@@ -47,6 +52,9 @@ public sealed class RolePlayStateRepository : IRolePlayV2StateRepository
         command.Parameters.AddWithValue("$lastEvaluationUtc", state.LastEvaluationUtc.ToString("O"));
         command.Parameters.AddWithValue("$cycleIndex", state.CycleIndex);
         command.Parameters.AddWithValue("$activeFormulaVersion", state.ActiveFormulaVersion);
+        command.Parameters.AddWithValue("$activeVariantId", (object?)state.ActiveVariantId ?? DBNull.Value);
+        command.Parameters.AddWithValue("$selectedWillingnessProfileId", (object?)state.SelectedWillingnessProfileId ?? DBNull.Value);
+        command.Parameters.AddWithValue("$husbandAwarenessProfileId", (object?)state.HusbandAwarenessProfileId ?? DBNull.Value);
         command.Parameters.AddWithValue("$characterSnapshotsJson", JsonSerializer.Serialize(state.CharacterSnapshots));
         command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
         await command.ExecuteNonQueryAsync(cancellationToken);
@@ -58,7 +66,8 @@ public sealed class RolePlayStateRepository : IRolePlayV2StateRepository
         await using var command = connection.CreateCommand();
         command.CommandText = """
             SELECT SessionId, ActiveScenarioId, CurrentPhase, InteractionCountInPhase, ConsecutiveLeadCount,
-                   LastEvaluationUtc, CycleIndex, ActiveFormulaVersion, CharacterSnapshotsJson
+                 LastEvaluationUtc, CycleIndex, ActiveFormulaVersion, ActiveVariantId,
+                 SelectedWillingnessProfileId, HusbandAwarenessProfileId, CharacterSnapshotsJson
             FROM RolePlayV2AdaptiveStates
             WHERE SessionId = $sessionId;
             """;
@@ -80,7 +89,10 @@ public sealed class RolePlayStateRepository : IRolePlayV2StateRepository
             LastEvaluationUtc = DateTime.TryParse(reader.GetString(5), out var evalUtc) ? evalUtc : DateTime.UtcNow,
             CycleIndex = reader.GetInt32(6),
             ActiveFormulaVersion = reader.GetString(7),
-            CharacterSnapshots = JsonSerializer.Deserialize<List<CharacterStatProfileV2>>(reader.GetString(8)) ?? []
+            ActiveVariantId = reader.IsDBNull(8) ? null : reader.GetString(8),
+            SelectedWillingnessProfileId = reader.IsDBNull(9) ? null : reader.GetString(9),
+            HusbandAwarenessProfileId = reader.IsDBNull(10) ? null : reader.GetString(10),
+            CharacterSnapshots = JsonSerializer.Deserialize<List<CharacterStatProfileV2>>(reader.GetString(11)) ?? []
         };
     }
 
@@ -98,20 +110,26 @@ public sealed class RolePlayStateRepository : IRolePlayV2StateRepository
             command.CommandText = """
                 INSERT INTO RolePlayV2CandidateEvaluations (
                     SessionId, EvaluationId, ScenarioId, StageAWillingnessTier, StageBEligible,
-                    FitScore, Confidence, TieBreakKey, Rationale, EvaluatedUtc)
+                    CharacterAlignmentScore, NarrativeEvidenceScore, PreferencePriorityScore,
+                    FitScore, Confidence, TieBreakKey, Rationale, DetailsJson, EvaluatedUtc)
                 VALUES (
                     $sessionId, $evaluationId, $scenarioId, $tier, $eligible,
-                    $fitScore, $confidence, $tieBreakKey, $rationale, $evaluatedUtc);
+                    $characterAlignmentScore, $narrativeEvidenceScore, $preferencePriorityScore,
+                    $fitScore, $confidence, $tieBreakKey, $rationale, $detailsJson, $evaluatedUtc);
                 """;
             command.Parameters.AddWithValue("$sessionId", eval.SessionId);
             command.Parameters.AddWithValue("$evaluationId", eval.EvaluationId);
             command.Parameters.AddWithValue("$scenarioId", eval.ScenarioId);
             command.Parameters.AddWithValue("$tier", eval.StageAWillingnessTier);
             command.Parameters.AddWithValue("$eligible", eval.StageBEligible ? 1 : 0);
+            command.Parameters.AddWithValue("$characterAlignmentScore", eval.CharacterAlignmentScore);
+            command.Parameters.AddWithValue("$narrativeEvidenceScore", eval.NarrativeEvidenceScore);
+            command.Parameters.AddWithValue("$preferencePriorityScore", eval.PreferencePriorityScore);
             command.Parameters.AddWithValue("$fitScore", eval.FitScore);
             command.Parameters.AddWithValue("$confidence", eval.Confidence);
             command.Parameters.AddWithValue("$tieBreakKey", eval.TieBreakKey);
             command.Parameters.AddWithValue("$rationale", eval.Rationale);
+            command.Parameters.AddWithValue("$detailsJson", eval.DetailsJson);
             command.Parameters.AddWithValue("$evaluatedUtc", eval.EvaluatedUtc.ToString("O"));
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
@@ -415,7 +433,8 @@ public sealed class RolePlayStateRepository : IRolePlayV2StateRepository
         await using var command = connection.CreateCommand();
         command.CommandText = """
             SELECT SessionId, EvaluationId, ScenarioId, StageAWillingnessTier, StageBEligible,
-                   FitScore, Confidence, TieBreakKey, Rationale, EvaluatedUtc
+                 CharacterAlignmentScore, NarrativeEvidenceScore, PreferencePriorityScore,
+                 FitScore, Confidence, TieBreakKey, Rationale, DetailsJson, EvaluatedUtc
             FROM RolePlayV2CandidateEvaluations
             WHERE SessionId = $sessionId
             ORDER BY EvaluatedUtc DESC
@@ -434,11 +453,15 @@ public sealed class RolePlayStateRepository : IRolePlayV2StateRepository
                 ScenarioId = reader.GetString(2),
                 StageAWillingnessTier = reader.GetString(3),
                 StageBEligible = reader.GetInt32(4) == 1,
-                FitScore = reader.GetDecimal(5),
-                Confidence = reader.GetDecimal(6),
-                TieBreakKey = reader.GetString(7),
-                Rationale = reader.GetString(8),
-                EvaluatedUtc = DateTime.TryParse(reader.GetString(9), out var evaluatedUtc) ? evaluatedUtc : DateTime.UtcNow
+                CharacterAlignmentScore = reader.GetDecimal(5),
+                NarrativeEvidenceScore = reader.GetDecimal(6),
+                PreferencePriorityScore = reader.GetDecimal(7),
+                FitScore = reader.GetDecimal(8),
+                Confidence = reader.GetDecimal(9),
+                TieBreakKey = reader.GetString(10),
+                Rationale = reader.GetString(11),
+                DetailsJson = reader.GetString(12),
+                EvaluatedUtc = DateTime.TryParse(reader.GetString(13), out var evaluatedUtc) ? evaluatedUtc : DateTime.UtcNow
             });
         }
 

@@ -179,6 +179,43 @@ public sealed class ThemeCatalogServiceTests
         Assert.True(intimacy.StatAffinities.ContainsKey("Connection"));
     }
 
+    [Fact]
+    public async Task SeedDefaultsAsync_PopulatesScenarioFitRules()
+    {
+        var service = CreateService();
+        await service.SeedDefaultsAsync();
+
+        var entry = await service.GetByIdAsync("dominance");
+
+        Assert.NotNull(entry);
+        Assert.False(string.IsNullOrWhiteSpace(entry.ScenarioFitRules));
+        Assert.Contains("characterRoleRules", entry.ScenarioFitRules, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task SeedDefaultsAsync_NormalizesBuiltInWhenScenarioFitRulesMissing()
+    {
+        var persistence = new InMemoryThemeCatalogPersistence();
+        await persistence.SaveThemeCatalogEntryAsync(new ThemeCatalogEntry
+        {
+            Id = "dominance",
+            Label = "Dominance",
+            Keywords = ["control"],
+            Weight = 4,
+            Category = "Power",
+            IsEnabled = true,
+            IsBuiltIn = true,
+            ScenarioFitRules = string.Empty
+        });
+
+        var service = CreateService(persistence);
+        await service.SeedDefaultsAsync();
+
+        var entry = await service.GetByIdAsync("dominance");
+        Assert.NotNull(entry);
+        Assert.False(string.IsNullOrWhiteSpace(entry.ScenarioFitRules));
+    }
+
     /// <summary>
     /// Minimal in-memory ISqlitePersistence stub for theme catalog operations only.
     /// </summary>
@@ -211,6 +248,16 @@ public sealed class ThemeCatalogServiceTests
 
         public Task<bool> DeleteThemeCatalogEntryAsync(string id, CancellationToken cancellationToken = default)
             => Task.FromResult(_entries.Remove(id));
+
+        public Task SaveStatWillingnessProfileAsync(StatWillingnessProfile profile, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<StatWillingnessProfile?> LoadStatWillingnessProfileAsync(string id, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<StatWillingnessProfile?> LoadDefaultStatWillingnessProfileAsync(CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<List<StatWillingnessProfile>> LoadAllStatWillingnessProfilesAsync(CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<bool> DeleteStatWillingnessProfileAsync(string id, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task SaveHusbandAwarenessProfileAsync(HusbandAwarenessProfile profile, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<HusbandAwarenessProfile?> LoadHusbandAwarenessProfileAsync(string id, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<List<HusbandAwarenessProfile>> LoadAllHusbandAwarenessProfilesAsync(CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<bool> DeleteHusbandAwarenessProfileAsync(string id, CancellationToken ct = default) => throw new NotImplementedException();
 
         // Not used by ThemeCatalogService — stubs only
         public Task InitializeAsync(CancellationToken ct = default) => Task.CompletedTask;

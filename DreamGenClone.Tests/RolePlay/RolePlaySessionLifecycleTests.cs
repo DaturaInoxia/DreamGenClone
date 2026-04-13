@@ -239,12 +239,15 @@ public sealed class RolePlaySessionLifecycleTests
             CREATE TABLE IF NOT EXISTS RolePlayV2AdaptiveStates (
                 SessionId TEXT PRIMARY KEY,
                 ActiveScenarioId TEXT NULL,
+                ActiveVariantId TEXT NULL,
                 CurrentPhase TEXT NOT NULL,
                 InteractionCountInPhase INTEGER NOT NULL,
                 ConsecutiveLeadCount INTEGER NOT NULL,
                 LastEvaluationUtc TEXT NOT NULL,
                 CycleIndex INTEGER NOT NULL,
                 ActiveFormulaVersion TEXT NOT NULL,
+                SelectedWillingnessProfileId TEXT NULL,
+                HusbandAwarenessProfileId TEXT NULL,
                 CharacterSnapshotsJson TEXT NOT NULL,
                 UpdatedUtc TEXT NOT NULL
             );

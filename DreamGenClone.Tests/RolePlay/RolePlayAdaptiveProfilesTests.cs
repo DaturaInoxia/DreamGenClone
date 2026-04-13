@@ -92,6 +92,7 @@ public sealed class RolePlayAdaptiveProfilesTests
         Assert.Equal("style-default", session.SelectedSteeringProfileId);
         Assert.Equal("ranking-default", session.SelectedThemeProfileId);
         Assert.Equal("tone-default", session.SelectedIntensityProfileId);
+        Assert.Equal("tone-default", session.AdaptiveIntensityProfileId);
     }
 
     private sealed class SingleScenarioService(Scenario scenario) : IScenarioService

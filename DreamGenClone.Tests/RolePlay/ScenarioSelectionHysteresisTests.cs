@@ -58,4 +58,27 @@ public sealed class ScenarioSelectionHysteresisTests
 
         Assert.Equal(first.Select(x => x.ScenarioId), second.Select(x => x.ScenarioId));
     }
+
+    [Fact]
+    public async Task TryCommitScenarioAsync_SingleEligibleCandidate_CommitsWithoutOverflow()
+    {
+        var state = RolePlayV2AcceptanceFixtureData.BuildBoundaryState(desire: 70, restraint: 40, tension: 50);
+        var evaluations = new[]
+        {
+            new DreamGenClone.Domain.RolePlay.ScenarioCandidateEvaluation
+            {
+                SessionId = state.SessionId,
+                ScenarioId = "only",
+                StageBEligible = true,
+                FitScore = 75m,
+                Confidence = 0.75m,
+                TieBreakKey = "001:only"
+            }
+        };
+
+        var result = await _service.TryCommitScenarioAsync(state, evaluations);
+
+        Assert.True(result.Committed);
+        Assert.Equal("only", result.ScenarioId);
+    }
 }

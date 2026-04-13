@@ -37,3 +37,13 @@ D:\src\DreamGenClone\DreamGenClone.Application\artifacts\tmpbuild\web-intensity\
 D:\src\DreamGenClone\artifacts\tmp\testout\DreamGenClone.Application.deps.json
 D:\src\DreamGenClone\artifacts\tmp\testout\DreamGenClone.Application.dll
 D:\src\DreamGenClone\artifacts\tmp\testout\DreamGenClone.Application.pdb
+D:\src\DreamGenClone\DreamGenClone.Application\artifacts\tmp\verify-web\DreamGenClone.Application.deps.json
+D:\src\DreamGenClone\DreamGenClone.Application\artifacts\tmp\verify-web\DreamGenClone.Application.dll
+D:\src\DreamGenClone\DreamGenClone.Application\artifacts\tmp\verify-web\DreamGenClone.Application.pdb
+D:\src\DreamGenClone\DreamGenClone.Application\artifacts\tmp\verify-web\DreamGenClone.Domain.dll
+D:\src\DreamGenClone\DreamGenClone.Application\artifacts\tmp\verify-web\DreamGenClone.Domain.pdb
+D:\src\DreamGenClone\DreamGenClone.Application\artifacts\tmp\verify-web-phase2\DreamGenClone.Application.deps.json
+D:\src\DreamGenClone\DreamGenClone.Application\artifacts\tmp\verify-web-phase2\DreamGenClone.Application.dll
+D:\src\DreamGenClone\DreamGenClone.Application\artifacts\tmp\verify-web-phase2\DreamGenClone.Application.pdb
+D:\src\DreamGenClone\DreamGenClone.Application\artifacts\tmp\verify-web-phase2\DreamGenClone.Domain.dll
+D:\src\DreamGenClone\DreamGenClone.Application\artifacts\tmp\verify-web-phase2\DreamGenClone.Domain.pdb

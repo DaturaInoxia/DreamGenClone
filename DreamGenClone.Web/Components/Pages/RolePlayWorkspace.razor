@@ -28,6 +28,7 @@
 @inject IAssistantContextManager AssistantContextManager
 @inject IScenarioService ScenarioService
 @inject StoryAnalysisFacade StoryAnalysisFacade
+@inject IRPThemeService RPThemeService
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
 @inject ILogger<RolePlayWorkspace> Logger
@@ -82,8 +83,11 @@
     private bool _continueIncludeNarrative;
     private List<ThemePreference> _activeProfileThemes = [];
     private List<ThemeProfile> _rankingProfiles = [];
+    private List<RPThemeProfile> _rpThemeProfiles = [];
     private List<IntensityProfile> _intensityProfiles = [];
     private List<SteeringProfile> _steeringProfiles = [];
+    private List<StatWillingnessProfile> _willingnessProfiles = [];
+    private List<HusbandAwarenessProfile> _husbandAwarenessProfiles = [];
     private Dictionary<string, IntensityProfile> _intensityProfilesById = new(StringComparer.OrdinalIgnoreCase);
     private string _pendingResponseText = string.Empty;
     private readonly StringBuilder _pendingResponseBuilder = new();
@@ -181,6 +185,21 @@
         // Backfill adaptive profile/style fields for sessions that were created before defaults were copied.
         if (_loadedScenario is not null)
         {
+            if (string.IsNullOrWhiteSpace(_session.SelectedRPThemeProfileId))
+            {
+                if (!string.IsNullOrWhiteSpace(_loadedScenario.DefaultRPThemeProfileId))
+                {
+                    _session.SelectedRPThemeProfileId = _loadedScenario.DefaultRPThemeProfileId;
+                    sessionUpdated = true;
+                }
+                else if (!string.IsNullOrWhiteSpace(_loadedScenario.DefaultThemeProfileId))
+                {
+                    // Legacy migration fallback for scenarios not yet updated.
+                    _session.SelectedRPThemeProfileId = _loadedScenario.DefaultThemeProfileId;
+                    sessionUpdated = true;
+                }
+            }
+
             if (string.IsNullOrWhiteSpace(_session.SelectedThemeProfileId) && !string.IsNullOrWhiteSpace(_loadedScenario.DefaultThemeProfileId))
             {
                 _session.SelectedThemeProfileId = _loadedScenario.DefaultThemeProfileId;
@@ -698,9 +717,11 @@
             ScenarioWorldDescription = _loadedScenario?.Setting?.WorldDescription,
             ScenarioWorldRules = _loadedScenario?.Setting?.WorldRules ?? [],
             FullCharacterDetails = fullCharacterDetails,
-            SelectedThemeProfileId = _session.SelectedThemeProfileId,
+            SelectedThemeProfileId = _session.SelectedRPThemeProfileId ?? _session.SelectedThemeProfileId,
             SelectedIntensityProfileId = _session.SelectedIntensityProfileId,
-            ActiveIntensityProfile = GetActiveIntensityProfileLabel(),
+            AdaptiveIntensityProfileId = _session.AdaptiveIntensityProfileId,
+            ActiveIntensityProfile = GetAdaptiveIntensityProfileName(),
+            ResolvedIntensityProfile = GetEffectiveStyleLabel(),
             SelectedSteeringProfileId = _session.SelectedSteeringProfileId,
             IntensityFloorOverride = _session.IntensityFloorOverride,
             IntensityCeilingOverride = _session.IntensityCeilingOverride,
@@ -763,6 +784,7 @@
         if (_session is null) return;
         try
         {
+            CaptureResolvedIntensitySnapshot(_session);
             await RolePlayEngine.SaveSessionAsync(_session);
             await RefreshActiveProfileThemesAsync();
             Logger.LogInformation("Session settings saved: {SessionId}", _session.Id);
@@ -779,8 +801,11 @@
         {
             _activeProfileThemes = [];
             _rankingProfiles = [];
+            _rpThemeProfiles = [];
             _intensityProfiles = [];
             _steeringProfiles = [];
+            _willingnessProfiles = [];
+            _husbandAwarenessProfiles = [];
             _intensityProfilesById = new(StringComparer.OrdinalIgnoreCase);
             return;
         }
@@ -789,7 +814,20 @@
             .OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
+        _rpThemeProfiles = (await RPThemeService.ListProfilesAsync())
+            .Where(x => !string.Equals(x.Id, IRPThemeService.GlobalThemeLibraryProfileId, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
         _steeringProfiles = (await StoryAnalysisFacade.ListSteeringProfilesAsync())
+            .OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        _willingnessProfiles = (await StoryAnalysisFacade.ListStatWillingnessProfilesAsync())
+            .OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        _husbandAwarenessProfiles = (await StoryAnalysisFacade.ListHusbandAwarenessProfilesAsync())
             .OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
@@ -834,6 +872,22 @@
         await RefreshActiveProfileThemesAsync();
     }
 
+    private async Task OnRpThemeProfileChanged(ChangeEventArgs args)
+    {
+        if (_session is null)
+        {
+            return;
+        }
+
+        _session.SelectedRPThemeProfileId = string.IsNullOrWhiteSpace(args.Value?.ToString())
+            ? null
+            : args.Value!.ToString();
+
+        await SaveSessionSettingsAsync();
+        _session = await RolePlayEngine.RebuildAdaptiveStateAsync(_session.Id);
+        await RefreshActiveProfileThemesAsync();
+    }
+
     private async Task OnIntensityProfileChanged(ChangeEventArgs args)
     {
         if (_session is null)
@@ -841,9 +895,40 @@
             return;
         }
 
-        _session.SelectedIntensityProfileId = string.IsNullOrWhiteSpace(args.Value?.ToString())
+        var selectedProfileId = string.IsNullOrWhiteSpace(args.Value?.ToString())
             ? null
             : args.Value!.ToString();
+
+        _session.SelectedIntensityProfileId = selectedProfileId;
+        if (!_session.IsIntensityManuallyPinned)
+        {
+            _session.AdaptiveIntensityProfileId = selectedProfileId;
+        }
+
+        await SaveSessionSettingsAsync();
+    }
+
+    private async Task OnManualPinChanged(ChangeEventArgs args)
+    {
+        if (_session is null)
+        {
+            return;
+        }
+
+        _session.IsIntensityManuallyPinned = args.Value is bool value && value;
+
+        if (_session.IsIntensityManuallyPinned)
+        {
+            _session.SelectedIntensityProfileId ??= _session.AdaptiveIntensityProfileId;
+        }
+        else
+        {
+            var resolvedProfileId = GetResolvedIntensityProfileId(_session);
+            if (!string.IsNullOrWhiteSpace(resolvedProfileId))
+            {
+                _session.SelectedIntensityProfileId = resolvedProfileId;
+            }
+        }
 
         await SaveSessionSettingsAsync();
     }
@@ -862,6 +947,70 @@
         await SaveSessionSettingsAsync();
         _session = await RolePlayEngine.RebuildAdaptiveStateAsync(_session.Id);
         await RefreshActiveProfileThemesAsync();
+    }
+
+    private async Task OnWillingnessProfileChanged(ChangeEventArgs args)
+    {
+        if (_session is null)
+        {
+            return;
+        }
+
+        _session.AdaptiveState ??= new RolePlayAdaptiveState();
+        _session.AdaptiveState.SelectedWillingnessProfileId = string.IsNullOrWhiteSpace(args.Value?.ToString())
+            ? null
+            : args.Value!.ToString();
+
+        await SaveSessionSettingsAsync();
+    }
+
+    private async Task OnHusbandAwarenessProfileChanged(ChangeEventArgs args)
+    {
+        if (_session is null)
+        {
+            return;
+        }
+
+        _session.AdaptiveState ??= new RolePlayAdaptiveState();
+        _session.AdaptiveState.HusbandAwarenessProfileId = string.IsNullOrWhiteSpace(args.Value?.ToString())
+            ? null
+            : args.Value!.ToString();
+
+        await SaveSessionSettingsAsync();
+    }
+
+    private string GetSelectedWillingnessProfileName()
+    {
+        if (_session is null)
+        {
+            return "(none)";
+        }
+
+        var selectedId = _session.AdaptiveState?.SelectedWillingnessProfileId;
+        if (string.IsNullOrWhiteSpace(selectedId))
+        {
+            return "(none)";
+        }
+
+        var match = _willingnessProfiles.FirstOrDefault(x => string.Equals(x.Id, selectedId, StringComparison.OrdinalIgnoreCase));
+        return match?.Name ?? selectedId;
+    }
+
+    private string GetSelectedHusbandAwarenessProfileName()
+    {
+        if (_session is null)
+        {
+            return "(none)";
+        }
+
+        var selectedId = _session.AdaptiveState?.HusbandAwarenessProfileId;
+        if (string.IsNullOrWhiteSpace(selectedId))
+        {
+            return "(none)";
+        }
+
+        var match = _husbandAwarenessProfiles.FirstOrDefault(x => string.Equals(x.Id, selectedId, StringComparison.OrdinalIgnoreCase));
+        return match?.Name ?? selectedId;
     }
 
     private async Task OnStyleFloorChanged(ChangeEventArgs args)
@@ -1062,14 +1211,20 @@
         return reason;
     }
 
-    private string GetActiveIntensityProfileLabel()
+    private string GetAdaptiveIntensityProfileName()
     {
         if (_session is null)
         {
             return "(session unavailable)";
         }
 
-        return GetEffectiveStyleLabel();
+        if (!string.IsNullOrWhiteSpace(_session.AdaptiveIntensityProfileId)
+            && _intensityProfilesById.TryGetValue(_session.AdaptiveIntensityProfileId, out var adaptiveProfile))
+        {
+            return adaptiveProfile.Name;
+        }
+
+        return "(none)";
     }
 
     private string GetSelectedIntensityProfileName()
@@ -1079,8 +1234,9 @@
             return "(session unavailable)";
         }
 
-        if (!string.IsNullOrWhiteSpace(_session.SelectedIntensityProfileId)
-            && _intensityProfilesById.TryGetValue(_session.SelectedIntensityProfileId, out var intensityProfile))
+        var selectedId = GetIntensityDropdownValue();
+        if (!string.IsNullOrWhiteSpace(selectedId)
+            && _intensityProfilesById.TryGetValue(selectedId, out var intensityProfile))
         {
             return intensityProfile.Name;
         }
@@ -1100,15 +1256,72 @@
 
     private (string Label, string Reason) ResolveEffectiveStyle(RolePlaySession session)
     {
-        IntensityLevel? baseIntensityLevel = IntensityLevel.SuggestivePg12;
+        IntensityLevel? selectedIntensityLevel = IntensityLevel.SuggestivePg12;
+        IntensityLevel? adaptiveIntensityLevel = null;
 
         if (!string.IsNullOrWhiteSpace(session.SelectedIntensityProfileId)
             && _intensityProfilesById.TryGetValue(session.SelectedIntensityProfileId, out var intensityProfile))
         {
-            baseIntensityLevel = intensityProfile.Intensity;
+            selectedIntensityLevel = intensityProfile.Intensity;
         }
 
-        return RolePlayStyleResolver.ResolveEffectiveStyle(session, baseIntensityLevel);
+        if (!string.IsNullOrWhiteSpace(session.AdaptiveIntensityProfileId)
+            && _intensityProfilesById.TryGetValue(session.AdaptiveIntensityProfileId, out var adaptiveProfile))
+        {
+            adaptiveIntensityLevel = adaptiveProfile.Intensity;
+        }
+
+        return RolePlayStyleResolver.ResolveEffectiveStyle(session, selectedIntensityLevel, adaptiveIntensityLevel);
+    }
+
+    private string? GetIntensityDropdownValue()
+    {
+        if (_session is null)
+        {
+            return null;
+        }
+
+        if (_session.IsIntensityManuallyPinned)
+        {
+            return _session.SelectedIntensityProfileId;
+        }
+
+        return GetResolvedIntensityProfileId(_session) ?? _session.SelectedIntensityProfileId;
+    }
+
+    private string? GetResolvedIntensityProfileId(RolePlaySession session)
+    {
+        var (label, _) = ResolveEffectiveStyle(session);
+        var resolvedScale = RolePlayStyleResolver.ParseBoundScale(label);
+        if (!resolvedScale.HasValue)
+        {
+            return null;
+        }
+
+        var matches = _intensityProfiles.Where(profile => (int)profile.Intensity == resolvedScale.Value).Take(2).ToList();
+        if (matches.Count != 1)
+        {
+            return null;
+        }
+
+        return matches[0].Id;
+    }
+
+    private void CaptureResolvedIntensitySnapshot(RolePlaySession session)
+    {
+        var (label, reason) = ResolveEffectiveStyle(session);
+        session.LastResolvedIntensityLabel = label;
+        session.LastResolvedIntensityReason = reason;
+        session.LastResolvedIntensityUtc = DateTime.UtcNow;
+
+        if (!session.IsIntensityManuallyPinned)
+        {
+            var resolvedProfileId = GetResolvedIntensityProfileId(session);
+            if (!string.IsNullOrWhiteSpace(resolvedProfileId))
+            {
+                session.SelectedIntensityProfileId = resolvedProfileId;
+            }
+        }
     }
 
     private static int GetTierPriority(ThemeTier tier)
@@ -1533,6 +1746,23 @@
         {
             return "Unable to parse stat impact.";
         }
+    }
+
+    private string ResolveDecisionThemeLabel(string scenarioId)
+    {
+        if (_session?.AdaptiveState?.ThemeTracker?.Themes is null
+            || string.IsNullOrWhiteSpace(scenarioId))
+        {
+            return scenarioId;
+        }
+
+        if (_session.AdaptiveState.ThemeTracker.Themes.TryGetValue(scenarioId, out var theme)
+            && !string.IsNullOrWhiteSpace(theme.ThemeName))
+        {
+            return $"{theme.ThemeName} ({scenarioId})";
+        }
+
+        return scenarioId;
     }
 
     private async Task ApplyDecisionOptionAsync(DreamGenClone.Domain.RolePlay.DecisionOption option)
@@ -2294,7 +2524,7 @@
                                 <div class="rw-modal-body">
                                     <div class="rw-info-grid">
                                         <div class="rw-info-row"><span class="rw-info-label">Character</span><span class="rw-info-value">@_session.PersonaName</span></div>
-                                        <div class="rw-info-row"><span class="rw-info-label">Scenario</span><span class="rw-info-value">@_pendingDecisionPrompt.DecisionPoint.ScenarioId</span></div>
+                                        <div class="rw-info-row"><span class="rw-info-label">Theme</span><span class="rw-info-value">@ResolveDecisionThemeLabel(_pendingDecisionPrompt.DecisionPoint.ScenarioId)</span></div>
                                         <div class="rw-info-row"><span class="rw-info-label">Phase</span><span class="rw-info-value">@_pendingDecisionPrompt.DecisionPoint.Phase</span></div>
                                         <div class="rw-info-row"><span class="rw-info-label">Trigger</span><span class="rw-info-value">@_pendingDecisionPrompt.DecisionPoint.TriggerSource</span></div>
                                     </div>
@@ -2796,7 +3026,7 @@
                             @if (_expandedScenarioSections.Contains("style"))
                             {
                                 <div class="rw-collapsible-body">
-                                    <div class="text-muted small mb-3">Story Theme Profile controls story direction. Writing Style Profile controls prose voice and texture.</div>
+                                    <div class="text-muted small mb-3">RP Theme Profile controls adaptive theme direction. Writing Style Profile controls prose voice and texture.</div>
                                     <div class="rw-scenario-field">
                                         <label class="rw-scenario-field-label">Writing Style Profile</label>
                                         <select class="rw-mode-select"
@@ -3055,23 +3285,23 @@
                 <div class="rw-settings-content">
                     <div class="rw-settings-section">
                         <div class="rw-settings-section-label">Active Profiles</div>
-                        <div class="text-muted small mb-2">Theme Profile steers story direction. Writing Style Profile steers wording, texture, and voice.</div>
+                        <div class="text-muted small mb-2">RP Theme Profile steers adaptive theme direction. Writing Style Profile steers wording, texture, and voice.</div>
                         <div class="rw-scenario-field">
-                            <label class="rw-scenario-field-label">Story Theme Profile</label>
+                            <label class="rw-scenario-field-label">RP Theme Profile</label>
                             <select class="rw-mode-select"
-                                    value="@_session.SelectedThemeProfileId"
-                                    @onchange="OnRankingProfileChanged">
+                                    value="@_session.SelectedRPThemeProfileId"
+                                    @onchange="OnRpThemeProfileChanged">
                                 <option value="">(None)</option>
-                                @foreach (var profile in _rankingProfiles)
+                                @foreach (var profile in _rpThemeProfiles)
                                 {
                                     <option value="@profile.Id">@profile.Name</option>
                                 }
                             </select>
                         </div>
                         <div class="rw-scenario-field">
-                            <label class="rw-scenario-field-label">Active Intensity Profile</label>
+                            <label class="rw-scenario-field-label">Selected Intensity Profile</label>
                             <select class="rw-mode-select"
-                                    value="@_session.SelectedIntensityProfileId"
+                                    value="@GetIntensityDropdownValue()"
                                     @onchange="OnIntensityProfileChanged">
                                 <option value="">(None)</option>
                                 @foreach (var profile in _intensityProfiles)
@@ -3087,6 +3317,30 @@
                                     @onchange="OnSteeringProfileChanged">
                                 <option value="">(None)</option>
                                 @foreach (var profile in _steeringProfiles)
+                                {
+                                    <option value="@profile.Id">@profile.Name</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="rw-scenario-field">
+                            <label class="rw-scenario-field-label">Willingness Profile</label>
+                            <select class="rw-mode-select"
+                                    value="@_session.AdaptiveState.SelectedWillingnessProfileId"
+                                    @onchange="OnWillingnessProfileChanged">
+                                <option value="">(None)</option>
+                                @foreach (var profile in _willingnessProfiles)
+                                {
+                                    <option value="@profile.Id">@profile.Name</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="rw-scenario-field">
+                            <label class="rw-scenario-field-label">Husband Awareness Profile</label>
+                            <select class="rw-mode-select"
+                                    value="@_session.AdaptiveState.HusbandAwarenessProfileId"
+                                    @onchange="OnHusbandAwarenessProfileChanged">
+                                <option value="">(None)</option>
+                                @foreach (var profile in _husbandAwarenessProfiles)
                                 {
                                     <option value="@profile.Id">@profile.Name</option>
                                 }
@@ -3120,7 +3374,7 @@
                             <span>Manual Intensity Pin</span>
                             <input type="checkbox"
                                    checked="@_session.IsIntensityManuallyPinned"
-                                   @onchange="@(e => { _session.IsIntensityManuallyPinned = e.Value is bool b && b; _ = SaveSessionSettingsAsync(); })" />
+                                   @onchange="OnManualPinChanged" />
                         </div>
                         <div class="rw-settings-info-row">
                             <span>Selected Intensity Profile</span>
@@ -3128,7 +3382,7 @@
                         </div>
                         <div class="rw-settings-info-row">
                             <span>Adaptive Intensity Profile</span>
-                            <span>@GetActiveIntensityProfileLabel()</span>
+                            <span>@GetAdaptiveIntensityProfileName()</span>
                         </div>
                         <div class="rw-settings-info-row">
                             <span>Resolved Intensity</span>
@@ -3171,6 +3425,9 @@
                         <div class="rw-settings-section-label">RolePlay v2 Runtime</div>
                         <div class="rw-settings-info-row"><span>Current Phase</span><span>@_session.AdaptiveState.CurrentNarrativePhase</span></div>
                         <div class="rw-settings-info-row"><span>Active Scenario</span><span>@(string.IsNullOrWhiteSpace(_session.AdaptiveState.ActiveScenarioId) ? "(none)" : _session.AdaptiveState.ActiveScenarioId)</span></div>
+                        <div class="rw-settings-info-row"><span>Active Variant</span><span>@(string.IsNullOrWhiteSpace(_session.AdaptiveState.ActiveVariantId) ? "(none)" : _session.AdaptiveState.ActiveVariantId)</span></div>
+                        <div class="rw-settings-info-row"><span>Willingness Profile</span><span>@GetSelectedWillingnessProfileName()</span></div>
+                        <div class="rw-settings-info-row"><span>Husband Awareness Profile</span><span>@GetSelectedHusbandAwarenessProfileName()</span></div>
                         <div class="rw-settings-info-row"><span>Interactions Since Commitment</span><span>@_session.AdaptiveState.InteractionsSinceCommitment</span></div>
                         <div class="rw-settings-info-row"><span>Interactions In Approaching</span><span>@_session.AdaptiveState.InteractionsInApproaching</span></div>
                         <div class="rw-settings-info-row"><span>Completed Scenarios</span><span>@_session.AdaptiveState.CompletedScenarios</span></div>

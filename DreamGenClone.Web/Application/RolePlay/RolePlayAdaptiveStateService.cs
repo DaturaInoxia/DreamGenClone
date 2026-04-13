@@ -2,21 +2,29 @@ using DreamGenClone.Web.Domain.RolePlay;
 using DreamGenClone.Web.Domain.Scenarios;
 using System.Text.Json;
 using DreamGenClone.Application.Abstractions;
+using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Application.StoryAnalysis;
 using DreamGenClone.Application.StoryAnalysis.Models;
 using DreamGenClone.Domain.StoryAnalysis;
+using DreamGenClone.Infrastructure.Configuration;
+using Microsoft.Extensions.Options;
 
 namespace DreamGenClone.Web.Application.RolePlay;
 
 public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
 {
     private readonly IThemeCatalogService _themeCatalogService;
+    private readonly IScenarioDefinitionService? _scenarioDefinitionService;
     private readonly IScenarioSelectionEngine? _scenarioSelectionEngine;
     private readonly INarrativePhaseManager? _narrativePhaseManager;
     private readonly IThemePreferenceService? _themePreferenceService;
+    private readonly IRPThemeService? _rpThemeService;
     private readonly ISteeringProfileService? _steeringProfileService;
     private readonly IRolePlayDebugEventSink? _debugEventSink;
     private readonly ILogger<RolePlayAdaptiveStateService>? _logger;
+    private readonly bool _useScenarioDefinitionsForAdaptiveRuntime;
+    private readonly bool _useRpThemeSubsystem;
+    private readonly bool _useRpThemeSubsystemForNewSessionsOnly;
 
     public RolePlayAdaptiveStateService(
         IThemeCatalogService themeCatalogService,
@@ -24,8 +32,12 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         INarrativePhaseManager? narrativePhaseManager = null)
     {
         _themeCatalogService = themeCatalogService;
+        _scenarioDefinitionService = null;
         _scenarioSelectionEngine = scenarioSelectionEngine;
         _narrativePhaseManager = narrativePhaseManager;
+        _useScenarioDefinitionsForAdaptiveRuntime = false;
+        _useRpThemeSubsystem = true;
+        _useRpThemeSubsystemForNewSessionsOnly = true;
     }
 
     public RolePlayAdaptiveStateService(
@@ -36,10 +48,14 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         ILogger<RolePlayAdaptiveStateService> logger)
     {
         _themeCatalogService = themeCatalogService;
+        _scenarioDefinitionService = null;
         _scenarioSelectionEngine = scenarioSelectionEngine;
         _narrativePhaseManager = narrativePhaseManager;
         _debugEventSink = debugEventSink;
         _logger = logger;
+        _useScenarioDefinitionsForAdaptiveRuntime = false;
+        _useRpThemeSubsystem = true;
+        _useRpThemeSubsystemForNewSessionsOnly = true;
     }
 
     public RolePlayAdaptiveStateService(
@@ -61,40 +77,50 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
 
     public RolePlayAdaptiveStateService(
         IThemeCatalogService themeCatalogService,
+        IScenarioDefinitionService? scenarioDefinitionService,
         IScenarioSelectionEngine? scenarioSelectionEngine,
         INarrativePhaseManager? narrativePhaseManager,
         IThemePreferenceService themePreferenceService,
+        IRPThemeService? rpThemeService,
         ISteeringProfileService styleProfileService,
         IRolePlayDebugEventSink debugEventSink,
-        ILogger<RolePlayAdaptiveStateService> logger)
+        ILogger<RolePlayAdaptiveStateService> logger,
+        IOptions<StoryAnalysisOptions>? storyAnalysisOptions = null)
     {
         _themeCatalogService = themeCatalogService;
+        _scenarioDefinitionService = scenarioDefinitionService;
         _scenarioSelectionEngine = scenarioSelectionEngine;
         _narrativePhaseManager = narrativePhaseManager;
         _themePreferenceService = themePreferenceService;
+        _rpThemeService = rpThemeService;
         _steeringProfileService = styleProfileService;
         _debugEventSink = debugEventSink;
         _logger = logger;
+        _useScenarioDefinitionsForAdaptiveRuntime = storyAnalysisOptions?.Value.UseScenarioDefinitionsForAdaptiveRuntime == true;
+        _useRpThemeSubsystem = storyAnalysisOptions?.Value.UseRpThemeSubsystem ?? true;
+        _useRpThemeSubsystemForNewSessionsOnly = storyAnalysisOptions?.Value.UseRpThemeSubsystemForNewSessionsOnly ?? true;
     }
 
     public RolePlayAdaptiveStateService(
         IThemeCatalogService themeCatalogService,
         IScenarioSelectionEngine? scenarioSelectionEngine,
         IThemePreferenceService themePreferenceService,
+        IRPThemeService? rpThemeService,
         ISteeringProfileService styleProfileService,
         IRolePlayDebugEventSink debugEventSink,
         ILogger<RolePlayAdaptiveStateService> logger)
-        : this(themeCatalogService, scenarioSelectionEngine, null, themePreferenceService, styleProfileService, debugEventSink, logger)
+        : this(themeCatalogService, null, scenarioSelectionEngine, null, themePreferenceService, rpThemeService, styleProfileService, debugEventSink, logger)
     {
     }
 
     public RolePlayAdaptiveStateService(
         IThemeCatalogService themeCatalogService,
         IThemePreferenceService themePreferenceService,
+        IRPThemeService? rpThemeService,
         ISteeringProfileService styleProfileService,
         IRolePlayDebugEventSink debugEventSink,
         ILogger<RolePlayAdaptiveStateService> logger)
-        : this(themeCatalogService, null, null, themePreferenceService, styleProfileService, debugEventSink, logger)
+        : this(themeCatalogService, null, null, null, themePreferenceService, rpThemeService, styleProfileService, debugEventSink, logger)
     {
     }
 
@@ -106,7 +132,8 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(interaction);
 
-        var catalogEntries = await _themeCatalogService.GetAllAsync(includeDisabled: false, cancellationToken);
+        var catalogEntries = await LoadRuntimeCatalogEntriesAsync(session, cancellationToken);
+        var groupedKeywordsByThemeId = await LoadRpThemeKeywordGroupsByThemeIdAsync(session, cancellationToken);
 
         var state = session.AdaptiveState ?? new RolePlayAdaptiveState();
         EnsureThemeCatalog(state.ThemeTracker, catalogEntries);
@@ -185,7 +212,8 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
                 affinityMultiplier = 1.0 + affinity * 0.1;
             }
 
-            UpdateTheme(state, interaction, entry.Label, entry.Id, contentLower, entry.Keywords, entry.Weight, affinityMultiplier);
+            groupedKeywordsByThemeId.TryGetValue(entry.Id, out var groupedKeywords);
+            UpdateTheme(state, interaction, entry.Label, entry.Id, contentLower, entry.Keywords, entry.Weight, affinityMultiplier, groupedKeywords);
 
             // T043: Apply StatAffinities to acting character when theme scores
             if (actorStats is not null && entry.StatAffinities is { Count: > 0 })
@@ -625,6 +653,82 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         }
     }
 
+    private async Task<IReadOnlyList<ThemeCatalogEntry>> LoadRuntimeCatalogEntriesAsync(RolePlaySession session, CancellationToken cancellationToken)
+    {
+        if (_rpThemeService is not null && ShouldUseRpThemeSubsystem(session) && !string.IsNullOrWhiteSpace(session.SelectedRPThemeProfileId))
+        {
+            var rpThemes = await _rpThemeService.ListThemesByProfileAsync(session.SelectedRPThemeProfileId, includeDisabled: false, cancellationToken);
+            if (rpThemes.Count > 0)
+            {
+                return rpThemes
+                    .Select(MapRpThemeToCatalogEntry)
+                    .ToList();
+            }
+        }
+
+        if (_useScenarioDefinitionsForAdaptiveRuntime && _scenarioDefinitionService is not null)
+        {
+            var definitions = await _scenarioDefinitionService.GetAllAsync(includeDisabled: false, cancellationToken);
+            if (definitions.Count > 0)
+            {
+                return definitions
+                    .Select(MapScenarioDefinitionToCatalogEntry)
+                    .ToList();
+            }
+        }
+
+        return await _themeCatalogService.GetAllAsync(includeDisabled: false, cancellationToken);
+    }
+
+    private static ThemeCatalogEntry MapRpThemeToCatalogEntry(DreamGenClone.Domain.RolePlay.RPTheme theme)
+    {
+        var keywordList = theme.Keywords
+            .Select(x => (x.Keyword ?? string.Empty).Trim())
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var affinities = theme.StatAffinities
+            .Where(x => !string.IsNullOrWhiteSpace(x.StatName))
+            .GroupBy(x => x.StatName.Trim(), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.Sum(x => x.Value), StringComparer.OrdinalIgnoreCase);
+
+        return new ThemeCatalogEntry
+        {
+            Id = theme.Id,
+            Label = string.IsNullOrWhiteSpace(theme.Label) ? theme.Id : theme.Label,
+            Description = theme.Description,
+            Keywords = keywordList,
+            Weight = Math.Clamp(theme.Weight, 1, 10),
+            Category = theme.Category,
+            StatAffinities = affinities,
+            ScenarioFitRules = string.Empty,
+            IsEnabled = theme.IsEnabled,
+            IsBuiltIn = false,
+            CreatedUtc = theme.CreatedUtc,
+            UpdatedUtc = theme.UpdatedUtc
+        };
+    }
+
+    private static ThemeCatalogEntry MapScenarioDefinitionToCatalogEntry(ScenarioDefinitionEntity definition)
+    {
+        return new ThemeCatalogEntry
+        {
+            Id = definition.Id,
+            Label = definition.Label,
+            Description = definition.Description,
+            Keywords = [.. definition.Keywords],
+            Weight = definition.Weight,
+            Category = definition.Category,
+            StatAffinities = new Dictionary<string, int>(definition.StatAffinities, StringComparer.OrdinalIgnoreCase),
+            ScenarioFitRules = definition.ScenarioFitRules,
+            IsEnabled = definition.IsEnabled,
+            IsBuiltIn = false,
+            CreatedUtc = definition.CreatedUtc,
+            UpdatedUtc = definition.UpdatedUtc
+        };
+    }
+
     private static CharacterStatBlock GetOrCreateCharacterStats(RolePlayAdaptiveState state, string actorKey)
     {
         if (state.CharacterStats.TryGetValue(actorKey, out var existing))
@@ -657,6 +761,55 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
     {
         var matches = keywords.Count(content.Contains);
         return Math.Min(12, matches * weight);
+    }
+
+    private static int ScoreGroupedKeywordCoverage(string content, IReadOnlyDictionary<string, IReadOnlyList<string>> groupedKeywords)
+    {
+        if (groupedKeywords.Count == 0)
+        {
+            return 0;
+        }
+
+        var matchingGroups = groupedKeywords
+            .Count(group => group.Value.Any(keyword => content.Contains(keyword, StringComparison.OrdinalIgnoreCase)));
+
+        if (matchingGroups <= 1)
+        {
+            return 0;
+        }
+
+        // Reward cross-group coverage to reflect stronger contextual alignment.
+        return Math.Min(6, (matchingGroups - 1) * 2);
+    }
+
+    private static string BuildKeywordRationale(
+        string themeName,
+        string contentLower,
+        IReadOnlyList<string> keywords,
+        IReadOnlyDictionary<string, IReadOnlyList<string>>? groupedKeywords)
+    {
+        if (groupedKeywords is not null && groupedKeywords.Count > 0)
+        {
+            var groupHits = groupedKeywords
+                .Select(group => new
+                {
+                    Group = group.Key,
+                    Hits = group.Value
+                        .Where(keyword => contentLower.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToList()
+                })
+                .Where(x => x.Hits.Count > 0)
+                .ToList();
+
+            if (groupHits.Count > 0)
+            {
+                var groupedText = string.Join(" | ", groupHits.Select(x => $"{x.Group}: {string.Join(", ", x.Hits)}"));
+                return $"Matched grouped keywords for {themeName}: {groupedText}";
+            }
+        }
+
+        return $"Matched keywords for {themeName}: {string.Join(", ", keywords.Where(contentLower.Contains))}";
     }
 
     private static int ScoreStatSignal(string content, IReadOnlyList<string> keywords, int perKeywordDelta, int maxDelta)
@@ -700,9 +853,11 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         string contentLower,
         IReadOnlyList<string> keywords,
         int weight,
-        double affinityMultiplier = 1.0)
+        double affinityMultiplier = 1.0,
+        IReadOnlyDictionary<string, IReadOnlyList<string>>? groupedKeywords = null)
     {
         var rawSignal = Score(contentLower, keywords, weight);
+        rawSignal += groupedKeywords is null ? 0 : ScoreGroupedKeywordCoverage(contentLower, groupedKeywords);
         if (rawSignal <= 0)
         {
             return;
@@ -731,7 +886,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             SignalType = "interaction-evidence",
             Delta = signal,
             Confidence = 0.65,
-            Rationale = $"Matched keywords for {themeName}: {string.Join(", ", keywords.Where(contentLower.Contains))}"
+            Rationale = BuildKeywordRationale(themeName, contentLower, keywords, groupedKeywords)
         });
 
         TrimEvidence(state.ThemeTracker);
@@ -784,6 +939,36 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         }
     }
 
+    private async Task<Dictionary<string, IReadOnlyDictionary<string, IReadOnlyList<string>>>> LoadRpThemeKeywordGroupsByThemeIdAsync(
+        RolePlaySession session,
+        CancellationToken cancellationToken)
+    {
+        var result = new Dictionary<string, IReadOnlyDictionary<string, IReadOnlyList<string>>>(StringComparer.OrdinalIgnoreCase);
+        if (_rpThemeService is null || !ShouldUseRpThemeSubsystem(session) || string.IsNullOrWhiteSpace(session.SelectedRPThemeProfileId))
+        {
+            return result;
+        }
+
+        var themes = await _rpThemeService.ListThemesByProfileAsync(session.SelectedRPThemeProfileId, includeDisabled: false, cancellationToken);
+        foreach (var theme in themes)
+        {
+            var grouped = theme.Keywords
+                .Where(x => !string.IsNullOrWhiteSpace(x.Keyword))
+                .GroupBy(x => string.IsNullOrWhiteSpace(x.GroupName) ? "General" : x.GroupName.Trim(), StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(
+                    g => g.Key,
+                    g => (IReadOnlyList<string>)g.Select(x => (x.Keyword ?? string.Empty).Trim())
+                        .Where(x => !string.IsNullOrWhiteSpace(x))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToList(),
+                    StringComparer.OrdinalIgnoreCase);
+
+            result[theme.Id] = grouped;
+        }
+
+        return result;
+    }
+
     private static bool IsNarrativeOrSystemInteraction(RolePlayInteraction interaction, string actorKey)
     {
         if (interaction.InteractionType == InteractionType.System)
@@ -821,12 +1006,69 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         var state = session.AdaptiveState ?? new RolePlayAdaptiveState();
 
         // --- T030: Initialize ThemeTracker from catalog entries ---
-        var catalogEntries = await _themeCatalogService.GetAllAsync(includeDisabled: false, cancellationToken);
+        var catalogEntries = await LoadRuntimeCatalogEntriesAsync(session, cancellationToken);
         EnsureThemeCatalog(state.ThemeTracker, catalogEntries);
 
         // --- T030: Resolve ThemeProfile preferences and apply ChoiceSignal ---
         var blockedCount = 0;
-        if (_themePreferenceService is not null && !string.IsNullOrWhiteSpace(session.SelectedThemeProfileId))
+        if (_rpThemeService is not null && ShouldUseRpThemeSubsystem(session) && !string.IsNullOrWhiteSpace(session.SelectedRPThemeProfileId))
+        {
+            var assignments = await _rpThemeService.ListProfileAssignmentsAsync(session.SelectedRPThemeProfileId, cancellationToken);
+            var themes = await _rpThemeService.ListThemesAsync(includeDisabled: false, cancellationToken: cancellationToken);
+            var themesById = themes.ToDictionary(x => x.Id, StringComparer.OrdinalIgnoreCase);
+
+            foreach (var assignment in assignments.Where(x => x.IsEnabled))
+            {
+                if (!themesById.TryGetValue(assignment.ThemeId, out var assignedTheme))
+                {
+                    continue;
+                }
+
+                var matchedTracker = state.ThemeTracker.Themes.Values.FirstOrDefault(x =>
+                    string.Equals(x.ThemeId, assignedTheme.Id, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(x.ThemeName, assignedTheme.Label, StringComparison.OrdinalIgnoreCase));
+
+                if (matchedTracker is null)
+                {
+                    continue;
+                }
+
+                if (assignment.Tier == DreamGenClone.Domain.RolePlay.RPThemeTier.HardDealBreaker)
+                {
+                    matchedTracker.Blocked = true;
+                    matchedTracker.Score = 0;
+                    matchedTracker.Breakdown.ChoiceSignal = 0;
+                    blockedCount++;
+                    continue;
+                }
+
+                var choiceSignal = assignment.Tier switch
+                {
+                    DreamGenClone.Domain.RolePlay.RPThemeTier.MustHave => 15,
+                    DreamGenClone.Domain.RolePlay.RPThemeTier.StronglyPrefer => 8,
+                    DreamGenClone.Domain.RolePlay.RPThemeTier.NiceToHave => 3,
+                    DreamGenClone.Domain.RolePlay.RPThemeTier.Discouraged => -5,
+                    _ => 0
+                };
+
+                matchedTracker.Breakdown.ChoiceSignal = choiceSignal;
+                matchedTracker.Score = Math.Clamp(matchedTracker.Score + choiceSignal, 0, 100);
+
+                if (assignment.Tier == DreamGenClone.Domain.RolePlay.RPThemeTier.MustHave)
+                {
+                    matchedTracker.Score = Math.Clamp(matchedTracker.Score + 3, 0, 100);
+                }
+
+                matchedTracker.Intensity = matchedTracker.Score switch
+                {
+                    < 20 => "Minor",
+                    < 45 => "Moderate",
+                    < 70 => "Major",
+                    _ => "Central"
+                };
+            }
+        }
+        else if (_themePreferenceService is not null && !string.IsNullOrWhiteSpace(session.SelectedThemeProfileId))
         {
             var preferences = await _themePreferenceService.ListByProfileAsync(session.SelectedThemeProfileId, cancellationToken);
             foreach (var pref in preferences)
@@ -956,6 +1198,21 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             blockedCount,
             styleProfile?.StatBias?.Count > 0,
             string.Join(", ", topSeeded));
+    }
+
+    private bool ShouldUseRpThemeSubsystem(RolePlaySession session)
+    {
+        if (!_useRpThemeSubsystem)
+        {
+            return false;
+        }
+
+        if (!_useRpThemeSubsystemForNewSessionsOnly)
+        {
+            return true;
+        }
+
+        return session.UseRpThemeSubsystem;
     }
 
     private static ThemeCatalogEntry? FindCatalogEntryByPreference(

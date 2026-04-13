@@ -8,12 +8,16 @@ using DreamGenClone.Application.Abstractions;
 using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Application.StoryAnalysis;
 using DreamGenClone.Domain.StoryAnalysis;
+using DreamGenClone.Infrastructure.Configuration;
 using DreamGenClone.Infrastructure.RolePlay;
+using Microsoft.Extensions.Options;
 
 namespace DreamGenClone.Web.Application.RolePlay;
 
 public sealed class RolePlayEngineService : IRolePlayEngineService
 {
+    private static readonly TimeSpan DecisionPointContextCooldown = TimeSpan.FromMinutes(5);
+
     private static readonly ConcurrentDictionary<string, RolePlaySession> Sessions = new();
     private const bool EnableRolePlayStreaming = false;
     private static readonly IReadOnlyDictionary<string, (string Label, IReadOnlyDictionary<string, int> Deltas)> DecisionOptionCatalog =
@@ -36,6 +40,22 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 ["Connection"] = 5,
                 ["Loyalty"] = 3
             }),
+            ["test-boundary"] = ("Test Boundary", new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Desire"] = 5,
+                ["Restraint"] = -2,
+                ["Tension"] = 3
+            }),
+            ["redirect"] = ("Redirect", new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Restraint"] = 4,
+                ["Connection"] = 2
+            }),
+            ["observe"] = ("Observe", new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Tension"] = 1,
+                ["Restraint"] = 2
+            }),
             ["custom"] = ("Custom Response", new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase))
         };
 
@@ -56,9 +76,12 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     private readonly IDecisionPointService _decisionPointService;
     private readonly IRolePlayV2StateRepository _v2StateRepository;
     private readonly IThemePreferenceService? _themePreferenceService;
+    private readonly IRPThemeService? _rpThemeService;
     private readonly RolePlayPromptComposer _promptComposer;
     private readonly RolePlaySessionCompatibilityService? _compatibilityService;
     private readonly ILogger<RolePlayEngineService> _logger;
+    private readonly bool _useRpThemeSubsystem;
+    private readonly bool _useRpThemeSubsystemForNewSessionsOnly;
 
     public RolePlayEngineService(
         IRolePlayContinuationService continuationService,
@@ -79,8 +102,10 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         IDecisionPointService? decisionPointService = null,
         IRolePlayV2StateRepository? v2StateRepository = null,
         IThemePreferenceService? themePreferenceService = null,
+        IRPThemeService? rpThemeService = null,
         RolePlayPromptComposer? promptComposer = null,
-        RolePlaySessionCompatibilityService? compatibilityService = null)
+        RolePlaySessionCompatibilityService? compatibilityService = null,
+        IOptions<StoryAnalysisOptions>? storyAnalysisOptions = null)
     {
         _continuationService = continuationService;
         _behaviorModeService = behaviorModeService;
@@ -99,9 +124,12 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         _decisionPointService = decisionPointService ?? new NullDecisionPointService();
         _v2StateRepository = v2StateRepository ?? new NullRolePlayV2StateRepository();
         _themePreferenceService = themePreferenceService;
+        _rpThemeService = rpThemeService;
         _promptComposer = promptComposer ?? new RolePlayPromptComposer();
         _compatibilityService = compatibilityService;
         _logger = logger;
+        _useRpThemeSubsystem = storyAnalysisOptions?.Value.UseRpThemeSubsystem ?? true;
+        _useRpThemeSubsystemForNewSessionsOnly = storyAnalysisOptions?.Value.UseRpThemeSubsystemForNewSessionsOnly ?? true;
     }
 
     public async Task<RolePlaySession> CreateSessionAsync(
@@ -119,7 +147,8 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             PersonaName = string.IsNullOrWhiteSpace(personaName) ? "You" : personaName.Trim(),
             PersonaDescription = personaDescription ?? string.Empty,
             PersonaTemplateId = personaTemplateId,
-            PersonaPerspectiveMode = CharacterPerspectiveMode.FirstPersonInternalMonologue
+            PersonaPerspectiveMode = CharacterPerspectiveMode.FirstPersonInternalMonologue,
+            UseRpThemeSubsystem = _useRpThemeSubsystem
         };
 
         if (!string.IsNullOrWhiteSpace(scenarioId))
@@ -129,7 +158,9 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             {
                 session.PersonaPerspectiveMode = scenario.DefaultPersonaPerspectiveMode;
                 session.SelectedThemeProfileId = scenario.DefaultThemeProfileId;
+                session.SelectedRPThemeProfileId = scenario.DefaultRPThemeProfileId;
                 session.SelectedIntensityProfileId = scenario.DefaultIntensityProfileId;
+                session.AdaptiveIntensityProfileId = scenario.DefaultIntensityProfileId;
                 session.SelectedSteeringProfileId = scenario.DefaultSteeringProfileId;
                 session.IntensityFloorOverride = scenario.DefaultIntensityFloor;
                 session.IntensityCeilingOverride = scenario.DefaultIntensityCeiling;
@@ -847,6 +878,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         await ValidateSessionCompatibilityOrThrowAsync(session, cancellationToken);
 
         var state = MapToV2State(session);
+        var targetActorId = ResolveDecisionTargetActorId(state, session.PersonaName);
         var outcome = await _decisionPointService.ApplyDecisionAsync(
             state,
             new DecisionSubmission
@@ -854,8 +886,10 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 DecisionPointId = decisionPointId,
                 OptionId = optionId,
                 CustomResponseText = customResponseText,
-                ActorName = string.IsNullOrWhiteSpace(session.PersonaName) ? "You" : session.PersonaName
+                ActorName = string.IsNullOrWhiteSpace(session.PersonaName) ? "You" : session.PersonaName,
+                TargetActorId = targetActorId
             },
+            targetActorId,
             cancellationToken);
 
         if (!outcome.Applied)
@@ -1161,7 +1195,8 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     private async Task RunRolePlayV2PipelinesAsync(RolePlaySession session, DecisionTrigger trigger, CancellationToken cancellationToken)
     {
         var previousV2State = await _v2StateRepository.LoadAdaptiveStateAsync(session.Id, cancellationToken);
-        var v2State = MapToV2State(session);
+        var v2State = HydrateV2State(session, previousV2State);
+        v2State.InteractionCountInPhase = Math.Max(0, v2State.InteractionCountInPhase) + 1;
         var candidates = await BuildScenarioCandidatesAsync(session, cancellationToken);
 
         var evaluations = await _scenarioSelectionService.EvaluateCandidatesAsync(v2State, candidates, cancellationToken);
@@ -1173,15 +1208,14 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         {
             v2State.ActiveScenarioId = commitResult.ScenarioId;
             v2State.CurrentPhase = DreamGenClone.Domain.RolePlay.NarrativePhase.Committed;
-            session.AdaptiveState.ActiveScenarioId = commitResult.ScenarioId;
-            session.AdaptiveState.ScenarioCommitmentTimeUtc = DateTime.UtcNow;
+            v2State.InteractionCountInPhase = 0;
         }
 
         var lifecycle = await _scenarioLifecycleService.EvaluateTransitionAsync(
             v2State,
             new LifecycleInputs
             {
-                InteractionsSinceCommitment = session.AdaptiveState.InteractionsSinceCommitment,
+                InteractionsSinceCommitment = v2State.InteractionCountInPhase,
                 ActiveScenarioConfidence = commitResult.SelectedEvaluation?.Confidence ?? 0m,
                 ActiveScenarioFitScore = commitResult.SelectedEvaluation?.FitScore ?? 0m,
                 EvidenceSummary = commitResult.Reason
@@ -1191,6 +1225,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         if (lifecycle.Transitioned)
         {
             v2State.CurrentPhase = lifecycle.TargetPhase;
+            v2State.InteractionCountInPhase = 0;
             if (lifecycle.TransitionEvent is not null)
             {
                 await _v2StateRepository.SaveTransitionEventAsync(lifecycle.TransitionEvent, cancellationToken);
@@ -1228,9 +1263,13 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             : trigger;
 
         var hasPendingDecision = await HasPendingDecisionPointAsync(session, cancellationToken);
-        var decisionPoint = hasPendingDecision
+        var isInDecisionCooldown = hasPendingDecision
+            ? false
+            : await HasRecentDecisionPointForContextAsync(session, v2State, effectiveDecisionTrigger, cancellationToken);
+        var decisionContext = BuildDecisionGenerationContext(session, v2State, effectiveDecisionTrigger);
+        var decisionPoint = (hasPendingDecision || isInDecisionCooldown)
             ? null
-            : await _decisionPointService.TryCreateDecisionPointAsync(v2State, effectiveDecisionTrigger, cancellationToken);
+            : await _decisionPointService.TryCreateDecisionPointAsync(v2State, effectiveDecisionTrigger, decisionContext, cancellationToken);
         if (decisionPoint is not null)
         {
             var options = decisionPoint.OptionIds.Select(optionId => new DreamGenClone.Domain.RolePlay.DecisionOption
@@ -1238,7 +1277,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 OptionId = optionId,
                 DecisionPointId = decisionPoint.DecisionPointId,
                 DisplayText = ResolveDecisionOptionDisplayText(optionId),
-                VisibilityMode = DreamGenClone.Domain.RolePlay.TransparencyMode.Directional,
+                VisibilityMode = decisionPoint.TransparencyMode,
                 Prerequisites = "{}",
                 StatDeltaMap = ResolveDecisionOptionDeltaMap(optionId),
                 IsCustomResponseFallback = string.Equals(optionId, "custom", StringComparison.OrdinalIgnoreCase)
@@ -1269,6 +1308,57 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             cancellationToken);
 
         await _v2StateRepository.SaveAdaptiveStateAsync(v2State, cancellationToken);
+        SyncSessionAdaptiveStateFromV2(session, v2State);
+    }
+
+    private static DreamGenClone.Domain.RolePlay.AdaptiveScenarioState HydrateV2State(
+        RolePlaySession session,
+        DreamGenClone.Domain.RolePlay.AdaptiveScenarioState? previousState)
+    {
+        var mapped = MapToV2State(session);
+        if (previousState is null)
+        {
+            return mapped;
+        }
+
+        mapped.ActiveScenarioId = previousState.ActiveScenarioId ?? mapped.ActiveScenarioId;
+        mapped.ActiveVariantId = previousState.ActiveVariantId ?? mapped.ActiveVariantId;
+        mapped.CurrentPhase = previousState.CurrentPhase;
+        mapped.InteractionCountInPhase = Math.Max(0, previousState.InteractionCountInPhase);
+        mapped.ConsecutiveLeadCount = Math.Max(0, previousState.ConsecutiveLeadCount);
+        mapped.CycleIndex = Math.Max(mapped.CycleIndex, previousState.CycleIndex);
+        mapped.ActiveFormulaVersion = string.IsNullOrWhiteSpace(previousState.ActiveFormulaVersion)
+            ? mapped.ActiveFormulaVersion
+            : previousState.ActiveFormulaVersion;
+        mapped.LastEvaluationUtc = previousState.LastEvaluationUtc;
+        return mapped;
+    }
+
+    private static void SyncSessionAdaptiveStateFromV2(
+        RolePlaySession session,
+        DreamGenClone.Domain.RolePlay.AdaptiveScenarioState v2State)
+    {
+        session.AdaptiveState.ActiveScenarioId = v2State.ActiveScenarioId;
+        session.AdaptiveState.ActiveVariantId = v2State.ActiveVariantId;
+        session.AdaptiveState.CurrentNarrativePhase = MapStoryPhase(v2State.CurrentPhase);
+
+        var interactionCount = Math.Max(0, v2State.InteractionCountInPhase);
+        session.AdaptiveState.InteractionsSinceCommitment = v2State.CurrentPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.BuildUp
+            ? 0
+            : interactionCount;
+        session.AdaptiveState.InteractionsInApproaching = v2State.CurrentPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.Approaching
+            ? interactionCount
+            : 0;
+
+        if (v2State.CurrentPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.Committed
+            && session.AdaptiveState.ScenarioCommitmentTimeUtc is null)
+        {
+            session.AdaptiveState.ScenarioCommitmentTimeUtc = DateTime.UtcNow;
+        }
+        else if (v2State.CurrentPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.BuildUp)
+        {
+            session.AdaptiveState.ScenarioCommitmentTimeUtc = null;
+        }
     }
 
     private async Task<bool> HasPendingDecisionPointAsync(RolePlaySession session, CancellationToken cancellationToken)
@@ -1281,6 +1371,36 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
         var appliedIds = session.AppliedDecisionPointIds ??= [];
         return points.Any(x => !appliedIds.Contains(x.DecisionPointId, StringComparer.OrdinalIgnoreCase));
+    }
+
+    private async Task<bool> HasRecentDecisionPointForContextAsync(
+        RolePlaySession session,
+        DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state,
+        DecisionTrigger trigger,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(state.ActiveScenarioId))
+        {
+            return false;
+        }
+
+        var points = await _v2StateRepository.LoadDecisionPointsAsync(session.Id, 10, cancellationToken);
+        if (points.Count == 0)
+        {
+            return false;
+        }
+
+        var latest = points[^1];
+        var sameContext = string.Equals(latest.ScenarioId, state.ActiveScenarioId, StringComparison.OrdinalIgnoreCase)
+            && latest.Phase == state.CurrentPhase
+            && string.Equals(latest.TriggerSource, trigger.ToString(), StringComparison.OrdinalIgnoreCase);
+
+        if (!sameContext)
+        {
+            return false;
+        }
+
+        return DateTime.UtcNow - latest.CreatedUtc < DecisionPointContextCooldown;
     }
 
     private static bool HasSignificantStatChange(
@@ -1356,18 +1476,79 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             return;
         }
 
+        if (!string.IsNullOrWhiteSpace(outcome.TargetActorId))
+        {
+            var targetEntry = session.AdaptiveState.CharacterStats
+                .FirstOrDefault(x => string.Equals(x.Value.CharacterId, outcome.TargetActorId, StringComparison.OrdinalIgnoreCase));
+            if (!string.IsNullOrWhiteSpace(targetEntry.Key))
+            {
+                ApplyDeltasToStatBlock(targetEntry.Value, outcome.AppliedStatDeltas);
+                return;
+            }
+        }
+
         foreach (var statBlock in session.AdaptiveState.CharacterStats.Values)
         {
-            foreach (var (statName, delta) in outcome.AppliedStatDeltas)
-            {
-                var current = statBlock.Stats.TryGetValue(statName, out var currentValue)
-                    ? currentValue
-                    : AdaptiveStatCatalog.DefaultValue;
-                statBlock.Stats[statName] = Math.Clamp(current + delta, AdaptiveStatCatalog.MinValue, AdaptiveStatCatalog.MaxValue);
-            }
-
-            statBlock.UpdatedUtc = DateTime.UtcNow;
+            ApplyDeltasToStatBlock(statBlock, outcome.AppliedStatDeltas);
         }
+    }
+
+    private static void ApplyDeltasToStatBlock(
+        CharacterStatBlock statBlock,
+        IReadOnlyDictionary<string, int> deltas)
+    {
+        foreach (var (statName, delta) in deltas)
+        {
+            var current = statBlock.Stats.TryGetValue(statName, out var currentValue)
+                ? currentValue
+                : AdaptiveStatCatalog.DefaultValue;
+            statBlock.Stats[statName] = Math.Clamp(current + delta, AdaptiveStatCatalog.MinValue, AdaptiveStatCatalog.MaxValue);
+        }
+
+        statBlock.UpdatedUtc = DateTime.UtcNow;
+    }
+
+    private static string? ResolveDecisionTargetActorId(
+        DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state,
+        string? actorName)
+    {
+        if (!string.IsNullOrWhiteSpace(actorName))
+        {
+            var match = state.CharacterSnapshots.FirstOrDefault(x =>
+                string.Equals(x.CharacterId, actorName, StringComparison.OrdinalIgnoreCase));
+            if (match is not null)
+            {
+                return match.CharacterId;
+            }
+        }
+
+        return state.CharacterSnapshots.Count == 1
+            ? state.CharacterSnapshots[0].CharacterId
+            : null;
+    }
+
+    private static DecisionGenerationContext BuildDecisionGenerationContext(
+        RolePlaySession session,
+        DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state,
+        DecisionTrigger trigger)
+    {
+        var snippet = session.Interactions
+            .TakeLast(4)
+            .Select(x => x.Content)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x.Trim())
+            .FirstOrDefault();
+
+        return new DecisionGenerationContext
+        {
+            ScenarioId = session.ScenarioId,
+            TriggerSource = trigger.ToString(),
+            Phase = state.CurrentPhase,
+            PromptSnippet = snippet,
+            AskingActorName = string.IsNullOrWhiteSpace(session.PersonaName) ? null : session.PersonaName,
+            TargetActorId = ResolveDecisionTargetActorId(state, session.PersonaName),
+            RelevantActors = state.CharacterSnapshots
+        };
     }
 
     private static string BuildDecisionOutcomePrompt(DecisionOutcome outcome)
@@ -1405,12 +1586,15 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         {
             SessionId = session.Id,
             ActiveScenarioId = session.AdaptiveState.ActiveScenarioId,
+            ActiveVariantId = session.AdaptiveState.ActiveVariantId,
             CurrentPhase = MapPhase(session.AdaptiveState.CurrentNarrativePhase),
             InteractionCountInPhase = session.AdaptiveState.InteractionsSinceCommitment,
             ConsecutiveLeadCount = 0,
             LastEvaluationUtc = DateTime.UtcNow,
             CycleIndex = session.AdaptiveState.CompletedScenarios,
             ActiveFormulaVersion = "rpv2-default",
+            SelectedWillingnessProfileId = session.AdaptiveState.SelectedWillingnessProfileId,
+            HusbandAwarenessProfileId = session.AdaptiveState.HusbandAwarenessProfileId,
             CharacterSnapshots = snapshots
         };
     }
@@ -1421,6 +1605,56 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             .OrderByDescending(x => x.Score)
             .ThenBy(x => x.ThemeId, StringComparer.OrdinalIgnoreCase)
             .ToList();
+
+        if (_rpThemeService is not null && ShouldUseRpThemeSubsystem(session) && !string.IsNullOrWhiteSpace(session.SelectedRPThemeProfileId))
+        {
+            var assignments = await _rpThemeService.ListProfileAssignmentsAsync(session.SelectedRPThemeProfileId, cancellationToken);
+            var themes = await _rpThemeService.ListThemesAsync(includeDisabled: false, cancellationToken: cancellationToken);
+            var themesById = themes.ToDictionary(x => x.Id, StringComparer.OrdinalIgnoreCase);
+
+            var rpCandidates = assignments
+                .Where(x => x.IsEnabled && x.Tier != DreamGenClone.Domain.RolePlay.RPThemeTier.HardDealBreaker)
+                .OrderBy(x => x.SortOrder)
+                .ThenBy(x => x.Tier)
+                .Select((assignment, index) =>
+                {
+                    if (!themesById.TryGetValue(assignment.ThemeId, out var theme))
+                    {
+                        return null;
+                    }
+
+                    var preferencePriority = assignment.Tier switch
+                    {
+                        DreamGenClone.Domain.RolePlay.RPThemeTier.MustHave => 1m,
+                        DreamGenClone.Domain.RolePlay.RPThemeTier.StronglyPrefer => 0.8m,
+                        DreamGenClone.Domain.RolePlay.RPThemeTier.NiceToHave => 0.6m,
+                        DreamGenClone.Domain.RolePlay.RPThemeTier.Neutral => 0.5m,
+                        DreamGenClone.Domain.RolePlay.RPThemeTier.Discouraged => 0.2m,
+                        _ => 0.5m
+                    };
+
+                    if (assignment.Weight > 0m)
+                    {
+                        preferencePriority = Math.Clamp(assignment.Weight, 0m, 1m);
+                    }
+
+                    return new ScenarioDefinition(
+                        theme.Id,
+                        theme.Label,
+                        Priority: Math.Max(1, 5 - index),
+                        NarrativeEvidenceScore: preferencePriority,
+                        PreferencePriorityScore: preferencePriority);
+                })
+                .Where(x => x is not null)
+                .Select(x => x!)
+                .Take(5)
+                .ToList();
+
+            if (rpCandidates.Count > 0)
+            {
+                return rpCandidates;
+            }
+        }
 
         if (_themePreferenceService is not null && !string.IsNullOrWhiteSpace(session.SelectedThemeProfileId))
         {
@@ -1435,7 +1669,12 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 var profileCandidates = rankedThemes
                     .Where(x => allowedCatalogIds.Contains(x.ThemeId))
                     .Take(5)
-                    .Select((theme, index) => new ScenarioDefinition(theme.ThemeId, theme.ThemeName, 5 - index))
+                    .Select((theme, index) => new ScenarioDefinition(
+                        theme.ThemeId,
+                        theme.ThemeName,
+                        Priority: 5 - index,
+                        NarrativeEvidenceScore: NormalizeThemeScore(theme.Score),
+                        PreferencePriorityScore: NormalizePreferencePriority(5 - index)))
                     .ToList();
 
                 if (profileCandidates.Count > 0)
@@ -1447,15 +1686,52 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
         var candidates = rankedThemes
             .Take(5)
-            .Select((theme, index) => new ScenarioDefinition(theme.ThemeId, theme.ThemeName, 5 - index))
+            .Select((theme, index) => new ScenarioDefinition(
+                theme.ThemeId,
+                theme.ThemeName,
+                Priority: 5 - index,
+                NarrativeEvidenceScore: NormalizeThemeScore(theme.Score),
+                PreferencePriorityScore: NormalizePreferencePriority(5 - index)))
             .ToList();
 
         if (candidates.Count == 0)
         {
-            candidates.Add(new ScenarioDefinition(session.ScenarioId ?? "default-scenario", "Default Scenario", 1));
+            candidates.Add(new ScenarioDefinition(
+                session.ScenarioId ?? "default-scenario",
+                "Default Scenario",
+                Priority: 1,
+                NarrativeEvidenceScore: 0.4m,
+                PreferencePriorityScore: 0.5m));
         }
 
         return candidates;
+    }
+
+    private bool ShouldUseRpThemeSubsystem(RolePlaySession session)
+    {
+        if (!_useRpThemeSubsystem)
+        {
+            return false;
+        }
+
+        if (!_useRpThemeSubsystemForNewSessionsOnly)
+        {
+            return true;
+        }
+
+        return session.UseRpThemeSubsystem;
+    }
+
+    private static decimal NormalizeThemeScore(double score)
+    {
+        var normalized = decimal.Round((decimal)score / 100m, 4, MidpointRounding.AwayFromZero);
+        return Math.Clamp(normalized, 0m, 1m);
+    }
+
+    private static decimal NormalizePreferencePriority(int priority)
+    {
+        var normalized = decimal.Round(priority / 5m, 4, MidpointRounding.AwayFromZero);
+        return Math.Clamp(normalized, 0m, 1m);
     }
 
     private static List<DreamGenClone.Domain.RolePlay.BehavioralConcept> BuildConceptCandidates(RolePlaySession session)
@@ -1496,6 +1772,18 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Approaching => DreamGenClone.Domain.RolePlay.NarrativePhase.Approaching,
             DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Climax => DreamGenClone.Domain.RolePlay.NarrativePhase.Climax,
             _ => DreamGenClone.Domain.RolePlay.NarrativePhase.Reset
+        };
+    }
+
+    private static DreamGenClone.Domain.StoryAnalysis.NarrativePhase MapStoryPhase(DreamGenClone.Domain.RolePlay.NarrativePhase phase)
+    {
+        return phase switch
+        {
+            DreamGenClone.Domain.RolePlay.NarrativePhase.BuildUp => DreamGenClone.Domain.StoryAnalysis.NarrativePhase.BuildUp,
+            DreamGenClone.Domain.RolePlay.NarrativePhase.Committed => DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Committed,
+            DreamGenClone.Domain.RolePlay.NarrativePhase.Approaching => DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Approaching,
+            DreamGenClone.Domain.RolePlay.NarrativePhase.Climax => DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Climax,
+            _ => DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Reset
         };
     }
 
@@ -1649,12 +1937,14 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         public Task<DreamGenClone.Domain.RolePlay.DecisionPoint?> TryCreateDecisionPointAsync(
             DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state,
             DecisionTrigger trigger,
+            DecisionGenerationContext? context = null,
             CancellationToken cancellationToken = default)
             => Task.FromResult<DreamGenClone.Domain.RolePlay.DecisionPoint?>(null);
 
         public Task<DecisionOutcome> ApplyDecisionAsync(
             DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state,
             DecisionSubmission submission,
+            string? targetActorId = null,
             CancellationToken cancellationToken = default)
             => Task.FromResult(new DecisionOutcome { Applied = false, DecisionPointId = submission.DecisionPointId, OptionId = submission.OptionId, Summary = "Decision service disabled." });
     }

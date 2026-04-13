@@ -1,6 +1,3 @@
-Ah, I understand now! You want a **variant of infidelity-public-facade** where the husband knows or discovers, while "secret-voyeur-discovery" is its own separate theme focused on the voyeur arousal aspect.
-
-Here's the variant:
 
 ---
 

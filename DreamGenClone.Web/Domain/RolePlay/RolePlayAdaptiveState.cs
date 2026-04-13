@@ -12,6 +12,12 @@ public sealed class RolePlayAdaptiveState
 
     public string? ActiveScenarioId { get; set; }
 
+    public string? ActiveVariantId { get; set; }
+
+    public string? SelectedWillingnessProfileId { get; set; }
+
+    public string? HusbandAwarenessProfileId { get; set; }
+
     public DateTime? ScenarioCommitmentTimeUtc { get; set; }
 
     public NarrativePhase CurrentNarrativePhase { get; set; } = NarrativePhase.BuildUp;

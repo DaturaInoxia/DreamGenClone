@@ -28,13 +28,21 @@ param(
     [string]$Urls = "http://localhost:5177",
 
     [Parameter()]
-    [switch]$OpenBrowser
+    [switch]$OpenBrowser,
+
+    [Parameter()]
+    [switch]$Restore,
+
+    [Parameter()]
+    [switch]$Build
 )
 
 # Usage:
 #   ./helpers/start-webapp.ps1
 #   ./helpers/start-webapp.ps1 webapp -OpenBrowser
 #   ./helpers/start-webapp.ps1 webapp -Urls "http://localhost:5001"
+#   ./helpers/start-webapp.ps1 webapp -Restore
+#   ./helpers/start-webapp.ps1 webapp -Build
 #   ./helpers/start-webapp.ps1 stop
 #   ./helpers/start-webapp.ps1 status
 
@@ -67,7 +75,12 @@ function Get-WebAppProcesses {
     $results = [System.Collections.ArrayList]::new()
 
     $dotnetProcs = Get-CimInstance Win32_Process -Filter "Name = 'dotnet.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { $_.CommandLine -and $_.CommandLine -like "*DreamGenClone.Web*DreamGenClone.csproj*" }
+        Where-Object {
+            $_.CommandLine -and (
+                $_.CommandLine -like "*DreamGenClone.Web*DreamGenClone.csproj*" -or
+                $_.CommandLine -like "*DreamGenClone.Web*DreamGenClone.dll*"
+            )
+        }
     if ($dotnetProcs) {
         foreach ($p in @($dotnetProcs)) { [void]$results.Add($p) }
     }
@@ -173,6 +186,66 @@ function Resolve-AvailableUrl {
     exit 1
 }
 
+function Invoke-OptionalRestore {
+    param([string]$ProjectPath, [switch]$ForceRestore)
+
+    if (-not $ForceRestore) {
+        return
+    }
+
+    Write-Host "Running restore (explicitly requested) ..." -ForegroundColor Yellow
+    & dotnet restore "$ProjectPath"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Error: restore failed. App was not started." -ForegroundColor Red
+        exit $LASTEXITCODE
+    }
+}
+
+function Get-WebAppDllPath {
+    param([string]$ProjectPath)
+
+    $projectDir = Split-Path -Parent $ProjectPath
+    $projectName = [System.IO.Path]::GetFileNameWithoutExtension($ProjectPath)
+    return Join-Path $projectDir "bin\Debug\net9.0\$projectName.dll"
+}
+
+function Start-DeferredBrowserOpen {
+    param(
+        [string]$Url,
+        [int]$TimeoutSeconds = 90
+    )
+
+    Start-Job -Name "DreamGenClone.OpenBrowser" -ScriptBlock {
+        param([string]$TargetUrl, [int]$Timeout)
+
+        $deadline = (Get-Date).AddSeconds($Timeout)
+        $uri = [Uri]$TargetUrl
+        $hostName = $uri.Host
+        $port = $uri.Port
+
+        while ((Get-Date) -lt $deadline) {
+            $client = New-Object System.Net.Sockets.TcpClient
+            try {
+                $asyncConnect = $client.BeginConnect($hostName, $port, $null, $null)
+                if ($asyncConnect.AsyncWaitHandle.WaitOne(750) -and $client.Connected) {
+                    Start-Process $TargetUrl | Out-Null
+                    return
+                }
+            }
+            catch {
+                # Retry until timeout.
+            }
+            finally {
+                $client.Close()
+            }
+
+            Start-Sleep -Milliseconds 500
+        }
+    } -ArgumentList $Url, $TimeoutSeconds | Out-Null
+
+    Write-Host "Browser launch scheduled: will open when app is ready at $Url" -ForegroundColor Yellow
+}
+
 switch ($Action) {
     "webapp" {
         Test-Prerequisites
@@ -185,19 +258,54 @@ switch ($Action) {
         Write-Host "URLs: $resolvedUrl" -ForegroundColor Cyan
 
         $env:ASPNETCORE_ENVIRONMENT = "Development"
+        Invoke-OptionalRestore -ProjectPath $projectPath -ForceRestore:$Restore
 
-        if ($OpenBrowser) {
-            Write-Host "Opening browser: $resolvedUrl" -ForegroundColor Yellow
-            Start-Process $resolvedUrl | Out-Null
+        if ($Build) {
+            Write-Host "Build enabled: startup may take longer." -ForegroundColor Yellow
+        }
+        else {
+            Write-Host "Build skipped for fast startup (use -Build after code changes)." -ForegroundColor Yellow
         }
 
-        dotnet run --no-launch-profile --project "$projectPath" --urls "$resolvedUrl"
+        if ($OpenBrowser) {
+            Start-DeferredBrowserOpen -Url $resolvedUrl
+        }
+
+        # Avoid implicit restore on every run to keep local startup fast.
+        if ($Build) {
+            & dotnet run --no-restore --no-launch-profile --project "$projectPath" --urls "$resolvedUrl"
+        }
+        else {
+            $projectDir = Split-Path -Parent $projectPath
+            $webAppDll = Get-WebAppDllPath -ProjectPath $projectPath
+
+            if (-not (Test-Path $webAppDll)) {
+                Write-Host "Error: build output not found at '$webAppDll'." -ForegroundColor Red
+                Write-Host "Run once with -Build to generate binaries." -ForegroundColor Yellow
+                exit 1
+            }
+
+            Push-Location $projectDir
+            try {
+                & dotnet "$webAppDll" --urls "$resolvedUrl"
+            }
+            finally {
+                Pop-Location
+            }
+        }
+
+        if ($LASTEXITCODE -ne 0 -and -not $Build) {
+            Write-Host "Tip: rerun with -Build if binaries are missing or stale." -ForegroundColor Yellow
+            exit $LASTEXITCODE
+        }
     }
     "stop" {
         Stop-WebAppProcesses
+        exit 0
     }
     "status" {
         Show-WebAppStatus
+        exit 0
     }
     default {
         Write-Host "Unknown action: $Action" -ForegroundColor Red

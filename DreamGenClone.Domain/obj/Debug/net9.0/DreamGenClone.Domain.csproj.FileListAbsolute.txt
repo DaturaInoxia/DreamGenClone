@@ -25,3 +25,9 @@ D:\src\DreamGenClone\DreamGenClone.Domain\artifacts\tmpbuild\web-intensity\Dream
 D:\src\DreamGenClone\artifacts\tmp\testout\DreamGenClone.Domain.deps.json
 D:\src\DreamGenClone\artifacts\tmp\testout\DreamGenClone.Domain.dll
 D:\src\DreamGenClone\artifacts\tmp\testout\DreamGenClone.Domain.pdb
+D:\src\DreamGenClone\DreamGenClone.Domain\artifacts\tmp\verify-web\DreamGenClone.Domain.deps.json
+D:\src\DreamGenClone\DreamGenClone.Domain\artifacts\tmp\verify-web\DreamGenClone.Domain.dll
+D:\src\DreamGenClone\DreamGenClone.Domain\artifacts\tmp\verify-web\DreamGenClone.Domain.pdb
+D:\src\DreamGenClone\DreamGenClone.Domain\artifacts\tmp\verify-web-phase2\DreamGenClone.Domain.deps.json
+D:\src\DreamGenClone\DreamGenClone.Domain\artifacts\tmp\verify-web-phase2\DreamGenClone.Domain.dll
+D:\src\DreamGenClone\DreamGenClone.Domain\artifacts\tmp\verify-web-phase2\DreamGenClone.Domain.pdb

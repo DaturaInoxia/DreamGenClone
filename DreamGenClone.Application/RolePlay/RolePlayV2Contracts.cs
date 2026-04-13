@@ -2,7 +2,37 @@ using DreamGenClone.Domain.RolePlay;
 
 namespace DreamGenClone.Application.RolePlay;
 
-public sealed record ScenarioDefinition(string ScenarioId, string Name, int Priority = 0);
+public sealed record ScenarioDefinition(
+    string ScenarioId,
+    string Name,
+    int Priority = 0,
+    decimal NarrativeEvidenceScore = 0m,
+    decimal PreferencePriorityScore = 0m);
+
+public sealed class ScenarioGuidanceRequest
+{
+    public string SessionId { get; init; } = string.Empty;
+    public string CurrentPhase { get; init; } = "BuildUp";
+    public string? ActiveScenarioId { get; init; }
+    public string? VariantId { get; init; }
+    public double AverageDesire { get; init; } = 50;
+    public double AverageRestraint { get; init; } = 50;
+    public double AverageTension { get; init; } = 50;
+    public double AverageConnection { get; init; } = 50;
+    public double AverageDominance { get; init; } = 50;
+    public double AverageLoyalty { get; init; } = 50;
+    public string? SelectedWillingnessProfileId { get; init; }
+    public string? HusbandAwarenessProfileId { get; init; }
+    public IReadOnlyList<string> SuppressedScenarioIds { get; init; } = [];
+}
+
+public sealed class ScenarioGuidanceOutput
+{
+    public string GuidanceText { get; init; } = string.Empty;
+    public IReadOnlyList<string> EmphasisPoints { get; init; } = [];
+    public IReadOnlyList<string> AvoidancePoints { get; init; } = [];
+    public string Source { get; init; } = "Fallback";
+}
 
 public sealed class ScenarioCommitResult
 {
@@ -69,6 +99,7 @@ public sealed class DecisionSubmission
     public string OptionId { get; init; } = string.Empty;
     public string? CustomResponseText { get; init; }
     public string ActorName { get; init; } = string.Empty;
+    public string? TargetActorId { get; init; }
 }
 
 public sealed class DecisionOutcome
@@ -76,6 +107,7 @@ public sealed class DecisionOutcome
     public bool Applied { get; init; }
     public string DecisionPointId { get; init; } = string.Empty;
     public string OptionId { get; init; } = string.Empty;
+    public string? TargetActorId { get; init; }
     public IReadOnlyDictionary<string, int> AppliedStatDeltas { get; init; } = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
     public string AuditMetadataJson { get; init; } = "{}";
     public TransparencyMode TransparencyMode { get; init; } = TransparencyMode.Directional;

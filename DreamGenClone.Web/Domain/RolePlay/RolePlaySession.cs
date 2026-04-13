@@ -79,6 +79,15 @@ public sealed class RolePlaySession
     [JsonPropertyName("SelectedThemeProfileId")]
     public string? SelectedThemeProfileId { get; set; }
 
+    /// <summary>Selected RP theme profile for this session.</summary>
+    public string? SelectedRPThemeProfileId { get; set; }
+
+    /// <summary>
+    /// True when this session should use the RP-only Theme/Profile subsystem for runtime paths.
+    /// Old sessions default to false when this property is absent in persisted payload.
+    /// </summary>
+    public bool UseRpThemeSubsystem { get; set; }
+
     /// <summary>Legacy alias — maps old SelectedRankingProfileId → SelectedThemeProfileId during deserialization.</summary>
     [JsonInclude]
     [JsonPropertyName("SelectedRankingProfileId")]
@@ -91,6 +100,12 @@ public sealed class RolePlaySession
     /// <summary>Selected intensity profile for this session.</summary>
     public string? SelectedIntensityProfileId { get; set; }
 
+    /// <summary>
+    /// Persisted adaptive intensity profile used when pin is off.
+    /// This state should not be overwritten when pin is toggled on.
+    /// </summary>
+    public string? AdaptiveIntensityProfileId { get; set; }
+
     /// <summary>Selected steering profile for this session.</summary>
     public string? SelectedSteeringProfileId { get; set; }
 
@@ -102,6 +117,15 @@ public sealed class RolePlaySession
 
     /// <summary>When true, the intensity profile is pinned by the user and auto-adaptation is suppressed.</summary>
     public bool IsIntensityManuallyPinned { get; set; }
+
+    /// <summary>Most recently resolved intensity label used by generation.</summary>
+    public string? LastResolvedIntensityLabel { get; set; }
+
+    /// <summary>Most recent resolution reason text.</summary>
+    public string? LastResolvedIntensityReason { get; set; }
+
+    /// <summary>When the last resolved intensity snapshot was computed.</summary>
+    public DateTime? LastResolvedIntensityUtc { get; set; }
 
     /// <summary>Adaptive theme and stat state updated per interaction.</summary>
     public RolePlayAdaptiveState AdaptiveState { get; set; } = new();

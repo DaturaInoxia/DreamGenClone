@@ -110,6 +110,11 @@ public class Scenario
     [JsonPropertyName("DefaultThemeProfileId")]
     public string? DefaultThemeProfileId { get; set; }
 
+    /// <summary>
+    /// Default RP theme profile to use for RolePlay sessions and runtime scenario guidance.
+    /// </summary>
+    public string? DefaultRPThemeProfileId { get; set; }
+
     /// <summary>Legacy alias — maps old DefaultRankingProfileId during deserialization.</summary>
     [JsonInclude]
     [JsonPropertyName("DefaultRankingProfileId")]

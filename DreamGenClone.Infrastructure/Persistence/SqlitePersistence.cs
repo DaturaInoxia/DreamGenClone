@@ -12,6 +12,9 @@ namespace DreamGenClone.Infrastructure.Persistence;
 
 public sealed class SqlitePersistence : ISqlitePersistence
 {
+    private const string LegacyMigrationVersionKey = "LegacyMigrationsVersion";
+    private const string CurrentLegacyMigrationVersion = "2026-04-12-1";
+
     private readonly PersistenceOptions _options;
     private readonly LmStudioOptions _lmStudioOptions;
     private readonly StoryAnalysisOptions _storyAnalysisOptions;
@@ -158,6 +161,33 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 UpdatedUtc TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS StatWillingnessProfiles (
+                Id TEXT PRIMARY KEY,
+                Name TEXT NOT NULL,
+                Description TEXT NOT NULL,
+                TargetStatName TEXT NOT NULL,
+                IsDefault INTEGER NOT NULL DEFAULT 0,
+                ThresholdsJson TEXT NOT NULL DEFAULT '[]',
+                CreatedUtc TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS HusbandAwarenessProfiles (
+                Id TEXT PRIMARY KEY,
+                Name TEXT NOT NULL,
+                Description TEXT NOT NULL,
+                AwarenessLevel INTEGER NOT NULL DEFAULT 0,
+                AcceptanceLevel INTEGER NOT NULL DEFAULT 0,
+                VoyeurismLevel INTEGER NOT NULL DEFAULT 0,
+                ParticipationLevel INTEGER NOT NULL DEFAULT 0,
+                HumiliationDesire INTEGER NOT NULL DEFAULT 0,
+                EncouragementLevel INTEGER NOT NULL DEFAULT 0,
+                RiskTolerance INTEGER NOT NULL DEFAULT 0,
+                Notes TEXT NOT NULL DEFAULT '',
+                CreatedUtc TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS StyleProfiles (
                 Id TEXT PRIMARY KEY,
                 Name TEXT NOT NULL,
@@ -176,10 +206,156 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 Weight INTEGER NOT NULL DEFAULT 1,
                 Category TEXT NOT NULL DEFAULT '',
                 StatAffinities TEXT NOT NULL DEFAULT '{}',
+                ScenarioFitRules TEXT NOT NULL DEFAULT '',
                 IsEnabled INTEGER NOT NULL DEFAULT 1,
                 IsBuiltIn INTEGER NOT NULL DEFAULT 0,
                 CreatedUtc TEXT NOT NULL,
                 UpdatedUtc TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS ScenarioDefinitions (
+                Id TEXT PRIMARY KEY,
+                Label TEXT NOT NULL,
+                Description TEXT NOT NULL DEFAULT '',
+                Category TEXT NOT NULL DEFAULT '',
+                Weight INTEGER NOT NULL DEFAULT 1,
+                VariantOf TEXT NOT NULL DEFAULT '',
+                IsScenarioDefining INTEGER NOT NULL DEFAULT 1,
+                Keywords TEXT NOT NULL DEFAULT '[]',
+                DirectionalKeywords TEXT NOT NULL DEFAULT '[]',
+                StatAffinities TEXT NOT NULL DEFAULT '{}',
+                ScenarioFitRules TEXT NOT NULL DEFAULT '',
+                PhaseGuidance TEXT NOT NULL DEFAULT '',
+                IsEnabled INTEGER NOT NULL DEFAULT 1,
+                CreatedUtc TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS IX_ScenarioDefinitions_Enabled_Label
+                ON ScenarioDefinitions (IsEnabled, Label);
+
+            CREATE TABLE IF NOT EXISTS RPThemeProfiles (
+                Id TEXT PRIMARY KEY,
+                Name TEXT NOT NULL,
+                Description TEXT NOT NULL DEFAULT '',
+                IsDefault INTEGER NOT NULL DEFAULT 0,
+                CreatedUtc TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS RPThemes (
+                Id TEXT PRIMARY KEY,
+                Label TEXT NOT NULL,
+                Description TEXT NOT NULL DEFAULT '',
+                Category TEXT NOT NULL DEFAULT '',
+                Weight INTEGER NOT NULL DEFAULT 1,
+                IsEnabled INTEGER NOT NULL DEFAULT 1,
+                CreatedUtc TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS IX_RPThemes_Label
+                ON RPThemes (Label);
+
+            CREATE TABLE IF NOT EXISTS RPThemeRelationships (
+                ParentThemeId TEXT NOT NULL,
+                ChildThemeId TEXT NOT NULL,
+                SortOrder INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (ParentThemeId, ChildThemeId),
+                FOREIGN KEY (ParentThemeId) REFERENCES RPThemes(Id) ON DELETE CASCADE,
+                FOREIGN KEY (ChildThemeId) REFERENCES RPThemes(Id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS RPThemeKeywords (
+                Id TEXT PRIMARY KEY,
+                ThemeId TEXT NOT NULL,
+                GroupName TEXT NOT NULL DEFAULT '',
+                Keyword TEXT NOT NULL,
+                SortOrder INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (ThemeId) REFERENCES RPThemes(Id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS IX_RPThemeKeywords_Theme_Sort
+                ON RPThemeKeywords (ThemeId, SortOrder, Id);
+
+            CREATE TABLE IF NOT EXISTS RPThemeStatAffinities (
+                Id TEXT PRIMARY KEY,
+                ThemeId TEXT NOT NULL,
+                StatName TEXT NOT NULL,
+                Value INTEGER NOT NULL,
+                Rationale TEXT NOT NULL DEFAULT '',
+                FOREIGN KEY (ThemeId) REFERENCES RPThemes(Id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS IX_RPThemeStatAffinities_Theme_Stat
+                ON RPThemeStatAffinities (ThemeId, StatName);
+
+            CREATE TABLE IF NOT EXISTS RPThemeFitRules (
+                Id TEXT PRIMARY KEY,
+                ThemeId TEXT NOT NULL,
+                RoleName TEXT NOT NULL,
+                RoleWeight REAL NOT NULL DEFAULT 1,
+                FOREIGN KEY (ThemeId) REFERENCES RPThemes(Id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS RPThemeFitRuleClauses (
+                Id TEXT PRIMARY KEY,
+                FitRuleId TEXT NOT NULL,
+                StatName TEXT NOT NULL,
+                Comparator TEXT NOT NULL,
+                Threshold REAL NOT NULL,
+                PenaltyWeight REAL NOT NULL DEFAULT 1,
+                Description TEXT NOT NULL DEFAULT '',
+                FOREIGN KEY (FitRuleId) REFERENCES RPThemeFitRules(Id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS RPThemePhaseGuidance (
+                Id TEXT PRIMARY KEY,
+                ThemeId TEXT NOT NULL,
+                Phase TEXT NOT NULL,
+                GuidanceText TEXT NOT NULL,
+                FOREIGN KEY (ThemeId) REFERENCES RPThemes(Id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS RPThemeGuidancePoints (
+                Id TEXT PRIMARY KEY,
+                ThemeId TEXT NOT NULL,
+                Phase TEXT NOT NULL,
+                PointType TEXT NOT NULL,
+                Text TEXT NOT NULL,
+                SortOrder INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (ThemeId) REFERENCES RPThemes(Id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS RPThemeProfileThemeAssignments (
+                Id TEXT PRIMARY KEY,
+                ProfileId TEXT NOT NULL,
+                ThemeId TEXT NOT NULL,
+                Tier TEXT NOT NULL,
+                Weight REAL NOT NULL DEFAULT 0,
+                SortOrder INTEGER NOT NULL DEFAULT 0,
+                IsEnabled INTEGER NOT NULL DEFAULT 1,
+                FOREIGN KEY (ProfileId) REFERENCES RPThemeProfiles(Id) ON DELETE CASCADE,
+                FOREIGN KEY (ThemeId) REFERENCES RPThemes(Id) ON DELETE CASCADE,
+                UNIQUE (ProfileId, ThemeId)
+            );
+
+            CREATE TABLE IF NOT EXISTS RPThemeImportRuns (
+                Id TEXT PRIMARY KEY,
+                StartedUtc TEXT NOT NULL,
+                CompletedUtc TEXT NOT NULL,
+                ImportedCount INTEGER NOT NULL DEFAULT 0,
+                WarningCount INTEGER NOT NULL DEFAULT 0,
+                ErrorCount INTEGER NOT NULL DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS RPThemeImportIssues (
+                Id TEXT PRIMARY KEY,
+                ImportRunId TEXT NOT NULL,
+                SourcePath TEXT NOT NULL,
+                Severity TEXT NOT NULL,
+                Message TEXT NOT NULL,
+                FOREIGN KEY (ImportRunId) REFERENCES RPThemeImportRuns(Id) ON DELETE CASCADE
             );
 
             CREATE TABLE IF NOT EXISTS StoryRankings (
@@ -319,12 +495,15 @@ public sealed class SqlitePersistence : ISqlitePersistence
             CREATE TABLE IF NOT EXISTS RolePlayV2AdaptiveStates (
                 SessionId TEXT PRIMARY KEY,
                 ActiveScenarioId TEXT NULL,
+                ActiveVariantId TEXT NULL,
                 CurrentPhase TEXT NOT NULL,
                 InteractionCountInPhase INTEGER NOT NULL,
                 ConsecutiveLeadCount INTEGER NOT NULL,
                 LastEvaluationUtc TEXT NOT NULL,
                 CycleIndex INTEGER NOT NULL,
                 ActiveFormulaVersion TEXT NOT NULL,
+                SelectedWillingnessProfileId TEXT NULL,
+                HusbandAwarenessProfileId TEXT NULL,
                 CharacterSnapshotsJson TEXT NOT NULL,
                 UpdatedUtc TEXT NOT NULL
             );
@@ -336,10 +515,14 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 ScenarioId TEXT NOT NULL,
                 StageAWillingnessTier TEXT NOT NULL,
                 StageBEligible INTEGER NOT NULL,
+                CharacterAlignmentScore REAL NOT NULL DEFAULT 0,
+                NarrativeEvidenceScore REAL NOT NULL DEFAULT 0,
+                PreferencePriorityScore REAL NOT NULL DEFAULT 0,
                 FitScore REAL NOT NULL,
                 Confidence REAL NOT NULL,
                 TieBreakKey TEXT NOT NULL,
                 Rationale TEXT NOT NULL,
+                DetailsJson TEXT NOT NULL DEFAULT '{}',
                 EvaluatedUtc TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS IX_RolePlayV2CandidateEvaluations_Session_EvaluatedUtc
@@ -427,6 +610,22 @@ public sealed class SqlitePersistence : ISqlitePersistence
 
         await command.ExecuteNonQueryAsync(cancellationToken);
 
+        var metadataCommand = connection.CreateCommand();
+        metadataCommand.CommandText = """
+            CREATE TABLE IF NOT EXISTS AppMetadata (
+                Key TEXT PRIMARY KEY,
+                Value TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL
+            );
+            """;
+        await metadataCommand.ExecuteNonQueryAsync(cancellationToken);
+
+        var shouldRunLegacyMigrations = await ShouldRunLegacyMigrationsAsync(connection, cancellationToken);
+        if (!shouldRunLegacyMigrations)
+        {
+            goto AfterLegacyMigrations;
+        }
+
         // Migrate: add Author column if missing (for databases created before this column existed)
         var migrateCmd = connection.CreateCommand();
         migrateCmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('ParsedStories') WHERE name='Author'";
@@ -452,6 +651,72 @@ public sealed class SqlitePersistence : ISqlitePersistence
             alterSchemaVersion.CommandText = "ALTER TABLE Sessions ADD COLUMN SchemaVersion TEXT NOT NULL DEFAULT 'v1'";
             await alterSchemaVersion.ExecuteNonQueryAsync(cancellationToken);
             _logger.LogInformation("Migrated Sessions table: added SchemaVersion column");
+        }
+
+        var checkScenarioFitRulesColumn = connection.CreateCommand();
+        checkScenarioFitRulesColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('ThemeCatalog') WHERE name='ScenarioFitRules'";
+        var hasScenarioFitRulesColumn = Convert.ToInt64(await checkScenarioFitRulesColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasScenarioFitRulesColumn)
+        {
+            var alterScenarioFitRules = connection.CreateCommand();
+            alterScenarioFitRules.CommandText = "ALTER TABLE ThemeCatalog ADD COLUMN ScenarioFitRules TEXT NOT NULL DEFAULT ''";
+            await alterScenarioFitRules.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated ThemeCatalog table: added ScenarioFitRules column");
+        }
+
+        var checkAlignmentScoreColumn = connection.CreateCommand();
+        checkAlignmentScoreColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RolePlayV2CandidateEvaluations') WHERE name='CharacterAlignmentScore'";
+        var hasAlignmentScoreColumn = Convert.ToInt64(await checkAlignmentScoreColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasAlignmentScoreColumn)
+        {
+            var alterAlignment = connection.CreateCommand();
+            alterAlignment.CommandText = "ALTER TABLE RolePlayV2CandidateEvaluations ADD COLUMN CharacterAlignmentScore REAL NOT NULL DEFAULT 0";
+            await alterAlignment.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated RolePlayV2CandidateEvaluations table: added CharacterAlignmentScore column");
+        }
+
+        var checkNarrativeScoreColumn = connection.CreateCommand();
+        checkNarrativeScoreColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RolePlayV2CandidateEvaluations') WHERE name='NarrativeEvidenceScore'";
+        var hasNarrativeScoreColumn = Convert.ToInt64(await checkNarrativeScoreColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasNarrativeScoreColumn)
+        {
+            var alterNarrative = connection.CreateCommand();
+            alterNarrative.CommandText = "ALTER TABLE RolePlayV2CandidateEvaluations ADD COLUMN NarrativeEvidenceScore REAL NOT NULL DEFAULT 0";
+            await alterNarrative.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated RolePlayV2CandidateEvaluations table: added NarrativeEvidenceScore column");
+        }
+
+        var checkPreferenceScoreColumn = connection.CreateCommand();
+        checkPreferenceScoreColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RolePlayV2CandidateEvaluations') WHERE name='PreferencePriorityScore'";
+        var hasPreferenceScoreColumn = Convert.ToInt64(await checkPreferenceScoreColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasPreferenceScoreColumn)
+        {
+            var alterPreference = connection.CreateCommand();
+            alterPreference.CommandText = "ALTER TABLE RolePlayV2CandidateEvaluations ADD COLUMN PreferencePriorityScore REAL NOT NULL DEFAULT 0";
+            await alterPreference.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated RolePlayV2CandidateEvaluations table: added PreferencePriorityScore column");
+        }
+
+        var checkDetailsColumn = connection.CreateCommand();
+        checkDetailsColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RolePlayV2CandidateEvaluations') WHERE name='DetailsJson'";
+        var hasDetailsColumn = Convert.ToInt64(await checkDetailsColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasDetailsColumn)
+        {
+            var alterDetails = connection.CreateCommand();
+            alterDetails.CommandText = "ALTER TABLE RolePlayV2CandidateEvaluations ADD COLUMN DetailsJson TEXT NOT NULL DEFAULT '{}'";
+            await alterDetails.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated RolePlayV2CandidateEvaluations table: added DetailsJson column");
+        }
+
+        var checkRPAssignmentWeightColumn = connection.CreateCommand();
+        checkRPAssignmentWeightColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RPThemeProfileThemeAssignments') WHERE name='Weight'";
+        var hasRPAssignmentWeightColumn = Convert.ToInt64(await checkRPAssignmentWeightColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasRPAssignmentWeightColumn)
+        {
+            var alterRPAssignmentWeight = connection.CreateCommand();
+            alterRPAssignmentWeight.CommandText = "ALTER TABLE RPThemeProfileThemeAssignments ADD COLUMN Weight REAL NOT NULL DEFAULT 0";
+            await alterRPAssignmentWeight.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated RPThemeProfileThemeAssignments table: added Weight column");
         }
 
         // Migrate: add IsArchived column to ParsedStories if missing
@@ -523,6 +788,47 @@ public sealed class SqlitePersistence : ISqlitePersistence
         var baseStatsIndexCmd = connection.CreateCommand();
         baseStatsIndexCmd.CommandText = "CREATE INDEX IF NOT EXISTS IX_BaseStatProfiles_Name ON BaseStatProfiles (Name)";
         await baseStatsIndexCmd.ExecuteNonQueryAsync(cancellationToken);
+
+        var willingnessIndexCmd = connection.CreateCommand();
+        willingnessIndexCmd.CommandText = "CREATE INDEX IF NOT EXISTS IX_StatWillingnessProfiles_Name ON StatWillingnessProfiles (Name)";
+        await willingnessIndexCmd.ExecuteNonQueryAsync(cancellationToken);
+
+        var husbandAwarenessIndexCmd = connection.CreateCommand();
+        husbandAwarenessIndexCmd.CommandText = "CREATE INDEX IF NOT EXISTS IX_HusbandAwarenessProfiles_Name ON HusbandAwarenessProfiles (Name)";
+        await husbandAwarenessIndexCmd.ExecuteNonQueryAsync(cancellationToken);
+
+        var checkActiveVariantColumn = connection.CreateCommand();
+        checkActiveVariantColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RolePlayV2AdaptiveStates') WHERE name='ActiveVariantId'";
+        var hasActiveVariantColumn = Convert.ToInt64(await checkActiveVariantColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasActiveVariantColumn)
+        {
+            var alterActiveVariant = connection.CreateCommand();
+            alterActiveVariant.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN ActiveVariantId TEXT NULL";
+            await alterActiveVariant.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated RolePlayV2AdaptiveStates table: added ActiveVariantId column");
+        }
+
+        var checkWillingnessProfileColumn = connection.CreateCommand();
+        checkWillingnessProfileColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RolePlayV2AdaptiveStates') WHERE name='SelectedWillingnessProfileId'";
+        var hasWillingnessProfileColumn = Convert.ToInt64(await checkWillingnessProfileColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasWillingnessProfileColumn)
+        {
+            var alterWillingnessProfile = connection.CreateCommand();
+            alterWillingnessProfile.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN SelectedWillingnessProfileId TEXT NULL";
+            await alterWillingnessProfile.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated RolePlayV2AdaptiveStates table: added SelectedWillingnessProfileId column");
+        }
+
+        var checkHusbandAwarenessProfileColumn = connection.CreateCommand();
+        checkHusbandAwarenessProfileColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RolePlayV2AdaptiveStates') WHERE name='HusbandAwarenessProfileId'";
+        var hasHusbandAwarenessProfileColumn = Convert.ToInt64(await checkHusbandAwarenessProfileColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasHusbandAwarenessProfileColumn)
+        {
+            var alterHusbandAwarenessProfile = connection.CreateCommand();
+            alterHusbandAwarenessProfile.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN HusbandAwarenessProfileId TEXT NULL";
+            await alterHusbandAwarenessProfile.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated RolePlayV2AdaptiveStates table: added HusbandAwarenessProfileId column");
+        }
 
         // Migrate: handle RankingProfiles -> ThemeProfiles safely.
         // If both tables exist, merge rows and drop the legacy table to avoid rename collisions.
@@ -661,6 +967,10 @@ public sealed class SqlitePersistence : ISqlitePersistence
             _logger.LogInformation("Migrated ThemePreferences table: added CatalogId column");
         }
 
+        await MarkLegacyMigrationsCompleteAsync(connection, cancellationToken);
+
+    AfterLegacyMigrations:
+
         // Seed Model Manager tables on first run (empty Providers table)
         var checkProviders = connection.CreateCommand();
         checkProviders.CommandText = "SELECT COUNT(*) FROM Providers";
@@ -771,6 +1081,31 @@ public sealed class SqlitePersistence : ISqlitePersistence
             _logger.LogInformation("Migrated RolePlayAssistant function default: MaxTokens 500 → 2000");
 
         _logger.LogInformation("SQLite persistence initialized using {ConnectionString}", _options.ConnectionString);
+    }
+
+    private static async Task<bool> ShouldRunLegacyMigrationsAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        var markerCommand = connection.CreateCommand();
+        markerCommand.CommandText = "SELECT Value FROM AppMetadata WHERE Key = $key LIMIT 1";
+        markerCommand.Parameters.AddWithValue("$key", LegacyMigrationVersionKey);
+        var marker = await markerCommand.ExecuteScalarAsync(cancellationToken);
+        return !string.Equals(Convert.ToString(marker), CurrentLegacyMigrationVersion, StringComparison.Ordinal);
+    }
+
+    private static async Task MarkLegacyMigrationsCompleteAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO AppMetadata (Key, Value, UpdatedUtc)
+            VALUES ($key, $value, $updatedUtc)
+            ON CONFLICT(Key) DO UPDATE SET
+                Value = excluded.Value,
+                UpdatedUtc = excluded.UpdatedUtc;
+            """;
+        command.Parameters.AddWithValue("$key", LegacyMigrationVersionKey);
+        command.Parameters.AddWithValue("$value", CurrentLegacyMigrationVersion);
+        command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("o"));
+        await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
     public async Task<DatabaseBackup> CreateDatabaseBackupAsync(string? displayName, CancellationToken cancellationToken = default)
@@ -1751,6 +2086,265 @@ public sealed class SqlitePersistence : ISqlitePersistence
         };
     }
 
+    // --- Stat willingness profile persistence ---
+
+    public async Task SaveStatWillingnessProfileAsync(StatWillingnessProfile profile, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO StatWillingnessProfiles (Id, Name, Description, TargetStatName, IsDefault, ThresholdsJson, CreatedUtc, UpdatedUtc)
+            VALUES ($id, $name, $description, $targetStatName, $isDefault, $thresholdsJson, $createdUtc, $updatedUtc)
+            ON CONFLICT(Id) DO UPDATE SET
+                Name = $name,
+                Description = $description,
+                TargetStatName = $targetStatName,
+                IsDefault = $isDefault,
+                ThresholdsJson = $thresholdsJson,
+                UpdatedUtc = $updatedUtc;
+            """;
+
+        command.Parameters.AddWithValue("$id", profile.Id);
+        command.Parameters.AddWithValue("$name", profile.Name);
+        command.Parameters.AddWithValue("$description", profile.Description);
+        command.Parameters.AddWithValue("$targetStatName", profile.TargetStatName);
+        command.Parameters.AddWithValue("$isDefault", profile.IsDefault ? 1 : 0);
+        command.Parameters.AddWithValue("$thresholdsJson", JsonSerializer.Serialize(profile.Thresholds));
+        command.Parameters.AddWithValue("$createdUtc", profile.CreatedUtc.ToString("O"));
+        command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
+
+        await command.ExecuteNonQueryAsync(cancellationToken);
+
+        if (profile.IsDefault)
+        {
+            var resetDefaults = connection.CreateCommand();
+            resetDefaults.CommandText = "UPDATE StatWillingnessProfiles SET IsDefault = 0 WHERE Id <> $id";
+            resetDefaults.Parameters.AddWithValue("$id", profile.Id);
+            await resetDefaults.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        _logger.LogInformation("Stat willingness profile persisted: {ProfileId}, Name={Name}", profile.Id, profile.Name);
+    }
+
+    public async Task<StatWillingnessProfile?> LoadStatWillingnessProfileAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT Id, Name, Description, TargetStatName, IsDefault, ThresholdsJson, CreatedUtc, UpdatedUtc FROM StatWillingnessProfiles WHERE Id = $id";
+        command.Parameters.AddWithValue("$id", id);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return ReadStatWillingnessProfile(reader);
+    }
+
+    public async Task<StatWillingnessProfile?> LoadDefaultStatWillingnessProfileAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT Id, Name, Description, TargetStatName, IsDefault, ThresholdsJson, CreatedUtc, UpdatedUtc FROM StatWillingnessProfiles WHERE IsDefault = 1 LIMIT 1";
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (await reader.ReadAsync(cancellationToken))
+        {
+            return ReadStatWillingnessProfile(reader);
+        }
+
+        var fallbackCommand = connection.CreateCommand();
+        fallbackCommand.CommandText = "SELECT Id, Name, Description, TargetStatName, IsDefault, ThresholdsJson, CreatedUtc, UpdatedUtc FROM StatWillingnessProfiles ORDER BY UpdatedUtc DESC LIMIT 1";
+        await using var fallbackReader = await fallbackCommand.ExecuteReaderAsync(cancellationToken);
+        if (!await fallbackReader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return ReadStatWillingnessProfile(fallbackReader);
+    }
+
+    public async Task<List<StatWillingnessProfile>> LoadAllStatWillingnessProfilesAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT Id, Name, Description, TargetStatName, IsDefault, ThresholdsJson, CreatedUtc, UpdatedUtc FROM StatWillingnessProfiles ORDER BY Name";
+
+        var results = new List<StatWillingnessProfile>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            results.Add(ReadStatWillingnessProfile(reader));
+        }
+
+        return results;
+    }
+
+    public async Task<bool> DeleteStatWillingnessProfileAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM StatWillingnessProfiles WHERE Id = $id";
+        command.Parameters.AddWithValue("$id", id);
+
+        var rowsAffected = await command.ExecuteNonQueryAsync(cancellationToken);
+        _logger.LogInformation("Stat willingness profile deletion attempted: {ProfileId}, RowsAffected={RowsAffected}", id, rowsAffected);
+        return rowsAffected > 0;
+    }
+
+    private static StatWillingnessProfile ReadStatWillingnessProfile(SqliteDataReader reader)
+    {
+        List<WillingnessThreshold>? thresholds = null;
+        try
+        {
+            thresholds = JsonSerializer.Deserialize<List<WillingnessThreshold>>(reader.GetString(5));
+        }
+        catch
+        {
+            thresholds = null;
+        }
+
+        return new StatWillingnessProfile
+        {
+            Id = reader.GetString(0),
+            Name = reader.GetString(1),
+            Description = reader.GetString(2),
+            TargetStatName = reader.GetString(3),
+            IsDefault = reader.GetInt32(4) == 1,
+            Thresholds = thresholds ?? [],
+            CreatedUtc = DateTime.TryParse(reader.GetString(6), out var created) ? created : DateTime.UtcNow,
+            UpdatedUtc = DateTime.TryParse(reader.GetString(7), out var updated) ? updated : DateTime.UtcNow
+        };
+    }
+
+    // --- Husband awareness profile persistence ---
+
+    public async Task SaveHusbandAwarenessProfileAsync(HusbandAwarenessProfile profile, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO HusbandAwarenessProfiles (Id, Name, Description, AwarenessLevel, AcceptanceLevel, VoyeurismLevel, ParticipationLevel, HumiliationDesire, EncouragementLevel, RiskTolerance, Notes, CreatedUtc, UpdatedUtc)
+            VALUES ($id, $name, $description, $awarenessLevel, $acceptanceLevel, $voyeurismLevel, $participationLevel, $humiliationDesire, $encouragementLevel, $riskTolerance, $notes, $createdUtc, $updatedUtc)
+            ON CONFLICT(Id) DO UPDATE SET
+                Name = $name,
+                Description = $description,
+                AwarenessLevel = $awarenessLevel,
+                AcceptanceLevel = $acceptanceLevel,
+                VoyeurismLevel = $voyeurismLevel,
+                ParticipationLevel = $participationLevel,
+                HumiliationDesire = $humiliationDesire,
+                EncouragementLevel = $encouragementLevel,
+                RiskTolerance = $riskTolerance,
+                Notes = $notes,
+                UpdatedUtc = $updatedUtc;
+            """;
+
+        command.Parameters.AddWithValue("$id", profile.Id);
+        command.Parameters.AddWithValue("$name", profile.Name);
+        command.Parameters.AddWithValue("$description", profile.Description);
+        command.Parameters.AddWithValue("$awarenessLevel", Math.Clamp(profile.AwarenessLevel, 0, 100));
+        command.Parameters.AddWithValue("$acceptanceLevel", Math.Clamp(profile.AcceptanceLevel, 0, 100));
+        command.Parameters.AddWithValue("$voyeurismLevel", Math.Clamp(profile.VoyeurismLevel, 0, 100));
+        command.Parameters.AddWithValue("$participationLevel", Math.Clamp(profile.ParticipationLevel, 0, 100));
+        command.Parameters.AddWithValue("$humiliationDesire", Math.Clamp(profile.HumiliationDesire, 0, 100));
+        command.Parameters.AddWithValue("$encouragementLevel", Math.Clamp(profile.EncouragementLevel, 0, 100));
+        command.Parameters.AddWithValue("$riskTolerance", Math.Clamp(profile.RiskTolerance, 0, 100));
+        command.Parameters.AddWithValue("$notes", profile.Notes);
+        command.Parameters.AddWithValue("$createdUtc", profile.CreatedUtc.ToString("O"));
+        command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
+
+        await command.ExecuteNonQueryAsync(cancellationToken);
+        _logger.LogInformation("Husband awareness profile persisted: {ProfileId}, Name={Name}", profile.Id, profile.Name);
+    }
+
+    public async Task<HusbandAwarenessProfile?> LoadHusbandAwarenessProfileAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT Id, Name, Description, AwarenessLevel, AcceptanceLevel, VoyeurismLevel, ParticipationLevel, HumiliationDesire, EncouragementLevel, RiskTolerance, Notes, CreatedUtc, UpdatedUtc FROM HusbandAwarenessProfiles WHERE Id = $id";
+        command.Parameters.AddWithValue("$id", id);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return ReadHusbandAwarenessProfile(reader);
+    }
+
+    public async Task<List<HusbandAwarenessProfile>> LoadAllHusbandAwarenessProfilesAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT Id, Name, Description, AwarenessLevel, AcceptanceLevel, VoyeurismLevel, ParticipationLevel, HumiliationDesire, EncouragementLevel, RiskTolerance, Notes, CreatedUtc, UpdatedUtc FROM HusbandAwarenessProfiles ORDER BY Name";
+
+        var results = new List<HusbandAwarenessProfile>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            results.Add(ReadHusbandAwarenessProfile(reader));
+        }
+
+        return results;
+    }
+
+    public async Task<bool> DeleteHusbandAwarenessProfileAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM HusbandAwarenessProfiles WHERE Id = $id";
+        command.Parameters.AddWithValue("$id", id);
+
+        var rowsAffected = await command.ExecuteNonQueryAsync(cancellationToken);
+        _logger.LogInformation("Husband awareness profile deletion attempted: {ProfileId}, RowsAffected={RowsAffected}", id, rowsAffected);
+        return rowsAffected > 0;
+    }
+
+    private static HusbandAwarenessProfile ReadHusbandAwarenessProfile(SqliteDataReader reader)
+    {
+        return new HusbandAwarenessProfile
+        {
+            Id = reader.GetString(0),
+            Name = reader.GetString(1),
+            Description = reader.GetString(2),
+            AwarenessLevel = reader.GetInt32(3),
+            AcceptanceLevel = reader.GetInt32(4),
+            VoyeurismLevel = reader.GetInt32(5),
+            ParticipationLevel = reader.GetInt32(6),
+            HumiliationDesire = reader.GetInt32(7),
+            EncouragementLevel = reader.GetInt32(8),
+            RiskTolerance = reader.GetInt32(9),
+            Notes = reader.GetString(10),
+            CreatedUtc = DateTime.TryParse(reader.GetString(11), out var created) ? created : DateTime.UtcNow,
+            UpdatedUtc = DateTime.TryParse(reader.GetString(12), out var updated) ? updated : DateTime.UtcNow
+        };
+    }
+
     // --- Style Profile persistence ---
 
     public async Task SaveStyleProfileAsync(SteeringProfile profile, CancellationToken cancellationToken = default)
@@ -1868,8 +2462,8 @@ public sealed class SqlitePersistence : ISqlitePersistence
 
         var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO ThemeCatalog (Id, Label, Description, Keywords, Weight, Category, StatAffinities, IsEnabled, IsBuiltIn, CreatedUtc, UpdatedUtc)
-            VALUES ($id, $label, $description, $keywords, $weight, $category, $statAffinities, $isEnabled, $isBuiltIn, $createdUtc, $updatedUtc)
+            INSERT INTO ThemeCatalog (Id, Label, Description, Keywords, Weight, Category, StatAffinities, ScenarioFitRules, IsEnabled, IsBuiltIn, CreatedUtc, UpdatedUtc)
+            VALUES ($id, $label, $description, $keywords, $weight, $category, $statAffinities, $scenarioFitRules, $isEnabled, $isBuiltIn, $createdUtc, $updatedUtc)
             ON CONFLICT(Id) DO UPDATE SET
                 Label = $label,
                 Description = $description,
@@ -1877,6 +2471,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 Weight = $weight,
                 Category = $category,
                 StatAffinities = $statAffinities,
+                ScenarioFitRules = $scenarioFitRules,
                 IsEnabled = $isEnabled,
                 UpdatedUtc = $updatedUtc;
             """;
@@ -1888,6 +2483,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
         command.Parameters.AddWithValue("$weight", entry.Weight);
         command.Parameters.AddWithValue("$category", entry.Category);
         command.Parameters.AddWithValue("$statAffinities", JsonSerializer.Serialize(entry.StatAffinities));
+        command.Parameters.AddWithValue("$scenarioFitRules", entry.ScenarioFitRules ?? string.Empty);
         command.Parameters.AddWithValue("$isEnabled", entry.IsEnabled ? 1 : 0);
         command.Parameters.AddWithValue("$isBuiltIn", entry.IsBuiltIn ? 1 : 0);
         command.Parameters.AddWithValue("$createdUtc", entry.CreatedUtc.ToString("O"));
@@ -1903,7 +2499,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
         await connection.OpenAsync(cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, Label, Description, Keywords, Weight, Category, StatAffinities, IsEnabled, IsBuiltIn, CreatedUtc, UpdatedUtc FROM ThemeCatalog WHERE Id = $id";
+        command.CommandText = "SELECT Id, Label, Description, Keywords, Weight, Category, StatAffinities, ScenarioFitRules, IsEnabled, IsBuiltIn, CreatedUtc, UpdatedUtc FROM ThemeCatalog WHERE Id = $id";
         command.Parameters.AddWithValue("$id", id);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -1920,8 +2516,8 @@ public sealed class SqlitePersistence : ISqlitePersistence
 
         var command = connection.CreateCommand();
         command.CommandText = includeDisabled
-            ? "SELECT Id, Label, Description, Keywords, Weight, Category, StatAffinities, IsEnabled, IsBuiltIn, CreatedUtc, UpdatedUtc FROM ThemeCatalog ORDER BY Label"
-            : "SELECT Id, Label, Description, Keywords, Weight, Category, StatAffinities, IsEnabled, IsBuiltIn, CreatedUtc, UpdatedUtc FROM ThemeCatalog WHERE IsEnabled = 1 ORDER BY Label";
+            ? "SELECT Id, Label, Description, Keywords, Weight, Category, StatAffinities, ScenarioFitRules, IsEnabled, IsBuiltIn, CreatedUtc, UpdatedUtc FROM ThemeCatalog ORDER BY Label"
+            : "SELECT Id, Label, Description, Keywords, Weight, Category, StatAffinities, ScenarioFitRules, IsEnabled, IsBuiltIn, CreatedUtc, UpdatedUtc FROM ThemeCatalog WHERE IsEnabled = 1 ORDER BY Label";
 
         var results = new List<ThemeCatalogEntry>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -1958,10 +2554,146 @@ public sealed class SqlitePersistence : ISqlitePersistence
             Weight = reader.GetInt32(4),
             Category = reader.GetString(5),
             StatAffinities = JsonSerializer.Deserialize<Dictionary<string, int>>(reader.GetString(6)) ?? new(),
-            IsEnabled = reader.GetInt32(7) != 0,
-            IsBuiltIn = reader.GetInt32(8) != 0,
-            CreatedUtc = DateTime.TryParse(reader.GetString(9), out var cre) ? cre : DateTime.UtcNow,
-            UpdatedUtc = DateTime.TryParse(reader.GetString(10), out var upd) ? upd : DateTime.UtcNow
+            ScenarioFitRules = reader.GetString(7),
+            IsEnabled = reader.GetInt32(8) != 0,
+            IsBuiltIn = reader.GetInt32(9) != 0,
+            CreatedUtc = DateTime.TryParse(reader.GetString(10), out var cre) ? cre : DateTime.UtcNow,
+            UpdatedUtc = DateTime.TryParse(reader.GetString(11), out var upd) ? upd : DateTime.UtcNow
+        };
+    }
+
+    // --- Scenario Definition persistence ---
+
+    public async Task SaveScenarioDefinitionAsync(ScenarioDefinitionEntity definition, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO ScenarioDefinitions (
+                Id, Label, Description, Category, Weight, VariantOf, IsScenarioDefining,
+                Keywords, DirectionalKeywords, StatAffinities, ScenarioFitRules, PhaseGuidance,
+                IsEnabled, CreatedUtc, UpdatedUtc)
+            VALUES (
+                $id, $label, $description, $category, $weight, $variantOf, $isScenarioDefining,
+                $keywords, $directionalKeywords, $statAffinities, $scenarioFitRules, $phaseGuidance,
+                $isEnabled, $createdUtc, $updatedUtc)
+            ON CONFLICT(Id) DO UPDATE SET
+                Label = $label,
+                Description = $description,
+                Category = $category,
+                Weight = $weight,
+                VariantOf = $variantOf,
+                IsScenarioDefining = $isScenarioDefining,
+                Keywords = $keywords,
+                DirectionalKeywords = $directionalKeywords,
+                StatAffinities = $statAffinities,
+                ScenarioFitRules = $scenarioFitRules,
+                PhaseGuidance = $phaseGuidance,
+                IsEnabled = $isEnabled,
+                UpdatedUtc = $updatedUtc;
+            """;
+
+        command.Parameters.AddWithValue("$id", definition.Id);
+        command.Parameters.AddWithValue("$label", definition.Label);
+        command.Parameters.AddWithValue("$description", definition.Description);
+        command.Parameters.AddWithValue("$category", definition.Category);
+        command.Parameters.AddWithValue("$weight", definition.Weight);
+        command.Parameters.AddWithValue("$variantOf", definition.VariantOf ?? string.Empty);
+        command.Parameters.AddWithValue("$isScenarioDefining", definition.IsScenarioDefining ? 1 : 0);
+        command.Parameters.AddWithValue("$keywords", JsonSerializer.Serialize(definition.Keywords));
+        command.Parameters.AddWithValue("$directionalKeywords", JsonSerializer.Serialize(definition.DirectionalKeywords));
+        command.Parameters.AddWithValue("$statAffinities", JsonSerializer.Serialize(definition.StatAffinities));
+        command.Parameters.AddWithValue("$scenarioFitRules", definition.ScenarioFitRules ?? string.Empty);
+        command.Parameters.AddWithValue("$phaseGuidance", definition.PhaseGuidance ?? string.Empty);
+        command.Parameters.AddWithValue("$isEnabled", definition.IsEnabled ? 1 : 0);
+        command.Parameters.AddWithValue("$createdUtc", definition.CreatedUtc.ToString("O"));
+        command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
+
+        await command.ExecuteNonQueryAsync(cancellationToken);
+        _logger.LogInformation("Scenario definition persisted: {DefinitionId}, Label={Label}", definition.Id, definition.Label);
+    }
+
+    public async Task<ScenarioDefinitionEntity?> LoadScenarioDefinitionAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT Id, Label, Description, Category, Weight, VariantOf, IsScenarioDefining,
+                   Keywords, DirectionalKeywords, StatAffinities, ScenarioFitRules, PhaseGuidance,
+                   IsEnabled, CreatedUtc, UpdatedUtc
+            FROM ScenarioDefinitions
+            WHERE Id = $id
+            """;
+        command.Parameters.AddWithValue("$id", id);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return ReadScenarioDefinition(reader);
+    }
+
+    public async Task<List<ScenarioDefinitionEntity>> LoadAllScenarioDefinitionsAsync(bool includeDisabled, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = includeDisabled
+            ? "SELECT Id, Label, Description, Category, Weight, VariantOf, IsScenarioDefining, Keywords, DirectionalKeywords, StatAffinities, ScenarioFitRules, PhaseGuidance, IsEnabled, CreatedUtc, UpdatedUtc FROM ScenarioDefinitions ORDER BY Label"
+            : "SELECT Id, Label, Description, Category, Weight, VariantOf, IsScenarioDefining, Keywords, DirectionalKeywords, StatAffinities, ScenarioFitRules, PhaseGuidance, IsEnabled, CreatedUtc, UpdatedUtc FROM ScenarioDefinitions WHERE IsEnabled = 1 ORDER BY Label";
+
+        var results = new List<ScenarioDefinitionEntity>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            results.Add(ReadScenarioDefinition(reader));
+        }
+
+        return results;
+    }
+
+    public async Task<bool> DeleteScenarioDefinitionAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM ScenarioDefinitions WHERE Id = $id";
+        command.Parameters.AddWithValue("$id", id);
+
+        var rowsAffected = await command.ExecuteNonQueryAsync(cancellationToken);
+        _logger.LogInformation("Scenario definition deletion attempted: {DefinitionId}, RowsAffected={RowsAffected}", id, rowsAffected);
+        return rowsAffected > 0;
+    }
+
+    private static ScenarioDefinitionEntity ReadScenarioDefinition(SqliteDataReader reader)
+    {
+        return new ScenarioDefinitionEntity
+        {
+            Id = reader.GetString(0),
+            Label = reader.GetString(1),
+            Description = reader.GetString(2),
+            Category = reader.GetString(3),
+            Weight = reader.GetInt32(4),
+            VariantOf = reader.GetString(5),
+            IsScenarioDefining = reader.GetInt32(6) != 0,
+            Keywords = JsonSerializer.Deserialize<List<string>>(reader.GetString(7)) ?? [],
+            DirectionalKeywords = JsonSerializer.Deserialize<List<string>>(reader.GetString(8)) ?? [],
+            StatAffinities = JsonSerializer.Deserialize<Dictionary<string, int>>(reader.GetString(9)) ?? new(StringComparer.OrdinalIgnoreCase),
+            ScenarioFitRules = reader.GetString(10),
+            PhaseGuidance = reader.GetString(11),
+            IsEnabled = reader.GetInt32(12) != 0,
+            CreatedUtc = DateTime.TryParse(reader.GetString(13), out var cre) ? cre : DateTime.UtcNow,
+            UpdatedUtc = DateTime.TryParse(reader.GetString(14), out var upd) ? upd : DateTime.UtcNow
         };
     }
 
