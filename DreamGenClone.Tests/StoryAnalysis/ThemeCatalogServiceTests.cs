@@ -258,6 +258,10 @@ public sealed class ThemeCatalogServiceTests
         public Task<HusbandAwarenessProfile?> LoadHusbandAwarenessProfileAsync(string id, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<List<HusbandAwarenessProfile>> LoadAllHusbandAwarenessProfilesAsync(CancellationToken ct = default) => throw new NotImplementedException();
         public Task<bool> DeleteHusbandAwarenessProfileAsync(string id, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task SaveScenarioDefinitionAsync(ScenarioDefinitionEntity definition, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<ScenarioDefinitionEntity?> LoadScenarioDefinitionAsync(string id, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<List<ScenarioDefinitionEntity>> LoadAllScenarioDefinitionsAsync(bool includeDisabled = false, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<bool> DeleteScenarioDefinitionAsync(string id, CancellationToken ct = default) => throw new NotImplementedException();
 
         // Not used by ThemeCatalogService — stubs only
         public Task InitializeAsync(CancellationToken ct = default) => Task.CompletedTask;

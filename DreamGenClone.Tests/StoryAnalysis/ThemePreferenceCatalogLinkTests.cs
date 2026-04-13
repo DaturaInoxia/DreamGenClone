@@ -68,6 +68,10 @@ public sealed class ThemePreferenceCatalogLinkTests
         public Task<HusbandAwarenessProfile?> LoadHusbandAwarenessProfileAsync(string id, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<List<HusbandAwarenessProfile>> LoadAllHusbandAwarenessProfilesAsync(CancellationToken ct = default) => throw new NotImplementedException();
         public Task<bool> DeleteHusbandAwarenessProfileAsync(string id, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task SaveScenarioDefinitionAsync(ScenarioDefinitionEntity definition, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<ScenarioDefinitionEntity?> LoadScenarioDefinitionAsync(string id, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<List<ScenarioDefinitionEntity>> LoadAllScenarioDefinitionsAsync(bool includeDisabled = false, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<bool> DeleteScenarioDefinitionAsync(string id, CancellationToken ct = default) => throw new NotImplementedException();
 
         // Stubs for remaining ISqlitePersistence members
         public Task InitializeAsync(CancellationToken ct = default) => Task.CompletedTask;

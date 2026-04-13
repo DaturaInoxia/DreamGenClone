@@ -127,6 +127,21 @@ public sealed class RolePlaySession
     /// <summary>When the last resolved intensity snapshot was computed.</summary>
     public DateTime? LastResolvedIntensityUtc { get; set; }
 
+    /// <summary>Last adaptive transition reason code produced by the adaptive engine.</summary>
+    public string? AdaptiveIntensityLastTransitionReason { get; set; }
+
+    /// <summary>When the adaptive intensity profile was last changed.</summary>
+    public DateTime? AdaptiveIntensityLastTransitionUtc { get; set; }
+
+    /// <summary>Most recent adaptive transition source profile id.</summary>
+    public string? AdaptiveIntensityLastFromProfileId { get; set; }
+
+    /// <summary>Most recent adaptive transition destination profile id.</summary>
+    public string? AdaptiveIntensityLastToProfileId { get; set; }
+
+    /// <summary>Recent adaptive intensity transition records for diagnostics and UI transparency.</summary>
+    public List<AdaptiveIntensityTransitionRecord> AdaptiveIntensityTransitions { get; set; } = [];
+
     /// <summary>Adaptive theme and stat state updated per interaction.</summary>
     public RolePlayAdaptiveState AdaptiveState { get; set; } = new();
 
@@ -154,6 +169,15 @@ public sealed class RolePlayAssistantChatThread
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime ModifiedAt { get; set; } = DateTime.UtcNow;
     public List<RolePlayAssistantChatMessage> Messages { get; set; } = [];
+}
+
+public sealed class AdaptiveIntensityTransitionRecord
+{
+    public string FromProfileId { get; set; } = string.Empty;
+    public string ToProfileId { get; set; } = string.Empty;
+    public string ReasonCode { get; set; } = string.Empty;
+    public DateTime OccurredUtc { get; set; } = DateTime.UtcNow;
+    public string Source { get; set; } = "adaptive-engine";
 }
 
 public sealed class RolePlayCharacterPerspective

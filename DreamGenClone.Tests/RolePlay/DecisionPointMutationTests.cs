@@ -43,12 +43,55 @@ public sealed class DecisionPointMutationTests
         var state = RolePlayV2AcceptanceFixtureData.BuildBoundaryState(78, 35, 75);
         state.ActiveScenarioId = "scenario-1";
         state.InteractionCountInPhase = 3;
+        state.CurrentPhase = NarrativePhase.Approaching;
 
         var point = await _service.TryCreateDecisionPointAsync(state, DecisionTrigger.SignificantStatChange);
 
         Assert.NotNull(point);
         Assert.Contains("test-boundary", point!.OptionIds, StringComparer.OrdinalIgnoreCase);
         Assert.DoesNotContain("observe", point.OptionIds, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task LowDesireContext_FiltersOutLeanInByPrerequisite()
+    {
+        var state = new AdaptiveScenarioState
+        {
+            SessionId = "fixture-session",
+            ActiveScenarioId = "scenario-1",
+            CurrentPhase = NarrativePhase.Committed,
+            InteractionCountInPhase = 3,
+            CharacterSnapshots =
+            [
+                new CharacterStatProfileV2
+                {
+                    CharacterId = "wife",
+                    Desire = 40,
+                    Restraint = 60,
+                    Tension = 45,
+                    Connection = 50,
+                    Dominance = 50,
+                    Loyalty = 50,
+                    SelfRespect = 50
+                }
+            ]
+        };
+
+        var point = await _service.TryCreateDecisionPointAsync(
+            state,
+            DecisionTrigger.SignificantStatChange,
+            new DecisionGenerationContext
+            {
+                Phase = state.CurrentPhase,
+                Who = "coworker",
+                What = "invitation",
+                TargetActorId = "wife",
+                RelevantActors = state.CharacterSnapshots
+            });
+
+        Assert.NotNull(point);
+        Assert.DoesNotContain("lean-in", point!.OptionIds, StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("custom", point.OptionIds, StringComparer.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -137,5 +180,131 @@ public sealed class DecisionPointMutationTests
         Assert.Equal("wife", outcome.TargetActorId);
         Assert.True(state.CharacterSnapshots[0].Desire > 50);
         Assert.Equal(50, state.CharacterSnapshots[1].Desire);
+    }
+
+    [Fact]
+    public async Task MultiActorOption_AppliesPerActorDeltas()
+    {
+        var state = new AdaptiveScenarioState
+        {
+            SessionId = "fixture-session",
+            ActiveScenarioId = "scenario-1",
+            CurrentPhase = NarrativePhase.Climax,
+            CharacterSnapshots =
+            [
+                new CharacterStatProfileV2
+                {
+                    CharacterId = "wife",
+                    Desire = 60,
+                    Restraint = 50,
+                    Tension = 50,
+                    Connection = 50,
+                    Dominance = 50,
+                    Loyalty = 60,
+                    SelfRespect = 50
+                },
+                new CharacterStatProfileV2
+                {
+                    CharacterId = "husband",
+                    Desire = 40,
+                    Restraint = 55,
+                    Tension = 35,
+                    Connection = 55,
+                    Dominance = 45,
+                    Loyalty = 70,
+                    SelfRespect = 50
+                }
+            ]
+        };
+
+        var outcome = await _service.ApplyDecisionAsync(
+            state,
+            new DecisionSubmission
+            {
+                DecisionPointId = "dp-4",
+                OptionId = "husband-observes",
+                ActorName = "wife",
+                TargetActorId = "husband"
+            },
+            targetActorId: "husband");
+
+        Assert.True(outcome.Applied);
+        Assert.True(outcome.PerActorStatDeltas.Count >= 2);
+        Assert.True(state.CharacterSnapshots[0].Desire > 60);
+        Assert.True(state.CharacterSnapshots[1].Tension > 35);
+    }
+
+    [Fact]
+    public async Task TransparencyOverride_UsesContextOverride()
+    {
+        var state = RolePlayV2AcceptanceFixtureData.BuildBoundaryState(70, 45, 55);
+        state.ActiveScenarioId = "scenario-1";
+        state.InteractionCountInPhase = 3;
+        state.CurrentPhase = NarrativePhase.BuildUp;
+
+        var point = await _service.TryCreateDecisionPointAsync(
+            state,
+            DecisionTrigger.InteractionStart,
+            new DecisionGenerationContext
+            {
+                Phase = state.CurrentPhase,
+                TransparencyOverride = TransparencyMode.Explicit,
+                RelevantActors = state.CharacterSnapshots
+            });
+
+        Assert.NotNull(point);
+        Assert.Equal(TransparencyMode.Explicit, point!.TransparencyMode);
+    }
+
+    [Fact]
+    public async Task EscalationDecision_AppliesHighRestraintDrop()
+    {
+        var state = new AdaptiveScenarioState
+        {
+            SessionId = "fixture-session",
+            ActiveScenarioId = "scenario-1",
+            CurrentPhase = NarrativePhase.Approaching,
+            CharacterSnapshots =
+            [
+                new CharacterStatProfileV2
+                {
+                    CharacterId = "becky",
+                    Desire = 72,
+                    Restraint = 76,
+                    Tension = 64,
+                    Connection = 50,
+                    Dominance = 50,
+                    Loyalty = 52,
+                    SelfRespect = 50
+                },
+                new CharacterStatProfileV2
+                {
+                    CharacterId = "alex",
+                    Desire = 55,
+                    Restraint = 58,
+                    Tension = 51,
+                    Connection = 48,
+                    Dominance = 49,
+                    Loyalty = 56,
+                    SelfRespect = 52
+                }
+            ]
+        };
+
+        var outcome = await _service.ApplyDecisionAsync(
+            state,
+            new DecisionSubmission
+            {
+                DecisionPointId = "dp-5",
+                OptionId = "escalate",
+                ActorName = "becky",
+                TargetActorId = "becky"
+            },
+            targetActorId: "becky");
+
+        Assert.True(outcome.Applied);
+        Assert.True(outcome.AppliedStatDeltas.TryGetValue("Restraint", out var restraintDelta));
+        Assert.True(restraintDelta <= -30);
+        Assert.True(state.CharacterSnapshots[0].Restraint <= 49);
     }
 }

@@ -3,7 +3,7 @@
 
 1. High: v2 theme-definition docs are not wired into runtime and are loaded from the wrong folder.
 - The v2 docs define scenario IDs and fit/guidance structure in infidelity-public-facade.md and infidelity-public-facade-discovery.md.
-- The loader reads from ThemeDefinitionService.cs, which points to specs/ThemeDefinitaions, not specs/v2/ThemeDefinitaions.
+- The loader reads from ThemeDefinitionService.cs, which points to specs/ThemeDefinitions, not specs/v2/ThemeDefinitions.
 - The UI itself labels this area as not yet integrated (“future import-ready refactoring”) in ThemeProfiles.razor.
 
 2. High: Context-aware stat-altering question system is only partially implemented and misses key required behavior.

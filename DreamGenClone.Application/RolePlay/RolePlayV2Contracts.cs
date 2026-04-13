@@ -109,6 +109,8 @@ public sealed class DecisionOutcome
     public string OptionId { get; init; } = string.Empty;
     public string? TargetActorId { get; init; }
     public IReadOnlyDictionary<string, int> AppliedStatDeltas { get; init; } = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+    public IReadOnlyDictionary<string, IReadOnlyDictionary<string, int>> PerActorStatDeltas { get; init; } =
+        new Dictionary<string, IReadOnlyDictionary<string, int>>(StringComparer.OrdinalIgnoreCase);
     public string AuditMetadataJson { get; init; } = "{}";
     public TransparencyMode TransparencyMode { get; init; } = TransparencyMode.Directional;
     public string Summary { get; init; } = string.Empty;

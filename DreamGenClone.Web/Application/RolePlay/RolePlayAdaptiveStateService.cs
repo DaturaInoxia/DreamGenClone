@@ -13,7 +13,10 @@ namespace DreamGenClone.Web.Application.RolePlay;
 
 public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
 {
+    private const int MaxAdaptiveTransitionHistory = 25;
+
     private readonly IThemeCatalogService _themeCatalogService;
+    private readonly IIntensityProfileService? _intensityProfileService;
     private readonly IScenarioDefinitionService? _scenarioDefinitionService;
     private readonly IScenarioSelectionEngine? _scenarioSelectionEngine;
     private readonly INarrativePhaseManager? _narrativePhaseManager;
@@ -32,6 +35,23 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         INarrativePhaseManager? narrativePhaseManager = null)
     {
         _themeCatalogService = themeCatalogService;
+        _intensityProfileService = null;
+        _scenarioDefinitionService = null;
+        _scenarioSelectionEngine = scenarioSelectionEngine;
+        _narrativePhaseManager = narrativePhaseManager;
+        _useScenarioDefinitionsForAdaptiveRuntime = false;
+        _useRpThemeSubsystem = true;
+        _useRpThemeSubsystemForNewSessionsOnly = true;
+    }
+
+    public RolePlayAdaptiveStateService(
+        IThemeCatalogService themeCatalogService,
+        IIntensityProfileService intensityProfileService,
+        IScenarioSelectionEngine? scenarioSelectionEngine = null,
+        INarrativePhaseManager? narrativePhaseManager = null)
+    {
+        _themeCatalogService = themeCatalogService;
+        _intensityProfileService = intensityProfileService;
         _scenarioDefinitionService = null;
         _scenarioSelectionEngine = scenarioSelectionEngine;
         _narrativePhaseManager = narrativePhaseManager;
@@ -48,6 +68,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         ILogger<RolePlayAdaptiveStateService> logger)
     {
         _themeCatalogService = themeCatalogService;
+        _intensityProfileService = null;
         _scenarioDefinitionService = null;
         _scenarioSelectionEngine = scenarioSelectionEngine;
         _narrativePhaseManager = narrativePhaseManager;
@@ -85,9 +106,11 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         ISteeringProfileService styleProfileService,
         IRolePlayDebugEventSink debugEventSink,
         ILogger<RolePlayAdaptiveStateService> logger,
+        IIntensityProfileService? intensityProfileService = null,
         IOptions<StoryAnalysisOptions>? storyAnalysisOptions = null)
     {
         _themeCatalogService = themeCatalogService;
+        _intensityProfileService = intensityProfileService;
         _scenarioDefinitionService = scenarioDefinitionService;
         _scenarioSelectionEngine = scenarioSelectionEngine;
         _narrativePhaseManager = narrativePhaseManager;
@@ -121,6 +144,16 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         IRolePlayDebugEventSink debugEventSink,
         ILogger<RolePlayAdaptiveStateService> logger)
         : this(themeCatalogService, null, null, null, themePreferenceService, rpThemeService, styleProfileService, debugEventSink, logger)
+    {
+    }
+
+    public RolePlayAdaptiveStateService(
+        IThemeCatalogService themeCatalogService,
+        IThemePreferenceService themePreferenceService,
+        ISteeringProfileService styleProfileService,
+        IRolePlayDebugEventSink debugEventSink,
+        ILogger<RolePlayAdaptiveStateService> logger)
+        : this(themeCatalogService, null, null, null, themePreferenceService, null, styleProfileService, debugEventSink, logger)
     {
     }
 
@@ -238,6 +271,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         state.ThemeTracker.UpdatedUtc = DateTime.UtcNow;
 
         session.AdaptiveState = state;
+        await EvaluateAdaptiveIntensityTransitionAsync(session, interaction, cancellationToken);
 
         if (_debugEventSink is not null)
         {
@@ -291,6 +325,132 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         }
 
         return state;
+    }
+
+    private async Task EvaluateAdaptiveIntensityTransitionAsync(
+        RolePlaySession session,
+        RolePlayInteraction interaction,
+        CancellationToken cancellationToken)
+    {
+        if (_intensityProfileService is null)
+        {
+            return;
+        }
+
+        session.AdaptiveIntensityTransitions ??= [];
+
+        if (session.IsIntensityManuallyPinned)
+        {
+            session.AdaptiveIntensityLastTransitionReason = "manual-pin-suppressed";
+            return;
+        }
+
+        var profiles = await _intensityProfileService.ListAsync(cancellationToken);
+        if (profiles.Count == 0)
+        {
+            session.AdaptiveIntensityLastTransitionReason = "no-intensity-profiles";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(session.AdaptiveIntensityProfileId))
+        {
+            session.AdaptiveIntensityProfileId = session.SelectedIntensityProfileId;
+        }
+
+        var currentProfile = !string.IsNullOrWhiteSpace(session.AdaptiveIntensityProfileId)
+            ? profiles.FirstOrDefault(x => string.Equals(x.Id, session.AdaptiveIntensityProfileId, StringComparison.OrdinalIgnoreCase))
+            : null;
+        if (currentProfile is null)
+        {
+            session.AdaptiveIntensityLastTransitionReason = "adaptive-profile-not-found";
+            return;
+        }
+
+        var desire = AverageCharacterStat(session.AdaptiveState, "Desire");
+        var restraint = AverageCharacterStat(session.AdaptiveState, "Restraint");
+        var tension = AverageCharacterStat(session.AdaptiveState, "Tension");
+
+        var reasonCode = "stable";
+        var delta = 0;
+
+        if (desire >= 82 && restraint <= 42)
+        {
+            delta = 1;
+            reasonCode = "desire-high-restraint-low-escalate";
+        }
+        else if (desire <= 38 || restraint >= 72)
+        {
+            delta = -1;
+            reasonCode = "desire-low-or-restraint-high-deescalate";
+        }
+
+        if (tension >= 85 && restraint >= 65)
+        {
+            delta = -1;
+            reasonCode = "tension-and-restraint-high-deescalate";
+        }
+
+        var interactionCount = session.Interactions.Count + 1;
+        if (interactionCount <= 3 && delta > 0)
+        {
+            delta = 0;
+            reasonCode = "early-phase-no-escalation";
+        }
+        else if (interactionCount >= 18 && delta == 0 && desire >= 68)
+        {
+            delta = 1;
+            reasonCode = "late-phase-gentle-escalation";
+        }
+
+        var floor = RolePlayStyleResolver.ParseBoundScale(session.IntensityFloorOverride);
+        var ceiling = RolePlayStyleResolver.ParseBoundScale(session.IntensityCeilingOverride);
+        var targetScale = (int)currentProfile.Intensity + delta;
+        targetScale = Math.Clamp(targetScale, 0, 5);
+
+        if (floor.HasValue && targetScale < floor.Value)
+        {
+            targetScale = floor.Value;
+            reasonCode += "-blocked-by-floor";
+        }
+
+        if (ceiling.HasValue && targetScale > ceiling.Value)
+        {
+            targetScale = ceiling.Value;
+            reasonCode += "-blocked-by-ceiling";
+        }
+
+        var targetProfile = profiles.FirstOrDefault(x => (int)x.Intensity == targetScale);
+        if (targetProfile is null)
+        {
+            session.AdaptiveIntensityLastTransitionReason = reasonCode + "-target-profile-missing";
+            return;
+        }
+
+        if (string.Equals(targetProfile.Id, currentProfile.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            session.AdaptiveIntensityLastTransitionReason = reasonCode;
+            return;
+        }
+
+        session.AdaptiveIntensityProfileId = targetProfile.Id;
+        session.AdaptiveIntensityLastFromProfileId = currentProfile.Id;
+        session.AdaptiveIntensityLastToProfileId = targetProfile.Id;
+        session.AdaptiveIntensityLastTransitionReason = reasonCode;
+        session.AdaptiveIntensityLastTransitionUtc = DateTime.UtcNow;
+        session.AdaptiveIntensityTransitions.Add(new AdaptiveIntensityTransitionRecord
+        {
+            FromProfileId = currentProfile.Id,
+            ToProfileId = targetProfile.Id,
+            ReasonCode = reasonCode,
+            Source = "adaptive-engine",
+            OccurredUtc = session.AdaptiveIntensityLastTransitionUtc.Value
+        });
+
+        if (session.AdaptiveIntensityTransitions.Count > MaxAdaptiveTransitionHistory)
+        {
+            var trim = session.AdaptiveIntensityTransitions.Count - MaxAdaptiveTransitionHistory;
+            session.AdaptiveIntensityTransitions.RemoveRange(0, trim);
+        }
     }
 
     private async Task EvaluateScenarioCommitmentAsync(

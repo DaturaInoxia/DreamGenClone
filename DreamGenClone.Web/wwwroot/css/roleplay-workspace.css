@@ -1345,6 +1345,20 @@
     max-width: 520px;
 }
 
+.rw-modal-decision {
+    width: min(92vw, 560px);
+    max-height: calc(100vh - 32px);
+    display: flex;
+    flex-direction: column;
+}
+
+.rw-modal-body-scroll {
+    overflow-y: auto;
+    overflow-x: hidden;
+    min-height: 0;
+    padding-right: 2px;
+}
+
 .rw-info-grid {
     display: flex;
     flex-direction: column;

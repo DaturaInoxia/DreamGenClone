@@ -217,6 +217,6 @@ public sealed class StyleResolverProfileDrivenTests
 
         Assert.Equal("Erotic", label);
         Assert.Contains("selected=Emotional", reason);
-        Assert.Contains("adaptive=Erotic", reason);
+        Assert.Contains("adaptive=Explicit", reason);
     }
 }

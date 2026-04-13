@@ -224,15 +224,18 @@ public sealed class RolePlayStateRepository : IRolePlayV2StateRepository
             pointCmd.Transaction = tx;
             pointCmd.CommandText = """
                 INSERT INTO RolePlayV2DecisionPoints (
-                    DecisionPointId, SessionId, ScenarioId, Phase, TriggerSource, TransparencyMode, OptionIdsJson, CreatedUtc)
+                    DecisionPointId, SessionId, ScenarioId, Phase, TriggerSource, ContextSummary, AskingActorName, TargetActorId, TransparencyMode, OptionIdsJson, CreatedUtc)
                 VALUES (
-                    $decisionPointId, $sessionId, $scenarioId, $phase, $triggerSource, $transparencyMode, $optionIdsJson, $createdUtc);
+                    $decisionPointId, $sessionId, $scenarioId, $phase, $triggerSource, $contextSummary, $askingActorName, $targetActorId, $transparencyMode, $optionIdsJson, $createdUtc);
                 """;
             pointCmd.Parameters.AddWithValue("$decisionPointId", decisionPoint.DecisionPointId);
             pointCmd.Parameters.AddWithValue("$sessionId", decisionPoint.SessionId);
             pointCmd.Parameters.AddWithValue("$scenarioId", decisionPoint.ScenarioId);
             pointCmd.Parameters.AddWithValue("$phase", decisionPoint.Phase.ToString());
             pointCmd.Parameters.AddWithValue("$triggerSource", decisionPoint.TriggerSource);
+            pointCmd.Parameters.AddWithValue("$contextSummary", decisionPoint.ContextSummary);
+            pointCmd.Parameters.AddWithValue("$askingActorName", decisionPoint.AskingActorName);
+            pointCmd.Parameters.AddWithValue("$targetActorId", decisionPoint.TargetActorId);
             pointCmd.Parameters.AddWithValue("$transparencyMode", decisionPoint.TransparencyMode.ToString());
             pointCmd.Parameters.AddWithValue("$optionIdsJson", JsonSerializer.Serialize(decisionPoint.OptionIds));
             pointCmd.Parameters.AddWithValue("$createdUtc", decisionPoint.CreatedUtc.ToString("O"));
@@ -269,7 +272,7 @@ public sealed class RolePlayStateRepository : IRolePlayV2StateRepository
         await using var connection = await OpenConnectionAsync(cancellationToken);
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT DecisionPointId, SessionId, ScenarioId, Phase, TriggerSource, TransparencyMode, OptionIdsJson, CreatedUtc
+            SELECT DecisionPointId, SessionId, ScenarioId, Phase, TriggerSource, ContextSummary, AskingActorName, TargetActorId, TransparencyMode, OptionIdsJson, CreatedUtc
             FROM RolePlayV2DecisionPoints
             WHERE SessionId = $sessionId
             ORDER BY CreatedUtc DESC
@@ -288,9 +291,12 @@ public sealed class RolePlayStateRepository : IRolePlayV2StateRepository
                 ScenarioId = reader.GetString(2),
                 Phase = Enum.TryParse<NarrativePhase>(reader.GetString(3), out var phase) ? phase : NarrativePhase.BuildUp,
                 TriggerSource = reader.GetString(4),
-                TransparencyMode = Enum.TryParse<TransparencyMode>(reader.GetString(5), out var mode) ? mode : TransparencyMode.Directional,
-                OptionIds = JsonSerializer.Deserialize<List<string>>(reader.GetString(6)) ?? [],
-                CreatedUtc = DateTime.TryParse(reader.GetString(7), out var createdUtc) ? createdUtc : DateTime.UtcNow
+                ContextSummary = reader.IsDBNull(5) ? string.Empty : reader.GetString(5),
+                AskingActorName = reader.IsDBNull(6) ? string.Empty : reader.GetString(6),
+                TargetActorId = reader.IsDBNull(7) ? string.Empty : reader.GetString(7),
+                TransparencyMode = Enum.TryParse<TransparencyMode>(reader.GetString(8), out var mode) ? mode : TransparencyMode.Directional,
+                OptionIds = JsonSerializer.Deserialize<List<string>>(reader.GetString(9)) ?? [],
+                CreatedUtc = DateTime.TryParse(reader.GetString(10), out var createdUtc) ? createdUtc : DateTime.UtcNow
             });
         }
 

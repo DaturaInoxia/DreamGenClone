@@ -779,6 +779,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         sb.AppendLine($"Resolved Intensity: {effectiveStyleLabel}");
         sb.AppendLine($"Resolution Reason: {effectiveStyleReason}");
         sb.AppendLine($"Manual Intensity Pin: {(session.IsIntensityManuallyPinned ? "ON (resolved follows selected)" : "OFF (adaptive mode)")}");
+        AppendEscalationGuidance(sb, session, actorName, currentPhase, intent);
 
         var styleHint = string.IsNullOrWhiteSpace(scenarioStyle)
             ? effectiveStyleLabel
@@ -810,6 +811,82 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         }
 
         return sb.ToString();
+    }
+
+    private static void AppendEscalationGuidance(
+        StringBuilder sb,
+        RolePlaySession session,
+        string actorName,
+        string phase,
+        PromptIntent intent)
+    {
+        if (intent == PromptIntent.Instruction)
+        {
+            return;
+        }
+
+        if (session.AdaptiveState.CharacterStats.Count == 0)
+        {
+            return;
+        }
+
+        var actorStats = ResolvePromptActorStats(session, actorName);
+        var desire = ResolveStat(actorStats, "Desire", session.AdaptiveState.CharacterStats.Values.Average(x => ResolveStat(x.Stats, "Desire", 50)));
+        var restraint = ResolveStat(actorStats, "Restraint", session.AdaptiveState.CharacterStats.Values.Average(x => ResolveStat(x.Stats, "Restraint", 50)));
+        var tension = ResolveStat(actorStats, "Tension", session.AdaptiveState.CharacterStats.Values.Average(x => ResolveStat(x.Stats, "Tension", 50)));
+
+        var isLatePhase = phase is "Approaching" or "Climax";
+        if (!isLatePhase)
+        {
+            return;
+        }
+
+        sb.AppendLine("Escalation Guidance:");
+        sb.AppendLine("- Advance the scene with clear forward momentum; avoid repeating only hesitant or reset beats.");
+
+        if (desire >= 70 || tension >= 60)
+        {
+            sb.AppendLine("- Show concrete progression in physical intimacy this turn when continuity allows (not just verbal tension). ");
+        }
+
+        if (restraint <= 55 || (desire >= 75 && tension >= 60))
+        {
+            sb.AppendLine("- Do not keep the scene at fully-clothed distance if continuity already supports escalation; progress to a more intimate state.");
+        }
+
+        if (phase == "Climax")
+        {
+            sb.AppendLine("- Deliver a decisive high-intensity beat now instead of incremental teasing.");
+        }
+    }
+
+    private static Dictionary<string, int>? ResolvePromptActorStats(RolePlaySession session, string actorName)
+    {
+        if (string.IsNullOrWhiteSpace(actorName))
+        {
+            return null;
+        }
+
+        var direct = session.AdaptiveState.CharacterStats
+            .FirstOrDefault(x => string.Equals(x.Key, actorName, StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrWhiteSpace(direct.Key))
+        {
+            return direct.Value.Stats;
+        }
+
+        var byCharacterId = session.AdaptiveState.CharacterStats.Values.FirstOrDefault(x =>
+            string.Equals(x.CharacterId, actorName, StringComparison.OrdinalIgnoreCase));
+        return byCharacterId?.Stats;
+    }
+
+    private static int ResolveStat(IReadOnlyDictionary<string, int>? stats, string statName, double fallback)
+    {
+        if (stats is not null && stats.TryGetValue(statName, out var value))
+        {
+            return value;
+        }
+
+        return (int)Math.Round(fallback, MidpointRounding.AwayFromZero);
     }
 
     private static void AppendScenarioPriorities(

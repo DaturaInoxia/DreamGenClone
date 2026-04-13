@@ -565,6 +565,9 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 ScenarioId TEXT NOT NULL,
                 Phase TEXT NOT NULL,
                 TriggerSource TEXT NOT NULL,
+                ContextSummary TEXT NOT NULL DEFAULT '',
+                AskingActorName TEXT NOT NULL DEFAULT '',
+                TargetActorId TEXT NOT NULL DEFAULT '',
                 TransparencyMode TEXT NOT NULL,
                 OptionIdsJson TEXT NOT NULL,
                 CreatedUtc TEXT NOT NULL
@@ -619,6 +622,40 @@ public sealed class SqlitePersistence : ISqlitePersistence
             );
             """;
         await metadataCommand.ExecuteNonQueryAsync(cancellationToken);
+
+        // Always apply V2 decision-point additive schema updates, even when legacy migrations are skipped.
+        var ensureDecisionContextSummaryColumn = connection.CreateCommand();
+        ensureDecisionContextSummaryColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RolePlayV2DecisionPoints') WHERE name='ContextSummary'";
+        var hasDecisionContextSummaryColumnAlways = Convert.ToInt64(await ensureDecisionContextSummaryColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasDecisionContextSummaryColumnAlways)
+        {
+            var alterDecisionContextSummaryAlways = connection.CreateCommand();
+            alterDecisionContextSummaryAlways.CommandText = "ALTER TABLE RolePlayV2DecisionPoints ADD COLUMN ContextSummary TEXT NOT NULL DEFAULT ''";
+            await alterDecisionContextSummaryAlways.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated RolePlayV2DecisionPoints table: added ContextSummary column");
+        }
+
+        var ensureDecisionAskingActorColumn = connection.CreateCommand();
+        ensureDecisionAskingActorColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RolePlayV2DecisionPoints') WHERE name='AskingActorName'";
+        var hasDecisionAskingActorColumnAlways = Convert.ToInt64(await ensureDecisionAskingActorColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasDecisionAskingActorColumnAlways)
+        {
+            var alterDecisionAskingActorAlways = connection.CreateCommand();
+            alterDecisionAskingActorAlways.CommandText = "ALTER TABLE RolePlayV2DecisionPoints ADD COLUMN AskingActorName TEXT NOT NULL DEFAULT ''";
+            await alterDecisionAskingActorAlways.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated RolePlayV2DecisionPoints table: added AskingActorName column");
+        }
+
+        var ensureDecisionTargetActorColumn = connection.CreateCommand();
+        ensureDecisionTargetActorColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RolePlayV2DecisionPoints') WHERE name='TargetActorId'";
+        var hasDecisionTargetActorColumnAlways = Convert.ToInt64(await ensureDecisionTargetActorColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasDecisionTargetActorColumnAlways)
+        {
+            var alterDecisionTargetActorAlways = connection.CreateCommand();
+            alterDecisionTargetActorAlways.CommandText = "ALTER TABLE RolePlayV2DecisionPoints ADD COLUMN TargetActorId TEXT NOT NULL DEFAULT ''";
+            await alterDecisionTargetActorAlways.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated RolePlayV2DecisionPoints table: added TargetActorId column");
+        }
 
         var shouldRunLegacyMigrations = await ShouldRunLegacyMigrationsAsync(connection, cancellationToken);
         if (!shouldRunLegacyMigrations)
@@ -695,6 +732,39 @@ public sealed class SqlitePersistence : ISqlitePersistence
             alterPreference.CommandText = "ALTER TABLE RolePlayV2CandidateEvaluations ADD COLUMN PreferencePriorityScore REAL NOT NULL DEFAULT 0";
             await alterPreference.ExecuteNonQueryAsync(cancellationToken);
             _logger.LogInformation("Migrated RolePlayV2CandidateEvaluations table: added PreferencePriorityScore column");
+        }
+
+        var checkDecisionContextSummaryColumn = connection.CreateCommand();
+        checkDecisionContextSummaryColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RolePlayV2DecisionPoints') WHERE name='ContextSummary'";
+        var hasDecisionContextSummaryColumn = Convert.ToInt64(await checkDecisionContextSummaryColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasDecisionContextSummaryColumn)
+        {
+            var alterDecisionContextSummary = connection.CreateCommand();
+            alterDecisionContextSummary.CommandText = "ALTER TABLE RolePlayV2DecisionPoints ADD COLUMN ContextSummary TEXT NOT NULL DEFAULT ''";
+            await alterDecisionContextSummary.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated RolePlayV2DecisionPoints table: added ContextSummary column");
+        }
+
+        var checkDecisionAskingActorColumn = connection.CreateCommand();
+        checkDecisionAskingActorColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RolePlayV2DecisionPoints') WHERE name='AskingActorName'";
+        var hasDecisionAskingActorColumn = Convert.ToInt64(await checkDecisionAskingActorColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasDecisionAskingActorColumn)
+        {
+            var alterDecisionAskingActor = connection.CreateCommand();
+            alterDecisionAskingActor.CommandText = "ALTER TABLE RolePlayV2DecisionPoints ADD COLUMN AskingActorName TEXT NOT NULL DEFAULT ''";
+            await alterDecisionAskingActor.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated RolePlayV2DecisionPoints table: added AskingActorName column");
+        }
+
+        var checkDecisionTargetActorColumn = connection.CreateCommand();
+        checkDecisionTargetActorColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RolePlayV2DecisionPoints') WHERE name='TargetActorId'";
+        var hasDecisionTargetActorColumn = Convert.ToInt64(await checkDecisionTargetActorColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasDecisionTargetActorColumn)
+        {
+            var alterDecisionTargetActor = connection.CreateCommand();
+            alterDecisionTargetActor.CommandText = "ALTER TABLE RolePlayV2DecisionPoints ADD COLUMN TargetActorId TEXT NOT NULL DEFAULT ''";
+            await alterDecisionTargetActor.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated RolePlayV2DecisionPoints table: added TargetActorId column");
         }
 
         var checkDetailsColumn = connection.CreateCommand();

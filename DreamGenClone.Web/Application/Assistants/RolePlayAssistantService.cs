@@ -218,6 +218,28 @@ public sealed class RolePlayAssistantService : IRolePlayAssistantService
             sb.AppendLine($"[Resolution Reason: {context.StyleResolutionReason}]");
         }
 
+        if (!string.IsNullOrWhiteSpace(context.AdaptiveTransitionReason))
+        {
+            var transitionSummary = $"reason={context.AdaptiveTransitionReason}";
+            if (!string.IsNullOrWhiteSpace(context.AdaptiveTransitionFromProfileId)
+                || !string.IsNullOrWhiteSpace(context.AdaptiveTransitionToProfileId))
+            {
+                transitionSummary += $", from={context.AdaptiveTransitionFromProfileId ?? "(none)"}, to={context.AdaptiveTransitionToProfileId ?? "(none)"}";
+            }
+
+            if (context.AdaptiveTransitionUtc.HasValue)
+            {
+                transitionSummary += $", at={context.AdaptiveTransitionUtc.Value:O}";
+            }
+
+            if (context.AdaptiveTransitionBlockedByManualPin)
+            {
+                transitionSummary += ", manualPin=blocked";
+            }
+
+            sb.AppendLine($"[Adaptive Transition: {transitionSummary}]");
+        }
+
         if (!string.IsNullOrWhiteSpace(context.SelectedThemeProfileId)
             || !string.IsNullOrWhiteSpace(context.SelectedIntensityProfileId)
             || !string.IsNullOrWhiteSpace(context.ActiveIntensityProfile)

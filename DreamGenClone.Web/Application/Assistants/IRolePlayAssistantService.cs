@@ -42,6 +42,11 @@ public sealed class RolePlayAssistantContext
     public bool IsIntensityManuallyPinned { get; init; }
     public string? EffectiveStyleMode { get; init; }
     public string? StyleResolutionReason { get; init; }
+    public string? AdaptiveTransitionReason { get; init; }
+    public string? AdaptiveTransitionFromProfileId { get; init; }
+    public string? AdaptiveTransitionToProfileId { get; init; }
+    public DateTime? AdaptiveTransitionUtc { get; init; }
+    public bool AdaptiveTransitionBlockedByManualPin { get; init; }
     public IReadOnlyList<string> ProfileSteeringThemes { get; init; } = [];
 }
 

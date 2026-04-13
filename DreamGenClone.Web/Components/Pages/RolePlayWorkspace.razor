@@ -728,6 +728,11 @@
             IsIntensityManuallyPinned = _session.IsIntensityManuallyPinned,
             EffectiveStyleMode = GetEffectiveStyleLabel(),
             StyleResolutionReason = GetEffectiveStyleReason(),
+            AdaptiveTransitionReason = _session.AdaptiveIntensityLastTransitionReason,
+            AdaptiveTransitionFromProfileId = _session.AdaptiveIntensityLastFromProfileId,
+            AdaptiveTransitionToProfileId = _session.AdaptiveIntensityLastToProfileId,
+            AdaptiveTransitionUtc = _session.AdaptiveIntensityLastTransitionUtc,
+            AdaptiveTransitionBlockedByManualPin = _session.IsIntensityManuallyPinned,
             ProfileSteeringThemes = profileSteeringThemes
         };
     }
@@ -1225,6 +1230,58 @@
         }
 
         return "(none)";
+    }
+
+    private string GetAdaptiveTransitionReason()
+    {
+        if (_session is null)
+        {
+            return "(session unavailable)";
+        }
+
+        return string.IsNullOrWhiteSpace(_session.AdaptiveIntensityLastTransitionReason)
+            ? "(none)"
+            : _session.AdaptiveIntensityLastTransitionReason;
+    }
+
+    private string GetAdaptiveTransitionTime()
+    {
+        if (_session?.AdaptiveIntensityLastTransitionUtc is null)
+        {
+            return "(none)";
+        }
+
+        return _session.AdaptiveIntensityLastTransitionUtc.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
+    }
+
+    private string GetAdaptiveTransitionPath()
+    {
+        if (_session is null)
+        {
+            return "(session unavailable)";
+        }
+
+        if (string.IsNullOrWhiteSpace(_session.AdaptiveIntensityLastFromProfileId)
+            && string.IsNullOrWhiteSpace(_session.AdaptiveIntensityLastToProfileId))
+        {
+            return "(none)";
+        }
+
+        return $"{_session.AdaptiveIntensityLastFromProfileId ?? "(none)"} -> {_session.AdaptiveIntensityLastToProfileId ?? "(none)"}";
+    }
+
+    private IReadOnlyList<string> GetRecentAdaptiveTransitions()
+    {
+        if (_session?.AdaptiveIntensityTransitions is null || _session.AdaptiveIntensityTransitions.Count == 0)
+        {
+            return [];
+        }
+
+        return _session.AdaptiveIntensityTransitions
+            .OrderByDescending(x => x.OccurredUtc)
+            .Take(5)
+            .Select(x => $"{x.FromProfileId} -> {x.ToProfileId} ({x.ReasonCode})")
+            .ToList();
     }
 
     private string GetSelectedIntensityProfileName()
@@ -3392,6 +3449,25 @@
                             <span>Resolution Reason</span>
                             <span>@GetEffectiveStyleReason()</span>
                         </div>
+                        <div class="rw-settings-info-row">
+                            <span>Adaptive Transition Reason</span>
+                            <span>@GetAdaptiveTransitionReason()</span>
+                        </div>
+                        <div class="rw-settings-info-row">
+                            <span>Adaptive Transition Time</span>
+                            <span>@GetAdaptiveTransitionTime()</span>
+                        </div>
+                        <div class="rw-settings-info-row">
+                            <span>Adaptive Transition Path</span>
+                            <span>@GetAdaptiveTransitionPath()</span>
+                        </div>
+                        @foreach (var transition in GetRecentAdaptiveTransitions())
+                        {
+                            <div class="rw-settings-info-row">
+                                <span>Recent Transition</span>
+                                <span>@transition</span>
+                            </div>
+                        }
                     </div>
 
                     <div class="rw-settings-section">
