@@ -78,6 +78,18 @@ public interface ISqlitePersistence
     Task<List<HusbandAwarenessProfile>> LoadAllHusbandAwarenessProfilesAsync(CancellationToken cancellationToken = default);
     Task<bool> DeleteHusbandAwarenessProfileAsync(string id, CancellationToken cancellationToken = default);
 
+    // Background character profile operations
+    Task SaveBackgroundCharacterProfileAsync(BackgroundCharacterProfile profile, CancellationToken cancellationToken = default);
+    Task<BackgroundCharacterProfile?> LoadBackgroundCharacterProfileAsync(string id, CancellationToken cancellationToken = default);
+    Task<List<BackgroundCharacterProfile>> LoadAllBackgroundCharacterProfilesAsync(CancellationToken cancellationToken = default);
+    Task<bool> DeleteBackgroundCharacterProfileAsync(string id, CancellationToken cancellationToken = default);
+
+    // Role definition operations
+    Task SaveRoleDefinitionAsync(RoleDefinition roleDefinition, CancellationToken cancellationToken = default);
+    Task<RoleDefinition?> LoadRoleDefinitionAsync(string id, CancellationToken cancellationToken = default);
+    Task<List<RoleDefinition>> LoadAllRoleDefinitionsAsync(CancellationToken cancellationToken = default);
+    Task<bool> DeleteRoleDefinitionAsync(string id, CancellationToken cancellationToken = default);
+
     // Style profile operations
     Task SaveStyleProfileAsync(SteeringProfile profile, CancellationToken cancellationToken = default);
     Task<SteeringProfile?> LoadStyleProfileAsync(string id, CancellationToken cancellationToken = default);

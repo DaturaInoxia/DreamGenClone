@@ -1,9 +1,13 @@
 @namespace DreamGenClone.Components.Scenarios
 @using DreamGenClone.Application.Templates
+@using DreamGenClone.Application.StoryAnalysis
+@using DreamGenClone.Web.Application.StoryAnalysis
 @using DreamGenClone.Domain.Templates
+@using DreamGenClone.Domain.StoryAnalysis
 @using DreamGenClone.Web.Domain.Scenarios
 
 @inject ITemplateService TemplateService
+@inject StoryAnalysisFacade StoryAnalysisFacade
 
 <div class="entity-picker">
     <label class="form-label">@Label</label>
@@ -34,6 +38,29 @@
                 <label class="form-label">Description</label>
                 <textarea class="form-control" @bind="InlineDescription" placeholder="Entity description" rows="3"></textarea>
             </div>
+
+            @if (TemplateTypeFilter == TemplateType.Character)
+            {
+                <div class="mb-3" style="max-width: 260px;">
+                    <label class="form-label">Role</label>
+                    <select class="form-control" @bind="InlineRole">
+                        @foreach (var option in GetCharacterRoleOptions(InlineRole))
+                        {
+                            <option value="@option">@option</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="mb-3" style="max-width: 260px;">
+                    <label class="form-label">Gender</label>
+                    <select class="form-control" @bind="InlineGender">
+                        @foreach (var option in CharacterGenderCatalog.CharacterGenders)
+                        {
+                            <option value="@option">@option</option>
+                        }
+                    </select>
+                </div>
+            }
             
             <button class="btn btn-primary" @onclick="CreateInlineEntity">Add Entity</button>
         </div>
@@ -85,7 +112,10 @@
     private string Mode = "inline";
     private string InlineName = string.Empty;
     private string InlineDescription = string.Empty;
+    private string InlineRole = CharacterRoleCatalog.Wife;
+    private string InlineGender = CharacterGenderCatalog.Unknown;
     private List<TemplateDefinition> AvailableTemplates = new();
+    private List<RoleDefinition> RoleDefinitions = [];
     private TemplateDefinition? SelectedTemplate;
     
     public class EntityCreatedArgs
@@ -93,12 +123,33 @@
         public string Name { get; set; } = string.Empty;
         public string? TemplateId { get; set; }
         public string? Description { get; set; }
+        public string Role { get; set; } = CharacterRoleCatalog.Unknown;
+        public string Gender { get; set; } = CharacterGenderCatalog.Unknown;
+        public Dictionary<string, int> BaseStats { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     }
     
     protected override async Task OnInitializedAsync()
     {
         var templates = await TemplateService.GetAllAsync(TemplateTypeFilter);
         AvailableTemplates = templates.ToList();
+        RoleDefinitions = await StoryAnalysisFacade.ListRoleDefinitionsAsync();
+    }
+
+    private IReadOnlyList<string> GetCharacterRoleOptions(string? selectedRole = null)
+    {
+        var options = RoleDefinitions.Count > 0
+            ? RoleDefinitions.Select(x => x.Name).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList()
+            : CharacterRoleCatalog.CharacterRoleOptions.ToList();
+
+        var normalizedSelectedRole = CharacterRoleCatalog.Normalize(selectedRole);
+        if (!string.IsNullOrWhiteSpace(normalizedSelectedRole)
+            && !string.Equals(normalizedSelectedRole, CharacterRoleCatalog.Unknown, StringComparison.OrdinalIgnoreCase)
+            && !options.Contains(normalizedSelectedRole, StringComparer.OrdinalIgnoreCase))
+        {
+            options.Add(normalizedSelectedRole);
+        }
+
+        return options;
     }
     
     private void SetMode(string newMode)
@@ -106,6 +157,8 @@
         Mode = newMode;
         InlineName = string.Empty;
         InlineDescription = string.Empty;
+        InlineRole = CharacterRoleCatalog.Wife;
+        InlineGender = CharacterGenderCatalog.Unknown;
         SelectedTemplate = null;
     }
     
@@ -128,12 +181,20 @@
         {
             Name = InlineName,
             Description = InlineDescription,
+            Role = TemplateTypeFilter == TemplateType.Character
+                ? CharacterRoleCatalog.Normalize(InlineRole)
+                : CharacterRoleCatalog.Unknown,
+            Gender = TemplateTypeFilter == TemplateType.Character
+                ? CharacterGenderCatalog.NormalizeForCharacter(InlineGender)
+                : CharacterGenderCatalog.Unknown,
             TemplateId = null
         };
         
         await OnEntityCreated.InvokeAsync(args);
         InlineName = string.Empty;
         InlineDescription = string.Empty;
+        InlineRole = CharacterRoleCatalog.Wife;
+        InlineGender = CharacterGenderCatalog.Unknown;
     }
     
     private async Task CreateFromTemplate()
@@ -147,7 +208,10 @@
         {
             Name = SelectedTemplate.Name,
             TemplateId = SelectedTemplate.Id.ToString(),
-            Description = SelectedTemplate.Content
+            Description = SelectedTemplate.Content,
+            Role = CharacterRoleCatalog.Normalize(SelectedTemplate.Role),
+            Gender = CharacterGenderCatalog.NormalizeForCharacter(SelectedTemplate.Gender),
+            BaseStats = AdaptiveStatCatalog.NormalizeComplete(SelectedTemplate.BaseStats)
         };
         
         await OnEntityCreated.InvokeAsync(args);

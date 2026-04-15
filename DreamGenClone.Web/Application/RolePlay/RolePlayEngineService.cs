@@ -149,6 +149,9 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         string personaName = "You",
         string personaDescription = "",
         string? personaTemplateId = null,
+        string personaGender = "Unknown",
+        string personaRole = "Unknown",
+        string? personaRelationTargetId = null,
         CancellationToken cancellationToken = default)
     {
         var session = new RolePlaySession
@@ -158,6 +161,9 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             PersonaName = string.IsNullOrWhiteSpace(personaName) ? "You" : personaName.Trim(),
             PersonaDescription = personaDescription ?? string.Empty,
             PersonaTemplateId = personaTemplateId,
+            PersonaGender = CharacterGenderCatalog.NormalizeForCharacter(personaGender),
+            PersonaRole = CharacterRoleCatalog.Normalize(personaRole),
+            PersonaRelationTargetId = CharacterRelationCatalog.NormalizeTargetId(personaRelationTargetId),
             PersonaPerspectiveMode = CharacterPerspectiveMode.FirstPersonInternalMonologue,
             UseRpThemeSubsystem = _useRpThemeSubsystem
         };
@@ -167,6 +173,27 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             var scenario = await _scenarioService.GetScenarioAsync(scenarioId);
             if (scenario is not null)
             {
+                if (string.IsNullOrWhiteSpace(session.PersonaRelationTargetId))
+                {
+                    var personaRelationSource = scenario.Characters.FirstOrDefault(character =>
+                    {
+                        var relationTargetId = CharacterRelationCatalog.NormalizeTargetId(character.RelationTargetId);
+                        if (CharacterRelationCatalog.IsPersonaTarget(relationTargetId))
+                        {
+                            return true;
+                        }
+
+                        var targetPersonaTemplateId = CharacterRelationCatalog.TryGetPersonaTemplateId(relationTargetId);
+                        return !string.IsNullOrWhiteSpace(targetPersonaTemplateId)
+                            && string.Equals(targetPersonaTemplateId, session.PersonaTemplateId, StringComparison.OrdinalIgnoreCase);
+                    });
+
+                    if (personaRelationSource is not null)
+                    {
+                        session.PersonaRelationTargetId = personaRelationSource.Id;
+                    }
+                }
+
                 session.PersonaPerspectiveMode = scenario.DefaultPersonaPerspectiveMode;
                 session.SelectedThemeProfileId = scenario.DefaultThemeProfileId;
                 session.SelectedRPThemeProfileId = scenario.DefaultRPThemeProfileId;
@@ -1312,32 +1339,42 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         var isInDecisionCooldown = hasPendingDecision
             ? false
             : await HasRecentDecisionPointForContextAsync(session, v2State, effectiveDecisionTrigger, cancellationToken);
-        var decisionContext = BuildDecisionGenerationContext(session, v2State, effectiveDecisionTrigger);
-        var decisionPoint = (hasPendingDecision || isInDecisionCooldown)
-            ? null
-            : await _decisionPointService.TryCreateDecisionPointAsync(v2State, effectiveDecisionTrigger, decisionContext, cancellationToken);
-        if (decisionPoint is not null)
+        if (!hasPendingDecision && !isInDecisionCooldown)
         {
-            var options = decisionPoint.OptionIds.Select(optionId => new DreamGenClone.Domain.RolePlay.DecisionOption
+            var decisionContexts = BuildDecisionGenerationContexts(session, v2State, effectiveDecisionTrigger);
+            foreach (var decisionContext in decisionContexts)
             {
-                OptionId = optionId,
-                DecisionPointId = decisionPoint.DecisionPointId,
-                DisplayText = ResolveDecisionOptionDisplayText(optionId),
-                VisibilityMode = decisionPoint.TransparencyMode,
-                Prerequisites = ResolveDecisionOptionPrerequisites(optionId),
-                StatDeltaMap = ResolveDecisionOptionDeltaMap(optionId),
-                IsCustomResponseFallback = string.Equals(optionId, "custom", StringComparison.OrdinalIgnoreCase)
-            }).ToList();
+                var decisionPoint = await _decisionPointService.TryCreateDecisionPointAsync(
+                    v2State,
+                    effectiveDecisionTrigger,
+                    decisionContext,
+                    cancellationToken);
+                if (decisionPoint is null)
+                {
+                    continue;
+                }
 
-            await _v2StateRepository.SaveDecisionPointAsync(decisionPoint, options, cancellationToken);
+                var options = decisionPoint.OptionIds.Select(optionId => new DreamGenClone.Domain.RolePlay.DecisionOption
+                {
+                    OptionId = optionId,
+                    DecisionPointId = decisionPoint.DecisionPointId,
+                    DisplayText = ResolveDecisionOptionDisplayText(optionId),
+                    VisibilityMode = decisionPoint.TransparencyMode,
+                    Prerequisites = ResolveDecisionOptionPrerequisites(optionId),
+                    StatDeltaMap = ResolveDecisionOptionDeltaMap(optionId),
+                    IsCustomResponseFallback = string.Equals(optionId, "custom", StringComparison.OrdinalIgnoreCase)
+                }).ToList();
 
-            // Surface decision points directly in the story so users can see them when they trigger.
-            session.Interactions.Add(new RolePlayInteraction
-            {
-                InteractionType = InteractionType.System,
-                ActorName = "Decision",
-                Content = BuildDecisionQuestionPrompt(decisionPoint)
-            });
+                await _v2StateRepository.SaveDecisionPointAsync(decisionPoint, options, cancellationToken);
+
+                // Surface decision points directly in the story so users can see them when they trigger.
+                session.Interactions.Add(new RolePlayInteraction
+                {
+                    InteractionType = InteractionType.System,
+                    ActorName = "Decision",
+                    Content = BuildDecisionQuestionPrompt(decisionPoint)
+                });
+            }
         }
 
         await _v2StateRepository.SaveFormulaVersionReferenceAsync(
@@ -1644,7 +1681,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         return null;
     }
 
-    private static DecisionGenerationContext BuildDecisionGenerationContext(
+    private static IReadOnlyList<DecisionGenerationContext> BuildDecisionGenerationContexts(
         RolePlaySession session,
         DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state,
         DecisionTrigger trigger)
@@ -1656,9 +1693,33 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             .Select(x => x.Trim())
             .FirstOrDefault();
 
-        var decisionActors = ResolveDecisionActorsFromStoryContext(session, state);
+        var actorIds = state.CharacterSnapshots
+            .Select(x => x.CharacterId)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
-        return new DecisionGenerationContext
+        if (actorIds.Count == 0)
+        {
+            var fallback = ResolveDecisionActorsFromStoryContext(session, state);
+            return
+            [
+                new DecisionGenerationContext
+                {
+                    ScenarioId = session.ScenarioId,
+                    TriggerSource = trigger.ToString(),
+                    Phase = state.CurrentPhase,
+                    Who = InferDecisionWho(snippet),
+                    What = InferDecisionWhat(snippet),
+                    PromptSnippet = snippet,
+                    AskingActorName = fallback.AskingActorId,
+                    TargetActorId = fallback.TargetActorId,
+                    RelevantActors = state.CharacterSnapshots
+                }
+            ];
+        }
+
+        return actorIds.Select(actorId => new DecisionGenerationContext
         {
             ScenarioId = session.ScenarioId,
             TriggerSource = trigger.ToString(),
@@ -1666,10 +1727,10 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             Who = InferDecisionWho(snippet),
             What = InferDecisionWhat(snippet),
             PromptSnippet = snippet,
-            AskingActorName = decisionActors.AskingActorId,
-            TargetActorId = decisionActors.TargetActorId,
+            AskingActorName = actorId,
+            TargetActorId = actorId,
             RelevantActors = state.CharacterSnapshots
-        };
+        }).ToList();
     }
 
     private static (string? AskingActorId, string? TargetActorId) ResolveDecisionActorsFromStoryContext(

@@ -268,6 +268,10 @@ public sealed class RolePlayAssistantService : IRolePlayAssistantService
             sb.Append($"[Persona: {context.PersonaName}");
             if (!string.IsNullOrWhiteSpace(context.PersonaDescription))
                 sb.Append($" — {context.PersonaDescription}");
+            if (!string.IsNullOrWhiteSpace(context.PersonaRole))
+                sb.Append($" | Role: {context.PersonaRole}");
+            if (!string.IsNullOrWhiteSpace(context.PersonaRelationSummary))
+                sb.Append($" | Relation: {context.PersonaRelationSummary}");
             sb.AppendLine("]");
         }
 

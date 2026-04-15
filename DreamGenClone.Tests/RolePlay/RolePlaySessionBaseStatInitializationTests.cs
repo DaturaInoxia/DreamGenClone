@@ -1,6 +1,7 @@
 using DreamGenClone.Web.Application.RolePlay;
 using DreamGenClone.Web.Application.Scenarios;
 using DreamGenClone.Web.Domain.Scenarios;
+using DreamGenClone.Application.StoryAnalysis;
 using Xunit;
 
 namespace DreamGenClone.Tests.RolePlay;
@@ -18,7 +19,9 @@ public sealed class RolePlaySessionBaseStatInitializationTests
             {
                 ["Connection"] = 30,
                 ["Tension"] = 60
-            });
+            },
+            CharacterGenderCatalog.Female,
+            CharacterRoleCatalog.Wife);
 
         var scenario = new Scenario
         {

@@ -16,10 +16,13 @@ public sealed class StoryAnalysisFacade
     private readonly IBaseStatProfileService _baseStatProfileService;
     private readonly IStatWillingnessProfileService _statWillingnessProfileService;
     private readonly IHusbandAwarenessProfileService _husbandAwarenessProfileService;
+    private readonly IBackgroundCharacterProfileService _backgroundCharacterProfileService;
+    private readonly IRoleDefinitionService _roleDefinitionService;
     private readonly IStoryRankingService _rankingService;
     private readonly IThemeCatalogService _themeCatalogService;
     private readonly IScenarioDefinitionService _scenarioDefinitionService;
     private readonly IThemeDefinitionService _themeDefinitionService;
+    private readonly ICharacterStatPresetImportService _characterStatPresetImportService;
     private readonly ISqlitePersistence _persistence;
 
     public StoryAnalysisFacade(
@@ -32,10 +35,13 @@ public sealed class StoryAnalysisFacade
         IBaseStatProfileService baseStatProfileService,
         IStatWillingnessProfileService statWillingnessProfileService,
         IHusbandAwarenessProfileService husbandAwarenessProfileService,
+        IBackgroundCharacterProfileService backgroundCharacterProfileService,
+        IRoleDefinitionService roleDefinitionService,
         IStoryRankingService rankingService,
         IThemeCatalogService themeCatalogService,
         IScenarioDefinitionService scenarioDefinitionService,
         IThemeDefinitionService themeDefinitionService,
+        ICharacterStatPresetImportService characterStatPresetImportService,
         ISqlitePersistence persistence)
     {
         _summaryService = summaryService;
@@ -47,10 +53,13 @@ public sealed class StoryAnalysisFacade
         _baseStatProfileService = baseStatProfileService;
         _statWillingnessProfileService = statWillingnessProfileService;
         _husbandAwarenessProfileService = husbandAwarenessProfileService;
+        _backgroundCharacterProfileService = backgroundCharacterProfileService;
+        _roleDefinitionService = roleDefinitionService;
         _rankingService = rankingService;
         _themeCatalogService = themeCatalogService;
         _scenarioDefinitionService = scenarioDefinitionService;
         _themeDefinitionService = themeDefinitionService;
+        _characterStatPresetImportService = characterStatPresetImportService;
         _persistence = persistence;
     }
 
@@ -177,8 +186,8 @@ public sealed class StoryAnalysisFacade
         => _steeringProfileService.DeleteAsync(id, cancellationToken);
 
     // Base Stat Profiles
-    public Task<BaseStatProfile> CreateBaseStatProfileAsync(string name, string description, IReadOnlyDictionary<string, int> defaultStats, CancellationToken cancellationToken = default)
-        => _baseStatProfileService.CreateAsync(name, description, defaultStats, cancellationToken);
+    public Task<BaseStatProfile> CreateBaseStatProfileAsync(string name, string description, IReadOnlyDictionary<string, int> defaultStats, string targetGender, string targetRole, CancellationToken cancellationToken = default)
+        => _baseStatProfileService.CreateAsync(name, description, defaultStats, targetGender, targetRole, cancellationToken);
 
     public Task<List<BaseStatProfile>> ListBaseStatProfilesAsync(CancellationToken cancellationToken = default)
         => _baseStatProfileService.ListAsync(cancellationToken);
@@ -186,11 +195,14 @@ public sealed class StoryAnalysisFacade
     public Task<BaseStatProfile?> GetBaseStatProfileAsync(string id, CancellationToken cancellationToken = default)
         => _baseStatProfileService.GetAsync(id, cancellationToken);
 
-    public Task<BaseStatProfile?> UpdateBaseStatProfileAsync(string id, string name, string description, IReadOnlyDictionary<string, int> defaultStats, CancellationToken cancellationToken = default)
-        => _baseStatProfileService.UpdateAsync(id, name, description, defaultStats, cancellationToken);
+    public Task<BaseStatProfile?> UpdateBaseStatProfileAsync(string id, string name, string description, IReadOnlyDictionary<string, int> defaultStats, string targetGender, string targetRole, CancellationToken cancellationToken = default)
+        => _baseStatProfileService.UpdateAsync(id, name, description, defaultStats, targetGender, targetRole, cancellationToken);
 
     public Task<bool> DeleteBaseStatProfileAsync(string id, CancellationToken cancellationToken = default)
         => _baseStatProfileService.DeleteAsync(id, cancellationToken);
+
+    public Task<CharacterStatPresetImportResult> ImportCharacterStatPresetsAsync(CancellationToken cancellationToken = default)
+        => _characterStatPresetImportService.ImportAsync(cancellationToken);
 
     // Stat Willingness Profiles
     public Task<StatWillingnessProfile> SaveStatWillingnessProfileAsync(StatWillingnessProfile profile, CancellationToken cancellationToken = default)
@@ -220,6 +232,32 @@ public sealed class StoryAnalysisFacade
 
     public Task<bool> DeleteHusbandAwarenessProfileAsync(string id, CancellationToken cancellationToken = default)
         => _husbandAwarenessProfileService.DeleteAsync(id, cancellationToken);
+
+    // Background Character Profiles
+    public Task<BackgroundCharacterProfile> SaveBackgroundCharacterProfileAsync(BackgroundCharacterProfile profile, CancellationToken cancellationToken = default)
+        => _backgroundCharacterProfileService.SaveAsync(profile, cancellationToken);
+
+    public Task<List<BackgroundCharacterProfile>> ListBackgroundCharacterProfilesAsync(CancellationToken cancellationToken = default)
+        => _backgroundCharacterProfileService.ListAsync(cancellationToken);
+
+    public Task<BackgroundCharacterProfile?> GetBackgroundCharacterProfileAsync(string id, CancellationToken cancellationToken = default)
+        => _backgroundCharacterProfileService.GetAsync(id, cancellationToken);
+
+    public Task<bool> DeleteBackgroundCharacterProfileAsync(string id, CancellationToken cancellationToken = default)
+        => _backgroundCharacterProfileService.DeleteAsync(id, cancellationToken);
+
+    // Role Definitions
+    public Task<RoleDefinition> SaveRoleDefinitionAsync(RoleDefinition roleDefinition, CancellationToken cancellationToken = default)
+        => _roleDefinitionService.SaveAsync(roleDefinition, cancellationToken);
+
+    public Task<List<RoleDefinition>> ListRoleDefinitionsAsync(CancellationToken cancellationToken = default)
+        => _roleDefinitionService.ListAsync(cancellationToken);
+
+    public Task<RoleDefinition?> GetRoleDefinitionAsync(string id, CancellationToken cancellationToken = default)
+        => _roleDefinitionService.GetAsync(id, cancellationToken);
+
+    public Task<bool> DeleteRoleDefinitionAsync(string id, CancellationToken cancellationToken = default)
+        => _roleDefinitionService.DeleteAsync(id, cancellationToken);
 
     // Ranking
     public Task<ThemeRankResult> RankAsync(string parsedStoryId, string profileId, CancellationToken cancellationToken = default)

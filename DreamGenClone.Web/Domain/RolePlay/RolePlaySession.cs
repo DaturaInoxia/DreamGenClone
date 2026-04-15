@@ -28,6 +28,18 @@ public sealed class RolePlaySession
     /// <summary>Optional link to the Persona template this was sourced from.</summary>
     public string? PersonaTemplateId { get; set; }
 
+    /// <summary>Explicit persona gender used for strict adaptive profile matching.</summary>
+    public string PersonaGender { get; set; } = "Unknown";
+
+    /// <summary>Explicit persona role used for strict adaptive profile matching.</summary>
+    public string PersonaRole { get; set; } = "Unknown";
+
+    /// <summary>
+    /// Optional linked relation target for the persona, used to disambiguate paired roles.
+    /// Target can be a scenario character id.
+    /// </summary>
+    public string? PersonaRelationTargetId { get; set; }
+
     public List<RolePlayInteraction> Interactions { get; set; } = [];
 
     /// <summary>Active perspective modes for scenario characters in this session.</summary>

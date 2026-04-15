@@ -1,5 +1,6 @@
 using System.Text;
 using DreamGenClone.Application.Abstractions;
+using DreamGenClone.Application.StoryAnalysis;
 using DreamGenClone.Application.ModelManager;
 using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Web.Application.Models;
@@ -266,6 +267,22 @@ public sealed class InteractionRetryService : IInteractionRetryService
             var scenario = await _scenarioService.GetScenarioAsync(session.ScenarioId);
             if (scenario is not null)
             {
+                var personaRelation = RolePlayRelationFormatter.DescribePersonaRelation(session, scenario.Characters);
+                var personaRole = CharacterRoleCatalog.Normalize(session.PersonaRole);
+                if (!string.Equals(personaRole, CharacterRoleCatalog.Unknown, StringComparison.OrdinalIgnoreCase)
+                    || !string.IsNullOrWhiteSpace(personaRelation))
+                {
+                    if (!string.Equals(personaRole, CharacterRoleCatalog.Unknown, StringComparison.OrdinalIgnoreCase))
+                    {
+                        sb.AppendLine($"- Persona Role: {personaRole}");
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(personaRelation))
+                    {
+                        sb.AppendLine($"- Persona Relation: {personaRelation}");
+                    }
+                }
+
                 sb.AppendLine("Scenario:");
                 sb.AppendLine($"- Name: {scenario.Name}");
                 sb.AppendLine($"- Description: {scenario.Description}");
@@ -332,10 +349,14 @@ public sealed class InteractionRetryService : IInteractionRetryService
                         var roleText = string.IsNullOrWhiteSpace(character.Role)
                             ? string.Empty
                             : $" [Role: {character.Role.Trim()}]";
+                        var relationText = RolePlayRelationFormatter.DescribeCharacterRelation(character, session, scenario.Characters);
+                        var relationSuffix = string.IsNullOrWhiteSpace(relationText)
+                            ? string.Empty
+                            : $" [Relation: {relationText}]";
                         var description = string.IsNullOrWhiteSpace(character.Description)
                             ? "(no description)"
                             : character.Description.Trim();
-                        sb.AppendLine($"  {character.Name!.Trim()}{roleText}: {description}");
+                        sb.AppendLine($"  {character.Name!.Trim()}{roleText}{relationSuffix}: {description}");
                     }
                 }
 

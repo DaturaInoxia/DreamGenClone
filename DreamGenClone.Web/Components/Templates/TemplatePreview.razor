@@ -13,8 +13,13 @@ else
             <p><strong>Name:</strong> @Template.Name</p>
             <p><strong>Last Updated (UTC):</strong> @Template.UpdatedUtc.ToString("u")</p>
             <p><strong>Image Path:</strong> @(string.IsNullOrWhiteSpace(Template.ImagePath) ? "(none)" : Template.ImagePath)</p>
+            @if (Template.TemplateType == TemplateType.Character || Template.TemplateType == TemplateType.Persona)
+            {
+                <p><strong>Gender:</strong> @Template.Gender</p>
+                <p><strong>Base Stats:</strong> @string.Join(" | ", Template.BaseStats.OrderBy(x => x.Key).Select(x => $"{x.Key}:{x.Value}"))</p>
+            }
             <hr />
-            <pre>@Template.Content</pre>
+            <pre class="template-preview-content">@Template.Content</pre>
         </div>
     </div>
 }
@@ -23,3 +28,13 @@ else
     [Parameter]
     public TemplateDefinition? Template { get; set; }
 }
+
+<style>
+    .template-preview-content {
+        white-space: pre-wrap;
+        word-break: break-word;
+        overflow-x: auto;
+        max-width: 100%;
+        margin-bottom: 0;
+    }
+</style>

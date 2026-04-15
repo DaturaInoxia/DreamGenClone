@@ -1,3 +1,4 @@
+using DreamGenClone.Application.StoryAnalysis;
 using DreamGenClone.Domain.Administration;
 using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Domain.StoryAnalysis;
@@ -161,6 +162,8 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 Id TEXT PRIMARY KEY,
                 Name TEXT NOT NULL,
                 Description TEXT NOT NULL,
+                TargetGender TEXT NOT NULL DEFAULT 'Unknown',
+                TargetRole TEXT NOT NULL DEFAULT 'Unknown',
                 DefaultStatsJson TEXT NOT NULL,
                 CreatedUtc TEXT NOT NULL,
                 UpdatedUtc TEXT NOT NULL
@@ -189,6 +192,23 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 EncouragementLevel INTEGER NOT NULL DEFAULT 0,
                 RiskTolerance INTEGER NOT NULL DEFAULT 0,
                 Notes TEXT NOT NULL DEFAULT '',
+                CreatedUtc TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS BackgroundCharacterProfiles (
+                Id TEXT PRIMARY KEY,
+                Name TEXT NOT NULL,
+                Description TEXT NOT NULL,
+                CreatedUtc TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS RoleDefinitions (
+                Id TEXT PRIMARY KEY,
+                Name TEXT NOT NULL,
+                Description TEXT NOT NULL,
+                UseForAdaptiveProfiles INTEGER NOT NULL DEFAULT 0,
                 CreatedUtc TEXT NOT NULL,
                 UpdatedUtc TEXT NOT NULL
             );
@@ -904,6 +924,28 @@ public sealed class SqlitePersistence : ISqlitePersistence
         var baseStatsIndexCmd = connection.CreateCommand();
         baseStatsIndexCmd.CommandText = "CREATE INDEX IF NOT EXISTS IX_BaseStatProfiles_Name ON BaseStatProfiles (Name)";
         await baseStatsIndexCmd.ExecuteNonQueryAsync(cancellationToken);
+
+        var checkBaseStatGenderColumn = connection.CreateCommand();
+        checkBaseStatGenderColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('BaseStatProfiles') WHERE name='TargetGender'";
+        var hasBaseStatGenderColumn = Convert.ToInt64(await checkBaseStatGenderColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasBaseStatGenderColumn)
+        {
+            var alterBaseStatGender = connection.CreateCommand();
+            alterBaseStatGender.CommandText = "ALTER TABLE BaseStatProfiles ADD COLUMN TargetGender TEXT NOT NULL DEFAULT 'Unknown'";
+            await alterBaseStatGender.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated BaseStatProfiles table: added TargetGender column");
+        }
+
+        var checkBaseStatRoleColumn = connection.CreateCommand();
+        checkBaseStatRoleColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('BaseStatProfiles') WHERE name='TargetRole'";
+        var hasBaseStatRoleColumn = Convert.ToInt64(await checkBaseStatRoleColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasBaseStatRoleColumn)
+        {
+            var alterBaseStatRole = connection.CreateCommand();
+            alterBaseStatRole.CommandText = "ALTER TABLE BaseStatProfiles ADD COLUMN TargetRole TEXT NOT NULL DEFAULT 'Unknown'";
+            await alterBaseStatRole.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated BaseStatProfiles table: added TargetRole column");
+        }
 
         var willingnessIndexCmd = connection.CreateCommand();
         willingnessIndexCmd.CommandText = "CREATE INDEX IF NOT EXISTS IX_StatWillingnessProfiles_Name ON StatWillingnessProfiles (Name)";
@@ -2163,14 +2205,17 @@ public sealed class SqlitePersistence : ISqlitePersistence
 
         await using var connection = new SqliteConnection(_options.ConnectionString);
         await connection.OpenAsync(cancellationToken);
+        await EnsureBaseStatProfileColumnsAsync(connection, cancellationToken);
 
         var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO BaseStatProfiles (Id, Name, Description, DefaultStatsJson, CreatedUtc, UpdatedUtc)
-            VALUES ($id, $name, $description, $defaultStatsJson, $createdUtc, $updatedUtc)
+            INSERT INTO BaseStatProfiles (Id, Name, Description, TargetGender, TargetRole, DefaultStatsJson, CreatedUtc, UpdatedUtc)
+            VALUES ($id, $name, $description, $targetGender, $targetRole, $defaultStatsJson, $createdUtc, $updatedUtc)
             ON CONFLICT(Id) DO UPDATE SET
                 Name = $name,
                 Description = $description,
+                TargetGender = $targetGender,
+                TargetRole = $targetRole,
                 DefaultStatsJson = $defaultStatsJson,
                 UpdatedUtc = $updatedUtc;
             """;
@@ -2178,6 +2223,8 @@ public sealed class SqlitePersistence : ISqlitePersistence
         command.Parameters.AddWithValue("$id", profile.Id);
         command.Parameters.AddWithValue("$name", profile.Name);
         command.Parameters.AddWithValue("$description", profile.Description);
+        command.Parameters.AddWithValue("$targetGender", CharacterGenderCatalog.NormalizeForProfile(profile.TargetGender));
+        command.Parameters.AddWithValue("$targetRole", CharacterRoleCatalog.Normalize(profile.TargetRole));
         command.Parameters.AddWithValue("$defaultStatsJson", JsonSerializer.Serialize(profile.DefaultStats));
         command.Parameters.AddWithValue("$createdUtc", profile.CreatedUtc.ToString("O"));
         command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
@@ -2190,9 +2237,11 @@ public sealed class SqlitePersistence : ISqlitePersistence
     {
         await using var connection = new SqliteConnection(_options.ConnectionString);
         await connection.OpenAsync(cancellationToken);
+        var hasTargetGender = await HasBaseStatTargetGenderColumnAsync(connection, cancellationToken);
+        var hasTargetRole = await HasBaseStatTargetRoleColumnAsync(connection, cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, Name, Description, DefaultStatsJson, CreatedUtc, UpdatedUtc FROM BaseStatProfiles WHERE Id = $id";
+        command.CommandText = BuildBaseStatProfileSelectSql(hasTargetGender, hasTargetRole, "WHERE Id = $id");
         command.Parameters.AddWithValue("$id", id);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -2201,22 +2250,24 @@ public sealed class SqlitePersistence : ISqlitePersistence
             return null;
         }
 
-        return ReadBaseStatProfile(reader);
+        return ReadBaseStatProfile(reader, hasTargetGender, hasTargetRole);
     }
 
     public async Task<List<BaseStatProfile>> LoadAllBaseStatProfilesAsync(CancellationToken cancellationToken = default)
     {
         await using var connection = new SqliteConnection(_options.ConnectionString);
         await connection.OpenAsync(cancellationToken);
+        var hasTargetGender = await HasBaseStatTargetGenderColumnAsync(connection, cancellationToken);
+        var hasTargetRole = await HasBaseStatTargetRoleColumnAsync(connection, cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, Name, Description, DefaultStatsJson, CreatedUtc, UpdatedUtc FROM BaseStatProfiles ORDER BY Name";
+        command.CommandText = BuildBaseStatProfileSelectSql(hasTargetGender, hasTargetRole, "ORDER BY Name");
 
         var results = new List<BaseStatProfile>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
-            results.Add(ReadBaseStatProfile(reader));
+            results.Add(ReadBaseStatProfile(reader, hasTargetGender, hasTargetRole));
         }
 
         return results;
@@ -2236,9 +2287,12 @@ public sealed class SqlitePersistence : ISqlitePersistence
         return rowsAffected > 0;
     }
 
-    private static BaseStatProfile ReadBaseStatProfile(SqliteDataReader reader)
+    private static BaseStatProfile ReadBaseStatProfile(SqliteDataReader reader, bool hasTargetGender, bool hasTargetRole)
     {
-        var defaultStatsJson = reader.GetString(3);
+        var defaultStatsColumnIndex = hasTargetGender && hasTargetRole ? 5 : hasTargetGender || hasTargetRole ? 4 : 3;
+        var createdUtcColumnIndex = defaultStatsColumnIndex + 1;
+        var updatedUtcColumnIndex = defaultStatsColumnIndex + 2;
+        var defaultStatsJson = reader.GetString(defaultStatsColumnIndex);
         Dictionary<string, int>? parsedStats = null;
         try
         {
@@ -2254,12 +2308,71 @@ public sealed class SqlitePersistence : ISqlitePersistence
             Id = reader.GetString(0),
             Name = reader.GetString(1),
             Description = reader.GetString(2),
+            TargetGender = hasTargetGender
+                ? CharacterGenderCatalog.NormalizeForProfile(reader.IsDBNull(3) ? null : reader.GetString(3))
+                : CharacterGenderCatalog.Unknown,
+            TargetRole = hasTargetRole
+                ? CharacterRoleCatalog.Normalize(reader.IsDBNull(hasTargetGender ? 4 : 3) ? null : reader.GetString(hasTargetGender ? 4 : 3))
+                : CharacterRoleCatalog.Unknown,
             DefaultStats = parsedStats is null
                 ? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
                 : new Dictionary<string, int>(parsedStats, StringComparer.OrdinalIgnoreCase),
-            CreatedUtc = DateTime.TryParse(reader.GetString(4), out var created) ? created : DateTime.UtcNow,
-            UpdatedUtc = DateTime.TryParse(reader.GetString(5), out var updated) ? updated : DateTime.UtcNow
+            CreatedUtc = DateTime.TryParse(reader.GetString(createdUtcColumnIndex), out var created) ? created : DateTime.UtcNow,
+            UpdatedUtc = DateTime.TryParse(reader.GetString(updatedUtcColumnIndex), out var updated) ? updated : DateTime.UtcNow
         };
+    }
+
+    private static async Task<bool> HasBaseStatTargetGenderColumnAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        var check = connection.CreateCommand();
+        check.CommandText = "SELECT COUNT(*) FROM pragma_table_info('BaseStatProfiles') WHERE name='TargetGender'";
+        return Convert.ToInt64(await check.ExecuteScalarAsync(cancellationToken)) > 0;
+    }
+
+    private static async Task<bool> HasBaseStatTargetRoleColumnAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        var check = connection.CreateCommand();
+        check.CommandText = "SELECT COUNT(*) FROM pragma_table_info('BaseStatProfiles') WHERE name='TargetRole'";
+        return Convert.ToInt64(await check.ExecuteScalarAsync(cancellationToken)) > 0;
+    }
+
+    private static string BuildBaseStatProfileSelectSql(bool hasTargetGender, bool hasTargetRole, string trailingClause)
+    {
+        if (hasTargetGender && hasTargetRole)
+        {
+            return $"SELECT Id, Name, Description, TargetGender, TargetRole, DefaultStatsJson, CreatedUtc, UpdatedUtc FROM BaseStatProfiles {trailingClause}";
+        }
+
+        if (hasTargetGender)
+        {
+            return $"SELECT Id, Name, Description, TargetGender, DefaultStatsJson, CreatedUtc, UpdatedUtc FROM BaseStatProfiles {trailingClause}";
+        }
+
+        if (hasTargetRole)
+        {
+            return $"SELECT Id, Name, Description, TargetRole, DefaultStatsJson, CreatedUtc, UpdatedUtc FROM BaseStatProfiles {trailingClause}";
+        }
+
+        return $"SELECT Id, Name, Description, DefaultStatsJson, CreatedUtc, UpdatedUtc FROM BaseStatProfiles {trailingClause}";
+    }
+
+    private async Task EnsureBaseStatProfileColumnsAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        if (!await HasBaseStatTargetGenderColumnAsync(connection, cancellationToken))
+        {
+            var alterGender = connection.CreateCommand();
+            alterGender.CommandText = "ALTER TABLE BaseStatProfiles ADD COLUMN TargetGender TEXT NOT NULL DEFAULT 'Unknown'";
+            await alterGender.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated BaseStatProfiles table on-demand: added TargetGender column");
+        }
+
+        if (!await HasBaseStatTargetRoleColumnAsync(connection, cancellationToken))
+        {
+            var alterRole = connection.CreateCommand();
+            alterRole.CommandText = "ALTER TABLE BaseStatProfiles ADD COLUMN TargetRole TEXT NOT NULL DEFAULT 'Unknown'";
+            await alterRole.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated BaseStatProfiles table on-demand: added TargetRole column");
+        }
     }
 
     // --- Stat willingness profile persistence ---
@@ -2518,6 +2631,191 @@ public sealed class SqlitePersistence : ISqlitePersistence
             Notes = reader.GetString(10),
             CreatedUtc = DateTime.TryParse(reader.GetString(11), out var created) ? created : DateTime.UtcNow,
             UpdatedUtc = DateTime.TryParse(reader.GetString(12), out var updated) ? updated : DateTime.UtcNow
+        };
+    }
+
+    // --- Background character profile persistence ---
+
+    public async Task SaveBackgroundCharacterProfileAsync(BackgroundCharacterProfile profile, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO BackgroundCharacterProfiles (Id, Name, Description, CreatedUtc, UpdatedUtc)
+            VALUES ($id, $name, $description, $createdUtc, $updatedUtc)
+            ON CONFLICT(Id) DO UPDATE SET
+                Name = $name,
+                Description = $description,
+                UpdatedUtc = $updatedUtc;
+            """;
+
+        command.Parameters.AddWithValue("$id", profile.Id);
+        command.Parameters.AddWithValue("$name", profile.Name);
+        command.Parameters.AddWithValue("$description", profile.Description);
+        command.Parameters.AddWithValue("$createdUtc", profile.CreatedUtc.ToString("O"));
+        command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
+
+        await command.ExecuteNonQueryAsync(cancellationToken);
+        _logger.LogInformation("Background character profile persisted: {ProfileId}, Name={Name}", profile.Id, profile.Name);
+    }
+
+    public async Task<BackgroundCharacterProfile?> LoadBackgroundCharacterProfileAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT Id, Name, Description, CreatedUtc, UpdatedUtc FROM BackgroundCharacterProfiles WHERE Id = $id";
+        command.Parameters.AddWithValue("$id", id);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return ReadBackgroundCharacterProfile(reader);
+    }
+
+    public async Task<List<BackgroundCharacterProfile>> LoadAllBackgroundCharacterProfilesAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT Id, Name, Description, CreatedUtc, UpdatedUtc FROM BackgroundCharacterProfiles ORDER BY Name";
+
+        var results = new List<BackgroundCharacterProfile>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            results.Add(ReadBackgroundCharacterProfile(reader));
+        }
+
+        return results;
+    }
+
+    public async Task<bool> DeleteBackgroundCharacterProfileAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM BackgroundCharacterProfiles WHERE Id = $id";
+        command.Parameters.AddWithValue("$id", id);
+
+        var rowsAffected = await command.ExecuteNonQueryAsync(cancellationToken);
+        _logger.LogInformation("Background character profile deletion attempted: {ProfileId}, RowsAffected={RowsAffected}", id, rowsAffected);
+        return rowsAffected > 0;
+    }
+
+    private static BackgroundCharacterProfile ReadBackgroundCharacterProfile(SqliteDataReader reader)
+    {
+        return new BackgroundCharacterProfile
+        {
+            Id = reader.GetString(0),
+            Name = reader.GetString(1),
+            Description = reader.GetString(2),
+            CreatedUtc = DateTime.TryParse(reader.GetString(3), out var created) ? created : DateTime.UtcNow,
+            UpdatedUtc = DateTime.TryParse(reader.GetString(4), out var updated) ? updated : DateTime.UtcNow
+        };
+    }
+
+    // --- Role definition persistence ---
+
+    public async Task SaveRoleDefinitionAsync(RoleDefinition roleDefinition, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(roleDefinition);
+
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO RoleDefinitions (Id, Name, Description, UseForAdaptiveProfiles, CreatedUtc, UpdatedUtc)
+            VALUES ($id, $name, $description, $useForAdaptiveProfiles, $createdUtc, $updatedUtc)
+            ON CONFLICT(Id) DO UPDATE SET
+                Name = $name,
+                Description = $description,
+                UseForAdaptiveProfiles = $useForAdaptiveProfiles,
+                UpdatedUtc = $updatedUtc;
+            """;
+
+        command.Parameters.AddWithValue("$id", roleDefinition.Id);
+        command.Parameters.AddWithValue("$name", roleDefinition.Name);
+        command.Parameters.AddWithValue("$description", roleDefinition.Description);
+        command.Parameters.AddWithValue("$useForAdaptiveProfiles", roleDefinition.UseForAdaptiveProfiles ? 1 : 0);
+        command.Parameters.AddWithValue("$createdUtc", roleDefinition.CreatedUtc.ToString("O"));
+        command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
+
+        await command.ExecuteNonQueryAsync(cancellationToken);
+        _logger.LogInformation("Role definition persisted: {RoleId}, Name={Name}", roleDefinition.Id, roleDefinition.Name);
+    }
+
+    public async Task<RoleDefinition?> LoadRoleDefinitionAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT Id, Name, Description, UseForAdaptiveProfiles, CreatedUtc, UpdatedUtc FROM RoleDefinitions WHERE Id = $id";
+        command.Parameters.AddWithValue("$id", id);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return ReadRoleDefinition(reader);
+    }
+
+    public async Task<List<RoleDefinition>> LoadAllRoleDefinitionsAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT Id, Name, Description, UseForAdaptiveProfiles, CreatedUtc, UpdatedUtc FROM RoleDefinitions ORDER BY Name";
+
+        var results = new List<RoleDefinition>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            results.Add(ReadRoleDefinition(reader));
+        }
+
+        return results;
+    }
+
+    public async Task<bool> DeleteRoleDefinitionAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM RoleDefinitions WHERE Id = $id";
+        command.Parameters.AddWithValue("$id", id);
+
+        var rowsAffected = await command.ExecuteNonQueryAsync(cancellationToken);
+        _logger.LogInformation("Role definition deletion attempted: {RoleId}, RowsAffected={RowsAffected}", id, rowsAffected);
+        return rowsAffected > 0;
+    }
+
+    private static RoleDefinition ReadRoleDefinition(SqliteDataReader reader)
+    {
+        return new RoleDefinition
+        {
+            Id = reader.GetString(0),
+            Name = reader.GetString(1),
+            Description = reader.GetString(2),
+            UseForAdaptiveProfiles = reader.GetInt32(3) == 1,
+            CreatedUtc = DateTime.TryParse(reader.GetString(4), out var created) ? created : DateTime.UtcNow,
+            UpdatedUtc = DateTime.TryParse(reader.GetString(5), out var updated) ? updated : DateTime.UtcNow
         };
     }
 

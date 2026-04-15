@@ -1,6 +1,7 @@
 namespace DreamGenClone.Web.Application.Scenarios;
 
 using System.Text.Json;
+using DreamGenClone.Application.StoryAnalysis;
 using DreamGenClone.Infrastructure.Persistence;
 using DreamGenClone.Web.Domain.RolePlay;
 using DreamGenClone.Web.Domain.Scenarios;
@@ -165,6 +166,8 @@ public class ScenarioService : IScenarioService
                 Name = c.Name,
                 Description = c.Description,
                 Role = c.Role,
+                Gender = CharacterGenderCatalog.NormalizeForCharacter(c.Gender),
+                RelationTargetId = CharacterRelationCatalog.NormalizeTargetId(c.RelationTargetId),
                 TemplateId = c.TemplateId,
                 BaseStats = new Dictionary<string, int>(c.BaseStats, StringComparer.OrdinalIgnoreCase),
                 PerspectiveMode = c.PerspectiveMode

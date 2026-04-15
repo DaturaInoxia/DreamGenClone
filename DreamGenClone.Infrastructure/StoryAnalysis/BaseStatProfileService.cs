@@ -16,7 +16,7 @@ public sealed class BaseStatProfileService : IBaseStatProfileService
         _logger = logger;
     }
 
-    public async Task<BaseStatProfile> CreateAsync(string name, string description, IReadOnlyDictionary<string, int> defaultStats, CancellationToken cancellationToken = default)
+    public async Task<BaseStatProfile> CreateAsync(string name, string description, IReadOnlyDictionary<string, int> defaultStats, string targetGender, string targetRole, CancellationToken cancellationToken = default)
     {
         await EnsureDefaultProfilesAsync(cancellationToken);
 
@@ -36,6 +36,8 @@ public sealed class BaseStatProfileService : IBaseStatProfileService
         {
             Name = trimmedName,
             Description = (description ?? string.Empty).Trim(),
+            TargetGender = CharacterGenderCatalog.NormalizeForProfile(targetGender),
+            TargetRole = CharacterRoleCatalog.Normalize(targetRole),
             DefaultStats = NormalizeStats(defaultStats),
             CreatedUtc = DateTime.UtcNow,
             UpdatedUtc = DateTime.UtcNow
@@ -56,7 +58,7 @@ public sealed class BaseStatProfileService : IBaseStatProfileService
         return _persistence.LoadBaseStatProfileAsync(id, cancellationToken);
     }
 
-    public async Task<BaseStatProfile?> UpdateAsync(string id, string name, string description, IReadOnlyDictionary<string, int> defaultStats, CancellationToken cancellationToken = default)
+    public async Task<BaseStatProfile?> UpdateAsync(string id, string name, string description, IReadOnlyDictionary<string, int> defaultStats, string targetGender, string targetRole, CancellationToken cancellationToken = default)
     {
         await EnsureDefaultProfilesAsync(cancellationToken);
 
@@ -81,6 +83,8 @@ public sealed class BaseStatProfileService : IBaseStatProfileService
 
         existing.Name = trimmedName;
         existing.Description = (description ?? string.Empty).Trim();
+        existing.TargetGender = CharacterGenderCatalog.NormalizeForProfile(targetGender);
+        existing.TargetRole = CharacterRoleCatalog.Normalize(targetRole);
         existing.DefaultStats = NormalizeStats(defaultStats);
         existing.UpdatedUtc = DateTime.UtcNow;
 
@@ -112,17 +116,31 @@ public sealed class BaseStatProfileService : IBaseStatProfileService
             return;
         }
 
-        var profile = new BaseStatProfile
+        var femaleProfile = new BaseStatProfile
         {
-            Name = "Balanced Baseline",
-            Description = "Neutral starting values for the canonical adaptive stat model.",
+            Name = "Female: Balanced Baseline",
+            Description = "Neutral female baseline for the canonical adaptive stat model.",
+            TargetGender = CharacterGenderCatalog.Female,
+            TargetRole = CharacterRoleCatalog.Wife,
             DefaultStats = AdaptiveStatCatalog.CreateDefaultStatMap(),
             CreatedUtc = DateTime.UtcNow,
             UpdatedUtc = DateTime.UtcNow
         };
 
-        await _persistence.SaveBaseStatProfileAsync(profile, cancellationToken);
-        _logger.LogInformation("Seeded default base stat profile for role-play sessions.");
+        var maleProfile = new BaseStatProfile
+        {
+            Name = "Male: Balanced Baseline",
+            Description = "Neutral male baseline for the canonical adaptive stat model.",
+            TargetGender = CharacterGenderCatalog.Male,
+            TargetRole = CharacterRoleCatalog.Husband,
+            DefaultStats = AdaptiveStatCatalog.CreateDefaultStatMap(),
+            CreatedUtc = DateTime.UtcNow,
+            UpdatedUtc = DateTime.UtcNow
+        };
+
+        await _persistence.SaveBaseStatProfileAsync(femaleProfile, cancellationToken);
+        await _persistence.SaveBaseStatProfileAsync(maleProfile, cancellationToken);
+        _logger.LogInformation("Seeded default male/female base stat profiles for role-play sessions.");
     }
 
     private static Dictionary<string, int> NormalizeStats(IReadOnlyDictionary<string, int> defaultStats)

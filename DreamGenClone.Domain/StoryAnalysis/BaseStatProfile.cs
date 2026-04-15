@@ -8,6 +8,10 @@ public sealed class BaseStatProfile
 
     public string Description { get; set; } = string.Empty;
 
+    public string TargetGender { get; set; } = "Any";
+
+    public string TargetRole { get; set; } = "Unknown";
+
     public Dictionary<string, int> DefaultStats { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;

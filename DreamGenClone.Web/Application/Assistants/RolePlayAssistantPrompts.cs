@@ -35,10 +35,12 @@ public static class RolePlayAssistantPrompts
         - **Name** — Used as the actor label.
         - **Description** — The AI's primary reference for portraying this character. Include personality, speech patterns, motivations, relationships, and behavioral tendencies.
         - **Role** — Brief role label (e.g., "antagonist", "love interest").
+        - **Relation** — Optional link to the Persona or another character. Use this when multiple characters share similar spouse/partner roles so the AI knows who is paired with whom.
 
         ### Session > Persona
         - **Persona Name** — The user's POV character name (default "You").
         - **Persona Description** — How the AI should portray and address the user's character.
+        - **Relation** — Optional link from the persona to a scenario character for explicit pairing context.
 
         ### Session Settings
         - **Behavior Mode** — Controls turn flow:

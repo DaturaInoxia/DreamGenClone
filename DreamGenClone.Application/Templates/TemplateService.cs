@@ -1,12 +1,16 @@
 using DreamGenClone.Domain.Templates;
+using DreamGenClone.Application.StoryAnalysis;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using System.Text.Json;
 
 namespace DreamGenClone.Application.Templates;
 
 public sealed class TemplateService : ITemplateService
 {
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
     private readonly string _connectionString;
     private readonly ILogger<TemplateService> _logger;
 
@@ -82,7 +86,7 @@ public sealed class TemplateService : ITemplateService
         command.Parameters.AddWithValue("$id", template.Id.ToString());
         command.Parameters.AddWithValue("$type", template.TemplateType.ToString());
         command.Parameters.AddWithValue("$name", template.Name);
-        command.Parameters.AddWithValue("$payload", template.Content);
+        command.Parameters.AddWithValue("$payload", SerializePayload(template));
         command.Parameters.AddWithValue("$imagePath", (object?)template.ImagePath ?? DBNull.Value);
         command.Parameters.AddWithValue("$updatedUtc", template.UpdatedUtc.ToString("O"));
 
@@ -134,14 +138,143 @@ public sealed class TemplateService : ITemplateService
             ? parsedDate
             : DateTime.UtcNow;
 
-        return new TemplateDefinition
+        var template = new TemplateDefinition
         {
             Id = Guid.Parse(reader.GetString(0)),
             TemplateType = parsed,
             Name = reader.GetString(2),
-            Content = reader.GetString(3),
             ImagePath = reader.IsDBNull(4) ? null : reader.GetString(4),
             UpdatedUtc = updatedUtc
         };
+
+        var payload = reader.GetString(3);
+        if (IsCharacterLikeTemplate(template.TemplateType)
+            && TryDeserializeCharacterPayload(payload, out var characterPayload))
+        {
+            template.Content = characterPayload.Content;
+            template.Gender = CharacterGenderCatalog.NormalizeForCharacter(characterPayload.Gender);
+            template.Role = CharacterRoleCatalog.Normalize(characterPayload.Role);
+            template.RelationTargetTemplateId = CharacterRelationCatalog.NormalizeTargetId(characterPayload.RelationTargetTemplateId);
+            template.BaseStats = AdaptiveStatCatalog.NormalizeComplete(characterPayload.BaseStats);
+            return template;
+        }
+
+        template.Content = payload;
+        template.Gender = CharacterGenderCatalog.Unknown;
+        template.Role = CharacterRoleCatalog.Unknown;
+        template.BaseStats = AdaptiveStatCatalog.CreateDefaultStatMap();
+        return template;
+    }
+
+    private static string SerializePayload(TemplateDefinition template)
+    {
+        if (!IsCharacterLikeTemplate(template.TemplateType))
+        {
+            return template.Content;
+        }
+
+        var payload = new CharacterTemplatePayload
+        {
+            Content = template.Content,
+            Gender = CharacterGenderCatalog.NormalizeForCharacter(template.Gender),
+            Role = CharacterRoleCatalog.Normalize(template.Role),
+            RelationTargetTemplateId = CharacterRelationCatalog.NormalizeTargetId(template.RelationTargetTemplateId),
+            BaseStats = AdaptiveStatCatalog.NormalizeComplete(template.BaseStats)
+        };
+
+        return JsonSerializer.Serialize(payload, JsonOptions);
+    }
+
+    private static bool IsCharacterLikeTemplate(TemplateType templateType)
+        => templateType == TemplateType.Character || templateType == TemplateType.Persona;
+
+    private static bool TryDeserializeCharacterPayload(string payloadJson, out CharacterTemplatePayload payload)
+    {
+        payload = new CharacterTemplatePayload
+        {
+            Content = payloadJson,
+            BaseStats = AdaptiveStatCatalog.CreateDefaultStatMap()
+        };
+
+        try
+        {
+            using var doc = JsonDocument.Parse(payloadJson);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                return false;
+            }
+
+            var content = payloadJson;
+            if (doc.RootElement.TryGetProperty("content", out var contentNode)
+                && contentNode.ValueKind == JsonValueKind.String)
+            {
+                content = contentNode.GetString() ?? string.Empty;
+            }
+
+            var stats = AdaptiveStatCatalog.CreateDefaultStatMap();
+            if (doc.RootElement.TryGetProperty("baseStats", out var statsNode)
+                && statsNode.ValueKind == JsonValueKind.Object)
+            {
+                var parsedStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                foreach (var property in statsNode.EnumerateObject())
+                {
+                    if (property.Value.ValueKind == JsonValueKind.Number && property.Value.TryGetInt32(out var value))
+                    {
+                        parsedStats[property.Name] = value;
+                    }
+                }
+
+                stats = AdaptiveStatCatalog.NormalizeComplete(parsedStats);
+            }
+
+            var gender = CharacterGenderCatalog.Unknown;
+            if (doc.RootElement.TryGetProperty("gender", out var genderNode)
+                && genderNode.ValueKind == JsonValueKind.String)
+            {
+                gender = CharacterGenderCatalog.NormalizeForCharacter(genderNode.GetString());
+            }
+
+            var role = CharacterRoleCatalog.Unknown;
+            if (doc.RootElement.TryGetProperty("role", out var roleNode)
+                && roleNode.ValueKind == JsonValueKind.String)
+            {
+                role = CharacterRoleCatalog.Normalize(roleNode.GetString());
+            }
+
+            string? relationTargetTemplateId = null;
+            if (doc.RootElement.TryGetProperty("relationTargetTemplateId", out var relationNode)
+                && relationNode.ValueKind == JsonValueKind.String)
+            {
+                relationTargetTemplateId = CharacterRelationCatalog.NormalizeTargetId(relationNode.GetString());
+            }
+
+            payload = new CharacterTemplatePayload
+            {
+                Content = content,
+                Gender = gender,
+                Role = role,
+                RelationTargetTemplateId = relationTargetTemplateId,
+                BaseStats = stats
+            };
+
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private sealed class CharacterTemplatePayload
+    {
+        public string Content { get; set; } = string.Empty;
+
+        public string Gender { get; set; } = CharacterGenderCatalog.Unknown;
+
+        public string Role { get; set; } = CharacterRoleCatalog.Unknown;
+
+        public string? RelationTargetTemplateId { get; set; }
+
+        public Dictionary<string, int> BaseStats { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     }
 }

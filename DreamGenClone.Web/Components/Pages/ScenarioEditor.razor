@@ -3,6 +3,7 @@
 @using DreamGenClone.Web.Application.Assistants
 @using DreamGenClone.Web.Application.Scenarios
 @using DreamGenClone.Web.Application.StoryAnalysis
+@using DreamGenClone.Application.Templates
 @using DreamGenClone.Application.RolePlay
 @using DreamGenClone.Domain.RolePlay
 @using DreamGenClone.Web.Domain.RolePlay
@@ -12,6 +13,7 @@
 @using DreamGenClone.Domain.Templates
 
 @inject IScenarioService ScenarioService
+@inject ITemplateService TemplateService
 @inject IScenarioTokenCounter TokenCounter
 @inject StoryAnalysisFacade StoryAnalysisFacade
 @inject IScenarioAssistantService ScenarioAssistant
@@ -298,7 +300,33 @@
                                                     </div>
                                                     <div class="mb-2" style="max-width: 360px;">
                                                         <label class="form-label small">Role</label>
-                                                        <input type="text" class="form-control form-control-sm" @bind="character.Role" placeholder="e.g., antagonist, catalyst, love interest" />
+                                                        <select class="form-select form-select-sm" @bind="character.Role">
+                                                            @foreach (var option in GetCharacterRoleOptions(character.Role))
+                                                            {
+                                                                <option value="@option">@option</option>
+                                                            }
+                                                        </select>
+                                                    </div>
+                                                    <div class="mb-2" style="max-width: 260px;">
+                                                        <label class="form-label small">Gender</label>
+                                                        <select class="form-select form-select-sm" @bind="character.Gender">
+                                                            @foreach (var option in CharacterGenderCatalog.CharacterGenders)
+                                                            {
+                                                                <option value="@option">@option</option>
+                                                            }
+                                                        </select>
+                                                    </div>
+                                                    <div class="mb-2" style="max-width: 420px;">
+                                                        <label class="form-label small">Relation</label>
+                                                        <select class="form-select form-select-sm"
+                                                                value="@(CharacterRelationCatalog.NormalizeTargetId(character.RelationTargetId) ?? string.Empty)"
+                                                                @onchange="@(e => SetCharacterRelationTarget(character, e.Value?.ToString()))">
+                                                            <option value="">(None)</option>
+                                                            @foreach (var option in GetCharacterRelationTargetOptions(character))
+                                                            {
+                                                                <option value="@option.Value">@option.Label</option>
+                                                            }
+                                                        </select>
                                                     </div>
                                                     <div class="mb-2" style="max-width: 360px;">
                                                         <label class="form-label small">Default Perspective</label>
@@ -310,6 +338,17 @@
                                                         </select>
                                                     </div>
                                                     <div class="mt-2">
+                                                        <div class="small text-muted mb-1">Character Stat Profile</div>
+                                                        <div class="input-group input-group-sm mb-2" style="max-width: 520px;">
+                                                            <select class="form-select" value="@GetCharacterProfileSelection(character)" @onchange="@(e => SetCharacterProfileSelection(character, e.Value?.ToString()))">
+                                                                <option value="">(Select Profile)</option>
+                                                                @foreach (var profile in GetApplicableBaseStatProfiles(character))
+                                                                {
+                                                                    <option value="@profile.Id">@profile.Name (@CharacterGenderCatalog.NormalizeForProfile(profile.TargetGender) / @CharacterRoleCatalog.Normalize(profile.TargetRole))</option>
+                                                                }
+                                                            </select>
+                                                            <button class="btn btn-outline-primary" type="button" @onclick="@(() => ApplyCharacterProfile(character))">Apply</button>
+                                                        </div>
                                                         <div class="small text-muted mb-1">Character State Overrides (applied after scenario profile defaults at session start)</div>
                                                         @foreach (var statName in BaseStatNames)
                                                         {
@@ -327,7 +366,7 @@
                                                 </div>
                                                 <div class="col-md-4 text-end">
                                                     <button class="btn btn-sm btn-outline-primary" @onclick="@(() => EditingCharacterIndex = index)">Edit</button>
-                                                    <button class="btn btn-sm btn-outline-danger" @onclick="@(() => CurrentScenario.Characters.RemoveAt(index))">Delete</button>
+                                                    <button class="btn btn-sm btn-outline-danger" @onclick="@(() => DeleteScenarioCharacter(index))">Delete</button>
                                                 </div>
                                             </div>
                                         </div>
@@ -598,6 +637,9 @@
         ("Hardcore", "Hardcore")
     ];
     private List<BaseStatProfile> BaseStatProfiles = [];
+    private List<RoleDefinition> RoleDefinitions = [];
+    private List<TemplateDefinition> CharacterLikeTemplates = [];
+    private readonly Dictionary<string, string?> _characterProfileSelectionById = new(StringComparer.OrdinalIgnoreCase);
     private static readonly string[] BaseStatNames = GetBaseStatNames();
     
     protected override async Task OnInitializedAsync()
@@ -610,6 +652,11 @@
         ToneProfiles = await StoryAnalysisFacade.ListIntensityProfilesAsync();
         StyleProfiles = await StoryAnalysisFacade.ListSteeringProfilesAsync();
         BaseStatProfiles = await StoryAnalysisFacade.ListBaseStatProfilesAsync();
+        RoleDefinitions = await StoryAnalysisFacade.ListRoleDefinitionsAsync();
+        CharacterLikeTemplates = (await TemplateService.GetAllAsync())
+            .Where(x => IsCharacterLikeTemplate(x.TemplateType))
+            .OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
         if (!string.IsNullOrEmpty(ScenarioId))
         {
@@ -635,6 +682,155 @@
     private static string[] GetBaseStatNames()
     {
         return AdaptiveStatCatalog.CanonicalStatNames.ToArray();
+    }
+
+    private static bool IsCharacterLikeTemplate(TemplateType templateType)
+        => templateType == TemplateType.Character || templateType == TemplateType.Persona;
+
+    private IReadOnlyList<string> GetCharacterRoleOptions(string? selectedRole = null)
+    {
+        var options = RoleDefinitions.Count > 0
+            ? RoleDefinitions.Select(x => x.Name).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList()
+            : CharacterRoleCatalog.CharacterRoleOptions.ToList();
+
+        var normalizedSelectedRole = CharacterRoleCatalog.Normalize(selectedRole);
+        if (!string.IsNullOrWhiteSpace(normalizedSelectedRole)
+            && !string.Equals(normalizedSelectedRole, CharacterRoleCatalog.Unknown, StringComparison.OrdinalIgnoreCase)
+            && !options.Contains(normalizedSelectedRole, StringComparer.OrdinalIgnoreCase))
+        {
+            options.Add(normalizedSelectedRole);
+        }
+
+        return options;
+    }
+
+    private IReadOnlyList<(string Value, string Label)> GetCharacterRelationTargetOptions(Character character)
+    {
+        var options = new List<(string Value, string Label)>();
+
+        if (CurrentScenario is not null)
+        {
+            options.AddRange(CurrentScenario.Characters
+                .Where(x => !string.Equals(x.Id, character.Id, StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(x.Name))
+                .Select(x => (x.Id, x.Name!.Trim())));
+        }
+
+        options.AddRange(CharacterLikeTemplates
+            .Where(x => x.TemplateType == TemplateType.Persona && !string.IsNullOrWhiteSpace(x.Name))
+            .Select(x => (CharacterRelationCatalog.CreatePersonaTemplateTargetId(x.Id.ToString()), x.Name.Trim())));
+
+        var selectedTargetId = CharacterRelationCatalog.NormalizeTargetId(character.RelationTargetId);
+        if (!string.IsNullOrWhiteSpace(selectedTargetId)
+            && !options.Any(x => string.Equals(x.Value, selectedTargetId, StringComparison.OrdinalIgnoreCase)))
+        {
+            options.Add((selectedTargetId, GetRelationOptionFallbackLabel(selectedTargetId)));
+        }
+
+        return options;
+    }
+
+    private void SetCharacterRelationTarget(Character character, string? targetId)
+    {
+        if (CurrentScenario is null)
+        {
+            return;
+        }
+
+        UpdateScenarioCharacterRelation(CurrentScenario.Characters, character, targetId);
+    }
+
+    private void UpdateScenarioCharacterRelation(List<Character> characters, Character sourceCharacter, string? targetId)
+    {
+        var normalizedTargetId = CharacterRelationCatalog.NormalizeTargetId(targetId);
+        if (string.Equals(normalizedTargetId, sourceCharacter.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var previousTargetId = CharacterRelationCatalog.NormalizeTargetId(sourceCharacter.RelationTargetId);
+        if (!string.Equals(previousTargetId, normalizedTargetId, StringComparison.OrdinalIgnoreCase))
+        {
+            ClearScenarioReciprocalRelation(characters, previousTargetId, sourceCharacter.Id);
+        }
+
+        sourceCharacter.RelationTargetId = normalizedTargetId;
+
+        var targetCharacter = FindScenarioCharacterByTargetId(characters, normalizedTargetId);
+        if (targetCharacter is null)
+        {
+            return;
+        }
+
+        var targetPreviousTargetId = CharacterRelationCatalog.NormalizeTargetId(targetCharacter.RelationTargetId);
+        if (!string.Equals(targetPreviousTargetId, sourceCharacter.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            ClearScenarioReciprocalRelation(characters, targetPreviousTargetId, targetCharacter.Id);
+        }
+
+        targetCharacter.RelationTargetId = sourceCharacter.Id;
+    }
+
+    private void ClearScenarioReciprocalRelation(List<Character> characters, string? targetId, string sourceCharacterId)
+    {
+        var reciprocalCharacter = FindScenarioCharacterByTargetId(characters, targetId);
+        if (reciprocalCharacter is null)
+        {
+            return;
+        }
+
+        if (string.Equals(CharacterRelationCatalog.NormalizeTargetId(reciprocalCharacter.RelationTargetId), sourceCharacterId, StringComparison.OrdinalIgnoreCase))
+        {
+            reciprocalCharacter.RelationTargetId = null;
+        }
+    }
+
+    private static Character? FindScenarioCharacterByTargetId(IEnumerable<Character> characters, string? targetId)
+    {
+        var normalizedTargetId = CharacterRelationCatalog.NormalizeTargetId(targetId);
+        if (string.IsNullOrWhiteSpace(normalizedTargetId)
+            || CharacterRelationCatalog.IsPersonaTarget(normalizedTargetId)
+            || CharacterRelationCatalog.IsPersonaTemplateTarget(normalizedTargetId))
+        {
+            return null;
+        }
+
+        return characters.FirstOrDefault(x => string.Equals(x.Id, normalizedTargetId, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private string GetRelationOptionFallbackLabel(string targetId)
+    {
+        if (CharacterRelationCatalog.IsPersonaTarget(targetId))
+        {
+            return CharacterRelationCatalog.PersonaDisplayLabel;
+        }
+
+        var personaTemplateId = CharacterRelationCatalog.TryGetPersonaTemplateId(targetId);
+        if (!string.IsNullOrWhiteSpace(personaTemplateId))
+        {
+            var personaTemplate = CharacterLikeTemplates.FirstOrDefault(x => string.Equals(x.Id.ToString(), personaTemplateId, StringComparison.OrdinalIgnoreCase));
+            return personaTemplate?.Name?.Trim() ?? $"Unknown persona ({personaTemplateId})";
+        }
+
+        return $"Unknown target ({targetId})";
+    }
+
+    private void DeleteScenarioCharacter(int index)
+    {
+        if (CurrentScenario is null || index < 0 || index >= CurrentScenario.Characters.Count)
+        {
+            return;
+        }
+
+        var removedCharacterId = CurrentScenario.Characters[index].Id;
+        CurrentScenario.Characters.RemoveAt(index);
+
+        foreach (var character in CurrentScenario.Characters)
+        {
+            if (string.Equals(character.RelationTargetId, removedCharacterId, StringComparison.OrdinalIgnoreCase))
+            {
+                character.RelationTargetId = null;
+            }
+        }
     }
 
     private RolePlayAssistantChatThread? ActiveAssistantChat =>
@@ -1088,20 +1284,126 @@
 
     private void AddCharacter(string name, string? templateId, string? description)
     {
+        AddCharacter(name, templateId, description, CharacterGenderCatalog.Unknown, CharacterRoleCatalog.Unknown, null);
+    }
+
+    private Character AddCharacter(string name, string? templateId, string? description, string? gender, string? role, IReadOnlyDictionary<string, int>? baseStats)
+    {
         var character = new Character
         {
             Name = name,
             Description = description,
-            TemplateId = templateId
+            TemplateId = templateId,
+            Role = CharacterRoleCatalog.Normalize(role),
+            Gender = CharacterGenderCatalog.NormalizeForCharacter(gender),
+            BaseStats = baseStats is null
+                ? AdaptiveStatCatalog.CreateDefaultStatMap()
+                : AdaptiveStatCatalog.NormalizeComplete(baseStats)
         };
         
         CurrentScenario?.Characters.Add(character);
         EnsureBaseStats(character);
+        return character;
     }
     
-    private void OnCharacterCreated(DreamGenClone.Components.Scenarios.ScenarioEntityPicker.EntityCreatedArgs args)
+    private async Task OnCharacterCreated(DreamGenClone.Components.Scenarios.ScenarioEntityPicker.EntityCreatedArgs args)
     {
-        AddCharacter(args.Name, args.TemplateId, args.Description);
+        var character = AddCharacter(args.Name, args.TemplateId, args.Description, args.Gender, args.Role, args.BaseStats);
+        await ApplyTemplateRelationDefaultsAsync(character);
+    }
+
+    private async Task ApplyTemplateRelationDefaultsAsync(Character character)
+    {
+        if (CurrentScenario is null || string.IsNullOrWhiteSpace(character.TemplateId))
+        {
+            return;
+        }
+
+        if (CharacterLikeTemplates.Count == 0)
+        {
+            CharacterLikeTemplates = (await TemplateService.GetAllAsync())
+                .Where(x => IsCharacterLikeTemplate(x.TemplateType))
+                .OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        var sourceTemplate = CharacterLikeTemplates.FirstOrDefault(x => string.Equals(x.Id.ToString(), character.TemplateId, StringComparison.OrdinalIgnoreCase));
+        var targetTemplateId = CharacterRelationCatalog.NormalizeTargetId(sourceTemplate?.RelationTargetTemplateId);
+        if (!string.IsNullOrWhiteSpace(targetTemplateId))
+        {
+            var targetCharacter = CurrentScenario.Characters.FirstOrDefault(x =>
+                !string.Equals(x.Id, character.Id, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(x.TemplateId, targetTemplateId, StringComparison.OrdinalIgnoreCase));
+            if (targetCharacter is not null)
+            {
+                UpdateScenarioCharacterRelation(CurrentScenario.Characters, character, targetCharacter.Id);
+                return;
+            }
+
+            var targetPersonaTemplate = CharacterLikeTemplates.FirstOrDefault(x =>
+                x.TemplateType == TemplateType.Persona
+                && string.Equals(x.Id.ToString(), targetTemplateId, StringComparison.OrdinalIgnoreCase));
+            if (targetPersonaTemplate is not null)
+            {
+                UpdateScenarioCharacterRelation(CurrentScenario.Characters, character, CharacterRelationCatalog.CreatePersonaTemplateTargetId(targetPersonaTemplate.Id.ToString()));
+                return;
+            }
+        }
+
+        foreach (var existingCharacter in CurrentScenario.Characters.Where(x => !string.Equals(x.Id, character.Id, StringComparison.OrdinalIgnoreCase)))
+        {
+            var existingTemplate = CharacterLikeTemplates.FirstOrDefault(x => string.Equals(x.Id.ToString(), existingCharacter.TemplateId, StringComparison.OrdinalIgnoreCase));
+            var existingTargetTemplateId = CharacterRelationCatalog.NormalizeTargetId(existingTemplate?.RelationTargetTemplateId);
+            if (string.Equals(existingTargetTemplateId, character.TemplateId, StringComparison.OrdinalIgnoreCase))
+            {
+                UpdateScenarioCharacterRelation(CurrentScenario.Characters, existingCharacter, character.Id);
+                return;
+            }
+        }
+    }
+
+    private IEnumerable<BaseStatProfile> GetApplicableBaseStatProfiles(Character character)
+    {
+        return BaseStatProfiles.Where(profile =>
+            CharacterGenderCatalog.IsProfileApplicableToCharacter(profile.TargetGender, character.Gender)
+            && CharacterRoleCatalog.IsProfileApplicableToCharacter(profile.TargetRole, character.Role));
+    }
+
+    private string GetCharacterProfileSelection(Character character)
+    {
+        if (_characterProfileSelectionById.TryGetValue(character.Id, out var selected))
+        {
+            return selected ?? string.Empty;
+        }
+
+        return string.Empty;
+    }
+
+    private void SetCharacterProfileSelection(Character character, string? profileId)
+    {
+        _characterProfileSelectionById[character.Id] = string.IsNullOrWhiteSpace(profileId) ? null : profileId;
+    }
+
+    private void ApplyCharacterProfile(Character character)
+    {
+        var selectedProfileId = GetCharacterProfileSelection(character);
+        if (string.IsNullOrWhiteSpace(selectedProfileId))
+        {
+            return;
+        }
+
+        var profile = BaseStatProfiles.FirstOrDefault(x =>
+            string.Equals(x.Id, selectedProfileId, StringComparison.OrdinalIgnoreCase)
+            && CharacterGenderCatalog.IsProfileApplicableToCharacter(x.TargetGender, character.Gender)
+            && CharacterRoleCatalog.IsProfileApplicableToCharacter(x.TargetRole, character.Role));
+        if (profile is null)
+        {
+            return;
+        }
+
+        character.BaseStats = AdaptiveStatCatalog.NormalizeComplete(profile.DefaultStats);
+        character.Gender = CharacterGenderCatalog.NormalizeForCharacter(profile.TargetGender);
+        character.Role = CharacterRoleCatalog.Normalize(profile.TargetRole);
     }
     
     private void AddLocation(string name, string? templateId, string? description)
@@ -1229,6 +1531,7 @@
 
     private static void EnsureBaseStats(Character character)
     {
+        character.Gender = CharacterGenderCatalog.NormalizeForCharacter(character.Gender);
         character.BaseStats = AdaptiveStatCatalog.NormalizeComplete(character.BaseStats);
     }
 

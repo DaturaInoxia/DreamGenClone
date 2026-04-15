@@ -371,6 +371,22 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             var scenario = await _scenarioService.GetScenarioAsync(session.ScenarioId);
             if (scenario is not null)
             {
+                var personaRelation = RolePlayRelationFormatter.DescribePersonaRelation(session, scenario.Characters);
+                var personaRole = CharacterRoleCatalog.Normalize(session.PersonaRole);
+                if (!string.Equals(personaRole, CharacterRoleCatalog.Unknown, StringComparison.OrdinalIgnoreCase)
+                    || !string.IsNullOrWhiteSpace(personaRelation))
+                {
+                    if (!string.Equals(personaRole, CharacterRoleCatalog.Unknown, StringComparison.OrdinalIgnoreCase))
+                    {
+                        sb.AppendLine($"- Persona Role: {personaRole}");
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(personaRelation))
+                    {
+                        sb.AppendLine($"- Persona Relation: {personaRelation}");
+                    }
+                }
+
                 sb.AppendLine("Scenario:");
                 sb.AppendLine($"- Name: {scenario.Name}");
                 sb.AppendLine($"- Description: {scenario.Description}");
@@ -498,7 +514,11 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                             var roleText = string.IsNullOrWhiteSpace(character.Role)
                                 ? string.Empty
                                 : $" [Role: {character.Role.Trim()}]";
-                            sb.AppendLine($"  {character.Name}{roleText}: {character.Description?.Trim() ?? "(no description)"}");
+                            var relationText = RolePlayRelationFormatter.DescribeCharacterRelation(character, session, scenario.Characters);
+                            var relationSuffix = string.IsNullOrWhiteSpace(relationText)
+                                ? string.Empty
+                                : $" [Relation: {relationText}]";
+                            sb.AppendLine($"  {character.Name}{roleText}{relationSuffix}: {character.Description?.Trim() ?? "(no description)"}");
                         }
                     }
                 }

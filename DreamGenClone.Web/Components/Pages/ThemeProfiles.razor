@@ -32,6 +32,8 @@
             <span class="badge bg-success-subtle text-success-emphasis border">Character State: @_baseStatProfiles.Count</span>
             <span class="badge bg-warning-subtle text-warning-emphasis border">Willingness: @_willingnessProfiles.Count</span>
             <span class="badge bg-danger-subtle text-danger-emphasis border">Husband Awareness: @_husbandAwarenessProfiles.Count</span>
+            <span class="badge bg-info-subtle text-info-emphasis border">Roles: @_roleDefinitions.Count</span>
+            <span class="badge bg-secondary-subtle text-secondary-emphasis border">Background Characters: @_backgroundCharacterProfiles.Count</span>
             <span class="badge bg-light text-dark border">Perspective Modes: @CharacterPerspectiveModes.All.Count</span>
         </div>
     </div>
@@ -63,6 +65,12 @@
         </li>
         <li class="nav-item" role="presentation">
             <button type="button" class="nav-link @GetTabClass("husband-awareness")" @onclick='() => _activeTab = "husband-awareness"'>Husband Awareness</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button type="button" class="nav-link @GetTabClass("roles")" @onclick='() => _activeTab = "roles"'>Roles</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button type="button" class="nav-link @GetTabClass("background-characters")" @onclick='() => _activeTab = "background-characters"'>Background Characters</button>
         </li>
         <li class="nav-item" role="presentation">
             <button type="button" class="nav-link @GetTabClass("flow-guide")" @onclick='() => _activeTab = "flow-guide"'>Flow Guide</button>
@@ -816,9 +824,17 @@
                 <div class="card h-100">
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <span>Character State Profiles</span>
-                        <button class="btn btn-sm btn-primary" @onclick="StartCreateBaseStatProfile">New</button>
+                        <div class="d-flex flex-wrap gap-2">
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="ImportCharacterStatPresets" disabled="@_isBusy">Import Presets</button>
+                            <button class="btn btn-sm btn-primary" @onclick="StartCreateBaseStatProfile">New</button>
+                        </div>
                     </div>
                     <div class="card-body">
+                        @if (!string.IsNullOrWhiteSpace(_baseStatImportStatus))
+                        {
+                            <div class="alert alert-info py-2 small">@_baseStatImportStatus</div>
+                        }
+
                         @if (_baseStatProfiles.Count > 0)
                         {
                             <div class="list-group">
@@ -828,6 +844,8 @@
                                             class="list-group-item list-group-item-action @(profile.Id == _selectedBaseStatProfileId ? "active" : "")"
                                             @onclick="() => SelectBaseStatProfile(profile.Id)">
                                         <strong>@profile.Name</strong>
+                                        <span class="badge @(profile.Id == _selectedBaseStatProfileId ? "bg-light text-dark" : "bg-secondary") ms-2">@CharacterGenderCatalog.NormalizeForProfile(profile.TargetGender)</span>
+                                        <span class="badge @(profile.Id == _selectedBaseStatProfileId ? "bg-light text-dark" : "bg-secondary") ms-2">@CharacterRoleCatalog.Normalize(profile.TargetRole)</span>
                                         <small class="d-block @(profile.Id == _selectedBaseStatProfileId ? "text-light" : "text-muted")">@Truncate(profile.Description, 100)</small>
                                     </button>
                                 }
@@ -862,6 +880,24 @@
                             <div class="col-12">
                                 <label class="form-label">Description</label>
                                 <textarea class="form-control" rows="2" @bind="_baseStatFormDescription"></textarea>
+                            </div>
+                            <div class="col-md-4" style="max-width: 280px;">
+                                <label class="form-label">Target Gender</label>
+                                <select class="form-select" @bind="_baseStatFormTargetGender">
+                                    @foreach (var option in CharacterGenderCatalog.ProfileGenders)
+                                    {
+                                        <option value="@option">@option</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="col-md-4" style="max-width: 280px;">
+                                <label class="form-label">Target Role</label>
+                                <select class="form-select" @bind="_baseStatFormTargetRole">
+                                    @foreach (var option in GetAdaptiveRoleOptions(_baseStatFormTargetRole))
+                                    {
+                                        <option value="@option">@option</option>
+                                    }
+                                </select>
                             </div>
                             <div class="col-12">
                                 <label class="form-label">Default Stats</label>
@@ -1252,6 +1288,149 @@
             </div>
         </div>
     }
+    else if (_activeTab == "roles")
+    {
+        <div class="row g-4">
+            <div class="col-lg-4">
+                <div class="card h-100">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span>Role Definitions</span>
+                        <button class="btn btn-sm btn-primary" @onclick="StartCreateRoleDefinition">New</button>
+                    </div>
+                    <div class="card-body">
+                        @if (_roleDefinitions.Count > 0)
+                        {
+                            <div class="list-group">
+                                @foreach (var role in _roleDefinitions)
+                                {
+                                    <button type="button"
+                                            class="list-group-item list-group-item-action @(role.Id == _selectedRoleDefinitionId ? "active" : "")"
+                                            @onclick="() => SelectRoleDefinition(role.Id)">
+                                        <strong>@role.Name</strong>
+                                        <small class="d-block @(role.Id == _selectedRoleDefinitionId ? "text-light" : "text-muted")">Adaptive target: @(role.UseForAdaptiveProfiles ? "Yes" : "No")</small>
+                                    </button>
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <p class="text-muted mb-0">No roles defined yet.</p>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-8">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>@(_selectedRoleDefinitionId is null ? "Create Role" : "Edit Role")</strong>
+                            <div class="text-muted small">These roles feed character, persona, and template role selectors. Adaptive target controls whether the role appears in base stat profile targeting.</div>
+                        </div>
+                        @if (_selectedRoleDefinitionId is not null)
+                        {
+                            <button class="btn btn-sm btn-outline-danger" @onclick="DeleteRoleDefinition" disabled="@_isBusy">Delete</button>
+                        }
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Name</label>
+                                <input type="text" class="form-control" @bind="_roleDefinitionFormName" />
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">Adaptive Target</label>
+                                <select class="form-select" @bind="_roleDefinitionUseForAdaptiveProfiles">
+                                    <option value="False">No</option>
+                                    <option value="True">Yes</option>
+                                </select>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Description</label>
+                                <textarea class="form-control" rows="4" @bind="_roleDefinitionFormDescription"></textarea>
+                            </div>
+                        </div>
+                        @if (!string.IsNullOrEmpty(_roleDefinitionError))
+                        {
+                            <div class="text-danger mt-3 small">@_roleDefinitionError</div>
+                        }
+                        <div class="d-flex flex-wrap gap-2 mt-3">
+                            <button class="btn btn-primary" @onclick="SaveRoleDefinition" disabled="@_isBusy">@(_selectedRoleDefinitionId is null ? "Create Role" : "Save Changes")</button>
+                            <button class="btn btn-outline-secondary" @onclick="StartCreateRoleDefinition" disabled="@_isBusy">Reset</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+    else if (_activeTab == "background-characters")
+    {
+        <div class="row g-4">
+            <div class="col-lg-4">
+                <div class="card h-100">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span>Background Character Profiles</span>
+                        <button class="btn btn-sm btn-primary" @onclick="StartCreateBackgroundCharacterProfile">New</button>
+                    </div>
+                    <div class="card-body">
+                        @if (_backgroundCharacterProfiles.Count > 0)
+                        {
+                            <div class="list-group">
+                                @foreach (var profile in _backgroundCharacterProfiles)
+                                {
+                                    <button type="button"
+                                            class="list-group-item list-group-item-action @(profile.Id == _selectedBackgroundCharacterProfileId ? "active" : "")"
+                                            @onclick="() => SelectBackgroundCharacterProfile(profile.Id)">
+                                        <strong>@profile.Name</strong>
+                                        <small class="d-block @(profile.Id == _selectedBackgroundCharacterProfileId ? "text-light" : "text-muted")">@Truncate(profile.Description, 100)</small>
+                                    </button>
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <p class="text-muted mb-0">No background character profiles yet.</p>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-8">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>@(_selectedBackgroundCharacterProfileId is null ? "Create Background Character Profile" : "Edit Background Character Profile")</strong>
+                            <div class="text-muted small">Use this list to store reusable background-character labels and descriptions outside the adaptive/stat profile system.</div>
+                        </div>
+                        @if (_selectedBackgroundCharacterProfileId is not null)
+                        {
+                            <button class="btn btn-sm btn-outline-danger" @onclick="DeleteBackgroundCharacterProfile" disabled="@_isBusy">Delete</button>
+                        }
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Name</label>
+                                <input type="text" class="form-control" @bind="_backgroundCharacterFormName" />
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Description</label>
+                                <textarea class="form-control" rows="4" @bind="_backgroundCharacterFormDescription"></textarea>
+                            </div>
+                        </div>
+                        @if (!string.IsNullOrEmpty(_backgroundCharacterError))
+                        {
+                            <div class="text-danger mt-3 small">@_backgroundCharacterError</div>
+                        }
+                        <div class="d-flex flex-wrap gap-2 mt-3">
+                            <button class="btn btn-primary" @onclick="SaveBackgroundCharacterProfile" disabled="@_isBusy">@(_selectedBackgroundCharacterProfileId is null ? "Create Profile" : "Save Changes")</button>
+                            <button class="btn btn-outline-secondary" @onclick="StartCreateBackgroundCharacterProfile" disabled="@_isBusy">Reset</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
     else if (_activeTab == "flow-guide")
     {
         <div class="row g-4">
@@ -1516,8 +1695,11 @@
     private string? _selectedBaseStatProfileId;
     private string _baseStatFormName = string.Empty;
     private string _baseStatFormDescription = string.Empty;
+    private string _baseStatFormTargetGender = CharacterGenderCatalog.Female;
+    private string _baseStatFormTargetRole = CharacterRoleCatalog.Wife;
     private Dictionary<string, int> _baseStatFormStats = new(StringComparer.OrdinalIgnoreCase);
     private string? _baseStatError;
+    private string? _baseStatImportStatus;
 
     private List<ScenarioDefinitionEntity> _scenarioDefinitions = [];
     private string? _selectedScenarioDefinitionId;
@@ -1558,6 +1740,19 @@
     private int _husbandRiskTolerance = 10;
     private string _husbandAwarenessNotes = string.Empty;
     private string? _husbandAwarenessError;
+
+    private List<RoleDefinition> _roleDefinitions = [];
+    private string? _selectedRoleDefinitionId;
+    private string _roleDefinitionFormName = string.Empty;
+    private string _roleDefinitionFormDescription = string.Empty;
+    private bool _roleDefinitionUseForAdaptiveProfiles;
+    private string? _roleDefinitionError;
+
+    private List<BackgroundCharacterProfile> _backgroundCharacterProfiles = [];
+    private string? _selectedBackgroundCharacterProfileId;
+    private string _backgroundCharacterFormName = string.Empty;
+    private string _backgroundCharacterFormDescription = string.Empty;
+    private string? _backgroundCharacterError;
 
     private static readonly IReadOnlyDictionary<string, string> StatEngineEffects = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
@@ -1632,9 +1827,27 @@
         {
             SelectHusbandAwarenessProfile(_husbandAwarenessProfiles[0].Id);
         }
+
+        if (_selectedRoleDefinitionId is null && _roleDefinitions.Count > 0)
+        {
+            SelectRoleDefinition(_roleDefinitions[0].Id);
+        }
+        else if (_selectedRoleDefinitionId is null && _roleDefinitions.Count == 0)
+        {
+            StartCreateRoleDefinition();
+        }
         else if (_selectedHusbandAwarenessProfileId is null && _husbandAwarenessProfiles.Count == 0)
         {
             StartCreateHusbandAwarenessProfile();
+        }
+
+        if (_selectedBackgroundCharacterProfileId is null && _backgroundCharacterProfiles.Count > 0)
+        {
+            SelectBackgroundCharacterProfile(_backgroundCharacterProfiles[0].Id);
+        }
+        else if (_selectedBackgroundCharacterProfileId is null && _backgroundCharacterProfiles.Count == 0)
+        {
+            StartCreateBackgroundCharacterProfile();
         }
 
         if (_selectedScenarioDefinitionId is null && _scenarioDefinitions.Count > 0)
@@ -1663,6 +1876,8 @@
         _scenarioDefinitions = (await Facade.ListScenarioDefinitionsAsync(includeDisabled: true)).ToList();
         _willingnessProfiles = await Facade.ListStatWillingnessProfilesAsync();
         _husbandAwarenessProfiles = await Facade.ListHusbandAwarenessProfilesAsync();
+        _roleDefinitions = await Facade.ListRoleDefinitionsAsync();
+        _backgroundCharacterProfiles = await Facade.ListBackgroundCharacterProfilesAsync();
         _catalogEntries = await Facade.ListCatalogEntriesAsync(includeDisabled: true);
 
         try
@@ -2159,6 +2374,8 @@
         _selectedBaseStatProfileId = null;
         _baseStatFormName = string.Empty;
         _baseStatFormDescription = string.Empty;
+        _baseStatFormTargetGender = CharacterGenderCatalog.Female;
+        _baseStatFormTargetRole = CharacterRoleCatalog.Wife;
         _baseStatError = null;
         _baseStatFormStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         foreach (var statName in BaseStatNames)
@@ -2178,6 +2395,8 @@
         _selectedBaseStatProfileId = profile.Id;
         _baseStatFormName = profile.Name;
         _baseStatFormDescription = profile.Description;
+        _baseStatFormTargetGender = CharacterGenderCatalog.NormalizeForProfile(profile.TargetGender);
+        _baseStatFormTargetRole = CharacterRoleCatalog.Normalize(profile.TargetRole);
         _baseStatError = null;
         _baseStatFormStats = new Dictionary<string, int>(profile.DefaultStats, StringComparer.OrdinalIgnoreCase);
         foreach (var statName in BaseStatNames)
@@ -2203,13 +2422,13 @@
         {
             if (_selectedBaseStatProfileId is null)
             {
-                var created = await Facade.CreateBaseStatProfileAsync(_baseStatFormName, _baseStatFormDescription, _baseStatFormStats);
+                var created = await Facade.CreateBaseStatProfileAsync(_baseStatFormName, _baseStatFormDescription, _baseStatFormStats, _baseStatFormTargetGender, _baseStatFormTargetRole);
                 await ReloadAsync();
                 SelectBaseStatProfile(created.Id);
             }
             else
             {
-                await Facade.UpdateBaseStatProfileAsync(_selectedBaseStatProfileId, _baseStatFormName, _baseStatFormDescription, _baseStatFormStats);
+                await Facade.UpdateBaseStatProfileAsync(_selectedBaseStatProfileId, _baseStatFormName, _baseStatFormDescription, _baseStatFormStats, _baseStatFormTargetGender, _baseStatFormTargetRole);
                 await ReloadAsync();
                 SelectBaseStatProfile(_selectedBaseStatProfileId);
             }
@@ -2245,6 +2464,46 @@
             {
                 StartCreateBaseStatProfile();
             }
+        }
+        catch (Exception ex)
+        {
+            _baseStatError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task ImportCharacterStatPresets()
+    {
+        _baseStatImportStatus = null;
+        _baseStatError = null;
+        _isBusy = true;
+
+        try
+        {
+            var result = await Facade.ImportCharacterStatPresetsAsync();
+            await ReloadAsync();
+
+            if (_baseStatProfiles.Count > 0)
+            {
+                if (!string.IsNullOrWhiteSpace(_selectedBaseStatProfileId)
+                    && _baseStatProfiles.Any(x => string.Equals(x.Id, _selectedBaseStatProfileId, StringComparison.OrdinalIgnoreCase)))
+                {
+                    SelectBaseStatProfile(_selectedBaseStatProfileId);
+                }
+                else
+                {
+                    SelectBaseStatProfile(_baseStatProfiles[0].Id);
+                }
+            }
+
+            var warningSuffix = result.Warnings.Count > 0
+                ? $" Warnings: {string.Join(" | ", result.Warnings.Take(3))}{(result.Warnings.Count > 3 ? " ..." : string.Empty)}"
+                : string.Empty;
+
+            _baseStatImportStatus = $"Import completed. Processed {result.TotalProcessed} preset profiles: created {result.CreatedCount}, updated {result.UpdatedCount}, unchanged {result.SkippedCount}.{warningSuffix}";
         }
         catch (Exception ex)
         {
@@ -2603,6 +2862,193 @@
         catch (Exception ex)
         {
             _husbandAwarenessError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private void StartCreateRoleDefinition()
+    {
+        _selectedRoleDefinitionId = null;
+        _roleDefinitionFormName = string.Empty;
+        _roleDefinitionFormDescription = string.Empty;
+        _roleDefinitionUseForAdaptiveProfiles = false;
+        _roleDefinitionError = null;
+    }
+
+    private void SelectRoleDefinition(string roleDefinitionId)
+    {
+        var roleDefinition = _roleDefinitions.FirstOrDefault(x => x.Id == roleDefinitionId);
+        if (roleDefinition is null)
+        {
+            return;
+        }
+
+        _selectedRoleDefinitionId = roleDefinition.Id;
+        _roleDefinitionFormName = roleDefinition.Name;
+        _roleDefinitionFormDescription = roleDefinition.Description;
+        _roleDefinitionUseForAdaptiveProfiles = roleDefinition.UseForAdaptiveProfiles;
+        _roleDefinitionError = null;
+    }
+
+    private async Task SaveRoleDefinition()
+    {
+        _roleDefinitionError = null;
+        var roleDefinition = new RoleDefinition
+        {
+            Id = _selectedRoleDefinitionId ?? Guid.NewGuid().ToString(),
+            Name = _roleDefinitionFormName,
+            Description = _roleDefinitionFormDescription,
+            UseForAdaptiveProfiles = _roleDefinitionUseForAdaptiveProfiles
+        };
+
+        _isBusy = true;
+        try
+        {
+            var saved = await Facade.SaveRoleDefinitionAsync(roleDefinition);
+            await ReloadAsync();
+            SelectRoleDefinition(saved.Id);
+        }
+        catch (Exception ex)
+        {
+            _roleDefinitionError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task DeleteRoleDefinition()
+    {
+        if (_selectedRoleDefinitionId is null)
+        {
+            return;
+        }
+
+        _roleDefinitionError = null;
+        _isBusy = true;
+        try
+        {
+            await Facade.DeleteRoleDefinitionAsync(_selectedRoleDefinitionId);
+            await ReloadAsync();
+            if (_roleDefinitions.Count > 0)
+            {
+                SelectRoleDefinition(_roleDefinitions[0].Id);
+            }
+            else
+            {
+                StartCreateRoleDefinition();
+            }
+        }
+        catch (Exception ex)
+        {
+            _roleDefinitionError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private IReadOnlyList<string> GetAdaptiveRoleOptions(string? selectedRole = null)
+    {
+        var options = _roleDefinitions.Count > 0
+            ? _roleDefinitions
+                .Where(x => x.UseForAdaptiveProfiles)
+                .Select(x => x.Name)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
+                .ToList()
+            : CharacterRoleCatalog.ProfileRoleOptions.ToList();
+
+        var normalizedSelectedRole = CharacterRoleCatalog.Normalize(selectedRole);
+        if (!string.IsNullOrWhiteSpace(normalizedSelectedRole)
+            && !string.Equals(normalizedSelectedRole, CharacterRoleCatalog.Unknown, StringComparison.OrdinalIgnoreCase)
+            && !options.Contains(normalizedSelectedRole, StringComparer.OrdinalIgnoreCase))
+        {
+            options.Add(normalizedSelectedRole);
+        }
+
+        return options;
+    }
+
+    private void StartCreateBackgroundCharacterProfile()
+    {
+        _selectedBackgroundCharacterProfileId = null;
+        _backgroundCharacterFormName = string.Empty;
+        _backgroundCharacterFormDescription = string.Empty;
+        _backgroundCharacterError = null;
+    }
+
+    private void SelectBackgroundCharacterProfile(string profileId)
+    {
+        var profile = _backgroundCharacterProfiles.FirstOrDefault(x => x.Id == profileId);
+        if (profile is null)
+        {
+            return;
+        }
+
+        _selectedBackgroundCharacterProfileId = profile.Id;
+        _backgroundCharacterFormName = profile.Name;
+        _backgroundCharacterFormDescription = profile.Description;
+        _backgroundCharacterError = null;
+    }
+
+    private async Task SaveBackgroundCharacterProfile()
+    {
+        _backgroundCharacterError = null;
+        var profile = new BackgroundCharacterProfile
+        {
+            Id = _selectedBackgroundCharacterProfileId ?? Guid.NewGuid().ToString(),
+            Name = _backgroundCharacterFormName,
+            Description = _backgroundCharacterFormDescription
+        };
+
+        _isBusy = true;
+        try
+        {
+            var saved = await Facade.SaveBackgroundCharacterProfileAsync(profile);
+            await ReloadAsync();
+            SelectBackgroundCharacterProfile(saved.Id);
+        }
+        catch (Exception ex)
+        {
+            _backgroundCharacterError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task DeleteBackgroundCharacterProfile()
+    {
+        if (_selectedBackgroundCharacterProfileId is null)
+        {
+            return;
+        }
+
+        _backgroundCharacterError = null;
+        _isBusy = true;
+        try
+        {
+            await Facade.DeleteBackgroundCharacterProfileAsync(_selectedBackgroundCharacterProfileId);
+            await ReloadAsync();
+            if (_backgroundCharacterProfiles.Count > 0)
+            {
+                SelectBackgroundCharacterProfile(_backgroundCharacterProfiles[0].Id);
+            }
+            else
+            {
+                StartCreateBackgroundCharacterProfile();
+            }
+        }
+        catch (Exception ex)
+        {
+            _backgroundCharacterError = ex.Message;
         }
         finally
         {

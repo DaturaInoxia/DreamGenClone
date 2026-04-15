@@ -2,6 +2,7 @@
 @rendermode InteractiveServer
 
 @using DreamGenClone.Application.Templates
+@using DreamGenClone.Application.StoryAnalysis
 @using DreamGenClone.Domain.Templates
 @using DreamGenClone.Web.Application.RolePlay
 @using DreamGenClone.Web.Application.Scenarios
@@ -104,6 +105,9 @@
             string personaName = "You";
             string personaDescription = string.Empty;
             string? personaTemplateId = null;
+            string personaGender = CharacterGenderCatalog.Unknown;
+            string personaRole = CharacterRoleCatalog.Unknown;
+            string? personaRelationTargetId = null;
 
             if (!string.IsNullOrWhiteSpace(_newPersonaTemplateId))
             {
@@ -113,6 +117,8 @@
                     personaName = persona.Name;
                     personaDescription = persona.Content ?? string.Empty;
                     personaTemplateId = _newPersonaTemplateId;
+                    personaGender = CharacterGenderCatalog.NormalizeForCharacter(persona.Gender);
+                    personaRole = CharacterRoleCatalog.Normalize(persona.Role);
                 }
             }
 
@@ -121,7 +127,10 @@
                 scenarioId,
                 personaName,
                 personaDescription,
-                personaTemplateId);
+                personaTemplateId,
+                personaGender,
+                personaRole,
+                personaRelationTargetId);
 
             Logger.LogInformation("Created role-play session {SessionId} from create page", created.Id);
             Navigation.NavigateTo(RolePlayRoutes.Sessions);

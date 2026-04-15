@@ -1,21 +1,32 @@
 @page "/templates"
 @rendermode InteractiveServer
 @using DreamGenClone.Application.Templates
+@using DreamGenClone.Application.StoryAnalysis
+@using DreamGenClone.Web.Application.StoryAnalysis
 @using DreamGenClone.Domain.Templates
+@using DreamGenClone.Domain.StoryAnalysis
 @using DreamGenClone.Components.Templates
 @inject ITemplateService TemplateService
+@inject StoryAnalysisFacade StoryAnalysisFacade
 
 <PageTitle>Templates</PageTitle>
 
+<div class="templates-page">
 <h1>Template Library</h1>
 
 <div class="row g-4">
     <div class="col-12 col-lg-6">
-        <EditForm Model="_editModel" OnValidSubmit="SaveAsync">
+        <EditForm Model="_editModel" OnValidSubmit="SaveAsync" class="card templates-editor-card">
             <DataAnnotationsValidator />
             <ValidationSummary />
 
-            <div class="mb-3">
+            <div class="card-header">
+                <strong>Edit Template</strong>
+            </div>
+
+            <div class="card-body">
+
+            <div class="mb-3 templates-field-max">
                 <label class="form-label">Template Type</label>
                 <InputSelect class="form-select" @bind-Value="_editModel.TemplateType">
                     @foreach (var value in Enum.GetValues<TemplateType>())
@@ -25,74 +36,262 @@
                 </InputSelect>
             </div>
 
-            <div class="mb-3">
+            <div class="mb-3 templates-field-max">
                 <label class="form-label">Name</label>
                 <InputText class="form-control" @bind-Value="_editModel.Name" />
             </div>
 
             <div class="mb-3">
                 <label class="form-label">Content</label>
-                <InputTextArea class="form-control" rows="8" @bind-Value="_editModel.Content" />
+                <InputTextArea class="form-control templates-content-input" rows="5" @bind-Value="_editModel.Content" />
             </div>
+
+            @if (IsCharacterLikeTemplate(_editModel.TemplateType))
+            {
+                <div class="mb-3 templates-field-max">
+                    <label class="form-label">Gender</label>
+                    <InputSelect class="form-select" @bind-Value="_editModel.Gender">
+                        @foreach (var option in CharacterGenderCatalog.CharacterGenders)
+                        {
+                            <option value="@option">@option</option>
+                        }
+                    </InputSelect>
+                </div>
+
+                <div class="mb-3 templates-field-max">
+                    <label class="form-label">Role</label>
+                    <InputSelect class="form-select" @bind-Value="_editModel.Role">
+                        @foreach (var option in GetCharacterRoleOptions(_editModel.Role))
+                        {
+                            <option value="@option">@option</option>
+                        }
+                    </InputSelect>
+                </div>
+
+                <div class="mb-3 templates-field-max">
+                    <label class="form-label">Relation</label>
+                    <select class="form-select"
+                            value="@(CharacterRelationCatalog.NormalizeTargetId(_editModel.RelationTargetTemplateId) ?? string.Empty)"
+                            @onchange="@(e => _editModel.RelationTargetTemplateId = CharacterRelationCatalog.NormalizeTargetId(e.Value?.ToString()))">
+                        <option value="">(None)</option>
+                        @foreach (var option in GetTemplateRelationOptions())
+                        {
+                            <option value="@option.Value">@option.Label</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="mb-3 templates-field-max">
+                    <label class="form-label">Stat Profile</label>
+                    <div class="input-group input-group-sm">
+                        <select class="form-select" @bind="_templateCharacterSelectedProfileId">
+                            <option value="">(Select Profile)</option>
+                            @foreach (var profile in GetApplicableBaseStatProfiles())
+                            {
+                                <option value="@profile.Id">@profile.Name (@CharacterGenderCatalog.NormalizeForProfile(profile.TargetGender) / @CharacterRoleCatalog.Normalize(profile.TargetRole))</option>
+                            }
+                        </select>
+                        <button type="button" class="btn btn-outline-primary" @onclick="ApplyTemplateCharacterProfile">Apply</button>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Base Stats</label>
+                    @foreach (var statName in BaseStatNames)
+                    {
+                        <div class="input-group input-group-sm mb-2 templates-stat-input-row">
+                            <span class="input-group-text" style="min-width: 140px;">@statName</span>
+                            <input type="number"
+                                   class="form-control"
+                                   min="0"
+                                   max="100"
+                                   value="@GetTemplateCharacterStat(statName)"
+                                   @onchange="@(e => SetTemplateCharacterStat(statName, e.Value?.ToString()))" />
+                        </div>
+                    }
+                </div>
+            }
 
             <TemplateImageEditor TemplateId="@_editModel.Id" OnImageStored="OnImageStoredAsync" />
 
-            <div class="mt-3 d-flex gap-2">
+            <div class="mt-3 d-flex gap-2 flex-wrap">
                 <button class="btn btn-primary" type="submit">Save</button>
                 <button class="btn btn-secondary" type="button" @onclick="NewTemplate">New</button>
+            </div>
             </div>
         </EditForm>
     </div>
 
     <div class="col-12 col-lg-6">
-        <h4>Saved Templates</h4>
-        @if (_templates.Count == 0)
-        {
-            <p>No templates yet.</p>
-        }
-        else
-        {
-            <ul class="list-group">
-                @foreach (var template in _templates)
+        <div class="card templates-list-card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h4 class="mb-0">Saved Templates</h4>
+                <span class="badge bg-secondary">@_templates.Count</span>
+            </div>
+            <div class="card-body">
+                @if (_templates.Count == 0)
                 {
-                    <li class="list-group-item d-flex justify-content-between align-items-center">
-                        <button class="btn btn-link text-start p-0" @onclick="() => SelectTemplateAsync(template.Id)">
-                            <strong>@template.Name</strong> <span class="text-muted">(@template.TemplateType)</span>
-                        </button>
-                        <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteAsync(template.Id)">Delete</button>
-                    </li>
+                    <p class="mb-0">No templates yet.</p>
                 }
-            </ul>
-        }
+                else
+                {
+                    <ul class="list-group templates-list">
+                        @foreach (var template in _templates)
+                        {
+                            <li class="list-group-item d-flex justify-content-between align-items-center gap-2">
+                                <button class="btn btn-link text-start p-0 text-decoration-none" @onclick="() => SelectTemplateAsync(template.Id)">
+                                    <strong>@template.Name</strong> <span class="text-muted">(@template.TemplateType)</span>
+                                </button>
+                                <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteAsync(template.Id)">Delete</button>
+                            </li>
+                        }
+                    </ul>
+                }
+            </div>
+        </div>
 
         <TemplatePreview Template="@_selectedTemplate" />
     </div>
+</div>
 </div>
 
 @code {
     private readonly TemplateDefinition _editModel = new();
     private List<TemplateDefinition> _templates = [];
     private TemplateDefinition? _selectedTemplate;
+    private List<BaseStatProfile> _baseStatProfiles = [];
+    private List<RoleDefinition> _roleDefinitions = [];
+    private List<TemplateDefinition> _characterLikeTemplates = [];
+    private string? _templateCharacterSelectedProfileId;
+    private static readonly string[] BaseStatNames = AdaptiveStatCatalog.CanonicalStatNames.ToArray();
 
     protected override async Task OnInitializedAsync()
     {
+        _baseStatProfiles = await StoryAnalysisFacade.ListBaseStatProfilesAsync();
+        _roleDefinitions = await StoryAnalysisFacade.ListRoleDefinitionsAsync();
         await LoadTemplatesAsync();
+    }
+
+    private IReadOnlyList<string> GetCharacterRoleOptions(string? selectedRole = null)
+    {
+        var options = _roleDefinitions.Count > 0
+            ? _roleDefinitions.Select(x => x.Name).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList()
+            : CharacterRoleCatalog.CharacterRoleOptions.ToList();
+
+        var normalizedSelectedRole = CharacterRoleCatalog.Normalize(selectedRole);
+        if (!string.IsNullOrWhiteSpace(normalizedSelectedRole)
+            && !string.Equals(normalizedSelectedRole, CharacterRoleCatalog.Unknown, StringComparison.OrdinalIgnoreCase)
+            && !options.Contains(normalizedSelectedRole, StringComparer.OrdinalIgnoreCase))
+        {
+            options.Add(normalizedSelectedRole);
+        }
+
+        return options;
     }
 
     private async Task LoadTemplatesAsync()
     {
         _templates = (await TemplateService.GetAllAsync()).ToList();
+        _characterLikeTemplates = _templates
+            .Where(t => IsCharacterLikeTemplate(t.TemplateType))
+            .OrderBy(t => t.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
         if (_selectedTemplate is not null)
         {
             _selectedTemplate = _templates.FirstOrDefault(t => t.Id == _selectedTemplate.Id);
         }
     }
 
+    private IReadOnlyList<(string Value, string Label)> GetTemplateRelationOptions()
+    {
+        var options = _characterLikeTemplates
+            .Where(x => x.Id != _editModel.Id && !string.IsNullOrWhiteSpace(x.Name))
+            .Select(x => (Value: x.Id.ToString(), Label: x.Name.Trim()))
+            .ToList();
+
+        var selectedTargetId = CharacterRelationCatalog.NormalizeTargetId(_editModel.RelationTargetTemplateId);
+        if (!string.IsNullOrWhiteSpace(selectedTargetId)
+            && !options.Any(x => string.Equals(x.Value, selectedTargetId, StringComparison.OrdinalIgnoreCase)))
+        {
+            options.Add((Value: selectedTargetId, Label: $"Unknown template ({selectedTargetId})"));
+        }
+
+        return options;
+    }
+
     private async Task SaveAsync()
     {
-        await TemplateService.SaveAsync(_editModel);
+        var previousTemplate = _characterLikeTemplates.FirstOrDefault(x => x.Id == _editModel.Id);
+        await SaveTemplateWithReciprocalRelationAsync(previousTemplate);
         await LoadTemplatesAsync();
         _selectedTemplate = await TemplateService.GetByIdAsync(_editModel.Id);
+    }
+
+    private async Task SaveTemplateWithReciprocalRelationAsync(TemplateDefinition? previousTemplate)
+    {
+        var sourceTemplateId = _editModel.Id.ToString();
+        var previousTargetId = previousTemplate is null
+            ? null
+            : CharacterRelationCatalog.NormalizeTargetId(previousTemplate.RelationTargetTemplateId);
+        var newTargetId = CharacterRelationCatalog.NormalizeTargetId(_editModel.RelationTargetTemplateId);
+
+        _editModel.RelationTargetTemplateId = newTargetId;
+        await TemplateService.SaveAsync(_editModel);
+
+        if (!string.Equals(previousTargetId, newTargetId, StringComparison.OrdinalIgnoreCase))
+        {
+            await ClearTemplateReciprocalRelationAsync(previousTargetId, sourceTemplateId);
+        }
+
+        await AssignTemplateReciprocalRelationAsync(newTargetId, sourceTemplateId);
+    }
+
+    private async Task ClearTemplateReciprocalRelationAsync(string? targetTemplateId, string sourceTemplateId)
+    {
+        if (string.IsNullOrWhiteSpace(targetTemplateId)
+            || !Guid.TryParse(targetTemplateId, out var parsedTargetTemplateId))
+        {
+            return;
+        }
+
+        var targetTemplate = await TemplateService.GetByIdAsync(parsedTargetTemplateId);
+        if (targetTemplate is null)
+        {
+            return;
+        }
+
+        if (!string.Equals(CharacterRelationCatalog.NormalizeTargetId(targetTemplate.RelationTargetTemplateId), sourceTemplateId, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        targetTemplate.RelationTargetTemplateId = null;
+        await TemplateService.SaveAsync(targetTemplate);
+    }
+
+    private async Task AssignTemplateReciprocalRelationAsync(string? targetTemplateId, string sourceTemplateId)
+    {
+        if (string.IsNullOrWhiteSpace(targetTemplateId)
+            || !Guid.TryParse(targetTemplateId, out var parsedTargetTemplateId))
+        {
+            return;
+        }
+
+        var targetTemplate = await TemplateService.GetByIdAsync(parsedTargetTemplateId);
+        if (targetTemplate is null)
+        {
+            return;
+        }
+
+        var targetsCurrentTargetId = CharacterRelationCatalog.NormalizeTargetId(targetTemplate.RelationTargetTemplateId);
+        if (!string.IsNullOrWhiteSpace(targetsCurrentTargetId)
+            && !string.Equals(targetsCurrentTargetId, sourceTemplateId, StringComparison.OrdinalIgnoreCase))
+        {
+            await ClearTemplateReciprocalRelationAsync(targetsCurrentTargetId, targetTemplate.Id.ToString());
+        }
+
+        targetTemplate.RelationTargetTemplateId = sourceTemplateId;
+        await TemplateService.SaveAsync(targetTemplate);
     }
 
     private async Task SelectTemplateAsync(Guid id)
@@ -107,12 +306,25 @@
         _editModel.TemplateType = template.TemplateType;
         _editModel.Name = template.Name;
         _editModel.Content = template.Content;
+        _editModel.Gender = CharacterGenderCatalog.NormalizeForCharacter(template.Gender);
+        _editModel.Role = CharacterRoleCatalog.Normalize(template.Role);
+        _editModel.RelationTargetTemplateId = CharacterRelationCatalog.NormalizeTargetId(template.RelationTargetTemplateId);
+        _editModel.BaseStats = AdaptiveStatCatalog.NormalizeComplete(template.BaseStats);
         _editModel.ImagePath = template.ImagePath;
         _selectedTemplate = template;
+        _templateCharacterSelectedProfileId = null;
     }
 
     private async Task DeleteAsync(Guid id)
     {
+        await ClearTemplateReciprocalRelationAsync(id.ToString(), _editModel.Id.ToString());
+
+        foreach (var template in _characterLikeTemplates.Where(x => string.Equals(CharacterRelationCatalog.NormalizeTargetId(x.RelationTargetTemplateId), id.ToString(), StringComparison.OrdinalIgnoreCase)))
+        {
+            template.RelationTargetTemplateId = null;
+            await TemplateService.SaveAsync(template);
+        }
+
         await TemplateService.DeleteAsync(id);
         if (_editModel.Id == id)
         {
@@ -144,6 +356,101 @@
         _editModel.TemplateType = TemplateType.Persona;
         _editModel.Name = string.Empty;
         _editModel.Content = string.Empty;
+        _editModel.Gender = CharacterGenderCatalog.Unknown;
+        _editModel.Role = CharacterRoleCatalog.Unknown;
+        _editModel.RelationTargetTemplateId = null;
+        _editModel.BaseStats = AdaptiveStatCatalog.CreateDefaultStatMap();
         _editModel.ImagePath = null;
+        _templateCharacterSelectedProfileId = null;
+    }
+
+    private IEnumerable<BaseStatProfile> GetApplicableBaseStatProfiles()
+    {
+        return _baseStatProfiles.Where(profile =>
+            CharacterGenderCatalog.IsProfileApplicableToCharacter(profile.TargetGender, _editModel.Gender)
+            && CharacterRoleCatalog.IsProfileApplicableToCharacter(profile.TargetRole, _editModel.Role));
+    }
+
+    private static bool IsCharacterLikeTemplate(TemplateType templateType)
+        => templateType == TemplateType.Character || templateType == TemplateType.Persona;
+
+    private int GetTemplateCharacterStat(string statName)
+    {
+        if (!_editModel.BaseStats.TryGetValue(statName, out var value))
+        {
+            value = AdaptiveStatCatalog.DefaultValue;
+            _editModel.BaseStats[statName] = value;
+        }
+
+        return value;
+    }
+
+    private void SetTemplateCharacterStat(string statName, string? rawValue)
+    {
+        if (!int.TryParse(rawValue, out var value))
+        {
+            value = AdaptiveStatCatalog.DefaultValue;
+        }
+
+        _editModel.BaseStats[statName] = Math.Clamp(value, AdaptiveStatCatalog.MinValue, AdaptiveStatCatalog.MaxValue);
+    }
+
+    private void ApplyTemplateCharacterProfile()
+    {
+        if (string.IsNullOrWhiteSpace(_templateCharacterSelectedProfileId))
+        {
+            return;
+        }
+
+        var profile = _baseStatProfiles.FirstOrDefault(x => string.Equals(x.Id, _templateCharacterSelectedProfileId, StringComparison.OrdinalIgnoreCase));
+        if (profile is null)
+        {
+            return;
+        }
+
+        _editModel.BaseStats = AdaptiveStatCatalog.NormalizeComplete(profile.DefaultStats);
+        _editModel.Gender = CharacterGenderCatalog.NormalizeForCharacter(profile.TargetGender);
+        _editModel.Role = CharacterRoleCatalog.Normalize(profile.TargetRole);
     }
 }
+
+<style>
+    .templates-page {
+        overflow-x: hidden;
+    }
+
+    .templates-editor-card,
+    .templates-list-card {
+        height: 100%;
+    }
+
+    .templates-field-max {
+        max-width: 560px;
+    }
+
+    .templates-content-input {
+        min-height: 130px;
+        max-height: 260px;
+        resize: vertical;
+    }
+
+    .templates-stat-input-row {
+        max-width: 360px;
+    }
+
+    .templates-list {
+        max-height: 320px;
+        overflow-y: auto;
+    }
+
+    @@media (max-width: 991.98px) {
+        .templates-field-max,
+        .templates-stat-input-row {
+            max-width: 100%;
+        }
+
+        .templates-list {
+            max-height: 260px;
+        }
+    }
+</style>

@@ -157,12 +157,14 @@ internal static class RolePlayTestFactory
     {
         private readonly Dictionary<string, BaseStatProfile> _profiles = new(StringComparer.OrdinalIgnoreCase);
 
-        public Task<BaseStatProfile> CreateAsync(string name, string description, IReadOnlyDictionary<string, int> defaultStats, CancellationToken cancellationToken = default)
+        public Task<BaseStatProfile> CreateAsync(string name, string description, IReadOnlyDictionary<string, int> defaultStats, string targetGender, string targetRole, CancellationToken cancellationToken = default)
         {
             var profile = new BaseStatProfile
             {
                 Name = name,
                 Description = description,
+                TargetGender = CharacterGenderCatalog.NormalizeForProfile(targetGender),
+                TargetRole = CharacterRoleCatalog.Normalize(targetRole),
                 DefaultStats = new Dictionary<string, int>(defaultStats, StringComparer.OrdinalIgnoreCase)
             };
 
@@ -179,7 +181,7 @@ internal static class RolePlayTestFactory
             return Task.FromResult(profile);
         }
 
-        public Task<BaseStatProfile?> UpdateAsync(string id, string name, string description, IReadOnlyDictionary<string, int> defaultStats, CancellationToken cancellationToken = default)
+        public Task<BaseStatProfile?> UpdateAsync(string id, string name, string description, IReadOnlyDictionary<string, int> defaultStats, string targetGender, string targetRole, CancellationToken cancellationToken = default)
         {
             if (!_profiles.TryGetValue(id, out var existing))
             {
@@ -188,6 +190,8 @@ internal static class RolePlayTestFactory
 
             existing.Name = name;
             existing.Description = description;
+            existing.TargetGender = CharacterGenderCatalog.NormalizeForProfile(targetGender);
+            existing.TargetRole = CharacterRoleCatalog.Normalize(targetRole);
             existing.DefaultStats = new Dictionary<string, int>(defaultStats, StringComparer.OrdinalIgnoreCase);
             return Task.FromResult<BaseStatProfile?>(existing);
         }

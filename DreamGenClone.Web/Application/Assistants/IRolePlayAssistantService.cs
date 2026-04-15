@@ -11,6 +11,8 @@ public sealed class RolePlayAssistantContext
     public string? BehaviorMode { get; init; }
     public string? PersonaName { get; init; }
     public string? PersonaDescription { get; init; }
+    public string? PersonaRole { get; init; }
+    public string? PersonaRelationSummary { get; init; }
     public IReadOnlyList<string> CharacterSummaries { get; init; } = [];
     public int ContextWindowSize { get; init; }
     public int PinnedInteractionCount { get; init; }

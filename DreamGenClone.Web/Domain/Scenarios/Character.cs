@@ -11,7 +11,15 @@ public class Character
     public string Id { get; set; } = Guid.NewGuid().ToString();
     public string? Name { get; set; }
     public string? Description { get; set; }
-    public string? Role { get; set; }
+    public string Role { get; set; } = "Unknown";
+
+    public string Gender { get; set; } = "Unknown";
+
+    /// <summary>
+    /// Optional linked relation target used to disambiguate paired roles such as wife/husband.
+    /// Target can be another scenario character id or the special persona target token.
+    /// </summary>
+    public string? RelationTargetId { get; set; }
     
     /// <summary>
     /// Reference to a CharacterTemplate ID if this character is template-backed.

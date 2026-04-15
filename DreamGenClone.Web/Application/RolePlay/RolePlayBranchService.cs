@@ -34,7 +34,7 @@ public sealed class RolePlayBranchService : IRolePlayBranchService
 
         var clone = await _engineService.CreateSessionAsync(
             branchTitle, source.ScenarioId,
-            source.PersonaName, source.PersonaDescription, source.PersonaTemplateId,
+            source.PersonaName, source.PersonaDescription, source.PersonaTemplateId, source.PersonaGender, source.PersonaRole, source.PersonaRelationTargetId,
             cancellationToken);
         clone.ParentSessionId = source.Id;
         clone.BehaviorMode = source.BehaviorMode;
@@ -76,7 +76,7 @@ public sealed class RolePlayBranchService : IRolePlayBranchService
 
         var clone = await _engineService.CreateSessionAsync(
             branchTitle, source.ScenarioId,
-            source.PersonaName, source.PersonaDescription, source.PersonaTemplateId,
+            source.PersonaName, source.PersonaDescription, source.PersonaTemplateId, source.PersonaGender, source.PersonaRole, source.PersonaRelationTargetId,
             cancellationToken);
         clone.ParentSessionId = source.Id;
         clone.BehaviorMode = source.BehaviorMode;
@@ -113,7 +113,7 @@ public sealed class RolePlayBranchService : IRolePlayBranchService
 
         var clone = await _engineService.CreateSessionAsync(
             branchTitle, source.ScenarioId,
-            source.PersonaName, source.PersonaDescription, source.PersonaTemplateId,
+            source.PersonaName, source.PersonaDescription, source.PersonaTemplateId, source.PersonaGender, source.PersonaRole, source.PersonaRelationTargetId,
             cancellationToken);
         clone.ParentSessionId = source.Id;
         clone.BehaviorMode = source.BehaviorMode;
