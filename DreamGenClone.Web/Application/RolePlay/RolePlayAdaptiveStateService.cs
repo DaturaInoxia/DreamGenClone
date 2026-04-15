@@ -196,6 +196,10 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             ApplyDelta(actorStats.Stats, "Tension", ScoreStatSignal(contentLower, ["fear", "caught", "risk", "panic", "nervous"], 1, 4));
             ApplyDelta(actorStats.Stats, "Connection", ScoreStatSignal(contentLower, ["safe", "comfort", "trust", "reassure"], 1, 3));
             ApplyDelta(actorStats.Stats, "Dominance", ScoreStatSignal(contentLower, ["control", "command", "obey", "claim", "choose", "decide", "insist"], 1, 3));
+            ApplyDelta(actorStats.Stats, "Loyalty", ScoreStatSignal(contentLower, ["husband", "wife", "promise", "vow", "faithful", "devoted", "commitment"], 1, 5));
+            ApplyDelta(actorStats.Stats, "Loyalty", -ScoreStatSignal(contentLower, ["affair", "betray", "cheat", "secret", "sneak", "stranger"], 1, 5));
+            ApplyDelta(actorStats.Stats, "SelfRespect", ScoreStatSignal(contentLower, ["boundary", "boundaries", "respect", "dignity", "self-worth", "walk away", "no"], 1, 5));
+            ApplyDelta(actorStats.Stats, "SelfRespect", -ScoreStatSignal(contentLower, ["humiliate", "ashamed", "used", "degraded", "demean"], 1, 5));
 
             actorStats.UpdatedUtc = DateTime.UtcNow;
         }
@@ -402,10 +406,24 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             reasonCode = "late-phase-gentle-escalation";
         }
 
+        var selectedProfile = !string.IsNullOrWhiteSpace(session.SelectedIntensityProfileId)
+            ? profiles.FirstOrDefault(x => string.Equals(x.Id, session.SelectedIntensityProfileId, StringComparison.OrdinalIgnoreCase))
+            : null;
+        var phaseBaselineSourceProfile = selectedProfile ?? currentProfile;
+        var phaseBaselineDelta = phaseBaselineSourceProfile.GetPhaseOffset(session.AdaptiveState.CurrentNarrativePhase);
+        var selectedScale = selectedProfile is not null
+            ? (int)selectedProfile.Intensity
+            : (int)currentProfile.Intensity;
+
+        var flowBaselineScale = Math.Clamp(selectedScale + phaseBaselineDelta, 1, 5);
+        var boundedStatDelta = Math.Clamp(delta, -1, 1);
+
         var floor = RolePlayStyleResolver.ParseBoundScale(session.IntensityFloorOverride);
         var ceiling = RolePlayStyleResolver.ParseBoundScale(session.IntensityCeilingOverride);
-        var targetScale = (int)currentProfile.Intensity + delta;
-        targetScale = Math.Clamp(targetScale, 0, 5);
+        var targetScale = flowBaselineScale + boundedStatDelta;
+        targetScale = Math.Clamp(targetScale, 1, 5);
+
+        reasonCode += $"|phase={session.AdaptiveState.CurrentNarrativePhase}|phase-delta={phaseBaselineDelta}|stat-delta={boundedStatDelta}";
 
         if (floor.HasValue && targetScale < floor.Value)
         {

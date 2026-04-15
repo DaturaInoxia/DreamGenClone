@@ -1,7 +1,9 @@
 using DreamGenClone.Application.Abstractions;
 using DreamGenClone.Application.ModelManager;
+using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Application.StoryAnalysis;
 using DreamGenClone.Application.StoryAnalysis.Models;
+using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Domain.StoryAnalysis;
 using DreamGenClone.Web.Application.Models;
@@ -104,7 +106,60 @@ public sealed class RolePlayContinuationNarrativeValidationTests
         Assert.Equal("Rain tapped softly on the windows while the room settled into a fragile quiet, and the evening eased into its next turn without spectacle.", result.NarrativeOutput!.Content);
     }
 
-    private static RolePlayContinuationService CreateService(QueueCompletionClient completion, out RecordingDebugEventSink debugSink)
+    [Fact]
+    public async Task ContinueAsync_WhenThemeGuidanceEnabled_AppendsThemeHintsToPrompt()
+    {
+        var completion = new QueueCompletionClient([
+            "Dean stepped closer and lowered his voice."
+        ]);
+
+        var rpThemeService = new StubRpThemeService(new RPTheme
+        {
+            Id = "infidelity-public-facade",
+            AIGenerationNotes =
+            [
+                new RPThemeAIGuidanceNote
+                {
+                    Section = RPThemeAIGuidanceSection.InteractionDynamics,
+                    Text = "Escalate excuse complexity over time.",
+                    SortOrder = 0
+                }
+            ]
+        });
+
+        var service = CreateService(completion, out _, rpThemeService);
+        var session = new RolePlaySession
+        {
+            Id = "s4",
+            PersonaName = "Becky",
+            UseRpThemeSubsystem = true,
+            UseThemeAIGuidanceNotesInPrompt = true,
+            ThemeAIGuidanceInfluencePercent = 55,
+            MaxThemeAIGuidanceNotes = 4,
+            AdaptiveState = new RolePlayAdaptiveState
+            {
+                ActiveScenarioId = "infidelity-public-facade",
+                CurrentNarrativePhase = DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Committed
+            }
+        };
+
+        await service.ContinueAsync(
+            session,
+            ContinueAsActor.Npc,
+            customActorName: null,
+            intent: PromptIntent.Message,
+            promptText: "Continue naturally.");
+
+        Assert.Single(completion.Prompts);
+        var prompt = completion.Prompts[0];
+        Assert.Contains("Theme AI Guidance (soft hints, influence=55%):", prompt, StringComparison.Ordinal);
+        Assert.Contains("Escalate excuse complexity over time.", prompt, StringComparison.Ordinal);
+    }
+
+    private static RolePlayContinuationService CreateService(
+        QueueCompletionClient completion,
+        out RecordingDebugEventSink debugSink,
+        IRPThemeService? rpThemeService = null)
     {
         debugSink = new RecordingDebugEventSink();
 
@@ -119,7 +174,9 @@ public sealed class RolePlayContinuationNarrativeValidationTests
             new NullSteeringProfileService(),
             new StubScenarioGuidanceContextFactory(),
             debugSink,
-            NullLogger<RolePlayContinuationService>.Instance);
+                NullLogger<RolePlayContinuationService>.Instance,
+                diagnosticsService: null,
+                rpThemeService: rpThemeService);
     }
 
     private sealed class QueueCompletionClient : ICompletionClient
@@ -233,7 +290,16 @@ public sealed class RolePlayContinuationNarrativeValidationTests
 
     private sealed class NullIntensityProfileService : IIntensityProfileService
     {
-        public Task<IntensityProfile> CreateAsync(string name, string description, IntensityLevel intensity, CancellationToken cancellationToken = default)
+        public Task<IntensityProfile> CreateAsync(
+            string name,
+            string description,
+            IntensityLevel intensity,
+            int buildUpPhaseOffset,
+            int committedPhaseOffset,
+            int approachingPhaseOffset,
+            int climaxPhaseOffset,
+            int resetPhaseOffset,
+            CancellationToken cancellationToken = default)
             => throw new NotImplementedException();
 
         public Task<List<IntensityProfile>> ListAsync(CancellationToken cancellationToken = default)
@@ -242,7 +308,17 @@ public sealed class RolePlayContinuationNarrativeValidationTests
         public Task<IntensityProfile?> GetAsync(string id, CancellationToken cancellationToken = default)
             => Task.FromResult<IntensityProfile?>(null);
 
-        public Task<IntensityProfile?> UpdateAsync(string id, string name, string description, IntensityLevel intensity, CancellationToken cancellationToken = default)
+        public Task<IntensityProfile?> UpdateAsync(
+            string id,
+            string name,
+            string description,
+            IntensityLevel intensity,
+            int buildUpPhaseOffset,
+            int committedPhaseOffset,
+            int approachingPhaseOffset,
+            int climaxPhaseOffset,
+            int resetPhaseOffset,
+            CancellationToken cancellationToken = default)
             => Task.FromResult<IntensityProfile?>(null);
 
         public Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default)
@@ -277,6 +353,61 @@ public sealed class RolePlayContinuationNarrativeValidationTests
                 GuidanceText: "Keep pacing coherent.",
                 ExcludedScenarioIds: []));
         }
+    }
+
+    private sealed class StubRpThemeService : IRPThemeService
+    {
+        private readonly RPTheme _theme;
+
+        public StubRpThemeService(RPTheme theme)
+        {
+            _theme = theme;
+        }
+
+        public Task<RPThemeProfile> SaveProfileAsync(RPThemeProfile profile, CancellationToken cancellationToken = default)
+            => Task.FromResult(profile);
+
+        public Task<IReadOnlyList<RPThemeProfile>> ListProfilesAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<RPThemeProfile>>([]);
+
+        public Task<RPThemeProfile?> GetProfileAsync(string id, CancellationToken cancellationToken = default)
+            => Task.FromResult<RPThemeProfile?>(null);
+
+        public Task<bool> DeleteProfileAsync(string id, CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+
+        public Task<RPTheme> SaveThemeAsync(RPTheme theme, CancellationToken cancellationToken = default)
+            => Task.FromResult(theme);
+
+        public Task<IReadOnlyList<RPTheme>> ListThemesAsync(bool includeDisabled = false, CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<RPTheme>>([_theme]);
+
+        public Task<IReadOnlyList<RPTheme>> ListThemesByProfileAsync(string profileId, bool includeDisabled = false, CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<RPTheme>>([_theme]);
+
+        public Task<RPTheme?> GetThemeAsync(string id, CancellationToken cancellationToken = default)
+            => Task.FromResult(string.Equals(id, _theme.Id, StringComparison.OrdinalIgnoreCase) ? _theme : null);
+
+        public Task<bool> DeleteThemeAsync(string id, CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+
+        public Task<RPThemeProfileThemeAssignment> SaveProfileAssignmentAsync(RPThemeProfileThemeAssignment assignment, CancellationToken cancellationToken = default)
+            => Task.FromResult(assignment);
+
+        public Task<IReadOnlyList<RPThemeProfileThemeAssignment>> ListProfileAssignmentsAsync(string profileId, CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<RPThemeProfileThemeAssignment>>([]);
+
+        public Task<bool> DeleteProfileAssignmentAsync(string assignmentId, CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+
+        public Task<IReadOnlyList<RPThemeImportResult>> ImportFromMarkdownAsync(IReadOnlyList<RPThemeImportFile> files, CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<RPThemeImportResult>>([]);
+
+        public Task<IReadOnlyList<RPThemeImportResult>> SyncFromMarkdownDirectoryAsync(string directoryPath, CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<RPThemeImportResult>>([]);
+
+        public Task TruncateRolePlayAndScenarioDataAsync(CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
     }
 
     private sealed class RecordingDebugEventSink : IRolePlayDebugEventSink

@@ -16,6 +16,18 @@ public enum RPThemeGuidancePointType
     Avoidance = 1
 }
 
+public enum RPThemeAIGuidanceSection
+{
+    KeyScenarioElement = 0,
+    Avoidance = 1,
+    InteractionDynamics = 2,
+    ScenarioDistinction = 3,
+    Variation = 4,
+    FitNote = 5,
+    FitFormula = 6,
+    FitPattern = 7
+}
+
 public sealed class RPThemeProfile
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
@@ -42,6 +54,8 @@ public sealed class RPTheme
     public List<RPThemeStatAffinity> StatAffinities { get; set; } = [];
     public List<RPThemePhaseGuidance> PhaseGuidance { get; set; } = [];
     public List<RPThemeGuidancePoint> GuidancePoints { get; set; } = [];
+    public List<RPThemeFitRule> FitRules { get; set; } = [];
+    public List<RPThemeAIGuidanceNote> AIGenerationNotes { get; set; } = [];
 }
 
 public sealed class RPThemeRelationship
@@ -86,6 +100,7 @@ public sealed class RPThemeFitRule
     public string ThemeId { get; set; } = string.Empty;
     public string RoleName { get; set; } = string.Empty;
     public double RoleWeight { get; set; } = 1.0;
+    public List<RPThemeFitRuleClause> Clauses { get; set; } = [];
 }
 
 public sealed class RPThemeFitRuleClause
@@ -113,6 +128,15 @@ public sealed class RPThemeGuidancePoint
     public string ThemeId { get; set; } = string.Empty;
     public NarrativePhase Phase { get; set; } = NarrativePhase.BuildUp;
     public RPThemeGuidancePointType PointType { get; set; } = RPThemeGuidancePointType.Emphasis;
+    public string Text { get; set; } = string.Empty;
+    public int SortOrder { get; set; }
+}
+
+public sealed class RPThemeAIGuidanceNote
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string ThemeId { get; set; } = string.Empty;
+    public RPThemeAIGuidanceSection Section { get; set; } = RPThemeAIGuidanceSection.KeyScenarioElement;
     public string Text { get; set; } = string.Empty;
     public int SortOrder { get; set; }
 }

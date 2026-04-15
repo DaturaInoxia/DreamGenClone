@@ -12,13 +12,13 @@ public static class RolePlayStyleResolver
         SteeringProfile? styleProfile = null,
         IReadOnlyList<ThemePreference>? themePreferences = null)
     {
-        var selectedScale = baseIntensityLevel.HasValue ? (int)baseIntensityLevel.Value : 2;
-        var adaptiveScale = adaptiveIntensityLevel.HasValue ? (int)adaptiveIntensityLevel.Value : selectedScale;
+        var selectedScale = NormalizeCharacterScale(baseIntensityLevel.HasValue ? (int)baseIntensityLevel.Value : 2);
+        var adaptiveScale = NormalizeCharacterScale(adaptiveIntensityLevel.HasValue ? (int)adaptiveIntensityLevel.Value : selectedScale);
         var baseScale = session.IsIntensityManuallyPinned ? selectedScale : adaptiveScale;
         var reasonParts = new List<string>
         {
-            $"selected={(IntensityLevel)Math.Clamp(selectedScale, 0, 5)}",
-            $"adaptive={(IntensityLevel)Math.Clamp(adaptiveScale, 0, 5)}"
+            $"selected={(IntensityLevel)NormalizeCharacterScale(selectedScale)}",
+            $"adaptive={(IntensityLevel)NormalizeCharacterScale(adaptiveScale)}"
         };
 
         if (!session.IsIntensityManuallyPinned)
@@ -112,7 +112,7 @@ public static class RolePlayStyleResolver
             reasonParts.Add("bounds=normalized(floor>ceiling)");
         }
 
-        var clamped = Math.Clamp(baseScale, 0, 5);
+        var clamped = NormalizeCharacterScale(baseScale);
         if (floor.HasValue && clamped < floor.Value)
         {
             clamped = floor.Value;
@@ -130,12 +130,19 @@ public static class RolePlayStyleResolver
 
     public static int? ParseBoundScale(string? bound)
     {
-        return IntensityLadder.ParseScale(bound);
+        var parsed = IntensityLadder.ParseScale(bound);
+        return parsed.HasValue ? NormalizeCharacterScale(parsed.Value) : null;
     }
 
     public static string ToStyleLabel(int scale)
     {
-        return IntensityLadder.GetLabel(scale);
+        return IntensityLadder.GetLabel(NormalizeCharacterScale(scale));
+    }
+
+    private static int NormalizeCharacterScale(int scale)
+    {
+        // Character turns never use Atmospheric/Intro; Emotional is the minimum.
+        return Math.Clamp(scale, 1, 5);
     }
 
     private static bool IsEscalatingTheme(string themeId, IReadOnlyList<string>? profileEscalatingThemeIds)

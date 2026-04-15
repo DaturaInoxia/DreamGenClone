@@ -145,6 +145,21 @@ public sealed class RolePlaySession
     /// <summary>Adaptive theme and stat state updated per interaction.</summary>
     public RolePlayAdaptiveState AdaptiveState { get; set; } = new();
 
+    /// <summary>
+    /// When true, structured RP theme AI guidance notes are included as soft prompt hints.
+    /// </summary>
+    public bool UseThemeAIGuidanceNotesInPrompt { get; set; } = true;
+
+    /// <summary>
+    /// Soft influence weight for structured RP theme AI guidance notes (0-100).
+    /// </summary>
+    public int ThemeAIGuidanceInfluencePercent { get; set; } = 35;
+
+    /// <summary>
+    /// Upper bound on how many structured RP theme AI guidance notes are injected into the prompt.
+    /// </summary>
+    public int MaxThemeAIGuidanceNotes { get; set; } = 6;
+
     /// <summary>Decision points already applied in this session.</summary>
     public List<string> AppliedDecisionPointIds { get; set; } = [];
 

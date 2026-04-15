@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using DreamGenClone.Application.RolePlay;
+using DreamGenClone.Application.StoryAnalysis;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Infrastructure.Configuration;
 using Microsoft.Data.Sqlite;
@@ -10,9 +11,12 @@ namespace DreamGenClone.Infrastructure.RolePlay;
 
 public sealed partial class RPThemeService : IRPThemeService
 {
+    private const string AutoBackfillRationale = "auto-backfilled for canonical stat parity";
+
     private readonly string _connectionString;
     private readonly ILogger<RPThemeService> _logger;
     private bool? _rpThemesHasProfileIdColumn;
+    private bool _supplementalTablesEnsured;
 
     public RPThemeService(IOptions<PersistenceOptions> options, ILogger<RPThemeService> logger)
     {
@@ -137,6 +141,8 @@ public sealed partial class RPThemeService : IRPThemeService
             throw new ArgumentException("Theme label is required.", nameof(theme));
         }
 
+        EnsureCanonicalStatAffinities(theme);
+
         await using var connection = await OpenConnectionAsync(cancellationToken);
         await EnsureGlobalThemeLibraryProfileAsync(connection, cancellationToken);
         await using var tx = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
@@ -246,6 +252,9 @@ public sealed partial class RPThemeService : IRPThemeService
             theme.StatAffinities = await LoadThemeStatAffinitiesAsync(connection, theme.Id, cancellationToken);
             theme.PhaseGuidance = await LoadThemePhaseGuidanceAsync(connection, theme.Id, cancellationToken);
             theme.GuidancePoints = await LoadThemeGuidancePointsAsync(connection, theme.Id, cancellationToken);
+            theme.FitRules = await LoadThemeFitRulesAsync(connection, theme.Id, cancellationToken);
+            theme.AIGenerationNotes = await LoadThemeAIGuidanceNotesAsync(connection, theme.Id, cancellationToken);
+            await EnsureCanonicalStatAffinitiesPersistedAsync(connection, theme, cancellationToken);
         }
 
         return themes;
@@ -296,6 +305,9 @@ public sealed partial class RPThemeService : IRPThemeService
             theme.StatAffinities = await LoadThemeStatAffinitiesAsync(connection, theme.Id, cancellationToken);
             theme.PhaseGuidance = await LoadThemePhaseGuidanceAsync(connection, theme.Id, cancellationToken);
             theme.GuidancePoints = await LoadThemeGuidancePointsAsync(connection, theme.Id, cancellationToken);
+            theme.FitRules = await LoadThemeFitRulesAsync(connection, theme.Id, cancellationToken);
+            theme.AIGenerationNotes = await LoadThemeAIGuidanceNotesAsync(connection, theme.Id, cancellationToken);
+            await EnsureCanonicalStatAffinitiesPersistedAsync(connection, theme, cancellationToken);
         }
 
         return themes;
@@ -331,6 +343,9 @@ public sealed partial class RPThemeService : IRPThemeService
         theme.StatAffinities = await LoadThemeStatAffinitiesAsync(connection, theme.Id, cancellationToken);
         theme.PhaseGuidance = await LoadThemePhaseGuidanceAsync(connection, theme.Id, cancellationToken);
         theme.GuidancePoints = await LoadThemeGuidancePointsAsync(connection, theme.Id, cancellationToken);
+        theme.FitRules = await LoadThemeFitRulesAsync(connection, theme.Id, cancellationToken);
+        theme.AIGenerationNotes = await LoadThemeAIGuidanceNotesAsync(connection, theme.Id, cancellationToken);
+        await EnsureCanonicalStatAffinitiesPersistedAsync(connection, theme, cancellationToken);
 
         return theme;
     }
@@ -501,7 +516,9 @@ public sealed partial class RPThemeService : IRPThemeService
                             ThemeId = parsed.Id,
                             Phase = x.Phase,
                             GuidanceText = x.Text
-                        }).ToList()
+                        }).ToList(),
+                        FitRules = parsed.FitRules.ToList(),
+                        AIGenerationNotes = parsed.AIGuidanceNotes.ToList()
                     };
 
                     await SaveThemeWithConnectionAsync(connection, tx, theme, cancellationToken);
@@ -649,6 +666,7 @@ public sealed partial class RPThemeService : IRPThemeService
 
     private static async Task SaveThemeWithConnectionAsync(SqliteConnection connection, SqliteTransaction tx, RPTheme theme, CancellationToken cancellationToken)
     {
+        EnsureCanonicalStatAffinities(theme);
         theme.UpdatedUtc = DateTime.UtcNow;
         if (theme.CreatedUtc == default)
         {
@@ -739,7 +757,9 @@ public sealed partial class RPThemeService : IRPThemeService
             "DELETE FROM RPThemeKeywords WHERE ThemeId = $themeId",
             "DELETE FROM RPThemeStatAffinities WHERE ThemeId = $themeId",
             "DELETE FROM RPThemePhaseGuidance WHERE ThemeId = $themeId",
-            "DELETE FROM RPThemeGuidancePoints WHERE ThemeId = $themeId"
+            "DELETE FROM RPThemeGuidancePoints WHERE ThemeId = $themeId",
+            "DELETE FROM RPThemeAIGuidanceNotes WHERE ThemeId = $themeId",
+            "DELETE FROM RPThemeFitRules WHERE ThemeId = $themeId"
         };
 
         foreach (var clearSql in clearTables)
@@ -802,6 +822,50 @@ public sealed partial class RPThemeService : IRPThemeService
             cmd.Parameters.AddWithValue("$sortOrder", point.SortOrder);
             await cmd.ExecuteNonQueryAsync(cancellationToken);
         }
+
+        foreach (var rule in theme.FitRules)
+        {
+            var ruleId = string.IsNullOrWhiteSpace(rule.Id) ? Guid.NewGuid().ToString("N") : rule.Id;
+
+            await using (var cmd = connection.CreateCommand())
+            {
+                cmd.Transaction = tx;
+                cmd.CommandText = "INSERT INTO RPThemeFitRules (Id, ThemeId, RoleName, RoleWeight) VALUES ($id, $themeId, $roleName, $roleWeight)";
+                cmd.Parameters.AddWithValue("$id", ruleId);
+                cmd.Parameters.AddWithValue("$themeId", theme.Id);
+                cmd.Parameters.AddWithValue("$roleName", rule.RoleName);
+                cmd.Parameters.AddWithValue("$roleWeight", rule.RoleWeight);
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            foreach (var clause in rule.Clauses)
+            {
+                await using var clauseCmd = connection.CreateCommand();
+                clauseCmd.Transaction = tx;
+                clauseCmd.CommandText = "INSERT INTO RPThemeFitRuleClauses (Id, FitRuleId, StatName, Comparator, Threshold, PenaltyWeight, Description) VALUES ($id, $fitRuleId, $statName, $comparator, $threshold, $penaltyWeight, $description)";
+                clauseCmd.Parameters.AddWithValue("$id", string.IsNullOrWhiteSpace(clause.Id) ? Guid.NewGuid().ToString("N") : clause.Id);
+                clauseCmd.Parameters.AddWithValue("$fitRuleId", ruleId);
+                clauseCmd.Parameters.AddWithValue("$statName", clause.StatName);
+                clauseCmd.Parameters.AddWithValue("$comparator", clause.Comparator);
+                clauseCmd.Parameters.AddWithValue("$threshold", clause.Threshold);
+                clauseCmd.Parameters.AddWithValue("$penaltyWeight", clause.PenaltyWeight);
+                clauseCmd.Parameters.AddWithValue("$description", clause.Description ?? string.Empty);
+                await clauseCmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+        }
+
+        foreach (var note in theme.AIGenerationNotes)
+        {
+            await using var cmd = connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = "INSERT INTO RPThemeAIGuidanceNotes (Id, ThemeId, Section, Text, SortOrder) VALUES ($id, $themeId, $section, $text, $sortOrder)";
+            cmd.Parameters.AddWithValue("$id", string.IsNullOrWhiteSpace(note.Id) ? Guid.NewGuid().ToString("N") : note.Id);
+            cmd.Parameters.AddWithValue("$themeId", theme.Id);
+            cmd.Parameters.AddWithValue("$section", note.Section.ToString());
+            cmd.Parameters.AddWithValue("$text", note.Text);
+            cmd.Parameters.AddWithValue("$sortOrder", note.SortOrder);
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
     }
 
     private static ParsedThemeDefinition ParseMarkdown(string markdown, string sourcePath, List<string> warnings)
@@ -842,7 +906,32 @@ public sealed partial class RPThemeService : IRPThemeService
             warnings.Add("No phase guidance sections detected.");
         }
 
-        return new ParsedThemeDefinition(id, label, category, description, weight, parentThemeId, keywords, statAffinities, phaseGuidance);
+        var fitRules = ExtractFitRules(markdown, out var fitNotes, out var fitFormula);
+        if (fitRules.Count == 0)
+        {
+            warnings.Add("No character fit logic thresholds detected.");
+        }
+
+        var aiGuidanceNotes = ExtractAIGenerationNotes(markdown);
+        aiGuidanceNotes.AddRange(fitNotes);
+        if (!string.IsNullOrWhiteSpace(fitFormula))
+        {
+            aiGuidanceNotes.Add(new RPThemeAIGuidanceNote
+            {
+                ThemeId = id,
+                Section = RPThemeAIGuidanceSection.FitFormula,
+                Text = fitFormula,
+                SortOrder = aiGuidanceNotes.Count
+            });
+        }
+
+        for (var i = 0; i < aiGuidanceNotes.Count; i++)
+        {
+            aiGuidanceNotes[i].ThemeId = id;
+            aiGuidanceNotes[i].SortOrder = i;
+        }
+
+        return new ParsedThemeDefinition(id, label, category, description, weight, parentThemeId, keywords, statAffinities, phaseGuidance, fitRules, aiGuidanceNotes);
     }
 
     private static string? MatchValue(string content, Regex regex)
@@ -1017,7 +1106,8 @@ public sealed partial class RPThemeService : IRPThemeService
             var text = string.Join(' ', block.Split('\n', StringSplitOptions.RemoveEmptyEntries)
                 .Select(x => x.Trim())
                 .Where(x => !x.StartsWith("###", StringComparison.Ordinal))
-                .Take(4));
+                .Where(x => !x.StartsWith("---", StringComparison.Ordinal))
+                .ToList());
 
             if (!string.IsNullOrWhiteSpace(text))
             {
@@ -1026,6 +1116,198 @@ public sealed partial class RPThemeService : IRPThemeService
         }
 
         return list;
+    }
+
+    private static List<RPThemeAIGuidanceNote> ExtractAIGenerationNotes(string markdown)
+    {
+        var notes = new List<RPThemeAIGuidanceNote>();
+        var block = GetSectionBlock(markdown, "## Notes for AI Generation");
+        if (string.IsNullOrWhiteSpace(block))
+        {
+            return notes;
+        }
+
+        var sectionMap = new Dictionary<string, RPThemeAIGuidanceSection>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Key Scenario Elements to Emphasize"] = RPThemeAIGuidanceSection.KeyScenarioElement,
+            ["What to Avoid"] = RPThemeAIGuidanceSection.Avoidance,
+            ["Interaction Dynamics"] = RPThemeAIGuidanceSection.InteractionDynamics,
+            ["Scenario Distinction from Related Themes"] = RPThemeAIGuidanceSection.ScenarioDistinction,
+            ["Variations Within This Scenario"] = RPThemeAIGuidanceSection.Variation,
+            ["Optional Variations Within This Scenario"] = RPThemeAIGuidanceSection.Variation
+        };
+
+        RPThemeAIGuidanceSection? currentSection = null;
+        foreach (var rawLine in block.Split('\n'))
+        {
+            var line = rawLine.Trim();
+            if (string.IsNullOrWhiteSpace(line) || line.StartsWith("##", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (line.StartsWith("**", StringComparison.Ordinal) && line.EndsWith(":**", StringComparison.Ordinal))
+            {
+                var sectionLabel = line.Trim('*', ':', ' ');
+                currentSection = sectionMap.TryGetValue(sectionLabel, out var mapped) ? mapped : null;
+                continue;
+            }
+
+            if (currentSection is null)
+            {
+                continue;
+            }
+
+            var noteText = NormalizeListItem(line);
+            if (string.IsNullOrWhiteSpace(noteText))
+            {
+                continue;
+            }
+
+            notes.Add(new RPThemeAIGuidanceNote
+            {
+                Section = currentSection.Value,
+                Text = noteText,
+                SortOrder = notes.Count
+            });
+        }
+
+        return notes;
+    }
+
+    private static List<RPThemeFitRule> ExtractFitRules(
+        string markdown,
+        out List<RPThemeAIGuidanceNote> fitNotes,
+        out string fitFormula)
+    {
+        fitNotes = new List<RPThemeAIGuidanceNote>();
+        fitFormula = string.Empty;
+
+        var rules = new List<RPThemeFitRule>();
+        var block = GetSectionBlock(markdown, "## Character State Fit Logic");
+        if (string.IsNullOrWhiteSpace(block))
+        {
+            return rules;
+        }
+
+        RPThemeFitRule? currentRule = null;
+        var currentNoteSection = RPThemeAIGuidanceSection.FitNote;
+        foreach (var rawLine in block.Split('\n'))
+        {
+            var line = rawLine.Trim();
+            if (string.IsNullOrWhiteSpace(line) || line.StartsWith("##", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (line.StartsWith("**For the ", StringComparison.OrdinalIgnoreCase) && line.EndsWith(":**", StringComparison.Ordinal))
+            {
+                var roleName = line.Trim('*', ':', ' ');
+                currentRule = new RPThemeFitRule
+                {
+                    RoleName = roleName,
+                    RoleWeight = 1.0
+                };
+                rules.Add(currentRule);
+                continue;
+            }
+
+            if (line.StartsWith("**Enhanced Fit", StringComparison.OrdinalIgnoreCase) && line.EndsWith(":**", StringComparison.Ordinal))
+            {
+                currentRule = null;
+                currentNoteSection = RPThemeAIGuidanceSection.FitPattern;
+                continue;
+            }
+
+            if (line.StartsWith("**Fit Score Formula:**", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (line.StartsWith("```", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var thresholdMatch = ThresholdBulletPattern().Match(line);
+            if (thresholdMatch.Success && currentRule is not null)
+            {
+                var statName = thresholdMatch.Groups["stat"].Value.Trim();
+                var comparator = NormalizeComparator(thresholdMatch.Groups["comparator"].Value);
+                var thresholdText = thresholdMatch.Groups["threshold"].Value.Trim();
+                var description = thresholdMatch.Groups["description"].Value.Trim();
+
+                if (double.TryParse(thresholdText, out var threshold) && !string.IsNullOrWhiteSpace(statName))
+                {
+                    currentRule.Clauses.Add(new RPThemeFitRuleClause
+                    {
+                        StatName = statName,
+                        Comparator = comparator,
+                        Threshold = threshold,
+                        PenaltyWeight = 1.0,
+                        Description = description
+                    });
+                    continue;
+                }
+            }
+
+            if (line.StartsWith("-", StringComparison.Ordinal))
+            {
+                var noteText = NormalizeListItem(line);
+                if (!string.IsNullOrWhiteSpace(noteText))
+                {
+                    fitNotes.Add(new RPThemeAIGuidanceNote
+                    {
+                        Section = currentNoteSection,
+                        Text = noteText,
+                        SortOrder = fitNotes.Count
+                    });
+                }
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(fitFormula))
+        {
+            var formulaMatch = FitFormulaPattern().Match(block);
+            if (formulaMatch.Success)
+            {
+                fitFormula = string.Join(' ', formulaMatch.Groups["formula"].Value
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(x => x.Trim()));
+            }
+        }
+
+        return rules.Where(x => x.Clauses.Count > 0).ToList();
+    }
+
+    private static string NormalizeListItem(string line)
+    {
+        var normalized = line.Trim();
+        normalized = Regex.Replace(normalized, @"^[-*]\s+", string.Empty);
+        normalized = Regex.Replace(normalized, @"^\d+\.\s+", string.Empty);
+        return normalized.Trim();
+    }
+
+    private static string NormalizeComparator(string value)
+        => value.Trim() switch
+        {
+            "≥" => ">=",
+            "≤" => "<=",
+            _ => value.Trim()
+        };
+
+    private static string GetSectionBlock(string markdown, string sectionHeader)
+    {
+        var start = markdown.IndexOf(sectionHeader, StringComparison.OrdinalIgnoreCase);
+        if (start < 0)
+        {
+            return string.Empty;
+        }
+
+        var nextHeader = markdown.IndexOf("\n## ", start + 1, StringComparison.Ordinal);
+        return nextHeader > start
+            ? markdown[start..nextHeader]
+            : markdown[start..];
     }
 
     private static async Task SaveImportRunAsync(
@@ -1216,11 +1498,168 @@ public sealed partial class RPThemeService : IRPThemeService
         return list;
     }
 
+    private static async Task<List<RPThemeFitRule>> LoadThemeFitRulesAsync(SqliteConnection connection, string themeId, CancellationToken cancellationToken)
+    {
+        var rules = new List<RPThemeFitRule>();
+        await using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "SELECT Id, ThemeId, RoleName, RoleWeight FROM RPThemeFitRules WHERE ThemeId = $themeId ORDER BY RoleName";
+            command.Parameters.AddWithValue("$themeId", themeId);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                rules.Add(new RPThemeFitRule
+                {
+                    Id = reader.GetString(0),
+                    ThemeId = reader.GetString(1),
+                    RoleName = reader.GetString(2),
+                    RoleWeight = reader.GetDouble(3)
+                });
+            }
+        }
+
+        foreach (var rule in rules)
+        {
+            await using var clauseCommand = connection.CreateCommand();
+            clauseCommand.CommandText = "SELECT Id, FitRuleId, StatName, Comparator, Threshold, PenaltyWeight, Description FROM RPThemeFitRuleClauses WHERE FitRuleId = $fitRuleId ORDER BY StatName";
+            clauseCommand.Parameters.AddWithValue("$fitRuleId", rule.Id);
+            await using var clauseReader = await clauseCommand.ExecuteReaderAsync(cancellationToken);
+            while (await clauseReader.ReadAsync(cancellationToken))
+            {
+                rule.Clauses.Add(new RPThemeFitRuleClause
+                {
+                    Id = clauseReader.GetString(0),
+                    FitRuleId = clauseReader.GetString(1),
+                    StatName = clauseReader.GetString(2),
+                    Comparator = clauseReader.GetString(3),
+                    Threshold = clauseReader.GetDouble(4),
+                    PenaltyWeight = clauseReader.GetDouble(5),
+                    Description = clauseReader.GetString(6)
+                });
+            }
+        }
+
+        return rules;
+    }
+
+    private static async Task<List<RPThemeAIGuidanceNote>> LoadThemeAIGuidanceNotesAsync(SqliteConnection connection, string themeId, CancellationToken cancellationToken)
+    {
+        var list = new List<RPThemeAIGuidanceNote>();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT Id, ThemeId, Section, Text, SortOrder FROM RPThemeAIGuidanceNotes WHERE ThemeId = $themeId ORDER BY SortOrder, Id";
+        command.Parameters.AddWithValue("$themeId", themeId);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            list.Add(new RPThemeAIGuidanceNote
+            {
+                Id = reader.GetString(0),
+                ThemeId = reader.GetString(1),
+                Section = Enum.TryParse<RPThemeAIGuidanceSection>(reader.GetString(2), out var section)
+                    ? section
+                    : RPThemeAIGuidanceSection.KeyScenarioElement,
+                Text = reader.GetString(3),
+                SortOrder = reader.GetInt32(4)
+            });
+        }
+
+        return list;
+    }
+
+    private async Task EnsureCanonicalStatAffinitiesPersistedAsync(SqliteConnection connection, RPTheme theme, CancellationToken cancellationToken)
+    {
+        if (!EnsureCanonicalStatAffinities(theme))
+        {
+            return;
+        }
+
+        await using var tx = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        await ReplaceThemeChildrenAsync(connection, tx, theme, cancellationToken);
+        await tx.CommitAsync(cancellationToken);
+    }
+
+    private static bool EnsureCanonicalStatAffinities(RPTheme theme)
+    {
+        var changed = false;
+        var existing = new Dictionary<string, RPThemeStatAffinity>(StringComparer.OrdinalIgnoreCase);
+        foreach (var affinity in theme.StatAffinities)
+        {
+            if (string.IsNullOrWhiteSpace(affinity.StatName))
+            {
+                continue;
+            }
+
+            var trimmedName = affinity.StatName.Trim();
+            if (!existing.TryGetValue(trimmedName, out var tracked))
+            {
+                affinity.StatName = trimmedName;
+                affinity.Value = Math.Clamp(affinity.Value, -5, 5);
+                existing[trimmedName] = affinity;
+                continue;
+            }
+
+            tracked.Value = Math.Clamp(tracked.Value + affinity.Value, -5, 5);
+            changed = true;
+        }
+
+        if (existing.Count != theme.StatAffinities.Count)
+        {
+            theme.StatAffinities = existing.Values.ToList();
+            changed = true;
+        }
+
+        foreach (var statName in AdaptiveStatCatalog.CanonicalStatNames)
+        {
+            if (existing.ContainsKey(statName))
+            {
+                continue;
+            }
+
+            theme.StatAffinities.Add(new RPThemeStatAffinity
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                ThemeId = theme.Id,
+                StatName = statName,
+                Value = 0,
+                Rationale = AutoBackfillRationale
+            });
+            changed = true;
+        }
+
+        return changed;
+    }
+
     private async Task<SqliteConnection> OpenConnectionAsync(CancellationToken cancellationToken)
     {
         var connection = new SqliteConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
+        if (!_supplementalTablesEnsured)
+        {
+            await EnsureSupplementalTablesAsync(connection, cancellationToken);
+            _supplementalTablesEnsured = true;
+        }
+
         return connection;
+    }
+
+    private static async Task EnsureSupplementalTablesAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            CREATE TABLE IF NOT EXISTS RPThemeAIGuidanceNotes (
+                Id TEXT PRIMARY KEY,
+                ThemeId TEXT NOT NULL,
+                Section TEXT NOT NULL,
+                Text TEXT NOT NULL,
+                SortOrder INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (ThemeId) REFERENCES RPThemes(Id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS IX_RPThemeAIGuidanceNotes_Theme_Sort
+                ON RPThemeAIGuidanceNotes (ThemeId, SortOrder, Id);
+            """;
+        await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private static async Task EnsureGlobalThemeLibraryProfileAsync(SqliteConnection connection, CancellationToken cancellationToken)
@@ -1278,6 +1717,12 @@ public sealed partial class RPThemeService : IRPThemeService
     [GeneratedRegex(@"\*\*Variant of:\*\*\s*`?(?<value>[^`\r\n]+)`?", RegexOptions.IgnoreCase)]
     private static partial Regex VariantPattern();
 
+    [GeneratedRegex(@"^\s*-\s*\*\*(?<stat>[A-Za-z][A-Za-z0-9]*)\s*(?<comparator>>=|<=|>|<|=|≥|≤)\s*(?<threshold>\d+(?:\.\d+)?)\:\*\*\s*(?<description>.+)$", RegexOptions.IgnoreCase)]
+    private static partial Regex ThresholdBulletPattern();
+
+    [GeneratedRegex(@"\*\*Fit Score Formula:\*\*\s*```[\r\n]+(?<formula>.*?)```", RegexOptions.IgnoreCase | RegexOptions.Singleline)]
+    private static partial Regex FitFormulaPattern();
+
     private sealed record ParsedThemeDefinition(
         string Id,
         string Label,
@@ -1287,5 +1732,7 @@ public sealed partial class RPThemeService : IRPThemeService
         string? ParentThemeId,
         IReadOnlyList<(string Group, string Value)> Keywords,
         IReadOnlyList<(string StatName, int Value, string Rationale)> StatAffinities,
-        IReadOnlyList<(NarrativePhase Phase, string Text)> PhaseGuidance);
+        IReadOnlyList<(NarrativePhase Phase, string Text)> PhaseGuidance,
+        IReadOnlyList<RPThemeFitRule> FitRules,
+        IReadOnlyList<RPThemeAIGuidanceNote> AIGuidanceNotes);
 }

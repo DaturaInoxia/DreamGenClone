@@ -1,0 +1,9 @@
+| **Stat**       | **Low (≤40)**                               | **Moderate (40–60)**                     | **High (≥70)**                           | **Extreme (≥85)**                               |
+|----------------|----------------------------------------------|-------------------------------------------|-------------------------------------------|--------------------------------------------------|
+| **Tension**    | Relaxed, calm                                | Normal baseline                           | Stressed, anxious                         | Panicking, overwhelmed                           |
+| **Restraint**  | Impulsive, unrestrained                      | Normal self-control                       | Holding back, tense                       | Extreme control, frozen                          |
+| **Connection** | Distant, disconnected                        | Normal bond                               | Close, bonded                             | Deeply attached                                  |
+| **Desire**     | Low motivation                               | Normal interest                           | Strong attraction                         | Urgent, overwhelming                             |
+| **Dominance**  | Passive, yielding                            | Balanced agency                           | Assertive, decisive                       | Controlling, dominant                            |
+| **Loyalty**    | Emotionally distant, justifies betrayal      | Normal commitment, some temptation        | Strongly committed, resists temptation    | Unwavering dedication, guilt over minor slips     |
+| **SelfRespect**| Seeks validation, poor boundaries            | Normal self-esteem, occasional doubt      | Strong boundaries, self-worth, assertive | Deep dignity, uncompromising self-worth          |

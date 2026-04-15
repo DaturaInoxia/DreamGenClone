@@ -4,7 +4,6 @@ public static class IntensityLadder
 {
     public static readonly IReadOnlyList<(IntensityLevel Intensity, string Label)> Levels =
     [
-        (IntensityLevel.Intro, "Atmospheric"),
         (IntensityLevel.Emotional, "Emotional"),
         (IntensityLevel.SuggestivePg12, "Suggestive"),
         (IntensityLevel.SensualMature, "Sensual"),

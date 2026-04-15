@@ -227,6 +227,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             }
         }
 
+        EnsurePersonaCharacterState(session);
         Sessions[session.Id] = session;
         _autoSaveCoordinator.QueueRolePlaySessionSave(session, "roleplay-session-created");
         await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
@@ -266,12 +267,24 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     {
         if (Sessions.TryGetValue(sessionId, out var session))
         {
+            if (EnsurePersonaCharacterState(session))
+            {
+                session.ModifiedAt = DateTime.UtcNow;
+                _autoSaveCoordinator.QueueRolePlaySessionSave(session, "roleplay-persona-character-normalized");
+            }
+
             return session;
         }
 
         session = await _sessionService.LoadRolePlaySessionAsync(sessionId, cancellationToken);
         if (session is not null)
         {
+            if (EnsurePersonaCharacterState(session))
+            {
+                session.ModifiedAt = DateTime.UtcNow;
+                _autoSaveCoordinator.QueueRolePlaySessionSave(session, "roleplay-persona-character-normalized");
+            }
+
             Sessions[session.Id] = session;
         }
 
@@ -1821,7 +1834,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             {
                 DreamGenClone.Domain.RolePlay.TransparencyMode.Hidden => "{}",
                 DreamGenClone.Domain.RolePlay.TransparencyMode.Directional => JsonSerializer.Serialize(
-                    map.ToDictionary(x => x.Key, x => ToDirectionalMagnitude(x.Key, x.Value), StringComparer.OrdinalIgnoreCase)),
+                    map.ToDictionary(x => x.Key, x => x.Value >= 0 ? 1 : -1, StringComparer.OrdinalIgnoreCase)),
                 _ => option.StatDeltaMap
             };
 
@@ -1838,26 +1851,6 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         }
 
         return transformed;
-    }
-
-    private static int ToDirectionalMagnitude(string statName, int delta)
-    {
-        var abs = Math.Abs(delta);
-        var tier = abs switch
-        {
-            >= 10 => 3,
-            >= 6 => 2,
-            > 0 => 1,
-            _ => 0
-        };
-
-        if (delta < 0 && string.Equals(statName, "Restraint", StringComparison.OrdinalIgnoreCase))
-        {
-            // Directional mode keeps restraint-drop magnitude visible so high-impact choices are not shown as tiny nudges.
-            return -Math.Clamp(abs, 1, 50);
-        }
-
-        return delta < 0 ? -tier : tier;
     }
 
     private static IReadOnlyDictionary<string, int> ParseDeltaMap(string deltaMap)
@@ -1880,21 +1873,14 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
     private static DreamGenClone.Domain.RolePlay.AdaptiveScenarioState MapToV2State(RolePlaySession session)
     {
+        EnsurePersonaCharacterState(session);
+
         var snapshots = session.AdaptiveState.CharacterStats.Select(x =>
         {
-            var stats = x.Value.Stats;
-            return new DreamGenClone.Domain.RolePlay.CharacterStatProfileV2
-            {
-                CharacterId = string.IsNullOrWhiteSpace(x.Value.CharacterId) ? x.Key : x.Value.CharacterId,
-                Desire = stats.TryGetValue("Desire", out var desire) ? desire : 50,
-                Restraint = stats.TryGetValue("Restraint", out var restraint) ? restraint : 50,
-                Tension = stats.TryGetValue("Tension", out var tension) ? tension : 50,
-                Connection = stats.TryGetValue("Connection", out var connection) ? connection : 50,
-                Dominance = stats.TryGetValue("Dominance", out var dominance) ? dominance : 50,
-                Loyalty = stats.TryGetValue("Loyalty", out var loyalty) ? loyalty : 50,
-                SelfRespect = stats.TryGetValue("SelfRespect", out var selfRespect) ? selfRespect : 50,
-                SnapshotUtc = DateTime.UtcNow
-            };
+            var characterId = string.IsNullOrWhiteSpace(x.Value.CharacterId) ? x.Key : x.Value.CharacterId;
+            var snapshot = CharacterStatProfileV2Accessor.CreateFromStats(characterId, x.Value.Stats);
+            snapshot.SnapshotUtc = DateTime.UtcNow;
+            return snapshot;
         }).ToList();
 
         return new DreamGenClone.Domain.RolePlay.AdaptiveScenarioState
@@ -1912,6 +1898,35 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             HusbandAwarenessProfileId = session.AdaptiveState.HusbandAwarenessProfileId,
             CharacterSnapshots = snapshots
         };
+    }
+
+    private static bool EnsurePersonaCharacterState(RolePlaySession session)
+    {
+        var personaName = string.IsNullOrWhiteSpace(session.PersonaName) ? "You" : session.PersonaName.Trim();
+        if (string.IsNullOrWhiteSpace(personaName))
+        {
+            return false;
+        }
+
+        var existing = session.AdaptiveState.CharacterStats.Any(entry =>
+            string.Equals(entry.Key, personaName, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(entry.Value.CharacterId, personaName, StringComparison.OrdinalIgnoreCase));
+        if (existing)
+        {
+            return false;
+        }
+
+        var seedStats = session.AdaptiveState.CharacterStats.Values.FirstOrDefault()?.Stats;
+        var normalizedStats = AdaptiveStatCatalog.NormalizeComplete(seedStats ?? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase));
+
+        session.AdaptiveState.CharacterStats[personaName] = new CharacterStatBlock
+        {
+            CharacterId = personaName,
+            Stats = normalizedStats,
+            UpdatedUtc = DateTime.UtcNow
+        };
+
+        return true;
     }
 
     private async Task<List<ScenarioDefinition>> BuildScenarioCandidatesAsync(RolePlaySession session, CancellationToken cancellationToken)

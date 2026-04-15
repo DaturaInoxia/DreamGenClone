@@ -53,7 +53,7 @@ public sealed class RolePlayAdaptiveStateServiceTests
         });
 
         Assert.Equal("sensual", session.AdaptiveIntensityProfileId);
-        Assert.Equal("desire-high-restraint-low-escalate", session.AdaptiveIntensityLastTransitionReason);
+        Assert.Contains("desire-high-restraint-low-escalate", session.AdaptiveIntensityLastTransitionReason);
         Assert.Single(session.AdaptiveIntensityTransitions);
     }
 
@@ -95,7 +95,7 @@ public sealed class RolePlayAdaptiveStateServiceTests
         });
 
         Assert.Equal("suggestive", session.AdaptiveIntensityProfileId);
-        Assert.Equal("desire-low-or-restraint-high-deescalate", session.AdaptiveIntensityLastTransitionReason);
+        Assert.Contains("desire-low-or-restraint-high-deescalate", session.AdaptiveIntensityLastTransitionReason);
         Assert.Single(session.AdaptiveIntensityTransitions);
     }
 
@@ -193,6 +193,90 @@ public sealed class RolePlayAdaptiveStateServiceTests
     }
 
     [Fact]
+    public async Task UpdateFromInteractionAsync_UsesApproachingPhaseFlowBaseline()
+    {
+        var intensityService = new FakeIntensityProfileService();
+        var service = new RolePlayAdaptiveStateService(new FakeThemeCatalogService(), intensityService);
+        var session = new RolePlaySession
+        {
+            SelectedIntensityProfileId = "suggestive",
+            AdaptiveIntensityProfileId = "suggestive",
+            AdaptiveState = new RolePlayAdaptiveState
+            {
+                CurrentNarrativePhase = NarrativePhase.Approaching,
+                CharacterStats = new Dictionary<string, CharacterStatBlock>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Alex"] = new CharacterStatBlock
+                    {
+                        CharacterId = "alex",
+                        Stats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            ["Desire"] = 60,
+                            ["Restraint"] = 50,
+                            ["Tension"] = 50,
+                            ["Connection"] = 50,
+                            ["Dominance"] = 50,
+                            ["Loyalty"] = 50,
+                            ["SelfRespect"] = 50
+                        }
+                    }
+                }
+            }
+        };
+
+        await service.UpdateFromInteractionAsync(session, new RolePlayInteraction
+        {
+            ActorName = "Alex",
+            Content = "I stay close and keep the tension alive."
+        });
+
+        Assert.Equal("sensual", session.AdaptiveIntensityProfileId);
+        Assert.Contains("phase=Approaching", session.AdaptiveIntensityLastTransitionReason);
+    }
+
+    [Fact]
+    public async Task UpdateFromInteractionAsync_UsesClimaxPhaseFlowBaseline()
+    {
+        var intensityService = new FakeIntensityProfileService();
+        var service = new RolePlayAdaptiveStateService(new FakeThemeCatalogService(), intensityService);
+        var session = new RolePlaySession
+        {
+            SelectedIntensityProfileId = "suggestive",
+            AdaptiveIntensityProfileId = "suggestive",
+            AdaptiveState = new RolePlayAdaptiveState
+            {
+                CurrentNarrativePhase = NarrativePhase.Climax,
+                CharacterStats = new Dictionary<string, CharacterStatBlock>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Alex"] = new CharacterStatBlock
+                    {
+                        CharacterId = "alex",
+                        Stats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            ["Desire"] = 62,
+                            ["Restraint"] = 48,
+                            ["Tension"] = 62,
+                            ["Connection"] = 50,
+                            ["Dominance"] = 50,
+                            ["Loyalty"] = 50,
+                            ["SelfRespect"] = 50
+                        }
+                    }
+                }
+            }
+        };
+
+        await service.UpdateFromInteractionAsync(session, new RolePlayInteraction
+        {
+            ActorName = "Alex",
+            Content = "The climax arrives with full intensity."
+        });
+
+        Assert.Equal("explicit", session.AdaptiveIntensityProfileId);
+        Assert.Contains("phase=Climax", session.AdaptiveIntensityLastTransitionReason);
+    }
+
+    [Fact]
     public async Task UpdateFromInteractionAsync_InitializesCharacterStatsAndThemes()
     {
         var service = new RolePlayAdaptiveStateService(new FakeThemeCatalogService());
@@ -272,6 +356,39 @@ public sealed class RolePlayAdaptiveStateServiceTests
         Assert.False(string.IsNullOrWhiteSpace(state.ThemeTracker.SecondaryThemeId));
     }
 
+    [Fact]
+    public async Task UpdateFromInteractionAsync_UpdatesLoyaltyAndSelfRespectSignals()
+    {
+        var service = new RolePlayAdaptiveStateService(new FakeThemeCatalogService());
+        var session = new RolePlaySession();
+
+        var increaseState = await service.UpdateFromInteractionAsync(session, new RolePlayInteraction
+        {
+            ActorName = "Becky",
+            Content = "She keeps her promise and vow, stays faithful and devoted to her husband and commitment, and holds firm boundaries with dignity and respect."
+        });
+
+        var increasedStats = increaseState.CharacterStats["Becky"].Stats;
+        var loyaltyAfterIncrease = increasedStats["Loyalty"];
+        var selfRespectAfterIncrease = increasedStats["SelfRespect"];
+        Assert.True(
+            loyaltyAfterIncrease > AdaptiveStatCatalog.DefaultValue,
+            $"Expected Loyalty > {AdaptiveStatCatalog.DefaultValue}, actual={loyaltyAfterIncrease}");
+        Assert.True(
+            selfRespectAfterIncrease > AdaptiveStatCatalog.DefaultValue,
+            $"Expected SelfRespect > {AdaptiveStatCatalog.DefaultValue}, actual={selfRespectAfterIncrease}");
+
+        var decreaseState = await service.UpdateFromInteractionAsync(session, new RolePlayInteraction
+        {
+            ActorName = "Becky",
+            Content = "She starts an affair, cheats, betrays trust, keeps it secret, sneaks away with a stranger, and feels humiliated, ashamed, degraded, demeaned, and used."
+        });
+
+        var decreasedStats = decreaseState.CharacterStats["Becky"].Stats;
+        Assert.True(decreasedStats["Loyalty"] < loyaltyAfterIncrease);
+        Assert.True(decreasedStats["SelfRespect"] < selfRespectAfterIncrease);
+    }
+
     private sealed class FakeIntensityProfileService : IIntensityProfileService
     {
         private readonly List<IntensityProfile> _profiles =
@@ -284,14 +401,28 @@ public sealed class RolePlayAdaptiveStateServiceTests
             new() { Id = "hardcore", Name = "Hardcore", Intensity = IntensityLevel.Hardcore }
         ];
 
-        public Task<IntensityProfile> CreateAsync(string name, string description, IntensityLevel intensity, CancellationToken cancellationToken = default)
+        public Task<IntensityProfile> CreateAsync(
+            string name,
+            string description,
+            IntensityLevel intensity,
+            int buildUpPhaseOffset,
+            int committedPhaseOffset,
+            int approachingPhaseOffset,
+            int climaxPhaseOffset,
+            int resetPhaseOffset,
+            CancellationToken cancellationToken = default)
         {
             var created = new IntensityProfile
             {
                 Id = Guid.NewGuid().ToString("N"),
                 Name = name,
                 Description = description,
-                Intensity = intensity
+                Intensity = intensity,
+                BuildUpPhaseOffset = buildUpPhaseOffset,
+                CommittedPhaseOffset = committedPhaseOffset,
+                ApproachingPhaseOffset = approachingPhaseOffset,
+                ClimaxPhaseOffset = climaxPhaseOffset,
+                ResetPhaseOffset = resetPhaseOffset
             };
 
             _profiles.Add(created);
@@ -304,7 +435,17 @@ public sealed class RolePlayAdaptiveStateServiceTests
         public Task<IntensityProfile?> GetAsync(string id, CancellationToken cancellationToken = default)
             => Task.FromResult(_profiles.FirstOrDefault(x => string.Equals(x.Id, id, StringComparison.OrdinalIgnoreCase)));
 
-        public Task<IntensityProfile?> UpdateAsync(string id, string name, string description, IntensityLevel intensity, CancellationToken cancellationToken = default)
+        public Task<IntensityProfile?> UpdateAsync(
+            string id,
+            string name,
+            string description,
+            IntensityLevel intensity,
+            int buildUpPhaseOffset,
+            int committedPhaseOffset,
+            int approachingPhaseOffset,
+            int climaxPhaseOffset,
+            int resetPhaseOffset,
+            CancellationToken cancellationToken = default)
         {
             var existing = _profiles.FirstOrDefault(x => string.Equals(x.Id, id, StringComparison.OrdinalIgnoreCase));
             if (existing is null)
@@ -315,6 +456,11 @@ public sealed class RolePlayAdaptiveStateServiceTests
             existing.Name = name;
             existing.Description = description;
             existing.Intensity = intensity;
+            existing.BuildUpPhaseOffset = buildUpPhaseOffset;
+            existing.CommittedPhaseOffset = committedPhaseOffset;
+            existing.ApproachingPhaseOffset = approachingPhaseOffset;
+            existing.ClimaxPhaseOffset = climaxPhaseOffset;
+            existing.ResetPhaseOffset = resetPhaseOffset;
             existing.UpdatedUtc = DateTime.UtcNow;
             return Task.FromResult<IntensityProfile?>(existing);
         }

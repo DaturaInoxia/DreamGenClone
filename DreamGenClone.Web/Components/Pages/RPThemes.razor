@@ -2,6 +2,7 @@
 @rendermode InteractiveServer
 
 @using DreamGenClone.Application.RolePlay
+@using DreamGenClone.Application.StoryAnalysis
 @using DreamGenClone.Domain.RolePlay
 @using DreamGenClone.Infrastructure.Configuration
 @using Microsoft.AspNetCore.Components.Forms
@@ -162,6 +163,69 @@
                             <label class="form-label">Description</label>
                             <input class="form-control form-control-sm" @bind="_themeFormDescription" />
                         </div>
+                    </div>
+
+                    <div class="border rounded p-2 mb-3">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <label class="form-label mb-0">Stat Affinities</label>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="AddThemeFormStatAffinity">Add Stat Affinity</button>
+                        </div>
+
+                        @if (_themeFormStatAffinities.Count == 0)
+                        {
+                            <div class="text-muted small">No stat affinities configured.</div>
+                        }
+                        else
+                        {
+                            <div class="table-responsive">
+                                <table class="table table-sm align-middle mb-0">
+                                    <thead>
+                                        <tr>
+                                            <th style="width: 180px;">Stat</th>
+                                            <th style="width: 110px;">Value</th>
+                                            <th>Rationale</th>
+                                            <th style="width: 120px;">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @for (var i = 0; i < _themeFormStatAffinities.Count; i++)
+                                        {
+                                            var affinity = _themeFormStatAffinities[i];
+                                            <tr>
+                                                <td>
+                                                    <select class="form-select form-select-sm"
+                                                            value="@affinity.StatName"
+                                                            @onchange="e => SetThemeFormAffinityStatName(i, e.Value?.ToString())">
+                                                        <option value="">Select stat...</option>
+                                                        @foreach (var statName in AdaptiveStatCatalog.CanonicalStatNames)
+                                                        {
+                                                            <option value="@statName">@statName</option>
+                                                        }
+                                                    </select>
+                                                </td>
+                                                <td>
+                                                    <input class="form-control form-control-sm"
+                                                           type="number"
+                                                           min="-10"
+                                                           max="10"
+                                                           value="@affinity.Value"
+                                                           @onchange="e => SetThemeFormAffinityValue(i, e.Value?.ToString())" />
+                                                </td>
+                                                <td>
+                                                    <input class="form-control form-control-sm"
+                                                           value="@affinity.Rationale"
+                                                           @oninput="e => SetThemeFormAffinityRationale(i, e.Value?.ToString())"
+                                                           placeholder="Why this stat moves for this theme" />
+                                                </td>
+                                                <td>
+                                                    <button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => RemoveThemeFormStatAffinity(i)">Remove</button>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
                     </div>
 
                     <div class="d-flex gap-2 mb-3">
@@ -389,6 +453,60 @@
                                                             </div>
                                                         }
 
+                                                        <div class="fw-semibold mt-3 mb-1">AI Generation Notes (@theme.AIGenerationNotes.Count)</div>
+                                                        @if (theme.AIGenerationNotes.Count == 0)
+                                                        {
+                                                            <div class="text-muted mb-3">No AI generation notes.</div>
+                                                        }
+                                                        else
+                                                        {
+                                                            <div class="table-responsive mb-3">
+                                                                <table class="table table-sm table-bordered mb-0">
+                                                                    <thead>
+                                                                        <tr><th>Section</th><th>Text</th><th>Sort</th></tr>
+                                                                    </thead>
+                                                                    <tbody>
+                                                                        @foreach (var note in theme.AIGenerationNotes.OrderBy(x => x.Section).ThenBy(x => x.SortOrder))
+                                                                        {
+                                                                            <tr>
+                                                                                <td>@note.Section</td>
+                                                                                <td>@note.Text</td>
+                                                                                <td>@note.SortOrder</td>
+                                                                            </tr>
+                                                                        }
+                                                                    </tbody>
+                                                                </table>
+                                                            </div>
+                                                        }
+
+                                                        <div class="fw-semibold mb-1">Character Fit Rules (@theme.FitRules.Count)</div>
+                                                        @if (theme.FitRules.Count == 0)
+                                                        {
+                                                            <div class="text-muted mb-3">No character fit rules.</div>
+                                                        }
+                                                        else
+                                                        {
+                                                            @foreach (var rule in theme.FitRules.OrderBy(x => x.RoleName, StringComparer.OrdinalIgnoreCase))
+                                                            {
+                                                                <div class="border rounded p-2 mb-2">
+                                                                    <div><strong>@rule.RoleName</strong> (Weight: @rule.RoleWeight.ToString("0.##"))</div>
+                                                                    @if (rule.Clauses.Count == 0)
+                                                                    {
+                                                                        <div class="text-muted small">No thresholds.</div>
+                                                                    }
+                                                                    else
+                                                                    {
+                                                                        <ul class="mb-0 mt-1">
+                                                                            @foreach (var clause in rule.Clauses.OrderBy(x => x.StatName, StringComparer.OrdinalIgnoreCase))
+                                                                            {
+                                                                                <li>@clause.StatName @clause.Comparator @clause.Threshold.ToString("0.##") @(!string.IsNullOrWhiteSpace(clause.Description) ? $"- {clause.Description}" : string.Empty)</li>
+                                                                            }
+                                                                        </ul>
+                                                                    }
+                                                                </div>
+                                                            }
+                                                        }
+
                                                         <div class="fw-semibold mt-3 mb-1">Source Markdown (Full Theme Data)</div>
                                                         @if (_themeSourceMarkdownById.TryGetValue(theme.Id, out var sourceMarkdown) && !string.IsNullOrWhiteSpace(sourceMarkdown))
                                                         {
@@ -526,6 +644,7 @@
     private string _themeFormCategory = string.Empty;
     private int _themeFormWeight = 1;
     private string _themeFormDescription = string.Empty;
+    private List<RPThemeStatAffinity> _themeFormStatAffinities = [];
     private string _profileAddThemeId = string.Empty;
     private bool _isEditingTheme;
     private string? _editingThemeId;
@@ -893,6 +1012,20 @@
                 ? ToThemeId(_themeFormLabel)
                 : _themeFormId.Trim();
 
+            var normalizedAffinities = _themeFormStatAffinities
+                .Where(x => !string.IsNullOrWhiteSpace(x.StatName))
+                .Select(x => new RPThemeStatAffinity
+                {
+                    Id = string.IsNullOrWhiteSpace(x.Id) ? Guid.NewGuid().ToString("N") : x.Id,
+                    ThemeId = existing?.Id ?? themeId,
+                    StatName = x.StatName.Trim(),
+                    Value = Math.Clamp(x.Value, -10, 10),
+                    Rationale = (x.Rationale ?? string.Empty).Trim()
+                })
+                .GroupBy(x => x.StatName, StringComparer.OrdinalIgnoreCase)
+                .Select(x => x.Last())
+                .ToList();
+
             var saved = await RPThemeService.SaveThemeAsync(new RPTheme
             {
                 Id = existing?.Id ?? themeId,
@@ -903,9 +1036,11 @@
                 Description = _themeFormDescription.Trim(),
                 IsEnabled = true,
                 Keywords = existing?.Keywords ?? [],
-                StatAffinities = existing?.StatAffinities ?? [],
+                StatAffinities = normalizedAffinities,
                 PhaseGuidance = existing?.PhaseGuidance ?? [],
-                GuidancePoints = existing?.GuidancePoints ?? []
+                GuidancePoints = existing?.GuidancePoints ?? [],
+                FitRules = existing?.FitRules ?? [],
+                AIGenerationNotes = existing?.AIGenerationNotes ?? []
             });
 
             var assignment = _assignments.FirstOrDefault(x => string.Equals(x.ThemeId, saved.Id, StringComparison.OrdinalIgnoreCase));
@@ -943,6 +1078,74 @@
         _themeFormCategory = theme.Category;
         _themeFormWeight = theme.Weight;
         _themeFormDescription = theme.Description;
+        _themeFormStatAffinities = theme.StatAffinities
+            .OrderBy(x => x.StatName, StringComparer.OrdinalIgnoreCase)
+            .Select(x => new RPThemeStatAffinity
+            {
+                Id = x.Id,
+                ThemeId = x.ThemeId,
+                StatName = x.StatName,
+                Value = x.Value,
+                Rationale = x.Rationale
+            })
+            .ToList();
+    }
+
+    private void AddThemeFormStatAffinity()
+    {
+        _themeFormStatAffinities.Add(new RPThemeStatAffinity
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            ThemeId = _editingThemeId ?? _themeFormId.Trim(),
+            StatName = string.Empty,
+            Value = 0,
+            Rationale = string.Empty
+        });
+    }
+
+    private void RemoveThemeFormStatAffinity(int index)
+    {
+        if (index < 0 || index >= _themeFormStatAffinities.Count)
+        {
+            return;
+        }
+
+        _themeFormStatAffinities.RemoveAt(index);
+    }
+
+    private void SetThemeFormAffinityStatName(int index, string? statName)
+    {
+        if (index < 0 || index >= _themeFormStatAffinities.Count)
+        {
+            return;
+        }
+
+        _themeFormStatAffinities[index].StatName = (statName ?? string.Empty).Trim();
+    }
+
+    private void SetThemeFormAffinityValue(int index, string? rawValue)
+    {
+        if (index < 0 || index >= _themeFormStatAffinities.Count)
+        {
+            return;
+        }
+
+        if (!int.TryParse(rawValue, out var parsedValue))
+        {
+            parsedValue = 0;
+        }
+
+        _themeFormStatAffinities[index].Value = Math.Clamp(parsedValue, -10, 10);
+    }
+
+    private void SetThemeFormAffinityRationale(int index, string? rationale)
+    {
+        if (index < 0 || index >= _themeFormStatAffinities.Count)
+        {
+            return;
+        }
+
+        _themeFormStatAffinities[index].Rationale = rationale ?? string.Empty;
     }
 
     private async Task AddThemeToProfileAsync()
@@ -1046,6 +1249,7 @@
         _themeFormCategory = string.Empty;
         _themeFormWeight = 1;
         _themeFormDescription = string.Empty;
+        _themeFormStatAffinities = [];
     }
 
     private static string ToThemeId(string label)

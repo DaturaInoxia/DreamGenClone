@@ -11,7 +11,6 @@ public sealed class IntensityProfileService : IIntensityProfileService
 
     private static readonly DefaultToneProfile[] PocDefaultProfiles =
     [
-        new(IntensityLadder.GetLabel(IntensityLevel.Intro), IntensityLadder.GetDefaultDescription(IntensityLevel.Intro), IntensityLevel.Intro),
         new(IntensityLadder.GetLabel(IntensityLevel.Emotional), IntensityLadder.GetDefaultDescription(IntensityLevel.Emotional), IntensityLevel.Emotional),
         new(IntensityLadder.GetLabel(IntensityLevel.SuggestivePg12), IntensityLadder.GetDefaultDescription(IntensityLevel.SuggestivePg12), IntensityLevel.SuggestivePg12),
         new(IntensityLadder.GetLabel(IntensityLevel.SensualMature), IntensityLadder.GetDefaultDescription(IntensityLevel.SensualMature), IntensityLevel.SensualMature),
@@ -28,14 +27,29 @@ public sealed class IntensityProfileService : IIntensityProfileService
         _logger = logger;
     }
 
-    public async Task<IntensityProfile> CreateAsync(string name, string description, IntensityLevel intensity, CancellationToken cancellationToken = default)
+    public async Task<IntensityProfile> CreateAsync(
+        string name,
+        string description,
+        IntensityLevel intensity,
+        int buildUpPhaseOffset,
+        int committedPhaseOffset,
+        int approachingPhaseOffset,
+        int climaxPhaseOffset,
+        int resetPhaseOffset,
+        CancellationToken cancellationToken = default)
     {
         await EnsureDefaultProfilesAsync(cancellationToken);
 
         var existingProfiles = await _persistence.LoadAllToneProfilesAsync(cancellationToken);
-        if (existingProfiles.Count >= PocDefaultProfiles.Length)
+        var characterProfileCount = existingProfiles.Count(x => x.Intensity != IntensityLevel.Intro);
+        if (characterProfileCount >= PocDefaultProfiles.Length)
         {
             throw new InvalidOperationException($"POC is limited to {PocDefaultProfiles.Length} tone profiles.");
+        }
+
+        if (intensity == IntensityLevel.Intro)
+        {
+            throw new InvalidOperationException("Atmospheric is narrative-only and cannot be used as a character intensity profile.");
         }
 
         var trimmedName = name?.Trim() ?? string.Empty;
@@ -59,6 +73,11 @@ public sealed class IntensityProfileService : IIntensityProfileService
             Name = trimmedName,
             Description = description?.Trim() ?? string.Empty,
             Intensity = intensity,
+            BuildUpPhaseOffset = buildUpPhaseOffset,
+            CommittedPhaseOffset = committedPhaseOffset,
+            ApproachingPhaseOffset = approachingPhaseOffset,
+            ClimaxPhaseOffset = climaxPhaseOffset,
+            ResetPhaseOffset = resetPhaseOffset,
             CreatedUtc = DateTime.UtcNow,
             UpdatedUtc = DateTime.UtcNow
         };
@@ -78,7 +97,17 @@ public sealed class IntensityProfileService : IIntensityProfileService
         return _persistence.LoadToneProfileAsync(id, cancellationToken);
     }
 
-    public async Task<IntensityProfile?> UpdateAsync(string id, string name, string description, IntensityLevel intensity, CancellationToken cancellationToken = default)
+    public async Task<IntensityProfile?> UpdateAsync(
+        string id,
+        string name,
+        string description,
+        IntensityLevel intensity,
+        int buildUpPhaseOffset,
+        int committedPhaseOffset,
+        int approachingPhaseOffset,
+        int climaxPhaseOffset,
+        int resetPhaseOffset,
+        CancellationToken cancellationToken = default)
     {
         await EnsureDefaultProfilesAsync(cancellationToken);
 
@@ -107,9 +136,19 @@ public sealed class IntensityProfileService : IIntensityProfileService
             throw new InvalidOperationException($"An intensity profile already exists for level '{intensity}'. Exactly one profile per intensity level is supported.");
         }
 
+        if (intensity == IntensityLevel.Intro)
+        {
+            throw new InvalidOperationException("Atmospheric is narrative-only and cannot be used as a character intensity profile.");
+        }
+
         existing.Name = trimmedName;
         existing.Description = description?.Trim() ?? string.Empty;
         existing.Intensity = intensity;
+        existing.BuildUpPhaseOffset = buildUpPhaseOffset;
+        existing.CommittedPhaseOffset = committedPhaseOffset;
+        existing.ApproachingPhaseOffset = approachingPhaseOffset;
+        existing.ClimaxPhaseOffset = climaxPhaseOffset;
+        existing.ResetPhaseOffset = resetPhaseOffset;
         existing.UpdatedUtc = DateTime.UtcNow;
 
         await _persistence.SaveToneProfileAsync(existing, cancellationToken);
@@ -156,11 +195,20 @@ public sealed class IntensityProfileService : IIntensityProfileService
                 continue;
             }
 
-            if (!string.Equals(existing.Name, item.Name, StringComparison.Ordinal)
-                || !string.Equals(existing.Description, item.Description, StringComparison.Ordinal))
+            var shouldBackfillName = string.IsNullOrWhiteSpace(existing.Name);
+            var shouldBackfillDescription = string.IsNullOrWhiteSpace(existing.Description);
+            if (shouldBackfillName || shouldBackfillDescription)
             {
-                existing.Name = item.Name;
-                existing.Description = item.Description;
+                if (shouldBackfillName)
+                {
+                    existing.Name = item.Name;
+                }
+
+                if (shouldBackfillDescription)
+                {
+                    existing.Description = item.Description;
+                }
+
                 existing.UpdatedUtc = DateTime.UtcNow;
                 await _persistence.SaveToneProfileAsync(existing, cancellationToken);
                 changed = true;

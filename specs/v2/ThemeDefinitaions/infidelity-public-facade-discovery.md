@@ -63,6 +63,8 @@ A scenario where infidelity occurs while the partner is physically present—eit
 | **Restraint** | +1 | Self-control to not create public scene or immediate confrontation |
 | **Desire** | 0 | No inherent desire component—this is about betrayal, not arousal |
 | **Dominance** | -1 | Husband's position weakened by betrayal; may react with diminished control |
+| **Loyalty** | -4 | Transgressive behavior directly opposes loyalty; each encounter erodes commitment |
+| **SelfRespect** | -3 | Engaging in deception damages self-perception |
 
 ---
 

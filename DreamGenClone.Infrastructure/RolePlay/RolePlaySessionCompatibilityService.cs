@@ -1,5 +1,6 @@
 using System.Text.Json;
 using DreamGenClone.Application.RolePlay;
+using DreamGenClone.Application.StoryAnalysis;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Infrastructure.Logging;
 using Microsoft.Extensions.Logging;
@@ -8,7 +9,7 @@ namespace DreamGenClone.Infrastructure.RolePlay;
 
 public sealed class RolePlaySessionCompatibilityService
 {
-    private static readonly string[] RequiredStats = ["Desire", "Restraint", "Tension", "Connection", "Dominance", "Loyalty", "SelfRespect"];
+    private static readonly IReadOnlyList<string> RequiredStats = AdaptiveStatCatalog.CanonicalStatNames;
 
     private readonly IRolePlayV2StateRepository _stateRepository;
     private readonly ILogger<RolePlaySessionCompatibilityService> _logger;

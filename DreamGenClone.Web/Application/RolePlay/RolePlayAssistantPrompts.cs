@@ -1,4 +1,5 @@
 using DreamGenClone.Application.StoryAnalysis.Models;
+using DreamGenClone.Domain.RolePlay;
 using System.Text;
 
 namespace DreamGenClone.Web.Application.RolePlay;
@@ -55,5 +56,105 @@ public static class RolePlayAssistantPrompts
         }
 
         return guards;
+    }
+
+    public static void AppendThemeAIGuidance(
+        StringBuilder promptBuilder,
+        RPTheme? activeTheme,
+        string phase,
+        int influencePercent,
+        int maxNotes)
+    {
+        ArgumentNullException.ThrowIfNull(promptBuilder);
+
+        if (activeTheme is null || activeTheme.AIGenerationNotes.Count == 0)
+        {
+            return;
+        }
+
+        var clampedInfluence = Math.Clamp(influencePercent, 0, 100);
+        if (clampedInfluence == 0)
+        {
+            return;
+        }
+
+        var clampedMax = Math.Clamp(maxNotes, 1, 12);
+        var weightedMax = Math.Clamp((int)Math.Round(clampedMax * (clampedInfluence / 100.0), MidpointRounding.AwayFromZero), 1, clampedMax);
+
+        var phaseWeights = BuildSectionWeightsForPhase(phase);
+        var includeFormula = clampedInfluence >= 60;
+
+        var selectedNotes = activeTheme.AIGenerationNotes
+            .Where(x => !string.IsNullOrWhiteSpace(x.Text))
+            .Where(x => includeFormula || x.Section != RPThemeAIGuidanceSection.FitFormula)
+            .Select(x => new
+            {
+                Note = x,
+                SectionWeight = phaseWeights.TryGetValue(x.Section, out var w) ? w : 999
+            })
+            .OrderBy(x => x.SectionWeight)
+            .ThenBy(x => x.Note.SortOrder)
+            .Select(x => x.Note)
+            .DistinctBy(x => x.Text.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Take(weightedMax)
+            .ToList();
+
+        if (selectedNotes.Count == 0)
+        {
+            return;
+        }
+
+        promptBuilder.AppendLine($"Theme AI Guidance (soft hints, influence={clampedInfluence}%):");
+        foreach (var note in selectedNotes)
+        {
+            promptBuilder.AppendLine($"- {note.Text.Trim()}");
+        }
+
+        promptBuilder.AppendLine("Apply these as soft guidance only; avoid repetitive restatement and do not force them if they conflict with immediate user direction or safety constraints.");
+    }
+
+    private static IReadOnlyDictionary<RPThemeAIGuidanceSection, int> BuildSectionWeightsForPhase(string phase)
+    {
+        var defaultWeights = new Dictionary<RPThemeAIGuidanceSection, int>
+        {
+            [RPThemeAIGuidanceSection.KeyScenarioElement] = 1,
+            [RPThemeAIGuidanceSection.InteractionDynamics] = 2,
+            [RPThemeAIGuidanceSection.Avoidance] = 3,
+            [RPThemeAIGuidanceSection.ScenarioDistinction] = 4,
+            [RPThemeAIGuidanceSection.Variation] = 5,
+            [RPThemeAIGuidanceSection.FitPattern] = 6,
+            [RPThemeAIGuidanceSection.FitNote] = 7,
+            [RPThemeAIGuidanceSection.FitFormula] = 8
+        };
+
+        if (string.Equals(phase, "BuildUp", StringComparison.OrdinalIgnoreCase))
+        {
+            defaultWeights[RPThemeAIGuidanceSection.KeyScenarioElement] = 1;
+            defaultWeights[RPThemeAIGuidanceSection.Variation] = 2;
+            defaultWeights[RPThemeAIGuidanceSection.ScenarioDistinction] = 3;
+        }
+        else if (string.Equals(phase, "Committed", StringComparison.OrdinalIgnoreCase))
+        {
+            defaultWeights[RPThemeAIGuidanceSection.InteractionDynamics] = 1;
+            defaultWeights[RPThemeAIGuidanceSection.KeyScenarioElement] = 2;
+            defaultWeights[RPThemeAIGuidanceSection.Avoidance] = 3;
+            defaultWeights[RPThemeAIGuidanceSection.FitPattern] = 4;
+        }
+        else if (string.Equals(phase, "Approaching", StringComparison.OrdinalIgnoreCase)
+                 || string.Equals(phase, "Climax", StringComparison.OrdinalIgnoreCase))
+        {
+            defaultWeights[RPThemeAIGuidanceSection.InteractionDynamics] = 1;
+            defaultWeights[RPThemeAIGuidanceSection.Avoidance] = 2;
+            defaultWeights[RPThemeAIGuidanceSection.FitPattern] = 3;
+            defaultWeights[RPThemeAIGuidanceSection.KeyScenarioElement] = 4;
+        }
+        else if (string.Equals(phase, "Reset", StringComparison.OrdinalIgnoreCase))
+        {
+            defaultWeights[RPThemeAIGuidanceSection.ScenarioDistinction] = 1;
+            defaultWeights[RPThemeAIGuidanceSection.Variation] = 2;
+            defaultWeights[RPThemeAIGuidanceSection.Avoidance] = 3;
+        }
+
+        return defaultWeights;
     }
 }

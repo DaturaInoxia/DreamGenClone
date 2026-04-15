@@ -107,8 +107,26 @@ public sealed class StoryAnalysisFacade
         => _themeService.DeleteAsync(id, cancellationToken);
 
     // Intensity Profiles
-    public Task<IntensityProfile> CreateIntensityProfileAsync(string name, string description, IntensityLevel intensity, CancellationToken cancellationToken = default)
-        => _intensityProfileService.CreateAsync(name, description, intensity, cancellationToken);
+    public Task<IntensityProfile> CreateIntensityProfileAsync(
+        string name,
+        string description,
+        IntensityLevel intensity,
+        int buildUpPhaseOffset,
+        int committedPhaseOffset,
+        int approachingPhaseOffset,
+        int climaxPhaseOffset,
+        int resetPhaseOffset,
+        CancellationToken cancellationToken = default)
+        => _intensityProfileService.CreateAsync(
+            name,
+            description,
+            intensity,
+            buildUpPhaseOffset,
+            committedPhaseOffset,
+            approachingPhaseOffset,
+            climaxPhaseOffset,
+            resetPhaseOffset,
+            cancellationToken);
 
     public Task<List<IntensityProfile>> ListIntensityProfilesAsync(CancellationToken cancellationToken = default)
         => _intensityProfileService.ListAsync(cancellationToken);
@@ -116,8 +134,28 @@ public sealed class StoryAnalysisFacade
     public Task<IntensityProfile?> GetIntensityProfileAsync(string id, CancellationToken cancellationToken = default)
         => _intensityProfileService.GetAsync(id, cancellationToken);
 
-    public Task<IntensityProfile?> UpdateIntensityProfileAsync(string id, string name, string description, IntensityLevel intensity, CancellationToken cancellationToken = default)
-        => _intensityProfileService.UpdateAsync(id, name, description, intensity, cancellationToken);
+    public Task<IntensityProfile?> UpdateIntensityProfileAsync(
+        string id,
+        string name,
+        string description,
+        IntensityLevel intensity,
+        int buildUpPhaseOffset,
+        int committedPhaseOffset,
+        int approachingPhaseOffset,
+        int climaxPhaseOffset,
+        int resetPhaseOffset,
+        CancellationToken cancellationToken = default)
+        => _intensityProfileService.UpdateAsync(
+            id,
+            name,
+            description,
+            intensity,
+            buildUpPhaseOffset,
+            committedPhaseOffset,
+            approachingPhaseOffset,
+            climaxPhaseOffset,
+            resetPhaseOffset,
+            cancellationToken);
 
     public Task<bool> DeleteIntensityProfileAsync(string id, CancellationToken cancellationToken = default)
         => _intensityProfileService.DeleteAsync(id, cancellationToken);

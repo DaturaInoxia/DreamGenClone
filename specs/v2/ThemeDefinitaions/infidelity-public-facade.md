@@ -56,7 +56,8 @@ A scenario where infidelity occurs while the partner is physically present—eit
 | **Connection** | -2 | Emotional distance from partner enables the deception and disengages normal empathy |
 | **Desire** | +2 | Strong attraction drives seeking risky encounters despite consequences |
 | **Dominance** | -1 | Submissive to circumstances of secrecy, visibility constraints, and timing |
-
+| **Loyalty** | -3 | Transgressive behavior directly opposes loyalty; each encounter erodes commitment |
+| **SelfRespect** | -2 | Engaging in deception damages self-perception |
 ---
 
 ## Character State Fit Logic

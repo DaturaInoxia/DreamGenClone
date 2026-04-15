@@ -837,10 +837,14 @@
             .ToList();
 
         var intensityProfiles = await StoryAnalysisFacade.ListIntensityProfilesAsync();
-        _intensityProfiles = intensityProfiles
+        var characterIntensityProfiles = intensityProfiles
+            .Where(x => x.Intensity != IntensityLevel.Intro)
+            .ToList();
+
+        _intensityProfiles = characterIntensityProfiles
             .OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
-        _intensityProfilesById = intensityProfiles.ToDictionary(x => x.Id, StringComparer.OrdinalIgnoreCase);
+        _intensityProfilesById = characterIntensityProfiles.ToDictionary(x => x.Id, StringComparer.OrdinalIgnoreCase);
 
         if (string.IsNullOrWhiteSpace(_session.SelectedThemeProfileId))
         {
@@ -853,7 +857,6 @@
 
     private static readonly (string Value, string Label)[] StyleBoundOptions =
     [
-        ("Atmospheric", "Atmospheric"),
         ("Emotional", "Emotional"),
         ("Suggestive", "Suggestive"),
         ("Sensual", "Sensual"),
@@ -936,6 +939,49 @@
         }
 
         await SaveSessionSettingsAsync();
+    }
+
+    private async Task OnThemeAIGuidanceEnabledChanged(ChangeEventArgs args)
+    {
+        if (_session is null)
+        {
+            return;
+        }
+
+        _session.UseThemeAIGuidanceNotesInPrompt = args.Value is bool value && value;
+        await SaveSessionSettingsAsync();
+    }
+
+    private async Task OnThemeAIGuidanceInfluenceChanged(ChangeEventArgs args)
+    {
+        if (_session is null)
+        {
+            return;
+        }
+
+        _session.ThemeAIGuidanceInfluencePercent = Math.Clamp(ParseIntFromChangeEvent(args, _session.ThemeAIGuidanceInfluencePercent), 0, 100);
+        await SaveSessionSettingsAsync();
+    }
+
+    private async Task OnThemeAIGuidanceMaxNotesChanged(ChangeEventArgs args)
+    {
+        if (_session is null)
+        {
+            return;
+        }
+
+        _session.MaxThemeAIGuidanceNotes = Math.Clamp(ParseIntFromChangeEvent(args, _session.MaxThemeAIGuidanceNotes), 1, 12);
+        await SaveSessionSettingsAsync();
+    }
+
+    private static int ParseIntFromChangeEvent(ChangeEventArgs args, int fallback)
+    {
+        if (int.TryParse(args.Value?.ToString(), out var parsed))
+        {
+            return parsed;
+        }
+
+        return fallback;
     }
 
     private async Task OnSteeringProfileChanged(ChangeEventArgs args)
@@ -1822,6 +1868,50 @@
         return scenarioId;
     }
 
+    private string ResolveDecisionActorLabel(string? actorIdOrName)
+    {
+        if (string.IsNullOrWhiteSpace(actorIdOrName))
+        {
+            return "Unknown";
+        }
+
+        var token = actorIdOrName.Trim();
+        if (_session is null)
+        {
+            return token;
+        }
+
+        if (string.Equals(token, _session.PersonaName, StringComparison.OrdinalIgnoreCase))
+        {
+            return $"{_session.PersonaName} (Persona)";
+        }
+
+        var perspectiveMatch = _session.CharacterPerspectives.FirstOrDefault(x =>
+            string.Equals(x.CharacterId, token, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(x.CharacterName, token, StringComparison.OrdinalIgnoreCase));
+
+        if (perspectiveMatch is not null)
+        {
+            if (string.Equals(perspectiveMatch.CharacterId, token, StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrWhiteSpace(perspectiveMatch.CharacterName))
+            {
+                return $"{perspectiveMatch.CharacterName} ({perspectiveMatch.CharacterId})";
+            }
+
+            return !string.IsNullOrWhiteSpace(perspectiveMatch.CharacterName)
+                ? perspectiveMatch.CharacterName
+                : token;
+        }
+
+        var optionMatch = _identityOptions.FirstOrDefault(x => string.Equals(x.Id, token, StringComparison.OrdinalIgnoreCase));
+        if (optionMatch is not null && !string.IsNullOrWhiteSpace(optionMatch.DisplayName))
+        {
+            return $"{optionMatch.DisplayName} ({token})";
+        }
+
+        return token;
+    }
+
     private async Task ApplyDecisionOptionAsync(DreamGenClone.Domain.RolePlay.DecisionOption option)
     {
         if (_session is null || _pendingDecisionPrompt is null)
@@ -2576,15 +2666,28 @@
                     @if (_pendingDecisionPrompt is not null && _session is not null && ShouldShowDecisionPrompt)
                     {
                         <div class="rw-modal-overlay" @onclick:stopPropagation>
-                            <div class="rw-modal rw-modal-info" @onclick:stopPropagation>
+                            <div class="rw-modal rw-modal-decision" @onclick:stopPropagation>
                                 <div class="rw-modal-header">Decision Prompt</div>
-                                <div class="rw-modal-body">
+                                <div class="rw-modal-body rw-modal-body-scroll">
                                     <div class="rw-info-grid">
                                         <div class="rw-info-row"><span class="rw-info-label">Character</span><span class="rw-info-value">@_session.PersonaName</span></div>
+                                        <div class="rw-info-row"><span class="rw-info-label">Asking Actor</span><span class="rw-info-value">@ResolveDecisionActorLabel(_pendingDecisionPrompt.DecisionPoint.AskingActorName)</span></div>
+                                        @if (!string.IsNullOrWhiteSpace(_pendingDecisionPrompt.DecisionPoint.TargetActorId))
+                                        {
+                                            <div class="rw-info-row"><span class="rw-info-label">Target Actor</span><span class="rw-info-value">@ResolveDecisionActorLabel(_pendingDecisionPrompt.DecisionPoint.TargetActorId)</span></div>
+                                        }
                                         <div class="rw-info-row"><span class="rw-info-label">Theme</span><span class="rw-info-value">@ResolveDecisionThemeLabel(_pendingDecisionPrompt.DecisionPoint.ScenarioId)</span></div>
                                         <div class="rw-info-row"><span class="rw-info-label">Phase</span><span class="rw-info-value">@_pendingDecisionPrompt.DecisionPoint.Phase</span></div>
                                         <div class="rw-info-row"><span class="rw-info-label">Trigger</span><span class="rw-info-value">@_pendingDecisionPrompt.DecisionPoint.TriggerSource</span></div>
                                     </div>
+
+                                    @if (!string.IsNullOrWhiteSpace(_pendingDecisionPrompt.DecisionPoint.ContextSummary))
+                                    {
+                                        <div class="rw-scenario-field" style="margin-top:10px;">
+                                            <label class="rw-scenario-field-label">Context Summary</label>
+                                            <div class="small" style="white-space:pre-wrap; color:#b8b8b8;">@_pendingDecisionPrompt.DecisionPoint.ContextSummary</div>
+                                        </div>
+                                    }
 
                                     @if (!string.IsNullOrWhiteSpace(_decisionPromptError))
                                     {
@@ -3432,6 +3535,37 @@
                             <input type="checkbox"
                                    checked="@_session.IsIntensityManuallyPinned"
                                    @onchange="OnManualPinChanged" />
+                        </div>
+                        <div class="rw-settings-info-row">
+                            <span>Use Theme AI Guidance</span>
+                            <input type="checkbox"
+                                   checked="@_session.UseThemeAIGuidanceNotesInPrompt"
+                                   @onchange="OnThemeAIGuidanceEnabledChanged" />
+                        </div>
+                        <div class="text-muted small mb-2">
+                            Adds soft scenario hints from the active RP theme. Guidance never overrides direct user instructions.
+                        </div>
+                        <div class="rw-scenario-field">
+                            <label class="rw-scenario-field-label">Theme Guidance Influence (%)</label>
+                            <input class="rw-settings-input"
+                                   type="number"
+                                   min="0"
+                                   max="100"
+                                   disabled="@(!_session.UseThemeAIGuidanceNotesInPrompt)"
+                                   value="@_session.ThemeAIGuidanceInfluencePercent"
+                                   @onchange="OnThemeAIGuidanceInfluenceChanged" />
+                            <div class="text-muted small">Lower values keep hints subtle; higher values include them more strongly.</div>
+                        </div>
+                        <div class="rw-scenario-field">
+                            <label class="rw-scenario-field-label">Max Theme Guidance Notes</label>
+                            <input class="rw-settings-input"
+                                   type="number"
+                                   min="1"
+                                   max="12"
+                                   disabled="@(!_session.UseThemeAIGuidanceNotesInPrompt)"
+                                   value="@_session.MaxThemeAIGuidanceNotes"
+                                   @onchange="OnThemeAIGuidanceMaxNotesChanged" />
+                            <div class="text-muted small">Hard cap for hints added to each prompt.</div>
                         </div>
                         <div class="rw-settings-info-row">
                             <span>Selected Intensity Profile</span>

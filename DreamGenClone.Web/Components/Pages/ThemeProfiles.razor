@@ -65,6 +65,9 @@
             <button type="button" class="nav-link @GetTabClass("husband-awareness")" @onclick='() => _activeTab = "husband-awareness"'>Husband Awareness</button>
         </li>
         <li class="nav-item" role="presentation">
+            <button type="button" class="nav-link @GetTabClass("flow-guide")" @onclick='() => _activeTab = "flow-guide"'>Flow Guide</button>
+        </li>
+        <li class="nav-item" role="presentation">
             <button type="button" class="nav-link @GetTabClass("perspective")" @onclick='() => _activeTab = "perspective"'>Perspective</button>
         </li>
     </ul>
@@ -356,15 +359,41 @@
                             <div class="col-md-6">
                                 <label class="form-label">Intensity</label>
                                 <select class="form-select" @bind="_toneFormIntensity">
-                                    @foreach (var intensity in Enum.GetValues<IntensityLevel>())
+                                    @foreach (var level in DreamGenClone.Domain.StoryAnalysis.IntensityLadder.Levels)
                                     {
-                                        <option value="@intensity">@DreamGenClone.Domain.StoryAnalysis.IntensityLadder.GetLabel(intensity)</option>
+                                        <option value="@level.Intensity">@level.Label</option>
                                     }
                                 </select>
                             </div>
                             <div class="col-12">
                                 <label class="form-label">Description</label>
                                 <textarea class="form-control" rows="3" @bind="_toneFormDescription"></textarea>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Flow Phase Offsets</label>
+                                <div class="row g-2">
+                                    <div class="col-6 col-md-2">
+                                        <label class="form-label small text-muted">BuildUp</label>
+                                        <input type="number" class="form-control form-control-sm" min="-5" max="5" @bind="_toneBuildUpOffset" />
+                                    </div>
+                                    <div class="col-6 col-md-2">
+                                        <label class="form-label small text-muted">Committed</label>
+                                        <input type="number" class="form-control form-control-sm" min="-5" max="5" @bind="_toneCommittedOffset" />
+                                    </div>
+                                    <div class="col-6 col-md-2">
+                                        <label class="form-label small text-muted">Approaching</label>
+                                        <input type="number" class="form-control form-control-sm" min="-5" max="5" @bind="_toneApproachingOffset" />
+                                    </div>
+                                    <div class="col-6 col-md-2">
+                                        <label class="form-label small text-muted">Climax</label>
+                                        <input type="number" class="form-control form-control-sm" min="-5" max="5" @bind="_toneClimaxOffset" />
+                                    </div>
+                                    <div class="col-6 col-md-2">
+                                        <label class="form-label small text-muted">Reset</label>
+                                        <input type="number" class="form-control form-control-sm" min="-5" max="5" @bind="_toneResetOffset" />
+                                    </div>
+                                </div>
+                                <div class="form-text">Per-phase baseline deltas applied before stat modifiers. Typical defaults: 0, 0, +1, +2, -1.</div>
                             </div>
                         </div>
                         @if (!string.IsNullOrEmpty(_toneError))
@@ -374,6 +403,38 @@
                         <div class="d-flex flex-wrap gap-2 mt-3">
                             <button class="btn btn-primary" @onclick="SaveIntensity" disabled="@_isBusy">@(_selectedToneId is null ? "Create Intensity Profile" : "Save Changes")</button>
                             <button class="btn btn-outline-secondary" @onclick="StartCreateIntensity" disabled="@_isBusy">Reset</button>
+                        </div>
+
+                        <hr class="my-4" />
+
+                        <h6 class="mb-2">Intensity Ladder</h6>
+                        <p class="text-muted small mb-3">Canonical ladder reference used by profile intensity and adaptive flow baselines.</p>
+                        <div class="table-responsive">
+                            <table class="table table-sm align-middle">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 90px;">Scale</th>
+                                        <th style="width: 180px;">Level</th>
+                                        <th>Description</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var level in DreamGenClone.Domain.StoryAnalysis.IntensityLadder.Levels)
+                                    {
+                                        <tr>
+                                            <td>@((int)level.Intensity)</td>
+                                            <td>
+                                                @level.Label
+                                                @if (_toneFormIntensity == level.Intensity)
+                                                {
+                                                    <span class="badge bg-primary ms-2">selected</span>
+                                                }
+                                            </td>
+                                            <td class="text-muted">@DreamGenClone.Domain.StoryAnalysis.IntensityLadder.GetDefaultDescription(level.Intensity)</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                 </div>
@@ -1191,6 +1252,160 @@
             </div>
         </div>
     }
+    else if (_activeTab == "flow-guide")
+    {
+        <div class="row g-4">
+            <div class="col-12">
+                <div class="card border-primary-subtle">
+                    <div class="card-header bg-primary-subtle text-primary-emphasis">
+                        <strong>Roleplay Flow Guide</strong>
+                    </div>
+                    <div class="card-body">
+                        <p class="mb-2">This guide explains how a session moves through phases and how intensity is recalculated on every interaction.</p>
+                        <p class="mb-0 text-muted small">Use this page as a live reference while testing your active roleplay session.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <strong>Narrative Phase Sequence</strong>
+                        <span class="badge bg-secondary">BuildUp -> Committed -> Approaching -> Climax -> Reset</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-12 col-lg-6">
+                                <div class="border rounded p-3 h-100">
+                                    <div class="fw-semibold">Committed -> Approaching</div>
+                                    <div class="small text-muted mt-1">Requires all of these gates:</div>
+                                    <ul class="small mt-2 mb-0">
+                                        <li>Active scenario score &gt;= 60</li>
+                                        <li>Average desire &gt;= 65</li>
+                                        <li>Average restraint &lt;= 45</li>
+                                        <li>Interactions since commitment &gt;= 3</li>
+                                    </ul>
+                                </div>
+                            </div>
+                            <div class="col-12 col-lg-6">
+                                <div class="border rounded p-3 h-100">
+                                    <div class="fw-semibold">Approaching -> Climax</div>
+                                    <div class="small text-muted mt-1">Normal threshold path requires:</div>
+                                    <ul class="small mt-2 mb-2">
+                                        <li>Active scenario score &gt;= 80</li>
+                                        <li>Average desire &gt;= 75</li>
+                                        <li>Average restraint &lt;= 35</li>
+                                        <li>Interactions in approaching &gt;= 2</li>
+                                    </ul>
+                                    <div class="small text-muted">Override path: user interaction includes <span class="font-monospace">/climax</span> or <span class="font-monospace">trigger climax</span>.</div>
+                                </div>
+                            </div>
+                            <div class="col-12 col-lg-6">
+                                <div class="border rounded p-3 h-100">
+                                    <div class="fw-semibold">Climax -> Reset</div>
+                                    <div class="small text-muted mt-1">Transition requires explicit completion signal in interaction text:</div>
+                                    <ul class="small mt-2 mb-0">
+                                        <li><span class="font-monospace">/completeclimax</span></li>
+                                        <li><span class="font-monospace">climax complete</span></li>
+                                    </ul>
+                                </div>
+                            </div>
+                            <div class="col-12 col-lg-6">
+                                <div class="border rounded p-3 h-100">
+                                    <div class="fw-semibold">Reset -> BuildUp</div>
+                                    <div class="small text-muted mt-1">Automatic on next transition evaluation after reset snapshot is applied.</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <strong>Adaptive Intensity Flow</strong>
+                    </div>
+                    <div class="card-body">
+                        <p class="mb-2">Each interaction computes a target intensity scale, then maps that scale to the matching intensity profile.</p>
+                        <div class="bg-light border rounded p-3 font-monospace small mb-3">
+                            targetScale = clamp(selectedScale + phaseOffset + statDelta, floorOverride, ceilingOverride)
+                        </div>
+                        <div class="row g-3">
+                            <div class="col-12 col-lg-4">
+                                <div class="border rounded p-3 h-100">
+                                    <div class="fw-semibold">selectedScale</div>
+                                    <div class="small text-muted mt-1">Scale from selected intensity profile.</div>
+                                </div>
+                            </div>
+                            <div class="col-12 col-lg-4">
+                                <div class="border rounded p-3 h-100">
+                                    <div class="fw-semibold">phaseOffset</div>
+                                    <div class="small text-muted mt-1">Per-phase offset from selected profile (BuildUp, Committed, Approaching, Climax, Reset).</div>
+                                </div>
+                            </div>
+                            <div class="col-12 col-lg-4">
+                                <div class="border rounded p-3 h-100">
+                                    <div class="fw-semibold">statDelta</div>
+                                    <div class="small text-muted mt-1">Bounded to -1, 0, +1 based on Desire/Restraint/Tension rules.</div>
+                                </div>
+                            </div>
+                            <div class="col-12 col-lg-6">
+                                <div class="border rounded p-3 h-100">
+                                    <div class="fw-semibold">Manual Pin</div>
+                                    <div class="small text-muted mt-1">When manual pin is enabled, adaptive transitions are suppressed and the reason code is set to manual-pin-suppressed.</div>
+                                </div>
+                            </div>
+                            <div class="col-12 col-lg-6">
+                                <div class="border rounded p-3 h-100">
+                                    <div class="fw-semibold">Floor/Ceiling Overrides</div>
+                                    <div class="small text-muted mt-1">Clamp target scale to configured lower/upper bounds. Reason code appends blocked-by-floor or blocked-by-ceiling when applied.</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <strong>Intensity Profile Offsets (All Profiles)</strong>
+                        <span class="badge bg-dark">@_intensityProfiles.Count profiles</span>
+                    </div>
+                    <div class="card-body">
+                        @if (_intensityProfiles.Count == 0)
+                        {
+                            <p class="text-muted mb-0">No intensity profiles available yet.</p>
+                        }
+                        else
+                        {
+                            <div class="row g-3">
+                                @foreach (var tone in _intensityProfiles.OrderBy(x => x.Name))
+                                {
+                                    <div class="col-12 col-md-6 col-xl-4">
+                                        <div class="border rounded p-3 h-100">
+                                            <div class="d-flex justify-content-between align-items-center">
+                                                <strong>@tone.Name</strong>
+                                                <span class="badge bg-secondary">@DreamGenClone.Domain.StoryAnalysis.IntensityLadder.GetLabel(tone.Intensity)</span>
+                                            </div>
+                                            <div class="small text-muted mt-1">@tone.Description</div>
+                                            <hr class="my-2" />
+                                            <div class="small">BuildUp: <span class="font-monospace">@tone.BuildUpPhaseOffset</span></div>
+                                            <div class="small">Committed: <span class="font-monospace">@tone.CommittedPhaseOffset</span></div>
+                                            <div class="small">Approaching: <span class="font-monospace">@tone.ApproachingPhaseOffset</span></div>
+                                            <div class="small">Climax: <span class="font-monospace">@tone.ClimaxPhaseOffset</span></div>
+                                            <div class="small">Reset: <span class="font-monospace">@tone.ResetPhaseOffset</span></div>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
     else
     {
         <div class="row g-4">
@@ -1255,6 +1470,11 @@
     private string _toneFormName = string.Empty;
     private string _toneFormDescription = string.Empty;
     private IntensityLevel _toneFormIntensity = IntensityLevel.Emotional;
+    private int _toneBuildUpOffset;
+    private int _toneCommittedOffset;
+    private int _toneApproachingOffset = 1;
+    private int _toneClimaxOffset = 2;
+    private int _toneResetOffset = -1;
     private string? _toneError;
 
     private List<SteeringProfile> _steeringProfiles = [];
@@ -1435,7 +1655,9 @@
     private async Task ReloadAsync()
     {
         _profiles = await Facade.ListProfilesAsync();
-        _intensityProfiles = await Facade.ListIntensityProfilesAsync();
+        _intensityProfiles = (await Facade.ListIntensityProfilesAsync())
+            .Where(x => x.Intensity != IntensityLevel.Intro)
+            .ToList();
         _steeringProfiles = await Facade.ListSteeringProfilesAsync();
         _baseStatProfiles = await Facade.ListBaseStatProfilesAsync();
         _scenarioDefinitions = (await Facade.ListScenarioDefinitionsAsync(includeDisabled: true)).ToList();
@@ -1717,6 +1939,11 @@
         _toneFormName = string.Empty;
         _toneFormDescription = string.Empty;
         _toneFormIntensity = IntensityLevel.Emotional;
+        _toneBuildUpOffset = 0;
+        _toneCommittedOffset = 0;
+        _toneApproachingOffset = 1;
+        _toneClimaxOffset = 2;
+        _toneResetOffset = -1;
         _toneError = null;
     }
 
@@ -1732,6 +1959,11 @@
         _toneFormName = tone.Name;
         _toneFormDescription = tone.Description;
         _toneFormIntensity = tone.Intensity;
+        _toneBuildUpOffset = tone.BuildUpPhaseOffset;
+        _toneCommittedOffset = tone.CommittedPhaseOffset;
+        _toneApproachingOffset = tone.ApproachingPhaseOffset;
+        _toneClimaxOffset = tone.ClimaxPhaseOffset;
+        _toneResetOffset = tone.ResetPhaseOffset;
         _toneError = null;
     }
 
@@ -1749,13 +1981,30 @@
         {
             if (_selectedToneId is null)
             {
-                var created = await Facade.CreateIntensityProfileAsync(_toneFormName, _toneFormDescription, _toneFormIntensity);
+                var created = await Facade.CreateIntensityProfileAsync(
+                    _toneFormName,
+                    _toneFormDescription,
+                    _toneFormIntensity,
+                    _toneBuildUpOffset,
+                    _toneCommittedOffset,
+                    _toneApproachingOffset,
+                    _toneClimaxOffset,
+                    _toneResetOffset);
                 await ReloadAsync();
                 SelectIntensity(created.Id);
             }
             else
             {
-                await Facade.UpdateIntensityProfileAsync(_selectedToneId, _toneFormName, _toneFormDescription, _toneFormIntensity);
+                await Facade.UpdateIntensityProfileAsync(
+                    _selectedToneId,
+                    _toneFormName,
+                    _toneFormDescription,
+                    _toneFormIntensity,
+                    _toneBuildUpOffset,
+                    _toneCommittedOffset,
+                    _toneApproachingOffset,
+                    _toneClimaxOffset,
+                    _toneResetOffset);
                 await ReloadAsync();
                 SelectIntensity(_selectedToneId);
             }

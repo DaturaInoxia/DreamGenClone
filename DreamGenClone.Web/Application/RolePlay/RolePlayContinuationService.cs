@@ -7,6 +7,7 @@ using DreamGenClone.Application.ModelManager;
 using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Application.StoryAnalysis;
 using DreamGenClone.Application.StoryAnalysis.Models;
+using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Domain.StoryAnalysis;
 using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Infrastructure.Logging;
@@ -39,6 +40,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
     private readonly ISteeringProfileService _steeringProfileService;
     private readonly IScenarioGuidanceContextFactory _scenarioGuidanceContextFactory;
     private readonly IRolePlayDebugEventSink _debugEventSink;
+    private readonly IRPThemeService? _rpThemeService;
     private readonly IRolePlayDiagnosticsService? _diagnosticsService;
     private readonly ILogger<RolePlayContinuationService> _logger;
 
@@ -54,7 +56,8 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         IScenarioGuidanceContextFactory scenarioGuidanceContextFactory,
         IRolePlayDebugEventSink debugEventSink,
         ILogger<RolePlayContinuationService> logger,
-        IRolePlayDiagnosticsService? diagnosticsService = null)
+        IRolePlayDiagnosticsService? diagnosticsService = null,
+        IRPThemeService? rpThemeService = null)
     {
         _completionClient = completionClient;
         _modelResolver = modelResolver;
@@ -66,6 +69,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         _steeringProfileService = styleProfileService;
         _scenarioGuidanceContextFactory = scenarioGuidanceContextFactory;
         _debugEventSink = debugEventSink;
+        _rpThemeService = rpThemeService;
         _diagnosticsService = diagnosticsService;
         _logger = logger;
     }
@@ -355,6 +359,8 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         string scenarioStyle = string.Empty;
         IntensityLevel? baseIntensityLevel = null;
         IntensityLevel? adaptiveIntensityLevel = null;
+        string? selectedIntensityDescription = null;
+        string? adaptiveIntensityDescription = null;
         string? scenarioSteeringProfileId = null;
         List<string> scenarioGoals = [];
         List<string> scenarioConflicts = [];
@@ -370,9 +376,16 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                 sb.AppendLine($"- Description: {scenario.Description}");
                 sb.AppendLine($"- Plot: {scenario.Plot.Description}");
                 sb.AppendLine($"- Setting: {scenario.Setting.WorldDescription}");
-                scenarioStyle = $"{scenario.Narrative.ProseStyle} / {scenario.Narrative.NarrativeTone}".Trim();
+                scenarioStyle = string.Join(" / ", new[]
+                {
+                    scenario.Narrative.ProseStyle,
+                    scenario.Narrative.NarrativeTone
+                }.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()));
                 scenarioSteeringProfileId = scenario.DefaultSteeringProfileId;
-                sb.AppendLine($"- Narrative: {scenarioStyle}");
+                if (!string.IsNullOrWhiteSpace(scenarioStyle))
+                {
+                    sb.AppendLine($"- Narrative: {scenarioStyle}");
+                }
 
                 if (!string.IsNullOrWhiteSpace(scenario.Narrative.PointOfView))
                 {
@@ -450,6 +463,9 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                         if (toneProfile is not null)
                         {
                             baseIntensityLevel = toneProfile.Intensity;
+                            selectedIntensityDescription = string.IsNullOrWhiteSpace(toneProfile.Description)
+                                ? null
+                                : toneProfile.Description.Trim();
                         }
                     }
                 }
@@ -460,6 +476,9 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                     if (adaptiveProfile is not null)
                     {
                         adaptiveIntensityLevel = adaptiveProfile.Intensity;
+                        adaptiveIntensityDescription = string.IsNullOrWhiteSpace(adaptiveProfile.Description)
+                            ? null
+                            : adaptiveProfile.Description.Trim();
                     }
                 }
 
@@ -634,6 +653,29 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         var framingGuards = RolePlayAssistantPrompts.BuildFramingGuards(currentPhase, activeScenarioId);
         RolePlayAssistantPrompts.AppendScenarioGuidance(sb, guidanceContext, framingGuards);
 
+        if (session.UseRpThemeSubsystem
+            && session.UseThemeAIGuidanceNotesInPrompt
+            && _rpThemeService is not null
+            && !string.IsNullOrWhiteSpace(activeScenarioId))
+        {
+            RPTheme? activeTheme = null;
+            try
+            {
+                activeTheme = await _rpThemeService.GetThemeAsync(activeScenarioId, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Unable to load RP theme AI guidance notes for active scenario/theme {ThemeId} in session {SessionId}.", activeScenarioId, session.Id);
+            }
+
+            RolePlayAssistantPrompts.AppendThemeAIGuidance(
+                sb,
+                activeTheme,
+                currentPhase,
+                session.ThemeAIGuidanceInfluencePercent,
+                session.MaxThemeAIGuidanceNotes);
+        }
+
         _logger.LogInformation(
             "Guidance context generated for session {SessionId}: phase={Phase}, activeScenarioId={ActiveScenarioId}, excludedCount={ExcludedCount}",
             session.Id,
@@ -776,8 +818,46 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         // NPC       = 3rd person external (dialogue + observable behavior only)
         var personaName = string.IsNullOrWhiteSpace(session.PersonaName) ? "You" : session.PersonaName;
         var (effectiveStyleLabel, effectiveStyleReason) = RolePlayStyleResolver.ResolveEffectiveStyle(session, baseIntensityLevel, adaptiveIntensityLevel);
+        var resolvedIntensityDescription = string.Empty;
+        var resolvedScale = RolePlayStyleResolver.ParseBoundScale(effectiveStyleLabel);
+        if (resolvedScale.HasValue)
+        {
+            if (session.IsIntensityManuallyPinned && !string.IsNullOrWhiteSpace(selectedIntensityDescription))
+            {
+                resolvedIntensityDescription = selectedIntensityDescription;
+            }
+            else if (!session.IsIntensityManuallyPinned && !string.IsNullOrWhiteSpace(adaptiveIntensityDescription))
+            {
+                resolvedIntensityDescription = adaptiveIntensityDescription;
+            }
+
+            if (string.IsNullOrWhiteSpace(resolvedIntensityDescription))
+            {
+                var intensityProfiles = await _intensityProfileService.ListAsync(cancellationToken);
+                var resolvedProfile = intensityProfiles.FirstOrDefault(x => (int)x.Intensity == resolvedScale.Value && !string.IsNullOrWhiteSpace(x.Description))
+                    ?? intensityProfiles.FirstOrDefault(x => (int)x.Intensity == resolvedScale.Value);
+
+                resolvedIntensityDescription = !string.IsNullOrWhiteSpace(resolvedProfile?.Description)
+                    ? resolvedProfile.Description.Trim()
+                    : IntensityLadder.GetDefaultDescription((IntensityLevel)resolvedScale.Value);
+            }
+        }
+
+        if (intent == PromptIntent.Narrative)
+        {
+            effectiveStyleLabel = IntensityLadder.GetLabel(IntensityLevel.Intro);
+            effectiveStyleReason = string.IsNullOrWhiteSpace(effectiveStyleReason)
+                ? "narrative-forced-atmospheric"
+                : $"{effectiveStyleReason}, narrative-forced-atmospheric";
+            resolvedIntensityDescription = IntensityLadder.GetDefaultDescription(IntensityLevel.Intro);
+        }
+
         sb.AppendLine($"Resolved Intensity: {effectiveStyleLabel}");
         sb.AppendLine($"Resolution Reason: {effectiveStyleReason}");
+        if (!string.IsNullOrWhiteSpace(resolvedIntensityDescription))
+        {
+            sb.AppendLine($"Resolved Intensity Description: {resolvedIntensityDescription}");
+        }
         sb.AppendLine($"Manual Intensity Pin: {(session.IsIntensityManuallyPinned ? "ON (resolved follows selected)" : "OFF (adaptive mode)")}");
         AppendEscalationGuidance(sb, session, actorName, currentPhase, intent);
 

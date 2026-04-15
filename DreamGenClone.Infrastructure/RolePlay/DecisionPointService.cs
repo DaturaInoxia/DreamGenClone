@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using DreamGenClone.Application.RolePlay;
+using DreamGenClone.Application.StoryAnalysis;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Infrastructure.Logging;
 using Microsoft.Extensions.Logging;
@@ -409,17 +410,7 @@ public sealed class DecisionPointService : IDecisionPointService
 
     private static int GetStatValue(CharacterStatProfileV2 actor, string statName)
     {
-        return statName switch
-        {
-            "Desire" => actor.Desire,
-            "Restraint" => actor.Restraint,
-            "Tension" => actor.Tension,
-            "Connection" => actor.Connection,
-            "Dominance" => actor.Dominance,
-            "Loyalty" => actor.Loyalty,
-            "SelfRespect" => actor.SelfRespect,
-            _ => 50
-        };
+        return CharacterStatProfileV2Accessor.GetStatOrDefault(actor, statName, AdaptiveStatCatalog.DefaultValue);
     }
 
     private static string? NormalizeContextToken(string? token)
@@ -731,30 +722,7 @@ public sealed class DecisionPointService : IDecisionPointService
     {
         foreach (var (stat, delta) in deltas)
         {
-            switch (stat)
-            {
-                case "Desire":
-                    profile.Desire = Math.Clamp(profile.Desire + delta, 0, 100);
-                    break;
-                case "Restraint":
-                    profile.Restraint = Math.Clamp(profile.Restraint + delta, 0, 100);
-                    break;
-                case "Tension":
-                    profile.Tension = Math.Clamp(profile.Tension + delta, 0, 100);
-                    break;
-                case "Connection":
-                    profile.Connection = Math.Clamp(profile.Connection + delta, 0, 100);
-                    break;
-                case "Dominance":
-                    profile.Dominance = Math.Clamp(profile.Dominance + delta, 0, 100);
-                    break;
-                case "Loyalty":
-                    profile.Loyalty = Math.Clamp(profile.Loyalty + delta, 0, 100);
-                    break;
-                case "SelfRespect":
-                    profile.SelfRespect = Math.Clamp(profile.SelfRespect + delta, 0, 100);
-                    break;
-            }
+            CharacterStatProfileV2Accessor.ApplyDelta(profile, stat, delta);
         }
     }
 

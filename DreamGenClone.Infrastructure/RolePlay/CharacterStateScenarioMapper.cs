@@ -1,5 +1,6 @@
 using System.Text.Json;
 using DreamGenClone.Application.RolePlay;
+using DreamGenClone.Application.StoryAnalysis;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Domain.StoryAnalysis;
 using Microsoft.Extensions.Logging;
@@ -137,17 +138,7 @@ public sealed class CharacterStateScenarioMapper : ICharacterStateScenarioMapper
             return mapped;
         }
 
-        return new CharacterStatProfileV2
-        {
-            CharacterId = characterId,
-            Desire = 50,
-            Restraint = 50,
-            Tension = 50,
-            Connection = 50,
-            Dominance = 50,
-            Loyalty = 50,
-            SelfRespect = 50
-        };
+        return CharacterStatProfileV2Accessor.CreateDefault(characterId);
     }
 
     private static double EvaluateRole(
@@ -299,18 +290,7 @@ public sealed class CharacterStateScenarioMapper : ICharacterStateScenarioMapper
     }
 
     private static int ReadStat(CharacterStatProfileV2 profile, string statName)
-        => statName.ToLowerInvariant() switch
-        {
-            "desire" => profile.Desire,
-            "restraint" => profile.Restraint,
-            "tension" => profile.Tension,
-            "connection" => profile.Connection,
-            "dominance" => profile.Dominance,
-            "loyalty" => profile.Loyalty,
-            "selfrespect" => profile.SelfRespect,
-            "self_respect" => profile.SelfRespect,
-            _ => 50
-        };
+        => CharacterStatProfileV2Accessor.GetStatOrDefault(profile, statName, AdaptiveStatCatalog.DefaultValue);
 
     private static double Clamp01(double value)
         => Math.Clamp(Math.Round(value, 4), 0.0, 1.0);
