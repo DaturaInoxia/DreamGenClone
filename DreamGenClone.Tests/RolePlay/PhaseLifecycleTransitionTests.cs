@@ -56,12 +56,63 @@ public sealed class PhaseLifecycleTransitionTests
         var snapshot = state.CharacterSnapshots[0];
 
         var reset = await _service.ExecuteResetAsync(state, ResetReason.Completion);
+        var decayed = reset.CharacterSnapshots[0];
 
         Assert.Equal(NarrativePhase.BuildUp, reset.CurrentPhase);
         Assert.Equal(5, reset.CycleIndex);
         Assert.Equal("custom-v2", reset.ActiveFormulaVersion);
         Assert.Single(reset.CharacterSnapshots);
         Assert.Equal(snapshot.CharacterId, reset.CharacterSnapshots[0].CharacterId);
+        Assert.True(decayed.Desire < snapshot.Desire);
+        Assert.True(decayed.Tension < snapshot.Tension);
+        Assert.True(decayed.Dominance < snapshot.Dominance);
+        Assert.Equal(snapshot.Connection, decayed.Connection);
+        Assert.Equal(snapshot.Loyalty, decayed.Loyalty);
+        Assert.Equal(snapshot.SelfRespect, decayed.SelfRespect);
+    }
+
+    [Fact]
+    public async Task ResetDecay_StrongerForHigherElevatedDesire()
+    {
+        var state = new AdaptiveScenarioState
+        {
+            SessionId = "session-2",
+            CurrentPhase = NarrativePhase.Reset,
+            ActiveFormulaVersion = "rpv2-default",
+            CharacterSnapshots =
+            [
+                new CharacterStatProfileV2
+                {
+                    CharacterId = "char-high",
+                    Desire = 95,
+                    Restraint = 20,
+                    Tension = 85,
+                    Connection = 60,
+                    Dominance = 80,
+                    Loyalty = 55,
+                    SelfRespect = 58
+                },
+                new CharacterStatProfileV2
+                {
+                    CharacterId = "char-mid",
+                    Desire = 65,
+                    Restraint = 80,
+                    Tension = 60,
+                    Connection = 60,
+                    Dominance = 60,
+                    Loyalty = 55,
+                    SelfRespect = 58
+                }
+            ]
+        };
+
+        var reset = await _service.ExecuteResetAsync(state, ResetReason.Completion);
+        var high = reset.CharacterSnapshots.Single(x => x.CharacterId == "char-high");
+        var mid = reset.CharacterSnapshots.Single(x => x.CharacterId == "char-mid");
+
+        Assert.True((95 - high.Desire) > (65 - mid.Desire));
+        Assert.Equal(30, high.Restraint);
+        Assert.Equal(70, mid.Restraint);
     }
 
     private static AdaptiveScenarioState CreateState() => new()

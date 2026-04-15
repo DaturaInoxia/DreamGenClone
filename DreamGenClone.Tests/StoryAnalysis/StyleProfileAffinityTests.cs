@@ -151,6 +151,14 @@ public sealed class StyleProfileAffinityTests
         public Task<HusbandAwarenessProfile?> LoadHusbandAwarenessProfileAsync(string id, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<List<HusbandAwarenessProfile>> LoadAllHusbandAwarenessProfilesAsync(CancellationToken ct = default) => throw new NotImplementedException();
         public Task<bool> DeleteHusbandAwarenessProfileAsync(string id, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task SaveBackgroundCharacterProfileAsync(BackgroundCharacterProfile profile, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<BackgroundCharacterProfile?> LoadBackgroundCharacterProfileAsync(string id, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<List<BackgroundCharacterProfile>> LoadAllBackgroundCharacterProfilesAsync(CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<bool> DeleteBackgroundCharacterProfileAsync(string id, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task SaveRoleDefinitionAsync(RoleDefinition roleDefinition, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<RoleDefinition?> LoadRoleDefinitionAsync(string id, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<List<RoleDefinition>> LoadAllRoleDefinitionsAsync(CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<bool> DeleteRoleDefinitionAsync(string id, CancellationToken ct = default) => throw new NotImplementedException();
         public Task SaveScenarioDefinitionAsync(ScenarioDefinitionEntity definition, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<ScenarioDefinitionEntity?> LoadScenarioDefinitionAsync(string id, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<List<ScenarioDefinitionEntity>> LoadAllScenarioDefinitionsAsync(bool includeDisabled = false, CancellationToken ct = default) => throw new NotImplementedException();

@@ -83,7 +83,9 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
             LastEvaluationUtc = DateTime.UtcNow,
             CycleIndex = state.CycleIndex + 1,
             ActiveFormulaVersion = state.ActiveFormulaVersion,
-            CharacterSnapshots = [.. state.CharacterSnapshots]
+            CharacterSnapshots = state.CharacterSnapshots
+                .Select(ApplySemiResetDecay)
+                .ToList()
         };
 
         _logger.LogInformation(
@@ -93,6 +95,52 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
             reason);
 
         return Task.FromResult(resetState);
+    }
+
+    private static CharacterStatProfileV2 ApplySemiResetDecay(CharacterStatProfileV2 snapshot)
+    {
+        return new CharacterStatProfileV2
+        {
+            CharacterId = snapshot.CharacterId,
+            Desire = DecayElevatedStat(snapshot.Desire, baseDecay: 10, elevationMultiplier: 0.45, minimum: 50),
+            Restraint = MoveTowardNeutral(snapshot.Restraint, step: 10),
+            Tension = DecayElevatedStat(snapshot.Tension, baseDecay: 7, elevationMultiplier: 0.30, minimum: 0),
+            Connection = Math.Clamp(snapshot.Connection, 0, 100),
+            Dominance = DecayElevatedStat(snapshot.Dominance, baseDecay: 5, elevationMultiplier: 0.25, minimum: 0),
+            Loyalty = Math.Clamp(snapshot.Loyalty, 0, 100),
+            SelfRespect = Math.Clamp(snapshot.SelfRespect, 0, 100),
+            SnapshotUtc = DateTime.UtcNow
+        };
+    }
+
+    private static int DecayElevatedStat(int value, int baseDecay, double elevationMultiplier, int minimum)
+    {
+        var clamped = Math.Clamp(value, 0, 100);
+        if (clamped <= 50)
+        {
+            return clamped;
+        }
+
+        var elevation = clamped - 50;
+        var variableDecay = (int)Math.Round(elevation * elevationMultiplier, MidpointRounding.AwayFromZero);
+        var decayed = clamped - baseDecay - variableDecay;
+        return Math.Clamp(decayed, minimum, 100);
+    }
+
+    private static int MoveTowardNeutral(int value, int step)
+    {
+        var clamped = Math.Clamp(value, 0, 100);
+        if (clamped < 50)
+        {
+            return Math.Min(50, clamped + step);
+        }
+
+        if (clamped > 50)
+        {
+            return Math.Max(50, clamped - step);
+        }
+
+        return clamped;
     }
 
     private static (bool Transitioned, NarrativePhase TargetPhase, TransitionTriggerType TriggerType, string ReasonCode) ResolveTransition(

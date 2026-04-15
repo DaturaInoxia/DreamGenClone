@@ -93,4 +93,76 @@ public sealed class CharacterStateScenarioMapperTests
         Assert.True(fit.FitScore > 0.8, $"Expected strong fit but got {fit.FitScore:0.###}");
         Assert.Empty(fit.Failures);
     }
+
+    [Fact]
+    public async Task EvaluateAllScenariosAsync_AppliesFormulaThresholdsAndWeights()
+    {
+        var mapper = new CharacterStateScenarioMapper(NullLogger<CharacterStateScenarioMapper>.Instance);
+
+        var state = new AdaptiveScenarioState
+        {
+            SessionId = "s1",
+            CharacterSnapshots =
+            [
+                new CharacterStatProfileV2
+                {
+                    CharacterId = "alpha",
+                    Desire = 70,
+                    Restraint = 40,
+                    Tension = 60,
+                    Connection = 50,
+                    Dominance = 30,
+                    Loyalty = 20,
+                    SelfRespect = 40
+                }
+            ]
+        };
+
+        var rules = new ScenarioFitRules
+        {
+            RoleCharacterBindings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["lead"] = "alpha"
+            },
+            CharacterRoleRules =
+            [
+                new CharacterRoleRule
+                {
+                    RoleName = "lead",
+                    StatThresholds = new Dictionary<string, StatThresholdSpecification>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["desire"] = new StatThresholdSpecification { MinimumValue = 55 }
+                    },
+                    FormulaThresholds = new Dictionary<string, StatThresholdSpecification>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["Risk Appetite"] = new StatThresholdSpecification { MinimumValue = 55 },
+                        ["BoundariesStrength"] = new StatThresholdSpecification { MaximumValue = 110 }
+                    },
+                    StatWeights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["desire"] = 0.2
+                    },
+                    FormulaWeights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["RiskAppetite"] = 0.6,
+                        ["BoundariesStrength"] = 0.2
+                    }
+                }
+            ]
+        };
+
+        var result = await mapper.EvaluateAllScenariosAsync(state,
+        [
+            new ThemeCatalogEntry
+            {
+                Id = "formula-driven",
+                ScenarioFitRules = JsonSerializer.Serialize(rules, JsonOptions)
+            }
+        ]);
+
+        Assert.True(result.TryGetValue("formula-driven", out var fit));
+        Assert.NotNull(fit);
+        Assert.True(fit.FitScore > 0.9, $"Expected strong fit but got {fit.FitScore:0.###}");
+        Assert.Empty(fit.Failures);
+    }
 }

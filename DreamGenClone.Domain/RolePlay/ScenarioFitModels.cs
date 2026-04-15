@@ -17,7 +17,11 @@ public sealed class CharacterRoleRule
 
     public Dictionary<string, StatThresholdSpecification> StatThresholds { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
+    public Dictionary<string, StatThresholdSpecification> FormulaThresholds { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
     public Dictionary<string, double> StatWeights { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    public Dictionary<string, double> FormulaWeights { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }
 
 public sealed class StatThresholdSpecification

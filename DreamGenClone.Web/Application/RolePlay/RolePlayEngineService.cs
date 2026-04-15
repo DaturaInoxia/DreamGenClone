@@ -1318,6 +1318,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 };
                 await _v2StateRepository.SaveCompletionMetadataAsync(completion, cancellationToken);
                 v2State = await _scenarioLifecycleService.ExecuteResetAsync(v2State, ResetReason.Completion, cancellationToken);
+                ApplyThemeSemiReset(session.AdaptiveState.ThemeTracker);
             }
         }
 
@@ -1442,6 +1443,64 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         {
             session.AdaptiveState.ScenarioCommitmentTimeUtc = null;
         }
+
+        if (v2State.CharacterSnapshots.Count > 0)
+        {
+            foreach (var snapshot in v2State.CharacterSnapshots)
+            {
+                if (string.IsNullOrWhiteSpace(snapshot.CharacterId))
+                {
+                    continue;
+                }
+
+                session.AdaptiveState.CharacterStats[snapshot.CharacterId] = new CharacterStatBlock
+                {
+                    CharacterId = snapshot.CharacterId,
+                    Stats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["Desire"] = Math.Clamp(snapshot.Desire, AdaptiveStatCatalog.MinValue, AdaptiveStatCatalog.MaxValue),
+                        ["Restraint"] = Math.Clamp(snapshot.Restraint, AdaptiveStatCatalog.MinValue, AdaptiveStatCatalog.MaxValue),
+                        ["Tension"] = Math.Clamp(snapshot.Tension, AdaptiveStatCatalog.MinValue, AdaptiveStatCatalog.MaxValue),
+                        ["Connection"] = Math.Clamp(snapshot.Connection, AdaptiveStatCatalog.MinValue, AdaptiveStatCatalog.MaxValue),
+                        ["Dominance"] = Math.Clamp(snapshot.Dominance, AdaptiveStatCatalog.MinValue, AdaptiveStatCatalog.MaxValue),
+                        ["Loyalty"] = Math.Clamp(snapshot.Loyalty, AdaptiveStatCatalog.MinValue, AdaptiveStatCatalog.MaxValue),
+                        ["SelfRespect"] = Math.Clamp(snapshot.SelfRespect, AdaptiveStatCatalog.MinValue, AdaptiveStatCatalog.MaxValue)
+                    },
+                    UpdatedUtc = DateTime.UtcNow
+                };
+            }
+        }
+    }
+
+    private static void ApplyThemeSemiReset(ThemeTrackerState tracker)
+    {
+        tracker.RecentEvidence.Clear();
+        tracker.PrimaryThemeId = null;
+        tracker.SecondaryThemeId = null;
+        tracker.UpdatedUtc = DateTime.UtcNow;
+
+        foreach (var item in tracker.Themes.Values)
+        {
+            item.Score = Math.Round(Math.Max(0, item.Score * 0.25), 4);
+            item.Breakdown.InteractionEvidenceSignal = 0;
+            item.Breakdown.ScenarioPhaseSignal = 0;
+            item.Intensity = ResolveResetIntensity(item.Score);
+        }
+    }
+
+    private static string ResolveResetIntensity(double score)
+    {
+        if (score >= 45)
+        {
+            return "Moderate";
+        }
+
+        if (score >= 15)
+        {
+            return "Minor";
+        }
+
+        return "None";
     }
 
     private async Task<bool> HasPendingDecisionPointAsync(RolePlaySession session, CancellationToken cancellationToken)

@@ -148,11 +148,17 @@ public sealed class CharacterStateScenarioMapper : ICharacterStateScenarioMapper
         List<string> failures,
         List<string> roleExplanations)
     {
-        if (roleRule.StatThresholds.Count == 0)
+        var hasStatThresholds = roleRule.StatThresholds.Count > 0;
+        var hasFormulaThresholds = roleRule.FormulaThresholds.Count > 0;
+        if (!hasStatThresholds && !hasFormulaThresholds)
         {
-            roleExplanations.Add($"Role '{roleName}' had no stat thresholds; neutral score applied.");
+            roleExplanations.Add($"Role '{roleName}' had no stat/formula thresholds; neutral score applied.");
             return 0.5;
         }
+
+        var formulaScores = hasFormulaThresholds
+            ? RolePlayDerivedFormulaEvaluator.EvaluateAll(profile)
+            : null;
 
         double weightedTotal = 0;
         double totalWeight = 0;
@@ -168,6 +174,27 @@ public sealed class CharacterStateScenarioMapper : ICharacterStateScenarioMapper
             var component = EvaluateStatComponent(roleName, statName, value, threshold, failures, roleExplanations);
             weightedTotal += component * statWeight;
             totalWeight += statWeight;
+        }
+
+        if (hasFormulaThresholds)
+        {
+            foreach (var (formulaNameRaw, threshold) in roleRule.FormulaThresholds)
+            {
+                var formulaName = formulaNameRaw.Trim();
+                if (!TryGetFormulaValue(formulaScores, formulaName, out var formulaValue))
+                {
+                    failures.Add($"{roleName}.{formulaName} formula not found");
+                    continue;
+                }
+
+                var formulaWeight = roleRule.FormulaWeights.TryGetValue(formulaName, out var configuredWeight)
+                    ? Math.Max(configuredWeight, 0.0)
+                    : 1.0;
+
+                var component = EvaluateNumericComponent(roleName, formulaName, formulaValue, threshold, 0.0, 150.0, failures, roleExplanations);
+                weightedTotal += component * formulaWeight;
+                totalWeight += formulaWeight;
+            }
         }
 
         if (totalWeight <= 0)
@@ -188,24 +215,35 @@ public sealed class CharacterStateScenarioMapper : ICharacterStateScenarioMapper
         StatThresholdSpecification threshold,
         List<string> failures,
         List<string> roleExplanations)
+        => EvaluateNumericComponent(roleName, statName, value, threshold, 0.0, 100.0, failures, roleExplanations);
+
+    private static double EvaluateNumericComponent(
+        string roleName,
+        string statOrFormulaName,
+        double value,
+        StatThresholdSpecification threshold,
+        double scaleMin,
+        double scaleMax,
+        List<string> failures,
+        List<string> roleExplanations)
     {
         var penaltyWeight = Math.Max(threshold.PenaltyWeight, 0.0);
         var component = 1.0;
 
         if (threshold.MinimumValue is not null && value < threshold.MinimumValue.Value)
         {
-            var denominator = Math.Max(threshold.MinimumValue.Value, 1.0);
+            var denominator = Math.Max(threshold.MinimumValue.Value - scaleMin, 1.0);
             var penalty = ((threshold.MinimumValue.Value - value) / denominator) * penaltyWeight;
             component -= penalty;
-            failures.Add($"{roleName}.{statName} below minimum ({value} < {threshold.MinimumValue.Value:0.###})");
+            failures.Add($"{roleName}.{statOrFormulaName} below minimum ({value:0.###} < {threshold.MinimumValue.Value:0.###})");
         }
 
         if (threshold.MaximumValue is not null && value > threshold.MaximumValue.Value)
         {
-            var denominator = Math.Max(100.0 - threshold.MaximumValue.Value, 1.0);
+            var denominator = Math.Max(scaleMax - threshold.MaximumValue.Value, 1.0);
             var penalty = ((value - threshold.MaximumValue.Value) / denominator) * penaltyWeight;
             component -= penalty;
-            failures.Add($"{roleName}.{statName} above maximum ({value} > {threshold.MaximumValue.Value:0.###})");
+            failures.Add($"{roleName}.{statOrFormulaName} above maximum ({value:0.###} > {threshold.MaximumValue.Value:0.###})");
         }
 
         if (threshold.OptimalMin is not null && threshold.OptimalMax is not null)
@@ -217,9 +255,10 @@ public sealed class CharacterStateScenarioMapper : ICharacterStateScenarioMapper
                 var center = (optimalMin + optimalMax) / 2.0;
                 var halfRange = Math.Max((optimalMax - optimalMin) / 2.0, 1.0);
                 var centrality = 1.0 - (Math.Abs(value - center) / halfRange);
-                var bonus = Math.Max(centrality, 0.0) * (0.20 * Math.Max(penaltyWeight, 0.25));
+                var bonusCap = 0.20 * Math.Max(penaltyWeight, 0.25);
+                var bonus = Math.Max(centrality, 0.0) * bonusCap;
                 component += bonus;
-                roleExplanations.Add($"{roleName}.{statName} in optimal range ({optimalMin:0.###}-{optimalMax:0.###}).");
+                roleExplanations.Add($"{roleName}.{statOrFormulaName} in optimal range ({optimalMin:0.###}-{optimalMax:0.###}).");
             }
         }
 
@@ -291,6 +330,35 @@ public sealed class CharacterStateScenarioMapper : ICharacterStateScenarioMapper
 
     private static int ReadStat(CharacterStatProfileV2 profile, string statName)
         => CharacterStatProfileV2Accessor.GetStatOrDefault(profile, statName, AdaptiveStatCatalog.DefaultValue);
+
+    private static bool TryGetFormulaValue(IReadOnlyDictionary<string, double>? formulas, string formulaName, out double value)
+    {
+        value = 0;
+        if (formulas is null || string.IsNullOrWhiteSpace(formulaName))
+        {
+            return false;
+        }
+
+        if (formulas.TryGetValue(formulaName, out value))
+        {
+            return true;
+        }
+
+        var compact = ToComparableKey(formulaName);
+        foreach (var (key, score) in formulas)
+        {
+            if (ToComparableKey(key) == compact)
+            {
+                value = score;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static string ToComparableKey(string value)
+        => new string(value.Trim().Where(c => c != '_' && c != '-' && c != ' ').ToArray()).ToUpperInvariant();
 
     private static double Clamp01(double value)
         => Math.Clamp(Math.Round(value, 4), 0.0, 1.0);

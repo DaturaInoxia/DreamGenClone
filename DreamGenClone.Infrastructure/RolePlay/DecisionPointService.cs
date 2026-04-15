@@ -383,6 +383,8 @@ public sealed class DecisionPointService : IDecisionPointService
             return false;
         }
 
+        IReadOnlyDictionary<string, double>? formulaScores = null;
+
         if (spec?.Min is not null)
         {
             foreach (var (statName, value) in spec.Min)
@@ -405,12 +407,71 @@ public sealed class DecisionPointService : IDecisionPointService
             }
         }
 
+        if (spec?.MinFormula is not null)
+        {
+            formulaScores ??= RolePlayDerivedFormulaEvaluator.EvaluateAll(actor);
+            foreach (var (formulaName, value) in spec.MinFormula)
+            {
+                if (!TryGetFormulaScore(formulaScores, formulaName, out var formulaScore) || formulaScore < value)
+                {
+                    return false;
+                }
+            }
+        }
+
+        if (spec?.MaxFormula is not null)
+        {
+            formulaScores ??= RolePlayDerivedFormulaEvaluator.EvaluateAll(actor);
+            foreach (var (formulaName, value) in spec.MaxFormula)
+            {
+                if (!TryGetFormulaScore(formulaScores, formulaName, out var formulaScore) || formulaScore > value)
+                {
+                    return false;
+                }
+            }
+        }
+
         return true;
     }
 
     private static int GetStatValue(CharacterStatProfileV2 actor, string statName)
     {
         return CharacterStatProfileV2Accessor.GetStatOrDefault(actor, statName, AdaptiveStatCatalog.DefaultValue);
+    }
+
+    private static bool TryGetFormulaScore(IReadOnlyDictionary<string, double> formulas, string formulaName, out double score)
+    {
+        score = 0;
+        if (string.IsNullOrWhiteSpace(formulaName))
+        {
+            return false;
+        }
+
+        if (formulas.TryGetValue(formulaName, out score))
+        {
+            return true;
+        }
+
+        var compact = ToComparableKey(formulaName);
+        foreach (var (key, value) in formulas)
+        {
+            if (ToComparableKey(key) == compact)
+            {
+                score = value;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static string ToComparableKey(string value)
+    {
+        return new string(value
+            .Trim()
+            .Where(c => c != '_' && c != '-' && c != ' ')
+            .ToArray())
+            .ToUpperInvariant();
     }
 
     private static string? NormalizeContextToken(string? token)
@@ -742,5 +803,11 @@ public sealed class DecisionPointService : IDecisionPointService
 
         [JsonPropertyName("max")]
         public Dictionary<string, int>? Max { get; set; }
+
+        [JsonPropertyName("minFormula")]
+        public Dictionary<string, double>? MinFormula { get; set; }
+
+        [JsonPropertyName("maxFormula")]
+        public Dictionary<string, double>? MaxFormula { get; set; }
     }
 }
