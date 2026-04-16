@@ -9,6 +9,7 @@ using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Application.StoryAnalysis;
 using DreamGenClone.Domain.StoryAnalysis;
 using DreamGenClone.Infrastructure.Configuration;
+using DreamGenClone.Infrastructure.Logging;
 using DreamGenClone.Infrastructure.RolePlay;
 using Microsoft.Extensions.Options;
 
@@ -1340,9 +1341,36 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         var isInDecisionCooldown = hasPendingDecision
             ? false
             : await HasRecentDecisionPointForContextAsync(session, v2State, effectiveDecisionTrigger, cancellationToken);
-        if (!hasPendingDecision && !isInDecisionCooldown)
+        var decisionSkipReasons = new List<string>();
+        var evaluatedContextCount = 0;
+        var createdDecisionCount = 0;
+        var triggerEligibleForDecisionCreation = IsDecisionTriggerEligible(effectiveDecisionTrigger, v2State);
+        var hasActiveScenarioForDecisionCreation = !string.IsNullOrWhiteSpace(v2State.ActiveScenarioId);
+
+        if (hasPendingDecision)
+        {
+            decisionSkipReasons.Add("PendingDecisionExists");
+        }
+
+        if (!hasPendingDecision && isInDecisionCooldown)
+        {
+            decisionSkipReasons.Add("ContextCooldownActive");
+        }
+
+        if (!hasPendingDecision && !isInDecisionCooldown && !triggerEligibleForDecisionCreation)
+        {
+            decisionSkipReasons.Add("TriggerCadenceNotReached");
+        }
+
+        if (!hasPendingDecision && !isInDecisionCooldown && triggerEligibleForDecisionCreation && !hasActiveScenarioForDecisionCreation)
+        {
+            decisionSkipReasons.Add("NoActiveScenario");
+        }
+
+        if (!hasPendingDecision && !isInDecisionCooldown && triggerEligibleForDecisionCreation && hasActiveScenarioForDecisionCreation)
         {
             var decisionContexts = BuildDecisionGenerationContexts(session, v2State, effectiveDecisionTrigger);
+            evaluatedContextCount = decisionContexts.Count;
             foreach (var decisionContext in decisionContexts)
             {
                 var decisionPoint = await _decisionPointService.TryCreateDecisionPointAsync(
@@ -1354,6 +1382,8 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 {
                     continue;
                 }
+
+                createdDecisionCount++;
 
                 var options = decisionPoint.OptionIds.Select(optionId => new DreamGenClone.Domain.RolePlay.DecisionOption
                 {
@@ -1368,6 +1398,14 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
                 await _v2StateRepository.SaveDecisionPointAsync(decisionPoint, options, cancellationToken);
 
+                _logger.LogInformation(
+                    RolePlayV2LogEvents.DecisionPointCreated,
+                    session.Id,
+                    decisionPoint.DecisionPointId,
+                    effectiveDecisionTrigger,
+                    decisionPoint.AskingActorName ?? string.Empty,
+                    decisionPoint.TargetActorId ?? string.Empty);
+
                 // Surface decision points directly in the story so users can see them when they trigger.
                 session.Interactions.Add(new RolePlayInteraction
                 {
@@ -1376,7 +1414,22 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                     Content = BuildDecisionQuestionPrompt(decisionPoint)
                 });
             }
+
+            if (createdDecisionCount == 0)
+            {
+                decisionSkipReasons.Add("NoEligibleDecisionGenerated");
+            }
         }
+
+        _logger.LogInformation(
+            RolePlayV2LogEvents.DecisionAttemptEvaluated,
+            session.Id,
+            effectiveDecisionTrigger,
+            hasPendingDecision,
+            isInDecisionCooldown,
+            evaluatedContextCount,
+            createdDecisionCount,
+            decisionSkipReasons.Count == 0 ? "None" : string.Join(",", decisionSkipReasons));
 
         await _v2StateRepository.SaveFormulaVersionReferenceAsync(
             session.Id,
@@ -1453,23 +1506,59 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                     continue;
                 }
 
-                session.AdaptiveState.CharacterStats[snapshot.CharacterId] = new CharacterStatBlock
+                var mappedKey = ResolveAdaptiveCharacterStatsKey(session, snapshot.CharacterId);
+                if (!session.AdaptiveState.CharacterStats.TryGetValue(mappedKey, out var statBlock))
                 {
-                    CharacterId = snapshot.CharacterId,
-                    Stats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+                    statBlock = new CharacterStatBlock
                     {
-                        ["Desire"] = Math.Clamp(snapshot.Desire, AdaptiveStatCatalog.MinValue, AdaptiveStatCatalog.MaxValue),
-                        ["Restraint"] = Math.Clamp(snapshot.Restraint, AdaptiveStatCatalog.MinValue, AdaptiveStatCatalog.MaxValue),
-                        ["Tension"] = Math.Clamp(snapshot.Tension, AdaptiveStatCatalog.MinValue, AdaptiveStatCatalog.MaxValue),
-                        ["Connection"] = Math.Clamp(snapshot.Connection, AdaptiveStatCatalog.MinValue, AdaptiveStatCatalog.MaxValue),
-                        ["Dominance"] = Math.Clamp(snapshot.Dominance, AdaptiveStatCatalog.MinValue, AdaptiveStatCatalog.MaxValue),
-                        ["Loyalty"] = Math.Clamp(snapshot.Loyalty, AdaptiveStatCatalog.MinValue, AdaptiveStatCatalog.MaxValue),
-                        ["SelfRespect"] = Math.Clamp(snapshot.SelfRespect, AdaptiveStatCatalog.MinValue, AdaptiveStatCatalog.MaxValue)
-                    },
-                    UpdatedUtc = DateTime.UtcNow
+                        CharacterId = snapshot.CharacterId,
+                        Stats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+                    };
+                    session.AdaptiveState.CharacterStats[mappedKey] = statBlock;
+                }
+
+                statBlock.CharacterId = snapshot.CharacterId;
+                statBlock.Stats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Desire"] = Math.Clamp(snapshot.Desire, AdaptiveStatCatalog.MinValue, AdaptiveStatCatalog.MaxValue),
+                    ["Restraint"] = Math.Clamp(snapshot.Restraint, AdaptiveStatCatalog.MinValue, AdaptiveStatCatalog.MaxValue),
+                    ["Tension"] = Math.Clamp(snapshot.Tension, AdaptiveStatCatalog.MinValue, AdaptiveStatCatalog.MaxValue),
+                    ["Connection"] = Math.Clamp(snapshot.Connection, AdaptiveStatCatalog.MinValue, AdaptiveStatCatalog.MaxValue),
+                    ["Dominance"] = Math.Clamp(snapshot.Dominance, AdaptiveStatCatalog.MinValue, AdaptiveStatCatalog.MaxValue),
+                    ["Loyalty"] = Math.Clamp(snapshot.Loyalty, AdaptiveStatCatalog.MinValue, AdaptiveStatCatalog.MaxValue),
+                    ["SelfRespect"] = Math.Clamp(snapshot.SelfRespect, AdaptiveStatCatalog.MinValue, AdaptiveStatCatalog.MaxValue)
                 };
+                statBlock.UpdatedUtc = DateTime.UtcNow;
+
+                // Clean up historical duplicate keys where snapshots were previously materialized by GUID key.
+                if (!string.Equals(mappedKey, snapshot.CharacterId, StringComparison.OrdinalIgnoreCase)
+                    && session.AdaptiveState.CharacterStats.TryGetValue(snapshot.CharacterId, out var duplicateById)
+                    && string.Equals(duplicateById.CharacterId, snapshot.CharacterId, StringComparison.OrdinalIgnoreCase))
+                {
+                    session.AdaptiveState.CharacterStats.Remove(snapshot.CharacterId);
+                }
             }
         }
+    }
+
+    private static string ResolveAdaptiveCharacterStatsKey(RolePlaySession session, string characterId)
+    {
+        var existing = session.AdaptiveState.CharacterStats
+            .FirstOrDefault(x => string.Equals(x.Value.CharacterId, characterId, StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrWhiteSpace(existing.Key))
+        {
+            return existing.Key;
+        }
+
+        var perspectiveMatch = session.CharacterPerspectives.FirstOrDefault(x =>
+            string.Equals(x.CharacterId, characterId, StringComparison.OrdinalIgnoreCase)
+            && !string.IsNullOrWhiteSpace(x.CharacterName));
+        if (perspectiveMatch is not null)
+        {
+            return perspectiveMatch.CharacterName.Trim();
+        }
+
+        return characterId;
     }
 
     private static void ApplyThemeSemiReset(ThemeTrackerState tracker)
@@ -1543,6 +1632,18 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         }
 
         return DateTime.UtcNow - latest.CreatedUtc < DecisionPointContextCooldown;
+    }
+
+    private static bool IsDecisionTriggerEligible(
+        DecisionTrigger trigger,
+        DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state)
+    {
+        return trigger == DecisionTrigger.PhaseChanged
+            || trigger == DecisionTrigger.SignificantStatChange
+            || (trigger == DecisionTrigger.InteractionStart
+                && state.InteractionCountInPhase > 0
+                && state.InteractionCountInPhase % 3 == 0)
+            || trigger == DecisionTrigger.ManualOverride;
     }
 
     private static bool HasSignificantStatChange(

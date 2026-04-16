@@ -357,6 +357,48 @@ public sealed class RolePlayAdaptiveStateServiceTests
     }
 
     [Fact]
+    public async Task UpdateFromInteractionAsync_RemovesNonCanonicalStatKeys()
+    {
+        var service = new RolePlayAdaptiveStateService(new FakeThemeCatalogService());
+        var session = new RolePlaySession
+        {
+            AdaptiveState = new RolePlayAdaptiveState
+            {
+                CharacterStats = new Dictionary<string, CharacterStatBlock>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Becky"] = new CharacterStatBlock
+                    {
+                        CharacterId = "becky",
+                        Stats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            ["Desire"] = 50,
+                            ["Restraint"] = 50,
+                            ["Tension"] = 50,
+                            ["Connection"] = 50,
+                            ["Dominance"] = 50,
+                            ["Loyalty"] = 50,
+                            ["SelfRespect"] = 50,
+                            ["Husband Connection"] = 46,
+                            ["Wife Desire"] = 57
+                        }
+                    }
+                }
+            }
+        };
+
+        var state = await service.UpdateFromInteractionAsync(session, new RolePlayInteraction
+        {
+            ActorName = "Becky",
+            Content = "A calm line with no special influence."
+        });
+
+        var stats = state.CharacterStats["Becky"].Stats;
+        Assert.False(stats.ContainsKey("Husband Connection"));
+        Assert.False(stats.ContainsKey("Wife Desire"));
+        Assert.All(AdaptiveStatCatalog.CanonicalStatNames, stat => Assert.True(stats.ContainsKey(stat)));
+    }
+
+    [Fact]
     public async Task UpdateFromInteractionAsync_UpdatesLoyaltyAndSelfRespectSignals()
     {
         var service = new RolePlayAdaptiveStateService(new FakeThemeCatalogService());
@@ -387,6 +429,99 @@ public sealed class RolePlayAdaptiveStateServiceTests
         var decreasedStats = decreaseState.CharacterStats["Becky"].Stats;
         Assert.True(decreasedStats["Loyalty"] < loyaltyAfterIncrease);
         Assert.True(decreasedStats["SelfRespect"] < selfRespectAfterIncrease);
+    }
+
+    [Fact]
+    public async Task UpdateFromInteractionAsync_SuppressesThemeAffinityStatDeltas_InBuildUp()
+    {
+        var service = new RolePlayAdaptiveStateService(new PolicyThemeCatalogService());
+        var session = new RolePlaySession
+        {
+            AdaptiveState = new RolePlayAdaptiveState
+            {
+                CurrentNarrativePhase = NarrativePhase.BuildUp,
+                CharacterStats = new Dictionary<string, CharacterStatBlock>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Becky"] = new CharacterStatBlock
+                    {
+                        CharacterId = "becky",
+                        Stats = AdaptiveStatCatalog.CreateDefaultStatMap()
+                    }
+                }
+            }
+        };
+
+        var state = await service.UpdateFromInteractionAsync(session, new RolePlayInteraction
+        {
+            ActorName = "Becky",
+            Content = "party people music"
+        });
+
+        Assert.Equal(AdaptiveStatCatalog.DefaultValue, state.CharacterStats["Becky"].Stats["Desire"]);
+    }
+
+    [Fact]
+    public async Task UpdateFromInteractionAsync_AppliesOnlyTopThemeAffinity_InCommitted()
+    {
+        var service = new RolePlayAdaptiveStateService(new PolicyThemeCatalogService());
+        var session = new RolePlaySession
+        {
+            AdaptiveState = new RolePlayAdaptiveState
+            {
+                CurrentNarrativePhase = NarrativePhase.Committed,
+                CharacterStats = new Dictionary<string, CharacterStatBlock>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Becky"] = new CharacterStatBlock
+                    {
+                        CharacterId = "becky",
+                        Stats = AdaptiveStatCatalog.CreateDefaultStatMap()
+                    }
+                }
+            }
+        };
+
+        var state = await service.UpdateFromInteractionAsync(session, new RolePlayInteraction
+        {
+            ActorName = "Becky",
+            Content = "party people music"
+        });
+
+        // With top-1 theme affinity + committed phase cap(1), Desire should only move by +1.
+        Assert.Equal(AdaptiveStatCatalog.DefaultValue + 1, state.CharacterStats["Becky"].Stats["Desire"]);
+    }
+
+    [Fact]
+    public async Task UpdateFromInteractionAsync_AppliesEarlyTurnPerStatAndGlobalBudgetCaps()
+    {
+        var service = new RolePlayAdaptiveStateService(new FakeThemeCatalogService());
+        var session = new RolePlaySession
+        {
+            AdaptiveState = new RolePlayAdaptiveState
+            {
+                CharacterStats = new Dictionary<string, CharacterStatBlock>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Becky"] = new CharacterStatBlock
+                    {
+                        CharacterId = "becky",
+                        Stats = AdaptiveStatCatalog.CreateDefaultStatMap()
+                    }
+                }
+            }
+        };
+
+        var state = await service.UpdateFromInteractionAsync(session, new RolePlayInteraction
+        {
+            ActorName = "Becky",
+            Content = string.Join(' ', Enumerable.Repeat("kiss touch desire want close heat can't wrong shouldn't hesitate guilt fear caught risk panic nervous safe comfort trust reassure control command obey claim choose decide insist husband wife promise vow faithful devoted commitment boundary boundaries respect dignity self-worth walk away no", 8))
+        });
+
+        var stats = state.CharacterStats["Becky"].Stats;
+        var deltas = AdaptiveStatCatalog.CanonicalStatNames
+            .Select(statName => stats[statName] - AdaptiveStatCatalog.DefaultValue)
+            .ToList();
+
+        Assert.All(deltas, delta => Assert.InRange(Math.Abs(delta), 0, 2));
+        Assert.InRange(deltas.Sum(delta => Math.Abs(delta)), 0, 10);
     }
 
     private sealed class FakeIntensityProfileService : IIntensityProfileService
@@ -470,5 +605,66 @@ public sealed class RolePlayAdaptiveStateServiceTests
             var removed = _profiles.RemoveAll(x => string.Equals(x.Id, id, StringComparison.OrdinalIgnoreCase));
             return Task.FromResult(removed > 0);
         }
+    }
+
+    private sealed class PolicyThemeCatalogService : IThemeCatalogService
+    {
+        private static readonly IReadOnlyList<ThemeCatalogEntry> Entries =
+        [
+            new()
+            {
+                Id = "theme-a",
+                Label = "Theme A",
+                Keywords = ["party", "people"],
+                Weight = 5,
+                StatAffinities = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Desire"] = 6
+                },
+                IsEnabled = true,
+                IsBuiltIn = true
+            },
+            new()
+            {
+                Id = "theme-b",
+                Label = "Theme B",
+                Keywords = ["party"],
+                Weight = 3,
+                StatAffinities = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Desire"] = 6
+                },
+                IsEnabled = true,
+                IsBuiltIn = true
+            },
+            new()
+            {
+                Id = "theme-c",
+                Label = "Theme C",
+                Keywords = ["party"],
+                Weight = 2,
+                StatAffinities = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Desire"] = 6
+                },
+                IsEnabled = true,
+                IsBuiltIn = true
+            }
+        ];
+
+        public Task<ThemeCatalogEntry?> GetByIdAsync(string id, CancellationToken cancellationToken = default)
+            => Task.FromResult(Entries.FirstOrDefault(x => string.Equals(x.Id, id, StringComparison.OrdinalIgnoreCase)));
+
+        public Task<IReadOnlyList<ThemeCatalogEntry>> GetAllAsync(bool includeDisabled = false, CancellationToken cancellationToken = default)
+            => Task.FromResult(Entries);
+
+        public Task SaveAsync(ThemeCatalogEntry entry, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task DeleteAsync(string id, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task SeedDefaultsAsync(CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
     }
 }

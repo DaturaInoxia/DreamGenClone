@@ -51,6 +51,7 @@
     // Settings panel
     private BehaviorMode _selectedBehaviorMode = BehaviorMode.TakeTurns;
     private string _activeSettingsTab = "settings";
+    private bool _adaptiveDiagnosticsExpanded;
     private readonly WorkspaceSettingsState _workspaceSettings = new();
 
     // Assistant panel
@@ -1342,11 +1343,82 @@
     {
         if (_session is null)
         {
-            return string.Empty;
+            return "(session unavailable)";
         }
 
         var (_, reason) = ResolveEffectiveStyle(_session);
-        return reason;
+        return FormatStyleResolutionReason(reason);
+    }
+
+    private string GetEffectiveStyleReasonEnglishDetails()
+    {
+        if (_session is null)
+        {
+            return "(session unavailable)";
+        }
+
+        var (_, reason) = ResolveEffectiveStyle(_session);
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            return "The system had no additional resolution inputs, so it kept the current intensity configuration.";
+        }
+
+        var parts = reason
+            .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+
+        string? selectedRaw = null;
+        string? adaptiveRaw = null;
+        string? progressionRaw = null;
+
+        foreach (var part in parts)
+        {
+            if (part.StartsWith("selected=", StringComparison.OrdinalIgnoreCase))
+            {
+                selectedRaw = part["selected=".Length..];
+                continue;
+            }
+
+            if (part.StartsWith("adaptive=", StringComparison.OrdinalIgnoreCase))
+            {
+                adaptiveRaw = part["adaptive=".Length..];
+                continue;
+            }
+
+            if (part.StartsWith("progression=", StringComparison.OrdinalIgnoreCase))
+            {
+                progressionRaw = part["progression=".Length..];
+            }
+        }
+
+        var selectedProfileName = GetSelectedIntensityProfileName();
+        var adaptiveProfileName = GetAdaptiveIntensityProfileName();
+        var selectedText = selectedProfileName == "(none)"
+            ? (string.IsNullOrWhiteSpace(selectedRaw) ? "the selected baseline" : selectedRaw)
+            : selectedProfileName;
+        var adaptiveText = adaptiveProfileName == "(none)"
+            ? (string.IsNullOrWhiteSpace(adaptiveRaw) ? "the adaptive recommendation" : adaptiveRaw)
+            : adaptiveProfileName;
+
+        var progressionText = progressionRaw switch
+        {
+            "early(-1)" => "an early-scene pacing adjustment that de-escalates intensity by one step",
+            "late(+1)" => "a late-scene pacing adjustment that escalates intensity by one step",
+            null or "" => "no explicit progression adjustment",
+            _ => $"a progression adjustment ({progressionRaw})"
+        };
+
+        return $"The system is balancing your chosen profile, adaptive scene state, and pacing safety. It started from {selectedText}, compared that with adaptive guidance of {adaptiveText}, then applied {progressionText}. This helps prevent scenes from escalating too quickly when the session is still early.";
+    }
+
+    private string GetEffectiveStyleReasonRaw()
+    {
+        if (_session is null)
+        {
+            return "(session unavailable)";
+        }
+
+        var (_, reason) = ResolveEffectiveStyle(_session);
+        return string.IsNullOrWhiteSpace(reason) ? "(none)" : reason;
     }
 
     private string GetAdaptiveIntensityProfileName()
@@ -1366,6 +1438,16 @@
     }
 
     private string GetAdaptiveTransitionReason()
+    {
+        if (_session is null)
+        {
+            return "(session unavailable)";
+        }
+
+        return FormatAdaptiveTransitionReason(_session.AdaptiveIntensityLastTransitionReason);
+    }
+
+    private string GetAdaptiveTransitionReasonRaw()
     {
         if (_session is null)
         {
@@ -1400,7 +1482,7 @@
             return "(none)";
         }
 
-        return $"{_session.AdaptiveIntensityLastFromProfileId ?? "(none)"} -> {_session.AdaptiveIntensityLastToProfileId ?? "(none)"}";
+        return $"{FormatProfileIdWithName(_session.AdaptiveIntensityLastFromProfileId)} -> {FormatProfileIdWithName(_session.AdaptiveIntensityLastToProfileId)}";
     }
 
     private IReadOnlyList<string> GetRecentAdaptiveTransitions()
@@ -1413,8 +1495,165 @@
         return _session.AdaptiveIntensityTransitions
             .OrderByDescending(x => x.OccurredUtc)
             .Take(5)
-            .Select(x => $"{x.FromProfileId} -> {x.ToProfileId} ({x.ReasonCode})")
+            .Select(x => $"{FormatProfileIdWithName(x.FromProfileId)} -> {FormatProfileIdWithName(x.ToProfileId)} ({FormatAdaptiveTransitionReason(x.ReasonCode)})")
             .ToList();
+    }
+
+    private string FormatProfileIdWithName(string? profileId)
+    {
+        if (string.IsNullOrWhiteSpace(profileId))
+        {
+            return "(none)";
+        }
+
+        if (_intensityProfilesById.TryGetValue(profileId, out var profile)
+            && !string.IsNullOrWhiteSpace(profile.Name))
+        {
+            return $"{profile.Name} ({profileId})";
+        }
+
+        return profileId;
+    }
+
+    private string FormatStyleResolutionReason(string? reason)
+    {
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            return "(none)";
+        }
+
+        var translated = reason
+            .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .Select(TranslateStyleResolutionPart)
+            .ToList();
+
+        if (translated.Count == 0)
+        {
+            return reason;
+        }
+
+        return string.Join(" | ", translated);
+    }
+
+    private string TranslateStyleResolutionPart(string part)
+    {
+        if (part.StartsWith("selected=", StringComparison.OrdinalIgnoreCase))
+        {
+            var selectedProfileName = GetSelectedIntensityProfileName();
+            var legacyValue = part["selected=".Length..];
+            return selectedProfileName == "(none)"
+                ? $"Selected baseline profile: {legacyValue}"
+                : $"Selected baseline profile: {selectedProfileName}";
+        }
+
+        if (part.StartsWith("adaptive=", StringComparison.OrdinalIgnoreCase))
+        {
+            var adaptiveProfileName = GetAdaptiveIntensityProfileName();
+            var legacyValue = part["adaptive=".Length..];
+            return adaptiveProfileName == "(none)"
+                ? $"Adaptive baseline profile: {legacyValue}"
+                : $"Adaptive baseline profile: {adaptiveProfileName}";
+        }
+
+        if (part.StartsWith("progression=", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"Progression adjustment: {part["progression=".Length..]}";
+        }
+
+        if (part.StartsWith("desire=", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"Desire signal: {part["desire=".Length..]}";
+        }
+
+        if (part.StartsWith("theme=", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"Theme influence: {part["theme=".Length..]}";
+        }
+
+        if (part.Equals("dealbreaker-suppressed", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Escalation suppressed by deal breaker";
+        }
+
+        if (part.StartsWith("musthave-push", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Must-have preference increased intensity";
+        }
+
+        if (part.StartsWith("manual-pin=", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Manual pin override applied";
+        }
+
+        if (part.StartsWith("floor=", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"Applied floor bound: {part["floor=".Length..]}";
+        }
+
+        if (part.StartsWith("ceiling=", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"Applied ceiling bound: {part["ceiling=".Length..]}";
+        }
+
+        if (part.StartsWith("bounds=", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Normalized invalid floor/ceiling bounds";
+        }
+
+        return part;
+    }
+
+    private static string FormatAdaptiveTransitionReason(string? reason)
+    {
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            return "(none)";
+        }
+
+        var parts = reason.Split('|', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0)
+        {
+            return reason;
+        }
+
+        var summary = parts[0] switch
+        {
+            "desire-high-restraint-low-escalate" => "Escalated because desire is high and restraint is low",
+            "desire-low-or-restraint-high-deescalate" => "De-escalated because desire is low or restraint is high",
+            "tension-and-restraint-high-deescalate" => "De-escalated because tension and restraint are both high",
+            "early-phase-no-escalation" => "Escalation prevented in early phase",
+            "late-phase-gentle-escalation" => "Late-phase gentle escalation applied",
+            "manual-pin-suppressed" => "Adaptive transition suppressed due to manual pin",
+            "no-intensity-profiles" => "No intensity profiles available",
+            "adaptive-profile-not-found" => "Current adaptive profile not found",
+            "stable" => "No transition needed; profile remains stable",
+            _ => parts[0]
+        };
+
+        var detailParts = parts.Skip(1)
+            .Select(part => part switch
+            {
+                var p when p.StartsWith("phase=", StringComparison.OrdinalIgnoreCase) => $"Phase: {p["phase=".Length..]}",
+                var p when p.StartsWith("phase-delta=", StringComparison.OrdinalIgnoreCase) => $"Phase adjustment: {p["phase-delta=".Length..]}",
+                var p when p.StartsWith("stat-delta=", StringComparison.OrdinalIgnoreCase) => $"Stat adjustment: {p["stat-delta=".Length..]}",
+                var p when p.EndsWith("-blocked-by-floor", StringComparison.OrdinalIgnoreCase) => "Floor bound blocked de-escalation",
+                var p when p.EndsWith("-blocked-by-ceiling", StringComparison.OrdinalIgnoreCase) => "Ceiling bound blocked escalation",
+                var p when p.EndsWith("-target-profile-missing", StringComparison.OrdinalIgnoreCase) => "Target profile for transition was missing",
+                _ => part
+            })
+            .ToList();
+
+        if (detailParts.Count == 0)
+        {
+            return summary;
+        }
+
+        return $"{summary} | {string.Join("; ", detailParts)}";
+    }
+
+    private void ToggleAdaptiveDiagnosticsSection()
+    {
+        _adaptiveDiagnosticsExpanded = !_adaptiveDiagnosticsExpanded;
     }
 
     private string GetSelectedIntensityProfileName()
@@ -4184,29 +4423,52 @@
                             <span>Resolved Intensity</span>
                             <span>@GetEffectiveStyleLabel()</span>
                         </div>
-                        <div class="rw-settings-info-row">
-                            <span>Resolution Reason</span>
-                            <span>@GetEffectiveStyleReason()</span>
+                        <div class="rw-collapsible-section" style="margin-top:10px;">
+                            <button type="button" class="rw-collapsible-header" @onclick="ToggleAdaptiveDiagnosticsSection">
+                                <span class="rw-collapsible-chevron @(_adaptiveDiagnosticsExpanded ? "is-open" : "")">▸</span>
+                                <span class="rw-collapsible-title">Adaptive Resolution Diagnostics</span>
+                            </button>
+                            @if (_adaptiveDiagnosticsExpanded)
+                            {
+                                <div class="rw-collapsible-body">
+                                    <div class="rw-settings-info-row">
+                                        <span>Resolution Reason</span>
+                                        <span>@GetEffectiveStyleReason()</span>
+                                    </div>
+                                    <div class="rw-settings-info-row">
+                                        <span>Resolution Explanation</span>
+                                        <span>@GetEffectiveStyleReasonEnglishDetails()</span>
+                                    </div>
+                                    <div class="rw-settings-info-row">
+                                        <span>Adaptive Transition Reason</span>
+                                        <span>@GetAdaptiveTransitionReason()</span>
+                                    </div>
+                                    <div class="rw-settings-info-row">
+                                        <span>Adaptive Transition Time</span>
+                                        <span>@GetAdaptiveTransitionTime()</span>
+                                    </div>
+                                    <div class="rw-settings-info-row">
+                                        <span>Adaptive Transition Path</span>
+                                        <span>@GetAdaptiveTransitionPath()</span>
+                                    </div>
+                                    @foreach (var transition in GetRecentAdaptiveTransitions())
+                                    {
+                                        <div class="rw-settings-info-row">
+                                            <span>Recent Transition</span>
+                                            <span>@transition</span>
+                                        </div>
+                                    }
+                                    <div class="rw-settings-info-row">
+                                        <span>Resolution Reason (Raw)</span>
+                                        <span>@GetEffectiveStyleReasonRaw()</span>
+                                    </div>
+                                    <div class="rw-settings-info-row">
+                                        <span>Adaptive Transition Reason (Raw)</span>
+                                        <span>@GetAdaptiveTransitionReasonRaw()</span>
+                                    </div>
+                                </div>
+                            }
                         </div>
-                        <div class="rw-settings-info-row">
-                            <span>Adaptive Transition Reason</span>
-                            <span>@GetAdaptiveTransitionReason()</span>
-                        </div>
-                        <div class="rw-settings-info-row">
-                            <span>Adaptive Transition Time</span>
-                            <span>@GetAdaptiveTransitionTime()</span>
-                        </div>
-                        <div class="rw-settings-info-row">
-                            <span>Adaptive Transition Path</span>
-                            <span>@GetAdaptiveTransitionPath()</span>
-                        </div>
-                        @foreach (var transition in GetRecentAdaptiveTransitions())
-                        {
-                            <div class="rw-settings-info-row">
-                                <span>Recent Transition</span>
-                                <span>@transition</span>
-                            </div>
-                        }
                     </div>
 
                     <div class="rw-settings-section">
@@ -4258,7 +4520,7 @@
                             if (latestTransition is not null)
                             {
                                 <div class="rw-settings-info-row"><span>Latest Transition</span><span>@($"{latestTransition.FromPhase} -> {latestTransition.ToPhase}")</span></div>
-                                <div class="rw-settings-info-row"><span>Transition Reason</span><span>@latestTransition.ReasonCode</span></div>
+                                <div class="rw-settings-info-row"><span>Transition Reason</span><span>@FormatAdaptiveTransitionReason(latestTransition.ReasonCode)</span></div>
                             }
                             else
                             {

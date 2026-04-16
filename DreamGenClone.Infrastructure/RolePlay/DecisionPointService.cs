@@ -143,8 +143,23 @@ public sealed class DecisionPointService : IDecisionPointService
             || (trigger == DecisionTrigger.InteractionStart && state.InteractionCountInPhase > 0 && state.InteractionCountInPhase % 3 == 0)
             || trigger == DecisionTrigger.ManualOverride;
 
-        if (!shouldCreate || string.IsNullOrWhiteSpace(state.ActiveScenarioId))
+        if (!shouldCreate)
         {
+            _logger.LogInformation(
+                RolePlayV2LogEvents.DecisionPointSkipped,
+                state.SessionId,
+                trigger,
+                "TriggerCadenceNotReached");
+            return Task.FromResult<DecisionPoint?>(null);
+        }
+
+        if (string.IsNullOrWhiteSpace(state.ActiveScenarioId))
+        {
+            _logger.LogInformation(
+                RolePlayV2LogEvents.DecisionPointSkipped,
+                state.SessionId,
+                trigger,
+                "NoActiveScenario");
             return Task.FromResult<DecisionPoint?>(null);
         }
 

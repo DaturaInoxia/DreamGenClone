@@ -20,6 +20,15 @@ public static class RolePlayV2LogEvents
     public const string DecisionOutcomeApplied =
         "RolePlayV2 decision outcome applied: SessionId={SessionId} DecisionPointId={DecisionPointId} OptionId={OptionId} TransparencyMode={TransparencyMode}";
 
+    public const string DecisionAttemptEvaluated =
+        "RolePlayV2 decision attempt evaluated: SessionId={SessionId} Trigger={Trigger} HasPendingDecision={HasPendingDecision} InCooldown={InCooldown} ContextCount={ContextCount} CreatedCount={CreatedCount} SkipReasons={SkipReasons}";
+
+    public const string DecisionPointCreated =
+        "RolePlayV2 decision point created: SessionId={SessionId} DecisionPointId={DecisionPointId} Trigger={Trigger} AskingActor={AskingActor} TargetActor={TargetActor}";
+
+    public const string DecisionPointSkipped =
+        "RolePlayV2 decision point skipped: SessionId={SessionId} Trigger={Trigger} Reason={Reason}";
+
     public const string OverrideDenied =
         "RolePlayV2 override denied: SessionId={SessionId} ActorId={ActorId} ActorRole={ActorRole} Reason={Reason}";
 

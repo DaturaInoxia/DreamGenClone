@@ -2,6 +2,9 @@ using DreamGenClone.Web.Application.RolePlay;
 using DreamGenClone.Web.Application.Scenarios;
 using DreamGenClone.Web.Domain.Scenarios;
 using DreamGenClone.Application.StoryAnalysis;
+using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Web.Domain.RolePlay;
+using System.Reflection;
 using Xunit;
 
 namespace DreamGenClone.Tests.RolePlay;
@@ -112,6 +115,68 @@ public sealed class RolePlaySessionBaseStatInitializationTests
         var stats = session.AdaptiveState.CharacterStats["Alice"].Stats;
         Assert.Single(stats);
         Assert.Equal(22, stats["Tension"]);
+    }
+
+    [Fact]
+    public void SyncSessionAdaptiveStateFromV2_UsesExistingNameKey_ForMatchingCharacterId()
+    {
+        var session = new RolePlaySession();
+        session.CharacterPerspectives.Add(new RolePlayCharacterPerspective
+        {
+            CharacterId = "char-1",
+            CharacterName = "Becky"
+        });
+        session.AdaptiveState.CharacterStats["Becky"] = new CharacterStatBlock
+        {
+            CharacterId = "char-1",
+            Stats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Desire"] = 50,
+                ["Restraint"] = 50,
+                ["Tension"] = 50,
+                ["Connection"] = 50,
+                ["Dominance"] = 50,
+                ["Loyalty"] = 50,
+                ["SelfRespect"] = 50
+            }
+        };
+
+        var v2State = new AdaptiveScenarioState
+        {
+            CharacterSnapshots =
+            [
+                new CharacterStatProfileV2
+                {
+                    CharacterId = "char-1",
+                    Desire = 73,
+                    Restraint = 85,
+                    Tension = 23,
+                    Connection = 85,
+                    Dominance = 90,
+                    Loyalty = 15,
+                    SelfRespect = 90
+                }
+            ]
+        };
+
+        var method = typeof(RolePlayEngineService).GetMethod(
+            "SyncSessionAdaptiveStateFromV2",
+            BindingFlags.NonPublic | BindingFlags.Static);
+
+        Assert.NotNull(method);
+        method!.Invoke(null, [session, v2State]);
+
+        Assert.True(session.AdaptiveState.CharacterStats.ContainsKey("Becky"));
+        Assert.False(session.AdaptiveState.CharacterStats.ContainsKey("char-1"));
+
+        var stats = session.AdaptiveState.CharacterStats["Becky"].Stats;
+        Assert.Equal(73, stats["Desire"]);
+        Assert.Equal(85, stats["Restraint"]);
+        Assert.Equal(23, stats["Tension"]);
+        Assert.Equal(85, stats["Connection"]);
+        Assert.Equal(90, stats["Dominance"]);
+        Assert.Equal(15, stats["Loyalty"]);
+        Assert.Equal(90, stats["SelfRespect"]);
     }
 
     private sealed class SingleScenarioService : IScenarioService

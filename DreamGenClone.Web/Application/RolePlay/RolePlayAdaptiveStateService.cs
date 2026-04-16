@@ -14,6 +14,10 @@ namespace DreamGenClone.Web.Application.RolePlay;
 public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
 {
     private const int MaxAdaptiveTransitionHistory = 25;
+    private const int ThemeAffinityStackLimit = 1;
+    private const int EarlyTurnInteractionThreshold = 3;
+    private const int EarlyTurnPerStatDeltaCap = 2;
+    private const int PerInteractionTotalDeltaBudget = 10;
 
     private readonly IThemeCatalogService _themeCatalogService;
     private readonly IIntensityProfileService? _intensityProfileService;
@@ -171,16 +175,21 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         var state = session.AdaptiveState ?? new RolePlayAdaptiveState();
         EnsureThemeCatalog(state.ThemeTracker, catalogEntries);
         RemoveNonCharacterStats(state);
+        RemoveNonCanonicalStatEntries(state);
 
         var actorKey = string.IsNullOrWhiteSpace(interaction.ActorName) ? "Unknown" : interaction.ActorName.Trim();
         var trackCharacterStats = !IsNarrativeOrSystemInteraction(interaction, actorKey);
         CharacterStatBlock? actorStats = null;
         Dictionary<string, int>? statsBefore = null;
+        var statDeltaContributors = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
         if (trackCharacterStats)
         {
             actorStats = GetOrCreateCharacterStats(state, actorKey);
             statsBefore = new Dictionary<string, int>(actorStats.Stats, StringComparer.OrdinalIgnoreCase);
         }
+
+        var phaseAffinityCap = GetThemeAffinityPhaseCap(state.CurrentNarrativePhase);
+        var themeAffinityCandidates = new List<ThemeAffinityCandidate>();
 
         var primaryBefore = state.ThemeTracker.PrimaryThemeId;
         var secondaryBefore = state.ThemeTracker.SecondaryThemeId;
@@ -191,15 +200,51 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         // Lightweight keyword heuristics for v1 foundation.
         if (actorStats is not null)
         {
-            ApplyDelta(actorStats.Stats, "Desire", ScoreStatSignal(contentLower, ["kiss", "touch", "desire", "want", "close", "heat"], 1, 4));
-            ApplyDelta(actorStats.Stats, "Restraint", ScoreStatSignal(contentLower, ["can't", "wrong", "shouldn't", "hesitate", "guilt"], 1, 3));
-            ApplyDelta(actorStats.Stats, "Tension", ScoreStatSignal(contentLower, ["fear", "caught", "risk", "panic", "nervous"], 1, 4));
-            ApplyDelta(actorStats.Stats, "Connection", ScoreStatSignal(contentLower, ["safe", "comfort", "trust", "reassure"], 1, 3));
-            ApplyDelta(actorStats.Stats, "Dominance", ScoreStatSignal(contentLower, ["control", "command", "obey", "claim", "choose", "decide", "insist"], 1, 3));
-            ApplyDelta(actorStats.Stats, "Loyalty", ScoreStatSignal(contentLower, ["husband", "wife", "promise", "vow", "faithful", "devoted", "commitment"], 1, 5));
-            ApplyDelta(actorStats.Stats, "Loyalty", -ScoreStatSignal(contentLower, ["affair", "betray", "cheat", "secret", "sneak", "stranger"], 1, 5));
-            ApplyDelta(actorStats.Stats, "SelfRespect", ScoreStatSignal(contentLower, ["boundary", "boundaries", "respect", "dignity", "self-worth", "walk away", "no"], 1, 5));
-            ApplyDelta(actorStats.Stats, "SelfRespect", -ScoreStatSignal(contentLower, ["humiliate", "ashamed", "used", "degraded", "demean"], 1, 5));
+            ApplyTrackedDelta(
+                actorStats.Stats,
+                "Desire",
+                ScoreStatSignal(contentLower, ["kiss", "touch", "desire", "want", "close", "heat"], 1, 4),
+                "keyword:desire");
+            ApplyTrackedDelta(
+                actorStats.Stats,
+                "Restraint",
+                ScoreStatSignal(contentLower, ["can't", "wrong", "shouldn't", "hesitate", "guilt"], 1, 3),
+                "keyword:restraint");
+            ApplyTrackedDelta(
+                actorStats.Stats,
+                "Tension",
+                ScoreStatSignal(contentLower, ["fear", "caught", "risk", "panic", "nervous"], 1, 4),
+                "keyword:tension");
+            ApplyTrackedDelta(
+                actorStats.Stats,
+                "Connection",
+                ScoreStatSignal(contentLower, ["safe", "comfort", "trust", "reassure"], 1, 3),
+                "keyword:connection");
+            ApplyTrackedDelta(
+                actorStats.Stats,
+                "Dominance",
+                ScoreStatSignal(contentLower, ["control", "command", "obey", "claim", "choose", "decide", "insist"], 1, 3),
+                "keyword:dominance");
+            ApplyTrackedDelta(
+                actorStats.Stats,
+                "Loyalty",
+                ScoreStatSignal(contentLower, ["husband", "wife", "promise", "vow", "faithful", "devoted", "commitment"], 1, 5),
+                "keyword:loyalty-positive");
+            ApplyTrackedDelta(
+                actorStats.Stats,
+                "Loyalty",
+                -ScoreStatSignal(contentLower, ["affair", "betray", "cheat", "secret", "sneak", "stranger"], 1, 5),
+                "keyword:loyalty-negative");
+            ApplyTrackedDelta(
+                actorStats.Stats,
+                "SelfRespect",
+                ScoreStatSignal(contentLower, ["boundary", "boundaries", "respect", "dignity", "self-worth", "walk away", "no"], 1, 5),
+                "keyword:selfrespect-positive");
+            ApplyTrackedDelta(
+                actorStats.Stats,
+                "SelfRespect",
+                -ScoreStatSignal(contentLower, ["humiliate", "ashamed", "used", "degraded", "demean"], 1, 5),
+                "keyword:selfrespect-negative");
 
             actorStats.UpdatedUtc = DateTime.UtcNow;
         }
@@ -252,27 +297,70 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             groupedKeywordsByThemeId.TryGetValue(entry.Id, out var groupedKeywords);
             UpdateTheme(state, interaction, entry.Label, entry.Id, contentLower, entry.Keywords, entry.Weight, affinityMultiplier, groupedKeywords);
 
-            // T043: Apply StatAffinities to acting character when theme scores
-            if (actorStats is not null && entry.StatAffinities is { Count: > 0 })
+            // T043: Collect theme-affinity candidates; apply by policy after ranking.
+            if (actorStats is not null && entry.StatAffinities is { Count: > 0 } && phaseAffinityCap > 0)
             {
                 if (state.ThemeTracker.Themes.TryGetValue(entry.Id, out var item) && item.Score > 0)
                 {
                     var themeSignal = Score(contentLower, entry.Keywords, entry.Weight);
                     if (themeSignal > 0)
                     {
+                        var candidateStatDeltas = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
                         foreach (var (statName, affinityDelta) in entry.StatAffinities)
                         {
-                            var normalized = AdaptiveStatCatalog.NormalizeLegacyStatName(statName);
-                            ApplyDelta(actorStats.Stats, normalized, NormalizeInteractionAffinityDelta(affinityDelta));
+                            var normalized = ResolveSupportedStatName(statName);
+                            if (normalized is null)
+                            {
+                                continue;
+                            }
+
+                            var normalizedDelta = NormalizeInteractionAffinityDelta(affinityDelta);
+                            if (normalizedDelta == 0)
+                            {
+                                continue;
+                            }
+
+                            var phaseAdjustedDelta = ApplyThemeAffinityPhaseCap(normalizedDelta, phaseAffinityCap);
+                            if (phaseAdjustedDelta == 0)
+                            {
+                                continue;
+                            }
+
+                            if (!candidateStatDeltas.TryGetValue(normalized, out var existing))
+                            {
+                                existing = 0;
+                            }
+
+                            candidateStatDeltas[normalized] = existing + phaseAdjustedDelta;
+                        }
+
+                        if (candidateStatDeltas.Count > 0)
+                        {
+                            themeAffinityCandidates.Add(new ThemeAffinityCandidate(entry.Id, themeSignal, item.Score, candidateStatDeltas));
                         }
                     }
                 }
             }
         }
 
+        if (actorStats is not null && themeAffinityCandidates.Count > 0)
+        {
+            var selectedThemeAffinityCandidates = SelectThemeAffinityCandidates(themeAffinityCandidates, ThemeAffinityStackLimit);
+            foreach (var candidate in selectedThemeAffinityCandidates)
+            {
+                foreach (var (statName, delta) in candidate.StatDeltas)
+                {
+                    ApplyTrackedDelta(actorStats.Stats, statName, delta, $"theme-affinity:{candidate.ThemeId}");
+                }
+            }
+        }
+
+        ApplyInteractionDeltaPolicyCaps();
+
         RecalculateSelectedThemes(state, interaction);
         await EvaluateScenarioCommitmentAsync(session, interaction, state, cancellationToken);
         state.ThemeTracker.UpdatedUtc = DateTime.UtcNow;
+        RemoveNonCanonicalStatEntries(state);
 
         session.AdaptiveState = state;
         await EvaluateAdaptiveIntensityTransitionAsync(session, interaction, cancellationToken);
@@ -282,6 +370,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             try
             {
                 var statDeltas = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                var statDeltaReasons = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
                 if (actorStats is not null && statsBefore is not null)
                 {
                     foreach (var stat in actorStats.Stats)
@@ -290,6 +379,10 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
                         if (before != stat.Value)
                         {
                             statDeltas[stat.Key] = stat.Value - before;
+                            if (statDeltaContributors.TryGetValue(stat.Key, out var reasons) && reasons.Count > 0)
+                            {
+                                statDeltaReasons[stat.Key] = reasons.ToArray();
+                            }
                         }
                     }
                 }
@@ -313,6 +406,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
                         interactionId = interaction.Id,
                         actorKey,
                         statDeltas,
+                        statDeltaReasons,
                         primaryThemeBefore = primaryBefore,
                         secondaryThemeBefore = secondaryBefore,
                         primaryThemeAfter = state.ThemeTracker.PrimaryThemeId,
@@ -329,6 +423,152 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         }
 
         return state;
+
+        void ApplyTrackedDelta(
+            Dictionary<string, int> stats,
+            string statName,
+            int delta,
+            string reason)
+        {
+            if (delta == 0)
+            {
+                return;
+            }
+
+            ApplyDelta(stats, statName, delta);
+
+            if (!statDeltaContributors.TryGetValue(statName, out var reasons))
+            {
+                reasons = [];
+                statDeltaContributors[statName] = reasons;
+            }
+
+            var sign = delta > 0 ? "+" : string.Empty;
+            reasons.Add($"{reason}({sign}{delta})");
+        }
+
+        void ApplyInteractionDeltaPolicyCaps()
+        {
+            if (actorStats is null || statsBefore is null || !trackCharacterStats)
+            {
+                return;
+            }
+
+            var rawDeltas = BuildCurrentDeltas(actorStats.Stats, statsBefore);
+            if (rawDeltas.Count == 0)
+            {
+                return;
+            }
+
+            var adjustedDeltas = new Dictionary<string, int>(rawDeltas, StringComparer.OrdinalIgnoreCase);
+            var isEarlyActorTurn = IsEarlyActorTurn(session, interaction, actorKey);
+            if (isEarlyActorTurn)
+            {
+                foreach (var statName in adjustedDeltas.Keys.ToList())
+                {
+                    var original = adjustedDeltas[statName];
+                    var capped = Math.Sign(original) * Math.Min(Math.Abs(original), EarlyTurnPerStatDeltaCap);
+                    if (capped != original)
+                    {
+                        adjustedDeltas[statName] = capped;
+                        AppendPolicyReason(statName, $"policy:early-turn-per-stat-cap({original}->{capped})");
+                    }
+                }
+            }
+
+            var totalBeforeBudgetCap = adjustedDeltas.Values.Sum(x => Math.Abs(x));
+            if (totalBeforeBudgetCap > PerInteractionTotalDeltaBudget)
+            {
+                var beforeBudgetDeltas = new Dictionary<string, int>(adjustedDeltas, StringComparer.OrdinalIgnoreCase);
+                var currentTotal = totalBeforeBudgetCap;
+                while (currentTotal > PerInteractionTotalDeltaBudget)
+                {
+                    var keyToReduce = adjustedDeltas
+                        .Where(x => x.Value != 0)
+                        .OrderByDescending(x => Math.Abs(x.Value))
+                        .ThenBy(x => x.Key, StringComparer.OrdinalIgnoreCase)
+                        .Select(x => x.Key)
+                        .FirstOrDefault();
+
+                    if (string.IsNullOrWhiteSpace(keyToReduce))
+                    {
+                        break;
+                    }
+
+                    adjustedDeltas[keyToReduce] += adjustedDeltas[keyToReduce] > 0 ? -1 : 1;
+                    currentTotal--;
+                }
+
+                foreach (var (statName, beforeBudgetDelta) in beforeBudgetDeltas)
+                {
+                    var afterBudgetDelta = adjustedDeltas[statName];
+                    if (beforeBudgetDelta != afterBudgetDelta)
+                    {
+                        AppendPolicyReason(
+                            statName,
+                            $"policy:per-turn-budget-cap({beforeBudgetDelta}->{afterBudgetDelta},total={totalBeforeBudgetCap}->{PerInteractionTotalDeltaBudget})");
+                    }
+                }
+            }
+
+            foreach (var (statName, finalDelta) in adjustedDeltas)
+            {
+                var baseline = statsBefore.TryGetValue(statName, out var before) ? before : AdaptiveStatCatalog.DefaultValue;
+                actorStats.Stats[statName] = Math.Clamp(baseline + finalDelta, AdaptiveStatCatalog.MinValue, AdaptiveStatCatalog.MaxValue);
+            }
+        }
+
+        static Dictionary<string, int> BuildCurrentDeltas(
+            IReadOnlyDictionary<string, int> current,
+            IReadOnlyDictionary<string, int> baseline)
+        {
+            var deltas = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            var statKeys = current.Keys
+                .Concat(baseline.Keys)
+                .Distinct(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var statName in statKeys)
+            {
+                var now = current.TryGetValue(statName, out var currentValue) ? currentValue : AdaptiveStatCatalog.DefaultValue;
+                var before = baseline.TryGetValue(statName, out var beforeValue) ? beforeValue : AdaptiveStatCatalog.DefaultValue;
+                var delta = now - before;
+                if (delta != 0)
+                {
+                    deltas[statName] = delta;
+                }
+            }
+
+            return deltas;
+        }
+
+        void AppendPolicyReason(string statName, string policyReason)
+        {
+            if (!statDeltaContributors.TryGetValue(statName, out var reasons))
+            {
+                reasons = [];
+                statDeltaContributors[statName] = reasons;
+            }
+
+            reasons.Add(policyReason);
+        }
+
+        static bool IsEarlyActorTurn(RolePlaySession currentSession, RolePlayInteraction currentInteraction, string currentActorKey)
+        {
+            var actorTurnCount = currentSession.Interactions
+                .Count(existing => !IsNarrativeOrSystemInteraction(
+                    existing,
+                    string.IsNullOrWhiteSpace(existing.ActorName) ? "Unknown" : existing.ActorName.Trim()));
+
+            var interactionAlreadyCounted = currentSession.Interactions.Any(existing =>
+                string.Equals(existing.Id, currentInteraction.Id, StringComparison.OrdinalIgnoreCase));
+
+            if (!interactionAlreadyCounted && !IsNarrativeOrSystemInteraction(currentInteraction, currentActorKey))
+            {
+                actorTurnCount++;
+            }
+
+            return actorTurnCount <= EarlyTurnInteractionThreshold;
+        }
     }
 
     private async Task EvaluateAdaptiveIntensityTransitionAsync(
@@ -1012,6 +1252,48 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         return Math.Sign(affinityDelta) * Math.Clamp(scaledMagnitude, 1, 2);
     }
 
+    private static int GetThemeAffinityPhaseCap(NarrativePhase phase)
+    {
+        return phase switch
+        {
+            NarrativePhase.BuildUp => 0,
+            NarrativePhase.Committed => 1,
+            NarrativePhase.Approaching => 1,
+            NarrativePhase.Climax => 2,
+            NarrativePhase.Reset => 0,
+            _ => 0
+        };
+    }
+
+    private static int ApplyThemeAffinityPhaseCap(int delta, int phaseCap)
+    {
+        if (phaseCap <= 0 || delta == 0)
+        {
+            return 0;
+        }
+
+        var magnitude = Math.Min(Math.Abs(delta), phaseCap);
+        return Math.Sign(delta) * magnitude;
+    }
+
+    private static IReadOnlyList<ThemeAffinityCandidate> SelectThemeAffinityCandidates(
+        IReadOnlyList<ThemeAffinityCandidate> candidates,
+        int limit)
+    {
+        return candidates
+            .OrderByDescending(x => x.ThemeSignal)
+            .ThenByDescending(x => x.ThemeScore)
+            .ThenBy(x => x.ThemeId, StringComparer.OrdinalIgnoreCase)
+            .Take(Math.Max(0, limit))
+            .ToList();
+    }
+
+    private sealed record ThemeAffinityCandidate(
+        string ThemeId,
+        int ThemeSignal,
+        double ThemeScore,
+        IReadOnlyDictionary<string, int> StatDeltas);
+
     private static void ApplyDelta(Dictionary<string, int> stats, string statName, int delta)
     {
         if (!stats.TryGetValue(statName, out var current))
@@ -1173,6 +1455,29 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         }
     }
 
+    private static void RemoveNonCanonicalStatEntries(RolePlayAdaptiveState state)
+    {
+        foreach (var block in state.CharacterStats.Values)
+        {
+            var unsupported = block.Stats.Keys
+                .Where(x => !AdaptiveStatCatalog.CanonicalStatNames.Contains(x, StringComparer.OrdinalIgnoreCase))
+                .ToList();
+
+            foreach (var statName in unsupported)
+            {
+                block.Stats.Remove(statName);
+            }
+        }
+    }
+
+    private static string? ResolveSupportedStatName(string statName)
+    {
+        var normalized = AdaptiveStatCatalog.NormalizeLegacyStatName(statName);
+        return AdaptiveStatCatalog.CanonicalStatNames.Contains(normalized, StringComparer.OrdinalIgnoreCase)
+            ? normalized
+            : null;
+    }
+
     public async Task SeedFromScenarioAsync(
         RolePlaySession session,
         Scenario scenario,
@@ -1327,7 +1632,11 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             {
                 foreach (var (statName, bias) in styleProfile.StatBias)
                 {
-                    var normalized = AdaptiveStatCatalog.NormalizeLegacyStatName(statName);
+                    var normalized = ResolveSupportedStatName(statName);
+                    if (normalized is null)
+                    {
+                        continue;
+                    }
                     if (!charBlock.Stats.TryGetValue(normalized, out var current))
                     {
                         current = AdaptiveStatCatalog.DefaultValue;
@@ -1348,7 +1657,11 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             {
                 foreach (var (statName, affinityDelta) in entry.StatAffinities)
                 {
-                    var normalized = AdaptiveStatCatalog.NormalizeLegacyStatName(statName);
+                    var normalized = ResolveSupportedStatName(statName);
+                    if (normalized is null)
+                    {
+                        continue;
+                    }
                     if (!charBlock.Stats.TryGetValue(normalized, out var current))
                     {
                         current = AdaptiveStatCatalog.DefaultValue;
@@ -1359,6 +1672,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         }
 
         state.ThemeTracker.UpdatedUtc = DateTime.UtcNow;
+        RemoveNonCanonicalStatEntries(state);
         session.AdaptiveState = state;
 
         // --- T034: Logging ---
