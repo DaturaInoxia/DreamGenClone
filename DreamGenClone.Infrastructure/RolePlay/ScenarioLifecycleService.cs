@@ -9,27 +9,35 @@ namespace DreamGenClone.Infrastructure.RolePlay;
 public sealed class ScenarioLifecycleService : IScenarioLifecycleService
 {
     private readonly ILogger<ScenarioLifecycleService> _logger;
+    private readonly INarrativeGateProfileService? _gateProfileService;
 
-    public ScenarioLifecycleService(ILogger<ScenarioLifecycleService> logger)
+    public ScenarioLifecycleService(ILogger<ScenarioLifecycleService> logger, INarrativeGateProfileService? gateProfileService = null)
     {
         _logger = logger;
+        _gateProfileService = gateProfileService;
     }
 
-    public Task<PhaseTransitionResult> EvaluateTransitionAsync(
+    public async Task<PhaseTransitionResult> EvaluateTransitionAsync(
         AdaptiveScenarioState state,
         LifecycleInputs inputs,
         CancellationToken cancellationToken = default)
     {
-        var (transitioned, targetPhase, triggerType, reasonCode) = ResolveTransition(state, inputs);
+        var profile = _gateProfileService is null
+            ? null
+            : await _gateProfileService.GetDefaultAsync(cancellationToken);
+        var (transitioned, targetPhase, triggerType, reasonCode) = ResolveTransition(state, inputs, profile);
         if (!transitioned)
         {
-            return Task.FromResult(new PhaseTransitionResult
+            return new PhaseTransitionResult
             {
                 Transitioned = false,
                 TargetPhase = state.CurrentPhase,
                 Reason = "No transition criteria were met."
-            });
+            };
         }
+
+        var averageDesire = GetAverageStat(state, static snapshot => snapshot.Desire);
+        var averageRestraint = GetAverageStat(state, static snapshot => snapshot.Restraint);
 
         var transitionEvent = new NarrativePhaseTransitionEvent
         {
@@ -44,6 +52,8 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
                 inputs.InteractionsSinceCommitment,
                 inputs.ActiveScenarioConfidence,
                 inputs.ActiveScenarioFitScore,
+                averageDesire,
+                averageRestraint,
                 inputs.EvidenceSummary,
                 inputs.ForceReset,
                 inputs.ManualOverride
@@ -59,13 +69,13 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
             transitionEvent.TriggerType,
             transitionEvent.ReasonCode);
 
-        return Task.FromResult(new PhaseTransitionResult
+        return new PhaseTransitionResult
         {
             Transitioned = true,
             TargetPhase = targetPhase,
             TransitionEvent = transitionEvent,
             Reason = reasonCode
-        });
+        };
     }
 
     public Task<AdaptiveScenarioState> ExecuteResetAsync(
@@ -145,11 +155,36 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
 
     private static (bool Transitioned, NarrativePhase TargetPhase, TransitionTriggerType TriggerType, string ReasonCode) ResolveTransition(
         AdaptiveScenarioState state,
-        LifecycleInputs inputs)
+        LifecycleInputs inputs,
+        NarrativeGateProfile? profile)
     {
         if (inputs.ForceReset)
         {
             return (true, NarrativePhase.Reset, TransitionTriggerType.Reset, "FORCE_RESET");
+        }
+
+        var averageDesire = GetAverageStat(state, static snapshot => snapshot.Desire);
+        var averageRestraint = GetAverageStat(state, static snapshot => snapshot.Restraint);
+        var metricValues = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
+        {
+            [NarrativeGateMetricKeys.ActiveScenarioScore] = inputs.ActiveScenarioFitScore,
+            [NarrativeGateMetricKeys.AverageDesire] = averageDesire,
+            [NarrativeGateMetricKeys.AverageRestraint] = averageRestraint,
+            [NarrativeGateMetricKeys.InteractionsSinceCommitment] = inputs.InteractionsSinceCommitment
+        };
+
+        if (state.CurrentPhase == NarrativePhase.Committed && HasConfiguredGateRules(profile, "Committed", "Approaching"))
+        {
+            return EvaluateConfiguredGate(profile, "Committed", "Approaching", metricValues)
+                ? (true, NarrativePhase.Approaching, TransitionTriggerType.InteractionCountGate, "COMMITTED_TO_APPROACHING")
+                : (false, state.CurrentPhase, TransitionTriggerType.Threshold, "NO_TRANSITION");
+        }
+
+        if (state.CurrentPhase == NarrativePhase.Approaching && HasConfiguredGateRules(profile, "Approaching", "Climax"))
+        {
+            return EvaluateConfiguredGate(profile, "Approaching", "Climax", metricValues)
+                ? (true, NarrativePhase.Climax, TransitionTriggerType.Threshold, "APPROACHING_TO_CLIMAX")
+                : (false, state.CurrentPhase, TransitionTriggerType.Threshold, "NO_TRANSITION");
         }
 
         return state.CurrentPhase switch
@@ -170,6 +205,73 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
                 => (true, NarrativePhase.BuildUp, TransitionTriggerType.Reset, "RESET_TO_BUILDUP"),
 
             _ => (false, state.CurrentPhase, TransitionTriggerType.Threshold, "NO_TRANSITION")
+        };
+    }
+
+    private static decimal GetAverageStat(AdaptiveScenarioState state, Func<CharacterStatProfileV2, int> selector)
+    {
+        if (state.CharacterSnapshots.Count == 0)
+        {
+            return 50m;
+        }
+
+        return (decimal)state.CharacterSnapshots.Average(x => selector(x));
+    }
+
+    private static bool EvaluateConfiguredGate(
+        NarrativeGateProfile? profile,
+        string fromPhase,
+        string toPhase,
+        IReadOnlyDictionary<string, decimal> metricValues)
+    {
+        var rules = profile?.Rules
+            .Where(rule => string.Equals(rule.FromPhase, fromPhase, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(rule.ToPhase, toPhase, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(rule => rule.SortOrder)
+            .ToList();
+
+        if (rules is null || rules.Count == 0)
+        {
+            return false;
+        }
+
+        foreach (var rule in rules)
+        {
+            if (!metricValues.TryGetValue(rule.MetricKey, out var actualValue))
+            {
+                return false;
+            }
+
+            if (!Compare(actualValue, rule.Comparator, rule.Threshold))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool HasConfiguredGateRules(NarrativeGateProfile? profile, string fromPhase, string toPhase)
+    {
+        if (profile is null || profile.Rules.Count == 0)
+        {
+            return false;
+        }
+
+        return profile.Rules.Any(rule => string.Equals(rule.FromPhase, fromPhase, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(rule.ToPhase, toPhase, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool Compare(decimal actual, string comparator, decimal threshold)
+    {
+        return comparator.Trim() switch
+        {
+            NarrativeGateComparators.GreaterThanOrEqual => actual >= threshold,
+            NarrativeGateComparators.GreaterThan => actual > threshold,
+            NarrativeGateComparators.LessThanOrEqual => actual <= threshold,
+            NarrativeGateComparators.LessThan => actual < threshold,
+            NarrativeGateComparators.Equal => actual == threshold,
+            _ => actual >= threshold
         };
     }
 }

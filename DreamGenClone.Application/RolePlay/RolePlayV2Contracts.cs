@@ -90,7 +90,9 @@ public enum DecisionTrigger
     InteractionStart = 0,
     PhaseChanged = 1,
     SignificantStatChange = 2,
-    ManualOverride = 3
+    ManualOverride = 3,
+    CharacterDirectQuestion = 4,
+    SceneLocationChanged = 5
 }
 
 public sealed class DecisionSubmission

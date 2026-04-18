@@ -1,5 +1,6 @@
 using System.Text.Json;
 using DreamGenClone.Domain.Administration;
+using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Domain.StoryAnalysis;
 using DreamGenClone.Infrastructure.Persistence;
 using DreamGenClone.Infrastructure.StoryAnalysis;
@@ -147,6 +148,11 @@ public sealed class StyleProfileAffinityTests
         public Task<StatWillingnessProfile?> LoadDefaultStatWillingnessProfileAsync(CancellationToken ct = default) => throw new NotImplementedException();
         public Task<List<StatWillingnessProfile>> LoadAllStatWillingnessProfilesAsync(CancellationToken ct = default) => throw new NotImplementedException();
         public Task<bool> DeleteStatWillingnessProfileAsync(string id, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task SaveNarrativeGateProfileAsync(NarrativeGateProfile profile, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<NarrativeGateProfile?> LoadNarrativeGateProfileAsync(string id, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<NarrativeGateProfile?> LoadDefaultNarrativeGateProfileAsync(CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<List<NarrativeGateProfile>> LoadAllNarrativeGateProfilesAsync(CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<bool> DeleteNarrativeGateProfileAsync(string id, CancellationToken ct = default) => throw new NotImplementedException();
         public Task SaveHusbandAwarenessProfileAsync(HusbandAwarenessProfile profile, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<HusbandAwarenessProfile?> LoadHusbandAwarenessProfileAsync(string id, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<List<HusbandAwarenessProfile>> LoadAllHusbandAwarenessProfilesAsync(CancellationToken ct = default) => throw new NotImplementedException();

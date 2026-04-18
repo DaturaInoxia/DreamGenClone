@@ -165,4 +165,55 @@ public sealed class CharacterStateScenarioMapperTests
         Assert.True(fit.FitScore > 0.9, $"Expected strong fit but got {fit.FitScore:0.###}");
         Assert.Empty(fit.Failures);
     }
+
+    [Fact]
+    public async Task EvaluateAllScenariosAsync_EmitsClauseEvaluations_ForPassAndFail()
+    {
+        var mapper = new CharacterStateScenarioMapper(NullLogger<CharacterStateScenarioMapper>.Instance);
+
+        var state = new AdaptiveScenarioState
+        {
+            SessionId = "s1",
+            CharacterSnapshots =
+            [
+                new CharacterStatProfileV2 { CharacterId = "alpha", Desire = 45, Tension = 60, Dominance = 50, Restraint = 40, Connection = 50, Loyalty = 50, SelfRespect = 50 }
+            ]
+        };
+
+        var rules = new ScenarioFitRules
+        {
+            RoleCharacterBindings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["wife"] = "alpha"
+            },
+            CharacterRoleRules =
+            [
+                new CharacterRoleRule
+                {
+                    RoleName = "wife",
+                    StatThresholds = new Dictionary<string, StatThresholdSpecification>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["desire"] = new StatThresholdSpecification { MinimumValue = 50 },
+                        ["tension"] = new StatThresholdSpecification { MinimumValue = 55 }
+                    }
+                }
+            ]
+        };
+
+        var result = await mapper.EvaluateAllScenariosAsync(state,
+        [
+            new ThemeCatalogEntry
+            {
+                Id = "test-theme",
+                ScenarioFitRules = JsonSerializer.Serialize(rules, JsonOptions)
+            }
+        ]);
+
+        Assert.True(result.TryGetValue("test-theme", out var fit));
+        Assert.NotNull(fit);
+        Assert.True(fit.ClauseEvaluations.TryGetValue("wife", out var clauses));
+        Assert.NotNull(clauses);
+        Assert.Contains(clauses, x => x.StartsWith("FAIL desire", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(clauses, x => x.StartsWith("PASS tension", StringComparison.OrdinalIgnoreCase));
+    }
 }

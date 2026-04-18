@@ -37,6 +37,7 @@
 @inject ILogger<RolePlayWorkspace> Logger
 @implements IAsyncDisposable
 @using System.Text
+@using System.Text.Json
 
 @code {
     [Parameter]
@@ -65,7 +66,6 @@
     private int _lastRenderedInteractionCount = -1;
     private bool _shouldFollowStoryUpdates = true;
     private bool _scenarioDirty;
-    private bool _jsInteropUnavailable;
     private bool _isDisposed;
 
     // Scenario section collapse state (all collapsed by default)
@@ -103,10 +103,13 @@
     private static readonly TimeSpan PendingResponseRenderInterval = TimeSpan.FromMilliseconds(300);
     private RolePlayV2DiagnosticsSnapshot? _v2Diagnostics;
     private RolePlayPendingDecisionPrompt? _pendingDecisionPrompt;
+    private List<RolePlayPendingDecisionPrompt> _deferredDecisionPrompts = [];
     private string? _dismissedDecisionPointId;
     private bool _decisionPromptSubmitting;
     private string _decisionCustomResponse = string.Empty;
     private string _decisionPromptError = string.Empty;
+    private string? _adaptiveThemeOverrideSelection;
+    private string _adaptiveThemeOverrideStatus = string.Empty;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -353,6 +356,9 @@
         _showCustomInput = _selectedIdentity?.SourceType == IdentityOptionSource.CustomCharacter;
 
         await RefreshActiveProfileThemesAsync();
+        _adaptiveThemeOverrideSelection = _session.AdaptiveState.ActiveScenarioId
+            ?? _session.AdaptiveState.ThemeTracker.PrimaryThemeId;
+        _adaptiveThemeOverrideStatus = string.Empty;
 
         if (sessionUpdated)
         {
@@ -361,6 +367,7 @@
 
         _v2Diagnostics = await RolePlayDiagnostics.GetSnapshotAsync(_session.Id);
         _pendingDecisionPrompt = await RolePlayEngine.GetPendingDecisionPromptAsync(_session.Id);
+        _deferredDecisionPrompts = (await RolePlayEngine.GetDeferredDecisionPromptsAsync(_session.Id)).ToList();
         if (_pendingDecisionPrompt is null)
         {
             _dismissedDecisionPointId = null;
@@ -377,15 +384,38 @@
         _pendingDecisionPrompt is not null
         && !string.Equals(_dismissedDecisionPointId, _pendingDecisionPrompt.DecisionPoint.DecisionPointId, StringComparison.OrdinalIgnoreCase);
 
-    private void DeferDecisionPrompt()
+    private async Task DeferDecisionPromptAsync()
     {
-        if (_pendingDecisionPrompt is null)
+        if (_session is null || _pendingDecisionPrompt is null)
         {
             return;
         }
 
-        _dismissedDecisionPointId = _pendingDecisionPrompt.DecisionPoint.DecisionPointId;
+        _decisionPromptSubmitting = true;
         _decisionPromptError = string.Empty;
+        try
+        {
+            var deferred = await RolePlayEngine.DeferDecisionPointAsync(
+                _session.Id,
+                _pendingDecisionPrompt.DecisionPoint.DecisionPointId);
+
+            if (!deferred)
+            {
+                _decisionPromptError = "Could not defer the current decision.";
+                return;
+            }
+
+            _dismissedDecisionPointId = null;
+            await LoadSessionAsync();
+        }
+        catch (Exception ex)
+        {
+            _decisionPromptError = ex.Message;
+        }
+        finally
+        {
+            _decisionPromptSubmitting = false;
+        }
     }
 
     private void ReopenDecisionPrompt()
@@ -492,6 +522,30 @@
             .OrderByDescending(x => x.Score)
             .ThenBy(x => x.ThemeId, StringComparer.OrdinalIgnoreCase)
             .ToList();
+
+        if (string.Equals(tracker.ThemeSelectionRule, "ManualOverride", StringComparison.OrdinalIgnoreCase)
+            && !string.IsNullOrWhiteSpace(session.AdaptiveState.ActiveScenarioId)
+            && tracker.Themes.ContainsKey(session.AdaptiveState.ActiveScenarioId))
+        {
+            var manualSelectionChanged = false;
+            if (!string.Equals(tracker.PrimaryThemeId, session.AdaptiveState.ActiveScenarioId, StringComparison.OrdinalIgnoreCase))
+            {
+                tracker.PrimaryThemeId = session.AdaptiveState.ActiveScenarioId;
+                manualSelectionChanged = true;
+            }
+
+            var secondary = ordered
+                .FirstOrDefault(x => !string.Equals(x.ThemeId, session.AdaptiveState.ActiveScenarioId, StringComparison.OrdinalIgnoreCase))
+                ?.ThemeId;
+
+            if (!string.Equals(tracker.SecondaryThemeId, secondary, StringComparison.OrdinalIgnoreCase))
+            {
+                tracker.SecondaryThemeId = secondary;
+                manualSelectionChanged = true;
+            }
+
+            return manualSelectionChanged;
+        }
 
         if (ordered.Count < 2)
         {
@@ -975,6 +1029,35 @@
         await RefreshActiveProfileThemesAsync();
     }
 
+    private void OnAdaptiveThemeOverrideChanged(ChangeEventArgs args)
+    {
+        _adaptiveThemeOverrideSelection = string.IsNullOrWhiteSpace(args.Value?.ToString())
+            ? null
+            : args.Value!.ToString();
+        _adaptiveThemeOverrideStatus = string.Empty;
+    }
+
+    private async Task ApplyAdaptiveThemeOverrideAsync()
+    {
+        if (_session is null || string.IsNullOrWhiteSpace(_adaptiveThemeOverrideSelection))
+        {
+            return;
+        }
+
+        try
+        {
+            _session = await RolePlayEngine.OverrideAdaptiveThemeAsync(_session.Id, _adaptiveThemeOverrideSelection);
+            _adaptiveThemeOverrideSelection = _session.AdaptiveState.ActiveScenarioId ?? _adaptiveThemeOverrideSelection;
+            _adaptiveThemeOverrideStatus = $"Active theme overridden to {ResolveDecisionThemeLabel(_adaptiveThemeOverrideSelection)}.";
+            _v2Diagnostics = await RolePlayDiagnostics.GetSnapshotAsync(_session.Id);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to apply adaptive theme override for session {SessionId}", _session.Id);
+            _adaptiveThemeOverrideStatus = "Unable to apply theme override. Make sure the theme is available in the current adaptive tracker.";
+        }
+    }
+
     private async Task OnIntensityProfileChanged(ChangeEventArgs args)
     {
         if (_session is null)
@@ -1124,6 +1207,28 @@
 
         var match = _willingnessProfiles.FirstOrDefault(x => string.Equals(x.Id, selectedId, StringComparison.OrdinalIgnoreCase));
         return match?.Name ?? selectedId;
+    }
+
+    private IReadOnlyList<ThemeTrackerItem> GetAdaptiveOverrideThemes()
+    {
+        if (_session is null)
+        {
+            return [];
+        }
+
+        return _session.AdaptiveState.ThemeTracker.Themes.Values
+            .Where(x => !x.Blocked && !string.IsNullOrWhiteSpace(x.ThemeId))
+            .OrderByDescending(x => x.Score)
+            .ThenBy(x => string.IsNullOrWhiteSpace(x.ThemeName) ? x.ThemeId : x.ThemeName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static string BuildAdaptiveOverrideThemeLabel(ThemeTrackerItem item)
+    {
+        var label = string.IsNullOrWhiteSpace(item.ThemeName)
+            ? item.ThemeId
+            : item.ThemeName;
+        return $"{label} ({item.ThemeId}) score {item.Score:0.0}";
     }
 
     private string GetSelectedHusbandAwarenessProfileName()
@@ -1649,6 +1754,406 @@
         }
 
         return $"{summary} | {string.Join("; ", detailParts)}";
+    }
+
+    private IReadOnlyList<PhaseGateRow> GetPhaseGateRows()
+    {
+        if (_session is null)
+        {
+            return [];
+        }
+
+        var state = _session.AdaptiveState;
+        var desire = GetAverageAdaptiveStat(state, "Desire");
+        var restraint = GetAverageAdaptiveStat(state, "Restraint");
+        var tension = GetAverageAdaptiveStat(state, "Tension");
+        var connection = GetAverageAdaptiveStat(state, "Connection");
+        var dominance = GetAverageAdaptiveStat(state, "Dominance");
+        var loyalty = GetAverageAdaptiveStat(state, "Loyalty");
+        var selfRespect = GetAverageAdaptiveStat(state, "SelfRespect");
+        var activeScenarioScore = GetActiveScenarioScore(state);
+        var willingnessTier = ResolveWillingnessTier(desire);
+        var stageAOpen = !string.Equals(willingnessTier, "Blocked", StringComparison.OrdinalIgnoreCase);
+        var stageBOpen = tension >= 35 && restraint <= 80;
+        var stageEligible = stageAOpen && stageBOpen;
+
+        var rows = new List<PhaseGateRow>();
+        rows.Add(new PhaseGateRow(
+            "Session Stats Snapshot",
+            "Live",
+            $"Desire={desire:0.0}, Restraint={restraint:0.0}, Tension={tension:0.0}, Connection={connection:0.0}, Dominance={dominance:0.0}, Loyalty={loyalty:0.0}, SelfRespect={selfRespect:0.0}, ActiveScenarioScore={activeScenarioScore:0.0}, CompletedScenarios={state.CompletedScenarios}."));
+
+        var desireGapToStageA = Math.Max(0, 35 - desire);
+        rows.Add(new PhaseGateRow(
+            "Selection Gate A: Willingness Tier",
+            stageAOpen ? "Open" : "Closed",
+            $"Rule: avg desire >=35 required (tier not Blocked). Current desire={desire:0.0}, tier={willingnessTier}. {(stageAOpen ? "Gap: none" : $"Gap: need +{desireGapToStageA:0.0} desire")}."));
+
+        var tensionGapToStageB = Math.Max(0, 35 - tension);
+        var restraintGapToStageB = Math.Max(0, restraint - 80);
+        var stageBGapText = stageBOpen
+            ? "Gap: none"
+            : $"Gap: need +{tensionGapToStageB:0.0} tension and -{restraintGapToStageB:0.0} restraint (as applicable)";
+
+        rows.Add(new PhaseGateRow(
+            "Selection Gate B: Eligibility",
+            stageBOpen ? "Open" : "Closed",
+            $"Rules: avg tension>=35 AND avg restraint<=80. Current tension={tension:0.0}, restraint={restraint:0.0}. Combined stage eligibility={(stageEligible ? "Open" : "Closed")}. {stageBGapText}."));
+
+        if (state.CurrentNarrativePhase == DreamGenClone.Domain.StoryAnalysis.NarrativePhase.BuildUp)
+        {
+            var topCandidate = _v2Diagnostics?.CandidateEvaluations
+                .OrderByDescending(x => x.FitScore)
+                .ThenByDescending(x => x.Confidence)
+                .FirstOrDefault();
+            var fitScore = topCandidate?.FitScore ?? 0m;
+            var interactionCount = _session.Interactions.Count;
+            var commitThresholdMet = fitScore >= 0.60m && interactionCount >= 2;
+            var fitGap = Math.Max(0m, 0.60m - fitScore);
+            var interactionGap = Math.Max(0, 2 - interactionCount);
+            rows.Add(new PhaseGateRow(
+                "BuildUp Commit Gate",
+                commitThresholdMet ? "Open" : "Closed",
+                $"Rules: top eligible fit>=0.60 AND build-up interactions>=2. Current fit={fitScore:0.00}, interactions={interactionCount}. {(commitThresholdMet ? "Gap: none" : $"Gap: need +{fitGap:0.00} fit and +{interactionGap} interactions")}."));
+        }
+
+        switch (state.CurrentNarrativePhase)
+        {
+            case DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Committed:
+            {
+                var thresholds = ResolveCommittedGateThresholds(state);
+                var scoreMet = activeScenarioScore >= thresholds.ScoreMin;
+                var desireMet = desire >= thresholds.DesireMin;
+                var restraintMet = restraint <= thresholds.RestraintMax;
+                var interactionsMet = state.InteractionsSinceCommitment >= thresholds.InteractionsMin;
+                var isMet = scoreMet && desireMet && restraintMet && interactionsMet;
+                var scoreGap = Math.Max(0, thresholds.ScoreMin - activeScenarioScore);
+                var desireGap = Math.Max(0, thresholds.DesireMin - desire);
+                var restraintGap = Math.Max(0, restraint - thresholds.RestraintMax);
+                var interactionGap = Math.Max(0, thresholds.InteractionsMin - state.InteractionsSinceCommitment);
+                rows.Add(new PhaseGateRow(
+                    "Gate: Committed -> Approaching",
+                    isMet ? "Open" : "Closed",
+                    $"Cycle easing (completed={state.CompletedScenarios}): Score {activeScenarioScore:0.0}/{thresholds.ScoreMin:0} ({(scoreMet ? "OK" : $"Need +{scoreGap:0.0}")}), Desire {desire:0.0}/{thresholds.DesireMin:0} ({(desireMet ? "OK" : $"Need +{desireGap:0.0}")}), Restraint {restraint:0.0}/<={thresholds.RestraintMax:0} ({(restraintMet ? "OK" : $"Need -{restraintGap:0.0}")}), Interactions {state.InteractionsSinceCommitment}/{thresholds.InteractionsMin} ({(interactionsMet ? "OK" : $"Need +{interactionGap}")})"));
+                break;
+            }
+            case DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Approaching:
+            {
+                var thresholds = ResolveApproachingGateThresholds(state);
+                var scoreMet = activeScenarioScore >= thresholds.ScoreMin;
+                var desireMet = desire >= thresholds.DesireMin;
+                var restraintMet = restraint <= thresholds.RestraintMax;
+                var interactionsMet = state.InteractionsInApproaching >= thresholds.InteractionsMin;
+                var thresholdMet = scoreMet && desireMet && restraintMet && interactionsMet;
+                var scoreGap = Math.Max(0, thresholds.ScoreMin - activeScenarioScore);
+                var desireGap = Math.Max(0, thresholds.DesireMin - desire);
+                var restraintGap = Math.Max(0, restraint - thresholds.RestraintMax);
+                var interactionGap = Math.Max(0, thresholds.InteractionsMin - state.InteractionsInApproaching);
+                rows.Add(new PhaseGateRow(
+                    "Gate: Approaching -> Climax",
+                    thresholdMet ? "Open" : "Closed",
+                    $"Auto threshold (cycle easing, completed={state.CompletedScenarios}): Score {activeScenarioScore:0.0}/{thresholds.ScoreMin:0} ({(scoreMet ? "OK" : $"Need +{scoreGap:0.0}")}), Desire {desire:0.0}/{thresholds.DesireMin:0} ({(desireMet ? "OK" : $"Need +{desireGap:0.0}")}), Restraint {restraint:0.0}/<={thresholds.RestraintMax:0} ({(restraintMet ? "OK" : $"Need -{restraintGap:0.0}")}), Interactions {state.InteractionsInApproaching}/{thresholds.InteractionsMin} ({(interactionsMet ? "OK" : $"Need +{interactionGap}")}). '/climax' can force transition."));
+                break;
+            }
+            case DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Climax:
+                rows.Add(new PhaseGateRow(
+                    "Gate: Climax -> Reset",
+                    "Command-driven",
+                    "Transition opens when climax completion is signaled (for example '/completeclimax')."));
+                break;
+            case DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Reset:
+                rows.Add(new PhaseGateRow(
+                    "Gate: Reset -> BuildUp",
+                    "Automatic",
+                    "Reset advances directly to BuildUp on the next phase evaluation cycle."));
+                break;
+            case DreamGenClone.Domain.StoryAnalysis.NarrativePhase.BuildUp:
+                rows.Add(new PhaseGateRow(
+                    "Gate: BuildUp -> Committed",
+                    string.IsNullOrWhiteSpace(state.ActiveScenarioId) ? "Waiting" : "Committed scenario active",
+                    string.IsNullOrWhiteSpace(state.ActiveScenarioId)
+                        ? "No active scenario is committed yet. Scenario selection/commitment must happen first."
+                        : "A scenario is already committed, so phase is expected to move through Committed flow gates."));
+                break;
+        }
+
+        rows.Add(new PhaseGateRow(
+            "Manual Override Gate",
+            "Command-driven",
+            "A manual scenario override request immediately forces a reset before switching scenario."));
+
+        return rows;
+    }
+
+    private static string ResolveWillingnessTier(double desire)
+    {
+        if (desire >= 75)
+        {
+            return "High";
+        }
+
+        if (desire >= 55)
+        {
+            return "Medium";
+        }
+
+        if (desire >= 35)
+        {
+            return "Low";
+        }
+
+        return "Blocked";
+    }
+
+    private IReadOnlyList<PhaseLadderItem> GetPhaseLadderItems()
+    {
+        if (_session is null)
+        {
+            return [new PhaseLadderItem("(session unavailable)", "badge text-bg-secondary")];
+        }
+
+        var current = _session.AdaptiveState.CurrentNarrativePhase;
+        var phases = new[]
+        {
+            DreamGenClone.Domain.StoryAnalysis.NarrativePhase.BuildUp,
+            DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Committed,
+            DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Approaching,
+            DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Climax,
+            DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Reset
+        };
+
+        var currentOrder = GetPhaseOrder(current);
+        return phases
+            .Select(phase =>
+            {
+                var order = GetPhaseOrder(phase);
+                var badgeClass = phase == current
+                    ? "badge text-bg-warning"
+                    : order < currentOrder
+                        ? "badge text-bg-success"
+                        : "badge text-bg-secondary";
+                return new PhaseLadderItem(phase.ToString(), badgeClass);
+            })
+            .ToList();
+    }
+
+    private string GetPhaseProgressBarClass()
+    {
+        if (_session is null)
+        {
+            return "bg-secondary";
+        }
+
+        return _session.AdaptiveState.CurrentNarrativePhase switch
+        {
+            DreamGenClone.Domain.StoryAnalysis.NarrativePhase.BuildUp => "bg-info",
+            DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Committed => "bg-primary",
+            DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Approaching => "bg-warning",
+            DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Climax => "bg-danger",
+            DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Reset => "bg-success",
+            _ => "bg-secondary"
+        };
+    }
+
+    private static int GetPhaseOrder(DreamGenClone.Domain.StoryAnalysis.NarrativePhase phase)
+    {
+        return phase switch
+        {
+            DreamGenClone.Domain.StoryAnalysis.NarrativePhase.BuildUp => 0,
+            DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Committed => 1,
+            DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Approaching => 2,
+            DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Climax => 3,
+            DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Reset => 4,
+            _ => 99
+        };
+    }
+
+    private PhaseProgressInfo GetCurrentPhaseProgress()
+    {
+        if (_session is null)
+        {
+            return new PhaseProgressInfo("(unknown)", 0, "Session unavailable.");
+        }
+
+        var state = _session.AdaptiveState;
+        var desire = GetAverageAdaptiveStat(state, "Desire");
+        var restraint = GetAverageAdaptiveStat(state, "Restraint");
+        var tension = GetAverageAdaptiveStat(state, "Tension");
+        var activeScenarioScore = GetActiveScenarioScore(state);
+        var effectiveInteractionsSinceCommitment = GetEffectiveInteractionsSinceCommitment(state);
+        var effectiveInteractionsInApproaching = GetEffectiveInteractionsInApproaching(state, effectiveInteractionsSinceCommitment);
+
+        return state.CurrentNarrativePhase switch
+        {
+            DreamGenClone.Domain.StoryAnalysis.NarrativePhase.BuildUp => BuildBuildUpProgress(state, desire, restraint, tension),
+            DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Committed => BuildCommittedProgress(state, activeScenarioScore, desire, restraint, effectiveInteractionsSinceCommitment),
+            DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Approaching => BuildApproachingProgress(state, activeScenarioScore, desire, restraint, effectiveInteractionsInApproaching),
+            DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Climax => new PhaseProgressInfo(
+                "Reset",
+                0,
+                "Completion is command-driven in current flow. Use '/completeclimax' when the climax has resolved."),
+            DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Reset => new PhaseProgressInfo(
+                "BuildUp",
+                100,
+                "Reset phase auto-advances to BuildUp on next phase evaluation."),
+            _ => new PhaseProgressInfo("(unknown)", 0, "No phase metric available.")
+        };
+    }
+
+    private PhaseProgressInfo BuildBuildUpProgress(RolePlayAdaptiveState state, double desire, double restraint, double tension)
+    {
+        var nextPhase = "Committed";
+        if (!string.IsNullOrWhiteSpace(state.ActiveScenarioId))
+        {
+            return new PhaseProgressInfo(nextPhase, 100, "Active scenario committed; BuildUp gate is satisfied.");
+        }
+
+        var topCandidate = _v2Diagnostics?.CandidateEvaluations
+            .OrderByDescending(x => x.Confidence)
+            .ThenByDescending(x => x.FitScore)
+            .FirstOrDefault();
+        if (topCandidate is null)
+        {
+            var stageAOpen = desire >= 35;
+            var stageBOpen = tension >= 35 && restraint <= 80;
+            var desireGap = Math.Max(0, 35 - desire);
+            var tensionGap = Math.Max(0, 35 - tension);
+            var restraintGap = Math.Max(0, restraint - 80);
+            return new PhaseProgressInfo(
+                nextPhase,
+                0,
+                $"BuildUp gates: StageA desire>=35 (current {desire:0.0}, {(stageAOpen ? "OK" : $"need +{desireGap:0.0}")}); StageB tension>=35 (current {tension:0.0}, {(tension >= 35 ? "OK" : $"need +{tensionGap:0.0}")}) and restraint<=80 (current {restraint:0.0}, {(restraint <= 80 ? "OK" : $"need -{restraintGap:0.0}")}). Candidate confidence not available yet.");
+        }
+
+        var confidenceProgress = (int)Math.Round(Math.Clamp(topCandidate.Confidence * 100, 0, 100));
+        var stageAEligible = desire >= 35;
+        var stageBEligible = tension >= 35 && restraint <= 80;
+        var stageAGap = Math.Max(0, 35 - desire);
+        var stageBTensionGap = Math.Max(0, 35 - tension);
+        var stageBRestraintGap = Math.Max(0, restraint - 80);
+        return new PhaseProgressInfo(
+            nextPhase,
+            confidenceProgress,
+            $"BuildUp uses commitment readiness. Top candidate '{topCandidate.ScenarioId}' confidence={topCandidate.Confidence:F2}, fit={topCandidate.FitScore:F1}. Gates: StageA desire>=35 (current {desire:0.0}, {(stageAEligible ? "OK" : $"need +{stageAGap:0.0}")}); StageB tension>=35 (current {tension:0.0}, {(tension >= 35 ? "OK" : $"need +{stageBTensionGap:0.0}")}) and restraint<=80 (current {restraint:0.0}, {(restraint <= 80 ? "OK" : $"need -{stageBRestraintGap:0.0}")})."
+        );
+    }
+
+    private static PhaseProgressInfo BuildCommittedProgress(RolePlayAdaptiveState state, double activeScenarioScore, double desire, double restraint, int interactionsSinceCommitment)
+    {
+        var thresholds = ResolveCommittedGateThresholds(state);
+        var scoreProgress = Math.Clamp(activeScenarioScore / thresholds.ScoreMin, 0, 1);
+        var desireProgress = Math.Clamp(desire / thresholds.DesireMin, 0, 1);
+        var restraintProgress = Math.Clamp((100.0 - restraint) / (100.0 - thresholds.RestraintMax), 0, 1);
+        var interactionProgress = Math.Clamp((double)interactionsSinceCommitment / thresholds.InteractionsMin, 0, 1);
+
+        var progressPercent = (int)Math.Round((scoreProgress + desireProgress + restraintProgress + interactionProgress) / 4.0 * 100.0);
+        return new PhaseProgressInfo(
+            "Approaching",
+            progressPercent,
+            $"Thresholds (cycle easing, completed={state.CompletedScenarios}): score>={thresholds.ScoreMin:0} ({activeScenarioScore:0.0}), desire>={thresholds.DesireMin:0} ({desire:0.0}), restraint<={thresholds.RestraintMax:0} ({restraint:0.0}), interactions>={thresholds.InteractionsMin} ({interactionsSinceCommitment})."
+        );
+    }
+
+    private static PhaseProgressInfo BuildApproachingProgress(RolePlayAdaptiveState state, double activeScenarioScore, double desire, double restraint, int interactionsInApproaching)
+    {
+        var thresholds = ResolveApproachingGateThresholds(state);
+        var scoreProgress = Math.Clamp(activeScenarioScore / thresholds.ScoreMin, 0, 1);
+        var desireProgress = Math.Clamp(desire / thresholds.DesireMin, 0, 1);
+        var restraintProgress = Math.Clamp((100.0 - restraint) / (100.0 - thresholds.RestraintMax), 0, 1);
+        var interactionProgress = Math.Clamp((double)interactionsInApproaching / thresholds.InteractionsMin, 0, 1);
+
+        var progressPercent = (int)Math.Round((scoreProgress + desireProgress + restraintProgress + interactionProgress) / 4.0 * 100.0);
+        return new PhaseProgressInfo(
+            "Climax",
+            progressPercent,
+            $"Auto thresholds (cycle easing, completed={state.CompletedScenarios}): score>={thresholds.ScoreMin:0} ({activeScenarioScore:0.0}), desire>={thresholds.DesireMin:0} ({desire:0.0}), restraint<={thresholds.RestraintMax:0} ({restraint:0.0}), approaching interactions>={thresholds.InteractionsMin} ({interactionsInApproaching}). '/climax' can force transition."
+        );
+    }
+
+    private static PhaseGateThresholds ResolveCommittedGateThresholds(RolePlayAdaptiveState state)
+    {
+        var cycle = Math.Max(0, state.CompletedScenarios);
+        return new PhaseGateThresholds(
+            ScoreMin: Math.Max(45, 60 - (cycle * 4)),
+            DesireMin: Math.Max(50, 65 - (cycle * 4)),
+            RestraintMax: Math.Min(60, 45 + (cycle * 4)),
+            InteractionsMin: Math.Max(2, 3 - Math.Min(cycle, 1)));
+    }
+
+    private static PhaseGateThresholds ResolveApproachingGateThresholds(RolePlayAdaptiveState state)
+    {
+        var cycle = Math.Max(0, state.CompletedScenarios);
+        return new PhaseGateThresholds(
+            ScoreMin: Math.Max(55, 80 - (cycle * 8)),
+            DesireMin: Math.Max(60, 75 - (cycle * 6)),
+            RestraintMax: Math.Min(55, 35 + (cycle * 6)),
+            InteractionsMin: 2);
+    }
+
+    private int GetEffectiveInteractionsSinceCommitment(RolePlayAdaptiveState state)
+    {
+        var raw = state.InteractionsSinceCommitment;
+        if (raw > 0)
+        {
+            return raw;
+        }
+
+        if (_session is null
+            || string.IsNullOrWhiteSpace(state.ActiveScenarioId)
+            || state.CurrentNarrativePhase is DreamGenClone.Domain.StoryAnalysis.NarrativePhase.BuildUp or DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Reset)
+        {
+            return raw;
+        }
+
+        if (!state.ScenarioCommitmentTimeUtc.HasValue)
+        {
+            return raw;
+        }
+
+        var commitmentUtc = state.ScenarioCommitmentTimeUtc.Value;
+        var interactionsSinceCommitTimestamp = _session.Interactions.Count(x => x.CreatedAt >= commitmentUtc);
+        var estimated = Math.Max(0, interactionsSinceCommitTimestamp - 1);
+        return Math.Max(raw, estimated);
+    }
+
+    private static int GetEffectiveInteractionsInApproaching(RolePlayAdaptiveState state, int effectiveInteractionsSinceCommitment)
+    {
+        if (state.InteractionsInApproaching > 0)
+        {
+            return state.InteractionsInApproaching;
+        }
+
+        if (state.CurrentNarrativePhase != DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Approaching)
+        {
+            return state.InteractionsInApproaching;
+        }
+
+        return Math.Max(0, Math.Min(effectiveInteractionsSinceCommitment, 2));
+    }
+
+    private static double GetAverageAdaptiveStat(RolePlayAdaptiveState state, string statName)
+    {
+        if (state.CharacterStats.Count == 0)
+        {
+            return AdaptiveStatCatalog.DefaultValue;
+        }
+
+        var values = state.CharacterStats.Values
+            .Select(x => x.Stats.TryGetValue(statName, out var value) ? value : AdaptiveStatCatalog.DefaultValue)
+            .ToList();
+        return values.Average();
+    }
+
+    private static double GetActiveScenarioScore(RolePlayAdaptiveState state)
+    {
+        if (string.IsNullOrWhiteSpace(state.ActiveScenarioId))
+        {
+            return 0;
+        }
+
+        return state.ThemeTracker.Themes.TryGetValue(state.ActiveScenarioId, out var activeTheme)
+            ? activeTheme.Score
+            : 0;
     }
 
     private void ToggleAdaptiveDiagnosticsSection()
@@ -2643,6 +3148,52 @@
         return scenarioId;
     }
 
+    private string BuildDecisionQuestionText(DreamGenClone.Domain.RolePlay.DecisionPoint point)
+    {
+        var decisionActor = ResolveDecisionActorShortLabel(point.TargetActorId);
+        var askingActor = ResolveDecisionActorShortLabel(point.AskingActorName);
+        var currentLocation = _session?.AdaptiveState?.CurrentSceneLocation;
+
+        if (string.Equals(point.TriggerSource, "CharacterDirectQuestion", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"{askingActor} asked {decisionActor} a direct question. How does {decisionActor} respond right now?";
+        }
+
+        if (string.Equals(point.TriggerSource, "SceneLocationChanged", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!string.IsNullOrWhiteSpace(currentLocation))
+            {
+                return $"The scene has shifted to {currentLocation}. What does {decisionActor} say or do next?";
+            }
+
+            return $"The scene context has shifted. What does {decisionActor} say or do next?";
+        }
+
+        return $"Given this moment, what does {decisionActor} choose to say or do next?";
+    }
+
+    private string ResolveDecisionActorShortLabel(string? actorIdOrName)
+    {
+        var label = ResolveDecisionActorLabel(actorIdOrName);
+        if (string.IsNullOrWhiteSpace(label))
+        {
+            return label;
+        }
+
+        var marker = " (";
+        var markerIndex = label.IndexOf(marker, StringComparison.Ordinal);
+        if (markerIndex > 0 && label.EndsWith(')'))
+        {
+            var inner = label.Substring(markerIndex + marker.Length, label.Length - markerIndex - marker.Length - 1);
+            if (Guid.TryParse(inner, out _))
+            {
+                return label[..markerIndex];
+            }
+        }
+
+        return label;
+    }
+
     private string ResolveDecisionActorLabel(string? actorIdOrName)
     {
         if (string.IsNullOrWhiteSpace(actorIdOrName))
@@ -2687,6 +3238,70 @@
         return token;
     }
 
+    private string ResolveDecisionActorType(string? actorIdOrName)
+    {
+        if (string.IsNullOrWhiteSpace(actorIdOrName) || _session is null)
+        {
+            return "unknown";
+        }
+
+        var token = actorIdOrName.Trim();
+        if (string.Equals(token, _session.PersonaName, StringComparison.OrdinalIgnoreCase))
+        {
+            return "persona";
+        }
+
+        return _session.CharacterPerspectives.Any(x =>
+            string.Equals(x.CharacterId, token, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(x.CharacterName, token, StringComparison.OrdinalIgnoreCase))
+            ? "character"
+            : "unknown";
+    }
+
+    private int PendingDecisionCount => GetPendingDecisionPoints().Count;
+
+    private IReadOnlyList<DecisionQueueBucket> GetPendingDecisionQueueBuckets()
+    {
+        var pending = GetPendingDecisionPoints();
+        if (pending.Count == 0)
+        {
+            return [];
+        }
+
+        return pending
+            .GroupBy(point => new
+            {
+                Trigger = string.IsNullOrWhiteSpace(point.TriggerSource) ? "Unknown" : point.TriggerSource,
+                Target = ResolveDecisionActorLabel(point.TargetActorId)
+            })
+            .Select(group => new DecisionQueueBucket(
+                group.Key.Trigger,
+                group.Key.Target,
+                group.Count()))
+            .OrderByDescending(x => x.Count)
+            .ThenBy(x => x.TriggerSource, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(x => x.TargetActorLabel, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private List<DreamGenClone.Domain.RolePlay.DecisionPoint> GetPendingDecisionPoints()
+    {
+        if (_session is null || _v2Diagnostics is null || _v2Diagnostics.DecisionPoints.Count == 0)
+        {
+            return [];
+        }
+
+        var appliedIds = (_session.AppliedDecisionPointIds ?? [])
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        return _v2Diagnostics.DecisionPoints
+            .Where(point => !appliedIds.Contains(point.DecisionPointId))
+            .OrderBy(point => point.CreatedUtc)
+            .ToList();
+    }
+
+    private sealed record DecisionQueueBucket(string TriggerSource, string TargetActorLabel, int Count);
+
     private async Task ApplyDecisionOptionAsync(DreamGenClone.Domain.RolePlay.DecisionOption option)
     {
         if (_session is null || _pendingDecisionPrompt is null)
@@ -2716,6 +3331,101 @@
 
             _decisionCustomResponse = string.Empty;
             _dismissedDecisionPointId = null;
+            await LoadSessionAsync();
+        }
+        catch (Exception ex)
+        {
+            _decisionPromptError = ex.Message;
+        }
+        finally
+        {
+            _decisionPromptSubmitting = false;
+        }
+    }
+
+    private async Task SkipCurrentDecisionPromptAsync()
+    {
+        if (_session is null || _pendingDecisionPrompt is null)
+        {
+            return;
+        }
+
+        _decisionPromptSubmitting = true;
+        _decisionPromptError = string.Empty;
+        try
+        {
+            var skipped = await RolePlayEngine.SkipDecisionPointAsync(
+                _session.Id,
+                _pendingDecisionPrompt.DecisionPoint.DecisionPointId);
+
+            if (!skipped)
+            {
+                _decisionPromptError = "Could not skip the current decision.";
+                return;
+            }
+
+            _decisionCustomResponse = string.Empty;
+            _dismissedDecisionPointId = null;
+            await LoadSessionAsync();
+        }
+        catch (Exception ex)
+        {
+            _decisionPromptError = ex.Message;
+        }
+        finally
+        {
+            _decisionPromptSubmitting = false;
+        }
+    }
+
+    private async Task RestoreDeferredDecisionAsync(string decisionPointId)
+    {
+        if (_session is null || string.IsNullOrWhiteSpace(decisionPointId))
+        {
+            return;
+        }
+
+        _decisionPromptSubmitting = true;
+        _decisionPromptError = string.Empty;
+        try
+        {
+            var restored = await RolePlayEngine.RestoreDeferredDecisionPointAsync(_session.Id, decisionPointId);
+            if (!restored)
+            {
+                _decisionPromptError = "Could not restore the deferred decision.";
+                return;
+            }
+
+            await LoadSessionAsync();
+        }
+        catch (Exception ex)
+        {
+            _decisionPromptError = ex.Message;
+        }
+        finally
+        {
+            _decisionPromptSubmitting = false;
+        }
+    }
+
+    private async Task SkipDeferredDecisionAsync(string decisionPointId)
+    {
+        if (_session is null || string.IsNullOrWhiteSpace(decisionPointId))
+        {
+            return;
+        }
+
+        _decisionPromptSubmitting = true;
+        _decisionPromptError = string.Empty;
+        try
+        {
+            var skipped = await RolePlayEngine.SkipDecisionPointAsync(_session.Id, decisionPointId);
+            if (!skipped)
+            {
+                _decisionPromptError = "Could not skip the deferred decision.";
+                return;
+            }
+
             await LoadSessionAsync();
         }
         catch (Exception ex)
@@ -2792,7 +3502,6 @@
     public async ValueTask DisposeAsync()
     {
         _isDisposed = true;
-        _jsInteropUnavailable = true;
 
         if (_resizeInitialized)
         {
@@ -3433,8 +4142,44 @@
                     @if (_pendingDecisionPrompt is not null && !ShouldShowDecisionPrompt)
                     {
                         <div class="rw-settings-info-row" style="margin-top:12px;">
-                            <span>Decision pending</span>
-                            <button class="rw-btn rw-btn-secondary" @onclick="ReopenDecisionPrompt">Review Decision</button>
+                            <span>@($"Decision pending ({PendingDecisionCount} queued)")</span>
+                            <div style="display:flex; gap:8px;">
+                                <button class="rw-btn rw-btn-secondary" @onclick="ReopenDecisionPrompt">Review Decision</button>
+                                <button class="rw-btn rw-btn-secondary"
+                                        disabled="@_decisionPromptSubmitting"
+                                        @onclick="SkipCurrentDecisionPromptAsync">
+                                    Skip Current
+                                </button>
+                            </div>
+                        </div>
+                    }
+
+                    @if (_deferredDecisionPrompts.Count > 0)
+                    {
+                        <div class="rw-scenario-field" style="margin-top:12px;">
+                            <label class="rw-scenario-field-label">Deferred Decisions (@_deferredDecisionPrompts.Count)</label>
+                            @foreach (var deferred in _deferredDecisionPrompts.Take(4))
+                            {
+                                <div class="rw-settings-info-row">
+                                    <span>@($"{deferred.DecisionPoint.TriggerSource} -> {ResolveDecisionActorLabel(deferred.DecisionPoint.TargetActorId)}")</span>
+                                    <div style="display:flex; gap:8px;">
+                                        <button class="rw-btn rw-btn-secondary"
+                                                disabled="@_decisionPromptSubmitting"
+                                                @onclick="@(() => RestoreDeferredDecisionAsync(deferred.DecisionPoint.DecisionPointId))">
+                                            Restore
+                                        </button>
+                                        <button class="rw-btn rw-btn-secondary"
+                                                disabled="@_decisionPromptSubmitting"
+                                                @onclick="@(() => SkipDeferredDecisionAsync(deferred.DecisionPoint.DecisionPointId))">
+                                            Skip
+                                        </button>
+                                    </div>
+                                </div>
+                            }
+                            @if (_deferredDecisionPrompts.Count > 4)
+                            {
+                                <div class="small" style="margin-top:6px; color:#9f9f9f;">Showing 4 of @_deferredDecisionPrompts.Count deferred decisions.</div>
+                            }
                         </div>
                     }
 
@@ -3445,7 +4190,7 @@
                                 <div class="rw-modal-header">Decision Prompt</div>
                                 <div class="rw-modal-body rw-modal-body-scroll">
                                     <div class="rw-info-grid">
-                                        <div class="rw-info-row"><span class="rw-info-label">Character</span><span class="rw-info-value">@_session.PersonaName</span></div>
+                                        <div class="rw-info-row"><span class="rw-info-label">Decision Actor</span><span class="rw-info-value">@ResolveDecisionActorLabel(_pendingDecisionPrompt.DecisionPoint.TargetActorId)</span></div>
                                         <div class="rw-info-row"><span class="rw-info-label">Asking Actor</span><span class="rw-info-value">@ResolveDecisionActorLabel(_pendingDecisionPrompt.DecisionPoint.AskingActorName)</span></div>
                                         @if (!string.IsNullOrWhiteSpace(_pendingDecisionPrompt.DecisionPoint.TargetActorId))
                                         {
@@ -3454,6 +4199,27 @@
                                         <div class="rw-info-row"><span class="rw-info-label">Theme</span><span class="rw-info-value">@ResolveDecisionThemeLabel(_pendingDecisionPrompt.DecisionPoint.ScenarioId)</span></div>
                                         <div class="rw-info-row"><span class="rw-info-label">Phase</span><span class="rw-info-value">@_pendingDecisionPrompt.DecisionPoint.Phase</span></div>
                                         <div class="rw-info-row"><span class="rw-info-label">Trigger</span><span class="rw-info-value">@_pendingDecisionPrompt.DecisionPoint.TriggerSource</span></div>
+                                    </div>
+
+                                    @if (PendingDecisionCount > 1)
+                                    {
+                                        <div class="rw-scenario-field" style="margin-top:10px;">
+                                            <label class="rw-scenario-field-label">Decision Queue</label>
+                                            <div class="rw-settings-info-row"><span>Pending Total</span><span>@PendingDecisionCount</span></div>
+                                            <div class="rw-settings-info-row"><span>Additional After This</span><span>@(PendingDecisionCount - 1)</span></div>
+                                            @foreach (var bucket in GetPendingDecisionQueueBuckets().Take(6))
+                                            {
+                                                <div class="rw-settings-info-row">
+                                                    <span>@bucket.TriggerSource</span>
+                                                    <span>@($"{bucket.Count} x {bucket.TargetActorLabel}")</span>
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+
+                                    <div class="rw-scenario-field" style="margin-top:10px;">
+                                        <label class="rw-scenario-field-label">Question</label>
+                                        <div class="small" style="white-space:pre-wrap; color:#d9d9d9;">@BuildDecisionQuestionText(_pendingDecisionPrompt.DecisionPoint)</div>
                                     </div>
 
                                     @if (!string.IsNullOrWhiteSpace(_pendingDecisionPrompt.DecisionPoint.ContextSummary))
@@ -3472,7 +4238,12 @@
                                     <div class="rw-modal-actions" style="justify-content:flex-end; padding:8px 0 0 0;">
                                         <button class="rw-btn rw-btn-secondary"
                                                 disabled="@_decisionPromptSubmitting"
-                                                @onclick="DeferDecisionPrompt">
+                                                @onclick="SkipCurrentDecisionPromptAsync">
+                                            Skip Current
+                                        </button>
+                                        <button class="rw-btn rw-btn-secondary"
+                                                disabled="@_decisionPromptSubmitting"
+                                                @onclick="DeferDecisionPromptAsync">
                                             Ask Me Later
                                         </button>
                                     </div>
@@ -3481,6 +4252,11 @@
                                     {
                                         <div class="rw-scenario-field" style="margin-top:10px;">
                                             <label class="rw-scenario-field-label">@option.DisplayText</label>
+                                            @if (!string.IsNullOrWhiteSpace(option.ResponsePreview))
+                                            {
+                                                <div class="small" style="color:#a8a8a8; margin-bottom:2px;">Suggested answer:</div>
+                                                <div class="small" style="white-space:pre-wrap; color:#c9c9c9; margin-bottom:4px;">@option.ResponsePreview</div>
+                                            }
                                             <div class="rw-settings-info-row"><span>Choice Id</span><span>@option.OptionId</span></div>
                                             <div class="rw-settings-info-row"><span>Result</span><span>@FormatDecisionDeltas(option.StatDeltaMap)</span></div>
 
@@ -4303,6 +5079,28 @@
                             </select>
                         </div>
                         <div class="rw-scenario-field">
+                            <label class="rw-scenario-field-label">Manual Theme Override</label>
+                            <select class="rw-mode-select"
+                                    value="@_adaptiveThemeOverrideSelection"
+                                    @onchange="OnAdaptiveThemeOverrideChanged">
+                                <option value="">(Select Theme)</option>
+                                @foreach (var theme in GetAdaptiveOverrideThemes())
+                                {
+                                    <option value="@theme.ThemeId">@BuildAdaptiveOverrideThemeLabel(theme)</option>
+                                }
+                            </select>
+                            <div class="text-muted small mb-2">Forces the active adaptive theme immediately.</div>
+                            <button class="rw-btn rw-btn-secondary"
+                                    disabled="@string.IsNullOrWhiteSpace(_adaptiveThemeOverrideSelection)"
+                                    @onclick="ApplyAdaptiveThemeOverrideAsync">
+                                Apply Theme Override
+                            </button>
+                            @if (!string.IsNullOrWhiteSpace(_adaptiveThemeOverrideStatus))
+                            {
+                                <div class="small" style="margin-top:6px; color:#c8d6c8;">@_adaptiveThemeOverrideStatus</div>
+                            }
+                        </div>
+                        <div class="rw-scenario-field">
                             <label class="rw-scenario-field-label">Selected Intensity Profile</label>
                             <select class="rw-mode-select"
                                     value="@GetIntensityDropdownValue()"
@@ -4504,13 +5302,81 @@
                     <div class="rw-settings-section">
                         <div class="rw-settings-section-label">RolePlay v2 Runtime</div>
                         <div class="rw-settings-info-row"><span>Current Phase</span><span>@_session.AdaptiveState.CurrentNarrativePhase</span></div>
+                        @{
+                            var phaseProgress = GetCurrentPhaseProgress();
+                        }
+                        <div class="rw-settings-info-row">
+                            <span>Phase Ladder</span>
+                            <span class="d-inline-flex flex-wrap gap-1 justify-content-end" style="max-width:62%;">
+                                @foreach (var phase in GetPhaseLadderItems())
+                                {
+                                    <span class="@phase.BadgeClass">@phase.Label</span>
+                                }
+                            </span>
+                        </div>
+                        <div class="rw-settings-info-row"><span>Phase Progress</span><span>@($"{phaseProgress.ProgressPercent}% to {phaseProgress.NextPhase}")</span></div>
+                        <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="@phaseProgress.ProgressPercent" style="height:8px; margin:4px 0 8px 0;">
+                            <div class="progress-bar @GetPhaseProgressBarClass()" style="width:@($"{phaseProgress.ProgressPercent}%")"></div>
+                        </div>
+                        <div class="rw-settings-info-row"><span>Phase Progress Details</span><span>@phaseProgress.Details</span></div>
                         <div class="rw-settings-info-row"><span>Active Scenario</span><span>@(string.IsNullOrWhiteSpace(_session.AdaptiveState.ActiveScenarioId) ? "(none)" : _session.AdaptiveState.ActiveScenarioId)</span></div>
                         <div class="rw-settings-info-row"><span>Active Variant</span><span>@(string.IsNullOrWhiteSpace(_session.AdaptiveState.ActiveVariantId) ? "(none)" : _session.AdaptiveState.ActiveVariantId)</span></div>
                         <div class="rw-settings-info-row"><span>Willingness Profile</span><span>@GetSelectedWillingnessProfileName()</span></div>
                         <div class="rw-settings-info-row"><span>Husband Awareness Profile</span><span>@GetSelectedHusbandAwarenessProfileName()</span></div>
                         <div class="rw-settings-info-row"><span>Interactions Since Commitment</span><span>@_session.AdaptiveState.InteractionsSinceCommitment</span></div>
                         <div class="rw-settings-info-row"><span>Interactions In Approaching</span><span>@_session.AdaptiveState.InteractionsInApproaching</span></div>
+                        @foreach (var gate in GetPhaseGateRows())
+                        {
+                            <div class="rw-settings-info-row"><span>@gate.Label</span><span>@gate.Status</span></div>
+                            <div class="rw-settings-info-row"><span>Gate Details</span><span>@gate.Details</span></div>
+                        }
                         <div class="rw-settings-info-row"><span>Completed Scenarios</span><span>@_session.AdaptiveState.CompletedScenarios</span></div>
+                        <div class="rw-settings-info-row"><span>Current Scene Location</span><span>@(string.IsNullOrWhiteSpace(_session.AdaptiveState.CurrentSceneLocation) ? "(unknown)" : _session.AdaptiveState.CurrentSceneLocation)</span></div>
+                        @if (_session.AdaptiveState.CharacterLocations.Count == 0)
+                        {
+                            <div class="rw-settings-info-row"><span>Location Truth</span><span>(none)</span></div>
+                        }
+                        else
+                        {
+                            @foreach (var truth in _session.AdaptiveState.CharacterLocations
+                                .OrderBy(x => ResolveDecisionActorLabel(x.CharacterId), StringComparer.OrdinalIgnoreCase)
+                                .ThenByDescending(x => x.UpdatedUtc)
+                                .Take(12))
+                            {
+                                var truthLabel = ResolveDecisionActorLabel(truth.CharacterId);
+                                var truthType = ResolveDecisionActorType(truth.CharacterId);
+                                var truthSummary = $"{truthLabel} [{truthType}] -> {(string.IsNullOrWhiteSpace(truth.TrueLocation) ? "(unknown)" : truth.TrueLocation)}";
+                                if (truth.IsHidden)
+                                {
+                                    truthSummary = $"{truthSummary} [hidden]";
+                                }
+
+                                <div class="rw-settings-info-row"><span>Location Truth</span><span>@truthSummary</span></div>
+                            }
+                        }
+
+                        @if (_session.AdaptiveState.CharacterLocationPerceptions.Count == 0)
+                        {
+                            <div class="rw-settings-info-row"><span>Location Perceptions</span><span>(none)</span></div>
+                        }
+                        else
+                        {
+                            @foreach (var perception in _session.AdaptiveState.CharacterLocationPerceptions
+                                .OrderByDescending(x => x.Confidence)
+                                .ThenBy(x => ResolveDecisionActorLabel(x.ObserverCharacterId), StringComparer.OrdinalIgnoreCase)
+                                .ThenBy(x => ResolveDecisionActorLabel(x.TargetCharacterId), StringComparer.OrdinalIgnoreCase)
+                                .Take(20))
+                            {
+                                var observer = ResolveDecisionActorLabel(perception.ObserverCharacterId);
+                                var observerType = ResolveDecisionActorType(perception.ObserverCharacterId);
+                                var target = ResolveDecisionActorLabel(perception.TargetCharacterId);
+                                var targetType = ResolveDecisionActorType(perception.TargetCharacterId);
+                                var where = string.IsNullOrWhiteSpace(perception.PerceivedLocation) ? "(unknown)" : perception.PerceivedLocation;
+                                var source = string.IsNullOrWhiteSpace(perception.KnowledgeSource) ? "unknown" : perception.KnowledgeSource;
+                                var perceptionSummary = $"{observer} [{observerType}] sees {target} [{targetType}] at {where} ({perception.Confidence}%, {source}, LOS:{(perception.HasLineOfSight ? "Y" : "N")}, Near:{(perception.IsInProximity ? "Y" : "N")})";
+                                <div class="rw-settings-info-row"><span>Location Perception</span><span>@perceptionSummary</span></div>
+                            }
+                        }
                         @if (_v2Diagnostics is not null)
                         {
                             var latestTransition = _v2Diagnostics.TransitionEvents.OrderByDescending(x => x.OccurredUtc).FirstOrDefault();
@@ -4539,9 +5405,30 @@
 
                             if (topCandidate is not null)
                             {
+                                var gateDetails = ParseCandidateGateDetails(topCandidate);
+                                var roleScoreSummary = FormatCandidateRoleScores(topCandidate);
+                                var clauseSummary = FormatTopCandidateClauseSummary(topCandidate);
+                                var tieSummary = FormatCandidateTieSetSummary(_v2Diagnostics.CandidateEvaluations);
                                 <div class="rw-settings-info-row"><span>Top Candidate</span><span>@topCandidate.ScenarioId</span></div>
                                 <div class="rw-settings-info-row"><span>Top Candidate Confidence</span><span>@topCandidate.Confidence.ToString("F2")</span></div>
                                 <div class="rw-settings-info-row"><span>Top Candidate Fit</span><span>@topCandidate.FitScore.ToString("F1")</span></div>
+                                @if (gateDetails is not null)
+                                {
+                                    <div class="rw-settings-info-row"><span>Top Candidate Gate</span><span>@gateDetails.Strategy</span></div>
+                                    <div class="rw-settings-info-row"><span>Top Candidate Gate Reason</span><span>@gateDetails.Reason</span></div>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(roleScoreSummary))
+                                {
+                                    <div class="rw-settings-info-row"><span>Top Candidate Role Scores</span><span>@roleScoreSummary</span></div>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(clauseSummary))
+                                {
+                                    <div class="rw-settings-info-row"><span>Top Candidate Clauses</span><span>@clauseSummary</span></div>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(tieSummary))
+                                {
+                                    <div class="rw-settings-info-row"><span>Tie Set</span><span>@tieSummary</span></div>
+                                }
                             }
                         }
                         else
@@ -4575,4 +5462,145 @@
 
 @code {
     private sealed record MenuRect(double Top, double Left, double Bottom, double Right, double Width, double Height);
+    private sealed record PhaseGateRow(string Label, string Status, string Details);
+    private sealed record PhaseProgressInfo(string NextPhase, int ProgressPercent, string Details);
+    private sealed record PhaseLadderItem(string Label, string BadgeClass);
+    private sealed record PhaseGateThresholds(double ScoreMin, double DesireMin, double RestraintMax, int InteractionsMin);
+
+    private static CandidateGateDetails? ParseCandidateGateDetails(ScenarioCandidateEvaluation candidate)
+    {
+        if (string.IsNullOrWhiteSpace(candidate.DetailsJson))
+        {
+            return null;
+        }
+
+        try
+        {
+            var details = JsonSerializer.Deserialize<CandidateDetailsEnvelope>(candidate.DetailsJson, CandidateDetailsJsonOptions);
+            return details?.Gate;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string FormatCandidateRoleScores(ScenarioCandidateEvaluation candidate)
+    {
+        if (string.IsNullOrWhiteSpace(candidate.DetailsJson))
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            var details = JsonSerializer.Deserialize<CandidateDetailsEnvelope>(candidate.DetailsJson, CandidateDetailsJsonOptions);
+            var scores = details?.FitResult?.RoleScores;
+            if (scores is null || scores.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            return string.Join(", ", scores
+                .OrderByDescending(x => x.Value)
+                .ThenBy(x => x.Key, StringComparer.OrdinalIgnoreCase)
+                .Select(x => $"{x.Key}={x.Value:0.###}"));
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    private static string FormatTopCandidateClauseSummary(ScenarioCandidateEvaluation candidate)
+    {
+        if (string.IsNullOrWhiteSpace(candidate.DetailsJson))
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            var details = JsonSerializer.Deserialize<CandidateDetailsEnvelope>(candidate.DetailsJson, CandidateDetailsJsonOptions);
+            var scores = details?.FitResult?.RoleScores;
+            var clauses = details?.FitResult?.ClauseEvaluations;
+            if (scores is null || scores.Count == 0 || clauses is null || clauses.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            var topRole = scores
+                .OrderByDescending(x => x.Value)
+                .ThenBy(x => x.Key, StringComparer.OrdinalIgnoreCase)
+                .FirstOrDefault().Key;
+            if (string.IsNullOrWhiteSpace(topRole) || !clauses.TryGetValue(topRole, out var roleClauses) || roleClauses.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            return $"{topRole}: {string.Join(" | ", roleClauses.Take(4))}";
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    private static string FormatCandidateTieSetSummary(IReadOnlyList<ScenarioCandidateEvaluation> evaluations)
+    {
+        if (evaluations.Count < 2)
+        {
+            return string.Empty;
+        }
+
+        var ordered = evaluations
+            .OrderByDescending(x => x.FitScore)
+            .ThenByDescending(x => x.Confidence)
+            .ThenBy(x => x.TieBreakKey, StringComparer.Ordinal)
+            .ToList();
+
+        var leader = ordered[0];
+        var tieSet = ordered
+            .Where(x => leader.FitScore - x.FitScore <= CandidateTieDeltaThreshold)
+            .ToList();
+
+        if (tieSet.Count <= 1)
+        {
+            return string.Empty;
+        }
+
+        var leadDelta = leader.FitScore - tieSet[1].FitScore;
+        var members = string.Join(", ", tieSet.Select(x => $"{x.ScenarioId}:{x.FitScore:0.###}"));
+        return $"delta={leadDelta:0.###}, threshold={CandidateTieDeltaThreshold:0.###}, members=[{members}]";
+    }
+
+    private static readonly JsonSerializerOptions CandidateDetailsJsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
+    private const decimal CandidateTieDeltaThreshold = 0.8m;
+
+    private sealed class CandidateDetailsEnvelope
+    {
+        public CandidateGateDetails? Gate { get; set; }
+
+        public CandidateFitResultDetails? FitResult { get; set; }
+    }
+
+    private sealed class CandidateGateDetails
+    {
+        public bool Passed { get; set; }
+
+        public string Strategy { get; set; } = string.Empty;
+
+        public string Reason { get; set; } = string.Empty;
+    }
+
+    private sealed class CandidateFitResultDetails
+    {
+        public Dictionary<string, double> RoleScores { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public Dictionary<string, List<string>> ClauseEvaluations { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    }
 }

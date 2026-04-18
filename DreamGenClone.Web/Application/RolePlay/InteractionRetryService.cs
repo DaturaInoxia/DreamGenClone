@@ -370,7 +370,7 @@ public sealed class InteractionRetryService : IInteractionRetryService
                         var description = string.IsNullOrWhiteSpace(location.Description)
                             ? "(no description)"
                             : location.Description.Trim();
-                        sb.AppendLine($"  {location.Name.Trim()}: {description}");
+                        sb.AppendLine($"  {location.Name!.Trim()}: {description}");
                     }
                 }
 
@@ -384,7 +384,7 @@ public sealed class InteractionRetryService : IInteractionRetryService
                         var description = string.IsNullOrWhiteSpace(item.Description)
                             ? "(no description)"
                             : item.Description.Trim();
-                        sb.AppendLine($"  {item.Name.Trim()}: {description}");
+                        sb.AppendLine($"  {item.Name!.Trim()}: {description}");
                     }
                 }
             }

@@ -25,6 +25,19 @@ public sealed class DecisionPointService : IDecisionPointService
                 WhatTags: ["temptation", "invitation", "flirt"],
                 RequiredPhases: [NarrativePhase.Committed, NarrativePhase.Approaching, NarrativePhase.Climax],
                 PrerequisitesJson: "{\"min\":{\"Desire\":55}}"),
+            ["tempt-answer"] = new(
+                "tempt-answer",
+                new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Desire"] = 8,
+                    ["Loyalty"] = -6,
+                    ["Tension"] = 3,
+                    ["Restraint"] = -18
+                },
+                WhoTags: [],
+                WhatTags: ["temptation", "invitation", "flirt", "risk"],
+                RequiredPhases: [],
+                PrerequisitesJson: "{}"),
             ["hold-back"] = new(
                 "hold-back",
                 new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
@@ -141,7 +154,9 @@ public sealed class DecisionPointService : IDecisionPointService
         var shouldCreate = trigger == DecisionTrigger.PhaseChanged
             || trigger == DecisionTrigger.SignificantStatChange
             || (trigger == DecisionTrigger.InteractionStart && state.InteractionCountInPhase > 0 && state.InteractionCountInPhase % 3 == 0)
-            || trigger == DecisionTrigger.ManualOverride;
+            || trigger == DecisionTrigger.ManualOverride
+            || trigger == DecisionTrigger.CharacterDirectQuestion
+            || trigger == DecisionTrigger.SceneLocationChanged;
 
         if (!shouldCreate)
         {
@@ -153,7 +168,8 @@ public sealed class DecisionPointService : IDecisionPointService
             return Task.FromResult<DecisionPoint?>(null);
         }
 
-        if (string.IsNullOrWhiteSpace(state.ActiveScenarioId))
+        var allowWithoutActiveScenario = trigger is DecisionTrigger.CharacterDirectQuestion or DecisionTrigger.SceneLocationChanged;
+        if (string.IsNullOrWhiteSpace(state.ActiveScenarioId) && !allowWithoutActiveScenario)
         {
             _logger.LogInformation(
                 RolePlayV2LogEvents.DecisionPointSkipped,
@@ -163,11 +179,15 @@ public sealed class DecisionPointService : IDecisionPointService
             return Task.FromResult<DecisionPoint?>(null);
         }
 
+        var scenarioId = !string.IsNullOrWhiteSpace(state.ActiveScenarioId)
+            ? state.ActiveScenarioId
+            : (!string.IsNullOrWhiteSpace(context?.ScenarioId) ? context.ScenarioId : "build-up-context");
+
         var decisionPoint = new DecisionPoint
         {
             DecisionPointId = Guid.NewGuid().ToString("N"),
             SessionId = state.SessionId,
-            ScenarioId = state.ActiveScenarioId,
+            ScenarioId = scenarioId,
             Phase = state.CurrentPhase,
             TriggerSource = trigger.ToString(),
             ContextSummary = context?.PromptSnippet ?? string.Empty,
@@ -249,6 +269,28 @@ public sealed class DecisionPointService : IDecisionPointService
         var focusActor = ResolveFocusActor(state, context);
         var who = NormalizeContextToken(context?.Who);
         var what = NormalizeContextToken(context?.What);
+
+        if (context?.IsDirectQuestionContext == true)
+        {
+            var directQuestionOptions = new List<string>
+            {
+                "tempt-answer",
+                "lean-in",
+                "hold-back",
+                "seek-connection",
+                "observe",
+                "custom"
+            };
+
+            if (focusActor is not null && focusActor.Loyalty <= 55)
+            {
+                directQuestionOptions[3] = "redirect";
+            }
+
+            return directQuestionOptions
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
 
         var options = OptionTemplates.Values
             .Where(x => !string.Equals(x.OptionId, "custom", StringComparison.OrdinalIgnoreCase))

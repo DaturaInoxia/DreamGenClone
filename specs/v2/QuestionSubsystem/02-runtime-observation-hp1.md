@@ -41,3 +41,34 @@ Before further behavior tuning, implement explicit diagnostics fields per decisi
 - persistence success/failure
 
 This closes the loop between implemented logic and runtime behavior claims.
+
+## Q1 Runtime Check (2026-04-16)
+
+- Session: `Q1`
+- SessionId: `e44ee51b-e989-4b73-b13e-4b81448b753d`
+- User validation context: first default continue completed and visually looked correct.
+
+### What Looked Healthy
+
+1. First-continue pipeline completed cleanly:
+	- `PromptBuilt` -> `LlmRequestSent` -> `LlmResponseReceived` -> `InteractionPrepared` -> `AdaptiveStateUpdated` observed in sequence.
+2. Adaptive state persisted without runtime/schema faults:
+	- `RolePlayV2AdaptiveStates` row present with `CurrentPhase=BuildUp`, `CycleIndex=0`, `ActiveFormulaVersion=rpv2-default`.
+3. Scenario candidate evaluation persisted:
+	- `RolePlayV2CandidateEvaluations` rows present with explicit rationale (`Candidate blocked by willingness or eligibility pre-gate.`).
+4. No unsupported-session error evidence observed for this session.
+
+### Decision/Question Subsystem Findings
+
+1. Prompt diagnostics repeatedly reported `decisions=0` during the observed first-continue window.
+2. No decision/question event records were surfaced in the session debug stream for this window.
+3. Candidate evaluation and concept injection telemetry exists, but explicit decision-skip causality remains thin at the event level.
+
+### Enhancement Notes Captured
+
+1. Add explicit per-attempt question skip diagnostics event in-session (not only aggregate prompt counters), including:
+	- cadence gate result
+	- cooldown gate result
+	- template eligibility failures
+	- actor-targeting resolution
+2. Emit a single concise "decision attempt summary" record per interaction window to satisfy determinism/explainability goals in `00-scope-and-goals.md`.

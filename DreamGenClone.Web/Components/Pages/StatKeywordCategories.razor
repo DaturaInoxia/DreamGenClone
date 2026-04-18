@@ -1,0 +1,294 @@
+@page "/stat-keyword-categories"
+@page "/profiles/stat-keyword-categories"
+@rendermode InteractiveServer
+
+@using DreamGenClone.Application.StoryAnalysis
+@using DreamGenClone.Domain.StoryAnalysis
+@using DreamGenClone.Web.Application.StoryAnalysis
+
+@inject StoryAnalysisFacade Facade
+
+<PageTitle>Stat Keyword Categories</PageTitle>
+
+<div class="container-fluid mt-4">
+    <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-end gap-3 mb-3">
+        <div>
+            <h3 class="mb-1">Stat Keyword Categories</h3>
+            <p class="text-muted mb-0">Manage DB-backed keyword rules that mutate adaptive role-play stats.</p>
+        </div>
+        <div class="d-flex gap-2">
+            <button class="btn btn-outline-secondary" @onclick="LoadAsync" disabled="@_isBusy">Refresh</button>
+            <button class="btn btn-primary" @onclick="CreateNew" disabled="@_isBusy">New Category</button>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="alert alert-danger">@_error</div>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(_info))
+    {
+        <div class="alert alert-success">@_info</div>
+    }
+
+    <div class="row g-4">
+        <div class="col-lg-5">
+            <div class="card h-100">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span>Categories (@_categories.Count)</span>
+                    <div class="form-check form-switch m-0">
+                        <input class="form-check-input" type="checkbox" @bind="_includeDisabled" @bind:after="LoadAsync" />
+                        <label class="form-check-label">Include disabled</label>
+                    </div>
+                </div>
+                <div class="card-body p-0">
+                    @if (_categories.Count == 0)
+                    {
+                        <div class="p-3 text-muted">No categories found.</div>
+                    }
+                    else
+                    {
+                        <div class="list-group list-group-flush">
+                            @foreach (var category in _categories)
+                            {
+                                <button type="button"
+                                        class="list-group-item list-group-item-action @(category.Id == _editing.Id ? "active" : "")"
+                                        @onclick="() => Edit(category)">
+                                    <div class="d-flex justify-content-between gap-2">
+                                        <div>
+                                            <div class="fw-semibold">@category.Name</div>
+                                            <div class="small @(category.Id == _editing.Id ? "text-light" : "text-muted")">
+                                                Stat: @category.StatName, Delta: @category.PerKeywordDelta, Cap: @category.MaxAbsDelta
+                                            </div>
+                                        </div>
+                                        @if (!category.IsEnabled)
+                                        {
+                                            <span class="badge bg-warning text-dark align-self-start">Disabled</span>
+                                        }
+                                    </div>
+                                </button>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-7">
+            <div class="card">
+                <div class="card-header">Edit Category</div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Name</label>
+                            <input class="form-control" @bind="_editing.Name" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Stat Name</label>
+                            <select class="form-select" @bind="_editing.StatName">
+                                @foreach (var statName in _validStatNames)
+                                {
+                                    <option value="@statName">@statName</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Per Keyword Delta</label>
+                            <input class="form-control" type="number" @bind="_editing.PerKeywordDelta" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Max Abs Delta</label>
+                            <input class="form-control" type="number" @bind="_editing.MaxAbsDelta" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Sort Order</label>
+                            <input class="form-control" type="number" @bind="_editing.SortOrder" />
+                        </div>
+                        <div class="col-12">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" @bind="_editing.IsEnabled" id="enabledSwitch" />
+                                <label class="form-check-label" for="enabledSwitch">Enabled</label>
+                            </div>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Keywords (comma-separated)</label>
+                            <textarea class="form-control" rows="4" @bind="_keywordsRaw"></textarea>
+                        </div>
+                    </div>
+
+                    <div class="d-flex gap-2 mt-3">
+                        <button class="btn btn-primary" @onclick="SaveAsync" disabled="@_isBusy">Save</button>
+                        <button class="btn btn-outline-danger" @onclick="DeleteAsync" disabled="@_isBusy || string.IsNullOrWhiteSpace(_editing.Id)">Delete</button>
+                        <button class="btn btn-outline-secondary" @onclick="CreateNew" disabled="@_isBusy">Reset</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private readonly List<StatKeywordCategory> _categories = [];
+    private StatKeywordCategory _editing = NewCategory();
+    private string _keywordsRaw = string.Empty;
+    private bool _includeDisabled;
+    private bool _isBusy;
+    private string? _error;
+    private string? _info;
+    private static readonly IReadOnlyList<string> _validStatNames = AdaptiveStatCatalog.CanonicalStatNames;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _isBusy = true;
+        _error = null;
+        _info = null;
+        try
+        {
+            _categories.Clear();
+            _categories.AddRange(await Facade.ListStatKeywordCategoriesAsync(_includeDisabled));
+            if (_categories.Count > 0 && string.IsNullOrWhiteSpace(_editing.Id))
+            {
+                Edit(_categories[0]);
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private void CreateNew()
+    {
+        _editing = NewCategory();
+        _editing.StatName = _validStatNames[0];
+        _keywordsRaw = string.Empty;
+        _error = null;
+        _info = null;
+    }
+
+    private void Edit(StatKeywordCategory category)
+    {
+        _editing = new StatKeywordCategory
+        {
+            Id = category.Id,
+            Name = category.Name,
+            StatName = category.StatName,
+            PerKeywordDelta = category.PerKeywordDelta,
+            MaxAbsDelta = category.MaxAbsDelta,
+            IsEnabled = category.IsEnabled,
+            SortOrder = category.SortOrder,
+            CreatedUtc = category.CreatedUtc,
+            UpdatedUtc = category.UpdatedUtc,
+            Keywords = category.Keywords
+                .Select(k => new StatKeywordRule
+                {
+                    Id = k.Id,
+                    CategoryId = category.Id,
+                    Keyword = k.Keyword,
+                    SortOrder = k.SortOrder
+                })
+                .ToList()
+        };
+
+        if (!_validStatNames.Contains(_editing.StatName, StringComparer.OrdinalIgnoreCase))
+        {
+            _editing.StatName = _validStatNames[0];
+        }
+
+        _keywordsRaw = string.Join(", ", _editing.Keywords.OrderBy(x => x.SortOrder).Select(x => x.Keyword));
+        _error = null;
+        _info = null;
+    }
+
+    private async Task SaveAsync()
+    {
+        _isBusy = true;
+        _error = null;
+        _info = null;
+
+        try
+        {
+            var parsedKeywords = (_keywordsRaw ?? string.Empty)
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            _editing.Keywords = parsedKeywords
+                .Select((keyword, index) => new StatKeywordRule
+                {
+                    Id = Guid.NewGuid().ToString("N"),
+                    CategoryId = _editing.Id,
+                    Keyword = keyword,
+                    SortOrder = index + 1
+                })
+                .ToList();
+
+            var saved = await Facade.SaveStatKeywordCategoryAsync(_editing);
+            _info = $"Saved '{saved.Name}'.";
+            await LoadAsync();
+            Edit(saved);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_editing.Id))
+        {
+            return;
+        }
+
+        _isBusy = true;
+        _error = null;
+        _info = null;
+
+        try
+        {
+            var deleted = await Facade.DeleteStatKeywordCategoryAsync(_editing.Id);
+            _info = deleted ? "Category deleted." : "Category not found.";
+            CreateNew();
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private static StatKeywordCategory NewCategory()
+    {
+        return new StatKeywordCategory
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            Name = string.Empty,
+            StatName = AdaptiveStatCatalog.CanonicalStatNames[0],
+            PerKeywordDelta = 1,
+            MaxAbsDelta = 3,
+            IsEnabled = true,
+            SortOrder = 0,
+            Keywords = []
+        };
+    }
+}

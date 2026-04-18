@@ -1,10 +1,37 @@
 using DreamGenClone.Application.StoryAnalysis;
 using DreamGenClone.Application.StoryAnalysis.Models;
+using DreamGenClone.Infrastructure.Configuration;
+using Microsoft.Extensions.Options;
 
 namespace DreamGenClone.Infrastructure.StoryAnalysis;
 
 public sealed class ScenarioSelectionEngine : IScenarioSelectionEngine
 {
+    private readonly StoryAnalysisOptions _options;
+    private readonly IReadOnlyDictionary<string, IScenarioFitScoreStrategy> _fitScoreStrategies;
+    private readonly IReadOnlyDictionary<string, IScenarioTieBreakStrategy> _tieBreakStrategies;
+
+    public ScenarioSelectionEngine(
+        IEnumerable<IScenarioFitScoreStrategy>? fitScoreStrategies = null,
+        IEnumerable<IScenarioTieBreakStrategy>? tieBreakStrategies = null,
+        IOptions<StoryAnalysisOptions>? options = null)
+    {
+        _options = options?.Value ?? new StoryAnalysisOptions();
+
+        fitScoreStrategies ??= [new WeightedBlendScenarioFitScoreStrategy()];
+        tieBreakStrategies ??= [new TieWindowScenarioTieBreakStrategy()];
+
+        _fitScoreStrategies = fitScoreStrategies
+            .GroupBy(x => x.Key ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+            .Select(x => x.Last())
+            .ToDictionary(x => x.Key, x => x, StringComparer.OrdinalIgnoreCase);
+
+        _tieBreakStrategies = tieBreakStrategies
+            .GroupBy(x => x.Key ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+            .Select(x => x.Last())
+            .ToDictionary(x => x.Key, x => x, StringComparer.OrdinalIgnoreCase);
+    }
+
     public Task<ScenarioSelectionResult> EvaluateAsync(
         AdaptiveScenarioSnapshot adaptiveState,
         IReadOnlyList<ScenarioCandidateInput> candidates,
@@ -15,12 +42,12 @@ public sealed class ScenarioSelectionEngine : IScenarioSelectionEngine
         ArgumentNullException.ThrowIfNull(candidates);
         ArgumentNullException.ThrowIfNull(context);
 
+        var fitScoreStrategy = ResolveFitScoreStrategy();
+        var tieBreakStrategy = ResolveTieBreakStrategy();
+
         var ranked = candidates
             .Where(x => x.IsEligible)
-            .Select(x => new ScenarioScoreResult(
-                x.ScenarioId,
-                Clamp01(0.40 * x.CharacterAlignmentScore + 0.35 * x.NarrativeEvidenceScore + 0.25 * x.PreferencePriorityScore),
-                "Weighted deterministic fit score"))
+            .Select(x => fitScoreStrategy.ScoreCandidate(x, adaptiveState, context))
             .OrderByDescending(x => x.FitScore)
             .ThenBy(x => x.ScenarioId, StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -39,18 +66,55 @@ public sealed class ScenarioSelectionEngine : IScenarioSelectionEngine
                 "Manual override requested"));
         }
 
-        var deferredForTie = ranked.Count >= 2 && ranked[0].FitScore - ranked[1].FitScore <= 0.10;
-        if (deferredForTie)
+        var tieDecision = tieBreakStrategy.Evaluate(
+            ranked,
+            context,
+            Math.Clamp(_options.BuildUpSelectionTieDeltaThreshold, 0.0, 1.0));
+
+        if (tieDecision.DeferredForTie)
         {
-            return Task.FromResult(new ScenarioSelectionResult(null, true, ranked, "Top candidates tied, defer commitment"));
+            return Task.FromResult(new ScenarioSelectionResult(null, true, ranked, tieDecision.Rationale));
         }
 
-        var canCommit = ranked[0].FitScore >= 0.60 && context.BuildUpInteractionCount >= 2;
+        var canCommit = ranked[0].FitScore >= Math.Clamp(_options.BuildUpSelectionCommitThreshold, 0.0, 1.0)
+            && context.BuildUpInteractionCount >= 2;
         return Task.FromResult(new ScenarioSelectionResult(
             canCommit ? ranked[0].ScenarioId : null,
             false,
             ranked,
             canCommit ? "Commitment threshold met" : "Commitment threshold not met"));
+    }
+
+    private IScenarioFitScoreStrategy ResolveFitScoreStrategy()
+    {
+        if (!string.IsNullOrWhiteSpace(_options.BuildUpSelectionFitScoreStrategy)
+            && _fitScoreStrategies.TryGetValue(_options.BuildUpSelectionFitScoreStrategy, out var configuredStrategy))
+        {
+            return configuredStrategy;
+        }
+
+        if (_fitScoreStrategies.TryGetValue(WeightedBlendScenarioFitScoreStrategy.StrategyKey, out var defaultStrategy))
+        {
+            return defaultStrategy;
+        }
+
+        return _fitScoreStrategies.Values.First();
+    }
+
+    private IScenarioTieBreakStrategy ResolveTieBreakStrategy()
+    {
+        if (!string.IsNullOrWhiteSpace(_options.BuildUpSelectionTieBreakStrategy)
+            && _tieBreakStrategies.TryGetValue(_options.BuildUpSelectionTieBreakStrategy, out var configuredStrategy))
+        {
+            return configuredStrategy;
+        }
+
+        if (_tieBreakStrategies.TryGetValue(TieWindowScenarioTieBreakStrategy.StrategyKey, out var defaultStrategy))
+        {
+            return defaultStrategy;
+        }
+
+        return _tieBreakStrategies.Values.First();
     }
 
     private static double Clamp01(double value) => Math.Clamp(Math.Round(value, 4), 0.0, 1.0);

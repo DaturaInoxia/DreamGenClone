@@ -1,4 +1,5 @@
 using CoreAutoSaveCoordinator = DreamGenClone.Application.Sessions.IAutoSaveCoordinator;
+using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Infrastructure.Configuration;
 using DreamGenClone.Infrastructure.RolePlay;
@@ -67,6 +68,24 @@ public sealed class RolePlaySessionLifecycleTests
                 ConsecutiveLeadCount = 1,
                 CycleIndex = 3,
                 ActiveFormulaVersion = "rpv2-default",
+                CurrentSceneLocation = "Secluded Garden",
+                CharacterLocations =
+                [
+                    new CharacterLocationState { CharacterId = "char-a", TrueLocation = "Secluded Garden", IsHidden = false }
+                ],
+                CharacterLocationPerceptions =
+                [
+                    new CharacterLocationPerceptionState
+                    {
+                        ObserverCharacterId = "char-a",
+                        TargetCharacterId = "char-a",
+                        PerceivedLocation = "Secluded Garden",
+                        Confidence = 100,
+                        HasLineOfSight = true,
+                        IsInProximity = true,
+                        KnowledgeSource = "self"
+                    }
+                ],
                 CharacterSnapshots =
                 [
                     new CharacterStatProfileV2 { CharacterId = "char-a", Desire = 60, Restraint = 45, Tension = 58, Connection = 55, Dominance = 50, Loyalty = 60, SelfRespect = 50 }
@@ -79,6 +98,9 @@ public sealed class RolePlaySessionLifecycleTests
             Assert.NotNull(reloaded);
             Assert.Equal(state.ActiveScenarioId, reloaded!.ActiveScenarioId);
             Assert.Equal(state.CurrentPhase, reloaded.CurrentPhase);
+            Assert.Equal("Secluded Garden", reloaded.CurrentSceneLocation);
+            Assert.Single(reloaded.CharacterLocations);
+            Assert.Single(reloaded.CharacterLocationPerceptions);
             Assert.Single(reloaded.CharacterSnapshots);
             Assert.Equal(60, reloaded.CharacterSnapshots[0].Desire);
         }
@@ -98,7 +120,277 @@ public sealed class RolePlaySessionLifecycleTests
         }
     }
 
-    private static (RolePlayEngineService Service, FakeSessionService SessionService) CreateService()
+    [Fact]
+    public async Task PendingDecisionPrompt_SkipsDeferredAndAppliedDecisionPoints()
+    {
+        var repository = new FakeRolePlayV2StateRepository();
+        var (service, _) = CreateService(repository);
+        var created = await service.CreateSessionAsync("Queue Session");
+
+        var pointOld = new DecisionPoint
+        {
+            SessionId = created.Id,
+            DecisionPointId = "dp-old",
+            CreatedUtc = DateTime.UtcNow.AddMinutes(-2),
+            TransparencyMode = TransparencyMode.Directional
+        };
+        var pointNew = new DecisionPoint
+        {
+            SessionId = created.Id,
+            DecisionPointId = "dp-new",
+            CreatedUtc = DateTime.UtcNow.AddMinutes(-1),
+            TransparencyMode = TransparencyMode.Directional
+        };
+        await repository.SaveDecisionPointAsync(pointOld,
+        [
+            new DecisionOption { DecisionPointId = "dp-old", OptionId = "old-1", DisplayText = "Old" }
+        ]);
+        await repository.SaveDecisionPointAsync(pointNew,
+        [
+            new DecisionOption { DecisionPointId = "dp-new", OptionId = "new-1", DisplayText = "New" }
+        ]);
+
+        var session = await service.GetSessionAsync(created.Id);
+        Assert.NotNull(session);
+        session!.DeferredDecisionPointIds.Add("dp-new");
+        await service.SaveSessionAsync(session);
+
+        var prompt = await service.GetPendingDecisionPromptAsync(created.Id);
+
+        Assert.NotNull(prompt);
+        Assert.Equal("dp-old", prompt!.DecisionPoint.DecisionPointId);
+    }
+
+    [Fact]
+    public async Task DeferRestoreAndSkipDecisionPoint_UpdatesQueueAndSessionState()
+    {
+        var repository = new FakeRolePlayV2StateRepository();
+        var (service, _) = CreateService(repository);
+        var created = await service.CreateSessionAsync("Deferred Session");
+
+        var point = new DecisionPoint
+        {
+            SessionId = created.Id,
+            DecisionPointId = "dp-1",
+            CreatedUtc = DateTime.UtcNow,
+            AskingActorName = "Becky",
+            TargetActorId = "Dean",
+            TriggerSource = DecisionTrigger.CharacterDirectQuestion.ToString(),
+            TransparencyMode = TransparencyMode.Directional
+        };
+        await repository.SaveDecisionPointAsync(point,
+        [
+            new DecisionOption { DecisionPointId = "dp-1", OptionId = "opt-1", DisplayText = "Answer" }
+        ]);
+
+        var deferred = await service.DeferDecisionPointAsync(created.Id, "dp-1");
+        Assert.True(deferred);
+
+        var pendingAfterDefer = await service.GetPendingDecisionPromptAsync(created.Id);
+        Assert.Null(pendingAfterDefer);
+
+        var deferredPrompts = await service.GetDeferredDecisionPromptsAsync(created.Id);
+        Assert.Single(deferredPrompts);
+        Assert.Equal("dp-1", deferredPrompts[0].DecisionPoint.DecisionPointId);
+
+        var restored = await service.RestoreDeferredDecisionPointAsync(created.Id, "dp-1");
+        Assert.True(restored);
+
+        var pendingAfterRestore = await service.GetPendingDecisionPromptAsync(created.Id);
+        Assert.NotNull(pendingAfterRestore);
+        Assert.Equal("dp-1", pendingAfterRestore!.DecisionPoint.DecisionPointId);
+
+        var skipped = await service.SkipDecisionPointAsync(created.Id, "dp-1");
+        Assert.True(skipped);
+
+        var reloaded = await service.GetSessionAsync(created.Id);
+        Assert.NotNull(reloaded);
+        Assert.Contains("dp-1", reloaded!.AppliedDecisionPointIds);
+        Assert.DoesNotContain("dp-1", reloaded.DeferredDecisionPointIds);
+        Assert.DoesNotContain(reloaded.Interactions, x => x.ActorName == "Decision Outcome");
+    }
+
+    [Fact]
+    public async Task ApplyDecision_WithSteeringInstructions_AppendsConciseInstructionInteraction()
+    {
+        var repository = new FakeRolePlayV2StateRepository();
+        var (service, _) = CreateService(repository);
+        var created = await service.CreateSessionAsync("Apply Decision Instruction Session");
+
+        var point = new DecisionPoint
+        {
+            SessionId = created.Id,
+            DecisionPointId = "dp-steering-1",
+            CreatedUtc = DateTime.UtcNow,
+            AskingActorName = "Dean",
+            TargetActorId = "Becky",
+            TriggerSource = DecisionTrigger.CharacterDirectQuestion.ToString(),
+            TransparencyMode = TransparencyMode.Directional,
+            OptionIds = ["hold-back", "custom"]
+        };
+
+        await repository.SaveDecisionPointAsync(point,
+        [
+            new DecisionOption
+            {
+                DecisionPointId = "dp-steering-1",
+                OptionId = "hold-back",
+                DisplayText = "Hold Back",
+                CharacterDirectionInstruction = "Character Direction (Becky): keep language calm and boundaried.",
+                ChatInstruction = "Chat Instruction: de-escalate tension over the next two turns."
+            },
+            new DecisionOption
+            {
+                DecisionPointId = "dp-steering-1",
+                OptionId = "custom",
+                DisplayText = "Custom"
+            }
+        ]);
+
+        var outcome = await service.ApplyDecisionAsync(created.Id, "dp-steering-1", "hold-back");
+
+        Assert.NotNull(outcome);
+        Assert.True(outcome!.Applied);
+
+        var reloaded = await service.GetSessionAsync(created.Id);
+        Assert.NotNull(reloaded);
+        var instruction = reloaded!.Interactions.LastOrDefault(x => x.ActorName.Contains("Instruction", StringComparison.OrdinalIgnoreCase));
+        Assert.NotNull(instruction);
+        Assert.Equal("\"Hold Back\"", instruction!.Content);
+        Assert.DoesNotContain("Decision Steering Payload", instruction.Content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Character Direction", instruction.Content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Chat Instruction", instruction.Content, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task OverrideAdaptiveTheme_SetsActiveScenarioImmediately()
+    {
+        var (service, _) = CreateService();
+        var created = await service.CreateSessionAsync("Override Theme Session");
+        var session = await service.GetSessionAsync(created.Id);
+        Assert.NotNull(session);
+
+        session!.AdaptiveState.ThemeTracker.Themes["dominance"] = new ThemeTrackerItem
+        {
+            ThemeId = "dominance",
+            ThemeName = "Dominance",
+            Score = 62
+        };
+        session.AdaptiveState.ThemeTracker.Themes["infidelity"] = new ThemeTrackerItem
+        {
+            ThemeId = "infidelity",
+            ThemeName = "Infidelity",
+            Score = 40
+        };
+        session.AdaptiveState.ActiveScenarioId = "dominance";
+        session.AdaptiveState.CurrentNarrativePhase = DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Approaching;
+        session.AdaptiveState.InteractionsSinceCommitment = 5;
+        await service.SaveSessionAsync(session);
+
+        var overridden = await service.OverrideAdaptiveThemeAsync(created.Id, "infidelity");
+
+        Assert.Equal("infidelity", overridden.AdaptiveState.ActiveScenarioId);
+        Assert.Equal("infidelity", overridden.AdaptiveState.ThemeTracker.PrimaryThemeId);
+        Assert.Equal(0, overridden.AdaptiveState.InteractionsSinceCommitment);
+    }
+
+    [Fact]
+    public async Task OverrideAdaptiveTheme_ThrowsWhenThemeUnavailable()
+    {
+        var (service, _) = CreateService();
+        var created = await service.CreateSessionAsync("Override Theme Missing");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.OverrideAdaptiveThemeAsync(created.Id, "theme-does-not-exist"));
+    }
+
+    [Fact]
+    public async Task ApplyDecision_InjectsSelectedDialogueIntoInstructionPayload()
+    {
+        var repository = new FakeRolePlayV2StateRepository();
+        var (service, _) = CreateService(repository);
+        var created = await service.CreateSessionAsync("Dialogue Injection Session");
+
+        var point = new DecisionPoint
+        {
+            SessionId = created.Id,
+            DecisionPointId = "dp-dialogue-1",
+            CreatedUtc = DateTime.UtcNow,
+            AskingActorName = "Dean",
+            TargetActorId = "Becky",
+            TriggerSource = DecisionTrigger.CharacterDirectQuestion.ToString(),
+            TransparencyMode = TransparencyMode.Explicit,
+            OptionIds = ["lean-in"]
+        };
+
+        await repository.SaveDecisionPointAsync(point,
+        [
+            new DecisionOption
+            {
+                DecisionPointId = "dp-dialogue-1",
+                OptionId = "lean-in",
+                DisplayText = "\"Yeah, that sounds good.\"",
+                CharacterDirectionInstruction = "Character Direction (Becky): answer naturally and stay warm.",
+                ChatInstruction = "Chat Instruction: continue smoothly from the selected answer."
+            }
+        ]);
+
+        var outcome = await service.ApplyDecisionAsync(created.Id, "dp-dialogue-1", "lean-in");
+
+        Assert.NotNull(outcome);
+        Assert.True(outcome!.Applied);
+
+        var reloaded = await service.GetSessionAsync(created.Id);
+        Assert.NotNull(reloaded);
+
+        var instruction = reloaded!.Interactions.LastOrDefault(x => x.ActorName == "Instruction");
+        if (instruction is null)
+        {
+            instruction = reloaded.Interactions.LastOrDefault(x => x.ActorName.Contains("Instruction", StringComparison.OrdinalIgnoreCase));
+        }
+
+        Assert.NotNull(instruction);
+        Assert.Contains("Instruction", instruction!.ActorName, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("\"Yeah, that sounds good.\"", instruction.Content);
+        Assert.DoesNotContain("Decision Steering Payload", instruction.Content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Character Direction", instruction.Content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Chat Instruction", instruction.Content, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task OverrideAdaptiveTheme_PersistsAcrossNextInteraction()
+    {
+        var (service, _) = CreateService();
+        var created = await service.CreateSessionAsync("Override Persists Session");
+        var session = await service.GetSessionAsync(created.Id);
+        Assert.NotNull(session);
+
+        session!.AdaptiveState.ThemeTracker.Themes["dominance"] = new ThemeTrackerItem
+        {
+            ThemeId = "dominance",
+            ThemeName = "Dominance",
+            Score = 72
+        };
+        session.AdaptiveState.ThemeTracker.Themes["infidelity"] = new ThemeTrackerItem
+        {
+            ThemeId = "infidelity",
+            ThemeName = "Infidelity",
+            Score = 45
+        };
+        session.AdaptiveState.ActiveScenarioId = "dominance";
+        session.AdaptiveState.InteractionsSinceCommitment = 0;
+        await service.SaveSessionAsync(session);
+
+        await service.OverrideAdaptiveThemeAsync(created.Id, "infidelity");
+        await service.AddInteractionAsync(created.Id, ContinueAsActor.You, "dominate command obey control");
+
+        var reloaded = await service.GetSessionAsync(created.Id);
+        Assert.NotNull(reloaded);
+        Assert.Equal("infidelity", reloaded!.AdaptiveState.ActiveScenarioId);
+        Assert.Equal("ManualOverride", reloaded.AdaptiveState.ThemeTracker.ThemeSelectionRule);
+    }
+
+    private static (RolePlayEngineService Service, FakeSessionService SessionService) CreateService(IRolePlayV2StateRepository? v2StateRepository = null)
     {
         var fakeSessionService = new FakeSessionService();
         var coreAutoSave = new FakeCoreAutoSaveCoordinator();
@@ -121,7 +413,9 @@ public sealed class RolePlaySessionLifecycleTests
             new RolePlayTestFactory.FakeBaseStatProfileService(),
             autoSave,
             new RolePlayTestFactory.NullRolePlayDebugEventSink(),
-            NullLogger<RolePlayEngineService>.Instance);
+            NullLogger<RolePlayEngineService>.Instance,
+            decisionPointService: new DecisionPointService(NullLogger<DecisionPointService>.Instance),
+            v2StateRepository: v2StateRepository);
 
         return (service, fakeSessionService);
     }
@@ -230,6 +524,49 @@ public sealed class RolePlaySessionLifecycleTests
         }
     }
 
+    private sealed class FakeRolePlayV2StateRepository : IRolePlayV2StateRepository
+    {
+        private readonly List<DecisionPoint> _points = [];
+        private readonly Dictionary<string, IReadOnlyList<DecisionOption>> _options = new(StringComparer.OrdinalIgnoreCase);
+
+        public Task SaveAdaptiveStateAsync(AdaptiveScenarioState state, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task<AdaptiveScenarioState?> LoadAdaptiveStateAsync(string sessionId, CancellationToken cancellationToken = default) => Task.FromResult<AdaptiveScenarioState?>(null);
+        public Task SaveCandidateEvaluationsAsync(IReadOnlyList<ScenarioCandidateEvaluation> evaluations, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task<IReadOnlyList<ScenarioCandidateEvaluation>> LoadCandidateEvaluationsAsync(string sessionId, int take = 50, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ScenarioCandidateEvaluation>>([]);
+        public Task SaveTransitionEventAsync(NarrativePhaseTransitionEvent transitionEvent, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task<IReadOnlyList<NarrativePhaseTransitionEvent>> LoadTransitionEventsAsync(string sessionId, int take = 50, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<NarrativePhaseTransitionEvent>>([]);
+        public Task SaveCompletionMetadataAsync(ScenarioCompletionMetadata metadata, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task SaveDecisionPointAsync(DecisionPoint decisionPoint, IReadOnlyList<DecisionOption> options, CancellationToken cancellationToken = default)
+        {
+            _points.RemoveAll(x => string.Equals(x.DecisionPointId, decisionPoint.DecisionPointId, StringComparison.OrdinalIgnoreCase));
+            _points.Add(decisionPoint);
+            _options[decisionPoint.DecisionPointId] = options;
+            return Task.CompletedTask;
+        }
+
+        public Task<IReadOnlyList<DecisionPoint>> LoadDecisionPointsAsync(string sessionId, int take = 50, CancellationToken cancellationToken = default)
+        {
+            var items = _points
+                .Where(x => string.Equals(x.SessionId, sessionId, StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(x => x.CreatedUtc)
+                .Take(take)
+                .ToList();
+
+            return Task.FromResult<IReadOnlyList<DecisionPoint>>(items);
+        }
+
+        public Task<IReadOnlyList<DecisionOption>> LoadDecisionOptionsAsync(string decisionPointId, CancellationToken cancellationToken = default)
+            => Task.FromResult(_options.TryGetValue(decisionPointId, out var options)
+                ? options
+                : (IReadOnlyList<DecisionOption>)[]);
+
+        public Task SaveConceptInjectionAsync(string sessionId, ConceptInjectionResult result, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task SaveFormulaVersionReferenceAsync(string sessionId, FormulaConfigVersion version, int cycleIndex, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task SaveUnsupportedSessionErrorAsync(UnsupportedSessionError error, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task<IReadOnlyList<UnsupportedSessionError>> LoadUnsupportedSessionErrorsAsync(string sessionId, int take = 20, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<UnsupportedSessionError>>([]);
+    }
+
     private static async Task CreateV2TablesAsync(string dbPath)
     {
         await using var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath}");
@@ -248,6 +585,9 @@ public sealed class RolePlaySessionLifecycleTests
                 ActiveFormulaVersion TEXT NOT NULL,
                 SelectedWillingnessProfileId TEXT NULL,
                 HusbandAwarenessProfileId TEXT NULL,
+                CurrentSceneLocation TEXT NULL,
+                CharacterLocationsJson TEXT NOT NULL DEFAULT '[]',
+                CharacterLocationPerceptionsJson TEXT NOT NULL DEFAULT '[]',
                 CharacterSnapshotsJson TEXT NOT NULL,
                 UpdatedUtc TEXT NOT NULL
             );

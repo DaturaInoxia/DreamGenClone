@@ -35,6 +35,8 @@
             <option value="overview">Overview</option>
             <option value="timeline">Timeline</option>
             <option value="adaptive">Adaptive State</option>
+            <option value="locations">Locations</option>
+            <option value="decisions">Decisions</option>
             <option value="prompts">Prompts</option>
             <option value="requests">Requests</option>
             <option value="responses">Responses</option>
@@ -138,6 +140,155 @@
                     <p class="rpd-summary-block">@_selectedEvent.Summary</p>
                 </div>
 
+                @if (string.Equals(_selectedEvent.EventKind, "AdaptiveStateUpdated", StringComparison.OrdinalIgnoreCase))
+                {
+                    var deltaRows = BuildAdaptiveDeltaRows(_selectedEvent.MetadataJson);
+                    <div class="rpd-panel">
+                        <h3>Adaptive Stat Deltas</h3>
+                        @if (deltaRows.Count == 0)
+                        {
+                            <div class="rpd-empty">No adaptive stat deltas in metadata.</div>
+                        }
+                        else
+                        {
+                            <div class="table-responsive">
+                                <table class="table table-sm align-middle">
+                                    <thead>
+                                        <tr>
+                                            <th>Stat</th>
+                                            <th>Raw</th>
+                                            <th>Applied</th>
+                                            <th>Policy Adjustment</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var row in deltaRows)
+                                        {
+                                            <tr>
+                                                <td>@row.StatName</td>
+                                                <td>@row.RawDelta</td>
+                                                <td>@row.AppliedDelta</td>
+                                                <td>@(row.PolicyAdjustment ?? "-")</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </div>
+                }
+
+                @if (string.Equals(_selectedEvent.EventKind, "LocationStateUpdated", StringComparison.OrdinalIgnoreCase))
+                {
+                    var locationRows = BuildLocationTruthRows(_selectedEvent.MetadataJson);
+                    var perceptionRows = BuildLocationPerceptionRows(_selectedEvent.MetadataJson);
+
+                    <div class="rpd-panel">
+                        <h3>Location Truth</h3>
+                        @if (locationRows.Count == 0)
+                        {
+                            <div class="rpd-empty">No location truth rows in metadata.</div>
+                        }
+                        else
+                        {
+                            <div class="table-responsive">
+                                <table class="table table-sm align-middle">
+                                    <thead>
+                                        <tr>
+                                            <th>Character</th>
+                                            <th>Type</th>
+                                            <th>True Location</th>
+                                            <th>Hidden</th>
+                                            <th>Updated</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var row in locationRows)
+                                        {
+                                            <tr>
+                                                <td>@(string.IsNullOrWhiteSpace(row.CharacterLabel) ? row.CharacterId : row.CharacterLabel)</td>
+                                                <td>@row.CharacterType</td>
+                                                <td>@(string.IsNullOrWhiteSpace(row.TrueLocation) ? "(unknown)" : row.TrueLocation)</td>
+                                                <td>@(row.IsHidden ? "Yes" : "No")</td>
+                                                <td>@(row.UpdatedUtc?.ToLocalTime().ToString("HH:mm:ss") ?? "-")</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </div>
+
+                    <div class="rpd-panel">
+                        <h3>Location Perceptions</h3>
+                        @if (perceptionRows.Count == 0)
+                        {
+                            <div class="rpd-empty">No location perception rows in metadata.</div>
+                        }
+                        else
+                        {
+                            <div class="table-responsive">
+                                <table class="table table-sm align-middle">
+                                    <thead>
+                                        <tr>
+                                            <th>Observer</th>
+                                            <th>Observer Type</th>
+                                            <th>Target</th>
+                                            <th>Target Type</th>
+                                            <th>Perceived Location</th>
+                                            <th>Confidence</th>
+                                            <th>LOS</th>
+                                            <th>Near</th>
+                                            <th>Source</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var row in perceptionRows)
+                                        {
+                                            <tr>
+                                                <td>@(string.IsNullOrWhiteSpace(row.ObserverLabel) ? row.ObserverCharacterId : row.ObserverLabel)</td>
+                                                <td>@row.ObserverType</td>
+                                                <td>@(string.IsNullOrWhiteSpace(row.TargetLabel) ? row.TargetCharacterId : row.TargetLabel)</td>
+                                                <td>@row.TargetType</td>
+                                                <td>@(string.IsNullOrWhiteSpace(row.PerceivedLocation) ? "(unknown)" : row.PerceivedLocation)</td>
+                                                <td>@row.Confidence</td>
+                                                <td>@(row.HasLineOfSight ? "Y" : "N")</td>
+                                                <td>@(row.IsInProximity ? "Y" : "N")</td>
+                                                <td>@(string.IsNullOrWhiteSpace(row.KnowledgeSource) ? "-" : row.KnowledgeSource)</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </div>
+                }
+
+                @if (string.Equals(_selectedEvent.EventKind, "DecisionInstructionInjected", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(_selectedEvent.EventKind, "DecisionInstructionSkipped", StringComparison.OrdinalIgnoreCase))
+                {
+                    var decisionData = BuildDecisionInstructionDetails(_selectedEvent.MetadataJson);
+                    <div class="rpd-panel">
+                        <h3>Decision Instruction</h3>
+                        <div class="rpd-kv"><span>Decision Point</span><strong>@(decisionData.DecisionPointId ?? "-")</strong></div>
+                        <div class="rpd-kv"><span>Option</span><strong>@(decisionData.OptionId ?? "-")</strong></div>
+                        <div class="rpd-kv"><span>Trigger</span><strong>@(decisionData.Trigger ?? "-")</strong></div>
+                        <div class="rpd-kv"><span>Target Actor</span><strong>@(decisionData.TargetActorId ?? "-")</strong></div>
+                        <div class="rpd-kv"><span>Asking Actor</span><strong>@(decisionData.AskingActorId ?? "-")</strong></div>
+                        <div class="rpd-kv"><span>Dialogue Source</span><strong>@(decisionData.SelectedDialogueSource ?? "-")</strong></div>
+
+                        <h4>Selected Dialogue</h4>
+                        <pre class="rpd-json">@(string.IsNullOrWhiteSpace(decisionData.SelectedDialogue) ? "(none)" : decisionData.SelectedDialogue)</pre>
+
+                        <h4>Injected Instruction</h4>
+                        <pre class="rpd-json">@(string.IsNullOrWhiteSpace(decisionData.InjectedInstruction) ? "(none)" : decisionData.InjectedInstruction)</pre>
+
+                        <h4>Option Text/Preview</h4>
+                        <div class="rpd-kv"><span>Display Text</span><strong>@(decisionData.DisplayText ?? "-")</strong></div>
+                        <div class="rpd-kv"><span>Response Preview</span><strong>@(decisionData.ResponsePreview ?? "-")</strong></div>
+                    </div>
+                }
+
                 <div class="rpd-panel">
                     <h3>Metadata JSON</h3>
                     <pre class="rpd-json">@FormatJson(_selectedEvent.MetadataJson)</pre>
@@ -214,6 +365,8 @@
         return _activeTab switch
         {
             "adaptive" => evt.EventKind.Contains("Adaptive", StringComparison.OrdinalIgnoreCase),
+            "locations" => evt.EventKind.Contains("Location", StringComparison.OrdinalIgnoreCase),
+            "decisions" => evt.EventKind.Contains("Decision", StringComparison.OrdinalIgnoreCase),
             "prompts" => evt.EventKind.Contains("Prompt", StringComparison.OrdinalIgnoreCase),
             "requests" => evt.EventKind.Contains("Request", StringComparison.OrdinalIgnoreCase),
             "responses" => evt.EventKind.Contains("Response", StringComparison.OrdinalIgnoreCase),
@@ -239,6 +392,312 @@
             return json;
         }
     }
+
+    private static List<AdaptiveDeltaRow> BuildAdaptiveDeltaRows(string? metadataJson)
+    {
+        var rows = new List<AdaptiveDeltaRow>();
+        if (string.IsNullOrWhiteSpace(metadataJson))
+        {
+            return rows;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(metadataJson);
+            var root = doc.RootElement;
+
+            var rawDeltas = ReadIntMap(root, "rawStatDeltas");
+            var appliedDeltas = ReadIntMap(root, "statDeltas");
+            var reasons = ReadReasonsMap(root, "statDeltaReasons");
+
+            var keys = rawDeltas.Keys
+                .Concat(appliedDeltas.Keys)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(x => x, StringComparer.OrdinalIgnoreCase);
+
+            foreach (var key in keys)
+            {
+                rawDeltas.TryGetValue(key, out var raw);
+                appliedDeltas.TryGetValue(key, out var applied);
+                reasons.TryGetValue(key, out var statReasons);
+
+                var policyAdjustment = statReasons?
+                    .Where(x => x.StartsWith("policy:", StringComparison.OrdinalIgnoreCase))
+                    .ToArray();
+
+                rows.Add(new AdaptiveDeltaRow(
+                    key,
+                    raw,
+                    applied,
+                    policyAdjustment is { Length: > 0 } ? string.Join("; ", policyAdjustment) : null));
+            }
+        }
+        catch
+        {
+            return rows;
+        }
+
+        return rows;
+    }
+
+    private static Dictionary<string, int> ReadIntMap(JsonElement root, string propertyName)
+    {
+        var result = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        if (!root.TryGetProperty(propertyName, out var mapElement) || mapElement.ValueKind != JsonValueKind.Object)
+        {
+            return result;
+        }
+
+        foreach (var prop in mapElement.EnumerateObject())
+        {
+            if (prop.Value.ValueKind == JsonValueKind.Number && prop.Value.TryGetInt32(out var intValue))
+            {
+                result[prop.Name] = intValue;
+            }
+        }
+
+        return result;
+    }
+
+    private static Dictionary<string, List<string>> ReadReasonsMap(JsonElement root, string propertyName)
+    {
+        var result = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        if (!root.TryGetProperty(propertyName, out var mapElement) || mapElement.ValueKind != JsonValueKind.Object)
+        {
+            return result;
+        }
+
+        foreach (var prop in mapElement.EnumerateObject())
+        {
+            if (prop.Value.ValueKind != JsonValueKind.Array)
+            {
+                continue;
+            }
+
+            var values = new List<string>();
+            foreach (var item in prop.Value.EnumerateArray())
+            {
+                if (item.ValueKind == JsonValueKind.String)
+                {
+                    values.Add(item.GetString() ?? string.Empty);
+                }
+            }
+
+            result[prop.Name] = values;
+        }
+
+        return result;
+    }
+
+    private sealed record AdaptiveDeltaRow(string StatName, int RawDelta, int AppliedDelta, string? PolicyAdjustment);
+
+    private static List<LocationTruthRow> BuildLocationTruthRows(string? metadataJson)
+    {
+        var rows = new List<LocationTruthRow>();
+        if (string.IsNullOrWhiteSpace(metadataJson))
+        {
+            return rows;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(metadataJson);
+            if (!TryGetPropertyIgnoreCase(doc.RootElement, "characterLocations", out var locations)
+                || locations.ValueKind != JsonValueKind.Array)
+            {
+                return rows;
+            }
+
+            foreach (var entry in locations.EnumerateArray())
+            {
+                rows.Add(new LocationTruthRow(
+                    ReadString(entry, "characterId") ?? string.Empty,
+                    ReadString(entry, "characterLabel"),
+                    ReadString(entry, "characterType") ?? "unknown",
+                    ReadString(entry, "trueLocation"),
+                    ReadBool(entry, "isHidden"),
+                    ReadDateTime(entry, "updatedUtc")));
+            }
+        }
+        catch
+        {
+            return rows;
+        }
+
+        return rows;
+    }
+
+    private static List<LocationPerceptionRow> BuildLocationPerceptionRows(string? metadataJson)
+    {
+        var rows = new List<LocationPerceptionRow>();
+        if (string.IsNullOrWhiteSpace(metadataJson))
+        {
+            return rows;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(metadataJson);
+            if (!TryGetPropertyIgnoreCase(doc.RootElement, "characterLocationPerceptions", out var perceptions)
+                || perceptions.ValueKind != JsonValueKind.Array)
+            {
+                return rows;
+            }
+
+            foreach (var entry in perceptions.EnumerateArray())
+            {
+                rows.Add(new LocationPerceptionRow(
+                    ReadString(entry, "observerCharacterId") ?? string.Empty,
+                    ReadString(entry, "observerLabel"),
+                    ReadString(entry, "observerType") ?? "unknown",
+                    ReadString(entry, "targetCharacterId") ?? string.Empty,
+                    ReadString(entry, "targetLabel"),
+                    ReadString(entry, "targetType") ?? "unknown",
+                    ReadString(entry, "perceivedLocation"),
+                    ReadInt(entry, "confidence"),
+                    ReadBool(entry, "hasLineOfSight"),
+                    ReadBool(entry, "isInProximity"),
+                    ReadString(entry, "knowledgeSource"),
+                    ReadDateTime(entry, "updatedUtc")));
+            }
+        }
+        catch
+        {
+            return rows;
+        }
+
+        return rows;
+    }
+
+    private static string? ReadString(JsonElement element, string propertyName)
+    {
+        if (!TryGetPropertyIgnoreCase(element, propertyName, out var value) || value.ValueKind != JsonValueKind.String)
+        {
+            return null;
+        }
+
+        return value.GetString();
+    }
+
+    private static int ReadInt(JsonElement element, string propertyName)
+    {
+        if (!TryGetPropertyIgnoreCase(element, propertyName, out var value) || value.ValueKind != JsonValueKind.Number)
+        {
+            return 0;
+        }
+
+        return value.TryGetInt32(out var result) ? result : 0;
+    }
+
+    private static bool ReadBool(JsonElement element, string propertyName)
+    {
+        if (!TryGetPropertyIgnoreCase(element, propertyName, out var value))
+        {
+            return false;
+        }
+
+        return value.ValueKind == JsonValueKind.True;
+    }
+
+    private static DateTime? ReadDateTime(JsonElement element, string propertyName)
+    {
+        if (!TryGetPropertyIgnoreCase(element, propertyName, out var value) || value.ValueKind != JsonValueKind.String)
+        {
+            return null;
+        }
+
+        var text = value.GetString();
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return null;
+        }
+
+        return DateTime.TryParse(text, out var parsed) ? parsed : null;
+    }
+
+    private static bool TryGetPropertyIgnoreCase(JsonElement element, string propertyName, out JsonElement value)
+    {
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            value = default;
+            return false;
+        }
+
+        foreach (var property in element.EnumerateObject())
+        {
+            if (string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase))
+            {
+                value = property.Value;
+                return true;
+            }
+        }
+
+        value = default;
+        return false;
+    }
+
+    private sealed record LocationTruthRow(
+        string CharacterId,
+        string? CharacterLabel,
+        string CharacterType,
+        string? TrueLocation,
+        bool IsHidden,
+        DateTime? UpdatedUtc);
+
+    private sealed record LocationPerceptionRow(
+        string ObserverCharacterId,
+        string? ObserverLabel,
+        string ObserverType,
+        string TargetCharacterId,
+        string? TargetLabel,
+        string TargetType,
+        string? PerceivedLocation,
+        int Confidence,
+        bool HasLineOfSight,
+        bool IsInProximity,
+        string? KnowledgeSource,
+        DateTime? UpdatedUtc);
+
+    private static DecisionInstructionDetails BuildDecisionInstructionDetails(string? metadataJson)
+    {
+        if (string.IsNullOrWhiteSpace(metadataJson))
+        {
+            return new DecisionInstructionDetails(null, null, null, null, null, null, null, null, null, null);
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(metadataJson);
+            var root = doc.RootElement;
+            return new DecisionInstructionDetails(
+                ReadString(root, "decisionPointId"),
+                ReadString(root, "optionId"),
+                ReadString(root, "trigger"),
+                ReadString(root, "targetActorId"),
+                ReadString(root, "askingActorId"),
+                ReadString(root, "selectedDialogue"),
+                ReadString(root, "selectedDialogueSource"),
+                ReadString(root, "injectedInstruction"),
+                ReadString(root, "responsePreview"),
+                ReadString(root, "displayText"));
+        }
+        catch
+        {
+            return new DecisionInstructionDetails(null, null, null, null, null, null, null, null, null, null);
+        }
+    }
+
+    private sealed record DecisionInstructionDetails(
+        string? DecisionPointId,
+        string? OptionId,
+        string? Trigger,
+        string? TargetActorId,
+        string? AskingActorId,
+        string? SelectedDialogue,
+        string? SelectedDialogueSource,
+        string? InjectedInstruction,
+        string? ResponsePreview,
+        string? DisplayText);
 
     private void SelectEvent(RolePlayDebugEventRecord evt)
     {

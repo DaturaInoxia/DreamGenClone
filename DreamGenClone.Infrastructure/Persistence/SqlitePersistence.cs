@@ -1,6 +1,7 @@
 using DreamGenClone.Application.StoryAnalysis;
 using DreamGenClone.Domain.Administration;
 using DreamGenClone.Domain.ModelManager;
+using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Domain.StoryAnalysis;
 using DreamGenClone.Domain.StoryParser;
 using DreamGenClone.Infrastructure.Configuration;
@@ -176,6 +177,16 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 TargetStatName TEXT NOT NULL,
                 IsDefault INTEGER NOT NULL DEFAULT 0,
                 ThresholdsJson TEXT NOT NULL DEFAULT '[]',
+                CreatedUtc TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS NarrativeGateProfiles (
+                Id TEXT PRIMARY KEY,
+                Name TEXT NOT NULL,
+                Description TEXT NOT NULL,
+                IsDefault INTEGER NOT NULL DEFAULT 0,
+                RulesJson TEXT NOT NULL DEFAULT '[]',
                 CreatedUtc TEXT NOT NULL,
                 UpdatedUtc TEXT NOT NULL
             );
@@ -541,6 +552,9 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 ActiveFormulaVersion TEXT NOT NULL,
                 SelectedWillingnessProfileId TEXT NULL,
                 HusbandAwarenessProfileId TEXT NULL,
+                CurrentSceneLocation TEXT NULL,
+                CharacterLocationsJson TEXT NOT NULL DEFAULT '[]',
+                CharacterLocationPerceptionsJson TEXT NOT NULL DEFAULT '[]',
                 CharacterSnapshotsJson TEXT NOT NULL,
                 UpdatedUtc TEXT NOT NULL
             );
@@ -616,6 +630,10 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 OptionId TEXT PRIMARY KEY,
                 DecisionPointId TEXT NOT NULL,
                 DisplayText TEXT NOT NULL,
+                ResponsePreview TEXT NOT NULL DEFAULT '',
+                BehaviorStyleHint TEXT NOT NULL DEFAULT '',
+                CharacterDirectionInstruction TEXT NOT NULL DEFAULT '',
+                ChatInstruction TEXT NOT NULL DEFAULT '',
                 VisibilityMode TEXT NOT NULL,
                 Prerequisites TEXT NOT NULL,
                 StatDeltaMap TEXT NOT NULL,
@@ -692,6 +710,50 @@ public sealed class SqlitePersistence : ISqlitePersistence
             alterDecisionTargetActorAlways.CommandText = "ALTER TABLE RolePlayV2DecisionPoints ADD COLUMN TargetActorId TEXT NOT NULL DEFAULT ''";
             await alterDecisionTargetActorAlways.ExecuteNonQueryAsync(cancellationToken);
             _logger.LogInformation("Migrated RolePlayV2DecisionPoints table: added TargetActorId column");
+        }
+
+        var ensureDecisionResponsePreviewColumn = connection.CreateCommand();
+        ensureDecisionResponsePreviewColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RolePlayV2DecisionOptions') WHERE name='ResponsePreview'";
+        var hasDecisionResponsePreviewColumnAlways = Convert.ToInt64(await ensureDecisionResponsePreviewColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasDecisionResponsePreviewColumnAlways)
+        {
+            var alterDecisionResponsePreviewAlways = connection.CreateCommand();
+            alterDecisionResponsePreviewAlways.CommandText = "ALTER TABLE RolePlayV2DecisionOptions ADD COLUMN ResponsePreview TEXT NOT NULL DEFAULT ''";
+            await alterDecisionResponsePreviewAlways.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated RolePlayV2DecisionOptions table: added ResponsePreview column");
+        }
+
+        var ensureDecisionBehaviorStyleHintColumn = connection.CreateCommand();
+        ensureDecisionBehaviorStyleHintColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RolePlayV2DecisionOptions') WHERE name='BehaviorStyleHint'";
+        var hasDecisionBehaviorStyleHintColumnAlways = Convert.ToInt64(await ensureDecisionBehaviorStyleHintColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasDecisionBehaviorStyleHintColumnAlways)
+        {
+            var alterDecisionBehaviorStyleHintAlways = connection.CreateCommand();
+            alterDecisionBehaviorStyleHintAlways.CommandText = "ALTER TABLE RolePlayV2DecisionOptions ADD COLUMN BehaviorStyleHint TEXT NOT NULL DEFAULT ''";
+            await alterDecisionBehaviorStyleHintAlways.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated RolePlayV2DecisionOptions table: added BehaviorStyleHint column");
+        }
+
+        var ensureDecisionCharacterInstructionColumn = connection.CreateCommand();
+        ensureDecisionCharacterInstructionColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RolePlayV2DecisionOptions') WHERE name='CharacterDirectionInstruction'";
+        var hasDecisionCharacterInstructionColumnAlways = Convert.ToInt64(await ensureDecisionCharacterInstructionColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasDecisionCharacterInstructionColumnAlways)
+        {
+            var alterDecisionCharacterInstructionAlways = connection.CreateCommand();
+            alterDecisionCharacterInstructionAlways.CommandText = "ALTER TABLE RolePlayV2DecisionOptions ADD COLUMN CharacterDirectionInstruction TEXT NOT NULL DEFAULT ''";
+            await alterDecisionCharacterInstructionAlways.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated RolePlayV2DecisionOptions table: added CharacterDirectionInstruction column");
+        }
+
+        var ensureDecisionChatInstructionColumn = connection.CreateCommand();
+        ensureDecisionChatInstructionColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RolePlayV2DecisionOptions') WHERE name='ChatInstruction'";
+        var hasDecisionChatInstructionColumnAlways = Convert.ToInt64(await ensureDecisionChatInstructionColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasDecisionChatInstructionColumnAlways)
+        {
+            var alterDecisionChatInstructionAlways = connection.CreateCommand();
+            alterDecisionChatInstructionAlways.CommandText = "ALTER TABLE RolePlayV2DecisionOptions ADD COLUMN ChatInstruction TEXT NOT NULL DEFAULT ''";
+            await alterDecisionChatInstructionAlways.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated RolePlayV2DecisionOptions table: added ChatInstruction column");
         }
 
         // Always ensure ToneProfiles has phase-offset columns, even if legacy migrations are marked complete.
@@ -831,6 +893,50 @@ public sealed class SqlitePersistence : ISqlitePersistence
             alterDecisionTargetActor.CommandText = "ALTER TABLE RolePlayV2DecisionPoints ADD COLUMN TargetActorId TEXT NOT NULL DEFAULT ''";
             await alterDecisionTargetActor.ExecuteNonQueryAsync(cancellationToken);
             _logger.LogInformation("Migrated RolePlayV2DecisionPoints table: added TargetActorId column");
+        }
+
+        var checkDecisionResponsePreviewColumn = connection.CreateCommand();
+        checkDecisionResponsePreviewColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RolePlayV2DecisionOptions') WHERE name='ResponsePreview'";
+        var hasDecisionResponsePreviewColumn = Convert.ToInt64(await checkDecisionResponsePreviewColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasDecisionResponsePreviewColumn)
+        {
+            var alterDecisionResponsePreview = connection.CreateCommand();
+            alterDecisionResponsePreview.CommandText = "ALTER TABLE RolePlayV2DecisionOptions ADD COLUMN ResponsePreview TEXT NOT NULL DEFAULT ''";
+            await alterDecisionResponsePreview.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated RolePlayV2DecisionOptions table: added ResponsePreview column");
+        }
+
+        var checkDecisionBehaviorStyleHintColumn = connection.CreateCommand();
+        checkDecisionBehaviorStyleHintColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RolePlayV2DecisionOptions') WHERE name='BehaviorStyleHint'";
+        var hasDecisionBehaviorStyleHintColumn = Convert.ToInt64(await checkDecisionBehaviorStyleHintColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasDecisionBehaviorStyleHintColumn)
+        {
+            var alterDecisionBehaviorStyleHint = connection.CreateCommand();
+            alterDecisionBehaviorStyleHint.CommandText = "ALTER TABLE RolePlayV2DecisionOptions ADD COLUMN BehaviorStyleHint TEXT NOT NULL DEFAULT ''";
+            await alterDecisionBehaviorStyleHint.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated RolePlayV2DecisionOptions table: added BehaviorStyleHint column");
+        }
+
+        var checkDecisionCharacterInstructionColumn = connection.CreateCommand();
+        checkDecisionCharacterInstructionColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RolePlayV2DecisionOptions') WHERE name='CharacterDirectionInstruction'";
+        var hasDecisionCharacterInstructionColumn = Convert.ToInt64(await checkDecisionCharacterInstructionColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasDecisionCharacterInstructionColumn)
+        {
+            var alterDecisionCharacterInstruction = connection.CreateCommand();
+            alterDecisionCharacterInstruction.CommandText = "ALTER TABLE RolePlayV2DecisionOptions ADD COLUMN CharacterDirectionInstruction TEXT NOT NULL DEFAULT ''";
+            await alterDecisionCharacterInstruction.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated RolePlayV2DecisionOptions table: added CharacterDirectionInstruction column");
+        }
+
+        var checkDecisionChatInstructionColumn = connection.CreateCommand();
+        checkDecisionChatInstructionColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RolePlayV2DecisionOptions') WHERE name='ChatInstruction'";
+        var hasDecisionChatInstructionColumn = Convert.ToInt64(await checkDecisionChatInstructionColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasDecisionChatInstructionColumn)
+        {
+            var alterDecisionChatInstruction = connection.CreateCommand();
+            alterDecisionChatInstruction.CommandText = "ALTER TABLE RolePlayV2DecisionOptions ADD COLUMN ChatInstruction TEXT NOT NULL DEFAULT ''";
+            await alterDecisionChatInstruction.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated RolePlayV2DecisionOptions table: added ChatInstruction column");
         }
 
         var checkDetailsColumn = connection.CreateCommand();
@@ -986,6 +1092,39 @@ public sealed class SqlitePersistence : ISqlitePersistence
             alterHusbandAwarenessProfile.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN HusbandAwarenessProfileId TEXT NULL";
             await alterHusbandAwarenessProfile.ExecuteNonQueryAsync(cancellationToken);
             _logger.LogInformation("Migrated RolePlayV2AdaptiveStates table: added HusbandAwarenessProfileId column");
+        }
+
+        var checkCurrentSceneLocationColumn = connection.CreateCommand();
+        checkCurrentSceneLocationColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RolePlayV2AdaptiveStates') WHERE name='CurrentSceneLocation'";
+        var hasCurrentSceneLocationColumn = Convert.ToInt64(await checkCurrentSceneLocationColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasCurrentSceneLocationColumn)
+        {
+            var alterCurrentSceneLocation = connection.CreateCommand();
+            alterCurrentSceneLocation.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN CurrentSceneLocation TEXT NULL";
+            await alterCurrentSceneLocation.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated RolePlayV2AdaptiveStates table: added CurrentSceneLocation column");
+        }
+
+        var checkCharacterLocationsJsonColumn = connection.CreateCommand();
+        checkCharacterLocationsJsonColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RolePlayV2AdaptiveStates') WHERE name='CharacterLocationsJson'";
+        var hasCharacterLocationsJsonColumn = Convert.ToInt64(await checkCharacterLocationsJsonColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasCharacterLocationsJsonColumn)
+        {
+            var alterCharacterLocationsJson = connection.CreateCommand();
+            alterCharacterLocationsJson.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN CharacterLocationsJson TEXT NOT NULL DEFAULT '[]'";
+            await alterCharacterLocationsJson.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated RolePlayV2AdaptiveStates table: added CharacterLocationsJson column");
+        }
+
+        var checkCharacterLocationPerceptionsJsonColumn = connection.CreateCommand();
+        checkCharacterLocationPerceptionsJsonColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RolePlayV2AdaptiveStates') WHERE name='CharacterLocationPerceptionsJson'";
+        var hasCharacterLocationPerceptionsJsonColumn = Convert.ToInt64(await checkCharacterLocationPerceptionsJsonColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasCharacterLocationPerceptionsJsonColumn)
+        {
+            var alterCharacterLocationPerceptionsJson = connection.CreateCommand();
+            alterCharacterLocationPerceptionsJson.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN CharacterLocationPerceptionsJson TEXT NOT NULL DEFAULT '[]'";
+            await alterCharacterLocationPerceptionsJson.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated RolePlayV2AdaptiveStates table: added CharacterLocationPerceptionsJson column");
         }
 
         // Migrate: handle RankingProfiles -> ThemeProfiles safely.
@@ -2516,6 +2655,149 @@ public sealed class SqlitePersistence : ISqlitePersistence
             Thresholds = thresholds ?? [],
             CreatedUtc = DateTime.TryParse(reader.GetString(6), out var created) ? created : DateTime.UtcNow,
             UpdatedUtc = DateTime.TryParse(reader.GetString(7), out var updated) ? updated : DateTime.UtcNow
+        };
+    }
+
+    // --- Husband awareness profile persistence ---
+
+    // --- Narrative gate profile persistence ---
+
+    public async Task SaveNarrativeGateProfileAsync(NarrativeGateProfile profile, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO NarrativeGateProfiles (Id, Name, Description, IsDefault, RulesJson, CreatedUtc, UpdatedUtc)
+            VALUES ($id, $name, $description, $isDefault, $rulesJson, $createdUtc, $updatedUtc)
+            ON CONFLICT(Id) DO UPDATE SET
+                Name = $name,
+                Description = $description,
+                IsDefault = $isDefault,
+                RulesJson = $rulesJson,
+                UpdatedUtc = $updatedUtc;
+            """;
+
+        command.Parameters.AddWithValue("$id", profile.Id);
+        command.Parameters.AddWithValue("$name", profile.Name);
+        command.Parameters.AddWithValue("$description", profile.Description);
+        command.Parameters.AddWithValue("$isDefault", profile.IsDefault ? 1 : 0);
+        command.Parameters.AddWithValue("$rulesJson", JsonSerializer.Serialize(profile.Rules));
+        command.Parameters.AddWithValue("$createdUtc", profile.CreatedUtc.ToString("O"));
+        command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
+
+        await command.ExecuteNonQueryAsync(cancellationToken);
+
+        if (profile.IsDefault)
+        {
+            var resetDefaults = connection.CreateCommand();
+            resetDefaults.CommandText = "UPDATE NarrativeGateProfiles SET IsDefault = 0 WHERE Id <> $id";
+            resetDefaults.Parameters.AddWithValue("$id", profile.Id);
+            await resetDefaults.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        _logger.LogInformation("Narrative gate profile persisted: {ProfileId}, Name={Name}", profile.Id, profile.Name);
+    }
+
+    public async Task<NarrativeGateProfile?> LoadNarrativeGateProfileAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT Id, Name, Description, IsDefault, RulesJson, CreatedUtc, UpdatedUtc FROM NarrativeGateProfiles WHERE Id = $id";
+        command.Parameters.AddWithValue("$id", id);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return ReadNarrativeGateProfile(reader);
+    }
+
+    public async Task<NarrativeGateProfile?> LoadDefaultNarrativeGateProfileAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT Id, Name, Description, IsDefault, RulesJson, CreatedUtc, UpdatedUtc FROM NarrativeGateProfiles WHERE IsDefault = 1 LIMIT 1";
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (await reader.ReadAsync(cancellationToken))
+        {
+            return ReadNarrativeGateProfile(reader);
+        }
+
+        var fallbackCommand = connection.CreateCommand();
+        fallbackCommand.CommandText = "SELECT Id, Name, Description, IsDefault, RulesJson, CreatedUtc, UpdatedUtc FROM NarrativeGateProfiles ORDER BY UpdatedUtc DESC LIMIT 1";
+        await using var fallbackReader = await fallbackCommand.ExecuteReaderAsync(cancellationToken);
+        if (!await fallbackReader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return ReadNarrativeGateProfile(fallbackReader);
+    }
+
+    public async Task<List<NarrativeGateProfile>> LoadAllNarrativeGateProfilesAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT Id, Name, Description, IsDefault, RulesJson, CreatedUtc, UpdatedUtc FROM NarrativeGateProfiles ORDER BY Name";
+
+        var results = new List<NarrativeGateProfile>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            results.Add(ReadNarrativeGateProfile(reader));
+        }
+
+        return results;
+    }
+
+    public async Task<bool> DeleteNarrativeGateProfileAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM NarrativeGateProfiles WHERE Id = $id";
+        command.Parameters.AddWithValue("$id", id);
+
+        var rowsAffected = await command.ExecuteNonQueryAsync(cancellationToken);
+        _logger.LogInformation("Narrative gate profile deletion attempted: {ProfileId}, RowsAffected={RowsAffected}", id, rowsAffected);
+        return rowsAffected > 0;
+    }
+
+    private static NarrativeGateProfile ReadNarrativeGateProfile(SqliteDataReader reader)
+    {
+        List<NarrativeGateRule>? rules = null;
+        try
+        {
+            rules = JsonSerializer.Deserialize<List<NarrativeGateRule>>(reader.GetString(4));
+        }
+        catch
+        {
+            rules = null;
+        }
+
+        return new NarrativeGateProfile
+        {
+            Id = reader.GetString(0),
+            Name = reader.GetString(1),
+            Description = reader.GetString(2),
+            IsDefault = reader.GetInt32(3) == 1,
+            Rules = rules ?? [],
+            CreatedUtc = DateTime.TryParse(reader.GetString(5), out var created) ? created : DateTime.UtcNow,
+            UpdatedUtc = DateTime.TryParse(reader.GetString(6), out var updated) ? updated : DateTime.UtcNow
         };
     }
 

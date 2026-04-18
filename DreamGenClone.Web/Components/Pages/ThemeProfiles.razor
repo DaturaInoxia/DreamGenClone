@@ -10,6 +10,7 @@
 @using DreamGenClone.Application.StoryAnalysis
 @using DreamGenClone.Application.StoryAnalysis.Models
 @using DreamGenClone.Web.Domain.RolePlay
+@using DreamGenClone.Domain.RolePlay
 @using DreamGenClone.Domain.StoryAnalysis
 
 @inject StoryAnalysisFacade Facade
@@ -31,6 +32,7 @@
             <span class="badge bg-success-subtle text-success-emphasis border">Scenario Definitions: @_scenarioDefinitions.Count</span>
             <span class="badge bg-success-subtle text-success-emphasis border">Character State: @_baseStatProfiles.Count</span>
             <span class="badge bg-warning-subtle text-warning-emphasis border">Willingness: @_willingnessProfiles.Count</span>
+            <span class="badge bg-warning-subtle text-warning-emphasis border">Narrative Gates: @_narrativeGateProfiles.Count</span>
             <span class="badge bg-danger-subtle text-danger-emphasis border">Husband Awareness: @_husbandAwarenessProfiles.Count</span>
             <span class="badge bg-info-subtle text-info-emphasis border">Roles: @_roleDefinitions.Count</span>
             <span class="badge bg-secondary-subtle text-secondary-emphasis border">Background Characters: @_backgroundCharacterProfiles.Count</span>
@@ -62,6 +64,9 @@
         </li>
         <li class="nav-item" role="presentation">
             <button type="button" class="nav-link @GetTabClass("willingness")" @onclick='() => _activeTab = "willingness"'>Willingness</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button type="button" class="nav-link @GetTabClass("narrative-gates")" @onclick='() => _activeTab = "narrative-gates"'>Narrative Gates</button>
         </li>
         <li class="nav-item" role="presentation">
             <button type="button" class="nav-link @GetTabClass("husband-awareness")" @onclick='() => _activeTab = "husband-awareness"'>Husband Awareness</button>
@@ -1188,6 +1193,159 @@
             </div>
         </div>
     }
+    else if (_activeTab == "narrative-gates")
+    {
+        <div class="row g-4">
+            <div class="col-lg-4">
+                <div class="card h-100">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span>Narrative Gate Profiles</span>
+                        <button class="btn btn-sm btn-primary" @onclick="StartCreateNarrativeGateProfile">New</button>
+                    </div>
+                    <div class="card-body">
+                        @if (_narrativeGateProfiles.Count > 0)
+                        {
+                            <div class="list-group">
+                                @foreach (var profile in _narrativeGateProfiles)
+                                {
+                                    <button type="button"
+                                            class="list-group-item list-group-item-action @(profile.Id == _selectedNarrativeGateProfileId ? "active" : "")"
+                                            @onclick="() => SelectNarrativeGateProfile(profile.Id)">
+                                        <strong>@profile.Name</strong>
+                                        @if (profile.IsDefault)
+                                        {
+                                            <span class="badge bg-warning text-dark ms-1">Default</span>
+                                        }
+                                        <small class="d-block @(profile.Id == _selectedNarrativeGateProfileId ? "text-light" : "text-muted")">@profile.Rules.Count gates</small>
+                                    </button>
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <p class="text-muted mb-0">No narrative gate profiles yet.</p>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-8">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>@(_selectedNarrativeGateProfileId is null ? "Create Narrative Gate Profile" : "Edit Narrative Gate Profile")</strong>
+                            <div class="text-muted small">Configure transition gates from profile data instead of hardcoded thresholds.</div>
+                        </div>
+                        @if (_selectedNarrativeGateProfileId is not null)
+                        {
+                            <button class="btn btn-sm btn-outline-danger" @onclick="DeleteNarrativeGateProfile" disabled="@_isBusy">Delete</button>
+                        }
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Name</label>
+                                <input type="text" class="form-control" @bind="_narrativeGateFormName" />
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label">Default</label>
+                                <select class="form-select" @bind="_narrativeGateFormIsDefault">
+                                    <option value="False">No</option>
+                                    <option value="True">Yes</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4 d-flex align-items-end">
+                                <button class="btn btn-outline-primary btn-sm" @onclick="AddNarrativeGateRule">Add Gate Rule</button>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Description</label>
+                                <textarea class="form-control" rows="2" @bind="_narrativeGateFormDescription"></textarea>
+                            </div>
+                        </div>
+
+                        <div class="table-responsive mt-3">
+                            <table class="table table-sm align-middle">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 150px;">From</th>
+                                        <th style="width: 150px;">To</th>
+                                        <th style="width: 220px;">Metric</th>
+                                        <th style="width: 110px;">Compare</th>
+                                        <th style="width: 120px;">Threshold</th>
+                                        <th style="width: 80px;">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @if (_narrativeGateFormRules.Count == 0)
+                                    {
+                                        <tr>
+                                            <td colspan="6" class="text-muted">No gate rules yet. Add at least one rule.</td>
+                                        </tr>
+                                    }
+                                    else
+                                    {
+                                        @for (var i = 0; i < _narrativeGateFormRules.Count; i++)
+                                        {
+                                            var row = _narrativeGateFormRules[i];
+                                            <tr>
+                                                <td>
+                                                    <select class="form-select form-select-sm" @bind="row.FromPhase">
+                                                        @foreach (var option in _narrativeGatePhaseOptions)
+                                                        {
+                                                            <option value="@option">@option</option>
+                                                        }
+                                                    </select>
+                                                </td>
+                                                <td>
+                                                    <select class="form-select form-select-sm" @bind="row.ToPhase">
+                                                        @foreach (var option in _narrativeGatePhaseOptions)
+                                                        {
+                                                            <option value="@option">@option</option>
+                                                        }
+                                                    </select>
+                                                </td>
+                                                <td>
+                                                    <select class="form-select form-select-sm" @bind="row.MetricKey">
+                                                        @foreach (var option in _narrativeGateMetricOptions)
+                                                        {
+                                                            <option value="@option">@option</option>
+                                                        }
+                                                    </select>
+                                                </td>
+                                                <td>
+                                                    <select class="form-select form-select-sm" @bind="row.Comparator">
+                                                        @foreach (var option in _narrativeGateComparatorOptions)
+                                                        {
+                                                            <option value="@option">@option</option>
+                                                        }
+                                                    </select>
+                                                </td>
+                                                <td>
+                                                    <input type="number" class="form-control form-control-sm" step="0.01" @bind="row.Threshold" />
+                                                </td>
+                                                <td>
+                                                    <button class="btn btn-outline-danger btn-sm" @onclick="() => RemoveNarrativeGateRule(i)">Remove</button>
+                                                </td>
+                                            </tr>
+                                        }
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+
+                        @if (!string.IsNullOrEmpty(_narrativeGateError))
+                        {
+                            <div class="text-danger mt-3 small">@_narrativeGateError</div>
+                        }
+                        <div class="d-flex flex-wrap gap-2 mt-3">
+                            <button class="btn btn-primary" @onclick="SaveNarrativeGateProfile" disabled="@_isBusy">@(_selectedNarrativeGateProfileId is null ? "Create Profile" : "Save Changes")</button>
+                            <button class="btn btn-outline-secondary" @onclick="StartCreateNarrativeGateProfile" disabled="@_isBusy">Reset</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
     else if (_activeTab == "husband-awareness")
     {
         <div class="row g-4">
@@ -1727,6 +1885,31 @@
     private string _willingnessThresholdsJson = "[]";
     private string? _willingnessError;
 
+    private List<NarrativeGateProfile> _narrativeGateProfiles = [];
+    private string? _selectedNarrativeGateProfileId;
+    private string _narrativeGateFormName = string.Empty;
+    private string _narrativeGateFormDescription = string.Empty;
+    private bool _narrativeGateFormIsDefault;
+    private List<NarrativeGateRule> _narrativeGateFormRules = [];
+    private string? _narrativeGateError;
+
+    private readonly string[] _narrativeGatePhaseOptions = ["BuildUp", "Committed", "Approaching", "Climax", "Reset"];
+    private readonly string[] _narrativeGateMetricOptions =
+    [
+        NarrativeGateMetricKeys.ActiveScenarioScore,
+        NarrativeGateMetricKeys.AverageDesire,
+        NarrativeGateMetricKeys.AverageRestraint,
+        NarrativeGateMetricKeys.InteractionsSinceCommitment
+    ];
+    private readonly string[] _narrativeGateComparatorOptions =
+    [
+        NarrativeGateComparators.GreaterThanOrEqual,
+        NarrativeGateComparators.GreaterThan,
+        NarrativeGateComparators.LessThanOrEqual,
+        NarrativeGateComparators.LessThan,
+        NarrativeGateComparators.Equal
+    ];
+
     private List<HusbandAwarenessProfile> _husbandAwarenessProfiles = [];
     private string? _selectedHusbandAwarenessProfileId;
     private string _husbandAwarenessFormName = string.Empty;
@@ -1823,6 +2006,15 @@
             StartCreateWillingnessProfile();
         }
 
+        if (_selectedNarrativeGateProfileId is null && _narrativeGateProfiles.Count > 0)
+        {
+            SelectNarrativeGateProfile(_narrativeGateProfiles[0].Id);
+        }
+        else if (_selectedNarrativeGateProfileId is null && _narrativeGateProfiles.Count == 0)
+        {
+            StartCreateNarrativeGateProfile();
+        }
+
         if (_selectedHusbandAwarenessProfileId is null && _husbandAwarenessProfiles.Count > 0)
         {
             SelectHusbandAwarenessProfile(_husbandAwarenessProfiles[0].Id);
@@ -1875,6 +2067,7 @@
         _baseStatProfiles = await Facade.ListBaseStatProfilesAsync();
         _scenarioDefinitions = (await Facade.ListScenarioDefinitionsAsync(includeDisabled: true)).ToList();
         _willingnessProfiles = await Facade.ListStatWillingnessProfilesAsync();
+        _narrativeGateProfiles = await Facade.ListNarrativeGateProfilesAsync();
         _husbandAwarenessProfiles = await Facade.ListHusbandAwarenessProfilesAsync();
         _roleDefinitions = await Facade.ListRoleDefinitionsAsync();
         _backgroundCharacterProfiles = await Facade.ListBackgroundCharacterProfilesAsync();
@@ -2757,6 +2950,144 @@
         catch (Exception ex)
         {
             _willingnessError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private void StartCreateNarrativeGateProfile()
+    {
+        _selectedNarrativeGateProfileId = null;
+        _narrativeGateFormName = string.Empty;
+        _narrativeGateFormDescription = string.Empty;
+        _narrativeGateFormIsDefault = false;
+        _narrativeGateFormRules = [];
+        _narrativeGateError = null;
+    }
+
+    private void SelectNarrativeGateProfile(string profileId)
+    {
+        var profile = _narrativeGateProfiles.FirstOrDefault(x => x.Id == profileId);
+        if (profile is null)
+        {
+            return;
+        }
+
+        _selectedNarrativeGateProfileId = profile.Id;
+        _narrativeGateFormName = profile.Name;
+        _narrativeGateFormDescription = profile.Description;
+        _narrativeGateFormIsDefault = profile.IsDefault;
+        _narrativeGateFormRules = profile.Rules
+            .OrderBy(x => x.SortOrder)
+            .Select(x => new NarrativeGateRule
+            {
+                SortOrder = x.SortOrder,
+                FromPhase = x.FromPhase,
+                ToPhase = x.ToPhase,
+                MetricKey = x.MetricKey,
+                Comparator = x.Comparator,
+                Threshold = x.Threshold
+            })
+            .ToList();
+        _narrativeGateError = null;
+    }
+
+    private void AddNarrativeGateRule()
+    {
+        _narrativeGateFormRules.Add(new NarrativeGateRule
+        {
+            SortOrder = _narrativeGateFormRules.Count + 1,
+            FromPhase = "Committed",
+            ToPhase = "Approaching",
+            MetricKey = NarrativeGateMetricKeys.ActiveScenarioScore,
+            Comparator = NarrativeGateComparators.GreaterThanOrEqual,
+            Threshold = 60m
+        });
+    }
+
+    private void RemoveNarrativeGateRule(int index)
+    {
+        if (index < 0 || index >= _narrativeGateFormRules.Count)
+        {
+            return;
+        }
+
+        _narrativeGateFormRules.RemoveAt(index);
+    }
+
+    private async Task SaveNarrativeGateProfile()
+    {
+        _narrativeGateError = null;
+
+        if (_narrativeGateFormRules.Count == 0)
+        {
+            _narrativeGateError = "Add at least one gate rule before saving.";
+            return;
+        }
+
+        var profile = new NarrativeGateProfile
+        {
+            Id = _selectedNarrativeGateProfileId ?? Guid.NewGuid().ToString(),
+            Name = _narrativeGateFormName,
+            Description = _narrativeGateFormDescription,
+            IsDefault = _narrativeGateFormIsDefault,
+            Rules = _narrativeGateFormRules
+                .Select((rule, index) => new NarrativeGateRule
+                {
+                    SortOrder = index + 1,
+                    FromPhase = rule.FromPhase,
+                    ToPhase = rule.ToPhase,
+                    MetricKey = rule.MetricKey,
+                    Comparator = rule.Comparator,
+                    Threshold = rule.Threshold
+                })
+                .ToList()
+        };
+
+        _isBusy = true;
+        try
+        {
+            var saved = await Facade.SaveNarrativeGateProfileAsync(profile);
+            await ReloadAsync();
+            SelectNarrativeGateProfile(saved.Id);
+        }
+        catch (Exception ex)
+        {
+            _narrativeGateError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task DeleteNarrativeGateProfile()
+    {
+        if (_selectedNarrativeGateProfileId is null)
+        {
+            return;
+        }
+
+        _narrativeGateError = null;
+        _isBusy = true;
+        try
+        {
+            await Facade.DeleteNarrativeGateProfileAsync(_selectedNarrativeGateProfileId);
+            await ReloadAsync();
+            if (_narrativeGateProfiles.Count > 0)
+            {
+                SelectNarrativeGateProfile(_narrativeGateProfiles[0].Id);
+            }
+            else
+            {
+                StartCreateNarrativeGateProfile();
+            }
+        }
+        catch (Exception ex)
+        {
+            _narrativeGateError = ex.Message;
         }
         finally
         {

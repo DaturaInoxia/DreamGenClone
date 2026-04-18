@@ -1,5 +1,7 @@
 using DreamGenClone.Application.StoryAnalysis;
 using DreamGenClone.Application.StoryAnalysis.Models;
+using DreamGenClone.Application.RolePlay;
+using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Domain.StoryAnalysis;
 using DreamGenClone.Infrastructure.Persistence;
 
@@ -15,6 +17,7 @@ public sealed class StoryAnalysisFacade
     private readonly ISteeringProfileService _steeringProfileService;
     private readonly IBaseStatProfileService _baseStatProfileService;
     private readonly IStatWillingnessProfileService _statWillingnessProfileService;
+    private readonly INarrativeGateProfileService _narrativeGateProfileService;
     private readonly IHusbandAwarenessProfileService _husbandAwarenessProfileService;
     private readonly IBackgroundCharacterProfileService _backgroundCharacterProfileService;
     private readonly IRoleDefinitionService _roleDefinitionService;
@@ -23,6 +26,7 @@ public sealed class StoryAnalysisFacade
     private readonly IScenarioDefinitionService _scenarioDefinitionService;
     private readonly IThemeDefinitionService _themeDefinitionService;
     private readonly ICharacterStatPresetImportService _characterStatPresetImportService;
+    private readonly IStatKeywordCategoryService _statKeywordCategoryService;
     private readonly ISqlitePersistence _persistence;
 
     public StoryAnalysisFacade(
@@ -34,6 +38,7 @@ public sealed class StoryAnalysisFacade
         ISteeringProfileService styleProfileService,
         IBaseStatProfileService baseStatProfileService,
         IStatWillingnessProfileService statWillingnessProfileService,
+        INarrativeGateProfileService narrativeGateProfileService,
         IHusbandAwarenessProfileService husbandAwarenessProfileService,
         IBackgroundCharacterProfileService backgroundCharacterProfileService,
         IRoleDefinitionService roleDefinitionService,
@@ -42,6 +47,7 @@ public sealed class StoryAnalysisFacade
         IScenarioDefinitionService scenarioDefinitionService,
         IThemeDefinitionService themeDefinitionService,
         ICharacterStatPresetImportService characterStatPresetImportService,
+        IStatKeywordCategoryService statKeywordCategoryService,
         ISqlitePersistence persistence)
     {
         _summaryService = summaryService;
@@ -52,6 +58,7 @@ public sealed class StoryAnalysisFacade
         _steeringProfileService = styleProfileService;
         _baseStatProfileService = baseStatProfileService;
         _statWillingnessProfileService = statWillingnessProfileService;
+        _narrativeGateProfileService = narrativeGateProfileService;
         _husbandAwarenessProfileService = husbandAwarenessProfileService;
         _backgroundCharacterProfileService = backgroundCharacterProfileService;
         _roleDefinitionService = roleDefinitionService;
@@ -60,6 +67,7 @@ public sealed class StoryAnalysisFacade
         _scenarioDefinitionService = scenarioDefinitionService;
         _themeDefinitionService = themeDefinitionService;
         _characterStatPresetImportService = characterStatPresetImportService;
+        _statKeywordCategoryService = statKeywordCategoryService;
         _persistence = persistence;
     }
 
@@ -204,6 +212,19 @@ public sealed class StoryAnalysisFacade
     public Task<CharacterStatPresetImportResult> ImportCharacterStatPresetsAsync(CancellationToken cancellationToken = default)
         => _characterStatPresetImportService.ImportAsync(cancellationToken);
 
+    // Stat Keyword Categories
+    public Task<List<StatKeywordCategory>> ListStatKeywordCategoriesAsync(bool includeDisabled = false, CancellationToken cancellationToken = default)
+        => _statKeywordCategoryService.ListAsync(includeDisabled, cancellationToken);
+
+    public Task<StatKeywordCategory?> GetStatKeywordCategoryAsync(string id, CancellationToken cancellationToken = default)
+        => _statKeywordCategoryService.GetAsync(id, cancellationToken);
+
+    public Task<StatKeywordCategory> SaveStatKeywordCategoryAsync(StatKeywordCategory category, CancellationToken cancellationToken = default)
+        => _statKeywordCategoryService.SaveAsync(category, cancellationToken);
+
+    public Task<bool> DeleteStatKeywordCategoryAsync(string id, CancellationToken cancellationToken = default)
+        => _statKeywordCategoryService.DeleteAsync(id, cancellationToken);
+
     // Stat Willingness Profiles
     public Task<StatWillingnessProfile> SaveStatWillingnessProfileAsync(StatWillingnessProfile profile, CancellationToken cancellationToken = default)
         => _statWillingnessProfileService.SaveAsync(profile, cancellationToken);
@@ -219,6 +240,22 @@ public sealed class StoryAnalysisFacade
 
     public Task<bool> DeleteStatWillingnessProfileAsync(string id, CancellationToken cancellationToken = default)
         => _statWillingnessProfileService.DeleteAsync(id, cancellationToken);
+
+    // Narrative Gate Profiles
+    public Task<NarrativeGateProfile> SaveNarrativeGateProfileAsync(NarrativeGateProfile profile, CancellationToken cancellationToken = default)
+        => _narrativeGateProfileService.SaveAsync(profile, cancellationToken);
+
+    public Task<List<NarrativeGateProfile>> ListNarrativeGateProfilesAsync(CancellationToken cancellationToken = default)
+        => _narrativeGateProfileService.ListAsync(cancellationToken);
+
+    public Task<NarrativeGateProfile?> GetNarrativeGateProfileAsync(string id, CancellationToken cancellationToken = default)
+        => _narrativeGateProfileService.GetAsync(id, cancellationToken);
+
+    public Task<NarrativeGateProfile?> GetDefaultNarrativeGateProfileAsync(CancellationToken cancellationToken = default)
+        => _narrativeGateProfileService.GetDefaultAsync(cancellationToken);
+
+    public Task<bool> DeleteNarrativeGateProfileAsync(string id, CancellationToken cancellationToken = default)
+        => _narrativeGateProfileService.DeleteAsync(id, cancellationToken);
 
     // Husband Awareness Profiles
     public Task<HusbandAwarenessProfile> SaveHusbandAwarenessProfileAsync(HusbandAwarenessProfile profile, CancellationToken cancellationToken = default)

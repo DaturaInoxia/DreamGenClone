@@ -126,12 +126,16 @@ builder.Services.AddScoped<IScenarioDefinitionService, ScenarioDefinitionService
 builder.Services.AddScoped<IThemeDefinitionParser, ThemeDefinitionParser>();
 builder.Services.AddScoped<IThemeDefinitionService, ThemeDefinitionService>();
 builder.Services.AddScoped<ICharacterStatPresetImportService, CharacterStatPresetImportService>();
+builder.Services.AddScoped<IStatKeywordCategoryService, StatKeywordCategoryService>();
 builder.Services.AddScoped<IBaseStatProfileService, BaseStatProfileService>();
 builder.Services.AddScoped<IStatWillingnessProfileService, StatWillingnessProfileService>();
+builder.Services.AddScoped<INarrativeGateProfileService, NarrativeGateProfileService>();
 builder.Services.AddScoped<IHusbandAwarenessProfileService, HusbandAwarenessProfileService>();
 builder.Services.AddScoped<IBackgroundCharacterProfileService, BackgroundCharacterProfileService>();
 builder.Services.AddScoped<IRoleDefinitionService, RoleDefinitionService>();
 builder.Services.AddScoped<IPromptDealbreakerService, PromptDealbreakerService>();
+builder.Services.AddScoped<IScenarioFitScoreStrategy, WeightedBlendScenarioFitScoreStrategy>();
+builder.Services.AddScoped<IScenarioTieBreakStrategy, TieWindowScenarioTieBreakStrategy>();
 builder.Services.AddScoped<IScenarioSelectionEngine, ScenarioSelectionEngine>();
 builder.Services.AddScoped<INarrativePhaseManager, NarrativePhaseManager>();
 builder.Services.AddScoped<IScenarioGuidanceContextFactory, ScenarioGuidanceContextFactory>();
@@ -175,6 +179,9 @@ using (var scope = app.Services.CreateScope())
 
     var scenarioGuidanceSeedService = scope.ServiceProvider.GetRequiredService<ScenarioGuidanceTemplateSeedService>();
     await scenarioGuidanceSeedService.SeedDefaultsAsync();
+
+    var statKeywordCategoryService = scope.ServiceProvider.GetRequiredService<IStatKeywordCategoryService>();
+    await statKeywordCategoryService.SeedDefaultsAsync();
 
     var themePreferenceService = scope.ServiceProvider.GetRequiredService<IThemePreferenceService>();
     await themePreferenceService.AutoLinkToCatalogAsync();

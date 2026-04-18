@@ -1,0 +1,956 @@
+@page "/rp-themes/{ThemeId}"
+@rendermode InteractiveServer
+
+@using DreamGenClone.Application.RolePlay
+@using DreamGenClone.Application.StoryAnalysis
+@using DreamGenClone.Domain.RolePlay
+@using DreamGenClone.Web.Application.StoryAnalysis
+
+@inject IRPThemeService RPThemeService
+@inject StoryAnalysisFacade StoryAnalysisFacade
+@inject NavigationManager Navigation
+
+<PageTitle>RP Theme Detail</PageTitle>
+
+<div class="container-fluid mt-3 rp-theme-detail-page">
+    <div class="sticky-theme-actions border rounded p-2 bg-body mb-3">
+        <div class="d-flex flex-wrap gap-2 justify-content-between align-items-center">
+            <div class="d-flex gap-2">
+                <button class="btn btn-sm btn-primary" @onclick="SaveAsync" disabled="@_isBusy">Save Theme</button>
+                <button class="btn btn-sm btn-outline-danger" @onclick="DeleteAsync" disabled="@(_isBusy || _isNew)">Delete Theme</button>
+                <button class="btn btn-sm btn-outline-secondary" @onclick="BackToList">Back To List</button>
+            </div>
+            <div class="small">
+                @if (!string.IsNullOrWhiteSpace(_error))
+                {
+                    <span class="text-danger">@_error</span>
+                }
+                else if (!string.IsNullOrWhiteSpace(_status))
+                {
+                    <span class="text-success">@_status</span>
+                }
+            </div>
+        </div>
+    </div>
+
+    @if (_isLoading)
+    {
+        <div class="alert alert-info">Loading theme...</div>
+    }
+    else
+    {
+        <div class="d-flex justify-content-between align-items-end mb-3">
+            <div>
+                <h3 class="mb-1">Theme Details</h3>
+                <p class="text-muted mb-0">Full CRUD editor for all RP theme structures.</p>
+            </div>
+            <span class="badge bg-secondary-subtle text-secondary-emphasis border">@(_isNew ? "New Theme" : _theme.Id)</span>
+        </div>
+
+        <div class="card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>Theme Metadata</span>
+                <button type="button" class="btn btn-sm btn-outline-info" @onclick="@(() => ShowInfoForSection("Theme Metadata"))">What is this?</button>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-lg-4">
+                        <label class="form-label">Id</label>
+                        <input class="form-control" @bind="_theme.Id" disabled="@(!_isNew)" />
+                    </div>
+                    <div class="col-lg-4">
+                        <label class="form-label">Label</label>
+                        <input class="form-control" @bind="_theme.Label" />
+                    </div>
+                    <div class="col-lg-2">
+                        <label class="form-label">Category</label>
+                        <input class="form-control" @bind="_theme.Category" />
+                    </div>
+                    <div class="col-lg-2">
+                        <label class="form-label">Weight</label>
+                        <input class="form-control" type="number" min="1" max="10" @bind="_theme.Weight" />
+                    </div>
+                    <div class="col-lg-6">
+                        <label class="form-label">Parent Theme Id</label>
+                        <input class="form-control" @bind="_theme.ParentThemeId" placeholder="Optional" />
+                    </div>
+                    <div class="col-lg-6">
+                        <label class="form-label">Enabled</label>
+                        <div class="form-check form-switch mt-1">
+                            <input class="form-check-input" type="checkbox" @bind="_theme.IsEnabled" />
+                            <label class="form-check-label">Theme is enabled</label>
+                        </div>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">Description</label>
+                        <textarea class="form-control" rows="3" @bind="_theme.Description"></textarea>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <details class="card mb-3">
+            <summary class="card-header d-flex justify-content-between align-items-center">
+                <span>Keywords (@_theme.Keywords.Count)</span>
+                <button type="button" class="btn btn-sm btn-outline-info" @onclick="@(() => ShowInfoForSection("Keywords"))">What is this?</button>
+            </summary>
+            <div class="card-body">
+                <button type="button" class="btn btn-sm btn-outline-primary mb-2" @onclick="AddKeyword">Add Keyword</button>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead>
+                            <tr>
+                                <th style="width: 180px;">Group</th>
+                                <th>Keyword</th>
+                                <th style="width: 120px;">Sort</th>
+                                <th style="width: 120px;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (_theme.Keywords.Count == 0)
+                            {
+                                <tr><td colspan="4" class="text-muted">No keywords yet.</td></tr>
+                            }
+                            else
+                            {
+                                @for (var i = 0; i < _theme.Keywords.Count; i++)
+                                {
+                                    var rowIndex = i;
+                                    <tr>
+                                        <td><input class="form-control form-control-sm" @bind="_theme.Keywords[rowIndex].GroupName" /></td>
+                                        <td><input class="form-control form-control-sm" @bind="_theme.Keywords[rowIndex].Keyword" /></td>
+                                        <td><input class="form-control form-control-sm" type="number" @bind="_theme.Keywords[rowIndex].SortOrder" /></td>
+                                        <td><button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => RemoveKeyword(rowIndex)">Remove</button></td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </details>
+
+        <details class="card mb-3">
+            <summary class="card-header d-flex justify-content-between align-items-center">
+                <span>Stat Affinities (@_theme.StatAffinities.Count)</span>
+                <button type="button" class="btn btn-sm btn-outline-info" @onclick="@(() => ShowInfoForSection("Stat Affinities"))">What is this?</button>
+            </summary>
+            <div class="card-body">
+                <button type="button" class="btn btn-sm btn-outline-primary mb-2" @onclick="AddAffinity">Add Affinity</button>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead>
+                            <tr>
+                                <th style="width: 200px;">Stat</th>
+                                <th style="width: 120px;">Value</th>
+                                <th>Rationale</th>
+                                <th style="width: 120px;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (_theme.StatAffinities.Count == 0)
+                            {
+                                <tr><td colspan="4" class="text-muted">No stat affinities yet.</td></tr>
+                            }
+                            else
+                            {
+                                @for (var i = 0; i < _theme.StatAffinities.Count; i++)
+                                {
+                                    var rowIndex = i;
+                                    <tr>
+                                        <td>
+                                            <select class="form-select form-select-sm" @bind="_theme.StatAffinities[rowIndex].StatName">
+                                                <option value="">Select stat...</option>
+                                                @foreach (var statName in AdaptiveStatCatalog.CanonicalStatNames)
+                                                {
+                                                    <option value="@statName">@statName</option>
+                                                }
+                                            </select>
+                                        </td>
+                                        <td><input class="form-control form-control-sm" type="number" min="-10" max="10" @bind="_theme.StatAffinities[rowIndex].Value" /></td>
+                                        <td><input class="form-control form-control-sm" @bind="_theme.StatAffinities[rowIndex].Rationale" /></td>
+                                        <td><button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => RemoveAffinity(rowIndex)">Remove</button></td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </details>
+
+        <details class="card mb-3">
+            <summary class="card-header d-flex justify-content-between align-items-center">
+                <span>Phase Guidance (@_theme.PhaseGuidance.Count)</span>
+                <button type="button" class="btn btn-sm btn-outline-info" @onclick="@(() => ShowInfoForSection("Phase Guidance"))">What is this?</button>
+            </summary>
+            <div class="card-body">
+                <button type="button" class="btn btn-sm btn-outline-primary mb-2" @onclick="AddPhaseGuidance">Add Guidance</button>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead>
+                            <tr>
+                                <th style="width: 180px;">Phase</th>
+                                <th>Guidance Text</th>
+                                <th style="width: 120px;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (_theme.PhaseGuidance.Count == 0)
+                            {
+                                <tr><td colspan="3" class="text-muted">No phase guidance yet.</td></tr>
+                            }
+                            else
+                            {
+                                @for (var i = 0; i < _theme.PhaseGuidance.Count; i++)
+                                {
+                                    var rowIndex = i;
+                                    <tr>
+                                        <td>
+                                            <select class="form-select form-select-sm" @bind="_theme.PhaseGuidance[rowIndex].Phase">
+                                                @foreach (var phase in Enum.GetValues<NarrativePhase>())
+                                                {
+                                                    <option value="@phase">@phase</option>
+                                                }
+                                            </select>
+                                        </td>
+                                        <td><input class="form-control form-control-sm" @bind="_theme.PhaseGuidance[rowIndex].GuidanceText" /></td>
+                                        <td><button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => RemovePhaseGuidance(rowIndex)">Remove</button></td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </details>
+
+        <details class="card mb-3">
+            <summary class="card-header d-flex justify-content-between align-items-center">
+                <span>Guidance Points (@_theme.GuidancePoints.Count)</span>
+                <button type="button" class="btn btn-sm btn-outline-info" @onclick="@(() => ShowInfoForSection("Guidance Points"))">What is this?</button>
+            </summary>
+            <div class="card-body">
+                <button type="button" class="btn btn-sm btn-outline-primary mb-2" @onclick="AddGuidancePoint">Add Point</button>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead>
+                            <tr>
+                                <th style="width: 150px;">Phase</th>
+                                <th style="width: 150px;">Type</th>
+                                <th>Text</th>
+                                <th style="width: 120px;">Sort</th>
+                                <th style="width: 120px;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (_theme.GuidancePoints.Count == 0)
+                            {
+                                <tr><td colspan="5" class="text-muted">No guidance points yet.</td></tr>
+                            }
+                            else
+                            {
+                                @for (var i = 0; i < _theme.GuidancePoints.Count; i++)
+                                {
+                                    var rowIndex = i;
+                                    <tr>
+                                        <td>
+                                            <select class="form-select form-select-sm" @bind="_theme.GuidancePoints[rowIndex].Phase">
+                                                @foreach (var phase in Enum.GetValues<NarrativePhase>())
+                                                {
+                                                    <option value="@phase">@phase</option>
+                                                }
+                                            </select>
+                                        </td>
+                                        <td>
+                                            <select class="form-select form-select-sm" @bind="_theme.GuidancePoints[rowIndex].PointType">
+                                                @foreach (var pointType in Enum.GetValues<RPThemeGuidancePointType>())
+                                                {
+                                                    <option value="@pointType">@pointType</option>
+                                                }
+                                            </select>
+                                        </td>
+                                        <td><input class="form-control form-control-sm" @bind="_theme.GuidancePoints[rowIndex].Text" /></td>
+                                        <td><input class="form-control form-control-sm" type="number" @bind="_theme.GuidancePoints[rowIndex].SortOrder" /></td>
+                                        <td><button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => RemoveGuidancePoint(rowIndex)">Remove</button></td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </details>
+
+        <details class="card mb-3">
+            <summary class="card-header d-flex justify-content-between align-items-center">
+                <span>Fit Rules And Clauses (Character Roles) (@_theme.FitRules.Count)</span>
+                <button type="button" class="btn btn-sm btn-outline-info" @onclick="@(() => ShowInfoForSection("Fit Rules"))">What is this?</button>
+            </summary>
+            <div class="card-body">
+                <button type="button" class="btn btn-sm btn-outline-primary mb-2" @onclick="AddFitRule">Add Fit Rule</button>
+
+                @if (_theme.FitRules.Count == 0)
+                {
+                    <div class="text-muted">No fit rules yet.</div>
+                }
+                else
+                {
+                    @for (var i = 0; i < _theme.FitRules.Count; i++)
+                    {
+                        var ruleIndex = i;
+                        <div class="border rounded p-2 mb-2">
+                            <div class="row g-2 align-items-end mb-2">
+                                <div class="col-lg-5">
+                                    <label class="form-label small">Character Role</label>
+                                    <select class="form-select form-select-sm" @bind="_theme.FitRules[ruleIndex].RoleName">
+                                        <option value="">Select character role...</option>
+                                        @foreach (var roleName in GetCharacterRoleOptions(_theme.FitRules[ruleIndex].RoleName))
+                                        {
+                                            <option value="@roleName">@roleName</option>
+                                        }
+                                    </select>
+                                </div>
+                                <div class="col-lg-3">
+                                    <label class="form-label small">Role Weight</label>
+                                    <input class="form-control form-control-sm" type="number" min="0.1" max="10" step="0.1" @bind="_theme.FitRules[ruleIndex].RoleWeight" />
+                                </div>
+                                <div class="col-lg-4 text-end">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary me-2" @onclick="() => AddFitRuleClause(ruleIndex)">Add Clause</button>
+                                    <button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => RemoveFitRule(ruleIndex)">Remove Rule</button>
+                                </div>
+                            </div>
+
+                            <div class="table-responsive">
+                                <table class="table table-sm align-middle mb-0">
+                                    <thead>
+                                        <tr>
+                                            <th style="width: 160px;">Stat</th>
+                                            <th style="width: 120px;">Comparator</th>
+                                            <th style="width: 120px;">Threshold</th>
+                                            <th style="width: 140px;">Penalty</th>
+                                            <th>Description</th>
+                                            <th style="width: 120px;">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @if (_theme.FitRules[ruleIndex].Clauses.Count == 0)
+                                        {
+                                            <tr><td colspan="6" class="text-muted">No clauses yet.</td></tr>
+                                        }
+                                        else
+                                        {
+                                            @for (var j = 0; j < _theme.FitRules[ruleIndex].Clauses.Count; j++)
+                                            {
+                                                var clauseIndex = j;
+                                                <tr>
+                                                    <td><input class="form-control form-control-sm" @bind="_theme.FitRules[ruleIndex].Clauses[clauseIndex].StatName" /></td>
+                                                    <td><input class="form-control form-control-sm" @bind="_theme.FitRules[ruleIndex].Clauses[clauseIndex].Comparator" /></td>
+                                                    <td><input class="form-control form-control-sm" type="number" step="0.1" @bind="_theme.FitRules[ruleIndex].Clauses[clauseIndex].Threshold" /></td>
+                                                    <td><input class="form-control form-control-sm" type="number" step="0.1" min="0" max="10" @bind="_theme.FitRules[ruleIndex].Clauses[clauseIndex].PenaltyWeight" /></td>
+                                                    <td><input class="form-control form-control-sm" @bind="_theme.FitRules[ruleIndex].Clauses[clauseIndex].Description" /></td>
+                                                    <td><button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => RemoveFitRuleClause(ruleIndex, clauseIndex)">Remove</button></td>
+                                                </tr>
+                                            }
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+        </details>
+
+        <details class="card mb-3">
+            <summary class="card-header d-flex justify-content-between align-items-center">
+                <span>AI Guidance Notes (@_theme.AIGenerationNotes.Count)</span>
+                <button type="button" class="btn btn-sm btn-outline-info" @onclick="@(() => ShowInfoForSection("AI Guidance Notes"))">What is this?</button>
+            </summary>
+            <div class="card-body">
+                <button type="button" class="btn btn-sm btn-outline-primary mb-2" @onclick="AddAIGuidanceNote">Add AI Guidance Note</button>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead>
+                            <tr>
+                                <th style="width: 220px;">Section</th>
+                                <th>Text</th>
+                                <th style="width: 120px;">Sort</th>
+                                <th style="width: 120px;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (_theme.AIGenerationNotes.Count == 0)
+                            {
+                                <tr><td colspan="4" class="text-muted">No AI guidance notes yet.</td></tr>
+                            }
+                            else
+                            {
+                                @for (var i = 0; i < _theme.AIGenerationNotes.Count; i++)
+                                {
+                                    var rowIndex = i;
+                                    <tr>
+                                        <td>
+                                            <select class="form-select form-select-sm" @bind="_theme.AIGenerationNotes[rowIndex].Section">
+                                                @foreach (var noteSection in Enum.GetValues<RPThemeAIGuidanceSection>())
+                                                {
+                                                    <option value="@noteSection">@noteSection</option>
+                                                }
+                                            </select>
+                                        </td>
+                                        <td><input class="form-control form-control-sm" @bind="_theme.AIGenerationNotes[rowIndex].Text" /></td>
+                                        <td><input class="form-control form-control-sm" type="number" @bind="_theme.AIGenerationNotes[rowIndex].SortOrder" /></td>
+                                        <td><button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => RemoveAIGuidanceNote(rowIndex)">Remove</button></td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </details>
+    }
+</div>
+
+@if (_showInfoModal)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0, 0, 0, 0.35);">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">@_infoTitle</h5>
+                    <button type="button" class="btn-close" @onclick="CloseInfo"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="mb-0">@_infoBody</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-primary" @onclick="CloseInfo">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .rp-theme-detail-page .sticky-theme-actions {
+        position: sticky;
+        top: 0.5rem;
+        z-index: 1020;
+    }
+
+    .rp-theme-detail-page details > summary {
+        list-style: none;
+        cursor: pointer;
+    }
+
+    .rp-theme-detail-page details > summary::-webkit-details-marker {
+        display: none;
+    }
+</style>
+
+@code {
+    [Parameter] public string ThemeId { get; set; } = string.Empty;
+
+    private RPTheme _theme = CreateEmptyTheme();
+    private bool _isLoading;
+    private bool _isBusy;
+    private bool _isNew;
+    private string _status = string.Empty;
+    private string _error = string.Empty;
+    private List<string> _availableRoleNames = [];
+
+    private bool _showInfoModal;
+    private string _infoTitle = string.Empty;
+    private string _infoBody = string.Empty;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadThemeAsync();
+    }
+
+    private async Task LoadThemeAsync()
+    {
+        if (_isLoading)
+        {
+            return;
+        }
+
+        _isLoading = true;
+        _error = string.Empty;
+        _status = string.Empty;
+
+        try
+        {
+            await LoadAvailableRoleNamesAsync();
+
+            _isNew = string.Equals(ThemeId, "new", StringComparison.OrdinalIgnoreCase);
+            if (_isNew)
+            {
+                _theme = CreateEmptyTheme();
+                return;
+            }
+
+            var loaded = await RPThemeService.GetThemeAsync(ThemeId);
+            if (loaded is null)
+            {
+                _error = $"Theme '{ThemeId}' was not found.";
+                _theme = CreateEmptyTheme();
+                _isNew = true;
+                return;
+            }
+
+            _theme = loaded;
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_isBusy)
+        {
+            return;
+        }
+
+        _isBusy = true;
+        _error = string.Empty;
+        _status = string.Empty;
+
+        try
+        {
+            NormalizeTheme();
+            var saved = await RPThemeService.SaveThemeAsync(_theme);
+            _theme = saved;
+            _status = "Theme saved.";
+
+            if (_isNew)
+            {
+                _isNew = false;
+                Navigation.NavigateTo($"/rp-themes/{Uri.EscapeDataString(_theme.Id)}", forceLoad: false);
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (_isBusy || _isNew)
+        {
+            return;
+        }
+
+        _isBusy = true;
+        _error = string.Empty;
+        _status = string.Empty;
+
+        try
+        {
+            var deleted = await RPThemeService.DeleteThemeAsync(_theme.Id);
+            if (!deleted)
+            {
+                _error = "Theme cannot be deleted because it is referenced by one or more profiles.";
+                return;
+            }
+
+            Navigation.NavigateTo("/rp-themes");
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private void BackToList()
+    {
+        Navigation.NavigateTo("/rp-themes");
+    }
+
+    private void ShowInfo(string title, string body)
+    {
+        _infoTitle = title;
+        _infoBody = body;
+        _showInfoModal = true;
+    }
+
+    private void ShowInfoForSection(string sectionName)
+    {
+        ShowInfo(sectionName, GetUsageText(sectionName));
+    }
+
+    private void CloseInfo()
+    {
+        _showInfoModal = false;
+    }
+
+    private string GetUsageText(string sectionName)
+    {
+        return sectionName switch
+        {
+            "Theme Metadata" => "Used by RP Engine. Category and Weight influence how strongly this theme contributes to selection/scoring. Label/Description also feed model-facing context.",
+            "Keywords" => "Currently not used by active RP Engine scoring gates. Maintained as model/context metadata and for future retrieval/filtering workflows.",
+            "Stat Affinities" => "Used by RP Engine candidate fit scoring and adaptive nudges. Affinity values align theme pressure against stat movements.",
+            "Phase Guidance" => "Used by RP Engine prompt construction by narrative phase. These entries shape phase-specific writing direction.",
+            "Guidance Points" => "Used by model prompt assembly. Emphasis/Avoidance points become concise instruction bullets per phase.",
+            "Fit Rules" => "Used by RP Engine candidate gating/scoring. Character Role and RoleWeight scope weighting to specific participants; clauses enforce stat-level constraints.",
+            "AI Guidance Notes" => "Used by model prompt assembly. Notes are grouped into semantic sections to keep generation aligned with theme intent.",
+            _ => "Information is available, but this section is currently not used by the RP Engine or model prompt path."
+        };
+    }
+
+    private void AddKeyword()
+    {
+        _theme.Keywords.Add(new RPThemeKeyword { ThemeId = _theme.Id, SortOrder = _theme.Keywords.Count + 1 });
+    }
+
+    private void RemoveKeyword(int index)
+    {
+        if (index < 0 || index >= _theme.Keywords.Count)
+        {
+            return;
+        }
+
+        _theme.Keywords.RemoveAt(index);
+    }
+
+    private void AddAffinity()
+    {
+        _theme.StatAffinities.Add(new RPThemeStatAffinity { ThemeId = _theme.Id, Value = 0 });
+    }
+
+    private void RemoveAffinity(int index)
+    {
+        if (index < 0 || index >= _theme.StatAffinities.Count)
+        {
+            return;
+        }
+
+        _theme.StatAffinities.RemoveAt(index);
+    }
+
+    private void AddPhaseGuidance()
+    {
+        _theme.PhaseGuidance.Add(new RPThemePhaseGuidance { ThemeId = _theme.Id, Phase = NarrativePhase.BuildUp });
+    }
+
+    private void RemovePhaseGuidance(int index)
+    {
+        if (index < 0 || index >= _theme.PhaseGuidance.Count)
+        {
+            return;
+        }
+
+        _theme.PhaseGuidance.RemoveAt(index);
+    }
+
+    private void AddGuidancePoint()
+    {
+        _theme.GuidancePoints.Add(new RPThemeGuidancePoint
+        {
+            ThemeId = _theme.Id,
+            Phase = NarrativePhase.BuildUp,
+            PointType = RPThemeGuidancePointType.Emphasis,
+            SortOrder = _theme.GuidancePoints.Count + 1
+        });
+    }
+
+    private void RemoveGuidancePoint(int index)
+    {
+        if (index < 0 || index >= _theme.GuidancePoints.Count)
+        {
+            return;
+        }
+
+        _theme.GuidancePoints.RemoveAt(index);
+    }
+
+    private void AddFitRule()
+    {
+        _theme.FitRules.Add(new RPThemeFitRule
+        {
+            ThemeId = _theme.Id,
+            RoleName = _availableRoleNames.FirstOrDefault() ?? string.Empty,
+            RoleWeight = 1.0
+        });
+    }
+
+    private void RemoveFitRule(int index)
+    {
+        if (index < 0 || index >= _theme.FitRules.Count)
+        {
+            return;
+        }
+
+        _theme.FitRules.RemoveAt(index);
+    }
+
+    private void AddFitRuleClause(int ruleIndex)
+    {
+        if (ruleIndex < 0 || ruleIndex >= _theme.FitRules.Count)
+        {
+            return;
+        }
+
+        _theme.FitRules[ruleIndex].Clauses.Add(new RPThemeFitRuleClause
+        {
+            FitRuleId = _theme.FitRules[ruleIndex].Id,
+            Comparator = ">=",
+            PenaltyWeight = 1.0
+        });
+    }
+
+    private void RemoveFitRuleClause(int ruleIndex, int clauseIndex)
+    {
+        if (ruleIndex < 0 || ruleIndex >= _theme.FitRules.Count)
+        {
+            return;
+        }
+
+        var clauses = _theme.FitRules[ruleIndex].Clauses;
+        if (clauseIndex < 0 || clauseIndex >= clauses.Count)
+        {
+            return;
+        }
+
+        clauses.RemoveAt(clauseIndex);
+    }
+
+    private void AddAIGuidanceNote()
+    {
+        _theme.AIGenerationNotes.Add(new RPThemeAIGuidanceNote
+        {
+            ThemeId = _theme.Id,
+            Section = RPThemeAIGuidanceSection.KeyScenarioElement,
+            SortOrder = _theme.AIGenerationNotes.Count + 1
+        });
+    }
+
+    private void RemoveAIGuidanceNote(int index)
+    {
+        if (index < 0 || index >= _theme.AIGenerationNotes.Count)
+        {
+            return;
+        }
+
+        _theme.AIGenerationNotes.RemoveAt(index);
+    }
+
+    private void NormalizeTheme()
+    {
+        _theme.Id = (_theme.Id ?? string.Empty).Trim();
+        _theme.ParentThemeId = string.IsNullOrWhiteSpace(_theme.ParentThemeId) ? null : _theme.ParentThemeId.Trim();
+        _theme.Label = (_theme.Label ?? string.Empty).Trim();
+        _theme.Description = (_theme.Description ?? string.Empty).Trim();
+        _theme.Category = (_theme.Category ?? string.Empty).Trim();
+        _theme.Weight = Math.Clamp(_theme.Weight, 1, 10);
+
+        _theme.Keywords = _theme.Keywords
+            .Where(x => !string.IsNullOrWhiteSpace(x.Keyword))
+            .Select(x => new RPThemeKeyword
+            {
+                Id = string.IsNullOrWhiteSpace(x.Id) ? Guid.NewGuid().ToString("N") : x.Id,
+                ThemeId = _theme.Id,
+                GroupName = (x.GroupName ?? string.Empty).Trim(),
+                Keyword = (x.Keyword ?? string.Empty).Trim(),
+                SortOrder = x.SortOrder
+            })
+            .ToList();
+
+        _theme.StatAffinities = _theme.StatAffinities
+            .Where(x => !string.IsNullOrWhiteSpace(x.StatName))
+            .Select(x => new RPThemeStatAffinity
+            {
+                Id = string.IsNullOrWhiteSpace(x.Id) ? Guid.NewGuid().ToString("N") : x.Id,
+                ThemeId = _theme.Id,
+                StatName = (x.StatName ?? string.Empty).Trim(),
+                Value = Math.Clamp(x.Value, -10, 10),
+                Rationale = (x.Rationale ?? string.Empty).Trim()
+            })
+            .GroupBy(x => x.StatName, StringComparer.OrdinalIgnoreCase)
+            .Select(x => x.Last())
+            .ToList();
+
+        _theme.PhaseGuidance = _theme.PhaseGuidance
+            .Where(x => !string.IsNullOrWhiteSpace(x.GuidanceText))
+            .Select(x => new RPThemePhaseGuidance
+            {
+                Id = string.IsNullOrWhiteSpace(x.Id) ? Guid.NewGuid().ToString("N") : x.Id,
+                ThemeId = _theme.Id,
+                Phase = x.Phase,
+                GuidanceText = (x.GuidanceText ?? string.Empty).Trim()
+            })
+            .ToList();
+
+        _theme.GuidancePoints = _theme.GuidancePoints
+            .Where(x => !string.IsNullOrWhiteSpace(x.Text))
+            .Select(x => new RPThemeGuidancePoint
+            {
+                Id = string.IsNullOrWhiteSpace(x.Id) ? Guid.NewGuid().ToString("N") : x.Id,
+                ThemeId = _theme.Id,
+                Phase = x.Phase,
+                PointType = x.PointType,
+                Text = (x.Text ?? string.Empty).Trim(),
+                SortOrder = x.SortOrder
+            })
+            .ToList();
+
+        _theme.FitRules = _theme.FitRules
+            .Where(x => !string.IsNullOrWhiteSpace(x.RoleName))
+            .Select(x => new RPThemeFitRule
+            {
+                Id = string.IsNullOrWhiteSpace(x.Id) ? Guid.NewGuid().ToString("N") : x.Id,
+                ThemeId = _theme.Id,
+                RoleName = (x.RoleName ?? string.Empty).Trim(),
+                RoleWeight = Math.Clamp(x.RoleWeight, 0.1, 10.0),
+                Clauses = x.Clauses
+                    .Where(c => !string.IsNullOrWhiteSpace(c.StatName))
+                    .Select(c => new RPThemeFitRuleClause
+                    {
+                        Id = string.IsNullOrWhiteSpace(c.Id) ? Guid.NewGuid().ToString("N") : c.Id,
+                        FitRuleId = string.IsNullOrWhiteSpace(x.Id) ? string.Empty : x.Id,
+                        StatName = (c.StatName ?? string.Empty).Trim(),
+                        Comparator = string.IsNullOrWhiteSpace(c.Comparator) ? ">=" : c.Comparator.Trim(),
+                        Threshold = c.Threshold,
+                        PenaltyWeight = Math.Clamp(c.PenaltyWeight, 0.0, 10.0),
+                        Description = (c.Description ?? string.Empty).Trim()
+                    })
+                    .ToList()
+            })
+            .GroupBy(x => x.RoleName, StringComparer.OrdinalIgnoreCase)
+            .Select(x => x.Last())
+            .ToList();
+
+        foreach (var fitRule in _theme.FitRules)
+        {
+            foreach (var clause in fitRule.Clauses)
+            {
+                clause.FitRuleId = fitRule.Id;
+            }
+        }
+
+        _theme.AIGenerationNotes = _theme.AIGenerationNotes
+            .Where(x => !string.IsNullOrWhiteSpace(x.Text))
+            .Select(x => new RPThemeAIGuidanceNote
+            {
+                Id = string.IsNullOrWhiteSpace(x.Id) ? Guid.NewGuid().ToString("N") : x.Id,
+                ThemeId = _theme.Id,
+                Section = x.Section,
+                Text = (x.Text ?? string.Empty).Trim(),
+                SortOrder = x.SortOrder
+            })
+            .ToList();
+
+        if (string.IsNullOrWhiteSpace(_theme.Id))
+        {
+            _theme.Id = ToThemeId(_theme.Label);
+        }
+
+        if (string.IsNullOrWhiteSpace(_theme.Id))
+        {
+            throw new InvalidOperationException("Theme Id is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(_theme.Label))
+        {
+            throw new InvalidOperationException("Theme label is required.");
+        }
+    }
+
+    private static RPTheme CreateEmptyTheme()
+    {
+        return new RPTheme
+        {
+            Id = string.Empty,
+            Label = string.Empty,
+            Description = string.Empty,
+            Category = string.Empty,
+            Weight = 1,
+            IsEnabled = true,
+            Keywords = [],
+            StatAffinities = [],
+            PhaseGuidance = [],
+            GuidancePoints = [],
+            FitRules = [],
+            AIGenerationNotes = []
+        };
+    }
+
+    private async Task LoadAvailableRoleNamesAsync()
+    {
+        var roles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        try
+        {
+            var roleDefinitions = await StoryAnalysisFacade.ListRoleDefinitionsAsync();
+            foreach (var roleName in roleDefinitions
+                .Select(x => x.Name)
+                .Where(x => !string.IsNullOrWhiteSpace(x)))
+            {
+                roles.Add(roleName.Trim());
+            }
+        }
+        catch
+        {
+            // Keep RP theme detail usable even if role definition loading fails.
+        }
+
+        _availableRoleNames = roles
+            .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private IReadOnlyList<string> GetCharacterRoleOptions(string? selectedRole = null)
+    {
+        var options = _availableRoleNames.ToList();
+
+        var normalizedSelectedRole = CharacterRoleCatalog.Normalize(selectedRole);
+        if (!string.IsNullOrWhiteSpace(normalizedSelectedRole)
+            && !string.Equals(normalizedSelectedRole, CharacterRoleCatalog.Unknown, StringComparison.OrdinalIgnoreCase)
+            && !options.Contains(normalizedSelectedRole, StringComparer.OrdinalIgnoreCase))
+        {
+            options.Add(normalizedSelectedRole);
+        }
+
+        return options
+            .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static string ToThemeId(string label)
+    {
+        var chars = (label ?? string.Empty).Trim().ToLowerInvariant().Select(ch =>
+        {
+            if ((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9'))
+            {
+                return ch;
+            }
+
+            return '-';
+        }).ToArray();
+
+        var collapsed = new string(chars);
+        while (collapsed.Contains("--", StringComparison.Ordinal))
+        {
+            collapsed = collapsed.Replace("--", "-", StringComparison.Ordinal);
+        }
+
+        return collapsed.Trim('-');
+    }
+}

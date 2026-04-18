@@ -31,13 +31,18 @@ public sealed record ScenarioSelectionResult(
     IReadOnlyList<ScenarioScoreResult> RankedCandidates,
     string Rationale);
 
+public sealed record ScenarioTieDecision(
+    bool DeferredForTie,
+    string Rationale);
+
 public sealed record NarrativeSignalSnapshot(
     int InteractionsSinceCommitment,
     int InteractionsInApproaching,
     bool ExplicitClimaxRequested,
     bool ClimaxCompletionDetected,
     bool ManualScenarioOverrideRequested,
-    string? ManualOverrideScenarioId);
+    string? ManualOverrideScenarioId,
+    int CompletedScenarios = 0);
 
 public sealed record PhaseTransitionResult(
     string CurrentPhase,

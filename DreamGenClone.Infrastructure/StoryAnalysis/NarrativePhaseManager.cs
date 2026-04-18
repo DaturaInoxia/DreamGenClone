@@ -5,6 +5,15 @@ namespace DreamGenClone.Infrastructure.StoryAnalysis;
 
 public sealed class NarrativePhaseManager : INarrativePhaseManager
 {
+    private const double CommittedScoreBase = 60;
+    private const double CommittedDesireBase = 65;
+    private const double CommittedRestraintBase = 45;
+    private const int CommittedInteractionsBase = 3;
+    private const double ApproachingScoreBase = 80;
+    private const double ApproachingDesireBase = 75;
+    private const double ApproachingRestraintBase = 35;
+    private const int ApproachingInteractionsBase = 2;
+
     public Task<PhaseTransitionResult> EvaluateTransitionAsync(
         AdaptiveScenarioSnapshot adaptiveState,
         NarrativeSignalSnapshot signals,
@@ -16,6 +25,9 @@ public sealed class NarrativePhaseManager : INarrativePhaseManager
         var current = adaptiveState.CurrentNarrativePhase;
         var next = current;
         var reason = "No transition";
+        var completedScenarios = Math.Max(0, signals.CompletedScenarios);
+        var committedThresholds = ResolveCommittedThresholds(completedScenarios);
+        var approachingThresholds = ResolveApproachingThresholds(completedScenarios);
 
         if (signals.ManualScenarioOverrideRequested)
         {
@@ -23,28 +35,31 @@ public sealed class NarrativePhaseManager : INarrativePhaseManager
             reason = "Manual scenario override requested";
         }
         else if (current == "Committed"
-            && adaptiveState.ActiveScenarioScore >= 60
-            && adaptiveState.AverageDesire >= 65
-            && adaptiveState.AverageRestraint <= 45
-            && signals.InteractionsSinceCommitment >= 3)
+            && adaptiveState.ActiveScenarioScore >= committedThresholds.ScoreMin
+            && adaptiveState.AverageDesire >= committedThresholds.DesireMin
+            && adaptiveState.AverageRestraint <= committedThresholds.RestraintMax
+            && signals.InteractionsSinceCommitment >= committedThresholds.InteractionsMin)
         {
             next = "Approaching";
             reason = "Committed to Approaching threshold met";
         }
         else if (current == "Approaching"
             && (signals.ExplicitClimaxRequested
-                || (adaptiveState.ActiveScenarioScore >= 80
-                    && adaptiveState.AverageDesire >= 75
-                    && adaptiveState.AverageRestraint <= 35
-                    && signals.InteractionsInApproaching >= 2)))
+                || (adaptiveState.ActiveScenarioScore >= approachingThresholds.ScoreMin
+                    && adaptiveState.AverageDesire >= approachingThresholds.DesireMin
+                    && adaptiveState.AverageRestraint <= approachingThresholds.RestraintMax
+                    && signals.InteractionsInApproaching >= approachingThresholds.InteractionsMin)))
         {
             next = "Climax";
             reason = signals.ExplicitClimaxRequested ? "Explicit climax override" : "Approaching to Climax threshold met";
         }
-        else if (current == "Climax" && signals.ClimaxCompletionDetected)
+        else if (current == "Climax"
+            && (signals.ClimaxCompletionDetected || signals.InteractionsInApproaching >= 2))
         {
             next = "Reset";
-            reason = "Climax completion detected";
+            reason = signals.ClimaxCompletionDetected
+                ? "Climax completion detected"
+                : "Climax auto-complete threshold met";
         }
         else if (current == "Reset")
         {
@@ -74,5 +89,25 @@ public sealed class NarrativePhaseManager : INarrativePhaseManager
             ActiveScenarioScore: Math.Max(0, adaptiveState.ActiveScenarioScore * 0.3));
 
         return Task.FromResult(reset);
+    }
+
+    private static (double ScoreMin, double DesireMin, double RestraintMax, int InteractionsMin) ResolveCommittedThresholds(int completedScenarios)
+    {
+        var cycle = Math.Max(0, completedScenarios);
+        return (
+            ScoreMin: Math.Max(45, CommittedScoreBase - (cycle * 4)),
+            DesireMin: Math.Max(50, CommittedDesireBase - (cycle * 4)),
+            RestraintMax: Math.Min(60, CommittedRestraintBase + (cycle * 4)),
+            InteractionsMin: Math.Max(2, CommittedInteractionsBase - Math.Min(cycle, 1)));
+    }
+
+    private static (double ScoreMin, double DesireMin, double RestraintMax, int InteractionsMin) ResolveApproachingThresholds(int completedScenarios)
+    {
+        var cycle = Math.Max(0, completedScenarios);
+        return (
+            ScoreMin: Math.Max(55, ApproachingScoreBase - (cycle * 8)),
+            DesireMin: Math.Max(60, ApproachingDesireBase - (cycle * 6)),
+            RestraintMax: Math.Min(55, ApproachingRestraintBase + (cycle * 6)),
+            InteractionsMin: ApproachingInteractionsBase);
     }
 }

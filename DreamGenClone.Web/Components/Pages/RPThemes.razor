@@ -10,6 +10,7 @@
 
 @inject IRPThemeService RPThemeService
 @inject IOptions<StoryAnalysisOptions> StoryAnalysisOptions
+@inject NavigationManager Navigation
 
 <PageTitle>RP Themes</PageTitle>
 
@@ -95,19 +96,6 @@
                     <span class="badge bg-secondary">Profile-scoped list management</span>
                 </div>
                 <div class="card-body">
-                    <div class="row g-2 align-items-end mb-3">
-                        <div class="col-md-6">
-                            <label class="form-label">Active Profile</label>
-                            <select class="form-select form-select-sm" value="@(_selectedProfileId ?? string.Empty)" @onchange="OnThemeProfileChangedAsync">
-                                <option value="">Select profile...</option>
-                                @foreach (var profile in _profiles)
-                                {
-                                    <option value="@profile.Id">@profile.Name</option>
-                                }
-                            </select>
-                        </div>
-                    </div>
-
                     @if (_selectedProfile is null)
                     {
                         <div class="alert alert-warning mb-3">Select a profile to manage its theme list.</div>
@@ -118,19 +106,7 @@
                         <InputFile OnChange="OnFilesPickedAsync" multiple accept=".md,text/markdown" />
                     </div>
 
-                    <div class="row g-2 align-items-end mb-2">
-                        <div class="col-md-4">
-                            <label class="form-label">Inline Source Path</label>
-                            <input class="form-control form-control-sm" @bind="_inlineSourcePath" placeholder="inline/theme.md" />
-                        </div>
-                        <div class="col-md-8">
-                            <label class="form-label">Inline Markdown</label>
-                            <textarea class="form-control form-control-sm" rows="5" @bind="_inlineMarkdown"></textarea>
-                        </div>
-                    </div>
-
                     <div class="d-flex gap-2">
-                        <button class="btn btn-sm btn-primary" @onclick="ImportInlineMarkdownAsync" disabled="@_isBusy">Import Inline</button>
                         <button class="btn btn-sm btn-outline-primary" @onclick="SyncDefinitionsFolderAsync" disabled="@_isBusy">Sync Definitions Folder</button>
                     </div>
 
@@ -138,99 +114,9 @@
 
                     <hr />
 
-                    <h6 class="mb-2">Theme Editor</h6>
-                    <div class="row g-2 align-items-end mb-2">
-                        <div class="col-md-4">
-                            <label class="form-label">Theme Id</label>
-                            <input class="form-control form-control-sm" @bind="_themeFormId" placeholder="infidelity-public-facade" disabled="@_isEditingTheme" />
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label">Label</label>
-                            <input class="form-control form-control-sm" @bind="_themeFormLabel" />
-                        </div>
-                        <div class="col-md-2">
-                            <label class="form-label">Category</label>
-                            <input class="form-control form-control-sm" @bind="_themeFormCategory" />
-                        </div>
-                        <div class="col-md-2">
-                            <label class="form-label">Weight</label>
-                            <input class="form-control form-control-sm" type="number" min="1" max="10" @bind="_themeFormWeight" />
-                        </div>
-                    </div>
-
-                    <div class="row g-2 align-items-end mb-2">
-                        <div class="col-12">
-                            <label class="form-label">Description</label>
-                            <input class="form-control form-control-sm" @bind="_themeFormDescription" />
-                        </div>
-                    </div>
-
-                    <div class="border rounded p-2 mb-3">
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <label class="form-label mb-0">Stat Affinities</label>
-                            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="AddThemeFormStatAffinity">Add Stat Affinity</button>
-                        </div>
-
-                        @if (_themeFormStatAffinities.Count == 0)
-                        {
-                            <div class="text-muted small">No stat affinities configured.</div>
-                        }
-                        else
-                        {
-                            <div class="table-responsive">
-                                <table class="table table-sm align-middle mb-0">
-                                    <thead>
-                                        <tr>
-                                            <th style="width: 180px;">Stat</th>
-                                            <th style="width: 110px;">Value</th>
-                                            <th>Rationale</th>
-                                            <th style="width: 120px;">Actions</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        @for (var i = 0; i < _themeFormStatAffinities.Count; i++)
-                                        {
-                                            var affinity = _themeFormStatAffinities[i];
-                                            <tr>
-                                                <td>
-                                                    <select class="form-select form-select-sm"
-                                                            value="@affinity.StatName"
-                                                            @onchange="e => SetThemeFormAffinityStatName(i, e.Value?.ToString())">
-                                                        <option value="">Select stat...</option>
-                                                        @foreach (var statName in AdaptiveStatCatalog.CanonicalStatNames)
-                                                        {
-                                                            <option value="@statName">@statName</option>
-                                                        }
-                                                    </select>
-                                                </td>
-                                                <td>
-                                                    <input class="form-control form-control-sm"
-                                                           type="number"
-                                                           min="-10"
-                                                           max="10"
-                                                           value="@affinity.Value"
-                                                           @onchange="e => SetThemeFormAffinityValue(i, e.Value?.ToString())" />
-                                                </td>
-                                                <td>
-                                                    <input class="form-control form-control-sm"
-                                                           value="@affinity.Rationale"
-                                                           @oninput="e => SetThemeFormAffinityRationale(i, e.Value?.ToString())"
-                                                           placeholder="Why this stat moves for this theme" />
-                                                </td>
-                                                <td>
-                                                    <button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => RemoveThemeFormStatAffinity(i)">Remove</button>
-                                                </td>
-                                            </tr>
-                                        }
-                                    </tbody>
-                                </table>
-                            </div>
-                        }
-                    </div>
-
-                    <div class="d-flex gap-2 mb-3">
-                        <button class="btn btn-sm btn-primary" @onclick="SaveThemeFromFormAsync" disabled="@_isBusy">@(_isEditingTheme ? "Update Theme" : "Create Theme")</button>
-                        <button class="btn btn-sm btn-outline-secondary" @onclick="ResetThemeForm">Clear</button>
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h6 class="mb-0">Theme Metadata List</h6>
+                        <button class="btn btn-sm btn-primary" @onclick="CreateTheme">New Theme</button>
                     </div>
 
                     @if (_lastImportResults.Count > 0)
@@ -285,232 +171,43 @@
                                     <th>Label</th>
                                     <th>Category</th>
                                     <th>Weight</th>
-                                    <th>Description</th>
-                                    <th style="width: 300px;">Actions</th>
+                                    <th>Enabled</th>
+                                    <th style="width: 160px;">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                @if (_profileThemes.Count == 0)
+                                @if (_themes.Count == 0)
                                 {
-                                    <tr><td colspan="6" class="text-muted">No themes assigned to this profile yet.</td></tr>
+                                    <tr><td colspan="6" class="text-muted">No themes found.</td></tr>
                                 }
                                 else
                                 {
-                                    @foreach (var theme in _profileThemes)
+                                    @foreach (var theme in _themes.OrderBy(x => x.Label, StringComparer.OrdinalIgnoreCase))
                                     {
-                                        var assignment = _assignments.FirstOrDefault(x => string.Equals(x.ThemeId, theme.Id, StringComparison.OrdinalIgnoreCase));
                                         var isExpanded = _expandedThemeIds.Contains(theme.Id);
                                         <tr>
                                             <td>@theme.Id</td>
                                             <td>@theme.Label</td>
                                             <td>@theme.Category</td>
                                             <td>@theme.Weight</td>
-                                            <td>@theme.Description</td>
+                                            <td>@(theme.IsEnabled ? "Yes" : "No")</td>
                                             <td>
-                                                <button class="btn btn-sm btn-outline-dark me-1" @onclick="() => ToggleThemeDetailsAsync(theme.Id)">@(isExpanded ? "Hide Details" : "View All Data")</button>
-                                                <button class="btn btn-sm btn-outline-primary me-1" @onclick="() => EditTheme(theme.Id)">Edit</button>
-                                                <button class="btn btn-sm btn-outline-secondary me-1" @onclick="() => RemoveThemeFromProfileAsync(theme.Id)">Remove From Profile</button>
-                                                <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteThemeDefinitionAsync(theme.Id)">Delete Theme</button>
+                                                <div class="d-flex gap-1">
+                                                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => ToggleThemeDetailsAsync(theme.Id)">@(isExpanded ? "Hide Raw" : "View Raw")</button>
+                                                    <button class="btn btn-sm btn-outline-primary" @onclick="() => ViewDetails(theme.Id)">View Details</button>
+                                                </div>
                                             </td>
                                         </tr>
 
                                         @if (isExpanded)
                                         {
                                             <tr>
-                                                <td colspan="7" class="bg-light">
+                                                <td colspan="6" class="bg-light">
                                                     <div class="p-2 small">
-                                                        <div class="fw-semibold mb-1">Theme Metadata</div>
-                                                        <div class="row g-2 mb-3">
-                                                            <div class="col-md-3"><strong>Id:</strong> @theme.Id</div>
-                                                            <div class="col-md-3"><strong>Label:</strong> @theme.Label</div>
-                                                            <div class="col-md-2"><strong>Category:</strong> @theme.Category</div>
-                                                            <div class="col-md-2"><strong>Weight:</strong> @theme.Weight</div>
-                                                            <div class="col-md-2"><strong>Enabled:</strong> @(theme.IsEnabled ? "Yes" : "No")</div>
-                                                            <div class="col-md-6"><strong>Parent Theme:</strong> @(string.IsNullOrWhiteSpace(theme.ParentThemeId) ? "(none)" : theme.ParentThemeId)</div>
-                                                            <div class="col-md-3"><strong>CreatedUtc:</strong> @theme.CreatedUtc.ToString("u")</div>
-                                                            <div class="col-md-3"><strong>UpdatedUtc:</strong> @theme.UpdatedUtc.ToString("u")</div>
-                                                            <div class="col-12"><strong>Description:</strong> @theme.Description</div>
-                                                        </div>
-
-                                                        <div class="fw-semibold mb-1">Profile Assignment Data</div>
-                                                        @if (assignment is null)
-                                                        {
-                                                            <div class="text-muted mb-3">No assignment found for current profile.</div>
-                                                        }
-                                                        else
-                                                        {
-                                                            <div class="row g-2 mb-3">
-                                                                <div class="col-md-3"><strong>Assignment Id:</strong> @assignment.Id</div>
-                                                                <div class="col-md-3"><strong>Profile Id:</strong> @assignment.ProfileId</div>
-                                                                <div class="col-md-2"><strong>Tier:</strong> @assignment.Tier</div>
-                                                                <div class="col-md-2"><strong>Weight:</strong> @assignment.Weight.ToString("0.00")</div>
-                                                                <div class="col-md-1"><strong>Sort:</strong> @assignment.SortOrder</div>
-                                                                <div class="col-md-1"><strong>Enabled:</strong> @(assignment.IsEnabled ? "Yes" : "No")</div>
-                                                            </div>
-                                                        }
-
-                                                        <div class="fw-semibold mb-1">Keywords (@theme.Keywords.Count)</div>
-                                                        @if (theme.Keywords.Count == 0)
-                                                        {
-                                                            <div class="text-muted mb-3">No keywords.</div>
-                                                        }
-                                                        else
-                                                        {
-                                                            <div class="table-responsive mb-3">
-                                                                <table class="table table-sm table-bordered mb-0">
-                                                                    <thead>
-                                                                        <tr><th>Group</th><th>Keyword</th><th>Sort</th></tr>
-                                                                    </thead>
-                                                                    <tbody>
-                                                                        @foreach (var keyword in theme.Keywords.OrderBy(x => x.GroupName).ThenBy(x => x.SortOrder))
-                                                                        {
-                                                                            <tr>
-                                                                                <td>@keyword.GroupName</td>
-                                                                                <td>@keyword.Keyword</td>
-                                                                                <td>@keyword.SortOrder</td>
-                                                                            </tr>
-                                                                        }
-                                                                    </tbody>
-                                                                </table>
-                                                            </div>
-                                                        }
-
-                                                        <div class="fw-semibold mb-1">Stat Affinities (@theme.StatAffinities.Count)</div>
-                                                        @if (theme.StatAffinities.Count == 0)
-                                                        {
-                                                            <div class="text-muted mb-3">No stat affinities.</div>
-                                                        }
-                                                        else
-                                                        {
-                                                            <div class="table-responsive mb-3">
-                                                                <table class="table table-sm table-bordered mb-0">
-                                                                    <thead>
-                                                                        <tr><th>Stat</th><th>Value</th><th>Rationale</th></tr>
-                                                                    </thead>
-                                                                    <tbody>
-                                                                        @foreach (var affinity in theme.StatAffinities.OrderBy(x => x.StatName))
-                                                                        {
-                                                                            <tr>
-                                                                                <td>@affinity.StatName</td>
-                                                                                <td>@affinity.Value</td>
-                                                                                <td>@affinity.Rationale</td>
-                                                                            </tr>
-                                                                        }
-                                                                    </tbody>
-                                                                </table>
-                                                            </div>
-                                                        }
-
-                                                        <div class="fw-semibold mb-1">Phase Guidance (@theme.PhaseGuidance.Count)</div>
-                                                        @if (theme.PhaseGuidance.Count == 0)
-                                                        {
-                                                            <div class="text-muted mb-3">No phase guidance.</div>
-                                                        }
-                                                        else
-                                                        {
-                                                            <div class="table-responsive mb-3">
-                                                                <table class="table table-sm table-bordered mb-0">
-                                                                    <thead>
-                                                                        <tr><th>Phase</th><th>Guidance</th></tr>
-                                                                    </thead>
-                                                                    <tbody>
-                                                                        @foreach (var guidance in theme.PhaseGuidance.OrderBy(x => x.Phase))
-                                                                        {
-                                                                            <tr>
-                                                                                <td>@guidance.Phase</td>
-                                                                                <td>@guidance.GuidanceText</td>
-                                                                            </tr>
-                                                                        }
-                                                                    </tbody>
-                                                                </table>
-                                                            </div>
-                                                        }
-
-                                                        <div class="fw-semibold mb-1">Guidance Points (@theme.GuidancePoints.Count)</div>
-                                                        @if (theme.GuidancePoints.Count == 0)
-                                                        {
-                                                            <div class="text-muted">No guidance points.</div>
-                                                        }
-                                                        else
-                                                        {
-                                                            <div class="table-responsive">
-                                                                <table class="table table-sm table-bordered mb-0">
-                                                                    <thead>
-                                                                        <tr><th>Phase</th><th>Type</th><th>Text</th><th>Sort</th></tr>
-                                                                    </thead>
-                                                                    <tbody>
-                                                                        @foreach (var point in theme.GuidancePoints.OrderBy(x => x.Phase).ThenBy(x => x.SortOrder))
-                                                                        {
-                                                                            <tr>
-                                                                                <td>@point.Phase</td>
-                                                                                <td>@point.PointType</td>
-                                                                                <td>@point.Text</td>
-                                                                                <td>@point.SortOrder</td>
-                                                                            </tr>
-                                                                        }
-                                                                    </tbody>
-                                                                </table>
-                                                            </div>
-                                                        }
-
-                                                        <div class="fw-semibold mt-3 mb-1">AI Generation Notes (@theme.AIGenerationNotes.Count)</div>
-                                                        @if (theme.AIGenerationNotes.Count == 0)
-                                                        {
-                                                            <div class="text-muted mb-3">No AI generation notes.</div>
-                                                        }
-                                                        else
-                                                        {
-                                                            <div class="table-responsive mb-3">
-                                                                <table class="table table-sm table-bordered mb-0">
-                                                                    <thead>
-                                                                        <tr><th>Section</th><th>Text</th><th>Sort</th></tr>
-                                                                    </thead>
-                                                                    <tbody>
-                                                                        @foreach (var note in theme.AIGenerationNotes.OrderBy(x => x.Section).ThenBy(x => x.SortOrder))
-                                                                        {
-                                                                            <tr>
-                                                                                <td>@note.Section</td>
-                                                                                <td>@note.Text</td>
-                                                                                <td>@note.SortOrder</td>
-                                                                            </tr>
-                                                                        }
-                                                                    </tbody>
-                                                                </table>
-                                                            </div>
-                                                        }
-
-                                                        <div class="fw-semibold mb-1">Character Fit Rules (@theme.FitRules.Count)</div>
-                                                        @if (theme.FitRules.Count == 0)
-                                                        {
-                                                            <div class="text-muted mb-3">No character fit rules.</div>
-                                                        }
-                                                        else
-                                                        {
-                                                            @foreach (var rule in theme.FitRules.OrderBy(x => x.RoleName, StringComparer.OrdinalIgnoreCase))
-                                                            {
-                                                                <div class="border rounded p-2 mb-2">
-                                                                    <div><strong>@rule.RoleName</strong> (Weight: @rule.RoleWeight.ToString("0.##"))</div>
-                                                                    @if (rule.Clauses.Count == 0)
-                                                                    {
-                                                                        <div class="text-muted small">No thresholds.</div>
-                                                                    }
-                                                                    else
-                                                                    {
-                                                                        <ul class="mb-0 mt-1">
-                                                                            @foreach (var clause in rule.Clauses.OrderBy(x => x.StatName, StringComparer.OrdinalIgnoreCase))
-                                                                            {
-                                                                                <li>@clause.StatName @clause.Comparator @clause.Threshold.ToString("0.##") @(!string.IsNullOrWhiteSpace(clause.Description) ? $"- {clause.Description}" : string.Empty)</li>
-                                                                            }
-                                                                        </ul>
-                                                                    }
-                                                                </div>
-                                                            }
-                                                        }
-
-                                                        <div class="fw-semibold mt-3 mb-1">Source Markdown (Full Theme Data)</div>
+                                                        <div class="fw-semibold mb-1">Source Markdown (Raw)</div>
                                                         @if (_themeSourceMarkdownById.TryGetValue(theme.Id, out var sourceMarkdown) && !string.IsNullOrWhiteSpace(sourceMarkdown))
                                                         {
-                                                            <pre class="border rounded p-2 bg-white" style="max-height: 420px; overflow: auto; white-space: pre-wrap;">@sourceMarkdown</pre>
+                                                            <pre class="border rounded p-2 bg-white mb-0" style="max-height: 420px; overflow: auto; white-space: pre-wrap;">@sourceMarkdown</pre>
                                                         }
                                                         else
                                                         {
@@ -674,7 +371,7 @@
             .Where(x => !string.Equals(x.Id, IRPThemeService.GlobalThemeLibraryProfileId, StringComparison.OrdinalIgnoreCase)));
 
         _themes.Clear();
-        _themes.AddRange(await RPThemeService.ListThemesAsync(includeDisabled: false));
+        _themes.AddRange(await RPThemeService.ListThemesAsync(includeDisabled: true));
 
         if (string.IsNullOrWhiteSpace(_selectedProfileId) && _profiles.Count > 0)
         {
@@ -712,6 +409,16 @@
         }
 
         EnsurePendingTierDefaults();
+    }
+
+    private void ViewDetails(string themeId)
+    {
+        Navigation.NavigateTo($"/rp-themes/{Uri.EscapeDataString(themeId)}");
+    }
+
+    private void CreateTheme()
+    {
+        Navigation.NavigateTo("/rp-themes/new");
     }
 
     private void EnsurePendingTierDefaults()

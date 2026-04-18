@@ -10,6 +10,11 @@ public interface IRolePlayAdaptiveStateService
         RolePlayInteraction interaction,
         CancellationToken cancellationToken = default);
 
+    Task<bool> ApplyManualScenarioOverrideAsync(
+        RolePlaySession session,
+        string requestedScenarioId,
+        CancellationToken cancellationToken = default);
+
     Task SeedFromScenarioAsync(
         RolePlaySession session,
         Scenario scenario,

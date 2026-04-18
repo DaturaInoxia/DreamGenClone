@@ -95,6 +95,115 @@ public sealed class DecisionPointMutationTests
     }
 
     [Fact]
+    public async Task DirectQuestionTrigger_CreatesDecisionPoint_WithoutActiveScenario()
+    {
+        var state = new AdaptiveScenarioState
+        {
+            SessionId = "fixture-session",
+            ActiveScenarioId = null,
+            CurrentPhase = NarrativePhase.BuildUp,
+            CharacterSnapshots =
+            [
+                new CharacterStatProfileV2
+                {
+                    CharacterId = "becky",
+                    Desire = 55,
+                    Restraint = 50,
+                    Tension = 45,
+                    Connection = 50,
+                    Dominance = 50,
+                    Loyalty = 50,
+                    SelfRespect = 50
+                },
+                new CharacterStatProfileV2
+                {
+                    CharacterId = "ken",
+                    Desire = 50,
+                    Restraint = 52,
+                    Tension = 40,
+                    Connection = 50,
+                    Dominance = 50,
+                    Loyalty = 50,
+                    SelfRespect = 50
+                }
+            ]
+        };
+
+        var point = await _service.TryCreateDecisionPointAsync(
+            state,
+            DecisionTrigger.CharacterDirectQuestion,
+            new DecisionGenerationContext
+            {
+                ScenarioId = "party-night",
+                Phase = state.CurrentPhase,
+                PromptSnippet = "Dance with me?",
+                AskingActorName = "becky",
+                TargetActorId = "ken",
+                IsDirectQuestionContext = true,
+                RelevantActors = state.CharacterSnapshots
+            });
+
+        Assert.NotNull(point);
+        Assert.Equal("party-night", point!.ScenarioId);
+        Assert.Equal(DecisionTrigger.CharacterDirectQuestion.ToString(), point.TriggerSource);
+        Assert.Equal("ken", point.TargetActorId);
+        Assert.NotEmpty(point.OptionIds);
+        Assert.Contains("tempt-answer", point.OptionIds, StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("lean-in", point.OptionIds, StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("hold-back", point.OptionIds, StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("observe", point.OptionIds, StringComparer.OrdinalIgnoreCase);
+        Assert.True(
+            point.OptionIds.Contains("seek-connection", StringComparer.OrdinalIgnoreCase)
+            || point.OptionIds.Contains("redirect", StringComparer.OrdinalIgnoreCase));
+        Assert.Contains("custom", point.OptionIds, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task TemptAnswerDecision_IncreasesDesire_AndReducesLoyalty()
+    {
+        var state = new AdaptiveScenarioState
+        {
+            SessionId = "fixture-session",
+            ActiveScenarioId = "scenario-1",
+            CurrentPhase = NarrativePhase.BuildUp,
+            CharacterSnapshots =
+            [
+                new CharacterStatProfileV2
+                {
+                    CharacterId = "becky",
+                    Desire = 54,
+                    Restraint = 70,
+                    Tension = 51,
+                    Connection = 50,
+                    Dominance = 50,
+                    Loyalty = 68,
+                    SelfRespect = 52
+                }
+            ]
+        };
+
+        var outcome = await _service.ApplyDecisionAsync(
+            state,
+            new DecisionSubmission
+            {
+                DecisionPointId = "dp-direct-tempt-1",
+                OptionId = "tempt-answer",
+                ActorName = "dean",
+                TargetActorId = "becky"
+            },
+            targetActorId: "becky");
+
+        Assert.True(outcome.Applied);
+        Assert.Equal("becky", outcome.TargetActorId);
+        Assert.True(outcome.AppliedStatDeltas.TryGetValue("Desire", out var desireDelta));
+        Assert.True(desireDelta > 0);
+        Assert.True(outcome.AppliedStatDeltas.TryGetValue("Loyalty", out var loyaltyDelta));
+        Assert.True(loyaltyDelta < 0);
+        Assert.True(state.CharacterSnapshots[0].Desire > 54);
+        Assert.True(state.CharacterSnapshots[0].Loyalty < 68);
+    }
+
+    [Fact]
     public async Task ApplyDecision_PersistsStatDeltaMutations()
     {
         var state = RolePlayV2AcceptanceFixtureData.BuildBoundaryState(50, 50, 50);

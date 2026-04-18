@@ -29,6 +29,11 @@ public interface IRolePlayEngineService
 
     Task<RolePlaySession> RebuildAdaptiveStateAsync(string sessionId, CancellationToken cancellationToken = default);
 
+    Task<RolePlaySession> OverrideAdaptiveThemeAsync(
+        string sessionId,
+        string requestedThemeId,
+        CancellationToken cancellationToken = default);
+
     Task<bool> UpdateBehaviorModeAsync(string sessionId, BehaviorMode mode, CancellationToken cancellationToken = default);
 
     Task<RolePlayInteraction> AddInteractionAsync(
@@ -57,11 +62,30 @@ public interface IRolePlayEngineService
 
     Task<RolePlayPendingDecisionPrompt?> GetPendingDecisionPromptAsync(string sessionId, CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<RolePlayPendingDecisionPrompt>> GetDeferredDecisionPromptsAsync(
+        string sessionId,
+        CancellationToken cancellationToken = default);
+
     Task<DecisionOutcome?> ApplyDecisionAsync(
         string sessionId,
         string decisionPointId,
         string optionId,
         string? customResponseText = null,
+        CancellationToken cancellationToken = default);
+
+    Task<bool> DeferDecisionPointAsync(
+        string sessionId,
+        string decisionPointId,
+        CancellationToken cancellationToken = default);
+
+    Task<bool> RestoreDeferredDecisionPointAsync(
+        string sessionId,
+        string decisionPointId,
+        CancellationToken cancellationToken = default);
+
+    Task<bool> SkipDecisionPointAsync(
+        string sessionId,
+        string decisionPointId,
         CancellationToken cancellationToken = default);
 
     Task<bool> DeleteSessionAsync(string sessionId, CancellationToken cancellationToken = default);

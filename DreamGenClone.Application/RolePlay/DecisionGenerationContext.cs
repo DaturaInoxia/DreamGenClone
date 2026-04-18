@@ -12,6 +12,8 @@ public sealed class DecisionGenerationContext
     public string? PromptSnippet { get; init; }
     public string? AskingActorName { get; init; }
     public string? TargetActorId { get; init; }
+    public bool IsDirectQuestionContext { get; init; }
+    public string? CurrentSceneLocation { get; init; }
     public TransparencyMode? TransparencyOverride { get; init; }
     public IReadOnlyList<CharacterStatProfileV2> RelevantActors { get; init; } = [];
 }

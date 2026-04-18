@@ -89,6 +89,7 @@ public sealed class CharacterStateScenarioMapper : ICharacterStateScenarioMapper
         }
 
         var roleScores = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        var clauseEvaluations = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
         var failures = new List<string>();
         var roleExplanations = new List<string>();
 
@@ -98,7 +99,7 @@ public sealed class CharacterStateScenarioMapper : ICharacterStateScenarioMapper
             var mappedCharacterId = ResolveCharacterId(roleName, rules.RoleCharacterBindings);
             var profile = TryResolveProfile(mappedCharacterId, snapshots);
 
-            var roleScore = EvaluateRole(roleName, roleRule, profile, failures, roleExplanations);
+            var roleScore = EvaluateRole(roleName, roleRule, profile, failures, roleExplanations, clauseEvaluations);
             roleScores[roleName] = roleScore;
         }
 
@@ -114,6 +115,7 @@ public sealed class CharacterStateScenarioMapper : ICharacterStateScenarioMapper
             ScenarioId = scenarioId,
             FitScore = Clamp01(weightedScore),
             CharacterRoleScores = roleScores,
+            ClauseEvaluations = clauseEvaluations,
             Rationale = rationale,
             Failures = failures
         };
@@ -146,13 +148,18 @@ public sealed class CharacterStateScenarioMapper : ICharacterStateScenarioMapper
         CharacterRoleRule roleRule,
         CharacterStatProfileV2 profile,
         List<string> failures,
-        List<string> roleExplanations)
+        List<string> roleExplanations,
+        Dictionary<string, List<string>> clauseEvaluationsByRole)
     {
+        var clauseEvaluations = new List<string>();
+
         var hasStatThresholds = roleRule.StatThresholds.Count > 0;
         var hasFormulaThresholds = roleRule.FormulaThresholds.Count > 0;
         if (!hasStatThresholds && !hasFormulaThresholds)
         {
             roleExplanations.Add($"Role '{roleName}' had no stat/formula thresholds; neutral score applied.");
+            clauseEvaluations.Add("No stat/formula clauses configured; neutral score applied.");
+            clauseEvaluationsByRole[roleName] = clauseEvaluations;
             return 0.5;
         }
 
@@ -171,7 +178,7 @@ public sealed class CharacterStateScenarioMapper : ICharacterStateScenarioMapper
                 ? Math.Max(configuredWeight, 0.0)
                 : 1.0;
 
-            var component = EvaluateStatComponent(roleName, statName, value, threshold, failures, roleExplanations);
+            var component = EvaluateStatComponent(roleName, statName, value, threshold, failures, roleExplanations, clauseEvaluations);
             weightedTotal += component * statWeight;
             totalWeight += statWeight;
         }
@@ -184,6 +191,7 @@ public sealed class CharacterStateScenarioMapper : ICharacterStateScenarioMapper
                 if (!TryGetFormulaValue(formulaScores, formulaName, out var formulaValue))
                 {
                     failures.Add($"{roleName}.{formulaName} formula not found");
+                    clauseEvaluations.Add($"FAIL {formulaName}: formula value not found.");
                     continue;
                 }
 
@@ -191,7 +199,7 @@ public sealed class CharacterStateScenarioMapper : ICharacterStateScenarioMapper
                     ? Math.Max(configuredWeight, 0.0)
                     : 1.0;
 
-                var component = EvaluateNumericComponent(roleName, formulaName, formulaValue, threshold, 0.0, 150.0, failures, roleExplanations);
+                var component = EvaluateNumericComponent(roleName, formulaName, formulaValue, threshold, 0.0, 150.0, failures, roleExplanations, clauseEvaluations);
                 weightedTotal += component * formulaWeight;
                 totalWeight += formulaWeight;
             }
@@ -200,11 +208,15 @@ public sealed class CharacterStateScenarioMapper : ICharacterStateScenarioMapper
         if (totalWeight <= 0)
         {
             roleExplanations.Add($"Role '{roleName}' had zero effective stat weight; neutral score applied.");
+            clauseEvaluations.Add("No effective clause weight; neutral score applied.");
+            clauseEvaluationsByRole[roleName] = clauseEvaluations;
             return 0.5;
         }
 
         var score = weightedTotal / totalWeight;
         roleExplanations.Add($"Role '{roleName}' score={score:0.###}.");
+        clauseEvaluations.Add($"Role aggregate score={score:0.###}.");
+        clauseEvaluationsByRole[roleName] = clauseEvaluations;
         return Clamp01(score);
     }
 
@@ -214,8 +226,9 @@ public sealed class CharacterStateScenarioMapper : ICharacterStateScenarioMapper
         int value,
         StatThresholdSpecification threshold,
         List<string> failures,
-        List<string> roleExplanations)
-        => EvaluateNumericComponent(roleName, statName, value, threshold, 0.0, 100.0, failures, roleExplanations);
+        List<string> roleExplanations,
+        List<string> clauseEvaluations)
+        => EvaluateNumericComponent(roleName, statName, value, threshold, 0.0, 100.0, failures, roleExplanations, clauseEvaluations);
 
     private static double EvaluateNumericComponent(
         string roleName,
@@ -225,10 +238,12 @@ public sealed class CharacterStateScenarioMapper : ICharacterStateScenarioMapper
         double scaleMin,
         double scaleMax,
         List<string> failures,
-        List<string> roleExplanations)
+        List<string> roleExplanations,
+        List<string> clauseEvaluations)
     {
         var penaltyWeight = Math.Max(threshold.PenaltyWeight, 0.0);
         var component = 1.0;
+        var failed = false;
 
         if (threshold.MinimumValue is not null && value < threshold.MinimumValue.Value)
         {
@@ -236,6 +251,12 @@ public sealed class CharacterStateScenarioMapper : ICharacterStateScenarioMapper
             var penalty = ((threshold.MinimumValue.Value - value) / denominator) * penaltyWeight;
             component -= penalty;
             failures.Add($"{roleName}.{statOrFormulaName} below minimum ({value:0.###} < {threshold.MinimumValue.Value:0.###})");
+            clauseEvaluations.Add($"FAIL {statOrFormulaName}: value={value:0.###} below min={threshold.MinimumValue.Value:0.###}.");
+            failed = true;
+        }
+        else if (threshold.MinimumValue is not null)
+        {
+            clauseEvaluations.Add($"PASS {statOrFormulaName}: value={value:0.###} meets min={threshold.MinimumValue.Value:0.###}.");
         }
 
         if (threshold.MaximumValue is not null && value > threshold.MaximumValue.Value)
@@ -244,6 +265,12 @@ public sealed class CharacterStateScenarioMapper : ICharacterStateScenarioMapper
             var penalty = ((value - threshold.MaximumValue.Value) / denominator) * penaltyWeight;
             component -= penalty;
             failures.Add($"{roleName}.{statOrFormulaName} above maximum ({value:0.###} > {threshold.MaximumValue.Value:0.###})");
+            clauseEvaluations.Add($"FAIL {statOrFormulaName}: value={value:0.###} above max={threshold.MaximumValue.Value:0.###}.");
+            failed = true;
+        }
+        else if (threshold.MaximumValue is not null)
+        {
+            clauseEvaluations.Add($"PASS {statOrFormulaName}: value={value:0.###} within max={threshold.MaximumValue.Value:0.###}.");
         }
 
         if (threshold.OptimalMin is not null && threshold.OptimalMax is not null)
@@ -259,7 +286,17 @@ public sealed class CharacterStateScenarioMapper : ICharacterStateScenarioMapper
                 var bonus = Math.Max(centrality, 0.0) * bonusCap;
                 component += bonus;
                 roleExplanations.Add($"{roleName}.{statOrFormulaName} in optimal range ({optimalMin:0.###}-{optimalMax:0.###}).");
+                clauseEvaluations.Add($"PASS {statOrFormulaName}: value={value:0.###} in optimal range {optimalMin:0.###}-{optimalMax:0.###}.");
             }
+            else
+            {
+                clauseEvaluations.Add($"INFO {statOrFormulaName}: value={value:0.###} outside optimal range {optimalMin:0.###}-{optimalMax:0.###}.");
+            }
+        }
+
+        if (!failed && threshold.MinimumValue is null && threshold.MaximumValue is null && threshold.OptimalMin is null && threshold.OptimalMax is null)
+        {
+            clauseEvaluations.Add($"PASS {statOrFormulaName}: no bounds configured (neutral component).");
         }
 
         return Clamp01(component);

@@ -19,16 +19,19 @@ public sealed class RolePlayStateRepository : IRolePlayV2StateRepository
     public async Task SaveAdaptiveStateAsync(AdaptiveScenarioState state, CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenConnectionAsync(cancellationToken);
+        await EnsureAdaptiveStateSchemaAsync(connection, cancellationToken);
         await using var command = connection.CreateCommand();
         command.CommandText = """
             INSERT INTO RolePlayV2AdaptiveStates (
                 SessionId, ActiveScenarioId, CurrentPhase, InteractionCountInPhase, ConsecutiveLeadCount,
                 LastEvaluationUtc, CycleIndex, ActiveFormulaVersion, ActiveVariantId,
-                SelectedWillingnessProfileId, HusbandAwarenessProfileId, CharacterSnapshotsJson, UpdatedUtc)
+                SelectedWillingnessProfileId, HusbandAwarenessProfileId, CurrentSceneLocation,
+                CharacterLocationsJson, CharacterLocationPerceptionsJson, CharacterSnapshotsJson, UpdatedUtc)
             VALUES (
                 $sessionId, $activeScenarioId, $currentPhase, $interactionCountInPhase, $consecutiveLeadCount,
                 $lastEvaluationUtc, $cycleIndex, $activeFormulaVersion, $activeVariantId,
-                $selectedWillingnessProfileId, $husbandAwarenessProfileId, $characterSnapshotsJson, $updatedUtc)
+                $selectedWillingnessProfileId, $husbandAwarenessProfileId, $currentSceneLocation,
+                $characterLocationsJson, $characterLocationPerceptionsJson, $characterSnapshotsJson, $updatedUtc)
             ON CONFLICT(SessionId) DO UPDATE SET
                 ActiveScenarioId = excluded.ActiveScenarioId,
                 CurrentPhase = excluded.CurrentPhase,
@@ -40,6 +43,9 @@ public sealed class RolePlayStateRepository : IRolePlayV2StateRepository
                 ActiveVariantId = excluded.ActiveVariantId,
                 SelectedWillingnessProfileId = excluded.SelectedWillingnessProfileId,
                 HusbandAwarenessProfileId = excluded.HusbandAwarenessProfileId,
+                CurrentSceneLocation = excluded.CurrentSceneLocation,
+                CharacterLocationsJson = excluded.CharacterLocationsJson,
+                CharacterLocationPerceptionsJson = excluded.CharacterLocationPerceptionsJson,
                 CharacterSnapshotsJson = excluded.CharacterSnapshotsJson,
                 UpdatedUtc = excluded.UpdatedUtc;
             """;
@@ -55,6 +61,9 @@ public sealed class RolePlayStateRepository : IRolePlayV2StateRepository
         command.Parameters.AddWithValue("$activeVariantId", (object?)state.ActiveVariantId ?? DBNull.Value);
         command.Parameters.AddWithValue("$selectedWillingnessProfileId", (object?)state.SelectedWillingnessProfileId ?? DBNull.Value);
         command.Parameters.AddWithValue("$husbandAwarenessProfileId", (object?)state.HusbandAwarenessProfileId ?? DBNull.Value);
+        command.Parameters.AddWithValue("$currentSceneLocation", (object?)state.CurrentSceneLocation ?? DBNull.Value);
+        command.Parameters.AddWithValue("$characterLocationsJson", JsonSerializer.Serialize(state.CharacterLocations));
+        command.Parameters.AddWithValue("$characterLocationPerceptionsJson", JsonSerializer.Serialize(state.CharacterLocationPerceptions));
         command.Parameters.AddWithValue("$characterSnapshotsJson", JsonSerializer.Serialize(state.CharacterSnapshots));
         command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
         await command.ExecuteNonQueryAsync(cancellationToken);
@@ -63,11 +72,13 @@ public sealed class RolePlayStateRepository : IRolePlayV2StateRepository
     public async Task<AdaptiveScenarioState?> LoadAdaptiveStateAsync(string sessionId, CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenConnectionAsync(cancellationToken);
+        await EnsureAdaptiveStateSchemaAsync(connection, cancellationToken);
         await using var command = connection.CreateCommand();
         command.CommandText = """
             SELECT SessionId, ActiveScenarioId, CurrentPhase, InteractionCountInPhase, ConsecutiveLeadCount,
                  LastEvaluationUtc, CycleIndex, ActiveFormulaVersion, ActiveVariantId,
-                 SelectedWillingnessProfileId, HusbandAwarenessProfileId, CharacterSnapshotsJson
+                  SelectedWillingnessProfileId, HusbandAwarenessProfileId, CurrentSceneLocation,
+                  CharacterLocationsJson, CharacterLocationPerceptionsJson, CharacterSnapshotsJson
             FROM RolePlayV2AdaptiveStates
             WHERE SessionId = $sessionId;
             """;
@@ -92,8 +103,52 @@ public sealed class RolePlayStateRepository : IRolePlayV2StateRepository
             ActiveVariantId = reader.IsDBNull(8) ? null : reader.GetString(8),
             SelectedWillingnessProfileId = reader.IsDBNull(9) ? null : reader.GetString(9),
             HusbandAwarenessProfileId = reader.IsDBNull(10) ? null : reader.GetString(10),
-            CharacterSnapshots = JsonSerializer.Deserialize<List<CharacterStatProfileV2>>(reader.GetString(11)) ?? []
+            CurrentSceneLocation = reader.IsDBNull(11) ? null : reader.GetString(11),
+            CharacterLocations = reader.IsDBNull(12)
+                ? []
+                : (JsonSerializer.Deserialize<List<CharacterLocationState>>(reader.GetString(12)) ?? []),
+            CharacterLocationPerceptions = reader.IsDBNull(13)
+                ? []
+                : (JsonSerializer.Deserialize<List<CharacterLocationPerceptionState>>(reader.GetString(13)) ?? []),
+            CharacterSnapshots = JsonSerializer.Deserialize<List<CharacterStatProfileV2>>(reader.GetString(14)) ?? []
         };
+    }
+
+    private static async Task EnsureAdaptiveStateSchemaAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        if (!await HasColumnAsync(connection, "RolePlayV2AdaptiveStates", "CurrentSceneLocation", cancellationToken))
+        {
+            await using var addCurrentSceneLocation = connection.CreateCommand();
+            addCurrentSceneLocation.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN CurrentSceneLocation TEXT NULL";
+            await addCurrentSceneLocation.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        if (!await HasColumnAsync(connection, "RolePlayV2AdaptiveStates", "CharacterLocationsJson", cancellationToken))
+        {
+            await using var addCharacterLocations = connection.CreateCommand();
+            addCharacterLocations.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN CharacterLocationsJson TEXT NOT NULL DEFAULT '[]'";
+            await addCharacterLocations.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        if (!await HasColumnAsync(connection, "RolePlayV2AdaptiveStates", "CharacterLocationPerceptionsJson", cancellationToken))
+        {
+            await using var addCharacterLocationPerceptions = connection.CreateCommand();
+            addCharacterLocationPerceptions.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN CharacterLocationPerceptionsJson TEXT NOT NULL DEFAULT '[]'";
+            await addCharacterLocationPerceptions.ExecuteNonQueryAsync(cancellationToken);
+        }
+    }
+
+    private static async Task<bool> HasColumnAsync(
+        SqliteConnection connection,
+        string tableName,
+        string columnName,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('{tableName}') WHERE name=$columnName";
+        command.Parameters.AddWithValue("$columnName", columnName);
+        var count = Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken));
+        return count > 0;
     }
 
     public async Task SaveCandidateEvaluationsAsync(IReadOnlyList<ScenarioCandidateEvaluation> evaluations, CancellationToken cancellationToken = default)
@@ -249,13 +304,17 @@ public sealed class RolePlayStateRepository : IRolePlayV2StateRepository
             var persistedOptionId = $"{decisionPoint.DecisionPointId}:{option.OptionId}";
             optionCmd.CommandText = """
                 INSERT INTO RolePlayV2DecisionOptions (
-                    OptionId, DecisionPointId, DisplayText, VisibilityMode, Prerequisites, StatDeltaMap, IsCustomResponseFallback)
+                    OptionId, DecisionPointId, DisplayText, ResponsePreview, BehaviorStyleHint, CharacterDirectionInstruction, ChatInstruction, VisibilityMode, Prerequisites, StatDeltaMap, IsCustomResponseFallback)
                 VALUES (
-                    $optionId, $decisionPointId, $displayText, $visibilityMode, $prerequisites, $statDeltaMap, $isCustomResponseFallback);
+                    $optionId, $decisionPointId, $displayText, $responsePreview, $behaviorStyleHint, $characterDirectionInstruction, $chatInstruction, $visibilityMode, $prerequisites, $statDeltaMap, $isCustomResponseFallback);
                 """;
             optionCmd.Parameters.AddWithValue("$optionId", persistedOptionId);
             optionCmd.Parameters.AddWithValue("$decisionPointId", option.DecisionPointId);
             optionCmd.Parameters.AddWithValue("$displayText", option.DisplayText);
+            optionCmd.Parameters.AddWithValue("$responsePreview", option.ResponsePreview);
+            optionCmd.Parameters.AddWithValue("$behaviorStyleHint", option.BehaviorStyleHint);
+            optionCmd.Parameters.AddWithValue("$characterDirectionInstruction", option.CharacterDirectionInstruction);
+            optionCmd.Parameters.AddWithValue("$chatInstruction", option.ChatInstruction);
             optionCmd.Parameters.AddWithValue("$visibilityMode", option.VisibilityMode.ToString());
             optionCmd.Parameters.AddWithValue("$prerequisites", option.Prerequisites);
             optionCmd.Parameters.AddWithValue("$statDeltaMap", option.StatDeltaMap);
@@ -310,7 +369,7 @@ public sealed class RolePlayStateRepository : IRolePlayV2StateRepository
         await using var connection = await OpenConnectionAsync(cancellationToken);
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT OptionId, DecisionPointId, DisplayText, VisibilityMode, Prerequisites, StatDeltaMap, IsCustomResponseFallback
+            SELECT OptionId, DecisionPointId, DisplayText, ResponsePreview, BehaviorStyleHint, CharacterDirectionInstruction, ChatInstruction, VisibilityMode, Prerequisites, StatDeltaMap, IsCustomResponseFallback
             FROM RolePlayV2DecisionOptions
             WHERE DecisionPointId = $decisionPointId
             ORDER BY rowid ASC;
@@ -335,10 +394,14 @@ public sealed class RolePlayStateRepository : IRolePlayV2StateRepository
                 OptionId = logicalOptionId,
                 DecisionPointId = reader.GetString(1),
                 DisplayText = reader.GetString(2),
-                VisibilityMode = Enum.TryParse<TransparencyMode>(reader.GetString(3), out var mode) ? mode : TransparencyMode.Directional,
-                Prerequisites = reader.GetString(4),
-                StatDeltaMap = reader.GetString(5),
-                IsCustomResponseFallback = reader.GetInt32(6) == 1
+                ResponsePreview = reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
+                BehaviorStyleHint = reader.IsDBNull(4) ? string.Empty : reader.GetString(4),
+                CharacterDirectionInstruction = reader.IsDBNull(5) ? string.Empty : reader.GetString(5),
+                ChatInstruction = reader.IsDBNull(6) ? string.Empty : reader.GetString(6),
+                VisibilityMode = Enum.TryParse<TransparencyMode>(reader.GetString(7), out var mode) ? mode : TransparencyMode.Directional,
+                Prerequisites = reader.GetString(8),
+                StatDeltaMap = reader.GetString(9),
+                IsCustomResponseFallback = reader.GetInt32(10) == 1
             });
         }
 

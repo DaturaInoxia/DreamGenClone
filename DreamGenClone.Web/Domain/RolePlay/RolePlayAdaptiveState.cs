@@ -28,7 +28,45 @@ public sealed class RolePlayAdaptiveState
 
     public int InteractionsInApproaching { get; set; }
 
+    public int BuildUpCooldownInteractionsRemaining { get; set; }
+
+    public string? CurrentSceneLocation { get; set; }
+
+    public List<RolePlayCharacterLocationState> CharacterLocations { get; set; } = [];
+
+    public List<RolePlayCharacterLocationPerceptionState> CharacterLocationPerceptions { get; set; } = [];
+
     public List<ScenarioMetadata> ScenarioHistory { get; set; } = [];
+}
+
+public sealed class RolePlayCharacterLocationState
+{
+    public string CharacterId { get; set; } = string.Empty;
+
+    public string? TrueLocation { get; set; }
+
+    public bool IsHidden { get; set; }
+
+    public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;
+}
+
+public sealed class RolePlayCharacterLocationPerceptionState
+{
+    public string ObserverCharacterId { get; set; } = string.Empty;
+
+    public string TargetCharacterId { get; set; } = string.Empty;
+
+    public string? PerceivedLocation { get; set; }
+
+    public int Confidence { get; set; }
+
+    public bool HasLineOfSight { get; set; }
+
+    public bool IsInProximity { get; set; }
+
+    public string? KnowledgeSource { get; set; }
+
+    public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;
 }
 
 public sealed class CharacterStatBlock

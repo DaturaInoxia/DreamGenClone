@@ -1,4 +1,5 @@
 using DreamGenClone.Domain.Administration;
+using DreamGenClone.Domain.RolePlay;
 
 namespace DreamGenClone.Infrastructure.Persistence;
 
@@ -71,6 +72,13 @@ public interface ISqlitePersistence
     Task<StatWillingnessProfile?> LoadDefaultStatWillingnessProfileAsync(CancellationToken cancellationToken = default);
     Task<List<StatWillingnessProfile>> LoadAllStatWillingnessProfilesAsync(CancellationToken cancellationToken = default);
     Task<bool> DeleteStatWillingnessProfileAsync(string id, CancellationToken cancellationToken = default);
+
+    // Narrative gate profile operations
+    Task SaveNarrativeGateProfileAsync(NarrativeGateProfile profile, CancellationToken cancellationToken = default);
+    Task<NarrativeGateProfile?> LoadNarrativeGateProfileAsync(string id, CancellationToken cancellationToken = default);
+    Task<NarrativeGateProfile?> LoadDefaultNarrativeGateProfileAsync(CancellationToken cancellationToken = default);
+    Task<List<NarrativeGateProfile>> LoadAllNarrativeGateProfilesAsync(CancellationToken cancellationToken = default);
+    Task<bool> DeleteNarrativeGateProfileAsync(string id, CancellationToken cancellationToken = default);
 
     // Husband awareness profile operations
     Task SaveHusbandAwarenessProfileAsync(HusbandAwarenessProfile profile, CancellationToken cancellationToken = default);

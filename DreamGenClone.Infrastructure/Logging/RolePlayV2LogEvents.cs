@@ -29,6 +29,12 @@ public static class RolePlayV2LogEvents
     public const string DecisionPointSkipped =
         "RolePlayV2 decision point skipped: SessionId={SessionId} Trigger={Trigger} Reason={Reason}";
 
+    public const string DirectQuestionDetected =
+        "RolePlayV2 direct question detected: SessionId={SessionId} AskingActor={AskingActor} TargetActor={TargetActor}";
+
+    public const string SceneLocationChangedDetected =
+        "RolePlayV2 scene location changed: SessionId={SessionId} PreviousLocation={PreviousLocation} CurrentLocation={CurrentLocation}";
+
     public const string OverrideDenied =
         "RolePlayV2 override denied: SessionId={SessionId} ActorId={ActorId} ActorRole={ActorRole} Reason={Reason}";
 

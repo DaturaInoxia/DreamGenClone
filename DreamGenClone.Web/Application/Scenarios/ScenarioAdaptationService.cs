@@ -114,7 +114,7 @@ public sealed class ScenarioAdaptationService : IScenarioAdaptationService
             {
                 Name = template.Name,
                 Description = template.Content,
-                Role = sub.TargetRole,
+                Role = string.IsNullOrWhiteSpace(sub.TargetRole) ? "Unknown" : sub.TargetRole,
                 Gender = CharacterGenderCatalog.Unknown,
                 TemplateId = template.Id.ToString()
             });
@@ -477,7 +477,7 @@ public sealed class ScenarioAdaptationService : IScenarioAdaptationService
                     {
                         Name = charName,
                         Description = GetString(charEl, "description"),
-                        Role = GetString(charEl, "role"),
+                        Role = GetString(charEl, "role") ?? "Unknown",
                         Gender = CharacterGenderCatalog.NormalizeForCharacter(GetString(charEl, "gender"))
                     };
 

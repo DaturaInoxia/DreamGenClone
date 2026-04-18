@@ -39,7 +39,9 @@ public sealed class ScenarioSelectionHysteresisTests
         var secondResult = await _service.TryCommitScenarioAsync(state, evaluations);
 
         Assert.False(firstResult.Committed);
+        Assert.Contains("tieSet=[", firstResult.Reason, StringComparison.OrdinalIgnoreCase);
         Assert.True(secondResult.Committed);
+        Assert.Contains("tieSet=[", secondResult.Reason, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

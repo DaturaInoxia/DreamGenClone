@@ -57,7 +57,7 @@ SessionId: b8ea5fbc-323b-4d00-ba1e-fe29ded13e8d
 ## Issue 2
 
 - Reported by: User
-- Status: Open (tracking only, no fix attempted)
+- Status: Resolved (validated in runtime)
 - Category: Adaptive stat mutation timing (first interaction)
 - Reported after: First interaction/continue in HP2
 - InteractionId: 02cfe72a-fb30-4c0a-aedb-28148a1ae559
@@ -158,6 +158,43 @@ SessionId: b8ea5fbc-323b-4d00-ba1e-fe29ded13e8d
 - Observability:
   - Policy-adjusted changes append explicit `policy:*` reasons into per-stat contributor metadata when caps alter raw deltas.
 
+### Issue 2 Follow-up Implementation (2026-04-16)
+
+- Added adaptive debug payload raw-vs-capped observability:
+  - `AdaptiveStateUpdated` metadata now includes `rawStatDeltas` (pre-policy clamp values).
+  - RolePlay debug page now renders a dedicated "Adaptive Stat Deltas" table showing `Raw`, `Applied`, and `Policy Adjustment` per stat.
+- Externalized policy knobs to configuration:
+  - Added `StoryAnalysis` option fields and appsettings entries for:
+    - `AdaptiveThemeAffinityStackLimit`
+    - `AdaptiveEarlyTurnInteractionThreshold`
+    - `AdaptiveEarlyTurnPerStatDeltaCap`
+    - `AdaptivePerInteractionTotalDeltaBudget`
+    - `AdaptiveThemeAffinityCapBuildUp|Committed|Approaching|Climax|Reset`
+
+### Issue 2 Closure Validation (2026-04-16)
+
+- User confirmation:
+  - Latest runtime behavior is stable and "stats are not as high" after policy/cap and observability changes.
+- Forensic confirmation (session `9aba569b-d36f-4a3f-80dc-c193b78e0e97`):
+  - Dean delta event (`f3f587a6-d70f-41c4-bb1d-70437018585c`) shows keyword-only reasons in `statDeltaReasons`:
+    - `Loyalty`: `keyword:loyalty-positive(+2)`
+    - `SelfRespect`: `keyword:selfrespect-positive(+1)`
+  - No `theme-affinity:*` contributor appears for that event while runtime was in BuildUp.
+
+### Issue 8 Implementation Start (2026-04-16)
+
+- Status: Resolved (implemented and validated)
+
+- Added DB-backed stat keyword category/rule subsystem:
+  - New tables: `RolePlayStatKeywordCategories`, `RolePlayStatKeywordRules`.
+  - New service: `IStatKeywordCategoryService` + SQLite implementation with CRUD and default seed.
+- Runtime integration:
+  - Direct stat keyword mutation in adaptive state updates now reads enabled categories/rules from DB service.
+  - Hardcoded keyword mapping remains as in-service fallback when DB service is unavailable.
+- Admin UI:
+  - Added new CRUD page at `/stat-keyword-categories` (also `/profiles/stat-keyword-categories`).
+  - Added navigation link in the app menu.
+
 ## Validation Note A: First Interaction Runtime Snapshot Looks Correct
 
 - Status: Informational (non-issue confirmation)
@@ -184,7 +221,7 @@ SessionId: b8ea5fbc-323b-4d00-ba1e-fe29ded13e8d
 ## Enhancement Request A
 
 - Reported by: User
-- Status: Planned (not started)
+- Status: Resolved (implemented and validated)
 - Category: RolePlay v2 runtime UX clarity
 - Request:
   - Add a phase ladder/flow visualization in RolePlay v2 Runtime showing all phases in order.
@@ -193,6 +230,169 @@ SessionId: b8ea5fbc-323b-4d00-ba1e-fe29ded13e8d
 - Planning guidance:
   - Define explicit phase completion/proximity metrics before implementation.
   - Keep this enhancement in a dedicated slice after active issue queue work.
+
+### Enhancement Request A Implementation Progress (2026-04-16)
+
+- Added RolePlay v2 Runtime phase ladder rendering in workspace panel:
+  - Ladder sequence is rendered as `BuildUp -> Committed -> Approaching -> Climax -> Reset`.
+  - Current phase is visually highlighted with bracketed emphasis (for example `[Committed]`).
+- Added explicit phase progress/proximity metric row:
+  - Displays `% to next phase` and a details row that explains exactly which thresholds are being evaluated.
+- Implemented per-phase completion/proximity policy:
+  - `BuildUp -> Committed`: commitment-readiness metric (100% when active scenario is committed; otherwise candidate-confidence based when diagnostics are available).
+  - `Committed -> Approaching`: averaged threshold progress across score, desire, restraint, and interactions-since-commitment.
+  - `Approaching -> Climax`: averaged threshold progress across score, desire, restraint, and interactions-in-approaching; notes manual `/climax` override path.
+  - `Climax -> Reset`: command-driven transition guidance (`/completeclimax`).
+  - `Reset -> BuildUp`: auto-advance noted as complete-ready.
+
+### Enhancement Request A Implementation Progress (2026-04-16, visual pass)
+
+- Added stronger visual treatment in RolePlay v2 Runtime:
+  - Color-coded phase badges for the ladder (completed/current/upcoming states).
+  - Compact progress bar aligned with current phase status.
+  - Phase-specific progress color mapping (BuildUp/Committed/Approaching/Climax/Reset).
+
+### Runtime Loop Fix Note (2026-04-16)
+
+- User-observed issue:
+  - Session reached `Climax` and remained there without returning to `Reset -> BuildUp` unless an explicit command was entered.
+- Fix implemented:
+  - Added alias support for climax completion command markers (`/endclimax`, `/end-climax`, `end climax`) in addition to existing markers.
+  - Added auto-complete fallback from `Climax -> Reset` when climax interaction progression reaches threshold (prevents dead-loop when no explicit command is issued).
+  - Reset/repurpose phase counter behavior on entering `Climax` to support deterministic auto-exit counting.
+- Validation:
+  - Build and diagnostics passed after changes.
+
+### Runtime Loop Fix Follow-up (2026-04-16)
+
+- User-observed follow-up:
+  - Phase reached `Climax`, stayed for one interaction, then jumped to `Committed` instead of clearly spending time in `BuildUp`.
+- Root cause adjustments:
+  - Tightened climax completion detection to explicit command tokens only (slash commands), preventing accidental phrase matches from normal narrative text.
+  - Added short post-reset BuildUp cooldown (`1` interaction) before recommit logic can run, preventing immediate `Reset -> BuildUp -> Committed` bounce.
+- Net effect:
+  - `Climax -> Reset -> BuildUp` remains automatic.
+  - Recommit now waits at least one BuildUp interaction rather than snapping back instantly.
+
+### Runtime Loop Fix Follow-up 2 (2026-04-16, session forensic)
+
+- User-observed follow-up:
+  - For session `d7d9a0c2-8dca-4e2d-937f-806352f1b622`, phase reached `Approaching`/`Climax` and then appeared to fall back to `Committed`.
+- Forensic findings (logs + DB):
+  - `RolePlayV2PhaseTransitions` persisted repeated `Committed -> Approaching` events, with no explicit `Approaching -> Committed` transition event.
+  - Log timeline showed `phase="Approaching"` or `phase="Climax"` entering scenario commitment evaluation, followed by `RolePlayV2 scenario committed ... Phase="Committed"` in the same cycle.
+- Root cause:
+  - A second phase writer existed in the v2 pipeline (`RolePlayEngineService.RunRolePlayV2PipelinesAsync`) that always forced `CurrentPhase=Committed` when a commit result was returned, even when recommitting the same active scenario mid-arc.
+- Fix implemented:
+  - Preserve current phase for same-scenario recommit when already in active arc phases (`Committed`/`Approaching`/`Climax`).
+  - Only force-enter `Committed` (and reset phase interaction counter) when scenario changes or when coming from `BuildUp`/`Reset`.
+- Expected behavior after fix:
+  - Mid-arc same-scenario recommit no longer fabricates `Committed -> Approaching` loops.
+  - `Approaching -> Climax -> Reset` progression remains governed by lifecycle thresholds/commands instead of commit-side phase overwrite.
+
+## Investigation Item E
+
+- Reported by: User
+- Status: Planned (investigate further)
+- Category: Narrative phase pacing / progression quality
+- Hypothesis:
+  - Gate phase promotion on narrative "beat credits", not only aggregate stat thresholds.
+  - Require key narrative beat types to accumulate credits before promotion is eligible.
+  - Initial beat families to evaluate: conflict, reveal, escalation, consequence.
+  - Character stats may accelerate credit gain rate, but may not bypass beat-credit minimums.
+- Rationale:
+  - Preserve visible story progression between climax cycles.
+  - Allow later cycles to feel easier while still requiring narrative movement.
+- Investigation guidance:
+  - Define per-phase beat-credit requirements and optional per-cycle easing policy.
+  - Define deterministic beat detection contract (structured metadata vs heuristic classification).
+  - Add runtime/debug observability showing credits earned, required, and blocking reason when promotion is denied.
+
+## Enhancement Request B
+
+- Reported by: User
+- Status: Planned (not started)
+- Category: Question subsystem runtime UX / manual invocation
+- Request:
+  - Add a UI trigger/button that allows the user to invoke adaptive question+answer generation on demand for each character at any time during a roleplay session.
+- Planning guidance:
+  - Define whether invocation is per-character, current-speaker, or both.
+  - Ensure invocation emits explicit decision-attempt telemetry and preserves normal cadence path semantics.
+  - Gate rollout to avoid destabilizing default continuation flow.
+
+## Enhancement Request C
+
+- Reported by: User
+- Status: Resolved (implemented and validated)
+- Category: Question subsystem phase-aware steering
+- Request:
+  - Adaptive question+answer behavior should be phase-aware.
+  - In `BuildUp`, question direction should prioritize theme steering/context progression (subtle scenario guidance) more strongly than raw stat-driven pressure.
+- Planning guidance:
+  - Add per-phase weighting policy between theme/context evidence and stat-pressure signals.
+  - Emit reasoning metadata that shows which phase policy was applied per generated/ skipped question.
+
+## Enhancement Request D
+
+- Reported by: User
+- Status: Resolved (done)
+- Category: Question subsystem direct-question trigger
+- Request:
+  - When any actor (including persona as a character) asks a direct question to a target actor, trigger an immediate adaptive question+answer decision for the target actor instead of waiting for normal cadence.
+  - When scene location changes inside story context (for example bar -> garden), trigger adaptive decision generation for all actors (including persona) via a queued fanout.
+  - Use the context-aware option pattern described in `specs/v2/Context-Aware Stat-Altering Question System - Analysis.md` (natural response options with mapped hidden stat profiles).
+- Design intent:
+  - Event-driven detection from interaction metadata and speaker/target context.
+  - Avoid post-hoc dependence on LLM response parsing to decide whether to trigger.
+- Planning guidance:
+  - Define deterministic trigger contract for direct-question detection and role-pair targeting.
+  - Define scene-location change detection contract and all-actor fanout queue semantics.
+  - Include true-location vs perceived-location model and line-of-sight/proximity rules in context policy.
+  - Define cadence-bypass safeguards (single active decision, dedupe, cooldown).
+  - Define initial option families and hidden stat profiles aligned with the analysis example.
+  - Add explicit decision-attempt diagnostics for trigger, skip, and generation outcomes.
+
+### Enhancement Request D Implementation Progress (2026-04-16)
+
+- Slice 1 implemented (engine trigger plumbing):
+  - Added decision triggers: `CharacterDirectQuestion` and `SceneLocationChanged`.
+  - Added direct-question detection + target resolution in engine orchestration.
+  - Added scene-location change detection from scenario locations in recent interaction stream.
+  - Added context shaping behavior:
+    - direct-question => single target-focused decision context,
+    - scene-location-change => all-actor queued decision contexts.
+  - Added diagnostic log events for trigger detection.
+- Validation:
+  - Focused Release roleplay tests passed after this slice (`DecisionPointMutationTests`, `RolePlaySessionLifecycleTests`).
+- Slice 2 implemented (location truth/perception foundation):
+  - Added persisted adaptive state fields for scene-location truth and perception:
+    - `CurrentSceneLocation`
+    - `CharacterLocations` (true location per actor)
+    - `CharacterLocationPerceptions` (observer perception with confidence/LOS/proximity)
+  - Added DB schema/migration support for:
+    - `CurrentSceneLocation`
+    - `CharacterLocationsJson`
+    - `CharacterLocationPerceptionsJson`
+  - Added engine policy to update perceived locations from true locations using v1 LOS/proximity heuristics:
+    - same location + not hidden => LOS/proximity true, confidence 100
+    - otherwise perception degrades toward last-known/assumed state
+  - Added repository round-trip test coverage for new location fields in `RolePlaySessionLifecycleTests`.
+- Slice 3 implemented (runtime visibility + diagnostics surfacing):
+  - Workspace runtime panel now shows:
+    - current scene location,
+    - per-actor true location rows,
+    - observer->target perceived location rows with confidence, LOS, proximity, and source.
+  - Engine now emits `LocationStateUpdated` debug events with structured location truth/perception payloads.
+  - Debug page now includes a `Locations` tab and structured renderers for location truth/perception metadata.
+- Enhancement D completion update (2026-04-16):
+  - Added queue UX controls for pending/fanout management:
+    - skip current,
+    - persisted defer/restore/skip for deferred queue,
+    - deferred decision review controls in workspace.
+  - Added regression coverage for queue/deferred semantics in `RolePlaySessionLifecycleTests`:
+    - pending prompt excludes deferred/applied decisions,
+    - defer/restore/skip lifecycle updates state and audit interaction as expected.
+  - Validation: roleplay-focused regression run (`FullyQualifiedName~RolePlay`) passed with 135/135 tests.
 
 ## Issue 4
 
@@ -305,6 +505,139 @@ SessionId: b8ea5fbc-323b-4d00-ba1e-fe29ded13e8d
   - Include validation and preview/impact hints where possible.
 - Observability:
   - Include mapping source id/category in debug metadata so statDeltaReasons remain explainable.
+
+## Issue 9
+
+- Reported by: User
+- Status: Open (needs investigation)
+- Category: Character location tracking quality
+- Problem statement:
+  - Current location tracking does not consistently maintain believable per-character location state.
+  - User asked whether model-assisted tracking should be used to improve location continuity.
+- Investigation scope:
+  - Evaluate hybrid approach: deterministic state model as source-of-truth + model-assisted inference for ambiguous moves/perceptions.
+  - Compare against current rule-only location updates for continuity, correctness, and drift over long sessions.
+  - Define guardrails so model suggestions cannot violate hard world constraints (for example impossible teleports, line-of-sight contradictions).
+
+## Issue 10
+
+- Reported by: User
+- Status: Planned (change list defined)
+- Category: Adaptive scenario/theme comeback behavior
+- Problem statement:
+  - When an active scenario is set, non-active themes are effectively suppressed from score growth.
+  - This makes it hard for a previously relevant theme to recover and compete again when narrative signals return.
+
+### Issue 10 Proposed System Changes
+
+- Change 1: Convert hard suppression into soft suppression scoring
+  - Current behavior increments `SuppressedHitCount` for non-active themes and skips score updates.
+  - Proposed behavior applies reduced evidence gain for non-active themes on match (for example `20%` of normal signal) with a small per-turn cap.
+  - Expected effect: latent momentum can build for comeback themes without causing rapid oscillation.
+
+- Change 2: Add active-scenario staleness decay
+  - If the active scenario has no new interaction-evidence hits across consecutive turns, apply incremental score decay.
+  - Expected effect: stale active scenarios gradually release ranking pressure and allow challengers to re-enter.
+
+- Change 3: Include suppression momentum in pivot selection
+  - Extend momentum candidate logic to consider recent suppressed-hit streaks, not only raw score/evidence totals.
+  - Expected effect: recurring narrative signals for non-active themes contribute to pivot readiness.
+
+- Change 4: Make pivot threshold stale-aware
+  - Keep default pivot margin for stability.
+  - Reduce required overtake margin when active scenario is stale (no-evidence window reached).
+  - Expected effect: controlled pivots become possible when current scenario clearly loses contextual support.
+
+- Change 5: Reduce hard active-scenario lock in prompt framing
+  - Keep active scenario as primary guidance.
+  - Permit one secondary-beat lane from top alternate theme when evidence supports it.
+  - Expected effect: model can emit comeback-aligned text cues that scoring can detect.
+
+- Change 6: Soften candidate gate zeroing to heavy penalty
+  - Replace hard `FitScore=0` on gate fail with a strong penalty multiplier in candidate ranking path.
+  - Expected effect: weak-but-emerging candidates remain visible for hysteresis and recovery logic.
+
+### Issue 10 Suggested Initial Tuning
+
+- `SuppressedEvidenceMultiplier = 0.20`
+- `SuppressedEvidencePerTurnCap = 1.5`
+- `ActiveScenarioNoHitStaleTurns = 2`
+- `ActiveScenarioStaleDecayPerTurn = 1.25`
+- `PivotOvertakeMarginDefault = 2.0`
+- `PivotOvertakeMarginWhenStale = 1.0`
+- `GateFailScorePenaltyMultiplier = 0.35`
+
+### Issue 10 Validation Plan
+
+- Add unit tests for:
+  - suppressed-theme soft gain behavior,
+  - active-scenario stale decay behavior,
+  - stale-aware pivot margin behavior,
+  - gate-penalty ranking behavior.
+- Validate with forensic replay on session traces where expected comeback previously failed.
+- Success criteria:
+  - Fewer incorrect location/perception jumps in runtime diagnostics.
+  - Clear reconciliation policy when model-inferred location conflicts with deterministic state.
+  - Auditable event trail showing why a location change was accepted or rejected.
+
+## Issue 10
+
+- Reported by: User
+- Status: In Progress (implementation planned)
+- Category: BuildUp theme candidate accuracy / RP theme metadata completeness
+- Problem statement:
+  - BuildUp candidate gating currently depends on global session averages, which can dilute 2-character themes when a session contains 3+ characters.
+  - RP theme model/UI needs explicit participant roles and weights maintained for each theme so scenario candidate weighting can be character-scoped.
+- Scope constraints:
+  - Dev mode only for rollout.
+  - New sessions only.
+  - No migration/backfill for existing RP sessions required.
+- Implementation objectives:
+  - Update RP theme model/service/UI to store and edit participant roles and role weights.
+  - Populate role+weight metadata for all RP themes in dev data.
+  - Use this metadata in BuildUp candidate weighting/gating so relevant character subsets drive selection.
+  - Surface scoped stats and gate-gap diagnostics in workspace adaptive panel.
+- Tracking checkpoints:
+  - Model/service contract updates.
+  - RP Themes admin UI role/weight editor.
+  - Dev startup/theme population coverage check.
+  - BuildUp scoped weighting integration.
+  - Regression tests for mixed 2-character vs 3-character scenarios.
+
+### Issue 10 Implementation Start (2026-04-17)
+
+- Plan approved to proceed in slices:
+  - Slice 1: RP theme model/service/UI role+weight editing and persistence verification.
+  - Slice 1B: RP Themes UX split into metadata list page + dedicated full CRUD detail page.
+  - Slice 2: Dev-only role+weight population pass for all RP themes.
+  - Slice 3: BuildUp candidate scoring updates to use role-scoped weighted stats for new sessions.
+  - Slice 4: Workspace diagnostics alignment and regression test updates.
+
+### Issue 10 Implementation Progress (2026-04-17, Slice 1)
+
+- RP Themes admin UI updated to support participant role/weight editing in Theme Editor:
+  - Added editable `Participant Roles and Weights` table with add/remove controls.
+  - Added inline role name and weight inputs with clamping/validation (`0.1` to `10.0`).
+- Theme save/edit wiring updated:
+  - Role/weight rows now serialize into `RPTheme.FitRules` (`RoleName`, `RoleWeight`) on save.
+  - Edit flow now hydrates role/weight rows from existing theme fit rules.
+  - Form reset clears participant role/weight state.
+- Validation status:
+  - Web project build succeeded after these updates.
+
+### Issue 10 Implementation Progress (2026-04-17, Slice 1B)
+
+- RP Themes list page reworked to metadata-only listing:
+  - Columns limited to `Id`, `Label`, `Category`, `Weight`, `Enabled` and action button.
+  - Removed inline editor from list page.
+  - Added `View Details` navigation to a dedicated detail route.
+- New full CRUD detail page added for each theme:
+  - Route: `/rp-themes/{themeId}` with `/rp-themes/new` for create flow.
+  - Sticky top command bar with always-visible `Save Theme` and `Delete Theme` actions and inline status/error messages.
+  - List-based sections are collapsible and collapsed by default.
+  - Single-value metadata editors remain always visible.
+  - Each list section supports add/edit/remove CRUD operations.
+  - Added informational popup support per section indicating RP Engine/model usage; sections not used still display explicit `not used` messaging.
 
 ## Issue 3
 

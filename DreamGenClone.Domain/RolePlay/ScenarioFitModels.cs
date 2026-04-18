@@ -54,6 +54,8 @@ public sealed class ScenarioFitResult
 
     public Dictionary<string, double> CharacterRoleScores { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
+    public Dictionary<string, List<string>> ClauseEvaluations { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
     public string Rationale { get; set; } = string.Empty;
 
     public List<string> Failures { get; set; } = [];

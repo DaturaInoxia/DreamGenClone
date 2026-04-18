@@ -61,4 +61,24 @@ public sealed class NarrativePhaseManagerTests
         Assert.True(result.Transitioned);
         Assert.Equal("Climax", result.NextPhase);
     }
+
+    [Fact]
+    public async Task EvaluateTransitionAsync_AppliesCycleEasing_ForApproachingToClimax()
+    {
+        var manager = new NarrativePhaseManager();
+
+        var result = await manager.EvaluateTransitionAsync(
+            new AdaptiveScenarioSnapshot("dominance", "Approaching", 24, 63, 47, 64),
+            new NarrativeSignalSnapshot(
+                InteractionsSinceCommitment: 6,
+                InteractionsInApproaching: 2,
+                ExplicitClimaxRequested: false,
+                ClimaxCompletionDetected: false,
+                ManualScenarioOverrideRequested: false,
+                ManualOverrideScenarioId: null,
+                CompletedScenarios: 2));
+
+        Assert.True(result.Transitioned);
+        Assert.Equal("Climax", result.NextPhase);
+    }
 }

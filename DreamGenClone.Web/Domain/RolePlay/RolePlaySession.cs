@@ -175,6 +175,9 @@ public sealed class RolePlaySession
     /// <summary>Decision points already applied in this session.</summary>
     public List<string> AppliedDecisionPointIds { get; set; } = [];
 
+    /// <summary>Decision points deferred for later review.</summary>
+    public List<string> DeferredDecisionPointIds { get; set; } = [];
+
     /// <summary>Persisted assistant chat threads for standard chat CRUD behavior.</summary>
     public List<RolePlayAssistantChatThread> AssistantChats { get; set; } = [];
 

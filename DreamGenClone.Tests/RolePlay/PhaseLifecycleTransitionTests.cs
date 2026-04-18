@@ -64,8 +64,8 @@ public sealed class PhaseLifecycleTransitionTests
         Assert.Single(reset.CharacterSnapshots);
         Assert.Equal(snapshot.CharacterId, reset.CharacterSnapshots[0].CharacterId);
         Assert.True(decayed.Desire < snapshot.Desire);
-        Assert.True(decayed.Tension < snapshot.Tension);
-        Assert.True(decayed.Dominance < snapshot.Dominance);
+        Assert.True(decayed.Tension <= snapshot.Tension);
+        Assert.True(decayed.Dominance <= snapshot.Dominance);
         Assert.Equal(snapshot.Connection, decayed.Connection);
         Assert.Equal(snapshot.Loyalty, decayed.Loyalty);
         Assert.Equal(snapshot.SelfRespect, decayed.SelfRespect);

@@ -10,7 +10,6 @@ Preserve momentum from HP2 findings while preventing scope drift. Execute fixes 
 
 ## Open Items (Tracked)
 
-- Issue 2: First interaction stat deltas need clearer explainability/auditability.
 - Issue 8: Move character stat keyword matching/categories to DB tables and add CRUD Profile UI (remove hardcoded hidden-only behavior).
 - Issue 3: Diagnostics readability is low (IDs/reason strings are not human-meaningful).
 - Issue 5: Writing style profile should potentially be reduced to Name/Description/Example/RuleOfThumb only.
@@ -25,6 +24,10 @@ Preserve momentum from HP2 findings while preventing scope drift. Execute fixes 
 - Issue 4: RP1 non-canonical adaptive stat keys in character stats.
 	- Canonical-only guards implemented in update/seed/sync paths.
 	- User runtime validation confirmed fixed in RP2.
+- Issue 2: First interaction stat deltas explainability/auditability.
+	- Added `statDeltaReasons`, raw-vs-applied delta visibility, and policy-cap observability in debug events/UI.
+	- Added and externalized adaptive cap/stack knobs via `StoryAnalysis` options + appsettings.
+	- Runtime follow-up validated by user: stat movement now behaves within expected bounds.
 
 ## Enhancements Backlog (Planned)
 
@@ -37,6 +40,26 @@ Preserve momentum from HP2 findings while preventing scope drift. Execute fixes 
 	- Planning notes:
 		- Define per-phase completion signal source (for example interaction counts, phase gates, confidence/fit thresholds).
 		- Keep this enhancement separate from Issue 2 behavior work; deliver as its own scoped slice.
+- Question subsystem on-demand invocation control.
+	- Goal: allow user-triggered adaptive question+answer generation for each character at any time via UI action.
+	- Planning notes:
+		- Decide trigger scope (per-character vs current-speaker vs both).
+		- Keep explicit telemetry for manual invocation path (attempt reason, gates, result).
+- Phase-aware question steering policy.
+	- Goal: make adaptive question+answer generation phase-sensitive, with BuildUp favoring theme/context steering over pure stat-pressure.
+	- Planning notes:
+		- Define phase weighting matrix for theme/context vs stat influence.
+		- Surface applied phase policy in runtime diagnostics for explainability.
+- Universal direct-question + scene-location adaptive trigger.
+	- Status: In Progress (Slice 1 implemented).
+	- Goal:
+		- when any actor (including persona) asks a direct question, create an immediate target-focused adaptive decision.
+		- when scene location changes, create queued adaptive decisions for all actors (including persona).
+	- Planning notes:
+		- Trigger should be deterministic and event-driven from interaction context, not inferred later from generated LLM output.
+		- Reuse context-aware option families with adaptive stat profiles (accept/casual/hesitant/loyalty-refusal/neutral).
+		- Add true-location vs perceived-location model and LOS/proximity policy for scene-awareness.
+		- Add cadence-bypass safeguards (single-active, dedupe, cooldown) and explicit trigger/skip diagnostics.
 
 ## Priority Order
 
@@ -163,13 +186,42 @@ Start Slice A (Issue 3) with a focused diagnostics readability patch and tests.
 	- Issue 6: validate narrative prompt intensity/style composition clarity against expected atmospheric + selected-writing-style behavior.
 	- Issue 7: fix recurring `Failed to read log file` warnings caused by log reader contention.
 	- Issue 8: externalize character stat keyword/category mappings to DB + add Profile UI CRUD so mappings are not hardcoded/hidden.
+- 2026-04-16: Next natural steps implemented.
+	- Debug visibility: adaptive debug metadata now includes `rawStatDeltas`; debug UI renders raw vs applied deltas and policy-adjustment reasons.
+	- Config knobs: adaptive policy caps/limits moved to `StoryAnalysis` options + appsettings.
+	- Issue 8 start: DB-backed stat keyword categories/rules implemented with CRUD service, startup seeding, and new admin page `/stat-keyword-categories`.
+- 2026-04-16: Slice C (Issue 2) marked complete.
+	- User runtime validation confirmed reduced stat volatility.
+	- Session-level forensic check verified observed Dean delta was keyword-sourced (not theme-affinity in BuildUp), consistent with current policy.
+- 2026-04-16: Enhancement design intake updated.
+	- Added direct-question adaptive Q&A trigger (`Other Man` -> `Wife`) to enhancements backlog.
+	- Marked status as `In Design Phase` to prioritize structured planning before implementation.
+- 2026-04-16: Universal trigger enhancement implementation started.
+	- Added new decision triggers (`CharacterDirectQuestion`, `SceneLocationChanged`) in contracts.
+	- Added engine-level trigger detection + context fanout rules (target-only for direct question, all-actor for scene location changes).
+	- Added trigger detection diagnostics events.
+	- Focused roleplay test classes passed in Release after patch.
+- 2026-04-16: Universal trigger enhancement slice 2 implemented.
+	- Added persisted scene-location truth/perception fields in adaptive V2 state (`CurrentSceneLocation`, `CharacterLocations`, `CharacterLocationPerceptions`).
+	- Added SQLite schema/migration support for location truth/perception JSON persistence.
+	- Added v1 LOS/proximity perception policy in engine state updates (same-location visibility = full confidence; otherwise degrade to last-known/assumed).
+	- Added repository round-trip test assertions for location truth/perception persistence and re-ran focused roleplay tests successfully.
+- 2026-04-16: Universal trigger enhancement slice 3 implemented.
+	- Added runtime visibility in workspace panel for scene location, true per-actor locations, and observer perceptions (confidence + LOS/proximity/source).
+	- Added structured location diagnostics event (`LocationStateUpdated`) emitted by engine V2 pipeline.
+	- Added debug page Locations tab with parsed truth/perception tables from metadata.
+- 2026-04-16: Universal trigger enhancement hardening completed.
+	- Added actionable queue controls for active and deferred decision prompts (skip/defer/restore flows).
+	- Added deferred decision persistence in session state and corresponding engine APIs.
+	- Added regression tests for pending/deferred queue behavior in `RolePlaySessionLifecycleTests`.
+	- Roleplay-focused regression validation passed (`FullyQualifiedName~RolePlay`): 135 passed, 0 failed.
+	- Phased implementation status set to complete through Phase 5.
 - Remaining in Slice A:
 	- Add/adjust tests for reason translation and profile-name fallbacks.
 	- Validate runtime output in HP2 manual pass.
 
 ## Immediate Next Validation
 
-- Validate Issue 2 output in runtime/debug event viewer by checking `statDeltaReasons` appears and is human-actionable.
 - Start Issue 8 design pass: define schema + migration for keyword categories/stat rules and scaffold CRUD page.
 - Begin Issue 6 prompt-construction validation with concrete before/after prompt captures in narrative mode.
 - Complete remaining Slice A tests for diagnostics readability formatting.

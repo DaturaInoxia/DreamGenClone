@@ -102,6 +102,7 @@ public sealed class PerInteractionAffinityTests
     {
         var service = new RolePlayAdaptiveStateService(new FakeCatalogService());
         var session = new RolePlaySession();
+        session.AdaptiveState.CurrentNarrativePhase = NarrativePhase.Committed;
         // Pre-initialize character stats
         session.AdaptiveState.CharacterStats["Alice"] = new CharacterStatBlock
         {

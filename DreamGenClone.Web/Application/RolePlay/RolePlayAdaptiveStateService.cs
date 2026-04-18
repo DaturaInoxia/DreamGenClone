@@ -14,10 +14,15 @@ namespace DreamGenClone.Web.Application.RolePlay;
 public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
 {
     private const int MaxAdaptiveTransitionHistory = 25;
-    private const int ThemeAffinityStackLimit = 1;
-    private const int EarlyTurnInteractionThreshold = 3;
-    private const int EarlyTurnPerStatDeltaCap = 2;
-    private const int PerInteractionTotalDeltaBudget = 10;
+    private const int ManualScenarioOverrideLockInteractions = 8;
+    private const int DefaultThemeAffinityStackLimit = 1;
+    private const int DefaultEarlyTurnInteractionThreshold = 3;
+    private const int DefaultEarlyTurnPerStatDeltaCap = 2;
+    private const int DefaultPerInteractionTotalDeltaBudget = 10;
+    private const int ResetExtremeLowThreshold = 10;
+    private const int ResetExtremeHighThreshold = 90;
+    private const int ResetExtremeHardTarget = 60;
+    private const double ResetSoftRetentionFactor = 0.35;
 
     private readonly IThemeCatalogService _themeCatalogService;
     private readonly IIntensityProfileService? _intensityProfileService;
@@ -26,12 +31,22 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
     private readonly INarrativePhaseManager? _narrativePhaseManager;
     private readonly IThemePreferenceService? _themePreferenceService;
     private readonly IRPThemeService? _rpThemeService;
+    private readonly IStatKeywordCategoryService? _statKeywordCategoryService;
     private readonly ISteeringProfileService? _steeringProfileService;
     private readonly IRolePlayDebugEventSink? _debugEventSink;
     private readonly ILogger<RolePlayAdaptiveStateService>? _logger;
     private readonly bool _useScenarioDefinitionsForAdaptiveRuntime;
     private readonly bool _useRpThemeSubsystem;
     private readonly bool _useRpThemeSubsystemForNewSessionsOnly;
+    private readonly int _themeAffinityStackLimit;
+    private readonly int _earlyTurnInteractionThreshold;
+    private readonly int _earlyTurnPerStatDeltaCap;
+    private readonly int _perInteractionTotalDeltaBudget;
+    private readonly int _themeAffinityCapBuildUp;
+    private readonly int _themeAffinityCapCommitted;
+    private readonly int _themeAffinityCapApproaching;
+    private readonly int _themeAffinityCapClimax;
+    private readonly int _themeAffinityCapReset;
 
     public RolePlayAdaptiveStateService(
         IThemeCatalogService themeCatalogService,
@@ -46,6 +61,15 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         _useScenarioDefinitionsForAdaptiveRuntime = false;
         _useRpThemeSubsystem = true;
         _useRpThemeSubsystemForNewSessionsOnly = true;
+        _themeAffinityStackLimit = DefaultThemeAffinityStackLimit;
+        _earlyTurnInteractionThreshold = DefaultEarlyTurnInteractionThreshold;
+        _earlyTurnPerStatDeltaCap = DefaultEarlyTurnPerStatDeltaCap;
+        _perInteractionTotalDeltaBudget = DefaultPerInteractionTotalDeltaBudget;
+        _themeAffinityCapBuildUp = 0;
+        _themeAffinityCapCommitted = 1;
+        _themeAffinityCapApproaching = 1;
+        _themeAffinityCapClimax = 2;
+        _themeAffinityCapReset = 0;
     }
 
     public RolePlayAdaptiveStateService(
@@ -62,6 +86,15 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         _useScenarioDefinitionsForAdaptiveRuntime = false;
         _useRpThemeSubsystem = true;
         _useRpThemeSubsystemForNewSessionsOnly = true;
+        _themeAffinityStackLimit = DefaultThemeAffinityStackLimit;
+        _earlyTurnInteractionThreshold = DefaultEarlyTurnInteractionThreshold;
+        _earlyTurnPerStatDeltaCap = DefaultEarlyTurnPerStatDeltaCap;
+        _perInteractionTotalDeltaBudget = DefaultPerInteractionTotalDeltaBudget;
+        _themeAffinityCapBuildUp = 0;
+        _themeAffinityCapCommitted = 1;
+        _themeAffinityCapApproaching = 1;
+        _themeAffinityCapClimax = 2;
+        _themeAffinityCapReset = 0;
     }
 
     public RolePlayAdaptiveStateService(
@@ -81,6 +114,15 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         _useScenarioDefinitionsForAdaptiveRuntime = false;
         _useRpThemeSubsystem = true;
         _useRpThemeSubsystemForNewSessionsOnly = true;
+        _themeAffinityStackLimit = DefaultThemeAffinityStackLimit;
+        _earlyTurnInteractionThreshold = DefaultEarlyTurnInteractionThreshold;
+        _earlyTurnPerStatDeltaCap = DefaultEarlyTurnPerStatDeltaCap;
+        _perInteractionTotalDeltaBudget = DefaultPerInteractionTotalDeltaBudget;
+        _themeAffinityCapBuildUp = 0;
+        _themeAffinityCapCommitted = 1;
+        _themeAffinityCapApproaching = 1;
+        _themeAffinityCapClimax = 2;
+        _themeAffinityCapReset = 0;
     }
 
     public RolePlayAdaptiveStateService(
@@ -107,6 +149,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         INarrativePhaseManager? narrativePhaseManager,
         IThemePreferenceService themePreferenceService,
         IRPThemeService? rpThemeService,
+        IStatKeywordCategoryService? statKeywordCategoryService,
         ISteeringProfileService styleProfileService,
         IRolePlayDebugEventSink debugEventSink,
         ILogger<RolePlayAdaptiveStateService> logger,
@@ -120,12 +163,22 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         _narrativePhaseManager = narrativePhaseManager;
         _themePreferenceService = themePreferenceService;
         _rpThemeService = rpThemeService;
+        _statKeywordCategoryService = statKeywordCategoryService;
         _steeringProfileService = styleProfileService;
         _debugEventSink = debugEventSink;
         _logger = logger;
         _useScenarioDefinitionsForAdaptiveRuntime = storyAnalysisOptions?.Value.UseScenarioDefinitionsForAdaptiveRuntime == true;
         _useRpThemeSubsystem = storyAnalysisOptions?.Value.UseRpThemeSubsystem ?? true;
         _useRpThemeSubsystemForNewSessionsOnly = storyAnalysisOptions?.Value.UseRpThemeSubsystemForNewSessionsOnly ?? true;
+        _themeAffinityStackLimit = Math.Max(1, storyAnalysisOptions?.Value.AdaptiveThemeAffinityStackLimit ?? DefaultThemeAffinityStackLimit);
+        _earlyTurnInteractionThreshold = Math.Max(1, storyAnalysisOptions?.Value.AdaptiveEarlyTurnInteractionThreshold ?? DefaultEarlyTurnInteractionThreshold);
+        _earlyTurnPerStatDeltaCap = Math.Max(1, storyAnalysisOptions?.Value.AdaptiveEarlyTurnPerStatDeltaCap ?? DefaultEarlyTurnPerStatDeltaCap);
+        _perInteractionTotalDeltaBudget = Math.Max(1, storyAnalysisOptions?.Value.AdaptivePerInteractionTotalDeltaBudget ?? DefaultPerInteractionTotalDeltaBudget);
+        _themeAffinityCapBuildUp = Math.Max(0, storyAnalysisOptions?.Value.AdaptiveThemeAffinityCapBuildUp ?? 0);
+        _themeAffinityCapCommitted = Math.Max(0, storyAnalysisOptions?.Value.AdaptiveThemeAffinityCapCommitted ?? 1);
+        _themeAffinityCapApproaching = Math.Max(0, storyAnalysisOptions?.Value.AdaptiveThemeAffinityCapApproaching ?? 1);
+        _themeAffinityCapClimax = Math.Max(0, storyAnalysisOptions?.Value.AdaptiveThemeAffinityCapClimax ?? 2);
+        _themeAffinityCapReset = Math.Max(0, storyAnalysisOptions?.Value.AdaptiveThemeAffinityCapReset ?? 0);
     }
 
     public RolePlayAdaptiveStateService(
@@ -136,7 +189,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         ISteeringProfileService styleProfileService,
         IRolePlayDebugEventSink debugEventSink,
         ILogger<RolePlayAdaptiveStateService> logger)
-        : this(themeCatalogService, null, scenarioSelectionEngine, null, themePreferenceService, rpThemeService, styleProfileService, debugEventSink, logger)
+        : this(themeCatalogService, null, scenarioSelectionEngine, null, themePreferenceService, rpThemeService, null, styleProfileService, debugEventSink, logger)
     {
     }
 
@@ -147,7 +200,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         ISteeringProfileService styleProfileService,
         IRolePlayDebugEventSink debugEventSink,
         ILogger<RolePlayAdaptiveStateService> logger)
-        : this(themeCatalogService, null, null, null, themePreferenceService, rpThemeService, styleProfileService, debugEventSink, logger)
+        : this(themeCatalogService, null, null, null, themePreferenceService, rpThemeService, null, styleProfileService, debugEventSink, logger)
     {
     }
 
@@ -157,7 +210,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         ISteeringProfileService styleProfileService,
         IRolePlayDebugEventSink debugEventSink,
         ILogger<RolePlayAdaptiveStateService> logger)
-        : this(themeCatalogService, null, null, null, themePreferenceService, null, styleProfileService, debugEventSink, logger)
+        : this(themeCatalogService, null, null, null, themePreferenceService, null, null, styleProfileService, debugEventSink, logger)
     {
     }
 
@@ -182,6 +235,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         CharacterStatBlock? actorStats = null;
         Dictionary<string, int>? statsBefore = null;
         var statDeltaContributors = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        var rawStatDeltasForEvent = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         if (trackCharacterStats)
         {
             actorStats = GetOrCreateCharacterStats(state, actorKey);
@@ -196,55 +250,40 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
 
         var content = interaction.Content ?? string.Empty;
         var contentLower = content.ToLowerInvariant();
+        var statKeywordCategories = await LoadStatKeywordCategoriesAsync(cancellationToken);
 
-        // Lightweight keyword heuristics for v1 foundation.
+        // Direct stat mutation driven by keyword categories.
         if (actorStats is not null)
         {
-            ApplyTrackedDelta(
-                actorStats.Stats,
-                "Desire",
-                ScoreStatSignal(contentLower, ["kiss", "touch", "desire", "want", "close", "heat"], 1, 4),
-                "keyword:desire");
-            ApplyTrackedDelta(
-                actorStats.Stats,
-                "Restraint",
-                ScoreStatSignal(contentLower, ["can't", "wrong", "shouldn't", "hesitate", "guilt"], 1, 3),
-                "keyword:restraint");
-            ApplyTrackedDelta(
-                actorStats.Stats,
-                "Tension",
-                ScoreStatSignal(contentLower, ["fear", "caught", "risk", "panic", "nervous"], 1, 4),
-                "keyword:tension");
-            ApplyTrackedDelta(
-                actorStats.Stats,
-                "Connection",
-                ScoreStatSignal(contentLower, ["safe", "comfort", "trust", "reassure"], 1, 3),
-                "keyword:connection");
-            ApplyTrackedDelta(
-                actorStats.Stats,
-                "Dominance",
-                ScoreStatSignal(contentLower, ["control", "command", "obey", "claim", "choose", "decide", "insist"], 1, 3),
-                "keyword:dominance");
-            ApplyTrackedDelta(
-                actorStats.Stats,
-                "Loyalty",
-                ScoreStatSignal(contentLower, ["husband", "wife", "promise", "vow", "faithful", "devoted", "commitment"], 1, 5),
-                "keyword:loyalty-positive");
-            ApplyTrackedDelta(
-                actorStats.Stats,
-                "Loyalty",
-                -ScoreStatSignal(contentLower, ["affair", "betray", "cheat", "secret", "sneak", "stranger"], 1, 5),
-                "keyword:loyalty-negative");
-            ApplyTrackedDelta(
-                actorStats.Stats,
-                "SelfRespect",
-                ScoreStatSignal(contentLower, ["boundary", "boundaries", "respect", "dignity", "self-worth", "walk away", "no"], 1, 5),
-                "keyword:selfrespect-positive");
-            ApplyTrackedDelta(
-                actorStats.Stats,
-                "SelfRespect",
-                -ScoreStatSignal(contentLower, ["humiliate", "ashamed", "used", "degraded", "demean"], 1, 5),
-                "keyword:selfrespect-negative");
+            foreach (var category in statKeywordCategories)
+            {
+                var normalizedStatName = ResolveSupportedStatName(category.StatName);
+                if (normalizedStatName is null)
+                {
+                    continue;
+                }
+
+                var keywords = category.Keywords
+                    .Where(x => !string.IsNullOrWhiteSpace(x.Keyword))
+                    .Select(x => x.Keyword.Trim())
+                    .ToList();
+                if (keywords.Count == 0)
+                {
+                    continue;
+                }
+
+                var keywordDelta = ScoreStatSignalWithDirection(contentLower, keywords, category.PerKeywordDelta, category.MaxAbsDelta);
+                if (keywordDelta == 0)
+                {
+                    continue;
+                }
+
+                var reasonKey = string.IsNullOrWhiteSpace(category.Name)
+                    ? normalizedStatName.ToLowerInvariant()
+                    : category.Name.Trim().ToLowerInvariant().Replace(' ', '-');
+
+                ApplyTrackedDelta(actorStats.Stats, normalizedStatName, keywordDelta, $"keyword:{reasonKey}");
+            }
 
             actorStats.UpdatedUtc = DateTime.UtcNow;
         }
@@ -345,7 +384,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
 
         if (actorStats is not null && themeAffinityCandidates.Count > 0)
         {
-            var selectedThemeAffinityCandidates = SelectThemeAffinityCandidates(themeAffinityCandidates, ThemeAffinityStackLimit);
+            var selectedThemeAffinityCandidates = SelectThemeAffinityCandidates(themeAffinityCandidates, _themeAffinityStackLimit);
             foreach (var candidate in selectedThemeAffinityCandidates)
             {
                 foreach (var (statName, delta) in candidate.StatDeltas)
@@ -405,6 +444,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
                     {
                         interactionId = interaction.Id,
                         actorKey,
+                        rawStatDeltas = rawStatDeltasForEvent,
                         statDeltas,
                         statDeltaReasons,
                         primaryThemeBefore = primaryBefore,
@@ -460,6 +500,8 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
                 return;
             }
 
+            rawStatDeltasForEvent = new Dictionary<string, int>(rawDeltas, StringComparer.OrdinalIgnoreCase);
+
             var adjustedDeltas = new Dictionary<string, int>(rawDeltas, StringComparer.OrdinalIgnoreCase);
             var isEarlyActorTurn = IsEarlyActorTurn(session, interaction, actorKey);
             if (isEarlyActorTurn)
@@ -467,7 +509,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
                 foreach (var statName in adjustedDeltas.Keys.ToList())
                 {
                     var original = adjustedDeltas[statName];
-                    var capped = Math.Sign(original) * Math.Min(Math.Abs(original), EarlyTurnPerStatDeltaCap);
+                    var capped = Math.Sign(original) * Math.Min(Math.Abs(original), _earlyTurnPerStatDeltaCap);
                     if (capped != original)
                     {
                         adjustedDeltas[statName] = capped;
@@ -477,11 +519,11 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             }
 
             var totalBeforeBudgetCap = adjustedDeltas.Values.Sum(x => Math.Abs(x));
-            if (totalBeforeBudgetCap > PerInteractionTotalDeltaBudget)
+            if (totalBeforeBudgetCap > _perInteractionTotalDeltaBudget)
             {
                 var beforeBudgetDeltas = new Dictionary<string, int>(adjustedDeltas, StringComparer.OrdinalIgnoreCase);
                 var currentTotal = totalBeforeBudgetCap;
-                while (currentTotal > PerInteractionTotalDeltaBudget)
+                while (currentTotal > _perInteractionTotalDeltaBudget)
                 {
                     var keyToReduce = adjustedDeltas
                         .Where(x => x.Value != 0)
@@ -506,7 +548,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
                     {
                         AppendPolicyReason(
                             statName,
-                            $"policy:per-turn-budget-cap({beforeBudgetDelta}->{afterBudgetDelta},total={totalBeforeBudgetCap}->{PerInteractionTotalDeltaBudget})");
+                            $"policy:per-turn-budget-cap({beforeBudgetDelta}->{afterBudgetDelta},total={totalBeforeBudgetCap}->{_perInteractionTotalDeltaBudget})");
                     }
                 }
             }
@@ -552,7 +594,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             reasons.Add(policyReason);
         }
 
-        static bool IsEarlyActorTurn(RolePlaySession currentSession, RolePlayInteraction currentInteraction, string currentActorKey)
+        bool IsEarlyActorTurn(RolePlaySession currentSession, RolePlayInteraction currentInteraction, string currentActorKey)
         {
             var actorTurnCount = currentSession.Interactions
                 .Count(existing => !IsNarrativeOrSystemInteraction(
@@ -567,7 +609,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
                 actorTurnCount++;
             }
 
-            return actorTurnCount <= EarlyTurnInteractionThreshold;
+            return actorTurnCount <= _earlyTurnInteractionThreshold;
         }
     }
 
@@ -722,7 +764,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
 
         if (manualOverrideRequested)
         {
-            await HandleManualOverrideAsync(state, manualOverrideScenarioId!, cancellationToken);
+            await HandleManualOverrideAsync(session, state, manualOverrideScenarioId!, cancellationToken);
             _logger?.LogInformation(
                 "Manual scenario override requested for session {SessionId}: phase={Phase}, activeScenarioId={ActiveScenarioId}, requestedScenario={ScenarioId}, interactionCount={InteractionCount}",
                 session.Id,
@@ -735,6 +777,25 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
 
         if (_scenarioSelectionEngine is null && _narrativePhaseManager is null)
         {
+            return;
+        }
+
+        if (IsManualOverrideLockActive(state))
+        {
+            IncrementPhaseCounters(state);
+            await EvaluatePhaseTransitionAsync(session, interaction, state, cancellationToken);
+            return;
+        }
+
+        if (state.CurrentNarrativePhase == NarrativePhase.BuildUp
+            && state.BuildUpCooldownInteractionsRemaining > 0)
+        {
+            state.BuildUpCooldownInteractionsRemaining--;
+            _logger?.LogInformation(
+                "BuildUp cooldown active for session {SessionId}: remaining={Remaining}, interactionCount={InteractionCount}",
+                session.Id,
+                state.BuildUpCooldownInteractionsRemaining,
+                session.Interactions.Count + 1);
             return;
         }
 
@@ -791,12 +852,20 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             if (!string.IsNullOrWhiteSpace(result.SelectedScenarioId))
             {
                 var wasUncommitted = state.ActiveScenarioId is null;
+                var wasDifferentScenario = !string.Equals(
+                    state.ActiveScenarioId,
+                    result.SelectedScenarioId,
+                    StringComparison.OrdinalIgnoreCase);
                 state.ActiveScenarioId = result.SelectedScenarioId;
                 state.ScenarioCommitmentTimeUtc ??= DateTime.UtcNow;
-                state.CurrentNarrativePhase = NarrativePhase.Committed;
 
-                if (wasUncommitted)
+                var shouldEnterCommitted = wasUncommitted
+                    || wasDifferentScenario
+                    || state.CurrentNarrativePhase is NarrativePhase.BuildUp or NarrativePhase.Reset;
+
+                if (shouldEnterCommitted)
                 {
+                    state.CurrentNarrativePhase = NarrativePhase.Committed;
                     state.InteractionsSinceCommitment = 0;
                     state.InteractionsInApproaching = 0;
                 }
@@ -827,8 +896,133 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
                 session.Interactions.Count + 1);
         }
 
+        if (TryPivotActiveScenarioFromThemeMomentum(state))
+        {
+            _logger?.LogInformation(
+                "Scenario pivoted by context momentum for session {SessionId}: newActiveScenarioId={ActiveScenarioId}, phase={Phase}, interactionCount={InteractionCount}",
+                session.Id,
+                state.ActiveScenarioId,
+                state.CurrentNarrativePhase,
+                session.Interactions.Count + 1);
+        }
+
         IncrementPhaseCounters(state);
         await EvaluatePhaseTransitionAsync(session, interaction, state, cancellationToken);
+    }
+
+    private static bool IsManualOverrideLockActive(RolePlayAdaptiveState state)
+    {
+        if (!string.Equals(state.ThemeTracker.ThemeSelectionRule, "ManualOverride", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(state.ActiveScenarioId))
+        {
+            return false;
+        }
+
+        return state.InteractionsSinceCommitment < ManualScenarioOverrideLockInteractions;
+    }
+
+    private static bool TryPivotActiveScenarioFromThemeMomentum(RolePlayAdaptiveState state)
+    {
+        if (string.IsNullOrWhiteSpace(state.ActiveScenarioId))
+        {
+            return false;
+        }
+
+        if (state.CurrentNarrativePhase is not (NarrativePhase.BuildUp or NarrativePhase.Committed))
+        {
+            return false;
+        }
+
+        // Keep pivots to very early flow to avoid mid-arc thrashing.
+        if (state.CurrentNarrativePhase == NarrativePhase.Committed && state.InteractionsSinceCommitment > 3)
+        {
+            return false;
+        }
+
+        if (!state.ThemeTracker.Themes.TryGetValue(state.ActiveScenarioId, out var activeTheme) || activeTheme.Blocked)
+        {
+            return false;
+        }
+
+        var topCandidate = state.ThemeTracker.Themes.Values
+            .Where(x => !x.Blocked)
+            .OrderByDescending(x => x.Score)
+            .ThenByDescending(x => x.Breakdown.ChoiceSignal)
+            .ThenByDescending(x => x.Breakdown.InteractionEvidenceSignal)
+            .FirstOrDefault();
+
+        if (topCandidate is null)
+        {
+            return false;
+        }
+
+        var momentumCandidate = ResolveMomentumCandidate(state);
+        if (momentumCandidate is not null
+            && !string.Equals(momentumCandidate.ThemeId, activeTheme.ThemeId, StringComparison.OrdinalIgnoreCase)
+            && !momentumCandidate.Blocked)
+        {
+            var hasMeaningfulMomentum = momentumCandidate.Score >= (activeTheme.Score - 1.5)
+                || momentumCandidate.Breakdown.InteractionEvidenceSignal >= (activeTheme.Breakdown.InteractionEvidenceSignal + 1.5);
+
+            if (hasMeaningfulMomentum)
+            {
+                topCandidate = momentumCandidate;
+            }
+        }
+
+        if (string.Equals(topCandidate.ThemeId, activeTheme.ThemeId, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        const double absoluteScoreFloor = 6.0;
+        const double overtakeMargin = 2.0;
+
+        if (topCandidate.Score < absoluteScoreFloor)
+        {
+            return false;
+        }
+
+        if (topCandidate.Score < activeTheme.Score + overtakeMargin)
+        {
+            return false;
+        }
+
+        state.ActiveScenarioId = topCandidate.ThemeId;
+        state.CurrentNarrativePhase = NarrativePhase.Committed;
+        state.ScenarioCommitmentTimeUtc = DateTime.UtcNow;
+        state.InteractionsSinceCommitment = 0;
+        state.InteractionsInApproaching = 0;
+
+        foreach (var item in state.ThemeTracker.Themes.Values)
+        {
+            item.IsScenarioCandidate = string.Equals(item.ThemeId, state.ActiveScenarioId, StringComparison.OrdinalIgnoreCase);
+        }
+
+        return true;
+    }
+
+    private static ThemeTrackerItem? ResolveMomentumCandidate(RolePlayAdaptiveState state)
+    {
+        var momentumThemeId = state.ThemeTracker.RecentEvidence
+            .TakeLast(8)
+            .GroupBy(x => x.ThemeId, StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(group => group.Sum(item => Math.Abs(item.Delta) * Math.Max(0.1, item.Confidence)))
+            .Select(group => group.Key)
+            .FirstOrDefault();
+
+        if (string.IsNullOrWhiteSpace(momentumThemeId))
+        {
+            return null;
+        }
+
+        return state.ThemeTracker.Themes.TryGetValue(momentumThemeId, out var momentum)
+            ? momentum
+            : null;
     }
 
     private static void IncrementPhaseCounters(RolePlayAdaptiveState state)
@@ -849,6 +1043,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
                 break;
             case NarrativePhase.Climax:
                 state.InteractionsSinceCommitment++;
+                state.InteractionsInApproaching++;
                 break;
         }
     }
@@ -877,10 +1072,12 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             new NarrativeSignalSnapshot(
                 state.InteractionsSinceCommitment,
                 state.InteractionsInApproaching,
-                ExplicitClimaxRequested: ContainsAny(interaction.Content, ["/climax", "trigger climax"]),
-                ClimaxCompletionDetected: ContainsAny(interaction.Content, ["/completeclimax", "climax complete"]),
+                ExplicitClimaxRequested: ContainsCommand(interaction.Content, ["/climax"])
+                    || ContainsAny(interaction.Content, ["trigger climax"]),
+                ClimaxCompletionDetected: ContainsCommand(interaction.Content, ["/completeclimax", "/endclimax", "/end-climax"]),
                 ManualScenarioOverrideRequested: false,
-                ManualOverrideScenarioId: null),
+                ManualOverrideScenarioId: null,
+                CompletedScenarios: state.CompletedScenarios),
             cancellationToken);
 
         if (!transition.Transitioned)
@@ -895,6 +1092,10 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
 
         state.CurrentNarrativePhase = nextPhase;
         if (nextPhase == NarrativePhase.Approaching)
+        {
+            state.InteractionsInApproaching = 0;
+        }
+        else if (nextPhase == NarrativePhase.Climax)
         {
             state.InteractionsInApproaching = 0;
         }
@@ -923,12 +1124,13 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
                 new ResetTrigger("Automatic reset", false, null),
                 cancellationToken);
 
-            ApplyResetSnapshot(state, resetSnapshot);
+            await ApplyResetSnapshotAsync(session, state, resetSnapshot, cancellationToken);
             state.CurrentNarrativePhase = NarrativePhase.BuildUp;
         }
     }
 
     private async Task HandleManualOverrideAsync(
+        RolePlaySession session,
         RolePlayAdaptiveState state,
         string requestedScenarioId,
         CancellationToken cancellationToken)
@@ -946,7 +1148,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
                 new ResetTrigger("Manual scenario override", true, requestedScenarioId),
                 cancellationToken);
 
-            ApplyResetSnapshot(state, resetSnapshot);
+            await ApplyResetSnapshotAsync(session, state, resetSnapshot, cancellationToken);
             state.CurrentNarrativePhase = NarrativePhase.BuildUp;
         }
 
@@ -1004,7 +1206,24 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         return markers.Any(marker => lower.Contains(marker, StringComparison.Ordinal));
     }
 
-    private static void ApplyResetSnapshot(RolePlayAdaptiveState state, AdaptiveScenarioSnapshot snapshot)
+    private static bool ContainsCommand(string? content, IReadOnlyList<string> commands)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            return false;
+        }
+
+        var tokens = content
+            .Split([' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        return tokens.Any(token => commands.Any(command => string.Equals(token, command, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    private async Task ApplyResetSnapshotAsync(
+        RolePlaySession session,
+        RolePlayAdaptiveState state,
+        AdaptiveScenarioSnapshot snapshot,
+        CancellationToken cancellationToken)
     {
         if (!string.IsNullOrWhiteSpace(state.ActiveScenarioId))
         {
@@ -1024,11 +1243,107 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         state.ScenarioCommitmentTimeUtc = null;
         state.InteractionsSinceCommitment = 0;
         state.InteractionsInApproaching = 0;
+        state.BuildUpCooldownInteractionsRemaining = 1;
+
+        RecenterCharacterStatsForReset(state);
 
         if (Enum.TryParse<NarrativePhase>(snapshot.CurrentNarrativePhase, out var parsedPhase))
         {
             state.CurrentNarrativePhase = parsedPhase;
         }
+
+        await ForceAdaptiveIntensityToFloorAsync(session, cancellationToken);
+    }
+
+    private async Task ForceAdaptiveIntensityToFloorAsync(RolePlaySession session, CancellationToken cancellationToken)
+    {
+        if (_intensityProfileService is null)
+        {
+            return;
+        }
+
+        var floorScale = RolePlayStyleResolver.ParseBoundScale(session.IntensityFloorOverride);
+        if (!floorScale.HasValue)
+        {
+            session.AdaptiveIntensityLastTransitionReason = "reset-floor-unavailable";
+            return;
+        }
+
+        var profiles = await _intensityProfileService.ListAsync(cancellationToken);
+        if (profiles.Count == 0)
+        {
+            session.AdaptiveIntensityLastTransitionReason = "reset-floor-no-profiles";
+            return;
+        }
+
+        var targetProfile = profiles.FirstOrDefault(x => (int)x.Intensity == floorScale.Value);
+        if (targetProfile is null)
+        {
+            session.AdaptiveIntensityLastTransitionReason = "reset-floor-target-profile-missing";
+            return;
+        }
+
+        if (string.Equals(session.AdaptiveIntensityProfileId, targetProfile.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            session.AdaptiveIntensityLastTransitionReason = "reset-floor-already-applied";
+            return;
+        }
+
+        session.AdaptiveIntensityTransitions ??= [];
+        var fromProfileId = session.AdaptiveIntensityProfileId ?? session.SelectedIntensityProfileId ?? string.Empty;
+        session.AdaptiveIntensityProfileId = targetProfile.Id;
+        session.AdaptiveIntensityLastFromProfileId = fromProfileId;
+        session.AdaptiveIntensityLastToProfileId = targetProfile.Id;
+        session.AdaptiveIntensityLastTransitionReason = "reset-floor-applied";
+        session.AdaptiveIntensityLastTransitionUtc = DateTime.UtcNow;
+        session.AdaptiveIntensityTransitions.Add(new AdaptiveIntensityTransitionRecord
+        {
+            FromProfileId = fromProfileId,
+            ToProfileId = targetProfile.Id,
+            ReasonCode = "reset-floor-applied",
+            Source = "reset-engine",
+            OccurredUtc = session.AdaptiveIntensityLastTransitionUtc.Value
+        });
+
+        if (session.AdaptiveIntensityTransitions.Count > MaxAdaptiveTransitionHistory)
+        {
+            var trim = session.AdaptiveIntensityTransitions.Count - MaxAdaptiveTransitionHistory;
+            session.AdaptiveIntensityTransitions.RemoveRange(0, trim);
+        }
+    }
+
+    private static void RecenterCharacterStatsForReset(RolePlayAdaptiveState state)
+    {
+        foreach (var block in state.CharacterStats.Values)
+        {
+            EnsureDefaultStats(block.Stats);
+            foreach (var statName in AdaptiveStatCatalog.CanonicalStatNames)
+            {
+                if (!block.Stats.TryGetValue(statName, out var current))
+                {
+                    current = AdaptiveStatCatalog.DefaultValue;
+                }
+
+                block.Stats[statName] = ComputeResetStatTarget(current);
+            }
+
+            block.UpdatedUtc = DateTime.UtcNow;
+        }
+    }
+
+    private static int ComputeResetStatTarget(int current)
+    {
+        var clamped = Math.Clamp(current, AdaptiveStatCatalog.MinValue, AdaptiveStatCatalog.MaxValue);
+        var baseline = AdaptiveStatCatalog.DefaultValue;
+
+        if (clamped <= ResetExtremeLowThreshold || clamped >= ResetExtremeHighThreshold)
+        {
+            return ResetExtremeHardTarget;
+        }
+
+        var distanceFromBaseline = clamped - baseline;
+        var softened = baseline + (int)Math.Round(distanceFromBaseline * ResetSoftRetentionFactor, MidpointRounding.AwayFromZero);
+        return Math.Clamp(softened, AdaptiveStatCatalog.MinValue, AdaptiveStatCatalog.MaxValue);
     }
 
     private static double AverageCharacterStat(RolePlayAdaptiveState state, string statName)
@@ -1120,11 +1435,108 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             Weight = Math.Clamp(theme.Weight, 1, 10),
             Category = theme.Category,
             StatAffinities = affinities,
-            ScenarioFitRules = string.Empty,
+            ScenarioFitRules = BuildScenarioFitRulesJson(theme),
             IsEnabled = theme.IsEnabled,
             IsBuiltIn = false,
             CreatedUtc = theme.CreatedUtc,
             UpdatedUtc = theme.UpdatedUtc
+        };
+    }
+
+    private static string BuildScenarioFitRulesJson(DreamGenClone.Domain.RolePlay.RPTheme theme)
+    {
+        if (theme.FitRules.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var rules = new DreamGenClone.Domain.RolePlay.ScenarioFitRules();
+
+        foreach (var fitRule in theme.FitRules)
+        {
+            var roleName = (fitRule.RoleName ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(roleName))
+            {
+                continue;
+            }
+
+            var roleRule = new DreamGenClone.Domain.RolePlay.CharacterRoleRule
+            {
+                RoleName = roleName
+            };
+
+            foreach (var clause in fitRule.Clauses)
+            {
+                var statName = (clause.StatName ?? string.Empty).Trim();
+                if (string.IsNullOrWhiteSpace(statName))
+                {
+                    continue;
+                }
+
+                var threshold = ConvertClauseToThreshold(clause.Comparator, clause.Threshold, clause.PenaltyWeight);
+                if (threshold is null)
+                {
+                    continue;
+                }
+
+                roleRule.StatThresholds[statName] = threshold;
+            }
+
+            if (roleRule.StatThresholds.Count == 0)
+            {
+                continue;
+            }
+
+            rules.CharacterRoleRules.Add(roleRule);
+            rules.CharacterRoleWeights[roleName] = Math.Clamp(fitRule.RoleWeight, 0.1, 10.0);
+        }
+
+        if (rules.CharacterRoleRules.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        return JsonSerializer.Serialize(rules);
+    }
+
+    private static DreamGenClone.Domain.RolePlay.StatThresholdSpecification? ConvertClauseToThreshold(
+        string? comparator,
+        double threshold,
+        double penaltyWeight)
+    {
+        var normalizedComparator = (comparator ?? ">=").Trim();
+        var clampedThreshold = Math.Clamp(threshold, 0.0, 100.0);
+        var clampedPenalty = Math.Clamp(penaltyWeight, 0.0, 10.0);
+
+        return normalizedComparator switch
+        {
+            ">=" => new DreamGenClone.Domain.RolePlay.StatThresholdSpecification
+            {
+                MinimumValue = clampedThreshold,
+                PenaltyWeight = clampedPenalty
+            },
+            ">" => new DreamGenClone.Domain.RolePlay.StatThresholdSpecification
+            {
+                MinimumValue = Math.Min(100.0, clampedThreshold + 1.0),
+                PenaltyWeight = clampedPenalty
+            },
+            "<=" => new DreamGenClone.Domain.RolePlay.StatThresholdSpecification
+            {
+                MaximumValue = clampedThreshold,
+                PenaltyWeight = clampedPenalty
+            },
+            "<" => new DreamGenClone.Domain.RolePlay.StatThresholdSpecification
+            {
+                MaximumValue = Math.Max(0.0, clampedThreshold - 1.0),
+                PenaltyWeight = clampedPenalty
+            },
+            "=" or "==" => new DreamGenClone.Domain.RolePlay.StatThresholdSpecification
+            {
+                MinimumValue = clampedThreshold,
+                MaximumValue = clampedThreshold,
+                PenaltyWeight = clampedPenalty
+            },
+            _ => null
         };
     }
 
@@ -1241,6 +1653,73 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         return Math.Clamp(matches * perKeywordDelta, 0, maxDelta);
     }
 
+    private async Task<IReadOnlyList<StatKeywordCategory>> LoadStatKeywordCategoriesAsync(CancellationToken cancellationToken)
+    {
+        if (_statKeywordCategoryService is not null)
+        {
+            return await _statKeywordCategoryService.ListEnabledAsync(cancellationToken);
+        }
+
+        return DefaultStatKeywordCategories;
+    }
+
+    private static int ScoreStatSignalWithDirection(
+        string content,
+        IReadOnlyList<string> keywords,
+        int perKeywordDelta,
+        int maxAbsDelta)
+    {
+        var sign = Math.Sign(perKeywordDelta);
+        if (sign == 0)
+        {
+            return 0;
+        }
+
+        var magnitude = ScoreStatSignal(content, keywords, Math.Abs(perKeywordDelta), Math.Max(1, maxAbsDelta));
+        return sign * magnitude;
+    }
+
+    private static readonly IReadOnlyList<StatKeywordCategory> DefaultStatKeywordCategories =
+    [
+        BuildDefaultStatKeywordCategory("desire", "Desire", "Desire", 1, 4, ["kiss", "touch", "desire", "want", "close", "heat"], 10),
+        BuildDefaultStatKeywordCategory("restraint", "Restraint", "Restraint", 1, 3, ["can't", "wrong", "shouldn't", "hesitate", "guilt"], 20),
+        BuildDefaultStatKeywordCategory("tension", "Tension", "Tension", 1, 4, ["fear", "caught", "risk", "panic", "nervous"], 30),
+        BuildDefaultStatKeywordCategory("connection", "Connection", "Connection", 1, 3, ["safe", "comfort", "trust", "reassure"], 40),
+        BuildDefaultStatKeywordCategory("dominance", "Dominance", "Dominance", 1, 3, ["control", "command", "obey", "claim", "choose", "decide", "insist"], 50),
+        BuildDefaultStatKeywordCategory("loyalty-positive", "Loyalty Positive", "Loyalty", 1, 5, ["husband", "wife", "promise", "vow", "faithful", "devoted", "commitment"], 60),
+        BuildDefaultStatKeywordCategory("loyalty-negative", "Loyalty Negative", "Loyalty", -1, 5, ["affair", "betray", "cheat", "secret", "sneak", "stranger"], 70),
+        BuildDefaultStatKeywordCategory("selfrespect-positive", "SelfRespect Positive", "SelfRespect", 1, 5, ["boundary", "boundaries", "respect", "dignity", "self-worth", "walk away", "no"], 80),
+        BuildDefaultStatKeywordCategory("selfrespect-negative", "SelfRespect Negative", "SelfRespect", -1, 5, ["humiliate", "ashamed", "used", "degraded", "demean"], 90)
+    ];
+
+    private static StatKeywordCategory BuildDefaultStatKeywordCategory(
+        string id,
+        string name,
+        string statName,
+        int perKeywordDelta,
+        int maxAbsDelta,
+        IReadOnlyList<string> keywords,
+        int sortOrder)
+    {
+        return new StatKeywordCategory
+        {
+            Id = id,
+            Name = name,
+            StatName = statName,
+            PerKeywordDelta = perKeywordDelta,
+            MaxAbsDelta = maxAbsDelta,
+            SortOrder = sortOrder,
+            IsEnabled = true,
+            Keywords = keywords.Select((keyword, index) => new StatKeywordRule
+            {
+                Id = $"{id}-{index + 1}",
+                CategoryId = id,
+                Keyword = keyword,
+                SortOrder = index + 1
+            }).ToList()
+        };
+    }
+
     private static int NormalizeInteractionAffinityDelta(int affinityDelta)
     {
         if (affinityDelta == 0)
@@ -1252,15 +1731,15 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         return Math.Sign(affinityDelta) * Math.Clamp(scaledMagnitude, 1, 2);
     }
 
-    private static int GetThemeAffinityPhaseCap(NarrativePhase phase)
+    private int GetThemeAffinityPhaseCap(NarrativePhase phase)
     {
         return phase switch
         {
-            NarrativePhase.BuildUp => 0,
-            NarrativePhase.Committed => 1,
-            NarrativePhase.Approaching => 1,
-            NarrativePhase.Climax => 2,
-            NarrativePhase.Reset => 0,
+            NarrativePhase.BuildUp => _themeAffinityCapBuildUp,
+            NarrativePhase.Committed => _themeAffinityCapCommitted,
+            NarrativePhase.Approaching => _themeAffinityCapApproaching,
+            NarrativePhase.Climax => _themeAffinityCapClimax,
+            NarrativePhase.Reset => _themeAffinityCapReset,
             _ => 0
         };
     }
@@ -1359,6 +1838,17 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             .OrderByDescending(x => x.Score)
             .ThenBy(x => x.ThemeId, StringComparer.OrdinalIgnoreCase)
             .ToList();
+
+        if (string.Equals(tracker.ThemeSelectionRule, "ManualOverride", StringComparison.OrdinalIgnoreCase)
+            && !string.IsNullOrWhiteSpace(state.ActiveScenarioId)
+            && tracker.Themes.ContainsKey(state.ActiveScenarioId))
+        {
+            tracker.PrimaryThemeId = state.ActiveScenarioId;
+            tracker.SecondaryThemeId = ordered
+                .FirstOrDefault(x => !string.Equals(x.ThemeId, state.ActiveScenarioId, StringComparison.OrdinalIgnoreCase))
+                ?.ThemeId;
+            return;
+        }
 
         var previousPrimary = tracker.PrimaryThemeId;
         var previousSecondary = tracker.SecondaryThemeId;
@@ -1690,6 +2180,58 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             blockedCount,
             styleProfile?.StatBias?.Count > 0,
             string.Join(", ", topSeeded));
+    }
+
+    public async Task<bool> ApplyManualScenarioOverrideAsync(
+        RolePlaySession session,
+        string requestedScenarioId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+
+        if (string.IsNullOrWhiteSpace(requestedScenarioId))
+        {
+            return false;
+        }
+
+        var state = session.AdaptiveState ?? new RolePlayAdaptiveState();
+        if (!state.ThemeTracker.Themes.TryGetValue(requestedScenarioId, out var requestedTheme) || requestedTheme.Blocked)
+        {
+            return false;
+        }
+
+        await HandleManualOverrideAsync(session, state, requestedScenarioId, cancellationToken);
+
+        state.ActiveScenarioId = requestedScenarioId;
+        state.ScenarioCommitmentTimeUtc = DateTime.UtcNow;
+        state.InteractionsSinceCommitment = 0;
+        state.InteractionsInApproaching = 0;
+
+        var previousPrimary = state.ThemeTracker.PrimaryThemeId;
+        state.ThemeTracker.PrimaryThemeId = requestedScenarioId;
+        if (!string.Equals(previousPrimary, requestedScenarioId, StringComparison.OrdinalIgnoreCase)
+            && !string.IsNullOrWhiteSpace(previousPrimary)
+            && state.ThemeTracker.Themes.ContainsKey(previousPrimary))
+        {
+            state.ThemeTracker.SecondaryThemeId = previousPrimary;
+        }
+
+        state.ThemeTracker.ThemeSelectionRule = "ManualOverride";
+        state.ThemeTracker.UpdatedUtc = DateTime.UtcNow;
+
+        requestedTheme.Breakdown.ChoiceSignal = Math.Max(requestedTheme.Breakdown.ChoiceSignal, 30);
+        requestedTheme.IsScenarioCandidate = true;
+        requestedTheme.LastCandidateEvaluationTimeUtc = DateTime.UtcNow;
+
+        session.AdaptiveState = state;
+
+        _logger?.LogInformation(
+            "Manual adaptive override applied for session {SessionId}: requestedScenarioId={ScenarioId}, phase={Phase}",
+            session.Id,
+            requestedScenarioId,
+            state.CurrentNarrativePhase);
+
+        return true;
     }
 
     private bool ShouldUseRpThemeSubsystem(RolePlaySession session)

@@ -679,7 +679,7 @@
         finally { _isBusy = false; }
     }
 
-    private async Task ConfirmDeleteProvider(Provider provider)
+    private Task ConfirmDeleteProvider(Provider provider)
     {
         var models = _modelsGrouped.GetValueOrDefault(provider) ?? [];
         _deleteConfirmMessage = $"Delete provider '{provider.Name}'?";
@@ -692,6 +692,7 @@
             await LoadAllDataAsync();
         };
         _showDeleteConfirmation = true;
+        return Task.CompletedTask;
     }
 
     // === Model methods ===

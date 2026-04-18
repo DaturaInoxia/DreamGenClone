@@ -585,6 +585,45 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             sb.AppendLine($"[{interaction.InteractionType}] {interaction.ActorName}: {interaction.Content}");
         }
 
+        if (!string.IsNullOrWhiteSpace(session.AdaptiveState.CurrentSceneLocation)
+            || session.AdaptiveState.CharacterLocations.Count > 0)
+        {
+            sb.AppendLine("Scene Continuity Anchor:");
+            sb.AppendLine($"- Current Scene Location: {session.AdaptiveState.CurrentSceneLocation ?? "(unknown)"}");
+
+            if (session.AdaptiveState.CharacterLocations.Count > 0)
+            {
+                sb.AppendLine("- Character Locations (truth state):");
+                foreach (var truth in session.AdaptiveState.CharacterLocations
+                    .Where(x => !string.IsNullOrWhiteSpace(x.CharacterId))
+                    .OrderBy(x => x.CharacterId, StringComparer.OrdinalIgnoreCase)
+                    .Take(8))
+                {
+                    var label = ResolvePromptActorLabel(session, truth.CharacterId);
+                    var location = string.IsNullOrWhiteSpace(truth.TrueLocation) ? "(unknown)" : truth.TrueLocation;
+                    var hidden = truth.IsHidden ? " [hidden]" : string.Empty;
+                    sb.AppendLine($"  - {label}: {location}{hidden}");
+                }
+            }
+
+            if (session.AdaptiveState.CharacterLocationPerceptions.Count > 0)
+            {
+                sb.AppendLine("- Key Location Perceptions:");
+                foreach (var perception in session.AdaptiveState.CharacterLocationPerceptions
+                    .Where(x => !string.IsNullOrWhiteSpace(x.ObserverCharacterId) && !string.IsNullOrWhiteSpace(x.TargetCharacterId))
+                    .OrderByDescending(x => x.Confidence)
+                    .Take(6))
+                {
+                    var observer = ResolvePromptActorLabel(session, perception.ObserverCharacterId);
+                    var target = ResolvePromptActorLabel(session, perception.TargetCharacterId);
+                    var where = string.IsNullOrWhiteSpace(perception.PerceivedLocation) ? "(unknown)" : perception.PerceivedLocation;
+                    sb.AppendLine($"  - {observer} perceives {target} at {where} (confidence={perception.Confidence}, LOS={(perception.HasLineOfSight ? "Y" : "N")}, Near={(perception.IsInProximity ? "Y" : "N")})");
+                }
+            }
+
+            sb.AppendLine("- Keep continuity with this location state. Do not teleport characters or jump to a new place without an explicit transition in the narration.");
+        }
+
         if (session.AdaptiveState.CharacterStats.Count > 0)
         {
             sb.AppendLine("Adaptive Character Stats:");
@@ -674,7 +713,6 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         RolePlayAssistantPrompts.AppendScenarioGuidance(sb, guidanceContext, framingGuards);
 
         if (session.UseRpThemeSubsystem
-            && session.UseThemeAIGuidanceNotesInPrompt
             && _rpThemeService is not null
             && !string.IsNullOrWhiteSpace(activeScenarioId))
         {
@@ -688,12 +726,17 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                 _logger.LogDebug(ex, "Unable to load RP theme AI guidance notes for active scenario/theme {ThemeId} in session {SessionId}.", activeScenarioId, session.Id);
             }
 
-            RolePlayAssistantPrompts.AppendThemeAIGuidance(
-                sb,
-                activeTheme,
-                currentPhase,
-                session.ThemeAIGuidanceInfluencePercent,
-                session.MaxThemeAIGuidanceNotes);
+            AppendActiveThemeContract(sb, activeTheme, currentPhase);
+
+            if (session.UseThemeAIGuidanceNotesInPrompt)
+            {
+                RolePlayAssistantPrompts.AppendThemeAIGuidance(
+                    sb,
+                    activeTheme,
+                    currentPhase,
+                    session.ThemeAIGuidanceInfluencePercent,
+                    session.MaxThemeAIGuidanceNotes);
+            }
         }
 
         _logger.LogInformation(
@@ -838,38 +881,25 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         // NPC       = 3rd person external (dialogue + observable behavior only)
         var personaName = string.IsNullOrWhiteSpace(session.PersonaName) ? "You" : session.PersonaName;
         var (effectiveStyleLabel, effectiveStyleReason) = RolePlayStyleResolver.ResolveEffectiveStyle(session, baseIntensityLevel, adaptiveIntensityLevel);
-        var resolvedIntensityDescription = string.Empty;
-        var resolvedScale = RolePlayStyleResolver.ParseBoundScale(effectiveStyleLabel);
-        if (resolvedScale.HasValue)
-        {
-            if (session.IsIntensityManuallyPinned && !string.IsNullOrWhiteSpace(selectedIntensityDescription))
-            {
-                resolvedIntensityDescription = selectedIntensityDescription;
-            }
-            else if (!session.IsIntensityManuallyPinned && !string.IsNullOrWhiteSpace(adaptiveIntensityDescription))
-            {
-                resolvedIntensityDescription = adaptiveIntensityDescription;
-            }
-
-            if (string.IsNullOrWhiteSpace(resolvedIntensityDescription))
-            {
-                var intensityProfiles = await _intensityProfileService.ListAsync(cancellationToken);
-                var resolvedProfile = intensityProfiles.FirstOrDefault(x => (int)x.Intensity == resolvedScale.Value && !string.IsNullOrWhiteSpace(x.Description))
-                    ?? intensityProfiles.FirstOrDefault(x => (int)x.Intensity == resolvedScale.Value);
-
-                resolvedIntensityDescription = !string.IsNullOrWhiteSpace(resolvedProfile?.Description)
-                    ? resolvedProfile.Description.Trim()
-                    : IntensityLadder.GetDefaultDescription((IntensityLevel)resolvedScale.Value);
-            }
-        }
-
         if (intent == PromptIntent.Narrative)
         {
             effectiveStyleLabel = IntensityLadder.GetLabel(IntensityLevel.Intro);
             effectiveStyleReason = string.IsNullOrWhiteSpace(effectiveStyleReason)
                 ? "narrative-forced-atmospheric"
                 : $"{effectiveStyleReason}, narrative-forced-atmospheric";
-            resolvedIntensityDescription = IntensityLadder.GetDefaultDescription(IntensityLevel.Intro);
+        }
+
+        var resolvedIntensityDescription = string.Empty;
+        var resolvedScale = RolePlayStyleResolver.ParseBoundScale(effectiveStyleLabel);
+        if (resolvedScale.HasValue)
+        {
+            var intensityProfiles = await _intensityProfileService.ListAsync(cancellationToken);
+            var resolvedProfile = intensityProfiles.FirstOrDefault(x => (int)x.Intensity == resolvedScale.Value && !string.IsNullOrWhiteSpace(x.Description))
+                ?? intensityProfiles.FirstOrDefault(x => (int)x.Intensity == resolvedScale.Value);
+
+            resolvedIntensityDescription = !string.IsNullOrWhiteSpace(resolvedProfile?.Description)
+                ? resolvedProfile.Description.Trim()
+                : IntensityLadder.GetDefaultDescription((IntensityLevel)resolvedScale.Value);
         }
 
         sb.AppendLine($"Resolved Intensity: {effectiveStyleLabel}");
@@ -878,6 +908,10 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         {
             sb.AppendLine($"Resolved Intensity Description: {resolvedIntensityDescription}");
         }
+        sb.AppendLine("Intensity Writing Contract:");
+        sb.AppendLine("- Treat the resolved intensity description above as a required style contract for this turn.");
+        sb.AppendLine("- Prioritize that contract over generic tone guidance when there is any ambiguity.");
+        sb.AppendLine("- Do not de-escalate below the resolved intensity level unless safety constraints require it.");
         sb.AppendLine($"Manual Intensity Pin: {(session.IsIntensityManuallyPinned ? "ON (resolved follows selected)" : "OFF (adaptive mode)")}");
         AppendEscalationGuidance(sb, session, actorName, currentPhase, intent);
 
@@ -911,6 +945,80 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         }
 
         return sb.ToString();
+    }
+
+    private static void AppendActiveThemeContract(StringBuilder sb, RPTheme? activeTheme, string phase)
+    {
+        if (activeTheme is null)
+        {
+            return;
+        }
+
+        var label = string.IsNullOrWhiteSpace(activeTheme.Label) ? activeTheme.Id : activeTheme.Label;
+        sb.AppendLine("Active Adaptive Theme Contract:");
+        sb.AppendLine($"- Theme: {label} ({activeTheme.Id})");
+
+        if (!string.IsNullOrWhiteSpace(activeTheme.Description))
+        {
+            sb.AppendLine($"- Theme Description: {activeTheme.Description.Trim()}");
+        }
+
+        var phaseGuidance = activeTheme.PhaseGuidance
+            .Where(x => string.Equals(x.Phase.ToString(), phase, StringComparison.OrdinalIgnoreCase))
+            .Where(x => !string.IsNullOrWhiteSpace(x.GuidanceText))
+            .OrderBy(x => x.GuidanceText, StringComparer.OrdinalIgnoreCase)
+            .Take(3)
+            .Select(x => x.GuidanceText.Trim())
+            .ToList();
+        if (phaseGuidance.Count > 0)
+        {
+            sb.AppendLine($"- Phase Guidance ({phase}):");
+            foreach (var line in phaseGuidance)
+            {
+                sb.AppendLine($"  - {line}");
+            }
+        }
+
+        var keyEmphasis = activeTheme.GuidancePoints
+            .Where(x => string.Equals(x.Phase.ToString(), phase, StringComparison.OrdinalIgnoreCase))
+            .Where(x => x.PointType == RPThemeGuidancePointType.Emphasis)
+            .Where(x => !string.IsNullOrWhiteSpace(x.Text))
+            .OrderBy(x => x.SortOrder)
+            .Take(3)
+            .Select(x => x.Text.Trim())
+            .ToList();
+        if (keyEmphasis.Count > 0)
+        {
+            sb.AppendLine($"- Key Emphasis ({phase}): {string.Join(" | ", keyEmphasis)}");
+        }
+
+        sb.AppendLine("- Treat this theme description as a primary scene contract for the next response.");
+        sb.AppendLine("- If multiple continuations are possible, choose the one that best matches this theme description while preserving continuity and safety constraints.");
+    }
+
+    private static string ResolvePromptActorLabel(RolePlaySession session, string? actorIdOrName)
+    {
+        if (string.IsNullOrWhiteSpace(actorIdOrName))
+        {
+            return "Unknown";
+        }
+
+        var token = actorIdOrName.Trim();
+        if (!string.IsNullOrWhiteSpace(session.PersonaName)
+            && string.Equals(token, session.PersonaName, StringComparison.OrdinalIgnoreCase))
+        {
+            return session.PersonaName;
+        }
+
+        var perspective = session.CharacterPerspectives.FirstOrDefault(x =>
+            string.Equals(x.CharacterId, token, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(x.CharacterName, token, StringComparison.OrdinalIgnoreCase));
+        if (perspective is not null && !string.IsNullOrWhiteSpace(perspective.CharacterName))
+        {
+            return perspective.CharacterName;
+        }
+
+        return token;
     }
 
     private static void AppendEscalationGuidance(

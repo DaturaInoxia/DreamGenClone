@@ -136,4 +136,37 @@ public sealed class RolePlayAdaptiveStateServiceScenarioTests
         Assert.Equal(first.CompletedScenarios, second.CompletedScenarios);
         Assert.Equal(first.ScenarioHistory.Count, second.ScenarioHistory.Count);
     }
+
+    [Fact]
+    public async Task ApplyManualScenarioOverrideAsync_KeepsOverrideDuringLockWindow()
+    {
+        var service = new RolePlayAdaptiveStateService(
+            new FakeThemeCatalogService(),
+            new ScenarioSelectionEngine(),
+            new NarrativePhaseManager());
+
+        var session = new RolePlaySession
+        {
+            Interactions =
+            [
+                new RolePlayInteraction { ActorName = "Alex", Content = "warm up interaction" }
+            ]
+        };
+
+        await service.UpdateFromInteractionAsync(
+            session,
+            new RolePlayInteraction { ActorName = "Alex", Content = "dominate dominate dominate order kneel" });
+
+        var applied = await service.ApplyManualScenarioOverrideAsync(session, "infidelity");
+        Assert.True(applied);
+        Assert.Equal("infidelity", session.AdaptiveState.ActiveScenarioId);
+
+        var afterCompetingSignal = await service.UpdateFromInteractionAsync(
+            session,
+            new RolePlayInteraction { ActorName = "Alex", Content = "dominate command obey control dominate" });
+
+        Assert.Equal("infidelity", afterCompetingSignal.ActiveScenarioId);
+        Assert.Equal("ManualOverride", afterCompetingSignal.ThemeTracker.ThemeSelectionRule);
+    }
+
 }

@@ -1,5 +1,18 @@
 # Phased Implementation Plan
 
+## Completion Status (2026-04-16)
+
+- Phase 1: Completed
+- Phase 2: Completed
+- Phase 3: Completed
+- Phase 4: Completed
+- Phase 5: Completed
+
+Validation summary:
+
+- Roleplay-focused regression run passed (`FullyQualifiedName~RolePlay`): 135 passed, 0 failed.
+- Deferred decision queue lifecycle coverage added in `RolePlaySessionLifecycleTests`.
+
 ## Phase 1: Instrumentation and Invariants
 
 Deliverables:
