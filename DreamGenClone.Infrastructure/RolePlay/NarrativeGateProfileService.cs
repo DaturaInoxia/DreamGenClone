@@ -84,7 +84,7 @@ public sealed class NarrativeGateProfileService : INarrativeGateProfileService
         var seeded = new NarrativeGateProfile
         {
             Name = "RolePlay Lifecycle Defaults",
-            Description = "Default gate thresholds for Committed -> Approaching and Approaching -> Climax.",
+            Description = "Default gate thresholds for Committed -> Approaching, Approaching -> Climax, and Climax -> Reset.",
             IsDefault = true,
             CreatedUtc = now,
             UpdatedUtc = now,
@@ -96,7 +96,8 @@ public sealed class NarrativeGateProfileService : INarrativeGateProfileService
                 new() { SortOrder = 4, FromPhase = "Committed", ToPhase = "Approaching", MetricKey = NarrativeGateMetricKeys.InteractionsSinceCommitment, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 3m },
                 new() { SortOrder = 5, FromPhase = "Approaching", ToPhase = "Climax", MetricKey = NarrativeGateMetricKeys.ActiveScenarioScore, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 80m },
                 new() { SortOrder = 6, FromPhase = "Approaching", ToPhase = "Climax", MetricKey = NarrativeGateMetricKeys.AverageDesire, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 75m },
-                new() { SortOrder = 7, FromPhase = "Approaching", ToPhase = "Climax", MetricKey = NarrativeGateMetricKeys.AverageRestraint, Comparator = NarrativeGateComparators.LessThanOrEqual, Threshold = 35m }
+                new() { SortOrder = 7, FromPhase = "Approaching", ToPhase = "Climax", MetricKey = NarrativeGateMetricKeys.AverageRestraint, Comparator = NarrativeGateComparators.LessThanOrEqual, Threshold = 35m },
+                new() { SortOrder = 8, FromPhase = "Climax", ToPhase = "Reset", MetricKey = NarrativeGateMetricKeys.InteractionsSinceCommitment, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 12m }
             ]
         };
 

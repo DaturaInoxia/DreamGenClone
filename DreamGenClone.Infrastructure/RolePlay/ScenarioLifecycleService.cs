@@ -56,7 +56,8 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
                 averageRestraint,
                 inputs.EvidenceSummary,
                 inputs.ForceReset,
-                inputs.ManualOverride
+                inputs.ManualOverride,
+                inputs.ClimaxCompletionRequested
             }),
             OccurredUtc = DateTime.UtcNow
         };
@@ -187,6 +188,23 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
                 : (false, state.CurrentPhase, TransitionTriggerType.Threshold, "NO_TRANSITION");
         }
 
+        if (state.CurrentPhase == NarrativePhase.Climax)
+        {
+            if (inputs.ManualOverride || inputs.ClimaxCompletionRequested)
+            {
+                return (true, NarrativePhase.Reset, TransitionTriggerType.Override, "CLIMAX_TO_RESET_EXPLICIT");
+            }
+
+            if (HasConfiguredGateRules(profile, "Climax", "Reset"))
+            {
+                return EvaluateConfiguredGate(profile, "Climax", "Reset", metricValues)
+                    ? (true, NarrativePhase.Reset, TransitionTriggerType.InteractionCountGate, "CLIMAX_TO_RESET_GATE")
+                    : (false, state.CurrentPhase, TransitionTriggerType.Threshold, "NO_TRANSITION");
+            }
+
+            return (false, state.CurrentPhase, TransitionTriggerType.Threshold, "NO_TRANSITION");
+        }
+
         return state.CurrentPhase switch
         {
             NarrativePhase.BuildUp when inputs.ActiveScenarioConfidence >= 0.55m
@@ -197,9 +215,6 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
 
             NarrativePhase.Approaching when inputs.InteractionsSinceCommitment >= 4 && inputs.ActiveScenarioFitScore >= 72m
                 => (true, NarrativePhase.Climax, TransitionTriggerType.Threshold, "APPROACHING_TO_CLIMAX"),
-
-            NarrativePhase.Climax when inputs.InteractionsSinceCommitment >= 5 || inputs.ManualOverride
-                => (true, NarrativePhase.Reset, inputs.ManualOverride ? TransitionTriggerType.Override : TransitionTriggerType.InteractionCountGate, "CLIMAX_TO_RESET"),
 
             NarrativePhase.Reset
                 => (true, NarrativePhase.BuildUp, TransitionTriggerType.Reset, "RESET_TO_BUILDUP"),

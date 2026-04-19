@@ -23,6 +23,13 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
     private const int ResetExtremeHighThreshold = 90;
     private const int ResetExtremeHardTarget = 60;
     private const double ResetSoftRetentionFactor = 0.35;
+    private const double DefaultSuppressedEvidenceMultiplier = 0.20;
+    private const double DefaultSuppressedEvidencePerTurnCap = 1.5;
+    private const int DefaultActiveScenarioNoHitStaleTurns = 2;
+    private const double DefaultPivotOvertakeMarginDefault = 2.0;
+    private const double DefaultPivotOvertakeMarginWhenStale = 1.0;
+    private const int DefaultPivotCommittedInteractionWindow = 3;
+    private const int DefaultPivotCommittedInteractionWindowWhenStale = 8;
 
     private readonly IThemeCatalogService _themeCatalogService;
     private readonly IIntensityProfileService? _intensityProfileService;
@@ -47,6 +54,13 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
     private readonly int _themeAffinityCapApproaching;
     private readonly int _themeAffinityCapClimax;
     private readonly int _themeAffinityCapReset;
+    private readonly double _suppressedEvidenceMultiplier;
+    private readonly double _suppressedEvidencePerTurnCap;
+    private readonly int _activeScenarioNoHitStaleTurns;
+    private readonly double _pivotOvertakeMarginDefault;
+    private readonly double _pivotOvertakeMarginWhenStale;
+    private readonly int _pivotCommittedInteractionWindow;
+    private readonly int _pivotCommittedInteractionWindowWhenStale;
 
     public RolePlayAdaptiveStateService(
         IThemeCatalogService themeCatalogService,
@@ -70,6 +84,13 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         _themeAffinityCapApproaching = 1;
         _themeAffinityCapClimax = 2;
         _themeAffinityCapReset = 0;
+        _suppressedEvidenceMultiplier = DefaultSuppressedEvidenceMultiplier;
+        _suppressedEvidencePerTurnCap = DefaultSuppressedEvidencePerTurnCap;
+        _activeScenarioNoHitStaleTurns = DefaultActiveScenarioNoHitStaleTurns;
+        _pivotOvertakeMarginDefault = DefaultPivotOvertakeMarginDefault;
+        _pivotOvertakeMarginWhenStale = DefaultPivotOvertakeMarginWhenStale;
+        _pivotCommittedInteractionWindow = DefaultPivotCommittedInteractionWindow;
+        _pivotCommittedInteractionWindowWhenStale = DefaultPivotCommittedInteractionWindowWhenStale;
     }
 
     public RolePlayAdaptiveStateService(
@@ -95,6 +116,13 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         _themeAffinityCapApproaching = 1;
         _themeAffinityCapClimax = 2;
         _themeAffinityCapReset = 0;
+        _suppressedEvidenceMultiplier = DefaultSuppressedEvidenceMultiplier;
+        _suppressedEvidencePerTurnCap = DefaultSuppressedEvidencePerTurnCap;
+        _activeScenarioNoHitStaleTurns = DefaultActiveScenarioNoHitStaleTurns;
+        _pivotOvertakeMarginDefault = DefaultPivotOvertakeMarginDefault;
+        _pivotOvertakeMarginWhenStale = DefaultPivotOvertakeMarginWhenStale;
+        _pivotCommittedInteractionWindow = DefaultPivotCommittedInteractionWindow;
+        _pivotCommittedInteractionWindowWhenStale = DefaultPivotCommittedInteractionWindowWhenStale;
     }
 
     public RolePlayAdaptiveStateService(
@@ -123,6 +151,13 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         _themeAffinityCapApproaching = 1;
         _themeAffinityCapClimax = 2;
         _themeAffinityCapReset = 0;
+        _suppressedEvidenceMultiplier = DefaultSuppressedEvidenceMultiplier;
+        _suppressedEvidencePerTurnCap = DefaultSuppressedEvidencePerTurnCap;
+        _activeScenarioNoHitStaleTurns = DefaultActiveScenarioNoHitStaleTurns;
+        _pivotOvertakeMarginDefault = DefaultPivotOvertakeMarginDefault;
+        _pivotOvertakeMarginWhenStale = DefaultPivotOvertakeMarginWhenStale;
+        _pivotCommittedInteractionWindow = DefaultPivotCommittedInteractionWindow;
+        _pivotCommittedInteractionWindowWhenStale = DefaultPivotCommittedInteractionWindowWhenStale;
     }
 
     public RolePlayAdaptiveStateService(
@@ -179,6 +214,13 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         _themeAffinityCapApproaching = Math.Max(0, storyAnalysisOptions?.Value.AdaptiveThemeAffinityCapApproaching ?? 1);
         _themeAffinityCapClimax = Math.Max(0, storyAnalysisOptions?.Value.AdaptiveThemeAffinityCapClimax ?? 2);
         _themeAffinityCapReset = Math.Max(0, storyAnalysisOptions?.Value.AdaptiveThemeAffinityCapReset ?? 0);
+        _suppressedEvidenceMultiplier = Math.Clamp(storyAnalysisOptions?.Value.SuppressedEvidenceMultiplier ?? DefaultSuppressedEvidenceMultiplier, 0.0, 1.0);
+        _suppressedEvidencePerTurnCap = Math.Max(0.0, storyAnalysisOptions?.Value.SuppressedEvidencePerTurnCap ?? DefaultSuppressedEvidencePerTurnCap);
+        _activeScenarioNoHitStaleTurns = Math.Max(1, storyAnalysisOptions?.Value.ActiveScenarioNoHitStaleTurns ?? DefaultActiveScenarioNoHitStaleTurns);
+        _pivotOvertakeMarginDefault = Math.Max(0.0, storyAnalysisOptions?.Value.PivotOvertakeMarginDefault ?? DefaultPivotOvertakeMarginDefault);
+        _pivotOvertakeMarginWhenStale = Math.Max(0.0, storyAnalysisOptions?.Value.PivotOvertakeMarginWhenStale ?? DefaultPivotOvertakeMarginWhenStale);
+        _pivotCommittedInteractionWindow = Math.Max(1, storyAnalysisOptions?.Value.PivotCommittedInteractionWindow ?? DefaultPivotCommittedInteractionWindow);
+        _pivotCommittedInteractionWindowWhenStale = Math.Max(_pivotCommittedInteractionWindow, storyAnalysisOptions?.Value.PivotCommittedInteractionWindowWhenStale ?? DefaultPivotCommittedInteractionWindowWhenStale);
     }
 
     public RolePlayAdaptiveStateService(
@@ -306,9 +348,40 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
                 && !string.Equals(state.ActiveScenarioId, entry.Id, StringComparison.OrdinalIgnoreCase))
             {
                 var suppressedSignal = Score(contentLower, entry.Keywords, entry.Weight);
+                groupedKeywordsByThemeId.TryGetValue(entry.Id, out var suppressedGroupedKeywords);
+                suppressedSignal += suppressedGroupedKeywords is null ? 0 : ScoreGroupedKeywordCoverage(contentLower, suppressedGroupedKeywords);
+
                 if (suppressedSignal > 0)
                 {
                     trackerItem.SuppressedHitCount++;
+                    if (!trackerItem.Blocked && _suppressedEvidenceMultiplier > 0 && _suppressedEvidencePerTurnCap > 0)
+                    {
+                        var suppressedDelta = Math.Min(_suppressedEvidencePerTurnCap, suppressedSignal * _suppressedEvidenceMultiplier);
+                        if (suppressedDelta > 0)
+                        {
+                            trackerItem.Score = Math.Clamp(trackerItem.Score + suppressedDelta, 0, 100);
+                            trackerItem.Intensity = trackerItem.Score switch
+                            {
+                                < 20 => "Minor",
+                                < 45 => "Moderate",
+                                < 70 => "Major",
+                                _ => "Central"
+                            };
+                            trackerItem.Breakdown.InteractionEvidenceSignal = Math.Clamp(trackerItem.Breakdown.InteractionEvidenceSignal + suppressedDelta, 0, 100);
+
+                            state.ThemeTracker.RecentEvidence.Add(new ThemeEvidenceEvent
+                            {
+                                InteractionId = interaction.Id,
+                                ThemeId = entry.Id,
+                                SignalType = "suppressed-interaction-evidence",
+                                Delta = suppressedDelta,
+                                Confidence = 0.45,
+                                Rationale = BuildKeywordRationale(entry.Label, contentLower, entry.Keywords, suppressedGroupedKeywords)
+                            });
+
+                            TrimEvidence(state.ThemeTracker);
+                        }
+                    }
                 }
                 continue;
             }
@@ -719,6 +792,15 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             reasonCode += "-blocked-by-ceiling";
         }
 
+        // Keep adaptive escalation in Approaching below Hardcore.
+        // Hardcore is reserved for Climax unless user manually pins intensity.
+        if (session.AdaptiveState.CurrentNarrativePhase == NarrativePhase.Approaching
+            && targetScale > (int)IntensityLevel.Explicit)
+        {
+            targetScale = (int)IntensityLevel.Explicit;
+            reasonCode += "-approaching-capped-at-erotic";
+        }
+
         var targetProfile = profiles.FirstOrDefault(x => (int)x.Intensity == targetScale);
         if (targetProfile is null)
         {
@@ -925,7 +1007,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         return state.InteractionsSinceCommitment < ManualScenarioOverrideLockInteractions;
     }
 
-    private static bool TryPivotActiveScenarioFromThemeMomentum(RolePlayAdaptiveState state)
+    private bool TryPivotActiveScenarioFromThemeMomentum(RolePlayAdaptiveState state)
     {
         if (string.IsNullOrWhiteSpace(state.ActiveScenarioId))
         {
@@ -937,13 +1019,19 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             return false;
         }
 
-        // Keep pivots to very early flow to avoid mid-arc thrashing.
-        if (state.CurrentNarrativePhase == NarrativePhase.Committed && state.InteractionsSinceCommitment > 3)
+        if (!state.ThemeTracker.Themes.TryGetValue(state.ActiveScenarioId, out var activeTheme) || activeTheme.Blocked)
         {
             return false;
         }
 
-        if (!state.ThemeTracker.Themes.TryGetValue(state.ActiveScenarioId, out var activeTheme) || activeTheme.Blocked)
+        var isActiveScenarioStale = IsActiveScenarioStale(state, activeTheme.ThemeId);
+        var committedInteractionWindow = isActiveScenarioStale
+            ? _pivotCommittedInteractionWindowWhenStale
+            : _pivotCommittedInteractionWindow;
+
+        // Keep pivots to early flow unless active scenario has gone stale.
+        if (state.CurrentNarrativePhase == NarrativePhase.Committed
+            && state.InteractionsSinceCommitment > committedInteractionWindow)
         {
             return false;
         }
@@ -980,7 +1068,9 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         }
 
         const double absoluteScoreFloor = 6.0;
-        const double overtakeMargin = 2.0;
+        var overtakeMargin = isActiveScenarioStale
+            ? _pivotOvertakeMarginWhenStale
+            : _pivotOvertakeMarginDefault;
 
         if (topCandidate.Score < absoluteScoreFloor)
         {
@@ -1004,6 +1094,28 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         }
 
         return true;
+    }
+
+    private bool IsActiveScenarioStale(RolePlayAdaptiveState state, string activeThemeId)
+    {
+        var evidenceByInteraction = state.ThemeTracker.RecentEvidence
+            .Where(x => !string.IsNullOrWhiteSpace(x.InteractionId)
+                && string.Equals(x.SignalType, "interaction-evidence", StringComparison.OrdinalIgnoreCase))
+            .GroupBy(x => x.InteractionId, StringComparer.OrdinalIgnoreCase)
+            .Select(group => new
+            {
+                InteractionId = group.Key,
+                HasActiveHit = group.Any(item => string.Equals(item.ThemeId, activeThemeId, StringComparison.OrdinalIgnoreCase))
+            })
+            .ToList();
+
+        if (evidenceByInteraction.Count < _activeScenarioNoHitStaleTurns)
+        {
+            return false;
+        }
+
+        var recent = evidenceByInteraction.TakeLast(_activeScenarioNoHitStaleTurns);
+        return recent.All(x => !x.HasActiveHit);
     }
 
     private static ThemeTrackerItem? ResolveMomentumCandidate(RolePlayAdaptiveState state)
@@ -1445,99 +1557,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
 
     private static string BuildScenarioFitRulesJson(DreamGenClone.Domain.RolePlay.RPTheme theme)
     {
-        if (theme.FitRules.Count == 0)
-        {
-            return string.Empty;
-        }
-
-        var rules = new DreamGenClone.Domain.RolePlay.ScenarioFitRules();
-
-        foreach (var fitRule in theme.FitRules)
-        {
-            var roleName = (fitRule.RoleName ?? string.Empty).Trim();
-            if (string.IsNullOrWhiteSpace(roleName))
-            {
-                continue;
-            }
-
-            var roleRule = new DreamGenClone.Domain.RolePlay.CharacterRoleRule
-            {
-                RoleName = roleName
-            };
-
-            foreach (var clause in fitRule.Clauses)
-            {
-                var statName = (clause.StatName ?? string.Empty).Trim();
-                if (string.IsNullOrWhiteSpace(statName))
-                {
-                    continue;
-                }
-
-                var threshold = ConvertClauseToThreshold(clause.Comparator, clause.Threshold, clause.PenaltyWeight);
-                if (threshold is null)
-                {
-                    continue;
-                }
-
-                roleRule.StatThresholds[statName] = threshold;
-            }
-
-            if (roleRule.StatThresholds.Count == 0)
-            {
-                continue;
-            }
-
-            rules.CharacterRoleRules.Add(roleRule);
-            rules.CharacterRoleWeights[roleName] = Math.Clamp(fitRule.RoleWeight, 0.1, 10.0);
-        }
-
-        if (rules.CharacterRoleRules.Count == 0)
-        {
-            return string.Empty;
-        }
-
-        return JsonSerializer.Serialize(rules);
-    }
-
-    private static DreamGenClone.Domain.RolePlay.StatThresholdSpecification? ConvertClauseToThreshold(
-        string? comparator,
-        double threshold,
-        double penaltyWeight)
-    {
-        var normalizedComparator = (comparator ?? ">=").Trim();
-        var clampedThreshold = Math.Clamp(threshold, 0.0, 100.0);
-        var clampedPenalty = Math.Clamp(penaltyWeight, 0.0, 10.0);
-
-        return normalizedComparator switch
-        {
-            ">=" => new DreamGenClone.Domain.RolePlay.StatThresholdSpecification
-            {
-                MinimumValue = clampedThreshold,
-                PenaltyWeight = clampedPenalty
-            },
-            ">" => new DreamGenClone.Domain.RolePlay.StatThresholdSpecification
-            {
-                MinimumValue = Math.Min(100.0, clampedThreshold + 1.0),
-                PenaltyWeight = clampedPenalty
-            },
-            "<=" => new DreamGenClone.Domain.RolePlay.StatThresholdSpecification
-            {
-                MaximumValue = clampedThreshold,
-                PenaltyWeight = clampedPenalty
-            },
-            "<" => new DreamGenClone.Domain.RolePlay.StatThresholdSpecification
-            {
-                MaximumValue = Math.Max(0.0, clampedThreshold - 1.0),
-                PenaltyWeight = clampedPenalty
-            },
-            "=" or "==" => new DreamGenClone.Domain.RolePlay.StatThresholdSpecification
-            {
-                MinimumValue = clampedThreshold,
-                MaximumValue = clampedThreshold,
-                PenaltyWeight = clampedPenalty
-            },
-            _ => null
-        };
+        return RPThemeFitRulesConverter.BuildScenarioFitRulesJson(theme);
     }
 
     private static ThemeCatalogEntry MapScenarioDefinitionToCatalogEntry(ScenarioDefinitionEntity definition)

@@ -60,6 +60,30 @@ public sealed class ScenarioLifecycleGateProfileTests
         Assert.Equal(NarrativePhase.Climax, passing.TargetPhase);
     }
 
+    [Fact]
+    public async Task ClimaxToReset_UsesConfiguredInteractionThreshold()
+    {
+        var profileService = new StubNarrativeGateProfileService();
+        var service = new ScenarioLifecycleService(NullLogger<ScenarioLifecycleService>.Instance, profileService);
+
+        var state = CreateState(NarrativePhase.Climax, desire: 80, restraint: 20);
+        var blocked = await service.EvaluateTransitionAsync(state, new LifecycleInputs
+        {
+            InteractionsSinceCommitment = 11
+        });
+
+        Assert.False(blocked.Transitioned);
+        Assert.Equal(NarrativePhase.Climax, blocked.TargetPhase);
+
+        var passed = await service.EvaluateTransitionAsync(state, new LifecycleInputs
+        {
+            InteractionsSinceCommitment = 12
+        });
+
+        Assert.True(passed.Transitioned);
+        Assert.Equal(NarrativePhase.Reset, passed.TargetPhase);
+    }
+
     private static AdaptiveScenarioState CreateState(NarrativePhase phase, int desire, int restraint)
     {
         return new AdaptiveScenarioState
@@ -110,7 +134,8 @@ public sealed class ScenarioLifecycleGateProfileTests
                 new() { SortOrder = 4, FromPhase = "Committed", ToPhase = "Approaching", MetricKey = NarrativeGateMetricKeys.InteractionsSinceCommitment, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 3m },
                 new() { SortOrder = 5, FromPhase = "Approaching", ToPhase = "Climax", MetricKey = NarrativeGateMetricKeys.ActiveScenarioScore, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 80m },
                 new() { SortOrder = 6, FromPhase = "Approaching", ToPhase = "Climax", MetricKey = NarrativeGateMetricKeys.AverageDesire, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 75m },
-                new() { SortOrder = 7, FromPhase = "Approaching", ToPhase = "Climax", MetricKey = NarrativeGateMetricKeys.AverageRestraint, Comparator = NarrativeGateComparators.LessThanOrEqual, Threshold = 35m }
+                new() { SortOrder = 7, FromPhase = "Approaching", ToPhase = "Climax", MetricKey = NarrativeGateMetricKeys.AverageRestraint, Comparator = NarrativeGateComparators.LessThanOrEqual, Threshold = 35m },
+                new() { SortOrder = 8, FromPhase = "Climax", ToPhase = "Reset", MetricKey = NarrativeGateMetricKeys.InteractionsSinceCommitment, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 12m }
             ]
         };
 

@@ -575,6 +575,57 @@ SessionId: b8ea5fbc-323b-4d00-ba1e-fe29ded13e8d
   - stale-aware pivot margin behavior,
   - gate-penalty ranking behavior.
 - Validate with forensic replay on session traces where expected comeback previously failed.
+
+### Issue 10 Implementation Progress (2026-04-18)
+
+- Status: MVP implemented (code/config/tests updated)
+- Included in this pass:
+  - Added StoryAnalysis configuration knobs:
+    - `SuppressedEvidenceMultiplier` (default `0.20`)
+    - `SuppressedEvidencePerTurnCap` (default `1.5`)
+    - `GateFailScorePenaltyMultiplier` (default `0.35`)
+  - Adaptive scoring update:
+    - Non-active themes now retain `SuppressedHitCount` behavior.
+    - Non-active themes now also gain reduced/capped interaction evidence score instead of full skip when active scenario is set.
+    - Added `suppressed-interaction-evidence` entries in recent evidence for observability.
+  - Candidate selection update:
+    - Gate-failed candidates no longer hard-zero fit score.
+    - Gate-failed candidates now receive heavy score penalty via `GateFailScorePenaltyMultiplier`.
+    - Rationale now includes weighted-to-penalized score explanation for failed gates.
+  - Test updates:
+    - Added suppression comeback test for non-active theme capped gain.
+    - Updated dominant-role gate expectation from hard-zero to penalized non-zero score.
+
+- Validation status:
+  - File-level diagnostics on all changed files report no errors.
+  - Test execution currently blocked by local file lock contention on `DreamGenClone.Web/bin/Debug/net9.0/*.dll` from active `.NET Host` process; rerun required after lock is cleared.
+
+### Issue 10 Implementation Progress (2026-04-18, Phase 2)
+
+- Status: Implemented and validated (focused test pass)
+- Scope implemented:
+  - Added stale-aware pivot policy knobs:
+    - `ActiveScenarioNoHitStaleTurns`
+    - `PivotOvertakeMarginDefault`
+    - `PivotOvertakeMarginWhenStale`
+    - `PivotCommittedInteractionWindow`
+    - `PivotCommittedInteractionWindowWhenStale`
+  - Updated context-momentum pivot logic:
+    - Detects active-scenario staleness from recent interaction-evidence windows.
+    - Keeps strict committed-phase pivot window when scenario is not stale.
+    - Expands committed-phase pivot window when scenario is stale.
+    - Uses stale-aware overtake margin (`default` vs `when stale`).
+- Defaults shipped in appsettings:
+  - `ActiveScenarioNoHitStaleTurns=2`
+  - `PivotOvertakeMarginDefault=2.0`
+  - `PivotOvertakeMarginWhenStale=1.0`
+  - `PivotCommittedInteractionWindow=3`
+  - `PivotCommittedInteractionWindowWhenStale=8`
+- Regression coverage added:
+  - `UpdateFromInteractionAsync_StaleCommittedScenario_AllowsLatePivot`
+  - `UpdateFromInteractionAsync_NonStaleCommittedScenario_DoesNotLatePivot`
+- Validation:
+  - Focused tests passed: total `15`, failed `0`, succeeded `15`, skipped `0`.
 - Success criteria:
   - Fewer incorrect location/perception jumps in runtime diagnostics.
   - Clear reconciliation policy when model-inferred location conflicts with deterministic state.

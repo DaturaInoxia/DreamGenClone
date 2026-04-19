@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using DreamGenClone.Infrastructure.Configuration;
 using System.Text.Json;
+using ThemeCatalogEntry = DreamGenClone.Domain.StoryAnalysis.ThemeCatalogEntry;
 
 namespace DreamGenClone.Infrastructure.RolePlay;
 
@@ -58,9 +59,11 @@ public sealed class ScenarioSelectionService : IScenarioSelectionService
 
                 var gate = EvaluateCandidateGate(candidate.ScenarioId, fit, stageBEligible);
 
+                var weightedScore = decimal.Round(weightedScore01 * 100m, 3, MidpointRounding.AwayFromZero);
+                var gateFailPenaltyMultiplier = Clamp01((decimal)_options.GateFailScorePenaltyMultiplier);
                 var score = gate.Passed
-                    ? decimal.Round(weightedScore01 * 100m, 3, MidpointRounding.AwayFromZero)
-                    : 0m;
+                    ? weightedScore
+                    : decimal.Round(weightedScore * gateFailPenaltyMultiplier, 3, MidpointRounding.AwayFromZero);
 
                 var confidence = Math.Clamp((double)score / 100d, 0d, 1d);
                 var evaluation = new ScenarioCandidateEvaluation
@@ -78,7 +81,7 @@ public sealed class ScenarioSelectionService : IScenarioSelectionService
                     TieBreakKey = $"{candidate.Priority:D3}:{candidate.ScenarioId}",
                     Rationale = gate.Passed
                         ? BuildRationale(score, characterAlignmentScore, narrativeEvidenceScore, preferencePriorityScore, fit, gate.Reason)
-                        : gate.Reason,
+                        : $"{gate.Reason} Penalized weighted score from {weightedScore:0.###} to {score:0.###} (multiplier={gateFailPenaltyMultiplier:0.###}).",
                     DetailsJson = BuildDetailsJson(candidate, fit, gate),
                     EvaluatedUtc = DateTime.UtcNow
                 };
@@ -106,15 +109,28 @@ public sealed class ScenarioSelectionService : IScenarioSelectionService
         IReadOnlyList<ScenarioDefinition> candidates,
         CancellationToken cancellationToken)
     {
-        if (_characterStateScenarioMapper is null || _themeCatalogService is null)
+        if (_characterStateScenarioMapper is null)
         {
             return new Dictionary<string, ScenarioFitResult>(StringComparer.OrdinalIgnoreCase);
         }
 
-        var catalogEntries = await _themeCatalogService.GetAllAsync(includeDisabled: false, cancellationToken);
-        if (catalogEntries.Count == 0)
+        var entriesToEvaluate = new List<ThemeCatalogEntry>();
+
+        var directRuleCandidates = candidates
+            .Where(x => !string.IsNullOrWhiteSpace(x.ScenarioId) && !string.IsNullOrWhiteSpace(x.ScenarioFitRulesJson))
+            .GroupBy(x => x.ScenarioId, StringComparer.OrdinalIgnoreCase)
+            .Select(x => x.First())
+            .ToList();
+
+        foreach (var candidate in directRuleCandidates)
         {
-            return new Dictionary<string, ScenarioFitResult>(StringComparer.OrdinalIgnoreCase);
+            entriesToEvaluate.Add(new ThemeCatalogEntry
+            {
+                Id = candidate.ScenarioId,
+                Label = candidate.Name,
+                ScenarioFitRules = candidate.ScenarioFitRulesJson ?? string.Empty,
+                IsEnabled = true
+            });
         }
 
         var candidateIds = candidates
@@ -122,16 +138,29 @@ public sealed class ScenarioSelectionService : IScenarioSelectionService
             .Where(x => !string.IsNullOrWhiteSpace(x))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        var relevantCatalogEntries = catalogEntries
-            .Where(x => candidateIds.Contains(x.Id))
-            .ToList();
+        var unresolvedCandidateIds = candidateIds
+            .Where(x => directRuleCandidates.All(d => !string.Equals(d.ScenarioId, x, StringComparison.OrdinalIgnoreCase)))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        if (relevantCatalogEntries.Count == 0)
+        if (unresolvedCandidateIds.Count > 0 && _themeCatalogService is not null)
+        {
+            var catalogEntries = await _themeCatalogService.GetAllAsync(includeDisabled: false, cancellationToken);
+            if (catalogEntries.Count > 0)
+            {
+                var relevantCatalogEntries = catalogEntries
+                    .Where(x => unresolvedCandidateIds.Contains(x.Id))
+                    .ToList();
+
+                entriesToEvaluate.AddRange(relevantCatalogEntries);
+            }
+        }
+
+        if (entriesToEvaluate.Count == 0)
         {
             return new Dictionary<string, ScenarioFitResult>(StringComparer.OrdinalIgnoreCase);
         }
 
-        return await _characterStateScenarioMapper.EvaluateAllScenariosAsync(state, relevantCatalogEntries, cancellationToken);
+        return await _characterStateScenarioMapper.EvaluateAllScenariosAsync(state, entriesToEvaluate, cancellationToken);
     }
 
     private static string BuildRationale(
@@ -148,10 +177,19 @@ public sealed class ScenarioSelectionService : IScenarioSelectionService
 
     private static string BuildDetailsJson(ScenarioDefinition candidate, ScenarioFitResult? fit, CandidateGateDecision gate)
     {
+        var parsedFitRules = ParseScenarioFitRules(candidate.ScenarioFitRulesJson);
+
+        var fitRuleSource = !string.IsNullOrWhiteSpace(candidate.ScenarioFitRuleSource)
+            ? candidate.ScenarioFitRuleSource
+            : !string.IsNullOrWhiteSpace(candidate.ScenarioFitRulesJson)
+                ? "candidate-inline"
+                : "theme-catalog";
+
         var details = new
         {
             scenarioId = candidate.ScenarioId,
             candidate.Priority,
+            fitRuleSource,
             gate = new
             {
                 gate.Passed,
@@ -165,6 +203,8 @@ public sealed class ScenarioSelectionService : IScenarioSelectionService
                     fit.ScenarioId,
                     fit.FitScore,
                     roleScores = fit.CharacterRoleScores,
+                    roleWeights = parsedFitRules?.CharacterRoleWeights,
+                    roleCharacterBindings = parsedFitRules?.RoleCharacterBindings,
                     clauseEvaluations = fit.ClauseEvaluations,
                     fit.Rationale,
                     fit.Failures
@@ -172,6 +212,23 @@ public sealed class ScenarioSelectionService : IScenarioSelectionService
         };
 
         return JsonSerializer.Serialize(details);
+    }
+
+    private static ScenarioFitRules? ParseScenarioFitRules(string? fitRulesJson)
+    {
+        if (string.IsNullOrWhiteSpace(fitRulesJson))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<ScenarioFitRules>(fitRulesJson);
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private CandidateGateDecision EvaluateCandidateGate(string scenarioId, ScenarioFitResult? fit, bool stageBEligible)
@@ -287,6 +344,22 @@ public sealed class ScenarioSelectionService : IScenarioSelectionService
             });
         }
 
+        if (state.CurrentPhase == NarrativePhase.BuildUp)
+        {
+            var minBuildUpInteractions = Math.Max(1, _options.BuildUpMinInteractionsBeforeCommit);
+            if (state.InteractionCountInPhase < minBuildUpInteractions)
+            {
+                return Task.FromResult(new ScenarioCommitResult
+                {
+                    Committed = false,
+                    ScenarioId = leader.ScenarioId,
+                    UpdatedConsecutiveLeadCount = 0,
+                    Reason = $"BuildUp requires at least {minBuildUpInteractions} interactions before commit.",
+                    SelectedEvaluation = leader
+                });
+            }
+        }
+
         var lead = ordered.Count > 1
             ? leader.FitScore - ordered[1].FitScore
             : decimal.MaxValue;
@@ -317,6 +390,23 @@ public sealed class ScenarioSelectionService : IScenarioSelectionService
                 ScenarioId = leader.ScenarioId,
                 UpdatedConsecutiveLeadCount = updatedLeadCount,
                 Reason = $"Near tie requires sustained lead before commit. leadDelta={lead:0.###}, tieThreshold={NearTieThreshold:0.###}, tieSet=[{tieSetSummary}]",
+                SelectedEvaluation = leader
+            });
+        }
+
+        var sameAsActiveScenario = !string.IsNullOrWhiteSpace(state.ActiveScenarioId)
+            && string.Equals(state.ActiveScenarioId, leader.ScenarioId, StringComparison.OrdinalIgnoreCase);
+        var inActiveArc = state.CurrentPhase is not NarrativePhase.BuildUp and not NarrativePhase.Reset;
+        if (sameAsActiveScenario && inActiveArc)
+        {
+            return Task.FromResult(new ScenarioCommitResult
+            {
+                Committed = false,
+                ScenarioId = leader.ScenarioId,
+                UpdatedConsecutiveLeadCount = updatedLeadCount,
+                Reason = nearTie
+                    ? $"Leader unchanged; active scenario already committed. Suppressing no-op recommit. leadDelta={lead:0.###}, tieThreshold={NearTieThreshold:0.###}, tieSet=[{tieSetSummary}]"
+                    : $"Leader unchanged; active scenario already committed. Suppressing no-op recommit. leadDelta={lead:0.###}",
                 SelectedEvaluation = leader
             });
         }

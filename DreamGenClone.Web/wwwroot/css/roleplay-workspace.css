@@ -243,6 +243,17 @@
     margin-left: auto;
 }
 
+.rw-finish-chip {
+    margin-left: 4px;
+    border-color: #5a4630;
+}
+
+.rw-finish-chip.is-active {
+    background: #f1dac2;
+    border-color: #f1dac2;
+    color: #2a1b0d;
+}
+
 .rw-input-row {
     display: flex;
     align-items: flex-end;
@@ -479,6 +490,13 @@
     max-width: min(460px, calc(100% - 28px));
 }
 
+.rw-finish-popup {
+    right: 14px;
+    left: auto;
+    min-width: 360px;
+    max-width: min(520px, calc(100% - 28px));
+}
+
 /* Popup header (identity popup) */
 .rw-popup-header {
     padding: 9px 14px 6px;
@@ -620,6 +638,33 @@
 }
 
 .rw-continue-popup-actions .rw-popup-action-btn {
+    flex: 0 0 auto;
+    min-width: 110px;
+    padding: 8px 14px;
+}
+
+.rw-finish-popup-body {
+    max-height: 320px;
+    overflow-y: auto;
+}
+
+.rw-finish-loading {
+    padding: 12px 14px;
+    color: #9f9f9f;
+    font-size: 13px;
+}
+
+.rw-finish-error {
+    padding: 8px 14px 0;
+    color: #e5a9a9;
+    font-size: 12px;
+}
+
+.rw-finish-popup-actions {
+    justify-content: flex-end;
+}
+
+.rw-finish-popup-actions .rw-popup-action-btn {
     flex: 0 0 auto;
     min-width: 110px;
     padding: 8px 14px;
@@ -837,6 +882,77 @@
     font-size: 11px;
     color: #888;
     font-weight: 500;
+}
+
+.rw-stat-grid {
+    display: grid;
+    gap: 2px;
+    border: 1px solid #2c2c2c;
+    border-radius: 8px;
+    background: #1a1a1a;
+    overflow: hidden;
+}
+
+.rw-stat-grid-header,
+.rw-stat-grid-row {
+    display: grid;
+    grid-template-columns: minmax(92px, 1.5fr) 1fr 1fr 1fr;
+    gap: 0;
+}
+
+.rw-stat-grid-header {
+    background: #202020;
+}
+
+.rw-stat-grid-row {
+    background: #181818;
+}
+
+.rw-stat-grid-row:nth-child(even) {
+    background: #151515;
+}
+
+.rw-stat-cell {
+    font-size: 12px;
+    padding: 6px 8px;
+    border-right: 1px solid #262626;
+    color: #a4a4a4;
+}
+
+.rw-stat-cell:last-child {
+    border-right: none;
+}
+
+.rw-stat-col-name {
+    color: #b8b8b8;
+}
+
+.rw-stat-grid-header .rw-stat-cell {
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #7f7f7f;
+}
+
+.rw-stat-col-baseline,
+.rw-stat-col-current,
+.rw-stat-col-delta {
+    text-align: right;
+}
+
+.rw-stat-current-higher {
+    color: #7acb93;
+    font-weight: 600;
+}
+
+.rw-stat-current-lower {
+    color: #d68f8f;
+    font-weight: 600;
+}
+
+.rw-stat-current-neutral {
+    color: #a4a4a4;
 }
 
 .rw-list-item-row {

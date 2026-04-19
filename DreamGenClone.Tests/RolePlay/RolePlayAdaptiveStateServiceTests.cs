@@ -235,6 +235,55 @@ public sealed class RolePlayAdaptiveStateServiceTests
     }
 
     [Fact]
+    public async Task UpdateFromInteractionAsync_CapsApproachingPhaseAtErotic()
+    {
+        var intensityService = new FakeIntensityProfileService();
+        var service = new RolePlayAdaptiveStateService(new FakeThemeCatalogService(), intensityService);
+        var session = new RolePlaySession
+        {
+            SelectedIntensityProfileId = "explicit",
+            AdaptiveIntensityProfileId = "hardcore",
+            Interactions =
+            [
+                new RolePlayInteraction { ActorName = "Seed", Content = "seed-1" },
+                new RolePlayInteraction { ActorName = "Seed", Content = "seed-2" },
+                new RolePlayInteraction { ActorName = "Seed", Content = "seed-3" },
+                new RolePlayInteraction { ActorName = "Seed", Content = "seed-4" }
+            ],
+            AdaptiveState = new RolePlayAdaptiveState
+            {
+                CurrentNarrativePhase = NarrativePhase.Approaching,
+                CharacterStats = new Dictionary<string, CharacterStatBlock>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Alex"] = new CharacterStatBlock
+                    {
+                        CharacterId = "alex",
+                        Stats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            ["Desire"] = 90,
+                            ["Restraint"] = 20,
+                            ["Tension"] = 30,
+                            ["Connection"] = 50,
+                            ["Dominance"] = 50,
+                            ["Loyalty"] = 50,
+                            ["SelfRespect"] = 50
+                        }
+                    }
+                }
+            }
+        };
+
+        await service.UpdateFromInteractionAsync(session, new RolePlayInteraction
+        {
+            ActorName = "Alex",
+            Content = "I pull you closer with urgent need."
+        });
+
+        Assert.Equal("explicit", session.AdaptiveIntensityProfileId);
+        Assert.Contains("approaching-capped-at-erotic", session.AdaptiveIntensityLastTransitionReason);
+    }
+
+    [Fact]
     public async Task UpdateFromInteractionAsync_UsesClimaxPhaseFlowBaseline()
     {
         var intensityService = new FakeIntensityProfileService();

@@ -23,7 +23,7 @@ public sealed class PhaseLifecycleTransitionTests
         var toClimax = await _service.EvaluateTransitionAsync(state, new LifecycleInputs { InteractionsSinceCommitment = 4, ActiveScenarioFitScore = 80m });
         state.CurrentPhase = toClimax.TargetPhase;
 
-        var toReset = await _service.EvaluateTransitionAsync(state, new LifecycleInputs { InteractionsSinceCommitment = 5 });
+        var toReset = await _service.EvaluateTransitionAsync(state, new LifecycleInputs { ClimaxCompletionRequested = true });
         state.CurrentPhase = toReset.TargetPhase;
 
         var toBuildUp = await _service.EvaluateTransitionAsync(state, new LifecycleInputs());
@@ -34,6 +34,22 @@ public sealed class PhaseLifecycleTransitionTests
         Assert.Equal(NarrativePhase.Climax, toClimax.TargetPhase);
         Assert.Equal(NarrativePhase.Reset, toReset.TargetPhase);
         Assert.Equal(NarrativePhase.BuildUp, toBuildUp.TargetPhase);
+    }
+
+    [Fact]
+    public async Task Climax_DoesNotAutoResetWithoutCommandOrGateProfile()
+    {
+        var state = CreateState();
+        state.CurrentPhase = NarrativePhase.Climax;
+
+        var result = await _service.EvaluateTransitionAsync(state, new LifecycleInputs
+        {
+            InteractionsSinceCommitment = 50,
+            ActiveScenarioFitScore = 95m
+        });
+
+        Assert.False(result.Transitioned);
+        Assert.Equal(NarrativePhase.Climax, result.TargetPhase);
     }
 
     [Fact]

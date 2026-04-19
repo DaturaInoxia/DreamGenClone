@@ -36,8 +36,10 @@ public sealed class ScenarioSelectionDominantRoleGateTests
 
         Assert.Single(evaluations);
         Assert.False(evaluations[0].StageBEligible);
-        Assert.Equal(0m, evaluations[0].FitScore);
+        Assert.True(evaluations[0].FitScore > 0m);
+        Assert.True(evaluations[0].FitScore < 100m);
         Assert.Contains("Dominant-role gate failed", evaluations[0].Rationale, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Penalized weighted score", evaluations[0].Rationale, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

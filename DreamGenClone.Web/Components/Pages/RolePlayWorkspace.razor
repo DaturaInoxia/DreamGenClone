@@ -36,8 +36,10 @@
 @inject IJSRuntime JS
 @inject ILogger<RolePlayWorkspace> Logger
 @implements IAsyncDisposable
+@using System.Globalization
 @using System.Text
 @using System.Text.Json
+@using System.Text.RegularExpressions
 
 @code {
     [Parameter]
@@ -53,6 +55,8 @@
     private BehaviorMode _selectedBehaviorMode = BehaviorMode.TakeTurns;
     private string _activeSettingsTab = "settings";
     private bool _adaptiveDiagnosticsExpanded;
+    private bool _adaptiveCharacterStatsExpanded;
+    private readonly HashSet<string> _expandedAdaptiveCharacterStats = new(StringComparer.OrdinalIgnoreCase);
     private readonly WorkspaceSettingsState _workspaceSettings = new();
 
     // Assistant panel
@@ -77,6 +81,12 @@
     private bool _intentPopupOpen = false;
     private bool _identityPopupOpen = false;
     private bool _continueCustomPopupOpen = false;
+    private bool _finishPopupOpen;
+    private bool _finishOptionsLoading;
+    private bool _finishOptionSubmitting;
+    private List<string> _finishOptions = [];
+    private string _selectedFinishOption = string.Empty;
+    private string _finishOptionError = string.Empty;
 
     // Identity
     private List<IdentityOption> _identityOptions = [];
@@ -102,6 +112,7 @@
     private DateTime _lastPendingResponseRenderAt = DateTime.MinValue;
     private static readonly TimeSpan PendingResponseRenderInterval = TimeSpan.FromMilliseconds(300);
     private RolePlayV2DiagnosticsSnapshot? _v2Diagnostics;
+    private DreamGenClone.Domain.RolePlay.NarrativeGateProfile? _defaultNarrativeGateProfile;
     private RolePlayPendingDecisionPrompt? _pendingDecisionPrompt;
     private List<RolePlayPendingDecisionPrompt> _deferredDecisionPrompts = [];
     private string? _dismissedDecisionPointId;
@@ -167,6 +178,8 @@
             Navigation.NavigateTo(RolePlayRoutes.Sessions);
             return;
         }
+
+        _defaultNarrativeGateProfile = await StoryAnalysisFacade.GetDefaultNarrativeGateProfileAsync();
 
         var sessionUpdated = false;
 
@@ -428,6 +441,7 @@
         _intentPopupOpen = !_intentPopupOpen;
         _identityPopupOpen = false;
         _continueCustomPopupOpen = false;
+        _finishPopupOpen = false;
     }
 
     private void SelectIntent(PromptIntent intent)
@@ -441,6 +455,7 @@
         _identityPopupOpen = !_identityPopupOpen;
         _intentPopupOpen = false;
         _continueCustomPopupOpen = false;
+        _finishPopupOpen = false;
     }
 
     private void SelectIdentity(IdentityOption option)
@@ -459,6 +474,7 @@
         _intentPopupOpen = false;
         _identityPopupOpen = false;
         _continueCustomPopupOpen = false;
+        _finishPopupOpen = false;
     }
 
     private async Task ApplyBehaviorModeAsync()
@@ -1771,7 +1787,7 @@
         var dominance = GetAverageAdaptiveStat(state, "Dominance");
         var loyalty = GetAverageAdaptiveStat(state, "Loyalty");
         var selfRespect = GetAverageAdaptiveStat(state, "SelfRespect");
-        var activeScenarioScore = GetActiveScenarioScore(state);
+        var activeScenarioScore = GetLifecycleActiveScenarioScore(state, out var activeScenarioScoreSource);
         var willingnessTier = ResolveWillingnessTier(desire);
         var stageAOpen = !string.Equals(willingnessTier, "Blocked", StringComparison.OrdinalIgnoreCase);
         var stageBOpen = tension >= 35 && restraint <= 80;
@@ -1781,7 +1797,7 @@
         rows.Add(new PhaseGateRow(
             "Session Stats Snapshot",
             "Live",
-            $"Desire={desire:0.0}, Restraint={restraint:0.0}, Tension={tension:0.0}, Connection={connection:0.0}, Dominance={dominance:0.0}, Loyalty={loyalty:0.0}, SelfRespect={selfRespect:0.0}, ActiveScenarioScore={activeScenarioScore:0.0}, CompletedScenarios={state.CompletedScenarios}."));
+            $"Desire={desire:0.0}, Restraint={restraint:0.0}, Tension={tension:0.0}, Connection={connection:0.0}, Dominance={dominance:0.0}, Loyalty={loyalty:0.0}, SelfRespect={selfRespect:0.0}, ActiveScenarioScore={activeScenarioScore:0.0} ({activeScenarioScoreSource}), CompletedScenarios={state.CompletedScenarios}."));
 
         var desireGapToStageA = Math.Max(0, 35 - desire);
         rows.Add(new PhaseGateRow(
@@ -1834,7 +1850,7 @@
                 rows.Add(new PhaseGateRow(
                     "Gate: Committed -> Approaching",
                     isMet ? "Open" : "Closed",
-                    $"Cycle easing (completed={state.CompletedScenarios}): Score {activeScenarioScore:0.0}/{thresholds.ScoreMin:0} ({(scoreMet ? "OK" : $"Need +{scoreGap:0.0}")}), Desire {desire:0.0}/{thresholds.DesireMin:0} ({(desireMet ? "OK" : $"Need +{desireGap:0.0}")}), Restraint {restraint:0.0}/<={thresholds.RestraintMax:0} ({(restraintMet ? "OK" : $"Need -{restraintGap:0.0}")}), Interactions {state.InteractionsSinceCommitment}/{thresholds.InteractionsMin} ({(interactionsMet ? "OK" : $"Need +{interactionGap}")})"));
+                    $"{thresholds.Source}: Score {activeScenarioScore:0.0}/{thresholds.ScoreMin:0} ({(scoreMet ? "OK" : $"Need +{scoreGap:0.0}")}), Desire {desire:0.0}/{thresholds.DesireMin:0} ({(desireMet ? "OK" : $"Need +{desireGap:0.0}")}), Restraint {restraint:0.0}/<={thresholds.RestraintMax:0} ({(restraintMet ? "OK" : $"Need -{restraintGap:0.0}")}), Interactions {state.InteractionsSinceCommitment}/{thresholds.InteractionsMin} ({(interactionsMet ? "OK" : $"Need +{interactionGap}")})"));
                 break;
             }
             case DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Approaching:
@@ -1852,7 +1868,7 @@
                 rows.Add(new PhaseGateRow(
                     "Gate: Approaching -> Climax",
                     thresholdMet ? "Open" : "Closed",
-                    $"Auto threshold (cycle easing, completed={state.CompletedScenarios}): Score {activeScenarioScore:0.0}/{thresholds.ScoreMin:0} ({(scoreMet ? "OK" : $"Need +{scoreGap:0.0}")}), Desire {desire:0.0}/{thresholds.DesireMin:0} ({(desireMet ? "OK" : $"Need +{desireGap:0.0}")}), Restraint {restraint:0.0}/<={thresholds.RestraintMax:0} ({(restraintMet ? "OK" : $"Need -{restraintGap:0.0}")}), Interactions {state.InteractionsInApproaching}/{thresholds.InteractionsMin} ({(interactionsMet ? "OK" : $"Need +{interactionGap}")}). '/climax' can force transition."));
+                    $"{thresholds.Source}: Score {activeScenarioScore:0.0}/{thresholds.ScoreMin:0} ({(scoreMet ? "OK" : $"Need +{scoreGap:0.0}")}), Desire {desire:0.0}/{thresholds.DesireMin:0} ({(desireMet ? "OK" : $"Need +{desireGap:0.0}")}), Restraint {restraint:0.0}/<={thresholds.RestraintMax:0} ({(restraintMet ? "OK" : $"Need -{restraintGap:0.0}")}), Interactions {state.InteractionsInApproaching}/{thresholds.InteractionsMin} ({(interactionsMet ? "OK" : $"Need +{interactionGap}")}). '/climax' can force transition."));
                 break;
             }
             case DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Climax:
@@ -1979,7 +1995,7 @@
         var desire = GetAverageAdaptiveStat(state, "Desire");
         var restraint = GetAverageAdaptiveStat(state, "Restraint");
         var tension = GetAverageAdaptiveStat(state, "Tension");
-        var activeScenarioScore = GetActiveScenarioScore(state);
+        var activeScenarioScore = GetLifecycleActiveScenarioScore(state, out _);
         var effectiveInteractionsSinceCommitment = GetEffectiveInteractionsSinceCommitment(state);
         var effectiveInteractionsInApproaching = GetEffectiveInteractionsInApproaching(state, effectiveInteractionsSinceCommitment);
 
@@ -2038,7 +2054,7 @@
         );
     }
 
-    private static PhaseProgressInfo BuildCommittedProgress(RolePlayAdaptiveState state, double activeScenarioScore, double desire, double restraint, int interactionsSinceCommitment)
+    private PhaseProgressInfo BuildCommittedProgress(RolePlayAdaptiveState state, double activeScenarioScore, double desire, double restraint, int interactionsSinceCommitment)
     {
         var thresholds = ResolveCommittedGateThresholds(state);
         var scoreProgress = Math.Clamp(activeScenarioScore / thresholds.ScoreMin, 0, 1);
@@ -2050,11 +2066,11 @@
         return new PhaseProgressInfo(
             "Approaching",
             progressPercent,
-            $"Thresholds (cycle easing, completed={state.CompletedScenarios}): score>={thresholds.ScoreMin:0} ({activeScenarioScore:0.0}), desire>={thresholds.DesireMin:0} ({desire:0.0}), restraint<={thresholds.RestraintMax:0} ({restraint:0.0}), interactions>={thresholds.InteractionsMin} ({interactionsSinceCommitment})."
+            $"{thresholds.Source}: score>={thresholds.ScoreMin:0} ({activeScenarioScore:0.0}), desire>={thresholds.DesireMin:0} ({desire:0.0}), restraint<={thresholds.RestraintMax:0} ({restraint:0.0}), interactions>={thresholds.InteractionsMin} ({interactionsSinceCommitment})."
         );
     }
 
-    private static PhaseProgressInfo BuildApproachingProgress(RolePlayAdaptiveState state, double activeScenarioScore, double desire, double restraint, int interactionsInApproaching)
+    private PhaseProgressInfo BuildApproachingProgress(RolePlayAdaptiveState state, double activeScenarioScore, double desire, double restraint, int interactionsInApproaching)
     {
         var thresholds = ResolveApproachingGateThresholds(state);
         var scoreProgress = Math.Clamp(activeScenarioScore / thresholds.ScoreMin, 0, 1);
@@ -2066,28 +2082,112 @@
         return new PhaseProgressInfo(
             "Climax",
             progressPercent,
-            $"Auto thresholds (cycle easing, completed={state.CompletedScenarios}): score>={thresholds.ScoreMin:0} ({activeScenarioScore:0.0}), desire>={thresholds.DesireMin:0} ({desire:0.0}), restraint<={thresholds.RestraintMax:0} ({restraint:0.0}), approaching interactions>={thresholds.InteractionsMin} ({interactionsInApproaching}). '/climax' can force transition."
+            $"{thresholds.Source}: score>={thresholds.ScoreMin:0} ({activeScenarioScore:0.0}), desire>={thresholds.DesireMin:0} ({desire:0.0}), restraint<={thresholds.RestraintMax:0} ({restraint:0.0}), approaching interactions>={thresholds.InteractionsMin} ({interactionsInApproaching}). '/climax' can force transition."
         );
     }
 
-    private static PhaseGateThresholds ResolveCommittedGateThresholds(RolePlayAdaptiveState state)
+    private PhaseGateThresholds ResolveCommittedGateThresholds(RolePlayAdaptiveState state)
     {
         var cycle = Math.Max(0, state.CompletedScenarios);
-        return new PhaseGateThresholds(
+        var fallback = new PhaseGateThresholds(
             ScoreMin: Math.Max(45, 60 - (cycle * 4)),
             DesireMin: Math.Max(50, 65 - (cycle * 4)),
             RestraintMax: Math.Min(60, 45 + (cycle * 4)),
-            InteractionsMin: Math.Max(2, 3 - Math.Min(cycle, 1)));
+            InteractionsMin: Math.Max(2, 3 - Math.Min(cycle, 1)),
+            Source: $"Auto threshold (cycle easing, completed={state.CompletedScenarios})");
+
+        return ResolveGateThresholdsFromProfileWithFallback("Committed", "Approaching", fallback);
     }
 
-    private static PhaseGateThresholds ResolveApproachingGateThresholds(RolePlayAdaptiveState state)
+    private PhaseGateThresholds ResolveApproachingGateThresholds(RolePlayAdaptiveState state)
     {
         var cycle = Math.Max(0, state.CompletedScenarios);
-        return new PhaseGateThresholds(
+        var fallback = new PhaseGateThresholds(
             ScoreMin: Math.Max(55, 80 - (cycle * 8)),
             DesireMin: Math.Max(60, 75 - (cycle * 6)),
             RestraintMax: Math.Min(55, 35 + (cycle * 6)),
-            InteractionsMin: 2);
+            InteractionsMin: 2,
+            Source: $"Auto threshold (cycle easing, completed={state.CompletedScenarios})");
+
+        return ResolveGateThresholdsFromProfileWithFallback("Approaching", "Climax", fallback);
+    }
+
+    private PhaseGateThresholds ResolveGateThresholdsFromProfileWithFallback(
+        string fromPhase,
+        string toPhase,
+        PhaseGateThresholds fallback)
+    {
+        var profile = _defaultNarrativeGateProfile;
+        if (profile?.Rules is null || profile.Rules.Count == 0)
+        {
+            return fallback;
+        }
+
+        var rules = profile.Rules
+            .Where(rule => string.Equals(rule.FromPhase, fromPhase, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(rule.ToPhase, toPhase, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (rules.Count == 0)
+        {
+            return fallback;
+        }
+
+        var hasScore = TryGetThreshold(
+            rules,
+            DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.ActiveScenarioScore,
+            [DreamGenClone.Domain.RolePlay.NarrativeGateComparators.GreaterThanOrEqual, DreamGenClone.Domain.RolePlay.NarrativeGateComparators.GreaterThan],
+            out var scoreMin);
+        var hasDesire = TryGetThreshold(
+            rules,
+            DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageDesire,
+            [DreamGenClone.Domain.RolePlay.NarrativeGateComparators.GreaterThanOrEqual, DreamGenClone.Domain.RolePlay.NarrativeGateComparators.GreaterThan],
+            out var desireMin);
+        var hasRestraint = TryGetThreshold(
+            rules,
+            DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageRestraint,
+            [DreamGenClone.Domain.RolePlay.NarrativeGateComparators.LessThanOrEqual, DreamGenClone.Domain.RolePlay.NarrativeGateComparators.LessThan],
+            out var restraintMax);
+        var hasInteractions = TryGetThreshold(
+            rules,
+            DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.InteractionsSinceCommitment,
+            [DreamGenClone.Domain.RolePlay.NarrativeGateComparators.GreaterThanOrEqual, DreamGenClone.Domain.RolePlay.NarrativeGateComparators.GreaterThan],
+            out var interactionsMin);
+
+        if (!hasScore && !hasDesire && !hasRestraint && !hasInteractions)
+        {
+            return fallback;
+        }
+
+        var source = hasScore && hasDesire && hasRestraint && hasInteractions
+            ? $"Configured profile '{profile.Name}'"
+            : $"Configured profile '{profile.Name}' (missing metrics use auto fallback)";
+
+        return new PhaseGateThresholds(
+            ScoreMin: hasScore ? scoreMin : fallback.ScoreMin,
+            DesireMin: hasDesire ? desireMin : fallback.DesireMin,
+            RestraintMax: hasRestraint ? restraintMax : fallback.RestraintMax,
+            InteractionsMin: hasInteractions
+                ? Math.Max(0, (int)Math.Round(interactionsMin, MidpointRounding.AwayFromZero))
+                : fallback.InteractionsMin,
+            Source: source);
+    }
+
+    private static bool TryGetThreshold(
+        IReadOnlyList<DreamGenClone.Domain.RolePlay.NarrativeGateRule> rules,
+        string metricKey,
+        IReadOnlyList<string> comparators,
+        out double threshold)
+    {
+        var match = rules.FirstOrDefault(rule => string.Equals(rule.MetricKey, metricKey, StringComparison.OrdinalIgnoreCase)
+            && comparators.Any(comparator => string.Equals(rule.Comparator, comparator, StringComparison.OrdinalIgnoreCase)));
+        if (match is null)
+        {
+            threshold = 0;
+            return false;
+        }
+
+        threshold = (double)match.Threshold;
+        return true;
     }
 
     private int GetEffectiveInteractionsSinceCommitment(RolePlayAdaptiveState state)
@@ -2144,21 +2244,55 @@
         return values.Average();
     }
 
-    private static double GetActiveScenarioScore(RolePlayAdaptiveState state)
+    private double GetLifecycleActiveScenarioScore(RolePlayAdaptiveState state, out string source)
     {
         if (string.IsNullOrWhiteSpace(state.ActiveScenarioId))
         {
+            source = "none";
             return 0;
         }
 
-        return state.ThemeTracker.Themes.TryGetValue(state.ActiveScenarioId, out var activeTheme)
-            ? activeTheme.Score
-            : 0;
+        var diagnosticsFitScore = _v2Diagnostics?.CandidateEvaluations
+            .FirstOrDefault(x => string.Equals(x.ScenarioId, state.ActiveScenarioId, StringComparison.OrdinalIgnoreCase))
+            ?.FitScore;
+
+        if (diagnosticsFitScore is not null)
+        {
+            source = "runtime fit";
+            return (double)diagnosticsFitScore.Value;
+        }
+
+        if (state.ThemeTracker.Themes.TryGetValue(state.ActiveScenarioId, out var activeTheme))
+        {
+            source = "theme tracker (fallback)";
+            return activeTheme.Score;
+        }
+
+        source = "none";
+        return 0;
     }
 
     private void ToggleAdaptiveDiagnosticsSection()
     {
         _adaptiveDiagnosticsExpanded = !_adaptiveDiagnosticsExpanded;
+    }
+
+    private void ToggleAdaptiveCharacterStatsSection()
+    {
+        _adaptiveCharacterStatsExpanded = !_adaptiveCharacterStatsExpanded;
+    }
+
+    private void ToggleAdaptiveCharacterStatsCharacter(string actorName)
+    {
+        if (string.IsNullOrWhiteSpace(actorName))
+        {
+            return;
+        }
+
+        if (!_expandedAdaptiveCharacterStats.Remove(actorName))
+        {
+            _expandedAdaptiveCharacterStats.Add(actorName);
+        }
     }
 
     private string GetSelectedIntensityProfileName()
@@ -2251,7 +2385,7 @@
         MarkScenarioDirty();
     }
 
-    private (string ClosestProfile, string MigratingToProfile) GetCharacterProfileAlignment(string actorName, CharacterStatBlock block)
+    private (string BaselineProfile, string MigratingToProfile) GetCharacterProfileAlignment(string actorName, CharacterStatBlock block)
     {
         var actorGender = ResolveCharacterGender(actorName);
         var actorRole = ResolveCharacterRole(actorName);
@@ -2265,18 +2399,18 @@
             return ("(set Male/Female + role + matching profile)", "(set Male/Female + role + matching profile)");
         }
 
+        var reference = ResolveCharacterReferenceStats(actorName);
         var normalizedCurrent = AdaptiveStatCatalog.NormalizeComplete(block.Stats);
-        var closest = candidateProfiles
+        var baseline = candidateProfiles
             .Select(profile => new
             {
                 Profile = profile,
-                Distance = CalculateProfileDistance(normalizedCurrent, profile.DefaultStats)
+                Distance = CalculateProfileDistance(reference, profile.DefaultStats)
             })
             .OrderBy(x => x.Distance)
             .ThenBy(x => x.Profile.Name, StringComparer.OrdinalIgnoreCase)
             .First();
 
-        var reference = ResolveCharacterReferenceStats(actorName);
         var projected = ProjectTrend(normalizedCurrent, reference);
 
         var migrating = candidateProfiles
@@ -2289,7 +2423,44 @@
             .ThenBy(x => x.Profile.Name, StringComparer.OrdinalIgnoreCase)
             .First();
 
-        return (closest.Profile.Name, migrating.Profile.Name);
+        return (baseline.Profile.Name, migrating.Profile.Name);
+    }
+
+    private int GetCharacterBaselineStatValue(string actorName, string statName)
+    {
+        var baselineStats = ResolveCharacterReferenceStats(actorName);
+        if (baselineStats.TryGetValue(statName, out var value))
+        {
+            return value;
+        }
+
+        return AdaptiveStatCatalog.DefaultValue;
+    }
+
+    private static string GetCharacterStatDeltaClass(int currentValue, int baselineValue)
+    {
+        if (currentValue > baselineValue)
+        {
+            return "rw-stat-cell rw-stat-current-higher";
+        }
+
+        if (currentValue < baselineValue)
+        {
+            return "rw-stat-cell rw-stat-current-lower";
+        }
+
+        return "rw-stat-cell rw-stat-current-neutral";
+    }
+
+    private static string FormatCharacterStatDelta(int currentValue, int baselineValue)
+    {
+        var delta = currentValue - baselineValue;
+        if (delta == 0)
+        {
+            return "0";
+        }
+
+        return delta > 0 ? $"+{delta}" : delta.ToString(CultureInfo.InvariantCulture);
     }
 
     private string ResolveCharacterGender(string actorName)
@@ -2751,6 +2922,10 @@
 
     private bool IsSelectionUiLocked => _isSubmitting && !_isAwaitingModelResponse;
 
+    private bool IsClimaxPhase => _session?.AdaptiveState.CurrentNarrativePhase == DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Climax;
+
+    private bool IsFinishUiLocked => _isSubmitting || _finishOptionsLoading || _finishOptionSubmitting;
+
     private bool ShowPendingResponseIndicator =>
         _isAwaitingModelResponse && !string.IsNullOrWhiteSpace(_pendingResponseLabel);
 
@@ -2953,6 +3128,193 @@
         _continueCustomPopupOpen = !_continueCustomPopupOpen;
         _intentPopupOpen = false;
         _identityPopupOpen = false;
+        if (_continueCustomPopupOpen)
+        {
+            _finishPopupOpen = false;
+        }
+    }
+
+    private async Task OpenFinishPopupAsync()
+    {
+        if (_session is null || !IsClimaxPhase || IsFinishUiLocked)
+        {
+            return;
+        }
+
+        _finishPopupOpen = true;
+        _continueCustomPopupOpen = false;
+        _intentPopupOpen = false;
+        _identityPopupOpen = false;
+        _finishOptionError = string.Empty;
+
+        if (_finishOptions.Count > 0)
+        {
+            return;
+        }
+
+        await GenerateFinishOptionsAsync();
+    }
+
+    private void CloseFinishPopup()
+    {
+        _finishPopupOpen = false;
+        _finishOptionError = string.Empty;
+    }
+
+    private async Task GenerateFinishOptionsAsync()
+    {
+        if (_session is null)
+        {
+            return;
+        }
+
+        _finishOptionsLoading = true;
+        _finishOptionError = string.Empty;
+        try
+        {
+            var context = BuildAssistantContext();
+            var prompt = "Generate exactly 3 distinct short ending moves for the current climax. " +
+                "Each option must be one sentence and actionable as the next scene beat. " +
+                "Keep options concise, grounded in current scene context, and avoid meta wording. " +
+                "Return ONLY a JSON array of strings with no markdown and no extra text.";
+
+            var response = await RolePlayAssistant.GenerateSuggestionAsync(
+                context,
+                prompt,
+                assistantModelId: string.IsNullOrWhiteSpace(_session.AssistantModelId) ? null : _session.AssistantModelId,
+                assistantTemperature: _session.AssistantTemperature,
+                assistantTopP: _session.AssistantTopP,
+                assistantMaxTokens: _session.AssistantMaxTokens);
+
+            _finishOptions = ParseFinishOptions(response).ToList();
+            if (_finishOptions.Count == 0)
+            {
+                _finishOptionError = "Could not generate finish options. Try again.";
+                return;
+            }
+
+            _selectedFinishOption = _finishOptions[0];
+        }
+        catch (Exception ex)
+        {
+            _finishOptionError = ex.Message;
+            Logger.LogError(ex, "Failed generating finish options for session {SessionId}", _session.Id);
+        }
+        finally
+        {
+            _finishOptionsLoading = false;
+        }
+    }
+
+    private async Task ApplyFinishOptionAsync()
+    {
+        if (_session is null || string.IsNullOrWhiteSpace(_selectedFinishOption) || IsFinishUiLocked)
+        {
+            return;
+        }
+
+        _finishOptionSubmitting = true;
+        _isSubmitting = true;
+        _isAwaitingModelResponse = false;
+        _pendingResponseLabel = string.Empty;
+        _pendingResponseText = string.Empty;
+        _pendingResponseBuilder.Clear();
+        _lastPendingResponseRenderAt = DateTime.MinValue;
+        _finishOptionError = string.Empty;
+        _finishPopupOpen = false;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            var submission = new UnifiedPromptSubmission
+            {
+                SessionId = _session.Id,
+                PromptText = $"/completeclimax {_selectedFinishOption.Trim()}",
+                Intent = PromptIntent.Instruction,
+                SelectedIdentityId = string.Empty,
+                SelectedIdentityType = IdentityOptionSource.Persona,
+                CustomIdentityName = null,
+                BehaviorModeAtSubmit = _selectedBehaviorMode,
+                SubmittedVia = SubmissionSource.SendButton
+            };
+
+            await RolePlayEngine.SubmitPromptAsync(submission, onChunk: null);
+
+            _finishOptions.Clear();
+            _selectedFinishOption = string.Empty;
+            await LoadSessionAsync();
+        }
+        catch (Exception ex)
+        {
+            _finishOptionError = ex.Message;
+            Logger.LogError(ex, "Failed applying finish option for session {SessionId}", _session.Id);
+        }
+        finally
+        {
+            _isAwaitingModelResponse = false;
+            _pendingResponseLabel = string.Empty;
+            _pendingResponseText = string.Empty;
+            _pendingResponseBuilder.Clear();
+            _lastPendingResponseRenderAt = DateTime.MinValue;
+            _isSubmitting = false;
+            _finishOptionSubmitting = false;
+        }
+    }
+
+    private static IReadOnlyList<string> ParseFinishOptions(string raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return [];
+        }
+
+        static List<string> NormalizeOptions(IEnumerable<string> options)
+            => options
+                .Select(x => x.Trim())
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Select(x => x.Trim('"'))
+                .Where(x => x.Length > 4)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(5)
+                .ToList();
+
+        try
+        {
+            var direct = JsonSerializer.Deserialize<List<string>>(raw);
+            if (direct is { Count: > 0 })
+            {
+                return NormalizeOptions(direct);
+            }
+        }
+        catch
+        {
+            // Fall through to best-effort parsing.
+        }
+
+        var start = raw.IndexOf('[');
+        var end = raw.LastIndexOf(']');
+        if (start >= 0 && end > start)
+        {
+            var slice = raw[start..(end + 1)];
+            try
+            {
+                var extracted = JsonSerializer.Deserialize<List<string>>(slice);
+                if (extracted is { Count: > 0 })
+                {
+                    return NormalizeOptions(extracted);
+                }
+            }
+            catch
+            {
+                // Fall through to line parsing.
+            }
+        }
+
+        var lines = raw.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(line => line.TrimStart('-', '*', ' ', '\t'))
+            .Select(line => Regex.Replace(line, "^\\d+[\\.)]\\s*", string.Empty))
+            .ToList();
+        return NormalizeOptions(lines);
     }
 
     private void ToggleContinueIdentitySelection(string optionId)
@@ -4550,6 +4912,15 @@
                             @onclick:stopPropagation>
                         Custom
                     </button>
+                    @if (IsClimaxPhase)
+                    {
+                        <button class="rw-continue-chip rw-finish-chip @(_finishPopupOpen ? "is-active" : string.Empty)"
+                                @onclick="OpenFinishPopupAsync"
+                                disabled="@IsFinishUiLocked"
+                                @onclick:stopPropagation>
+                            Finish
+                        </button>
+                    }
                 </div>
 
                 @if (_continueCustomPopupOpen)
@@ -4603,6 +4974,57 @@
                             <button class="rw-popup-action-btn is-primary"
                                     disabled="@_isSubmitting"
                                     @onclick="ContinueFromIdentityPopupAsync">Continue</button>
+                        </div>
+                    </div>
+                }
+
+                @if (_finishPopupOpen)
+                {
+                    <div class="rw-popup rw-finish-popup">
+                        <div class="rw-popup-header">
+                            <span class="rw-popup-intent-label">finish climax</span>
+                        </div>
+                        <div class="rw-finish-popup-body">
+                            @if (_finishOptionsLoading)
+                            {
+                                <div class="rw-finish-loading">Generating ending options...</div>
+                            }
+                            else if (_finishOptions.Count == 0)
+                            {
+                                <div class="rw-finish-loading">No options yet.</div>
+                            }
+                            else
+                            {
+                                @foreach (var option in _finishOptions)
+                                {
+                                    <button class="rw-popup-item @(string.Equals(_selectedFinishOption, option, StringComparison.Ordinal) ? "is-selected" : string.Empty)"
+                                            disabled="@_finishOptionSubmitting"
+                                            @onclick="@(() => _selectedFinishOption = option)">
+                                        <div class="rw-popup-item-content">
+                                            <span class="rw-popup-item-title">@option</span>
+                                        </div>
+                                        @if (string.Equals(_selectedFinishOption, option, StringComparison.Ordinal))
+                                        {
+                                            <span class="rw-popup-check">✓</span>
+                                        }
+                                    </button>
+                                }
+                            }
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(_finishOptionError))
+                        {
+                            <div class="rw-finish-error">@_finishOptionError</div>
+                        }
+                        <div class="rw-popup-actions rw-finish-popup-actions">
+                            <button class="rw-popup-action-btn"
+                                    disabled="@_finishOptionSubmitting"
+                                    @onclick="CloseFinishPopup">Cancel</button>
+                            <button class="rw-popup-action-btn"
+                                    disabled="@_finishOptionSubmitting || _finishOptionsLoading"
+                                    @onclick="GenerateFinishOptionsAsync">Regenerate</button>
+                            <button class="rw-popup-action-btn is-primary"
+                                    disabled="@(_finishOptionSubmitting || _finishOptionsLoading || string.IsNullOrWhiteSpace(_selectedFinishOption))"
+                                    @onclick="ApplyFinishOptionAsync">Finish Scene</button>
                         </div>
                     </div>
                 }
@@ -5270,33 +5692,67 @@
                     </div>
 
                     <div class="rw-settings-section">
-                        <div class="rw-settings-section-label">Character Stats</div>
-                        @if (_session.AdaptiveState.CharacterStats.Count == 0)
-                        {
-                            <p class="rw-scenario-empty">No adaptive stats yet. Generate interactions to populate.</p>
-                        }
-                        else
-                        {
-                            @foreach (var actorStats in _session.AdaptiveState.CharacterStats.OrderBy(x => x.Key))
+                        <div class="rw-collapsible-section">
+                            <button type="button" class="rw-collapsible-header" @onclick="ToggleAdaptiveCharacterStatsSection">
+                                <span class="rw-collapsible-chevron @(_adaptiveCharacterStatsExpanded ? "is-open" : "")">▸</span>
+                                <span class="rw-collapsible-title">Character Stats (@_session.AdaptiveState.CharacterStats.Count)</span>
+                            </button>
+                            @if (_adaptiveCharacterStatsExpanded)
                             {
-                                var alignment = GetCharacterProfileAlignment(actorStats.Key, actorStats.Value);
-                                <div class="rw-scenario-field" style="margin-bottom:10px;">
-                                    <label class="rw-scenario-field-label">@actorStats.Key</label>
-                                    <div class="rw-settings-info-row"><span>Closest Character Stat Profile</span><span>@alignment.ClosestProfile</span></div>
-                                    <div class="rw-settings-info-row"><span>Migrating Toward</span><span>@alignment.MigratingToProfile</span></div>
-                                    @foreach (var statName in AdaptiveStatCatalog.CanonicalStatNames)
+                                <div class="rw-collapsible-body">
+                                    @if (_session.AdaptiveState.CharacterStats.Count == 0)
                                     {
-                                        <div class="rw-settings-info-row"><span>@statName</span><span>@GetCharacterStatValue(actorStats.Value, statName)</span></div>
+                                        <p class="rw-scenario-empty">No adaptive stats yet. Generate interactions to populate.</p>
                                     }
-                                    @foreach (var stat in actorStats.Value.Stats
-                                        .Where(x => !AdaptiveStatCatalog.CanonicalStatNames.Contains(x.Key, StringComparer.OrdinalIgnoreCase))
-                                        .OrderBy(x => x.Key))
+                                    else
                                     {
-                                        <div class="rw-settings-info-row"><span>@stat.Key</span><span>@stat.Value</span></div>
+                                        @foreach (var actorStats in _session.AdaptiveState.CharacterStats.OrderBy(x => x.Key))
+                                        {
+                                            var alignment = GetCharacterProfileAlignment(actorStats.Key, actorStats.Value);
+                                            var characterExpanded = _expandedAdaptiveCharacterStats.Contains(actorStats.Key);
+                                            <div class="rw-collapsible-section" style="margin-bottom:10px;">
+                                                <button type="button" class="rw-collapsible-header" @onclick="@(() => ToggleAdaptiveCharacterStatsCharacter(actorStats.Key))">
+                                                    <span class="rw-collapsible-chevron @(characterExpanded ? "is-open" : "")">▸</span>
+                                                    <span class="rw-collapsible-title">@actorStats.Key</span>
+                                                </button>
+                                                @if (characterExpanded)
+                                                {
+                                                    <div class="rw-collapsible-body">
+                                                        <div class="rw-settings-info-row"><span>Baseline Character Stat Profile</span><span>@alignment.BaselineProfile</span></div>
+                                                        <div class="rw-settings-info-row"><span>Migrating Toward</span><span>@alignment.MigratingToProfile</span></div>
+                                                        <div class="rw-stat-grid" role="table" aria-label="Baseline and current character stats">
+                                                            <div class="rw-stat-grid-header" role="row">
+                                                                <span class="rw-stat-cell rw-stat-col-name" role="columnheader">Stat</span>
+                                                                <span class="rw-stat-cell rw-stat-col-baseline" role="columnheader">Baseline</span>
+                                                                <span class="rw-stat-cell rw-stat-col-current" role="columnheader">Current</span>
+                                                                <span class="rw-stat-cell rw-stat-col-delta" role="columnheader">Delta</span>
+                                                            </div>
+                                                            @foreach (var statName in AdaptiveStatCatalog.CanonicalStatNames)
+                                                            {
+                                                                var baselineValue = GetCharacterBaselineStatValue(actorStats.Key, statName);
+                                                                var currentValue = GetCharacterStatValue(actorStats.Value, statName);
+                                                                <div class="rw-stat-grid-row" role="row">
+                                                                    <span class="rw-stat-cell rw-stat-col-name" role="cell">@statName</span>
+                                                                    <span class="rw-stat-cell rw-stat-col-baseline" role="cell">@baselineValue</span>
+                                                                    <span class="@GetCharacterStatDeltaClass(currentValue, baselineValue) rw-stat-col-current" role="cell">@currentValue</span>
+                                                                    <span class="@GetCharacterStatDeltaClass(currentValue, baselineValue) rw-stat-col-delta" role="cell">@FormatCharacterStatDelta(currentValue, baselineValue)</span>
+                                                                </div>
+                                                            }
+                                                        </div>
+                                                        @foreach (var stat in actorStats.Value.Stats
+                                                            .Where(x => !AdaptiveStatCatalog.CanonicalStatNames.Contains(x.Key, StringComparer.OrdinalIgnoreCase))
+                                                            .OrderBy(x => x.Key))
+                                                        {
+                                                            <div class="rw-settings-info-row"><span>@stat.Key</span><span>@stat.Value</span></div>
+                                                        }
+                                                    </div>
+                                                }
+                                            </div>
+                                        }
                                     }
                                 </div>
                             }
-                        }
+                        </div>
                     </div>
 
                     <div class="rw-settings-section">
@@ -5465,7 +5921,7 @@
     private sealed record PhaseGateRow(string Label, string Status, string Details);
     private sealed record PhaseProgressInfo(string NextPhase, int ProgressPercent, string Details);
     private sealed record PhaseLadderItem(string Label, string BadgeClass);
-    private sealed record PhaseGateThresholds(double ScoreMin, double DesireMin, double RestraintMax, int InteractionsMin);
+    private sealed record PhaseGateThresholds(double ScoreMin, double DesireMin, double RestraintMax, int InteractionsMin, string Source);
 
     private static CandidateGateDetails? ParseCandidateGateDetails(ScenarioCandidateEvaluation candidate)
     {

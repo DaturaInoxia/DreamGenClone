@@ -1261,6 +1261,11 @@
                                 <label class="form-label">Description</label>
                                 <textarea class="form-control" rows="2" @bind="_narrativeGateFormDescription"></textarea>
                             </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Climax Completion Interaction Threshold</label>
+                                <input type="number" min="1" step="1" class="form-control" @bind="_climaxResetInteractionThreshold" />
+                                <div class="form-text">Stored as the Climax -&gt; Reset rule using InteractionsSinceCommitment and &gt;=.</div>
+                            </div>
                         </div>
 
                         <div class="table-responsive mt-3">
@@ -1276,7 +1281,7 @@
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    @if (_narrativeGateFormRules.Count == 0)
+                                    @if (!_narrativeGateFormRules.Any(rule => !IsClimaxResetThresholdRule(rule)))
                                     {
                                         <tr>
                                             <td colspan="6" class="text-muted">No gate rules yet. Add at least one rule.</td>
@@ -1287,6 +1292,10 @@
                                         @for (var i = 0; i < _narrativeGateFormRules.Count; i++)
                                         {
                                             var row = _narrativeGateFormRules[i];
+                                            if (IsClimaxResetThresholdRule(row))
+                                            {
+                                                continue;
+                                            }
                                             <tr>
                                                 <td>
                                                     <select class="form-select form-select-sm" @bind="row.FromPhase">
@@ -1890,6 +1899,7 @@
     private string _narrativeGateFormName = string.Empty;
     private string _narrativeGateFormDescription = string.Empty;
     private bool _narrativeGateFormIsDefault;
+    private decimal _climaxResetInteractionThreshold = 12m;
     private List<NarrativeGateRule> _narrativeGateFormRules = [];
     private string? _narrativeGateError;
 
@@ -2963,6 +2973,7 @@
         _narrativeGateFormName = string.Empty;
         _narrativeGateFormDescription = string.Empty;
         _narrativeGateFormIsDefault = false;
+        _climaxResetInteractionThreshold = 12m;
         _narrativeGateFormRules = [];
         _narrativeGateError = null;
     }
@@ -2979,6 +2990,7 @@
         _narrativeGateFormName = profile.Name;
         _narrativeGateFormDescription = profile.Description;
         _narrativeGateFormIsDefault = profile.IsDefault;
+        _climaxResetInteractionThreshold = ResolveClimaxResetInteractionThreshold(profile.Rules);
         _narrativeGateFormRules = profile.Rules
             .OrderBy(x => x.SortOrder)
             .Select(x => new NarrativeGateRule
@@ -3021,11 +3033,42 @@
     {
         _narrativeGateError = null;
 
-        if (_narrativeGateFormRules.Count == 0)
+        if (_climaxResetInteractionThreshold < 1)
+        {
+            _narrativeGateError = "Climax completion interaction threshold must be at least 1.";
+            return;
+        }
+
+        var normalizedRules = _narrativeGateFormRules
+            .Where(rule => !IsClimaxResetThresholdRule(rule))
+            .Select(rule => new NarrativeGateRule
+            {
+                SortOrder = rule.SortOrder,
+                FromPhase = rule.FromPhase,
+                ToPhase = rule.ToPhase,
+                MetricKey = rule.MetricKey,
+                Comparator = rule.Comparator,
+                Threshold = rule.Threshold
+            })
+            .ToList();
+
+        normalizedRules.Add(new NarrativeGateRule
+        {
+            SortOrder = normalizedRules.Count + 1,
+            FromPhase = "Climax",
+            ToPhase = "Reset",
+            MetricKey = NarrativeGateMetricKeys.InteractionsSinceCommitment,
+            Comparator = NarrativeGateComparators.GreaterThanOrEqual,
+            Threshold = decimal.Round(_climaxResetInteractionThreshold, 0, MidpointRounding.AwayFromZero)
+        });
+
+        if (normalizedRules.Count == 0)
         {
             _narrativeGateError = "Add at least one gate rule before saving.";
             return;
         }
+
+        _narrativeGateFormRules = normalizedRules;
 
         var profile = new NarrativeGateProfile
         {
@@ -3033,7 +3076,7 @@
             Name = _narrativeGateFormName,
             Description = _narrativeGateFormDescription,
             IsDefault = _narrativeGateFormIsDefault,
-            Rules = _narrativeGateFormRules
+            Rules = normalizedRules
                 .Select((rule, index) => new NarrativeGateRule
                 {
                     SortOrder = index + 1,
@@ -3093,6 +3136,22 @@
         {
             _isBusy = false;
         }
+    }
+
+    private static bool IsClimaxResetThresholdRule(NarrativeGateRule rule)
+    {
+        return string.Equals(rule.FromPhase, "Climax", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(rule.ToPhase, "Reset", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(rule.MetricKey, NarrativeGateMetricKeys.InteractionsSinceCommitment, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static decimal ResolveClimaxResetInteractionThreshold(IReadOnlyList<NarrativeGateRule> rules)
+    {
+        var existing = rules
+            .Where(IsClimaxResetThresholdRule)
+            .OrderBy(x => x.SortOrder)
+            .FirstOrDefault();
+        return existing is null ? 12m : Math.Max(1m, decimal.Round(existing.Threshold, 0, MidpointRounding.AwayFromZero));
     }
 
     private void StartCreateHusbandAwarenessProfile()

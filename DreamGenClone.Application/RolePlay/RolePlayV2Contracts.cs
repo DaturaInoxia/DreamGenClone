@@ -7,7 +7,9 @@ public sealed record ScenarioDefinition(
     string Name,
     int Priority = 0,
     decimal NarrativeEvidenceScore = 0m,
-    decimal PreferencePriorityScore = 0m);
+    decimal PreferencePriorityScore = 0m,
+    string? ScenarioFitRulesJson = null,
+    string? ScenarioFitRuleSource = null);
 
 public sealed class ScenarioGuidanceRequest
 {
@@ -47,6 +49,7 @@ public sealed class LifecycleInputs
 {
     public bool ForceReset { get; init; }
     public bool ManualOverride { get; init; }
+    public bool ClimaxCompletionRequested { get; init; }
     public int InteractionsSinceCommitment { get; init; }
     public decimal ActiveScenarioConfidence { get; init; }
     public decimal ActiveScenarioFitScore { get; init; }

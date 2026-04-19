@@ -7,6 +7,7 @@ using DreamGenClone.Web.Application.RolePlay;
 using DreamGenClone.Web.Application.Sessions;
 using DreamGenClone.Web.Domain.RolePlay;
 using DreamGenClone.Web.Domain.Story;
+using System.Reflection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Xunit;
@@ -388,6 +389,61 @@ public sealed class RolePlaySessionLifecycleTests
         Assert.NotNull(reloaded);
         Assert.Equal("infidelity", reloaded!.AdaptiveState.ActiveScenarioId);
         Assert.Equal("ManualOverride", reloaded.AdaptiveState.ThemeTracker.ThemeSelectionRule);
+    }
+
+    [Fact]
+    public async Task BuildScenarioCandidates_CompletedScenarioPenalty_DemotesRepeatedTheme()
+    {
+        var service = RolePlayTestFactory.CreateEngineService();
+        var session = new RolePlaySession
+        {
+            AdaptiveState = new RolePlayAdaptiveState
+            {
+                ThemeTracker = new ThemeTrackerState
+                {
+                    Themes = new Dictionary<string, ThemeTrackerItem>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["repeat-theme"] = new ThemeTrackerItem
+                        {
+                            ThemeId = "repeat-theme",
+                            ThemeName = "Repeat Theme",
+                            Score = 96
+                        },
+                        ["fresh-theme"] = new ThemeTrackerItem
+                        {
+                            ThemeId = "fresh-theme",
+                            ThemeName = "Fresh Theme",
+                            Score = 91
+                        }
+                    }
+                },
+                ScenarioHistory =
+                [
+                    new ScenarioMetadata { ScenarioId = "repeat-theme" },
+                    new ScenarioMetadata { ScenarioId = "repeat-theme" },
+                    new ScenarioMetadata { ScenarioId = "repeat-theme" }
+                ]
+            }
+        };
+
+        var method = typeof(RolePlayEngineService).GetMethod(
+            "BuildScenarioCandidatesAsync",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+
+        Assert.NotNull(method);
+
+        var invokeResult = method!.Invoke(service, [session, CancellationToken.None]);
+        Assert.IsType<Task<List<ScenarioDefinition>>>(invokeResult);
+
+        var candidates = await (Task<List<ScenarioDefinition>>)invokeResult!;
+        Assert.NotEmpty(candidates);
+
+        var top = candidates[0];
+        var repeat = Assert.Single(candidates.Where(x => x.ScenarioId == "repeat-theme"));
+        var fresh = Assert.Single(candidates.Where(x => x.ScenarioId == "fresh-theme"));
+
+        Assert.Equal("fresh-theme", top.ScenarioId);
+        Assert.True(fresh.NarrativeEvidenceScore > repeat.NarrativeEvidenceScore);
     }
 
     private static (RolePlayEngineService Service, FakeSessionService SessionService) CreateService(IRolePlayV2StateRepository? v2StateRepository = null)

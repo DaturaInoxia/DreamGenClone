@@ -3,9 +3,11 @@
 
 @using System.Text.Json
 @using DreamGenClone.Application.Abstractions
+@using DreamGenClone.Application.RolePlay
 @using DreamGenClone.Web.Application.RolePlay
 
 @inject RolePlayDebugEventService DebugEvents
+@inject IRolePlayV2StateRepository V2StateRepository
 @inject NavigationManager Navigation
 
 @implements IAsyncDisposable
@@ -102,6 +104,132 @@
                     @foreach (var group in _events.GroupBy(x => x.EventKind).OrderByDescending(x => x.Count()).Take(10))
                     {
                         <div class="rpd-kv"><span>@group.Key</span><strong>@group.Count()</strong></div>
+                    }
+                </div>
+
+                <div class="rpd-panel">
+                    <h3>Latest Runtime Fit Scores</h3>
+                    @if (_latestFitScores.Count == 0)
+                    {
+                        <div class="rpd-empty">No recent candidate fit score lines found yet.</div>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-sm align-middle">
+                                <thead>
+                                    <tr>
+                                        <th>Time</th>
+                                        <th>Scenario</th>
+                                        <th>Tier</th>
+                                        <th>Eligible</th>
+                                        <th>FitScore</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var row in _latestFitScores)
+                                    {
+                                        <tr>
+                                            <td>@row.TimeLabel</td>
+                                            <td>@row.ScenarioId</td>
+                                            <td>@row.Tier</td>
+                                            <td>@(row.Eligible ? "Y" : "N")</td>
+                                            <td>@row.FitScore.ToString("0.###")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+
+                <div class="rpd-panel">
+                    <h3>Fit Score Breakdown</h3>
+                    @if (_fitScoreBreakdownRows.Count == 0)
+                    {
+                        <div class="rpd-empty">No candidate evaluations with component breakdown found yet.</div>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-sm align-middle">
+                                <thead>
+                                    <tr>
+                                        <th>Time</th>
+                                        <th>Scenario</th>
+                                        <th>Tier</th>
+                                        <th>Gate</th>
+                                        <th>Character</th>
+                                        <th>Narrative</th>
+                                        <th>Preference</th>
+                                        <th>Weighted Subtotal</th>
+                                        <th>Penalty</th>
+                                        <th>Final FitScore</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var row in _fitScoreBreakdownRows)
+                                    {
+                                        <tr>
+                                            <td>@row.TimeLabel</td>
+                                            <td>@row.ScenarioId</td>
+                                            <td>@row.Tier</td>
+                                            <td>@(row.GatePassed ? "Y" : "N")</td>
+                                            <td>@row.CharacterScore.ToString("0.###") (@row.CharacterPoints.ToString("0.###"))</td>
+                                            <td>@row.NarrativeScore.ToString("0.###") (@row.NarrativePoints.ToString("0.###"))</td>
+                                            <td>@row.PreferenceScore.ToString("0.###") (@row.PreferencePoints.ToString("0.###"))</td>
+                                            <td>@row.WeightedSubtotal.ToString("0.###")</td>
+                                            <td>@row.PenaltyMultiplierLabel</td>
+                                            <td>@row.FinalFitScore.ToString("0.###")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+
+                <div class="rpd-panel">
+                    <h3>Role Weight Contributions</h3>
+                    @if (_roleFitBreakdownRows.Count == 0)
+                    {
+                        <div class="rpd-empty">No candidate fit breakdown rows found yet.</div>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-sm align-middle">
+                                <thead>
+                                    <tr>
+                                        <th>Time</th>
+                                        <th>Scenario</th>
+                                        <th>Source</th>
+                                        <th>Role</th>
+                                        <th>Bound Character</th>
+                                        <th>Role Score</th>
+                                        <th>Role Weight</th>
+                                        <th>Weighted Contribution</th>
+                                        <th>Failed Clauses</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var row in _roleFitBreakdownRows)
+                                    {
+                                        <tr>
+                                            <td>@row.TimeLabel</td>
+                                            <td>@row.ScenarioId</td>
+                                            <td>@row.FitRuleSource</td>
+                                            <td>@row.RoleName</td>
+                                            <td>@row.BoundCharacter</td>
+                                            <td>@row.RoleScore.ToString("0.###")</td>
+                                            <td>@row.RoleWeight.ToString("0.###")</td>
+                                            <td>@row.WeightedContribution.ToString("0.###")</td>
+                                            <td>@row.FailedClauseCount</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
                     }
                 </div>
             }
@@ -304,6 +432,9 @@
 
     private readonly List<RolePlayDebugEventRecord> _events = [];
     private readonly List<string> _logLines = [];
+    private readonly List<FitScoreRow> _latestFitScores = [];
+    private readonly List<FitScoreBreakdownRow> _fitScoreBreakdownRows = [];
+    private readonly List<RoleFitBreakdownRow> _roleFitBreakdownRows = [];
     private readonly List<string> _knownEventKinds = [];
     private RolePlayDebugEventRecord? _selectedEvent;
     private string _activeTab = "timeline";
@@ -346,6 +477,29 @@
 
         _logLines.Clear();
         _logLines.AddRange(await DebugEvents.GetRecentLogLinesAsync(sessionId, _selectedEvent?.CorrelationId, 250));
+
+        var sessionLogLines = await DebugEvents.GetRecentLogLinesAsync(sessionId, null, 400);
+        _latestFitScores.Clear();
+        _latestFitScores.AddRange(ParseFitScoreRows(sessionLogLines)
+            .OrderByDescending(x => x.Time)
+            .Take(20)
+            .ToList());
+
+        var candidateEvaluations = await V2StateRepository.LoadCandidateEvaluationsAsync(sessionId, take: 80);
+        _roleFitBreakdownRows.Clear();
+        _roleFitBreakdownRows.AddRange(ParseRoleFitBreakdownRows(candidateEvaluations)
+            .OrderByDescending(x => x.Time)
+            .ThenBy(x => x.ScenarioId, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(x => x.RoleName, StringComparer.OrdinalIgnoreCase)
+            .Take(120)
+            .ToList());
+
+        _fitScoreBreakdownRows.Clear();
+        _fitScoreBreakdownRows.AddRange(BuildFitScoreBreakdownRows(candidateEvaluations)
+            .OrderByDescending(x => x.Time)
+            .ThenBy(x => x.ScenarioId, StringComparer.OrdinalIgnoreCase)
+            .Take(60)
+            .ToList());
 
         if (_selectedEvent is not null)
         {
@@ -636,6 +790,286 @@
         return false;
     }
 
+    private static List<FitScoreRow> ParseFitScoreRows(IReadOnlyList<string> lines)
+    {
+        var rows = new List<FitScoreRow>();
+        foreach (var line in lines)
+        {
+            if (!line.Contains("RolePlayV2 scenario candidate evaluated:", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var scenarioId = ExtractToken(line, "ScenarioId=");
+            var tier = ExtractToken(line, "Tier=");
+            var eligibleText = ExtractToken(line, "Eligible=");
+            var fitScoreText = ExtractToken(line, "FitScore=");
+            if (string.IsNullOrWhiteSpace(scenarioId)
+                || string.IsNullOrWhiteSpace(fitScoreText)
+                || !decimal.TryParse(fitScoreText, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var fitScore))
+            {
+                continue;
+            }
+
+            var timestampText = line.Length >= 23 ? line[..23] : string.Empty;
+            DateTime.TryParse(timestampText, out var timestamp);
+
+            rows.Add(new FitScoreRow(
+                Time: timestamp,
+                TimeLabel: timestamp == default ? "-" : timestamp.ToLocalTime().ToString("HH:mm:ss"),
+                ScenarioId: scenarioId,
+                Tier: string.IsNullOrWhiteSpace(tier) ? "-" : tier,
+                Eligible: string.Equals(eligibleText, "true", StringComparison.OrdinalIgnoreCase),
+                FitScore: fitScore));
+        }
+
+        return rows;
+    }
+
+    private static string ExtractToken(string line, string token)
+    {
+        var idx = line.IndexOf(token, StringComparison.OrdinalIgnoreCase);
+        if (idx < 0)
+        {
+            return string.Empty;
+        }
+
+        var start = idx + token.Length;
+        if (start >= line.Length)
+        {
+            return string.Empty;
+        }
+
+        var end = line.IndexOf(' ', start);
+        if (end < 0)
+        {
+            end = line.Length;
+        }
+
+        return line[start..end].Trim();
+    }
+
+    private static List<RoleFitBreakdownRow> ParseRoleFitBreakdownRows(
+        IReadOnlyList<DreamGenClone.Domain.RolePlay.ScenarioCandidateEvaluation> evaluations)
+    {
+        var rows = new List<RoleFitBreakdownRow>();
+
+        foreach (var evaluation in evaluations)
+        {
+            if (string.IsNullOrWhiteSpace(evaluation.DetailsJson))
+            {
+                continue;
+            }
+
+            try
+            {
+                using var doc = JsonDocument.Parse(evaluation.DetailsJson);
+                var root = doc.RootElement;
+
+                var fitRuleSource = ReadString(root, "fitRuleSource") ?? "unknown";
+                if (!TryGetPropertyIgnoreCase(root, "fitResult", out var fitResult)
+                    || fitResult.ValueKind != JsonValueKind.Object)
+                {
+                    continue;
+                }
+
+                if (!TryGetPropertyIgnoreCase(fitResult, "roleScores", out var roleScoresElement)
+                    || roleScoresElement.ValueKind != JsonValueKind.Object)
+                {
+                    continue;
+                }
+
+                var roleScores = ReadDoubleMap(roleScoresElement);
+                if (roleScores.Count == 0)
+                {
+                    continue;
+                }
+
+                var roleWeights = TryGetPropertyIgnoreCase(fitResult, "roleWeights", out var roleWeightsElement)
+                    && roleWeightsElement.ValueKind == JsonValueKind.Object
+                    ? ReadDoubleMap(roleWeightsElement)
+                    : new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+
+                var roleBindings = TryGetPropertyIgnoreCase(fitResult, "roleCharacterBindings", out var roleBindingsElement)
+                    && roleBindingsElement.ValueKind == JsonValueKind.Object
+                    ? ReadStringMap(roleBindingsElement)
+                    : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+                var roleFailureCounts = CountRoleFailures(fitResult);
+
+                var totalWeight = 0d;
+                foreach (var roleName in roleScores.Keys)
+                {
+                    var weight = roleWeights.TryGetValue(roleName, out var configuredWeight)
+                        ? Math.Max(configuredWeight, 0d)
+                        : 1d;
+                    totalWeight += weight;
+                }
+
+                if (totalWeight <= 0d)
+                {
+                    totalWeight = roleScores.Count;
+                }
+
+                foreach (var (roleName, roleScore) in roleScores.OrderByDescending(x => x.Value))
+                {
+                    var roleWeight = roleWeights.TryGetValue(roleName, out var configuredWeight)
+                        ? Math.Max(configuredWeight, 0d)
+                        : 1d;
+                    var normalizedContribution = totalWeight > 0d
+                        ? (roleScore * roleWeight) / totalWeight
+                        : 0d;
+
+                    var time = evaluation.EvaluatedUtc;
+                    rows.Add(new RoleFitBreakdownRow(
+                        Time: time,
+                        TimeLabel: time == default ? "-" : time.ToLocalTime().ToString("HH:mm:ss"),
+                        ScenarioId: evaluation.ScenarioId,
+                        FitRuleSource: fitRuleSource,
+                        RoleName: roleName,
+                        BoundCharacter: roleBindings.TryGetValue(roleName, out var boundCharacter)
+                            ? boundCharacter
+                            : "-",
+                        RoleScore: roleScore,
+                        RoleWeight: roleWeight,
+                        WeightedContribution: normalizedContribution,
+                        FailedClauseCount: roleFailureCounts.TryGetValue(roleName, out var failureCount) ? failureCount : 0));
+                }
+            }
+            catch
+            {
+                // Ignore malformed details rows so the debug page stays responsive.
+            }
+        }
+
+        return rows;
+    }
+
+    private static List<FitScoreBreakdownRow> BuildFitScoreBreakdownRows(
+        IReadOnlyList<DreamGenClone.Domain.RolePlay.ScenarioCandidateEvaluation> evaluations)
+    {
+        var rows = new List<FitScoreBreakdownRow>();
+
+        foreach (var evaluation in evaluations)
+        {
+            var characterScore = (double)evaluation.CharacterAlignmentScore;
+            var narrativeScore = (double)evaluation.NarrativeEvidenceScore;
+            var preferenceScore = (double)evaluation.PreferencePriorityScore;
+
+            var characterPoints = characterScore * 50d;
+            var narrativePoints = narrativeScore * 30d;
+            var preferencePoints = preferenceScore * 20d;
+            var weightedSubtotal = characterPoints + narrativePoints + preferencePoints;
+
+            var finalFitScore = (double)evaluation.FitScore;
+            var penaltyMultiplier = weightedSubtotal > 0.0001d
+                ? finalFitScore / weightedSubtotal
+                : 1d;
+
+            var penaltyLabel = evaluation.StageBEligible
+                ? "1.000"
+                : penaltyMultiplier.ToString("0.###");
+
+            var time = evaluation.EvaluatedUtc;
+            rows.Add(new FitScoreBreakdownRow(
+                Time: time,
+                TimeLabel: time == default ? "-" : time.ToLocalTime().ToString("HH:mm:ss"),
+                ScenarioId: evaluation.ScenarioId,
+                Tier: string.IsNullOrWhiteSpace(evaluation.StageAWillingnessTier) ? "-" : evaluation.StageAWillingnessTier,
+                GatePassed: evaluation.StageBEligible,
+                CharacterScore: characterScore,
+                NarrativeScore: narrativeScore,
+                PreferenceScore: preferenceScore,
+                CharacterPoints: characterPoints,
+                NarrativePoints: narrativePoints,
+                PreferencePoints: preferencePoints,
+                WeightedSubtotal: weightedSubtotal,
+                PenaltyMultiplierLabel: penaltyLabel,
+                FinalFitScore: finalFitScore));
+        }
+
+        return rows;
+    }
+
+    private static Dictionary<string, int> CountRoleFailures(JsonElement fitResult)
+    {
+        var result = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        if (!TryGetPropertyIgnoreCase(fitResult, "failures", out var failuresElement)
+            || failuresElement.ValueKind != JsonValueKind.Array)
+        {
+            return result;
+        }
+
+        foreach (var item in failuresElement.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.String)
+            {
+                continue;
+            }
+
+            var text = item.GetString();
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                continue;
+            }
+
+            var splitIndex = text.IndexOf('.', StringComparison.Ordinal);
+            var roleName = splitIndex > 0 ? text[..splitIndex] : text;
+            roleName = roleName.Trim();
+            if (string.IsNullOrWhiteSpace(roleName))
+            {
+                continue;
+            }
+
+            result.TryGetValue(roleName, out var count);
+            result[roleName] = count + 1;
+        }
+
+        return result;
+    }
+
+    private static Dictionary<string, double> ReadDoubleMap(JsonElement mapElement)
+    {
+        var result = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        if (mapElement.ValueKind != JsonValueKind.Object)
+        {
+            return result;
+        }
+
+        foreach (var property in mapElement.EnumerateObject())
+        {
+            if (property.Value.ValueKind == JsonValueKind.Number && property.Value.TryGetDouble(out var value))
+            {
+                result[property.Name] = value;
+            }
+        }
+
+        return result;
+    }
+
+    private static Dictionary<string, string> ReadStringMap(JsonElement mapElement)
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (mapElement.ValueKind != JsonValueKind.Object)
+        {
+            return result;
+        }
+
+        foreach (var property in mapElement.EnumerateObject())
+        {
+            if (property.Value.ValueKind == JsonValueKind.String)
+            {
+                var value = property.Value.GetString();
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    result[property.Name] = value.Trim();
+                }
+            }
+        }
+
+        return result;
+    }
+
     private sealed record LocationTruthRow(
         string CharacterId,
         string? CharacterLabel,
@@ -657,6 +1091,42 @@
         bool IsInProximity,
         string? KnowledgeSource,
         DateTime? UpdatedUtc);
+
+    private sealed record FitScoreRow(
+        DateTime Time,
+        string TimeLabel,
+        string ScenarioId,
+        string Tier,
+        bool Eligible,
+        decimal FitScore);
+
+    private sealed record RoleFitBreakdownRow(
+        DateTime Time,
+        string TimeLabel,
+        string ScenarioId,
+        string FitRuleSource,
+        string RoleName,
+        string BoundCharacter,
+        double RoleScore,
+        double RoleWeight,
+        double WeightedContribution,
+        int FailedClauseCount);
+
+    private sealed record FitScoreBreakdownRow(
+        DateTime Time,
+        string TimeLabel,
+        string ScenarioId,
+        string Tier,
+        bool GatePassed,
+        double CharacterScore,
+        double NarrativeScore,
+        double PreferenceScore,
+        double CharacterPoints,
+        double NarrativePoints,
+        double PreferencePoints,
+        double WeightedSubtotal,
+        string PenaltyMultiplierLabel,
+        double FinalFitScore);
 
     private static DecisionInstructionDetails BuildDecisionInstructionDetails(string? metadataJson)
     {

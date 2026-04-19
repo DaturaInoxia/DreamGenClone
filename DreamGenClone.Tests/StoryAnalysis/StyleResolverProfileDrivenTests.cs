@@ -219,4 +219,40 @@ public sealed class StyleResolverProfileDrivenTests
         Assert.Contains("selected=Emotional", reason);
         Assert.Contains("adaptive=Explicit", reason);
     }
+
+    [Fact]
+    public void ManualPin_Off_ApproachingCapsResolvedAtErotic()
+    {
+        var session = CreateSession(primaryThemeId: null, desireStat: 90);
+        session.IsIntensityManuallyPinned = false;
+        session.AdaptiveState.CurrentNarrativePhase = NarrativePhase.Approaching;
+        for (var i = 0; i < 8; i++)
+        {
+            session.Interactions.Add(new RolePlayInteraction { Content = "late" });
+        }
+
+        var (label, reason) = RolePlayStyleResolver.ResolveEffectiveStyle(
+            session,
+            baseIntensityLevel: IntensityLevel.Explicit,
+            adaptiveIntensityLevel: IntensityLevel.Explicit);
+
+        Assert.Equal("Erotic", label);
+        Assert.Contains("approaching-capped-at-erotic", reason);
+    }
+
+    [Fact]
+    public void ManualPin_On_ApproachingStillUsesSelectedScale()
+    {
+        var session = CreateSession(primaryThemeId: null, desireStat: 90);
+        session.IsIntensityManuallyPinned = true;
+        session.AdaptiveState.CurrentNarrativePhase = NarrativePhase.Approaching;
+
+        var (label, reason) = RolePlayStyleResolver.ResolveEffectiveStyle(
+            session,
+            baseIntensityLevel: IntensityLevel.Hardcore,
+            adaptiveIntensityLevel: IntensityLevel.Explicit);
+
+        Assert.Equal("Hardcore", label);
+        Assert.Contains("manual-pin=on(resolved=selected)", reason);
+    }
 }

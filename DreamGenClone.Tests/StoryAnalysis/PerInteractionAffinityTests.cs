@@ -1,7 +1,9 @@
 using DreamGenClone.Application.StoryAnalysis;
 using DreamGenClone.Domain.StoryAnalysis;
+using DreamGenClone.Infrastructure.Configuration;
 using DreamGenClone.Web.Application.RolePlay;
 using DreamGenClone.Web.Domain.RolePlay;
+using Microsoft.Extensions.Options;
 
 namespace DreamGenClone.Tests.StoryAnalysis;
 
@@ -219,5 +221,44 @@ public sealed class PerInteractionAffinityTests
         var item = session.AdaptiveState.ThemeTracker.Themes["power-dynamics"];
         Assert.Equal(0, item.Score);
         Assert.Equal(5, item.SuppressedHitCount);
+    }
+
+    [Fact]
+    public async Task NonActiveTheme_GainsSuppressedEvidence_WithPerTurnCap()
+    {
+        var styleService = new FakeStyleProfileService();
+        var options = Options.Create(new StoryAnalysisOptions
+        {
+            SuppressedEvidenceMultiplier = 0.20,
+            SuppressedEvidencePerTurnCap = 1.5
+        });
+
+        var service = new RolePlayAdaptiveStateService(
+            new FakeCatalogService(),
+            scenarioDefinitionService: null,
+            scenarioSelectionEngine: null,
+            narrativePhaseManager: null,
+            themePreferenceService: new FakePreferenceService(),
+            rpThemeService: null,
+            statKeywordCategoryService: null,
+            styleProfileService: styleService,
+            debugEventSink: null!,
+            logger: null!,
+            intensityProfileService: null,
+            storyAnalysisOptions: options);
+
+        var session = new RolePlaySession();
+        session.AdaptiveState.ActiveScenarioId = "intimacy";
+
+        await service.UpdateFromInteractionAsync(session, new RolePlayInteraction
+        {
+            ActorName = "Alice",
+            Content = "The secret risk could get them caught in danger."
+        });
+
+        var nonActive = session.AdaptiveState.ThemeTracker.Themes["forbidden-risk"];
+        Assert.True(nonActive.SuppressedHitCount > 0);
+        Assert.Equal(1.5, nonActive.Score, 3);
+        Assert.Equal(1.5, nonActive.Breakdown.InteractionEvidenceSignal, 3);
     }
 }

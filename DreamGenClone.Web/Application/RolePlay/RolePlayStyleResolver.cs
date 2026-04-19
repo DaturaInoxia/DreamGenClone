@@ -125,6 +125,14 @@ public static class RolePlayStyleResolver
             reasonParts.Add($"ceiling={ToStyleLabel(ceiling.Value)}");
         }
 
+        if (!session.IsIntensityManuallyPinned
+            && session.AdaptiveState.CurrentNarrativePhase == NarrativePhase.Approaching
+            && clamped > (int)IntensityLevel.Explicit)
+        {
+            clamped = (int)IntensityLevel.Explicit;
+            reasonParts.Add("approaching-capped-at-erotic");
+        }
+
         return (ToStyleLabel(clamped), string.Join(", ", reasonParts));
     }
 

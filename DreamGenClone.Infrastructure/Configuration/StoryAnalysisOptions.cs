@@ -55,6 +55,12 @@ public sealed class StoryAnalysisOptions
 
     public int AdaptiveThemeAffinityCapReset { get; set; } = 0;
 
+    // Reduced score multiplier for non-active themes when active scenario is set.
+    public double SuppressedEvidenceMultiplier { get; set; } = 0.20;
+
+    // Per-interaction cap for suppressed evidence score gain.
+    public double SuppressedEvidencePerTurnCap { get; set; } = 1.5;
+
     // BuildUp scenario selection fit scoring strategy key.
     public string BuildUpSelectionFitScoreStrategy { get; set; } = "weighted-blend";
 
@@ -72,4 +78,34 @@ public sealed class StoryAnalysisOptions
 
     // Minimum per-role score required when dominant-role gate strategy is active.
     public double BuildUpSelectionDominantRoleMinScore { get; set; } = 0.85;
+
+    // Multiplier applied to weighted score when candidate gate fails.
+    public double GateFailScorePenaltyMultiplier { get; set; } = 0.35;
+
+    // Number of recent evidence-bearing interactions to inspect for active-scenario staleness.
+    public int ActiveScenarioNoHitStaleTurns { get; set; } = 2;
+
+    // Default pivot overtake margin when active scenario is not stale.
+    public double PivotOvertakeMarginDefault { get; set; } = 2.0;
+
+    // Relaxed pivot overtake margin when active scenario is stale.
+    public double PivotOvertakeMarginWhenStale { get; set; } = 1.0;
+
+    // Max committed interactions since commitment where pivot is allowed when not stale.
+    public int PivotCommittedInteractionWindow { get; set; } = 3;
+
+    // Max committed interactions since commitment where pivot is allowed when stale.
+    public int PivotCommittedInteractionWindowWhenStale { get; set; } = 8;
+
+    // Per-completion penalty applied to scenario candidate evidence/priority to reduce repeated picks.
+    public double CompletedScenarioRepeatPenaltyPerRun { get; set; } = 0.20;
+
+    // Lower bound for repeated-scenario score multiplier after penalties are applied.
+    public double CompletedScenarioRepeatPenaltyFloor { get; set; } = 0.40;
+
+    // Theme tracker score penalty applied to the just-completed scenario during reset.
+    public int CompletedScenarioThemeScorePenalty { get; set; } = 10;
+
+    // Minimum BuildUp interactions required before a scenario can be committed.
+    public int BuildUpMinInteractionsBeforeCommit { get; set; } = 2;
 }

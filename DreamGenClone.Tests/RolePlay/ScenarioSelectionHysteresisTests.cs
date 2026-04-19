@@ -25,6 +25,7 @@ public sealed class ScenarioSelectionHysteresisTests
     {
         var state = RolePlayV2AcceptanceFixtureData.BuildBoundaryState(desire: 60, restraint: 45, tension: 50);
         state.ConsecutiveLeadCount = 0;
+        state.InteractionCountInPhase = 2;
         var candidates =
             new[]
             {
@@ -65,6 +66,7 @@ public sealed class ScenarioSelectionHysteresisTests
     public async Task TryCommitScenarioAsync_SingleEligibleCandidate_CommitsWithoutOverflow()
     {
         var state = RolePlayV2AcceptanceFixtureData.BuildBoundaryState(desire: 70, restraint: 40, tension: 50);
+        state.InteractionCountInPhase = 2;
         var evaluations = new[]
         {
             new DreamGenClone.Domain.RolePlay.ScenarioCandidateEvaluation
@@ -82,5 +84,33 @@ public sealed class ScenarioSelectionHysteresisTests
 
         Assert.True(result.Committed);
         Assert.Equal("only", result.ScenarioId);
+    }
+
+    [Fact]
+    public async Task TryCommitScenarioAsync_SameActiveScenario_InActiveArc_IsNoOp()
+    {
+        var state = RolePlayV2AcceptanceFixtureData.BuildBoundaryState(desire: 70, restraint: 40, tension: 50);
+        state.CurrentPhase = DreamGenClone.Domain.RolePlay.NarrativePhase.Approaching;
+        state.ActiveScenarioId = "only";
+        state.InteractionCountInPhase = 8;
+
+        var evaluations = new[]
+        {
+            new DreamGenClone.Domain.RolePlay.ScenarioCandidateEvaluation
+            {
+                SessionId = state.SessionId,
+                ScenarioId = "only",
+                StageBEligible = true,
+                FitScore = 82m,
+                Confidence = 0.82m,
+                TieBreakKey = "001:only"
+            }
+        };
+
+        var result = await _service.TryCommitScenarioAsync(state, evaluations);
+
+        Assert.False(result.Committed);
+        Assert.Equal("only", result.ScenarioId);
+        Assert.Contains("already committed", result.Reason, StringComparison.OrdinalIgnoreCase);
     }
 }
