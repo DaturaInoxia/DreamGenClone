@@ -19,7 +19,7 @@ public sealed class RolePlayIdentityOptionsService : IRolePlayIdentityOptionsSer
         ArgumentNullException.ThrowIfNull(session);
 
         var options = new List<IdentityOption>();
-        var allowedActors = _behaviorModeService.GetAllowedActors(session.BehaviorMode).ToHashSet();
+        var allowedActors = _behaviorModeService.GetAllowedActors(session.BehaviorMode, explicitSelection: true).ToHashSet();
 
         if (!string.IsNullOrWhiteSpace(session.ScenarioId))
         {
@@ -87,7 +87,7 @@ public sealed class RolePlayIdentityOptionsService : IRolePlayIdentityOptionsSer
             return false;
         }
 
-        var allowedActors = _behaviorModeService.GetAllowedActors(session.BehaviorMode);
+        var allowedActors = _behaviorModeService.GetAllowedActors(session.BehaviorMode, explicitSelection: true);
         if (!allowedActors.Contains(option.Actor))
         {
             availabilityReason = $"Actor '{option.Actor}' is not allowed in mode '{session.BehaviorMode}'.";

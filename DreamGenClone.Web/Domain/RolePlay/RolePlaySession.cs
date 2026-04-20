@@ -178,6 +178,12 @@ public sealed class RolePlaySession
     /// <summary>Decision points deferred for later review.</summary>
     public List<string> DeferredDecisionPointIds { get; set; } = [];
 
+    /// <summary>
+    /// When true, the next Continue As turn suppresses narrative generation once, then clears this flag.
+    /// Used to keep post-decision direct answers contiguous without an intermediary narrative beat.
+    /// </summary>
+    public bool SuppressNextNarrativeAfterDecision { get; set; }
+
     /// <summary>Persisted assistant chat threads for standard chat CRUD behavior.</summary>
     public List<RolePlayAssistantChatThread> AssistantChats { get; set; } = [];
 

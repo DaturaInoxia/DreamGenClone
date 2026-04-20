@@ -56,6 +56,8 @@
     private string _activeSettingsTab = "settings";
     private bool _adaptiveDiagnosticsExpanded;
     private bool _adaptiveCharacterStatsExpanded;
+    private readonly HashSet<string> _expandedAdaptiveSections = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _expandedAdaptiveThemeRows = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _expandedAdaptiveCharacterStats = new(StringComparer.OrdinalIgnoreCase);
     private readonly WorkspaceSettingsState _workspaceSettings = new();
 
@@ -87,6 +89,18 @@
     private List<string> _finishOptions = [];
     private string _selectedFinishOption = string.Empty;
     private string _finishOptionError = string.Empty;
+    private bool _nextPhasePopupOpen;
+    private bool _nextPhaseOptionsLoading;
+    private bool _nextPhaseOptionSubmitting;
+    private List<string> _nextPhaseOptions = [];
+    private string _selectedNextPhaseOption = string.Empty;
+    private string _nextPhaseOptionError = string.Empty;
+    private bool _steerPopupOpen;
+    private bool _steerOptionsLoading;
+    private bool _steerOptionSubmitting;
+    private List<string> _steerOptions = [];
+    private string _selectedSteerOption = string.Empty;
+    private string _steerOptionError = string.Empty;
 
     // Identity
     private List<IdentityOption> _identityOptions = [];
@@ -442,6 +456,8 @@
         _identityPopupOpen = false;
         _continueCustomPopupOpen = false;
         _finishPopupOpen = false;
+        _nextPhasePopupOpen = false;
+        _steerPopupOpen = false;
     }
 
     private void SelectIntent(PromptIntent intent)
@@ -456,6 +472,8 @@
         _intentPopupOpen = false;
         _continueCustomPopupOpen = false;
         _finishPopupOpen = false;
+        _nextPhasePopupOpen = false;
+        _steerPopupOpen = false;
     }
 
     private void SelectIdentity(IdentityOption option)
@@ -475,6 +493,8 @@
         _identityPopupOpen = false;
         _continueCustomPopupOpen = false;
         _finishPopupOpen = false;
+        _nextPhasePopupOpen = false;
+        _steerPopupOpen = false;
     }
 
     private async Task ApplyBehaviorModeAsync()
@@ -2282,6 +2302,179 @@
         _adaptiveCharacterStatsExpanded = !_adaptiveCharacterStatsExpanded;
     }
 
+    private void ToggleAdaptiveSection(string sectionKey)
+    {
+        if (string.IsNullOrWhiteSpace(sectionKey))
+        {
+            return;
+        }
+
+        if (!_expandedAdaptiveSections.Remove(sectionKey))
+        {
+            _expandedAdaptiveSections.Add(sectionKey);
+        }
+    }
+
+    private bool IsAdaptiveSectionExpanded(string sectionKey)
+        => !string.IsNullOrWhiteSpace(sectionKey) && _expandedAdaptiveSections.Contains(sectionKey);
+
+    private void ToggleAdaptiveThemeRow(string themeId)
+    {
+        if (string.IsNullOrWhiteSpace(themeId))
+        {
+            return;
+        }
+
+        if (!_expandedAdaptiveThemeRows.Remove(themeId))
+        {
+            _expandedAdaptiveThemeRows.Add(themeId);
+        }
+    }
+
+    private bool IsAdaptiveThemeRowExpanded(string themeId)
+        => !string.IsNullOrWhiteSpace(themeId) && _expandedAdaptiveThemeRows.Contains(themeId);
+
+    private AdaptiveSelectionGateSnapshot BuildAdaptiveSelectionGateSnapshot(RolePlayAdaptiveState state)
+    {
+        var desire = GetAverageAdaptiveStat(state, "Desire");
+        var tension = GetAverageAdaptiveStat(state, "Tension");
+        var restraint = GetAverageAdaptiveStat(state, "Restraint");
+        var stageAOpen = desire >= 35;
+        var stageBOpen = tension >= 35 && restraint <= 80;
+
+        var gapParts = new List<string>();
+        if (!stageAOpen)
+        {
+            gapParts.Add($"Need +{Math.Max(0, 35 - desire):0.0} Desire (target 35)");
+        }
+
+        if (!stageBOpen)
+        {
+            if (tension < 35)
+            {
+                gapParts.Add($"Need +{Math.Max(0, 35 - tension):0.0} Tension (target 35)");
+            }
+
+            if (restraint > 80)
+            {
+                gapParts.Add($"Need -{Math.Max(0, restraint - 80):0.0} Restraint (target <= 80)");
+            }
+        }
+
+        return new AdaptiveSelectionGateSnapshot(
+            StageAOpen: stageAOpen,
+            StageBOpen: stageBOpen,
+            Desire: desire,
+            Tension: tension,
+            Restraint: restraint,
+            GapSummary: gapParts.Count == 0 ? "No gate gaps. Selection gates are open." : string.Join("; ", gapParts));
+    }
+
+    private IReadOnlyList<AdaptiveThemeStatusRow> GetAdaptiveThemeStatusRows()
+    {
+        if (_session is null)
+        {
+            return [];
+        }
+
+        var state = _session.AdaptiveState;
+        var gateSnapshot = BuildAdaptiveSelectionGateSnapshot(state);
+        var activeThemeId = string.IsNullOrWhiteSpace(state.ActiveScenarioId)
+            ? state.ThemeTracker.PrimaryThemeId
+            : state.ActiveScenarioId;
+
+        var highestUnblockedScore = state.ThemeTracker.Themes.Values
+            .Where(x => !x.Blocked)
+            .Select(x => x.Score)
+            .DefaultIfEmpty(0)
+            .Max();
+
+        return state.ThemeTracker.Themes.Values
+            .OrderByDescending(x => x.Score)
+            .ThenBy(x => x.ThemeName, StringComparer.OrdinalIgnoreCase)
+            .Select(theme =>
+            {
+                var isActive = !string.IsNullOrWhiteSpace(activeThemeId)
+                    && string.Equals(theme.ThemeId, activeThemeId, StringComparison.OrdinalIgnoreCase);
+                var scoreGap = Math.Max(0, highestUnblockedScore - theme.Score);
+                var status = theme.Blocked
+                    ? "Blocked"
+                    : isActive
+                        ? "Active"
+                        : scoreGap <= 0.05
+                            ? "Ready"
+                            : "Candidate";
+
+                var nextStep = theme.Blocked
+                    ? "Theme is blocked by profile/dealbreaker rules and cannot become active until unblocked."
+                    : !gateSnapshot.StageAOpen || !gateSnapshot.StageBOpen
+                        ? gateSnapshot.GapSummary
+                        : isActive
+                            ? "Currently active. Keep gate values healthy to retain momentum."
+                            : scoreGap <= 0.05
+                                ? "Eligible now. This theme can become active on the next selection cycle."
+                                : $"Need +{scoreGap:0.0} score to overtake the current top candidate.";
+
+                return new AdaptiveThemeStatusRow(
+                    ThemeId: theme.ThemeId,
+                    ThemeName: string.IsNullOrWhiteSpace(theme.ThemeName) ? theme.ThemeId : theme.ThemeName,
+                    Score: theme.Score,
+                    Intensity: string.IsNullOrWhiteSpace(theme.Intensity) ? "(none)" : theme.Intensity,
+                    IsActive: isActive,
+                    IsBlocked: theme.Blocked,
+                    Status: status,
+                    NextStep: nextStep,
+                    ChoiceSignal: theme.Breakdown.ChoiceSignal,
+                    CharacterStateSignal: theme.Breakdown.CharacterStateSignal,
+                    InteractionEvidenceSignal: theme.Breakdown.InteractionEvidenceSignal,
+                    ScenarioPhaseSignal: theme.Breakdown.ScenarioPhaseSignal);
+            })
+            .ToList();
+    }
+
+    private static string GetAdaptiveStatusBadgeClass(string status)
+    {
+        return status switch
+        {
+            "Active" => "badge text-bg-success",
+            "Ready" => "badge text-bg-info",
+            "Blocked" => "badge text-bg-danger",
+            _ => "badge text-bg-secondary"
+        };
+    }
+
+    private static string GetGateStatusBadgeClass(string status)
+    {
+        if (string.Equals(status, "Open", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(status, "Live", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(status, "Automatic", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(status, "Committed scenario active", StringComparison.OrdinalIgnoreCase))
+        {
+            return "badge text-bg-success";
+        }
+
+        if (string.Equals(status, "Waiting", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(status, "Command-driven", StringComparison.OrdinalIgnoreCase))
+        {
+            return "badge text-bg-secondary";
+        }
+
+        return "badge text-bg-danger";
+    }
+
+    private static bool IsPrimaryUserGate(string label)
+    {
+        if (string.IsNullOrWhiteSpace(label))
+        {
+            return false;
+        }
+
+        return label.Contains("Selection Gate", StringComparison.OrdinalIgnoreCase)
+            || label.Contains("BuildUp Commit Gate", StringComparison.OrdinalIgnoreCase)
+            || label.Contains("Gate:", StringComparison.OrdinalIgnoreCase)
+            || label.Contains("Manual Override Gate", StringComparison.OrdinalIgnoreCase);
+    }
+
     private void ToggleAdaptiveCharacterStatsCharacter(string actorName)
     {
         if (string.IsNullOrWhiteSpace(actorName))
@@ -2924,7 +3117,20 @@
 
     private bool IsClimaxPhase => _session?.AdaptiveState.CurrentNarrativePhase == DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Climax;
 
+    private bool IsNextPhaseEligible => _session?.AdaptiveState.CurrentNarrativePhase is
+        DreamGenClone.Domain.StoryAnalysis.NarrativePhase.BuildUp or
+        DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Committed or
+        DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Approaching or
+        DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Climax;
+
+    private bool IsSteerEligible => _session is not null
+        && _session.AdaptiveState.CurrentNarrativePhase != DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Reset;
+
     private bool IsFinishUiLocked => _isSubmitting || _finishOptionsLoading || _finishOptionSubmitting;
+
+    private bool IsNextPhaseUiLocked => _isSubmitting || _nextPhaseOptionsLoading || _nextPhaseOptionSubmitting;
+
+    private bool IsSteerUiLocked => _isSubmitting || _steerOptionsLoading || _steerOptionSubmitting;
 
     private bool ShowPendingResponseIndicator =>
         _isAwaitingModelResponse && !string.IsNullOrWhiteSpace(_pendingResponseLabel);
@@ -3131,6 +3337,8 @@
         if (_continueCustomPopupOpen)
         {
             _finishPopupOpen = false;
+            _nextPhasePopupOpen = false;
+            _steerPopupOpen = false;
         }
     }
 
@@ -3145,6 +3353,8 @@
         _continueCustomPopupOpen = false;
         _intentPopupOpen = false;
         _identityPopupOpen = false;
+        _nextPhasePopupOpen = false;
+        _steerPopupOpen = false;
         _finishOptionError = string.Empty;
 
         if (_finishOptions.Count > 0)
@@ -3153,6 +3363,423 @@
         }
 
         await GenerateFinishOptionsAsync();
+    }
+
+    private async Task OpenNextPhasePopupAsync()
+    {
+        if (_session is null || !IsNextPhaseEligible || IsNextPhaseUiLocked)
+        {
+            return;
+        }
+
+        _nextPhasePopupOpen = true;
+        _continueCustomPopupOpen = false;
+        _intentPopupOpen = false;
+        _identityPopupOpen = false;
+        _finishPopupOpen = false;
+        _steerPopupOpen = false;
+        _nextPhaseOptionError = string.Empty;
+
+        if (_nextPhaseOptions.Count > 0)
+        {
+            return;
+        }
+
+        await GenerateNextPhaseOptionsAsync();
+    }
+
+    private void CloseNextPhasePopup()
+    {
+        _nextPhasePopupOpen = false;
+        _nextPhaseOptionError = string.Empty;
+    }
+
+    private async Task GenerateNextPhaseOptionsAsync()
+    {
+        if (_session is null || !IsNextPhaseEligible)
+        {
+            return;
+        }
+
+        _nextPhaseOptionsLoading = true;
+        _nextPhaseOptionError = string.Empty;
+        try
+        {
+            var context = BuildAssistantContext();
+            var targetLabel = _session.AdaptiveState.CurrentNarrativePhase switch
+            {
+                DreamGenClone.Domain.StoryAnalysis.NarrativePhase.BuildUp => "Committed",
+                DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Committed => "Approaching",
+                DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Approaching => "Climax",
+                DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Climax => "Reset",
+                _ => "Next"
+            };
+
+            var prompt = await BuildNextPhaseOptionsPromptAsync(targetLabel);
+
+            var response = await RolePlayAssistant.GenerateSuggestionAsync(
+                context,
+                prompt,
+                assistantModelId: string.IsNullOrWhiteSpace(_session.AssistantModelId) ? null : _session.AssistantModelId,
+                assistantTemperature: _session.AssistantTemperature,
+                assistantTopP: _session.AssistantTopP,
+                assistantMaxTokens: _session.AssistantMaxTokens);
+
+            _nextPhaseOptions = ParseFinishOptions(response).ToList();
+            if (_nextPhaseOptions.Count == 0)
+            {
+                _nextPhaseOptionError = "Could not generate phase options. Try again.";
+                return;
+            }
+
+            _selectedNextPhaseOption = _nextPhaseOptions[0];
+        }
+        catch (Exception ex)
+        {
+            _nextPhaseOptionError = ex.Message;
+            Logger.LogError(ex, "Failed generating next-phase options for session {SessionId}", _session.Id);
+        }
+        finally
+        {
+            _nextPhaseOptionsLoading = false;
+        }
+    }
+
+    private async Task ApplyNextPhaseOptionAsync()
+    {
+        if (_session is null
+            || string.IsNullOrWhiteSpace(_selectedNextPhaseOption)
+            || !IsNextPhaseEligible
+            || IsNextPhaseUiLocked)
+        {
+            return;
+        }
+
+        _nextPhaseOptionSubmitting = true;
+        _isSubmitting = true;
+        _isAwaitingModelResponse = false;
+        _pendingResponseLabel = string.Empty;
+        _pendingResponseText = string.Empty;
+        _pendingResponseBuilder.Clear();
+        _lastPendingResponseRenderAt = DateTime.MinValue;
+        _nextPhaseOptionError = string.Empty;
+        _nextPhasePopupOpen = false;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            var submission = new UnifiedPromptSubmission
+            {
+                SessionId = _session.Id,
+                PromptText = string.IsNullOrWhiteSpace(_selectedNextPhaseOption)
+                    ? "/nextphase"
+                    : $"/nextphase {_selectedNextPhaseOption.Trim()}",
+                Intent = PromptIntent.Instruction,
+                SelectedIdentityId = string.Empty,
+                SelectedIdentityType = IdentityOptionSource.Persona,
+                CustomIdentityName = null,
+                BehaviorModeAtSubmit = _selectedBehaviorMode,
+                SubmittedVia = SubmissionSource.SendButton
+            };
+
+            await RolePlayEngine.SubmitPromptAsync(submission, onChunk: null);
+            _nextPhaseOptions.Clear();
+            _selectedNextPhaseOption = string.Empty;
+            await LoadSessionAsync();
+        }
+        catch (Exception ex)
+        {
+            _nextPhaseOptionError = ex.Message;
+            Logger.LogError(ex, "Failed applying next-phase option for session {SessionId}", _session.Id);
+        }
+        finally
+        {
+            _isAwaitingModelResponse = false;
+            _pendingResponseLabel = string.Empty;
+            _pendingResponseText = string.Empty;
+            _pendingResponseBuilder.Clear();
+            _lastPendingResponseRenderAt = DateTime.MinValue;
+            _isSubmitting = false;
+            _nextPhaseOptionSubmitting = false;
+        }
+    }
+
+    private async Task OpenSteerPopupAsync()
+    {
+        if (_session is null || !IsSteerEligible || IsSteerUiLocked)
+        {
+            return;
+        }
+
+        _steerPopupOpen = true;
+        _continueCustomPopupOpen = false;
+        _intentPopupOpen = false;
+        _identityPopupOpen = false;
+        _finishPopupOpen = false;
+        _nextPhasePopupOpen = false;
+        _steerOptionError = string.Empty;
+
+        if (_steerOptions.Count > 0)
+        {
+            return;
+        }
+
+        await GenerateSteerOptionsAsync();
+    }
+
+    private void CloseSteerPopup()
+    {
+        _steerPopupOpen = false;
+        _steerOptionError = string.Empty;
+    }
+
+    private async Task GenerateSteerOptionsAsync()
+    {
+        if (_session is null || !IsSteerEligible)
+        {
+            return;
+        }
+
+        _steerOptionsLoading = true;
+        _steerOptionError = string.Empty;
+        try
+        {
+            var context = BuildAssistantContext();
+            var prompt = await BuildSteerOptionsPromptAsync();
+
+            var response = await RolePlayAssistant.GenerateSuggestionAsync(
+                context,
+                prompt,
+                assistantModelId: string.IsNullOrWhiteSpace(_session.AssistantModelId) ? null : _session.AssistantModelId,
+                assistantTemperature: _session.AssistantTemperature,
+                assistantTopP: _session.AssistantTopP,
+                assistantMaxTokens: _session.AssistantMaxTokens);
+
+            _steerOptions = ParseFinishOptions(response).ToList();
+            if (_steerOptions.Count == 0)
+            {
+                _steerOptionError = "Could not generate steering options. Try again.";
+                return;
+            }
+
+            _selectedSteerOption = _steerOptions[0];
+        }
+        catch (Exception ex)
+        {
+            _steerOptionError = ex.Message;
+            Logger.LogError(ex, "Failed generating steer options for session {SessionId}", _session.Id);
+        }
+        finally
+        {
+            _steerOptionsLoading = false;
+        }
+    }
+
+    private async Task<string> BuildSteerOptionsPromptAsync()
+    {
+        if (_session is null)
+        {
+            return "Generate exactly 4 distinct one-sentence steering directives for the current scene. Return ONLY a JSON array of strings with no markdown and no extra text.";
+        }
+
+        var phase = _session.AdaptiveState.CurrentNarrativePhase.ToString();
+        var sb = new StringBuilder();
+        sb.AppendLine($"Generate exactly 4 distinct steering directives for the current scene in phase {phase}.");
+        sb.AppendLine("Each option must stay in the same phase (do not advance phase). One sentence per option, concrete, actionable, and non-meta.");
+        sb.AppendLine("The options must be meaningfully different in direction (for example pacing, emotional pressure, conflict focus, intimacy calibration, or mystery emphasis). ");
+        sb.AppendLine("Ground every option in current scene continuity and character plausibility.");
+
+        await AppendThemeReferenceContextAsync(sb, phase);
+
+        sb.AppendLine("Return ONLY a JSON array of strings with no markdown and no extra text.");
+        return sb.ToString();
+    }
+
+    private async Task<string> BuildNextPhaseOptionsPromptAsync(string targetLabel)
+    {
+        if (_session is null)
+        {
+            return $"Generate exactly 3 distinct one-sentence transition moves to advance the scene into the {targetLabel} phase. Return ONLY a JSON array of strings with no markdown and no extra text.";
+        }
+
+        var phase = _session.AdaptiveState.CurrentNarrativePhase.ToString();
+        var sb = new StringBuilder();
+        sb.AppendLine($"Generate exactly 3 distinct short transition moves to advance the scene from phase {phase} into {targetLabel}.");
+        sb.AppendLine("Each option must be one sentence and actionable as the immediate next scene beat.");
+        sb.AppendLine("Keep options concise, concrete, and non-meta.");
+        sb.AppendLine("Transition intensity and pacing should be plausible for current continuity.");
+
+        await AppendThemeReferenceContextAsync(sb, phase);
+
+        sb.AppendLine("Each option should clearly bridge from the current phase toward the target phase without abrupt logic breaks.");
+        sb.AppendLine("Return ONLY a JSON array of strings with no markdown and no extra text.");
+        return sb.ToString();
+    }
+
+    private async Task<string> BuildFinishOptionsPromptAsync()
+    {
+        if (_session is null)
+        {
+            return "Generate exactly 3 distinct one-sentence ending moves for the current climax. Return ONLY a JSON array of strings with no markdown and no extra text.";
+        }
+
+        var phase = _session.AdaptiveState.CurrentNarrativePhase.ToString();
+        var sb = new StringBuilder();
+        sb.AppendLine($"Generate exactly 3 distinct short ending moves for the current scene while in phase {phase}.");
+        sb.AppendLine("Each option must be one sentence, actionable, and suitable as the immediate beat to close out the climax trajectory.");
+        sb.AppendLine("Keep options concise, grounded in continuity, and non-meta.");
+
+        await AppendThemeReferenceContextAsync(sb, phase);
+
+        sb.AppendLine("Ending moves should feel like a culmination of the active thematic and emotional direction, not a random pivot.");
+        sb.AppendLine("Return ONLY a JSON array of strings with no markdown and no extra text.");
+        return sb.ToString();
+    }
+
+    private async Task AppendThemeReferenceContextAsync(StringBuilder sb, string phase)
+    {
+        if (_session is null)
+        {
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_session.AdaptiveState.CurrentSceneLocation))
+        {
+            sb.AppendLine($"Current scene location: {_session.AdaptiveState.CurrentSceneLocation}.");
+            sb.AppendLine("Keep surroundings and movement plausible for this location. Do not teleport characters or jump locations without transition beats.");
+        }
+
+        var activeScenarioId = _session.AdaptiveState.ActiveScenarioId;
+        RPTheme? activeTheme = null;
+        if (!string.IsNullOrWhiteSpace(activeScenarioId))
+        {
+            try
+            {
+                activeTheme = await RPThemeService.GetThemeAsync(activeScenarioId);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogDebug(ex, "Unable to load active RP theme for steer options in session {SessionId}.", _session.Id);
+            }
+        }
+
+        if (activeTheme is not null)
+        {
+            var themeLabel = string.IsNullOrWhiteSpace(activeTheme.Label) ? activeTheme.Id : activeTheme.Label;
+            sb.AppendLine($"Active theme: {themeLabel} ({activeTheme.Id}).");
+            if (!string.IsNullOrWhiteSpace(activeTheme.Description))
+            {
+                sb.AppendLine($"Theme description: {activeTheme.Description.Trim()}");
+            }
+
+            var phaseGuidance = DreamGenClone.Web.Application.RolePlay.RolePlayAssistantPrompts.GetThemePhaseGuidanceLines(activeTheme, phase, maxLines: 3);
+            if (phaseGuidance.Count > 0)
+            {
+                sb.AppendLine($"Theme phase guidance for {phase}:");
+                foreach (var line in phaseGuidance)
+                {
+                    sb.AppendLine($"- {line}");
+                }
+            }
+
+            var guidanceNotes = DreamGenClone.Web.Application.RolePlay.RolePlayAssistantPrompts.GetPhaseRelevantThemeAIGuidanceNotes(
+                activeTheme,
+                phase,
+                maxNotes: Math.Clamp(_session.MaxThemeAIGuidanceNotes, 2, 6),
+                includeFormulaNotes: false);
+            if (guidanceNotes.Count > 0)
+            {
+                sb.AppendLine("Relevant theme AI guidance notes for this phase:");
+                foreach (var note in guidanceNotes)
+                {
+                    sb.AppendLine($"- [{note.Section}] {note.Text.Trim()}");
+                }
+            }
+
+            sb.AppendLine("Every option must clearly align with the active theme and this phase guidance.");
+        }
+        else
+        {
+            var availableThemes = _session.AdaptiveState.ThemeTracker.Themes.Values
+                .Where(x => !x.Blocked)
+                .OrderByDescending(x => x.Score)
+                .Take(4)
+                .ToList();
+
+            if (availableThemes.Count > 0)
+            {
+                sb.AppendLine("No active theme is locked. Guide options toward one of these available high-fit themes:");
+                foreach (var theme in availableThemes)
+                {
+                    var name = string.IsNullOrWhiteSpace(theme.ThemeName) ? theme.ThemeId : theme.ThemeName;
+                    sb.AppendLine($"- {name} ({theme.ThemeId}), score={theme.Score:F1}, intensity={theme.Intensity}");
+                }
+                sb.AppendLine("Each option should naturally increase coherence with one listed theme without abrupt or implausible pivots.");
+            }
+            else
+            {
+                sb.AppendLine("No strong theme signals are available. Keep options phase-appropriate and grounded in current context.");
+            }
+        }
+    }
+
+    private async Task ApplySteerOptionAsync()
+    {
+        if (_session is null
+            || string.IsNullOrWhiteSpace(_selectedSteerOption)
+            || !IsSteerEligible
+            || IsSteerUiLocked)
+        {
+            return;
+        }
+
+        _steerOptionSubmitting = true;
+        _isSubmitting = true;
+        _isAwaitingModelResponse = false;
+        _pendingResponseLabel = string.Empty;
+        _pendingResponseText = string.Empty;
+        _pendingResponseBuilder.Clear();
+        _lastPendingResponseRenderAt = DateTime.MinValue;
+        _steerOptionError = string.Empty;
+        _steerPopupOpen = false;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            var submission = new UnifiedPromptSubmission
+            {
+                SessionId = _session.Id,
+                PromptText = string.IsNullOrWhiteSpace(_selectedSteerOption)
+                    ? "/steer"
+                    : $"/steer {_selectedSteerOption.Trim()}",
+                Intent = PromptIntent.Instruction,
+                SelectedIdentityId = string.Empty,
+                SelectedIdentityType = IdentityOptionSource.Persona,
+                CustomIdentityName = null,
+                BehaviorModeAtSubmit = _selectedBehaviorMode,
+                SubmittedVia = SubmissionSource.SendButton
+            };
+
+            await RolePlayEngine.SubmitPromptAsync(submission, onChunk: null);
+            _steerOptions.Clear();
+            _selectedSteerOption = string.Empty;
+            await LoadSessionAsync();
+        }
+        catch (Exception ex)
+        {
+            _steerOptionError = ex.Message;
+            Logger.LogError(ex, "Failed applying steer option for session {SessionId}", _session.Id);
+        }
+        finally
+        {
+            _isAwaitingModelResponse = false;
+            _pendingResponseLabel = string.Empty;
+            _pendingResponseText = string.Empty;
+            _pendingResponseBuilder.Clear();
+            _lastPendingResponseRenderAt = DateTime.MinValue;
+            _isSubmitting = false;
+            _steerOptionSubmitting = false;
+        }
     }
 
     private void CloseFinishPopup()
@@ -3173,10 +3800,7 @@
         try
         {
             var context = BuildAssistantContext();
-            var prompt = "Generate exactly 3 distinct short ending moves for the current climax. " +
-                "Each option must be one sentence and actionable as the next scene beat. " +
-                "Keep options concise, grounded in current scene context, and avoid meta wording. " +
-                "Return ONLY a JSON array of strings with no markdown and no extra text.";
+            var prompt = await BuildFinishOptionsPromptAsync();
 
             var response = await RolePlayAssistant.GenerateSuggestionAsync(
                 context,
@@ -4912,15 +5536,24 @@
                             @onclick:stopPropagation>
                         Custom
                     </button>
-                    @if (IsClimaxPhase)
-                    {
-                        <button class="rw-continue-chip rw-finish-chip @(_finishPopupOpen ? "is-active" : string.Empty)"
-                                @onclick="OpenFinishPopupAsync"
-                                disabled="@IsFinishUiLocked"
-                                @onclick:stopPropagation>
-                            Finish
-                        </button>
-                    }
+                    <button class="rw-continue-chip"
+                            @onclick="OpenNextPhasePopupAsync"
+                            disabled="@(!IsNextPhaseEligible || IsNextPhaseUiLocked)"
+                            @onclick:stopPropagation>
+                        Next Phase
+                    </button>
+                    <button class="rw-continue-chip"
+                            @onclick="OpenSteerPopupAsync"
+                            disabled="@(!IsSteerEligible || IsSteerUiLocked)"
+                            @onclick:stopPropagation>
+                        Steer
+                    </button>
+                    <button class="rw-continue-chip rw-finish-chip @(_finishPopupOpen ? "is-active" : string.Empty)"
+                            @onclick="OpenFinishPopupAsync"
+                            disabled="@(!IsClimaxPhase || IsFinishUiLocked)"
+                            @onclick:stopPropagation>
+                        Finish
+                    </button>
                 </div>
 
                 @if (_continueCustomPopupOpen)
@@ -5025,6 +5658,108 @@
                             <button class="rw-popup-action-btn is-primary"
                                     disabled="@(_finishOptionSubmitting || _finishOptionsLoading || string.IsNullOrWhiteSpace(_selectedFinishOption))"
                                     @onclick="ApplyFinishOptionAsync">Finish Scene</button>
+                        </div>
+                    </div>
+                }
+
+                @if (_nextPhasePopupOpen)
+                {
+                    <div class="rw-popup rw-finish-popup">
+                        <div class="rw-popup-header">
+                            <span class="rw-popup-intent-label">next phase</span>
+                        </div>
+                        <div class="rw-finish-popup-body">
+                            @if (_nextPhaseOptionsLoading)
+                            {
+                                <div class="rw-finish-loading">Generating transition options...</div>
+                            }
+                            else if (_nextPhaseOptions.Count == 0)
+                            {
+                                <div class="rw-finish-loading">No options yet.</div>
+                            }
+                            else
+                            {
+                                @foreach (var option in _nextPhaseOptions)
+                                {
+                                    <button class="rw-popup-item @(string.Equals(_selectedNextPhaseOption, option, StringComparison.Ordinal) ? "is-selected" : string.Empty)"
+                                            disabled="@_nextPhaseOptionSubmitting"
+                                            @onclick="@(() => _selectedNextPhaseOption = option)">
+                                        <div class="rw-popup-item-content">
+                                            <span class="rw-popup-item-title">@option</span>
+                                        </div>
+                                        @if (string.Equals(_selectedNextPhaseOption, option, StringComparison.Ordinal))
+                                        {
+                                            <span class="rw-popup-check">✓</span>
+                                        }
+                                    </button>
+                                }
+                            }
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(_nextPhaseOptionError))
+                        {
+                            <div class="rw-finish-error">@_nextPhaseOptionError</div>
+                        }
+                        <div class="rw-popup-actions rw-finish-popup-actions">
+                            <button class="rw-popup-action-btn"
+                                    disabled="@_nextPhaseOptionSubmitting"
+                                    @onclick="CloseNextPhasePopup">Cancel</button>
+                            <button class="rw-popup-action-btn"
+                                    disabled="@(_nextPhaseOptionSubmitting || _nextPhaseOptionsLoading)"
+                                    @onclick="GenerateNextPhaseOptionsAsync">Regenerate</button>
+                            <button class="rw-popup-action-btn is-primary"
+                                    disabled="@(_nextPhaseOptionSubmitting || _nextPhaseOptionsLoading || string.IsNullOrWhiteSpace(_selectedNextPhaseOption))"
+                                    @onclick="ApplyNextPhaseOptionAsync">Advance</button>
+                        </div>
+                    </div>
+                }
+
+                @if (_steerPopupOpen)
+                {
+                    <div class="rw-popup rw-finish-popup">
+                        <div class="rw-popup-header">
+                            <span class="rw-popup-intent-label">steer</span>
+                        </div>
+                        <div class="rw-finish-popup-body">
+                            @if (_steerOptionsLoading)
+                            {
+                                <div class="rw-finish-loading">Generating steering options...</div>
+                            }
+                            else if (_steerOptions.Count == 0)
+                            {
+                                <div class="rw-finish-loading">No options yet.</div>
+                            }
+                            else
+                            {
+                                @foreach (var option in _steerOptions)
+                                {
+                                    <button class="rw-popup-item @(string.Equals(_selectedSteerOption, option, StringComparison.Ordinal) ? "is-selected" : string.Empty)"
+                                            disabled="@_steerOptionSubmitting"
+                                            @onclick="@(() => _selectedSteerOption = option)">
+                                        <div class="rw-popup-item-content">
+                                            <span class="rw-popup-item-title">@option</span>
+                                        </div>
+                                        @if (string.Equals(_selectedSteerOption, option, StringComparison.Ordinal))
+                                        {
+                                            <span class="rw-popup-check">✓</span>
+                                        }
+                                    </button>
+                                }
+                            }
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(_steerOptionError))
+                        {
+                            <div class="rw-finish-error">@_steerOptionError</div>
+                        }
+                        <div class="rw-popup-actions rw-finish-popup-actions">
+                            <button class="rw-popup-action-btn"
+                                    disabled="@_steerOptionSubmitting"
+                                    @onclick="CloseSteerPopup">Cancel</button>
+                            <button class="rw-popup-action-btn"
+                                    disabled="@(_steerOptionSubmitting || _steerOptionsLoading)"
+                                    @onclick="GenerateSteerOptionsAsync">Regenerate</button>
+                            <button class="rw-popup-action-btn is-primary"
+                                    disabled="@(_steerOptionSubmitting || _steerOptionsLoading || string.IsNullOrWhiteSpace(_selectedSteerOption))"
+                                    @onclick="ApplySteerOptionAsync">Apply Steer</button>
                         </div>
                     </div>
                 }
@@ -5484,428 +6219,268 @@
 
             @if (_activeSettingsTab == "adaptive")
             {
-                <div class="rw-settings-content">
-                    <div class="rw-settings-section">
-                        <div class="rw-settings-section-label">Active Profiles</div>
-                        <div class="text-muted small mb-2">RP Theme Profile steers adaptive theme direction. Writing Style Profile steers wording, texture, and voice.</div>
-                        <div class="rw-scenario-field">
-                            <label class="rw-scenario-field-label">RP Theme Profile</label>
-                            <select class="rw-mode-select"
-                                    value="@_session.SelectedRPThemeProfileId"
-                                    @onchange="OnRpThemeProfileChanged">
-                                <option value="">(None)</option>
-                                @foreach (var profile in _rpThemeProfiles)
-                                {
-                                    <option value="@profile.Id">@profile.Name</option>
-                                }
-                            </select>
-                        </div>
-                        <div class="rw-scenario-field">
-                            <label class="rw-scenario-field-label">Manual Theme Override</label>
-                            <select class="rw-mode-select"
-                                    value="@_adaptiveThemeOverrideSelection"
-                                    @onchange="OnAdaptiveThemeOverrideChanged">
-                                <option value="">(Select Theme)</option>
-                                @foreach (var theme in GetAdaptiveOverrideThemes())
-                                {
-                                    <option value="@theme.ThemeId">@BuildAdaptiveOverrideThemeLabel(theme)</option>
-                                }
-                            </select>
-                            <div class="text-muted small mb-2">Forces the active adaptive theme immediately.</div>
-                            <button class="rw-btn rw-btn-secondary"
-                                    disabled="@string.IsNullOrWhiteSpace(_adaptiveThemeOverrideSelection)"
-                                    @onclick="ApplyAdaptiveThemeOverrideAsync">
-                                Apply Theme Override
-                            </button>
-                            @if (!string.IsNullOrWhiteSpace(_adaptiveThemeOverrideStatus))
-                            {
-                                <div class="small" style="margin-top:6px; color:#c8d6c8;">@_adaptiveThemeOverrideStatus</div>
-                            }
-                        </div>
-                        <div class="rw-scenario-field">
-                            <label class="rw-scenario-field-label">Selected Intensity Profile</label>
-                            <select class="rw-mode-select"
-                                    value="@GetIntensityDropdownValue()"
-                                    @onchange="OnIntensityProfileChanged">
-                                <option value="">(None)</option>
-                                @foreach (var profile in _intensityProfiles)
-                                {
-                                    <option value="@profile.Id">@profile.Name</option>
-                                }
-                            </select>
-                        </div>
-                        <div class="rw-scenario-field">
-                            <label class="rw-scenario-field-label">Writing Style Profile</label>
-                            <select class="rw-mode-select"
-                                    value="@_session.SelectedSteeringProfileId"
-                                    @onchange="OnSteeringProfileChanged">
-                                <option value="">(None)</option>
-                                @foreach (var profile in _steeringProfiles)
-                                {
-                                    <option value="@profile.Id">@profile.Name</option>
-                                }
-                            </select>
-                        </div>
-                        <div class="rw-scenario-field">
-                            <label class="rw-scenario-field-label">Willingness Profile</label>
-                            <select class="rw-mode-select"
-                                    value="@_session.AdaptiveState.SelectedWillingnessProfileId"
-                                    @onchange="OnWillingnessProfileChanged">
-                                <option value="">(None)</option>
-                                @foreach (var profile in _willingnessProfiles)
-                                {
-                                    <option value="@profile.Id">@profile.Name</option>
-                                }
-                            </select>
-                        </div>
-                        <div class="rw-scenario-field">
-                            <label class="rw-scenario-field-label">Husband Awareness Profile</label>
-                            <select class="rw-mode-select"
-                                    value="@_session.AdaptiveState.HusbandAwarenessProfileId"
-                                    @onchange="OnHusbandAwarenessProfileChanged">
-                                <option value="">(None)</option>
-                                @foreach (var profile in _husbandAwarenessProfiles)
-                                {
-                                    <option value="@profile.Id">@profile.Name</option>
-                                }
-                            </select>
-                        </div>
-                        <div class="rw-scenario-field">
-                            <label class="rw-scenario-field-label">Intensity Floor</label>
-                            <select class="rw-mode-select"
-                                    value="@_session.IntensityFloorOverride"
-                                    @onchange="OnStyleFloorChanged">
-                                <option value="">(None)</option>
-                                @foreach (var option in StyleBoundOptions)
-                                {
-                                    <option value="@option.Value">@option.Label</option>
-                                }
-                            </select>
-                        </div>
-                        <div class="rw-scenario-field">
-                            <label class="rw-scenario-field-label">Intensity Ceiling</label>
-                            <select class="rw-mode-select"
-                                    value="@_session.IntensityCeilingOverride"
-                                    @onchange="OnStyleCeilingChanged">
-                                <option value="">(None)</option>
-                                @foreach (var option in StyleBoundOptions)
-                                {
-                                    <option value="@option.Value">@option.Label</option>
-                                }
-                            </select>
-                        </div>
-                        <div class="rw-settings-info-row">
-                            <span>Manual Intensity Pin</span>
-                            <input type="checkbox"
-                                   checked="@_session.IsIntensityManuallyPinned"
-                                   @onchange="OnManualPinChanged" />
-                        </div>
-                        <div class="rw-settings-info-row">
-                            <span>Use Theme AI Guidance</span>
-                            <input type="checkbox"
-                                   checked="@_session.UseThemeAIGuidanceNotesInPrompt"
-                                   @onchange="OnThemeAIGuidanceEnabledChanged" />
-                        </div>
-                        <div class="text-muted small mb-2">
-                            Adds soft scenario hints from the active RP theme. Guidance never overrides direct user instructions.
-                        </div>
-                        <div class="rw-scenario-field">
-                            <label class="rw-scenario-field-label">Theme Guidance Influence (%)</label>
-                            <input class="rw-settings-input"
-                                   type="number"
-                                   min="0"
-                                   max="100"
-                                   disabled="@(!_session.UseThemeAIGuidanceNotesInPrompt)"
-                                   value="@_session.ThemeAIGuidanceInfluencePercent"
-                                   @onchange="OnThemeAIGuidanceInfluenceChanged" />
-                            <div class="text-muted small">Lower values keep hints subtle; higher values include them more strongly.</div>
-                        </div>
-                        <div class="rw-scenario-field">
-                            <label class="rw-scenario-field-label">Max Theme Guidance Notes</label>
-                            <input class="rw-settings-input"
-                                   type="number"
-                                   min="1"
-                                   max="12"
-                                   disabled="@(!_session.UseThemeAIGuidanceNotesInPrompt)"
-                                   value="@_session.MaxThemeAIGuidanceNotes"
-                                   @onchange="OnThemeAIGuidanceMaxNotesChanged" />
-                            <div class="text-muted small">Hard cap for hints added to each prompt.</div>
-                        </div>
-                        <div class="rw-settings-info-row">
-                            <span>Selected Intensity Profile</span>
-                            <span>@GetSelectedIntensityProfileName()</span>
-                        </div>
-                        <div class="rw-settings-info-row">
-                            <span>Adaptive Intensity Profile</span>
-                            <span>@GetAdaptiveIntensityProfileName()</span>
-                        </div>
-                        <div class="rw-settings-info-row">
-                            <span>Resolved Intensity</span>
-                            <span>@GetEffectiveStyleLabel()</span>
-                        </div>
-                        <div class="rw-collapsible-section" style="margin-top:10px;">
-                            <button type="button" class="rw-collapsible-header" @onclick="ToggleAdaptiveDiagnosticsSection">
-                                <span class="rw-collapsible-chevron @(_adaptiveDiagnosticsExpanded ? "is-open" : "")">▸</span>
-                                <span class="rw-collapsible-title">Adaptive Resolution Diagnostics</span>
-                            </button>
-                            @if (_adaptiveDiagnosticsExpanded)
-                            {
-                                <div class="rw-collapsible-body">
-                                    <div class="rw-settings-info-row">
-                                        <span>Resolution Reason</span>
-                                        <span>@GetEffectiveStyleReason()</span>
-                                    </div>
-                                    <div class="rw-settings-info-row">
-                                        <span>Resolution Explanation</span>
-                                        <span>@GetEffectiveStyleReasonEnglishDetails()</span>
-                                    </div>
-                                    <div class="rw-settings-info-row">
-                                        <span>Adaptive Transition Reason</span>
-                                        <span>@GetAdaptiveTransitionReason()</span>
-                                    </div>
-                                    <div class="rw-settings-info-row">
-                                        <span>Adaptive Transition Time</span>
-                                        <span>@GetAdaptiveTransitionTime()</span>
-                                    </div>
-                                    <div class="rw-settings-info-row">
-                                        <span>Adaptive Transition Path</span>
-                                        <span>@GetAdaptiveTransitionPath()</span>
-                                    </div>
-                                    @foreach (var transition in GetRecentAdaptiveTransitions())
+                <div class="rw-settings-content rw-adaptive-panel">
+                    <div class="rw-collapsible-section">
+                        <button type="button" class="rw-collapsible-header" @onclick='() => ToggleAdaptiveSection("profiles")'>
+                            <span class="rw-collapsible-chevron @(IsAdaptiveSectionExpanded("profiles") ? "is-open" : "")">▸</span>
+                            <span class="rw-collapsible-title">Active Profiles And Controls</span>
+                        </button>
+                        @if (IsAdaptiveSectionExpanded("profiles"))
+                        {
+                            <div class="rw-collapsible-body">
+                                <div class="text-muted small mb-2">RP Theme Profile steers adaptive theme direction. Writing Style Profile steers wording, texture, and voice.</div>
+                                <div class="rw-scenario-field">
+                                    <label class="rw-scenario-field-label">RP Theme Profile</label>
+                                    <select class="rw-mode-select" value="@_session.SelectedRPThemeProfileId" @onchange="OnRpThemeProfileChanged">
+                                        <option value="">(None)</option>
+                                        @foreach (var profile in _rpThemeProfiles)
+                                        {
+                                            <option value="@profile.Id">@profile.Name</option>
+                                        }
+                                    </select>
+                                </div>
+                                <div class="rw-scenario-field">
+                                    <label class="rw-scenario-field-label">Manual Theme Override</label>
+                                    <select class="rw-mode-select" value="@_adaptiveThemeOverrideSelection" @onchange="OnAdaptiveThemeOverrideChanged">
+                                        <option value="">(Select Theme)</option>
+                                        @foreach (var theme in GetAdaptiveOverrideThemes())
+                                        {
+                                            <option value="@theme.ThemeId">@BuildAdaptiveOverrideThemeLabel(theme)</option>
+                                        }
+                                    </select>
+                                    <div class="text-muted small mb-2">Forces the active adaptive theme immediately.</div>
+                                    <button class="rw-btn rw-btn-secondary" disabled="@string.IsNullOrWhiteSpace(_adaptiveThemeOverrideSelection)" @onclick="ApplyAdaptiveThemeOverrideAsync">Apply Theme Override</button>
+                                    @if (!string.IsNullOrWhiteSpace(_adaptiveThemeOverrideStatus))
                                     {
-                                        <div class="rw-settings-info-row">
-                                            <span>Recent Transition</span>
-                                            <span>@transition</span>
+                                        <div class="small" style="margin-top:6px; color:#c8d6c8;">@_adaptiveThemeOverrideStatus</div>
+                                    }
+                                </div>
+                                <div class="rw-scenario-field">
+                                    <label class="rw-scenario-field-label">Selected Intensity Profile</label>
+                                    <select class="rw-mode-select" value="@GetIntensityDropdownValue()" @onchange="OnIntensityProfileChanged">
+                                        <option value="">(None)</option>
+                                        @foreach (var profile in _intensityProfiles)
+                                        {
+                                            <option value="@profile.Id">@profile.Name</option>
+                                        }
+                                    </select>
+                                </div>
+                                <div class="rw-scenario-field">
+                                    <label class="rw-scenario-field-label">Writing Style Profile</label>
+                                    <select class="rw-mode-select" value="@_session.SelectedSteeringProfileId" @onchange="OnSteeringProfileChanged">
+                                        <option value="">(None)</option>
+                                        @foreach (var profile in _steeringProfiles)
+                                        {
+                                            <option value="@profile.Id">@profile.Name</option>
+                                        }
+                                    </select>
+                                </div>
+                                <div class="rw-scenario-field">
+                                    <label class="rw-scenario-field-label">Willingness Profile</label>
+                                    <select class="rw-mode-select" value="@_session.AdaptiveState.SelectedWillingnessProfileId" @onchange="OnWillingnessProfileChanged">
+                                        <option value="">(None)</option>
+                                        @foreach (var profile in _willingnessProfiles)
+                                        {
+                                            <option value="@profile.Id">@profile.Name</option>
+                                        }
+                                    </select>
+                                </div>
+                                <div class="rw-scenario-field">
+                                    <label class="rw-scenario-field-label">Husband Awareness Profile</label>
+                                    <select class="rw-mode-select" value="@_session.AdaptiveState.HusbandAwarenessProfileId" @onchange="OnHusbandAwarenessProfileChanged">
+                                        <option value="">(None)</option>
+                                        @foreach (var profile in _husbandAwarenessProfiles)
+                                        {
+                                            <option value="@profile.Id">@profile.Name</option>
+                                        }
+                                    </select>
+                                </div>
+                                <div class="rw-settings-info-row"><span>Selected Intensity Profile</span><span>@GetSelectedIntensityProfileName()</span></div>
+                                <div class="rw-settings-info-row"><span>Adaptive Intensity Profile</span><span>@GetAdaptiveIntensityProfileName()</span></div>
+                                <div class="rw-settings-info-row"><span>Resolved Intensity</span><span>@GetEffectiveStyleLabel()</span></div>
+                            </div>
+                        }
+                    </div>
+
+                    <div class="rw-collapsible-section">
+                        <button type="button" class="rw-collapsible-header" @onclick='() => ToggleAdaptiveSection("runtime")'>
+                            <span class="rw-collapsible-chevron @(IsAdaptiveSectionExpanded("runtime") ? "is-open" : "")">▸</span>
+                            <span class="rw-collapsible-title">RolePlay v2 Runtime Status</span>
+                        </button>
+                        @if (IsAdaptiveSectionExpanded("runtime"))
+                        {
+                            var phaseProgress = GetCurrentPhaseProgress();
+                            var activeGateRows = GetPhaseGateRows().Where(x => IsPrimaryUserGate(x.Label)).ToList();
+                            <div class="rw-collapsible-body">
+                                <div class="rw-settings-info-row"><span>Current Phase</span><span>@_session.AdaptiveState.CurrentNarrativePhase</span></div>
+                                <div class="rw-settings-info-row"><span>Phase Progress</span><span>@($"{phaseProgress.ProgressPercent}% to {phaseProgress.NextPhase}")</span></div>
+                                <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="@phaseProgress.ProgressPercent" style="height:8px; margin:4px 0 8px 0;">
+                                    <div class="progress-bar @GetPhaseProgressBarClass()" style="width:@($"{phaseProgress.ProgressPercent}%")"></div>
+                                </div>
+                                <div class="rw-settings-info-row"><span>What This Means</span><span>@phaseProgress.Details</span></div>
+                                <div class="rw-settings-info-row"><span>Active Theme</span><span>@(string.IsNullOrWhiteSpace(_session.AdaptiveState.ActiveScenarioId) ? "(none)" : _session.AdaptiveState.ActiveScenarioId)</span></div>
+
+                                <div class="rw-collapsible-section" style="margin-top:10px;">
+                                    <button type="button" class="rw-collapsible-header" @onclick='() => ToggleAdaptiveSection("active-theme-gates")'>
+                                        <span class="rw-collapsible-chevron @(IsAdaptiveSectionExpanded("active-theme-gates") ? "is-open" : "")">▸</span>
+                                        <span class="rw-collapsible-title">Active Theme Gates</span>
+                                    </button>
+                                    @if (IsAdaptiveSectionExpanded("active-theme-gates"))
+                                    {
+                                        <div class="rw-collapsible-body">
+                                            @foreach (var gate in activeGateRows)
+                                            {
+                                                <div class="rw-settings-info-row"><span>@gate.Label</span><span class="@GetGateStatusBadgeClass(gate.Status)">@gate.Status</span></div>
+                                                <div class="rw-settings-info-row"><span>Required Or Gap</span><span>@gate.Details</span></div>
+                                            }
                                         </div>
                                     }
-                                    <div class="rw-settings-info-row">
-                                        <span>Resolution Reason (Raw)</span>
-                                        <span>@GetEffectiveStyleReasonRaw()</span>
-                                    </div>
-                                    <div class="rw-settings-info-row">
-                                        <span>Adaptive Transition Reason (Raw)</span>
-                                        <span>@GetAdaptiveTransitionReasonRaw()</span>
-                                    </div>
                                 </div>
-                            }
-                        </div>
+                            </div>
+                        }
                     </div>
 
-                    <div class="rw-settings-section">
-                        <div class="rw-collapsible-section">
-                            <button type="button" class="rw-collapsible-header" @onclick="ToggleAdaptiveCharacterStatsSection">
-                                <span class="rw-collapsible-chevron @(_adaptiveCharacterStatsExpanded ? "is-open" : "")">▸</span>
-                                <span class="rw-collapsible-title">Character Stats (@_session.AdaptiveState.CharacterStats.Count)</span>
-                            </button>
-                            @if (_adaptiveCharacterStatsExpanded)
-                            {
-                                <div class="rw-collapsible-body">
-                                    @if (_session.AdaptiveState.CharacterStats.Count == 0)
+                    <div class="rw-collapsible-section">
+                        <button type="button" class="rw-collapsible-header" @onclick='() => ToggleAdaptiveSection("themes")'>
+                            <span class="rw-collapsible-chevron @(IsAdaptiveSectionExpanded("themes") ? "is-open" : "")">▸</span>
+                            <span class="rw-collapsible-title">Theme Profile Stats</span>
+                        </button>
+                        @if (IsAdaptiveSectionExpanded("themes"))
+                        {
+                            var themeRows = GetAdaptiveThemeStatusRows();
+                            <div class="rw-collapsible-body">
+                                <div class="text-muted small mb-2">Each theme shows score, readiness status, and what is missing for activation.</div>
+                                @if (themeRows.Count == 0)
+                                {
+                                    <p class="rw-scenario-empty">No theme tracker data yet. Generate interactions to populate scores.</p>
+                                }
+                                else
+                                {
+                                    @foreach (var row in themeRows)
                                     {
-                                        <p class="rw-scenario-empty">No adaptive stats yet. Generate interactions to populate.</p>
+                                        var rowExpanded = IsAdaptiveThemeRowExpanded(row.ThemeId);
+                                        <div class="rw-collapsible-section" style="margin-bottom:8px;">
+                                            <button type="button" class="rw-collapsible-header" @onclick='() => ToggleAdaptiveThemeRow(row.ThemeId)'>
+                                                <span class="rw-collapsible-chevron @(rowExpanded ? "is-open" : "")">▸</span>
+                                                <span class="rw-collapsible-title">@row.ThemeName</span>
+                                                <span class="ms-auto d-inline-flex gap-2 align-items-center">
+                                                    <span class="badge text-bg-dark">Score @row.Score.ToString("F1")</span>
+                                                    <span class="@GetAdaptiveStatusBadgeClass(row.Status)">@row.Status</span>
+                                                </span>
+                                            </button>
+                                            @if (rowExpanded)
+                                            {
+                                                <div class="rw-collapsible-body">
+                                                    <div class="rw-settings-info-row"><span>Theme Id</span><span>@row.ThemeId</span></div>
+                                                    <div class="rw-settings-info-row"><span>Intensity</span><span>@row.Intensity</span></div>
+                                                    <div class="rw-settings-info-row"><span>Next Step</span><span>@row.NextStep</span></div>
+                                                    <div class="rw-settings-info-row"><span>Choice Signal</span><span>@row.ChoiceSignal.ToString("F2")</span></div>
+                                                    <div class="rw-settings-info-row"><span>Character State Signal</span><span>@row.CharacterStateSignal.ToString("F2")</span></div>
+                                                    <div class="rw-settings-info-row"><span>Interaction Evidence Signal</span><span>@row.InteractionEvidenceSignal.ToString("F2")</span></div>
+                                                    <div class="rw-settings-info-row"><span>Scenario Phase Signal</span><span>@row.ScenarioPhaseSignal.ToString("F2")</span></div>
+                                                </div>
+                                            }
+                                        </div>
                                     }
-                                    else
+                                }
+                            </div>
+                        }
+                    </div>
+
+                    <div class="rw-collapsible-section">
+                        <button type="button" class="rw-collapsible-header" @onclick='() => ToggleAdaptiveSection("character-stats")'>
+                            <span class="rw-collapsible-chevron @(IsAdaptiveSectionExpanded("character-stats") ? "is-open" : "")">▸</span>
+                            <span class="rw-collapsible-title">Character Stats (@_session.AdaptiveState.CharacterStats.Count)</span>
+                        </button>
+                        @if (IsAdaptiveSectionExpanded("character-stats"))
+                        {
+                            <div class="rw-collapsible-body">
+                                @if (_session.AdaptiveState.CharacterStats.Count == 0)
+                                {
+                                    <p class="rw-scenario-empty">No adaptive stats yet. Generate interactions to populate.</p>
+                                }
+                                else
+                                {
+                                    @foreach (var actorStats in _session.AdaptiveState.CharacterStats.OrderBy(x => x.Key))
                                     {
-                                        @foreach (var actorStats in _session.AdaptiveState.CharacterStats.OrderBy(x => x.Key))
-                                        {
-                                            var alignment = GetCharacterProfileAlignment(actorStats.Key, actorStats.Value);
-                                            var characterExpanded = _expandedAdaptiveCharacterStats.Contains(actorStats.Key);
-                                            <div class="rw-collapsible-section" style="margin-bottom:10px;">
-                                                <button type="button" class="rw-collapsible-header" @onclick="@(() => ToggleAdaptiveCharacterStatsCharacter(actorStats.Key))">
-                                                    <span class="rw-collapsible-chevron @(characterExpanded ? "is-open" : "")">▸</span>
-                                                    <span class="rw-collapsible-title">@actorStats.Key</span>
-                                                </button>
-                                                @if (characterExpanded)
-                                                {
-                                                    <div class="rw-collapsible-body">
-                                                        <div class="rw-settings-info-row"><span>Baseline Character Stat Profile</span><span>@alignment.BaselineProfile</span></div>
-                                                        <div class="rw-settings-info-row"><span>Migrating Toward</span><span>@alignment.MigratingToProfile</span></div>
-                                                        <div class="rw-stat-grid" role="table" aria-label="Baseline and current character stats">
-                                                            <div class="rw-stat-grid-header" role="row">
-                                                                <span class="rw-stat-cell rw-stat-col-name" role="columnheader">Stat</span>
-                                                                <span class="rw-stat-cell rw-stat-col-baseline" role="columnheader">Baseline</span>
-                                                                <span class="rw-stat-cell rw-stat-col-current" role="columnheader">Current</span>
-                                                                <span class="rw-stat-cell rw-stat-col-delta" role="columnheader">Delta</span>
-                                                            </div>
-                                                            @foreach (var statName in AdaptiveStatCatalog.CanonicalStatNames)
-                                                            {
-                                                                var baselineValue = GetCharacterBaselineStatValue(actorStats.Key, statName);
-                                                                var currentValue = GetCharacterStatValue(actorStats.Value, statName);
-                                                                <div class="rw-stat-grid-row" role="row">
-                                                                    <span class="rw-stat-cell rw-stat-col-name" role="cell">@statName</span>
-                                                                    <span class="rw-stat-cell rw-stat-col-baseline" role="cell">@baselineValue</span>
-                                                                    <span class="@GetCharacterStatDeltaClass(currentValue, baselineValue) rw-stat-col-current" role="cell">@currentValue</span>
-                                                                    <span class="@GetCharacterStatDeltaClass(currentValue, baselineValue) rw-stat-col-delta" role="cell">@FormatCharacterStatDelta(currentValue, baselineValue)</span>
-                                                                </div>
-                                                            }
+                                        var alignment = GetCharacterProfileAlignment(actorStats.Key, actorStats.Value);
+                                        var characterExpanded = _expandedAdaptiveCharacterStats.Contains(actorStats.Key);
+                                        <div class="rw-collapsible-section" style="margin-bottom:10px;">
+                                            <button type="button" class="rw-collapsible-header" @onclick='() => ToggleAdaptiveCharacterStatsCharacter(actorStats.Key)'>
+                                                <span class="rw-collapsible-chevron @(characterExpanded ? "is-open" : "")">▸</span>
+                                                <span class="rw-collapsible-title">@actorStats.Key</span>
+                                            </button>
+                                            @if (characterExpanded)
+                                            {
+                                                <div class="rw-collapsible-body">
+                                                    <div class="rw-settings-info-row"><span>Baseline Character Stat Profile</span><span>@alignment.BaselineProfile</span></div>
+                                                    <div class="rw-settings-info-row"><span>Migrating Toward</span><span>@alignment.MigratingToProfile</span></div>
+                                                    <div class="rw-stat-grid" role="table" aria-label="Baseline and current character stats">
+                                                        <div class="rw-stat-grid-header" role="row">
+                                                            <span class="rw-stat-cell rw-stat-col-name" role="columnheader">Stat</span>
+                                                            <span class="rw-stat-cell rw-stat-col-baseline" role="columnheader">Baseline</span>
+                                                            <span class="rw-stat-cell rw-stat-col-current" role="columnheader">Current</span>
+                                                            <span class="rw-stat-cell rw-stat-col-delta" role="columnheader">Delta</span>
                                                         </div>
-                                                        @foreach (var stat in actorStats.Value.Stats
-                                                            .Where(x => !AdaptiveStatCatalog.CanonicalStatNames.Contains(x.Key, StringComparer.OrdinalIgnoreCase))
-                                                            .OrderBy(x => x.Key))
+                                                        @foreach (var statName in AdaptiveStatCatalog.CanonicalStatNames)
                                                         {
-                                                            <div class="rw-settings-info-row"><span>@stat.Key</span><span>@stat.Value</span></div>
+                                                            var baselineValue = GetCharacterBaselineStatValue(actorStats.Key, statName);
+                                                            var currentValue = GetCharacterStatValue(actorStats.Value, statName);
+                                                            <div class="rw-stat-grid-row" role="row">
+                                                                <span class="rw-stat-cell rw-stat-col-name" role="cell">@statName</span>
+                                                                <span class="rw-stat-cell rw-stat-col-baseline" role="cell">@baselineValue</span>
+                                                                <span class="@GetCharacterStatDeltaClass(currentValue, baselineValue) rw-stat-col-current" role="cell">@currentValue</span>
+                                                                <span class="@GetCharacterStatDeltaClass(currentValue, baselineValue) rw-stat-col-delta" role="cell">@FormatCharacterStatDelta(currentValue, baselineValue)</span>
+                                                            </div>
                                                         }
                                                     </div>
-                                                }
-                                            </div>
-                                        }
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+                                }
+                            </div>
+                        }
+                    </div>
+
+                    <div class="rw-collapsible-section">
+                        <button type="button" class="rw-collapsible-header" @onclick='() => ToggleAdaptiveSection("advanced")'>
+                            <span class="rw-collapsible-chevron @(IsAdaptiveSectionExpanded("advanced") ? "is-open" : "")">▸</span>
+                            <span class="rw-collapsible-title">Advanced Diagnostics</span>
+                        </button>
+                        @if (IsAdaptiveSectionExpanded("advanced"))
+                        {
+                            <div class="rw-collapsible-body">
+                                <div class="rw-collapsible-section">
+                                    <button type="button" class="rw-collapsible-header" @onclick="ToggleAdaptiveDiagnosticsSection">
+                                        <span class="rw-collapsible-chevron @(_adaptiveDiagnosticsExpanded ? "is-open" : "")">▸</span>
+                                        <span class="rw-collapsible-title">Adaptive Resolution Details</span>
+                                    </button>
+                                    @if (_adaptiveDiagnosticsExpanded)
+                                    {
+                                        <div class="rw-collapsible-body">
+                                            <div class="rw-settings-info-row"><span>Resolution Reason</span><span>@GetEffectiveStyleReason()</span></div>
+                                            <div class="rw-settings-info-row"><span>Resolution Explanation</span><span>@GetEffectiveStyleReasonEnglishDetails()</span></div>
+                                            <div class="rw-settings-info-row"><span>Adaptive Transition Reason</span><span>@GetAdaptiveTransitionReason()</span></div>
+                                            <div class="rw-settings-info-row"><span>Adaptive Transition Time</span><span>@GetAdaptiveTransitionTime()</span></div>
+                                            <div class="rw-settings-info-row"><span>Adaptive Transition Path</span><span>@GetAdaptiveTransitionPath()</span></div>
+                                        </div>
                                     }
                                 </div>
-                            }
-                        </div>
-                    </div>
 
-                    <div class="rw-settings-section">
-                        <div class="rw-settings-section-label">RolePlay v2 Runtime</div>
-                        <div class="rw-settings-info-row"><span>Current Phase</span><span>@_session.AdaptiveState.CurrentNarrativePhase</span></div>
-                        @{
-                            var phaseProgress = GetCurrentPhaseProgress();
-                        }
-                        <div class="rw-settings-info-row">
-                            <span>Phase Ladder</span>
-                            <span class="d-inline-flex flex-wrap gap-1 justify-content-end" style="max-width:62%;">
-                                @foreach (var phase in GetPhaseLadderItems())
+                                @if (_v2Diagnostics is null)
                                 {
-                                    <span class="@phase.BadgeClass">@phase.Label</span>
+                                    <p class="rw-scenario-empty">Diagnostics are not available yet.</p>
                                 }
-                            </span>
-                        </div>
-                        <div class="rw-settings-info-row"><span>Phase Progress</span><span>@($"{phaseProgress.ProgressPercent}% to {phaseProgress.NextPhase}")</span></div>
-                        <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="@phaseProgress.ProgressPercent" style="height:8px; margin:4px 0 8px 0;">
-                            <div class="progress-bar @GetPhaseProgressBarClass()" style="width:@($"{phaseProgress.ProgressPercent}%")"></div>
-                        </div>
-                        <div class="rw-settings-info-row"><span>Phase Progress Details</span><span>@phaseProgress.Details</span></div>
-                        <div class="rw-settings-info-row"><span>Active Scenario</span><span>@(string.IsNullOrWhiteSpace(_session.AdaptiveState.ActiveScenarioId) ? "(none)" : _session.AdaptiveState.ActiveScenarioId)</span></div>
-                        <div class="rw-settings-info-row"><span>Active Variant</span><span>@(string.IsNullOrWhiteSpace(_session.AdaptiveState.ActiveVariantId) ? "(none)" : _session.AdaptiveState.ActiveVariantId)</span></div>
-                        <div class="rw-settings-info-row"><span>Willingness Profile</span><span>@GetSelectedWillingnessProfileName()</span></div>
-                        <div class="rw-settings-info-row"><span>Husband Awareness Profile</span><span>@GetSelectedHusbandAwarenessProfileName()</span></div>
-                        <div class="rw-settings-info-row"><span>Interactions Since Commitment</span><span>@_session.AdaptiveState.InteractionsSinceCommitment</span></div>
-                        <div class="rw-settings-info-row"><span>Interactions In Approaching</span><span>@_session.AdaptiveState.InteractionsInApproaching</span></div>
-                        @foreach (var gate in GetPhaseGateRows())
-                        {
-                            <div class="rw-settings-info-row"><span>@gate.Label</span><span>@gate.Status</span></div>
-                            <div class="rw-settings-info-row"><span>Gate Details</span><span>@gate.Details</span></div>
-                        }
-                        <div class="rw-settings-info-row"><span>Completed Scenarios</span><span>@_session.AdaptiveState.CompletedScenarios</span></div>
-                        <div class="rw-settings-info-row"><span>Current Scene Location</span><span>@(string.IsNullOrWhiteSpace(_session.AdaptiveState.CurrentSceneLocation) ? "(unknown)" : _session.AdaptiveState.CurrentSceneLocation)</span></div>
-                        @if (_session.AdaptiveState.CharacterLocations.Count == 0)
-                        {
-                            <div class="rw-settings-info-row"><span>Location Truth</span><span>(none)</span></div>
-                        }
-                        else
-                        {
-                            @foreach (var truth in _session.AdaptiveState.CharacterLocations
-                                .OrderBy(x => ResolveDecisionActorLabel(x.CharacterId), StringComparer.OrdinalIgnoreCase)
-                                .ThenByDescending(x => x.UpdatedUtc)
-                                .Take(12))
-                            {
-                                var truthLabel = ResolveDecisionActorLabel(truth.CharacterId);
-                                var truthType = ResolveDecisionActorType(truth.CharacterId);
-                                var truthSummary = $"{truthLabel} [{truthType}] -> {(string.IsNullOrWhiteSpace(truth.TrueLocation) ? "(unknown)" : truth.TrueLocation)}";
-                                if (truth.IsHidden)
+                                else
                                 {
-                                    truthSummary = $"{truthSummary} [hidden]";
+                                    <div class="rw-settings-info-row"><span>Correlation</span><span>@_v2Diagnostics.CorrelationId</span></div>
+                                    <div class="rw-settings-info-row"><span>Candidate Evaluations</span><span>@_v2Diagnostics.CandidateEvaluations.Count</span></div>
+                                    <div class="rw-settings-info-row"><span>Transitions</span><span>@_v2Diagnostics.TransitionEvents.Count</span></div>
+                                    <div class="rw-settings-info-row"><span>Decision Points</span><span>@_v2Diagnostics.DecisionPoints.Count</span></div>
+                                    <div class="rw-settings-info-row"><span>Compatibility Errors</span><span>@_v2Diagnostics.CompatibilityErrors.Count</span></div>
                                 }
-
-                                <div class="rw-settings-info-row"><span>Location Truth</span><span>@truthSummary</span></div>
-                            }
-                        }
-
-                        @if (_session.AdaptiveState.CharacterLocationPerceptions.Count == 0)
-                        {
-                            <div class="rw-settings-info-row"><span>Location Perceptions</span><span>(none)</span></div>
-                        }
-                        else
-                        {
-                            @foreach (var perception in _session.AdaptiveState.CharacterLocationPerceptions
-                                .OrderByDescending(x => x.Confidence)
-                                .ThenBy(x => ResolveDecisionActorLabel(x.ObserverCharacterId), StringComparer.OrdinalIgnoreCase)
-                                .ThenBy(x => ResolveDecisionActorLabel(x.TargetCharacterId), StringComparer.OrdinalIgnoreCase)
-                                .Take(20))
-                            {
-                                var observer = ResolveDecisionActorLabel(perception.ObserverCharacterId);
-                                var observerType = ResolveDecisionActorType(perception.ObserverCharacterId);
-                                var target = ResolveDecisionActorLabel(perception.TargetCharacterId);
-                                var targetType = ResolveDecisionActorType(perception.TargetCharacterId);
-                                var where = string.IsNullOrWhiteSpace(perception.PerceivedLocation) ? "(unknown)" : perception.PerceivedLocation;
-                                var source = string.IsNullOrWhiteSpace(perception.KnowledgeSource) ? "unknown" : perception.KnowledgeSource;
-                                var perceptionSummary = $"{observer} [{observerType}] sees {target} [{targetType}] at {where} ({perception.Confidence}%, {source}, LOS:{(perception.HasLineOfSight ? "Y" : "N")}, Near:{(perception.IsInProximity ? "Y" : "N")})";
-                                <div class="rw-settings-info-row"><span>Location Perception</span><span>@perceptionSummary</span></div>
-                            }
-                        }
-                        @if (_v2Diagnostics is not null)
-                        {
-                            var latestTransition = _v2Diagnostics.TransitionEvents.OrderByDescending(x => x.OccurredUtc).FirstOrDefault();
-                            var latestDecision = _v2Diagnostics.DecisionPoints.OrderByDescending(x => x.CreatedUtc).FirstOrDefault();
-                            var topCandidate = _v2Diagnostics.CandidateEvaluations.OrderByDescending(x => x.Confidence).ThenByDescending(x => x.FitScore).FirstOrDefault();
-
-                            if (latestTransition is not null)
-                            {
-                                <div class="rw-settings-info-row"><span>Latest Transition</span><span>@($"{latestTransition.FromPhase} -> {latestTransition.ToPhase}")</span></div>
-                                <div class="rw-settings-info-row"><span>Transition Reason</span><span>@FormatAdaptiveTransitionReason(latestTransition.ReasonCode)</span></div>
-                            }
-                            else
-                            {
-                                <div class="rw-settings-info-row"><span>Latest Transition</span><span>(none)</span></div>
-                            }
-
-                            if (latestDecision is not null)
-                            {
-                                <div class="rw-settings-info-row"><span>Latest Decision Trigger</span><span>@latestDecision.TriggerSource</span></div>
-                                <div class="rw-settings-info-row"><span>Latest Decision Options</span><span>@string.Join(" | ", latestDecision.OptionIds)</span></div>
-                            }
-                            else
-                            {
-                                <div class="rw-settings-info-row"><span>Latest Decision</span><span>(none)</span></div>
-                            }
-
-                            if (topCandidate is not null)
-                            {
-                                var gateDetails = ParseCandidateGateDetails(topCandidate);
-                                var roleScoreSummary = FormatCandidateRoleScores(topCandidate);
-                                var clauseSummary = FormatTopCandidateClauseSummary(topCandidate);
-                                var tieSummary = FormatCandidateTieSetSummary(_v2Diagnostics.CandidateEvaluations);
-                                <div class="rw-settings-info-row"><span>Top Candidate</span><span>@topCandidate.ScenarioId</span></div>
-                                <div class="rw-settings-info-row"><span>Top Candidate Confidence</span><span>@topCandidate.Confidence.ToString("F2")</span></div>
-                                <div class="rw-settings-info-row"><span>Top Candidate Fit</span><span>@topCandidate.FitScore.ToString("F1")</span></div>
-                                @if (gateDetails is not null)
-                                {
-                                    <div class="rw-settings-info-row"><span>Top Candidate Gate</span><span>@gateDetails.Strategy</span></div>
-                                    <div class="rw-settings-info-row"><span>Top Candidate Gate Reason</span><span>@gateDetails.Reason</span></div>
-                                }
-                                @if (!string.IsNullOrWhiteSpace(roleScoreSummary))
-                                {
-                                    <div class="rw-settings-info-row"><span>Top Candidate Role Scores</span><span>@roleScoreSummary</span></div>
-                                }
-                                @if (!string.IsNullOrWhiteSpace(clauseSummary))
-                                {
-                                    <div class="rw-settings-info-row"><span>Top Candidate Clauses</span><span>@clauseSummary</span></div>
-                                }
-                                @if (!string.IsNullOrWhiteSpace(tieSummary))
-                                {
-                                    <div class="rw-settings-info-row"><span>Tie Set</span><span>@tieSummary</span></div>
-                                }
-                            }
-                        }
-                        else
-                        {
-                            <p class="rw-scenario-empty">v2 runtime diagnostics are not available yet.</p>
-                        }
-                    </div>
-
-                    <div class="rw-settings-section">
-                        <div class="rw-settings-section-label">RolePlay v2 Diagnostics</div>
-                        @if (_v2Diagnostics is null)
-                        {
-                            <p class="rw-scenario-empty">Diagnostics are not available yet.</p>
-                        }
-                        else
-                        {
-                            <div class="rw-settings-info-row"><span>Correlation</span><span>@_v2Diagnostics.CorrelationId</span></div>
-                            <div class="rw-settings-info-row"><span>Candidate Evaluations</span><span>@_v2Diagnostics.CandidateEvaluations.Count</span></div>
-                            <div class="rw-settings-info-row"><span>Transitions</span><span>@_v2Diagnostics.TransitionEvents.Count</span></div>
-                            <div class="rw-settings-info-row"><span>Decision Points</span><span>@_v2Diagnostics.DecisionPoints.Count</span></div>
-                            <div class="rw-settings-info-row"><span>Compatibility Errors</span><span>@_v2Diagnostics.CompatibilityErrors.Count</span></div>
+                            </div>
                         }
                     </div>
                 </div>
@@ -5919,6 +6494,20 @@
 @code {
     private sealed record MenuRect(double Top, double Left, double Bottom, double Right, double Width, double Height);
     private sealed record PhaseGateRow(string Label, string Status, string Details);
+    private sealed record AdaptiveSelectionGateSnapshot(bool StageAOpen, bool StageBOpen, double Desire, double Tension, double Restraint, string GapSummary);
+    private sealed record AdaptiveThemeStatusRow(
+        string ThemeId,
+        string ThemeName,
+        double Score,
+        string Intensity,
+        bool IsActive,
+        bool IsBlocked,
+        string Status,
+        string NextStep,
+        double ChoiceSignal,
+        double CharacterStateSignal,
+        double InteractionEvidenceSignal,
+        double ScenarioPhaseSignal);
     private sealed record PhaseProgressInfo(string NextPhase, int ProgressPercent, string Details);
     private sealed record PhaseLadderItem(string Label, string BadgeClass);
     private sealed record PhaseGateThresholds(double ScoreMin, double DesireMin, double RestraintMax, int InteractionsMin, string Source);

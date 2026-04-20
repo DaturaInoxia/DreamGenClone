@@ -12,7 +12,13 @@ public sealed class AdaptiveScenarioState
     public int CycleIndex { get; set; }
     public string ActiveFormulaVersion { get; set; } = string.Empty;
     public string? SelectedWillingnessProfileId { get; set; }
+    public string? SelectedNarrativeGateProfileId { get; set; }
     public string? HusbandAwarenessProfileId { get; set; }
+    public NarrativePhase? PhaseOverrideFloor { get; set; }
+    public string? PhaseOverrideScenarioId { get; set; }
+    public int? PhaseOverrideCycleIndex { get; set; }
+    public string? PhaseOverrideSource { get; set; }
+    public DateTime? PhaseOverrideAppliedUtc { get; set; }
     public string? CurrentSceneLocation { get; set; }
     public List<CharacterLocationState> CharacterLocations { get; set; } = [];
     public List<CharacterLocationPerceptionState> CharacterLocationPerceptions { get; set; } = [];

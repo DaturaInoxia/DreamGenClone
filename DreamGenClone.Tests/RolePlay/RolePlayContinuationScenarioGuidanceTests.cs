@@ -88,4 +88,47 @@ public sealed class RolePlayContinuationScenarioGuidanceTests
         RolePlayAssistantPrompts.AppendThemeAIGuidance(builder, activeTheme: null, phase: "BuildUp", influencePercent: 35, maxNotes: 6);
         Assert.Equal(string.Empty, builder.ToString());
     }
+
+    [Fact]
+    public void GetThemePhaseGuidanceLines_ReturnsCurrentPhaseOnly()
+    {
+        var theme = new RPTheme
+        {
+            Id = "infidelity-public-facade",
+            PhaseGuidance =
+            [
+                new RPThemePhaseGuidance { Phase = NarrativePhase.BuildUp, GuidanceText = "BuildUp guidance." },
+                new RPThemePhaseGuidance { Phase = NarrativePhase.Committed, GuidanceText = "Committed guidance." },
+                new RPThemePhaseGuidance { Phase = NarrativePhase.Committed, GuidanceText = "Committed guidance 2." }
+            ]
+        };
+
+        var lines = RolePlayAssistantPrompts.GetThemePhaseGuidanceLines(theme, "Committed", maxLines: 3);
+
+        Assert.Equal(2, lines.Count);
+        Assert.Contains("Committed guidance.", lines);
+        Assert.DoesNotContain("BuildUp guidance.", lines);
+    }
+
+    [Fact]
+    public void GetPhaseRelevantThemeAIGuidanceNotes_PrioritizesPhaseRelevantSections()
+    {
+        var theme = new RPTheme
+        {
+            Id = "infidelity-public-facade",
+            AIGenerationNotes =
+            [
+                new RPThemeAIGuidanceNote { Section = RPThemeAIGuidanceSection.KeyScenarioElement, Text = "Key element", SortOrder = 0 },
+                new RPThemeAIGuidanceNote { Section = RPThemeAIGuidanceSection.InteractionDynamics, Text = "Dynamics first", SortOrder = 1 },
+                new RPThemeAIGuidanceNote { Section = RPThemeAIGuidanceSection.FitFormula, Text = "Formula", SortOrder = 2 },
+                new RPThemeAIGuidanceNote { Section = RPThemeAIGuidanceSection.Variation, Text = "Variation", SortOrder = 3 }
+            ]
+        };
+
+        var notes = RolePlayAssistantPrompts.GetPhaseRelevantThemeAIGuidanceNotes(theme, "Committed", maxNotes: 3, includeFormulaNotes: false);
+
+        Assert.Equal(3, notes.Count);
+        Assert.Equal(RPThemeAIGuidanceSection.InteractionDynamics, notes[0].Section);
+        Assert.DoesNotContain(notes, x => x.Section == RPThemeAIGuidanceSection.FitFormula);
+    }
 }

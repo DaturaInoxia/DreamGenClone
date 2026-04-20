@@ -42,6 +42,7 @@ public sealed class RPTheme
 {
     public string Id { get; set; } = string.Empty;
     public string? ParentThemeId { get; set; }
+    public string? NarrativeGateProfileId { get; set; }
     public string Label { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
     public string Category { get; set; } = string.Empty;

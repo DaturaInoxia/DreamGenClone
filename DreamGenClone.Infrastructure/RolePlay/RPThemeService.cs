@@ -16,6 +16,7 @@ public sealed partial class RPThemeService : IRPThemeService
     private readonly string _connectionString;
     private readonly ILogger<RPThemeService> _logger;
     private bool? _rpThemesHasProfileIdColumn;
+    private bool? _rpThemesHasNarrativeGateProfileIdColumn;
     private bool _supplementalTablesEnsured;
 
     public RPThemeService(IOptions<PersistenceOptions> options, ILogger<RPThemeService> logger)
@@ -226,8 +227,8 @@ public sealed partial class RPThemeService : IRPThemeService
         await using var connection = await OpenConnectionAsync(cancellationToken);
         await using var command = connection.CreateCommand();
         command.CommandText = includeDisabled
-            ? "SELECT Id, Label, Description, Category, Weight, IsEnabled, CreatedUtc, UpdatedUtc FROM RPThemes ORDER BY Label"
-            : "SELECT Id, Label, Description, Category, Weight, IsEnabled, CreatedUtc, UpdatedUtc FROM RPThemes WHERE IsEnabled = 1 ORDER BY Label";
+            ? "SELECT Id, NarrativeGateProfileId, Label, Description, Category, Weight, IsEnabled, CreatedUtc, UpdatedUtc FROM RPThemes ORDER BY Label"
+            : "SELECT Id, NarrativeGateProfileId, Label, Description, Category, Weight, IsEnabled, CreatedUtc, UpdatedUtc FROM RPThemes WHERE IsEnabled = 1 ORDER BY Label";
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
@@ -235,13 +236,14 @@ public sealed partial class RPThemeService : IRPThemeService
             themes.Add(new RPTheme
             {
                 Id = reader.GetString(0),
-                Label = reader.GetString(1),
-                Description = reader.GetString(2),
-                Category = reader.GetString(3),
-                Weight = reader.GetInt32(4),
-                IsEnabled = reader.GetInt32(5) == 1,
-                CreatedUtc = DateTime.TryParse(reader.GetString(6), out var created) ? created : DateTime.UtcNow,
-                UpdatedUtc = DateTime.TryParse(reader.GetString(7), out var updated) ? updated : DateTime.UtcNow
+                NarrativeGateProfileId = reader.IsDBNull(1) ? null : reader.GetString(1),
+                Label = reader.GetString(2),
+                Description = reader.GetString(3),
+                Category = reader.GetString(4),
+                Weight = reader.GetInt32(5),
+                IsEnabled = reader.GetInt32(6) == 1,
+                CreatedUtc = DateTime.TryParse(reader.GetString(7), out var created) ? created : DateTime.UtcNow,
+                UpdatedUtc = DateTime.TryParse(reader.GetString(8), out var updated) ? updated : DateTime.UtcNow
             });
         }
 
@@ -267,14 +269,14 @@ public sealed partial class RPThemeService : IRPThemeService
         await using var command = connection.CreateCommand();
         command.CommandText = includeDisabled
             ? """
-                            SELECT DISTINCT t.Id, t.Label, t.Description, t.Category, t.Weight, t.IsEnabled, t.CreatedUtc, t.UpdatedUtc
+                                                        SELECT DISTINCT t.Id, t.NarrativeGateProfileId, t.Label, t.Description, t.Category, t.Weight, t.IsEnabled, t.CreatedUtc, t.UpdatedUtc
               FROM RPThemes t
               INNER JOIN RPThemeProfileThemeAssignments a ON a.ThemeId = t.Id
               WHERE a.ProfileId = $profileId AND a.IsEnabled = 1
               ORDER BY t.Label
               """
             : """
-                            SELECT DISTINCT t.Id, t.Label, t.Description, t.Category, t.Weight, t.IsEnabled, t.CreatedUtc, t.UpdatedUtc
+                                                        SELECT DISTINCT t.Id, t.NarrativeGateProfileId, t.Label, t.Description, t.Category, t.Weight, t.IsEnabled, t.CreatedUtc, t.UpdatedUtc
               FROM RPThemes t
               INNER JOIN RPThemeProfileThemeAssignments a ON a.ThemeId = t.Id
               WHERE a.ProfileId = $profileId AND a.IsEnabled = 1 AND t.IsEnabled = 1
@@ -288,13 +290,14 @@ public sealed partial class RPThemeService : IRPThemeService
             themes.Add(new RPTheme
             {
                 Id = reader.GetString(0),
-                Label = reader.GetString(1),
-                Description = reader.GetString(2),
-                Category = reader.GetString(3),
-                Weight = reader.GetInt32(4),
-                IsEnabled = reader.GetInt32(5) == 1,
-                CreatedUtc = DateTime.TryParse(reader.GetString(6), out var created) ? created : DateTime.UtcNow,
-                UpdatedUtc = DateTime.TryParse(reader.GetString(7), out var updated) ? updated : DateTime.UtcNow
+                NarrativeGateProfileId = reader.IsDBNull(1) ? null : reader.GetString(1),
+                Label = reader.GetString(2),
+                Description = reader.GetString(3),
+                Category = reader.GetString(4),
+                Weight = reader.GetInt32(5),
+                IsEnabled = reader.GetInt32(6) == 1,
+                CreatedUtc = DateTime.TryParse(reader.GetString(7), out var created) ? created : DateTime.UtcNow,
+                UpdatedUtc = DateTime.TryParse(reader.GetString(8), out var updated) ? updated : DateTime.UtcNow
             });
         }
 
@@ -317,7 +320,7 @@ public sealed partial class RPThemeService : IRPThemeService
     {
         await using var connection = await OpenConnectionAsync(cancellationToken);
         await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, Label, Description, Category, Weight, IsEnabled, CreatedUtc, UpdatedUtc FROM RPThemes WHERE Id = $id";
+        command.CommandText = "SELECT Id, NarrativeGateProfileId, Label, Description, Category, Weight, IsEnabled, CreatedUtc, UpdatedUtc FROM RPThemes WHERE Id = $id";
         command.Parameters.AddWithValue("$id", id);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -329,13 +332,14 @@ public sealed partial class RPThemeService : IRPThemeService
         var theme = new RPTheme
         {
             Id = reader.GetString(0),
-            Label = reader.GetString(1),
-            Description = reader.GetString(2),
-            Category = reader.GetString(3),
-            Weight = reader.GetInt32(4),
-            IsEnabled = reader.GetInt32(5) == 1,
-            CreatedUtc = DateTime.TryParse(reader.GetString(6), out var created) ? created : DateTime.UtcNow,
-            UpdatedUtc = DateTime.TryParse(reader.GetString(7), out var updated) ? updated : DateTime.UtcNow
+            NarrativeGateProfileId = reader.IsDBNull(1) ? null : reader.GetString(1),
+            Label = reader.GetString(2),
+            Description = reader.GetString(3),
+            Category = reader.GetString(4),
+            Weight = reader.GetInt32(5),
+            IsEnabled = reader.GetInt32(6) == 1,
+            CreatedUtc = DateTime.TryParse(reader.GetString(7), out var created) ? created : DateTime.UtcNow,
+            UpdatedUtc = DateTime.TryParse(reader.GetString(8), out var updated) ? updated : DateTime.UtcNow
         };
 
         theme.ParentThemeId = await LoadParentThemeIdAsync(connection, theme.Id, cancellationToken);
@@ -692,10 +696,11 @@ public sealed partial class RPThemeService : IRPThemeService
             }
             command.CommandText = hasLegacyProfileIdColumn
                 ? """
-                  INSERT INTO RPThemes (Id, ProfileId, Label, Description, Category, Weight, IsEnabled, CreatedUtc, UpdatedUtc)
-                  VALUES ($id, $profileId, $label, $description, $category, $weight, $isEnabled, $createdUtc, $updatedUtc)
+                  INSERT INTO RPThemes (Id, ProfileId, NarrativeGateProfileId, Label, Description, Category, Weight, IsEnabled, CreatedUtc, UpdatedUtc)
+                  VALUES ($id, $profileId, $narrativeGateProfileId, $label, $description, $category, $weight, $isEnabled, $createdUtc, $updatedUtc)
                   ON CONFLICT(Id) DO UPDATE SET
                       ProfileId = excluded.ProfileId,
+                      NarrativeGateProfileId = excluded.NarrativeGateProfileId,
                       Label = excluded.Label,
                       Description = excluded.Description,
                       Category = excluded.Category,
@@ -704,9 +709,10 @@ public sealed partial class RPThemeService : IRPThemeService
                       UpdatedUtc = excluded.UpdatedUtc;
                   """
                 : """
-                  INSERT INTO RPThemes (Id, Label, Description, Category, Weight, IsEnabled, CreatedUtc, UpdatedUtc)
-                  VALUES ($id, $label, $description, $category, $weight, $isEnabled, $createdUtc, $updatedUtc)
+                  INSERT INTO RPThemes (Id, NarrativeGateProfileId, Label, Description, Category, Weight, IsEnabled, CreatedUtc, UpdatedUtc)
+                  VALUES ($id, $narrativeGateProfileId, $label, $description, $category, $weight, $isEnabled, $createdUtc, $updatedUtc)
                   ON CONFLICT(Id) DO UPDATE SET
+                      NarrativeGateProfileId = excluded.NarrativeGateProfileId,
                       Label = excluded.Label,
                       Description = excluded.Description,
                       Category = excluded.Category,
@@ -719,6 +725,7 @@ public sealed partial class RPThemeService : IRPThemeService
             {
                 command.Parameters.AddWithValue("$profileId", IRPThemeService.GlobalThemeLibraryProfileId);
             }
+            command.Parameters.AddWithValue("$narrativeGateProfileId", (object?)theme.NarrativeGateProfileId ?? DBNull.Value);
             command.Parameters.AddWithValue("$label", theme.Label);
             command.Parameters.AddWithValue("$description", theme.Description);
             command.Parameters.AddWithValue("$category", theme.Category);
@@ -1637,10 +1644,24 @@ public sealed partial class RPThemeService : IRPThemeService
         if (!_supplementalTablesEnsured)
         {
             await EnsureSupplementalTablesAsync(connection, cancellationToken);
+            await EnsureRpThemesColumnsAsync(connection, cancellationToken);
             _supplementalTablesEnsured = true;
         }
 
         return connection;
+    }
+
+    private async Task EnsureRpThemesColumnsAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        if (await RPThemesTableHasNarrativeGateProfileIdAsync(connection, cancellationToken))
+        {
+            return;
+        }
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = "ALTER TABLE RPThemes ADD COLUMN NarrativeGateProfileId TEXT NULL";
+        await command.ExecuteNonQueryAsync(cancellationToken);
+        _rpThemesHasNarrativeGateProfileIdColumn = true;
     }
 
     private static async Task EnsureSupplementalTablesAsync(SqliteConnection connection, CancellationToken cancellationToken)
@@ -1699,6 +1720,30 @@ public sealed partial class RPThemeService : IRPThemeService
         }
 
         _rpThemesHasProfileIdColumn = false;
+        return false;
+    }
+
+    private async Task<bool> RPThemesTableHasNarrativeGateProfileIdAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        if (_rpThemesHasNarrativeGateProfileIdColumn.HasValue)
+        {
+            return _rpThemesHasNarrativeGateProfileIdColumn.Value;
+        }
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = "PRAGMA table_info('RPThemes');";
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var columnName = reader.GetString(1);
+            if (string.Equals(columnName, "NarrativeGateProfileId", StringComparison.OrdinalIgnoreCase))
+            {
+                _rpThemesHasNarrativeGateProfileIdColumn = true;
+                return true;
+            }
+        }
+
+        _rpThemesHasNarrativeGateProfileIdColumn = false;
         return false;
     }
 

@@ -16,7 +16,19 @@ public sealed class RolePlayAdaptiveState
 
     public string? SelectedWillingnessProfileId { get; set; }
 
+    public string? SelectedNarrativeGateProfileId { get; set; }
+
     public string? HusbandAwarenessProfileId { get; set; }
+
+    public NarrativePhase? PhaseOverrideFloor { get; set; }
+
+    public string? PhaseOverrideScenarioId { get; set; }
+
+    public int? PhaseOverrideCycleIndex { get; set; }
+
+    public string? PhaseOverrideSource { get; set; }
+
+    public DateTime? PhaseOverrideAppliedUtc { get; set; }
 
     public DateTime? ScenarioCommitmentTimeUtc { get; set; }
 

@@ -281,6 +281,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
 
             CREATE TABLE IF NOT EXISTS RPThemes (
                 Id TEXT PRIMARY KEY,
+                NarrativeGateProfileId TEXT NULL,
                 Label TEXT NOT NULL,
                 Description TEXT NOT NULL DEFAULT '',
                 Category TEXT NOT NULL DEFAULT '',
@@ -551,7 +552,13 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 CycleIndex INTEGER NOT NULL,
                 ActiveFormulaVersion TEXT NOT NULL,
                 SelectedWillingnessProfileId TEXT NULL,
+                SelectedNarrativeGateProfileId TEXT NULL,
                 HusbandAwarenessProfileId TEXT NULL,
+                PhaseOverrideFloor TEXT NULL,
+                PhaseOverrideScenarioId TEXT NULL,
+                PhaseOverrideCycleIndex INTEGER NULL,
+                PhaseOverrideSource TEXT NULL,
+                PhaseOverrideAppliedUtc TEXT NULL,
                 CurrentSceneLocation TEXT NULL,
                 CharacterLocationsJson TEXT NOT NULL DEFAULT '[]',
                 CharacterLocationPerceptionsJson TEXT NOT NULL DEFAULT '[]',
@@ -1103,6 +1110,61 @@ public sealed class SqlitePersistence : ISqlitePersistence
             alterCurrentSceneLocation.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN CurrentSceneLocation TEXT NULL";
             await alterCurrentSceneLocation.ExecuteNonQueryAsync(cancellationToken);
             _logger.LogInformation("Migrated RolePlayV2AdaptiveStates table: added CurrentSceneLocation column");
+        }
+
+        var checkPhaseOverrideFloorColumn = connection.CreateCommand();
+        checkPhaseOverrideFloorColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RolePlayV2AdaptiveStates') WHERE name='PhaseOverrideFloor'";
+        var hasPhaseOverrideFloorColumn = Convert.ToInt64(await checkPhaseOverrideFloorColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasPhaseOverrideFloorColumn)
+        {
+            var alterPhaseOverrideFloor = connection.CreateCommand();
+            alterPhaseOverrideFloor.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN PhaseOverrideFloor TEXT NULL";
+            await alterPhaseOverrideFloor.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated RolePlayV2AdaptiveStates table: added PhaseOverrideFloor column");
+        }
+
+        var checkPhaseOverrideScenarioIdColumn = connection.CreateCommand();
+        checkPhaseOverrideScenarioIdColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RolePlayV2AdaptiveStates') WHERE name='PhaseOverrideScenarioId'";
+        var hasPhaseOverrideScenarioIdColumn = Convert.ToInt64(await checkPhaseOverrideScenarioIdColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasPhaseOverrideScenarioIdColumn)
+        {
+            var alterPhaseOverrideScenarioId = connection.CreateCommand();
+            alterPhaseOverrideScenarioId.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN PhaseOverrideScenarioId TEXT NULL";
+            await alterPhaseOverrideScenarioId.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated RolePlayV2AdaptiveStates table: added PhaseOverrideScenarioId column");
+        }
+
+        var checkPhaseOverrideCycleIndexColumn = connection.CreateCommand();
+        checkPhaseOverrideCycleIndexColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RolePlayV2AdaptiveStates') WHERE name='PhaseOverrideCycleIndex'";
+        var hasPhaseOverrideCycleIndexColumn = Convert.ToInt64(await checkPhaseOverrideCycleIndexColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasPhaseOverrideCycleIndexColumn)
+        {
+            var alterPhaseOverrideCycleIndex = connection.CreateCommand();
+            alterPhaseOverrideCycleIndex.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN PhaseOverrideCycleIndex INTEGER NULL";
+            await alterPhaseOverrideCycleIndex.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated RolePlayV2AdaptiveStates table: added PhaseOverrideCycleIndex column");
+        }
+
+        var checkPhaseOverrideSourceColumn = connection.CreateCommand();
+        checkPhaseOverrideSourceColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RolePlayV2AdaptiveStates') WHERE name='PhaseOverrideSource'";
+        var hasPhaseOverrideSourceColumn = Convert.ToInt64(await checkPhaseOverrideSourceColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasPhaseOverrideSourceColumn)
+        {
+            var alterPhaseOverrideSource = connection.CreateCommand();
+            alterPhaseOverrideSource.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN PhaseOverrideSource TEXT NULL";
+            await alterPhaseOverrideSource.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated RolePlayV2AdaptiveStates table: added PhaseOverrideSource column");
+        }
+
+        var checkPhaseOverrideAppliedUtcColumn = connection.CreateCommand();
+        checkPhaseOverrideAppliedUtcColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RolePlayV2AdaptiveStates') WHERE name='PhaseOverrideAppliedUtc'";
+        var hasPhaseOverrideAppliedUtcColumn = Convert.ToInt64(await checkPhaseOverrideAppliedUtcColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasPhaseOverrideAppliedUtcColumn)
+        {
+            var alterPhaseOverrideAppliedUtc = connection.CreateCommand();
+            alterPhaseOverrideAppliedUtc.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN PhaseOverrideAppliedUtc TEXT NULL";
+            await alterPhaseOverrideAppliedUtc.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated RolePlayV2AdaptiveStates table: added PhaseOverrideAppliedUtc column");
         }
 
         var checkCharacterLocationsJsonColumn = connection.CreateCommand();

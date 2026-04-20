@@ -571,7 +571,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             throw new InvalidOperationException($"Role-play session '{sessionId}' not found.");
         }
 
-        if (!_behaviorModeService.IsContinuationAllowed(session.BehaviorMode, actor))
+        if (!_behaviorModeService.IsContinuationAllowed(session.BehaviorMode, actor, explicitSelection: true))
         {
             throw new InvalidOperationException($"Actor '{actor}' is not allowed in mode '{session.BehaviorMode}'.");
         }
@@ -790,12 +790,40 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             interaction.ActorName,
             session.BehaviorMode);
 
+        var steerDirective = string.Empty;
+        var steerCommandRequested = submission.Intent == PromptIntent.Instruction
+            && TryExtractSteerDirective(submission.PromptText, out steerDirective);
+        if (steerCommandRequested)
+        {
+            await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+            {
+                SessionId = session.Id,
+                InteractionId = interaction.Id,
+                EventKind = "SteerCommandApplied",
+                Severity = "Info",
+                ActorName = interaction.ActorName,
+                Summary = "Steer command applied without phase progression",
+                MetadataJson = JsonSerializer.Serialize(new
+                {
+                    command = "/steer",
+                    directive = steerDirective,
+                    currentPhase = session.AdaptiveState.CurrentNarrativePhase.ToString(),
+                    activeThemeId = session.AdaptiveState.ActiveScenarioId,
+                    currentSceneLocation = session.AdaptiveState.CurrentSceneLocation
+                })
+            }, cancellationToken);
+
+            return interaction;
+        }
+
         var explicitClimaxCompletionRequested = ContainsClimaxCompletionCommand(submission.PromptText);
+        var manualPhaseAdvanceTarget = ResolveManualPhaseAdvanceTarget(submission.PromptText, session.AdaptiveState.CurrentNarrativePhase);
         await RunRolePlayV2PipelinesAsync(
             session,
             DecisionTrigger.InteractionStart,
             cancellationToken,
-            explicitClimaxCompletionRequested);
+            explicitClimaxCompletionRequested,
+            manualPhaseAdvanceTarget);
 
         return interaction;
     }
@@ -894,19 +922,36 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             // Determine which scene characters should naturally respond,
             // generate sequentially so each sees the prior output in context.
             var sceneActors = await ResolveSceneContinueActorsAsync(session, cancellationToken);
-            var preferredOverflowActor = ResolveDefaultContinueActor(session);
-            if (preferredOverflowActor == ContinueAsActor.You)
-            {
-                var personaName = string.IsNullOrWhiteSpace(session.PersonaName) ? "You" : session.PersonaName.Trim();
-                sceneActors.RemoveAll(x => x.Actor == ContinueAsActor.You);
-                sceneActors.Insert(0, (ContinueAsActor.You, personaName));
-            }
 
             var batchSize = Math.Max(1, Math.Min(session.SceneContinueBatchSize, sceneActors.Count));
+            await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+            {
+                SessionId = session.Id,
+                EventKind = "OverflowActorSelection",
+                Severity = "Info",
+                ActorName = string.IsNullOrWhiteSpace(session.PersonaName) ? "You" : session.PersonaName,
+                Summary = $"Overflow actor auto-selection resolved ({batchSize} of {sceneActors.Count} candidates).",
+                MetadataJson = JsonSerializer.Serialize(new
+                {
+                    source = request.TriggeredBy.ToString(),
+                    mode = session.BehaviorMode.ToString(),
+                    batchSize,
+                    candidates = sceneActors.Select((x, index) => new
+                    {
+                        rank = index + 1,
+                        actor = x.Actor.ToString(),
+                        name = x.Name,
+                        reason = x.Reason,
+                        selected = index < batchSize
+                    }).ToList()
+                })
+            }, cancellationToken);
 
             for (var i = 0; i < batchSize; i++)
             {
-                var (actor, actorName) = sceneActors[i];
+                var candidate = sceneActors[i];
+                var actor = candidate.Actor;
+                var actorName = candidate.Name;
                 var promptText = i == 0
                     ? "Continue the scene naturally with the next character response."
                     : "Continue the conversation naturally, building on the previous response.";
@@ -944,9 +989,34 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         // --- AUTO-NARRATIVE ---
         // Include narrative if explicitly requested OR if AutoNarrative is on for overflow continues
         // Skip if we already generated the opening narrative above
+        var suppressNarrativeForDecisionTurn = session.SuppressNextNarrativeAfterDecision;
+        if (suppressNarrativeForDecisionTurn)
+        {
+            session.SuppressNextNarrativeAfterDecision = false;
+        }
+
         var shouldIncludeNarrative = !isOpeningScene
+            && !suppressNarrativeForDecisionTurn
             && (request.IncludeNarrative
                 || (isOverflowContinue && session.AutoNarrative && ShouldAutoNarrate(session)));
+
+        if (suppressNarrativeForDecisionTurn && _debugEventSink is not null)
+        {
+            await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+            {
+                SessionId = session.Id,
+                EventKind = "DecisionPostTurnNarrativeSuppressed",
+                Severity = "Info",
+                ActorName = string.IsNullOrWhiteSpace(session.PersonaName) ? "You" : session.PersonaName,
+                Summary = "Narrative was suppressed for the immediate post-decision continuation turn.",
+                MetadataJson = JsonSerializer.Serialize(new
+                {
+                    source = request.TriggeredBy.ToString(),
+                    includeNarrativeRequested = request.IncludeNarrative,
+                    isOverflowContinue
+                })
+            }, cancellationToken);
+        }
 
         if (shouldIncludeNarrative)
         {
@@ -1125,6 +1195,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
         session.DeferredDecisionPointIds ??= [];
         session.DeferredDecisionPointIds.RemoveAll(x => string.Equals(x, decisionPointId, StringComparison.OrdinalIgnoreCase));
+        session.SuppressNextNarrativeAfterDecision = true;
 
         var selectedOption = await ResolveAppliedDecisionOptionAsync(decisionPointId, optionId, cancellationToken);
         var (selectedDialogue, selectedDialogueSource) = ResolveSelectedDecisionDialogueWithSource(selectedOption, customResponseText);
@@ -1298,13 +1369,14 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     /// Looks at the scenario character list and recent interaction history to pick
     /// the most relevant characters in a natural conversation order.
     /// </summary>
-    private async Task<List<(ContinueAsActor Actor, string Name)>> ResolveSceneContinueActorsAsync(
+    private async Task<List<OverflowActorCandidate>> ResolveSceneContinueActorsAsync(
         RolePlaySession session,
         CancellationToken cancellationToken)
     {
-        var actors = new List<(ContinueAsActor, string)>();
+        var actors = new List<OverflowActorCandidate>();
+        var autoAllowedActors = _behaviorModeService.GetAllowedActors(session.BehaviorMode, explicitSelection: false).ToHashSet();
 
-        // Gather scenario characters (excluding the POV persona)
+        // Gather scenario characters.
         var sceneCharacterNames = new List<string>();
         if (!string.IsNullOrWhiteSpace(session.ScenarioId))
         {
@@ -1313,8 +1385,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             {
                 foreach (var character in scenario.Characters)
                 {
-                    if (!string.IsNullOrWhiteSpace(character.Name)
-                        && !string.Equals(character.Name.Trim(), session.PersonaName, StringComparison.OrdinalIgnoreCase))
+                    if (!string.IsNullOrWhiteSpace(character.Name))
                     {
                         sceneCharacterNames.Add(character.Name.Trim());
                     }
@@ -1322,11 +1393,20 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             }
         }
 
-        if (sceneCharacterNames.Count == 0)
+        var personaName = string.IsNullOrWhiteSpace(session.PersonaName) ? "You" : session.PersonaName.Trim();
+        sceneCharacterNames = sceneCharacterNames
+            .Where(name => !string.Equals(name, personaName, StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (sceneCharacterNames.Count == 0 && !autoAllowedActors.Contains(ContinueAsActor.You))
         {
             // No scenario characters — fall back to default single actor
             var fallback = ResolveDefaultContinueActor(session);
-            actors.Add((fallback, ResolveActorName(fallback, null)));
+            actors.Add(new OverflowActorCandidate(
+                fallback,
+                ResolveActorName(fallback, null),
+                "Fallback actor because no scenario characters were available for automatic continuation."));
             return actors;
         }
 
@@ -1338,25 +1418,113 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             .Select(i => i.ActorName?.Trim())
             .ToList();
 
+        var currentSceneLocation = session.AdaptiveState.CurrentSceneLocation;
         var ordered = sceneCharacterNames
             .Select((name, scenarioOrder) => new
             {
                 Name = name,
                 ScenarioOrder = scenarioOrder,
-                LastSeenIndex = recentActors.FindLastIndex(actorName => string.Equals(actorName, name, StringComparison.OrdinalIgnoreCase))
+                LastSeenIndex = recentActors.FindLastIndex(actorName => string.Equals(actorName, name, StringComparison.OrdinalIgnoreCase)),
+                InScene = IsActorInCurrentScene(session, name, currentSceneLocation)
             })
-            .OrderBy(x => x.LastSeenIndex < 0 ? int.MinValue : x.LastSeenIndex)
+            .OrderByDescending(x => x.InScene)
+            .ThenBy(x => x.LastSeenIndex < 0 ? int.MinValue : x.LastSeenIndex)
             .ThenBy(x => x.ScenarioOrder)
             .Select(x => x.Name)
             .ToList();
 
-        foreach (var name in ordered)
+        if (autoAllowedActors.Contains(ContinueAsActor.Npc))
         {
-            actors.Add((ContinueAsActor.Npc, name));
+            foreach (var name in ordered)
+            {
+                var inScene = IsActorInCurrentScene(session, name, currentSceneLocation);
+                var recencyIndex = recentActors.FindLastIndex(actorName => string.Equals(actorName, name, StringComparison.OrdinalIgnoreCase));
+                var recencyReason = recencyIndex < 0 ? "not recently active" : $"recent-index={recencyIndex}";
+                var sceneReason = inScene ? "in-scene" : "out-of-scene";
+                actors.Add(new OverflowActorCandidate(
+                    ContinueAsActor.Npc,
+                    name,
+                    $"NPC auto candidate ({sceneReason}, {recencyReason})."));
+            }
+        }
+
+        if (autoAllowedActors.Contains(ContinueAsActor.You)
+            && ShouldIncludePersonaInAutoRotation(session, personaName, currentSceneLocation))
+        {
+            var insertIndex = session.SceneContinueBatchSize <= 1
+                ? 0
+                : Math.Min(actors.Count, 1);
+            var personaInScene = IsActorInCurrentScene(session, personaName, currentSceneLocation);
+            var personaReason = personaInScene
+                ? "Persona auto candidate (in-scene; injected into mixed rotation)."
+                : "Persona auto candidate (out-of-scene allowed by recency context).";
+            actors.Insert(insertIndex, new OverflowActorCandidate(ContinueAsActor.You, personaName, personaReason));
+        }
+
+        if (actors.Count == 0)
+        {
+            var fallback = ResolveDefaultContinueActor(session);
+            var fallbackName = fallback == ContinueAsActor.You ? personaName : ResolveActorName(fallback, null);
+            actors.Add(new OverflowActorCandidate(
+                fallback,
+                fallbackName,
+                "Fallback actor because automatic candidate list was empty after mode filtering."));
         }
 
         return actors;
     }
+
+    private static bool IsActorInCurrentScene(RolePlaySession session, string actorName, string? currentSceneLocation)
+    {
+        if (string.IsNullOrWhiteSpace(actorName) || string.IsNullOrWhiteSpace(currentSceneLocation))
+        {
+            return false;
+        }
+
+        var location = session.AdaptiveState.CharacterLocations.FirstOrDefault(x =>
+            !string.IsNullOrWhiteSpace(x.CharacterId)
+            && string.Equals(x.CharacterId, actorName, StringComparison.OrdinalIgnoreCase));
+
+        if (location is null || string.IsNullOrWhiteSpace(location.TrueLocation))
+        {
+            return false;
+        }
+
+        return string.Equals(location.TrueLocation.Trim(), currentSceneLocation.Trim(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool ShouldIncludePersonaInAutoRotation(RolePlaySession session, string personaName, string? currentSceneLocation)
+    {
+        var personaInScene = IsActorInCurrentScene(session, personaName, currentSceneLocation);
+        var recent = session.Interactions
+            .Where(x => !x.IsExcluded && x.InteractionType != InteractionType.System)
+            .TakeLast(4)
+            .ToList();
+
+        if (recent.Count == 0)
+        {
+            return personaInScene;
+        }
+
+        var personaSpokeVeryRecently = recent.TakeLast(2).Any(x =>
+            x.InteractionType == InteractionType.User
+            || string.Equals(x.ActorName, personaName, StringComparison.OrdinalIgnoreCase));
+        if (personaSpokeVeryRecently)
+        {
+            return false;
+        }
+
+        var npcSpokeRecently = recent.TakeLast(2).Any(x => x.InteractionType is InteractionType.Npc or InteractionType.Custom);
+        if (!npcSpokeRecently)
+        {
+            return false;
+        }
+
+        // Permit occasional out-of-scene persona turns, but bias toward in-scene inclusion.
+        return personaInScene || recent.Count >= 3;
+    }
+
+    private sealed record OverflowActorCandidate(ContinueAsActor Actor, string Name, string Reason);
 
     private async Task RebuildAdaptiveStateInternalAsync(RolePlaySession session, CancellationToken cancellationToken)
     {
@@ -1602,13 +1770,18 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         RolePlaySession session,
         DecisionTrigger trigger,
         CancellationToken cancellationToken,
-        bool explicitClimaxCompletionRequested = false)
+        bool explicitClimaxCompletionRequested = false,
+        DreamGenClone.Domain.RolePlay.NarrativePhase? manualPhaseAdvanceTarget = null)
     {
         var previousV2State = await _v2StateRepository.LoadAdaptiveStateAsync(session.Id, cancellationToken);
         var v2State = HydrateV2State(session, previousV2State);
+        NormalizePhaseOverrideLock(v2State);
         var climaxCompletionRequested = explicitClimaxCompletionRequested || IsClimaxCompletionRequested(session);
         v2State.InteractionCountInPhase = Math.Max(0, v2State.InteractionCountInPhase) + 1;
         var candidates = await BuildScenarioCandidatesAsync(session, cancellationToken);
+        var rpSubsystemSession = ShouldUseRpThemeSubsystem(session);
+        var linkedNarrativeGateProfileId = await ResolveNarrativeGateProfileIdAsync(session, v2State, cancellationToken);
+        v2State.SelectedNarrativeGateProfileId = linkedNarrativeGateProfileId;
 
         var manualOverrideLockActive = IsManualThemeOverrideLockActive(session);
 
@@ -1651,6 +1824,23 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             }
             else
             {
+                if (!sameScenarioAlreadyActive)
+                {
+                    ClearPhaseOverrideLock(v2State);
+                    await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+                    {
+                        SessionId = session.Id,
+                        EventKind = "PhaseOverrideLockCleared",
+                        Severity = "Info",
+                        Summary = "Phase override lock cleared due scenario switch",
+                        MetadataJson = JsonSerializer.Serialize(new
+                        {
+                            reason = "ScenarioSwitch",
+                            scenarioId = commitResult.ScenarioId
+                        })
+                    }, cancellationToken);
+                }
+
                 v2State.ActiveScenarioId = commitResult.ScenarioId;
                 if (!sameScenarioAlreadyActive || enteringArc)
                 {
@@ -1681,6 +1871,9 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             {
                 InteractionsSinceCommitment = v2State.InteractionCountInPhase,
                 ClimaxCompletionRequested = climaxCompletionRequested,
+                ManualAdvanceTargetPhase = manualPhaseAdvanceTarget,
+                NarrativeGateProfileId = linkedNarrativeGateProfileId,
+                SkipDefaultNarrativeGateProfileFallback = rpSubsystemSession && string.IsNullOrWhiteSpace(linkedNarrativeGateProfileId),
                 ActiveScenarioConfidence = lifecycleConfidence,
                 ActiveScenarioFitScore = lifecycleFitScore,
                 EvidenceSummary = commitResult.Reason
@@ -1689,8 +1882,38 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
         if (lifecycle.Transitioned)
         {
+            var transitionSourcePhase = v2State.CurrentPhase;
             v2State.CurrentPhase = lifecycle.TargetPhase;
             v2State.InteractionCountInPhase = 0;
+
+            if (manualPhaseAdvanceTarget.HasValue
+                && lifecycle.TargetPhase == manualPhaseAdvanceTarget.Value
+                && IsForwardPhaseTransition(transitionSourcePhase, lifecycle.TargetPhase)
+                && !string.IsNullOrWhiteSpace(v2State.ActiveScenarioId))
+            {
+                v2State.PhaseOverrideFloor = lifecycle.TargetPhase;
+                v2State.PhaseOverrideScenarioId = v2State.ActiveScenarioId;
+                v2State.PhaseOverrideCycleIndex = v2State.CycleIndex;
+                v2State.PhaseOverrideSource = "/nextphase";
+                v2State.PhaseOverrideAppliedUtc = DateTime.UtcNow;
+                await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+                {
+                    SessionId = session.Id,
+                    EventKind = "PhaseOverrideLockApplied",
+                    Severity = "Info",
+                    Summary = "Phase override lock applied via /nextphase",
+                    MetadataJson = JsonSerializer.Serialize(new
+                    {
+                        fromPhase = transitionSourcePhase.ToString(),
+                        toPhase = lifecycle.TargetPhase.ToString(),
+                        floorPhase = v2State.PhaseOverrideFloor?.ToString(),
+                        scenarioId = v2State.PhaseOverrideScenarioId,
+                        cycleIndex = v2State.PhaseOverrideCycleIndex,
+                        source = v2State.PhaseOverrideSource
+                    })
+                }, cancellationToken);
+            }
+
             if (lifecycle.TransitionEvent is not null)
             {
                 await _v2StateRepository.SaveTransitionEventAsync(lifecycle.TransitionEvent, cancellationToken);
@@ -1698,6 +1921,19 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
             if (lifecycle.TargetPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.Reset)
             {
+                ClearPhaseOverrideLock(v2State);
+                await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+                {
+                    SessionId = session.Id,
+                    EventKind = "PhaseOverrideLockCleared",
+                    Severity = "Info",
+                    Summary = "Phase override lock cleared due reset",
+                    MetadataJson = JsonSerializer.Serialize(new
+                    {
+                        reason = "Reset",
+                        resetReason = lifecycle.Reason
+                    })
+                }, cancellationToken);
                 var completedScenarioId = v2State.ActiveScenarioId;
                 var completion = new DreamGenClone.Domain.RolePlay.ScenarioCompletionMetadata
                 {
@@ -1713,6 +1949,12 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 v2State = await _scenarioLifecycleService.ExecuteResetAsync(v2State, ResetReason.Completion, cancellationToken);
                 ApplyThemeSemiReset(session.AdaptiveState.ThemeTracker, completedScenarioId);
             }
+        }
+
+        if (TryGetActivePhaseOverrideFloor(v2State, out var phaseFloor)
+            && IsForwardPhaseTransition(v2State.CurrentPhase, phaseFloor))
+        {
+            v2State.CurrentPhase = phaseFloor;
         }
 
         var significantStatChange = HasSignificantStatChange(previousV2State, v2State);
@@ -1969,6 +2211,12 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         mapped.ActiveFormulaVersion = string.IsNullOrWhiteSpace(previousState.ActiveFormulaVersion)
             ? mapped.ActiveFormulaVersion
             : previousState.ActiveFormulaVersion;
+        mapped.SelectedNarrativeGateProfileId = previousState.SelectedNarrativeGateProfileId ?? mapped.SelectedNarrativeGateProfileId;
+        mapped.PhaseOverrideFloor = previousState.PhaseOverrideFloor ?? mapped.PhaseOverrideFloor;
+        mapped.PhaseOverrideScenarioId = previousState.PhaseOverrideScenarioId ?? mapped.PhaseOverrideScenarioId;
+        mapped.PhaseOverrideCycleIndex = previousState.PhaseOverrideCycleIndex ?? mapped.PhaseOverrideCycleIndex;
+        mapped.PhaseOverrideSource = previousState.PhaseOverrideSource ?? mapped.PhaseOverrideSource;
+        mapped.PhaseOverrideAppliedUtc = previousState.PhaseOverrideAppliedUtc ?? mapped.PhaseOverrideAppliedUtc;
         mapped.LastEvaluationUtc = previousState.LastEvaluationUtc;
         mapped.CurrentSceneLocation = previousState.CurrentSceneLocation;
         mapped.CharacterLocations = previousState.CharacterLocations
@@ -2025,6 +2273,13 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         session.AdaptiveState.ActiveScenarioId = snapshot.ActiveScenarioId;
         session.AdaptiveState.ActiveVariantId = snapshot.ActiveVariantId;
         session.AdaptiveState.CurrentNarrativePhase = MapStoryPhase(snapshot.CurrentPhase);
+        session.AdaptiveState.PhaseOverrideFloor = snapshot.PhaseOverrideFloor is null
+            ? null
+            : MapStoryPhase(snapshot.PhaseOverrideFloor.Value);
+        session.AdaptiveState.PhaseOverrideScenarioId = snapshot.PhaseOverrideScenarioId;
+        session.AdaptiveState.PhaseOverrideCycleIndex = snapshot.PhaseOverrideCycleIndex;
+        session.AdaptiveState.PhaseOverrideSource = snapshot.PhaseOverrideSource;
+        session.AdaptiveState.PhaseOverrideAppliedUtc = snapshot.PhaseOverrideAppliedUtc;
 
         var interactionCount = Math.Max(0, snapshot.InteractionCountInPhase);
         session.AdaptiveState.InteractionsSinceCommitment = snapshot.CurrentPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.BuildUp
@@ -2042,6 +2297,13 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         session.AdaptiveState.ActiveScenarioId = v2State.ActiveScenarioId;
         session.AdaptiveState.ActiveVariantId = v2State.ActiveVariantId;
         session.AdaptiveState.CurrentNarrativePhase = MapStoryPhase(v2State.CurrentPhase);
+        session.AdaptiveState.PhaseOverrideFloor = v2State.PhaseOverrideFloor is null
+            ? null
+            : MapStoryPhase(v2State.PhaseOverrideFloor.Value);
+        session.AdaptiveState.PhaseOverrideScenarioId = v2State.PhaseOverrideScenarioId;
+        session.AdaptiveState.PhaseOverrideCycleIndex = v2State.PhaseOverrideCycleIndex;
+        session.AdaptiveState.PhaseOverrideSource = v2State.PhaseOverrideSource;
+        session.AdaptiveState.PhaseOverrideAppliedUtc = v2State.PhaseOverrideAppliedUtc;
 
         var interactionCount = Math.Max(0, v2State.InteractionCountInPhase);
         session.AdaptiveState.InteractionsSinceCommitment = v2State.CurrentPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.BuildUp
@@ -2050,6 +2312,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         session.AdaptiveState.InteractionsInApproaching = v2State.CurrentPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.Approaching
             ? interactionCount
             : 0;
+        session.AdaptiveState.SelectedNarrativeGateProfileId = v2State.SelectedNarrativeGateProfileId;
         session.AdaptiveState.CurrentSceneLocation = v2State.CurrentSceneLocation;
         session.AdaptiveState.CharacterLocations = v2State.CharacterLocations
             .Select(x => new RolePlayCharacterLocationState
@@ -2200,6 +2463,132 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             || content.Contains("/end-climax", StringComparison.OrdinalIgnoreCase)
             || Regex.IsMatch(content, @"\b(complete|end)\s+climax\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     }
+
+    private static DreamGenClone.Domain.RolePlay.NarrativePhase? ResolveManualPhaseAdvanceTarget(
+        string? content,
+        DreamGenClone.Domain.StoryAnalysis.NarrativePhase currentPhase)
+    {
+        if (!ContainsNextPhaseCommand(content))
+        {
+            return null;
+        }
+
+        return currentPhase switch
+        {
+            DreamGenClone.Domain.StoryAnalysis.NarrativePhase.BuildUp => DreamGenClone.Domain.RolePlay.NarrativePhase.Committed,
+            DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Committed => DreamGenClone.Domain.RolePlay.NarrativePhase.Approaching,
+            DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Approaching => DreamGenClone.Domain.RolePlay.NarrativePhase.Climax,
+            DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Climax => DreamGenClone.Domain.RolePlay.NarrativePhase.Reset,
+            _ => null
+        };
+    }
+
+    private static bool ContainsNextPhaseCommand(string? content)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            return false;
+        }
+
+        var tokens = content
+            .Split([' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        return tokens.Any(token => string.Equals(token, "/nextphase", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool ContainsSteerCommand(string? content)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            return false;
+        }
+
+        var tokens = content
+            .Split([' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        return tokens.Any(token => string.Equals(token, "/steer", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool TryExtractSteerDirective(string? content, out string directive)
+    {
+        directive = string.Empty;
+        if (!ContainsSteerCommand(content))
+        {
+            return false;
+        }
+
+        var raw = content?.Trim() ?? string.Empty;
+        var markerIndex = raw.IndexOf("/steer", StringComparison.OrdinalIgnoreCase);
+        if (markerIndex < 0)
+        {
+            directive = "Steer the scene in a meaningful, phase-consistent direction.";
+            return true;
+        }
+
+        var remaining = raw[(markerIndex + "/steer".Length)..].Trim();
+        directive = string.IsNullOrWhiteSpace(remaining)
+            ? "Steer the scene in a meaningful, phase-consistent direction."
+            : remaining;
+        return true;
+    }
+
+    private static bool TryGetActivePhaseOverrideFloor(
+        DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state,
+        out DreamGenClone.Domain.RolePlay.NarrativePhase floor)
+    {
+        floor = DreamGenClone.Domain.RolePlay.NarrativePhase.BuildUp;
+        if (!state.PhaseOverrideFloor.HasValue
+            || !state.PhaseOverrideCycleIndex.HasValue
+            || string.IsNullOrWhiteSpace(state.PhaseOverrideScenarioId)
+            || string.IsNullOrWhiteSpace(state.ActiveScenarioId))
+        {
+            return false;
+        }
+
+        if (state.PhaseOverrideCycleIndex.Value != state.CycleIndex
+            || !string.Equals(state.PhaseOverrideScenarioId, state.ActiveScenarioId, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        floor = state.PhaseOverrideFloor.Value;
+        return true;
+    }
+
+    private static void NormalizePhaseOverrideLock(DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state)
+    {
+        if (TryGetActivePhaseOverrideFloor(state, out _))
+        {
+            return;
+        }
+
+        ClearPhaseOverrideLock(state);
+    }
+
+    private static void ClearPhaseOverrideLock(DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state)
+    {
+        state.PhaseOverrideFloor = null;
+        state.PhaseOverrideScenarioId = null;
+        state.PhaseOverrideCycleIndex = null;
+        state.PhaseOverrideSource = null;
+        state.PhaseOverrideAppliedUtc = null;
+    }
+
+    private static bool IsForwardPhaseTransition(
+        DreamGenClone.Domain.RolePlay.NarrativePhase from,
+        DreamGenClone.Domain.RolePlay.NarrativePhase to)
+        => GetPhaseOrder(to) > GetPhaseOrder(from);
+
+    private static int GetPhaseOrder(DreamGenClone.Domain.RolePlay.NarrativePhase phase)
+        => phase switch
+        {
+            DreamGenClone.Domain.RolePlay.NarrativePhase.BuildUp => 0,
+            DreamGenClone.Domain.RolePlay.NarrativePhase.Committed => 1,
+            DreamGenClone.Domain.RolePlay.NarrativePhase.Approaching => 2,
+            DreamGenClone.Domain.RolePlay.NarrativePhase.Climax => 3,
+            DreamGenClone.Domain.RolePlay.NarrativePhase.Reset => 4,
+            _ => 0
+        };
 
     private static string ResolveResetIntensity(double score)
     {
@@ -3981,7 +4370,15 @@ Requirements:
             CycleIndex = session.AdaptiveState.CompletedScenarios,
             ActiveFormulaVersion = "rpv2-default",
             SelectedWillingnessProfileId = session.AdaptiveState.SelectedWillingnessProfileId,
+            SelectedNarrativeGateProfileId = session.AdaptiveState.SelectedNarrativeGateProfileId,
             HusbandAwarenessProfileId = session.AdaptiveState.HusbandAwarenessProfileId,
+            PhaseOverrideFloor = session.AdaptiveState.PhaseOverrideFloor is null
+                ? null
+                : MapPhase(session.AdaptiveState.PhaseOverrideFloor.Value),
+            PhaseOverrideScenarioId = session.AdaptiveState.PhaseOverrideScenarioId,
+            PhaseOverrideCycleIndex = session.AdaptiveState.PhaseOverrideCycleIndex,
+            PhaseOverrideSource = session.AdaptiveState.PhaseOverrideSource,
+            PhaseOverrideAppliedUtc = session.AdaptiveState.PhaseOverrideAppliedUtc,
             CharacterSnapshots = snapshots,
             CurrentSceneLocation = session.AdaptiveState.CurrentSceneLocation,
             CharacterLocations = session.AdaptiveState.CharacterLocations
@@ -4183,6 +4580,27 @@ Requirements:
         }
 
         return candidates;
+    }
+
+    private async Task<string?> ResolveNarrativeGateProfileIdAsync(
+        RolePlaySession session,
+        DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state,
+        CancellationToken cancellationToken)
+    {
+        if (_rpThemeService is null
+            || !ShouldUseRpThemeSubsystem(session)
+            || string.IsNullOrWhiteSpace(state.ActiveScenarioId))
+        {
+            return null;
+        }
+
+        var theme = await _rpThemeService.GetThemeAsync(state.ActiveScenarioId, cancellationToken);
+        if (theme is null || string.IsNullOrWhiteSpace(theme.NarrativeGateProfileId))
+        {
+            return null;
+        }
+
+        return theme.NarrativeGateProfileId.Trim();
     }
 
     private async Task<IReadOnlyDictionary<string, string>> BuildRoleCharacterBindingsAsync(
@@ -4419,7 +4837,7 @@ Requirements:
 
     private ContinueAsActor ResolveDefaultContinueActor(RolePlaySession session)
     {
-        var allowedActors = _behaviorModeService.GetAllowedActors(session.BehaviorMode);
+        var allowedActors = _behaviorModeService.GetAllowedActors(session.BehaviorMode, explicitSelection: false);
         if (allowedActors.Count == 0)
         {
             return ContinueAsActor.Npc;

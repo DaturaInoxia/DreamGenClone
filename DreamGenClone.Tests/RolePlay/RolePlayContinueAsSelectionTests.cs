@@ -43,7 +43,7 @@ public sealed class RolePlayContinueAsSelectionTests
     }
 
     [Fact]
-    public async Task ContinueAsAsync_OverflowContinue_UsesPersonaWhenPersonaIsNextNaturalActor()
+    public async Task ContinueAsAsync_OverflowContinue_DoesNotForcePersonaAsFirstAutoActor()
     {
         var scenario = new Scenario
         {
@@ -70,8 +70,8 @@ public sealed class RolePlayContinueAsSelectionTests
 
         Assert.True(result.Success);
         Assert.NotEmpty(result.ParticipantOutputs);
-        Assert.Equal(InteractionType.User, result.ParticipantOutputs[0].InteractionType);
-        Assert.Equal("You", result.ParticipantOutputs[0].ActorName);
+        Assert.Equal(InteractionType.Npc, result.ParticipantOutputs[0].InteractionType);
+        Assert.DoesNotContain(result.ParticipantOutputs, x => x.InteractionType == InteractionType.User);
     }
 
     private sealed class SingleScenarioService(Scenario scenario) : IScenarioService

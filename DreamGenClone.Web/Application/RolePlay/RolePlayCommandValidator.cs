@@ -47,7 +47,7 @@ public sealed class RolePlayCommandValidator : IRolePlayCommandValidator
 
         foreach (var actor in orderedParticipants)
         {
-            if (!_behaviorModeService.IsContinuationAllowed(mode, actor))
+            if (!_behaviorModeService.IsContinuationAllowed(mode, actor, explicitSelection: true))
             {
                 validationError = $"Actor '{actor}' is not allowed in mode '{mode}'.";
                 return false;

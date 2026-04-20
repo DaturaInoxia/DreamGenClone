@@ -1,6 +1,7 @@
 using CoreAutoSaveCoordinator = DreamGenClone.Application.Sessions.IAutoSaveCoordinator;
 using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Domain.RolePlay;
+using ScenarioMetadata = DreamGenClone.Domain.StoryAnalysis.ScenarioMetadata;
 using DreamGenClone.Infrastructure.Configuration;
 using DreamGenClone.Infrastructure.RolePlay;
 using DreamGenClone.Web.Application.RolePlay;
@@ -69,6 +70,11 @@ public sealed class RolePlaySessionLifecycleTests
                 ConsecutiveLeadCount = 1,
                 CycleIndex = 3,
                 ActiveFormulaVersion = "rpv2-default",
+                PhaseOverrideFloor = NarrativePhase.Approaching,
+                PhaseOverrideScenarioId = "scenario-a",
+                PhaseOverrideCycleIndex = 3,
+                PhaseOverrideSource = "/nextphase",
+                PhaseOverrideAppliedUtc = DateTime.UtcNow,
                 CurrentSceneLocation = "Secluded Garden",
                 CharacterLocations =
                 [
@@ -99,6 +105,11 @@ public sealed class RolePlaySessionLifecycleTests
             Assert.NotNull(reloaded);
             Assert.Equal(state.ActiveScenarioId, reloaded!.ActiveScenarioId);
             Assert.Equal(state.CurrentPhase, reloaded.CurrentPhase);
+            Assert.Equal(NarrativePhase.Approaching, reloaded.PhaseOverrideFloor);
+            Assert.Equal("scenario-a", reloaded.PhaseOverrideScenarioId);
+            Assert.Equal(3, reloaded.PhaseOverrideCycleIndex);
+            Assert.Equal("/nextphase", reloaded.PhaseOverrideSource);
+            Assert.NotNull(reloaded.PhaseOverrideAppliedUtc);
             Assert.Equal("Secluded Garden", reloaded.CurrentSceneLocation);
             Assert.Single(reloaded.CharacterLocations);
             Assert.Single(reloaded.CharacterLocationPerceptions);
@@ -264,6 +275,69 @@ public sealed class RolePlaySessionLifecycleTests
     }
 
     [Fact]
+    public async Task ContinueAs_AfterDecisionApply_SuppressesNarrativeForOneTurnOnly()
+    {
+        var repository = new FakeRolePlayV2StateRepository();
+        var (service, _) = CreateService(repository);
+        var created = await service.CreateSessionAsync("Decision Narrative Suppression Session");
+
+        var point = new DecisionPoint
+        {
+            SessionId = created.Id,
+            DecisionPointId = "dp-suppress-1",
+            CreatedUtc = DateTime.UtcNow,
+            AskingActorName = "Dean",
+            TargetActorId = "Becky",
+            TriggerSource = DecisionTrigger.CharacterDirectQuestion.ToString(),
+            TransparencyMode = TransparencyMode.Directional,
+            OptionIds = ["hold-back"]
+        };
+
+        await repository.SaveDecisionPointAsync(point,
+        [
+            new DecisionOption
+            {
+                DecisionPointId = "dp-suppress-1",
+                OptionId = "hold-back",
+                DisplayText = "Hold Back"
+            }
+        ]);
+
+        var outcome = await service.ApplyDecisionAsync(created.Id, "dp-suppress-1", "hold-back");
+        Assert.NotNull(outcome);
+        Assert.True(outcome!.Applied);
+
+        var firstContinue = await service.ContinueAsAsync(new ContinueAsRequest
+        {
+            SessionId = created.Id,
+            IncludeNarrative = true,
+            TriggeredBy = SubmissionSource.ContinueAsPopupContinue
+        });
+
+        Assert.True(firstContinue.Success);
+        Assert.Null(firstContinue.NarrativeOutput);
+
+        var afterFirst = await service.GetSessionAsync(created.Id);
+        Assert.NotNull(afterFirst);
+        Assert.False(afterFirst!.SuppressNextNarrativeAfterDecision);
+        Assert.DoesNotContain(afterFirst.Interactions, x => string.Equals(x.ActorName, "Narrative", StringComparison.OrdinalIgnoreCase));
+
+        var secondContinue = await service.ContinueAsAsync(new ContinueAsRequest
+        {
+            SessionId = created.Id,
+            IncludeNarrative = true,
+            TriggeredBy = SubmissionSource.ContinueAsPopupContinue
+        });
+
+        Assert.True(secondContinue.Success);
+        Assert.NotNull(secondContinue.NarrativeOutput);
+
+        var afterSecond = await service.GetSessionAsync(created.Id);
+        Assert.NotNull(afterSecond);
+        Assert.Contains(afterSecond!.Interactions, x => string.Equals(x.ActorName, "Narrative", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public async Task OverrideAdaptiveTheme_SetsActiveScenarioImmediately()
     {
         var (service, _) = CreateService();
@@ -392,6 +466,232 @@ public sealed class RolePlaySessionLifecycleTests
     }
 
     [Fact]
+    public async Task OverrideAdaptiveTheme_RemainsPinnedAfterLegacyLockWindow()
+    {
+        var (service, _) = CreateService();
+        var created = await service.CreateSessionAsync("Override Long Pin Session");
+        var session = await service.GetSessionAsync(created.Id);
+        Assert.NotNull(session);
+
+        session!.AdaptiveState.ThemeTracker.Themes["dominance"] = new ThemeTrackerItem
+        {
+            ThemeId = "dominance",
+            ThemeName = "Dominance",
+            Score = 90
+        };
+        session.AdaptiveState.ThemeTracker.Themes["infidelity"] = new ThemeTrackerItem
+        {
+            ThemeId = "infidelity",
+            ThemeName = "Infidelity",
+            Score = 35
+        };
+        session.AdaptiveState.ActiveScenarioId = "dominance";
+        session.AdaptiveState.CurrentNarrativePhase = DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Committed;
+        session.AdaptiveState.InteractionsSinceCommitment = 0;
+        await service.SaveSessionAsync(session);
+
+        await service.OverrideAdaptiveThemeAsync(created.Id, "infidelity");
+
+        var overridden = await service.GetSessionAsync(created.Id);
+        Assert.NotNull(overridden);
+        overridden!.AdaptiveState.CurrentNarrativePhase = DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Committed;
+        overridden.AdaptiveState.InteractionsSinceCommitment = 9;
+        await service.SaveSessionAsync(overridden);
+
+        await service.AddInteractionAsync(created.Id, ContinueAsActor.You, "dominate command obey control push harder");
+
+        var reloaded = await service.GetSessionAsync(created.Id);
+        Assert.NotNull(reloaded);
+        Assert.Equal("infidelity", reloaded!.AdaptiveState.ActiveScenarioId);
+        Assert.Equal("infidelity", reloaded.AdaptiveState.ThemeTracker.PrimaryThemeId);
+        Assert.Equal("ManualOverride", reloaded.AdaptiveState.ThemeTracker.ThemeSelectionRule);
+    }
+
+    [Fact]
+    public async Task RunRolePlayV2PipelinesAsync_NextPhase_AppliesPhaseOverrideLockForActiveRun()
+    {
+        var repository = new FakeRolePlayV2StateRepository();
+        var (service, _) = CreateService(repository);
+        var created = await service.CreateSessionAsync("Next Phase Lock Session");
+
+        var session = await service.GetSessionAsync(created.Id);
+        Assert.NotNull(session);
+        session!.AdaptiveState.ActiveScenarioId = "scenario-a";
+        session.AdaptiveState.CurrentNarrativePhase = DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Committed;
+        await repository.SaveAdaptiveStateAsync(new AdaptiveScenarioState
+        {
+            SessionId = session.Id,
+            ActiveScenarioId = "scenario-a",
+            CurrentPhase = NarrativePhase.Committed,
+            ActiveFormulaVersion = "rpv2-default",
+            LastEvaluationUtc = DateTime.UtcNow
+        });
+
+        await InvokeRunRolePlayV2PipelineAsync(service, session, NarrativePhase.Approaching);
+
+        var reloaded = await service.GetSessionAsync(created.Id);
+        Assert.NotNull(reloaded);
+        Assert.Equal(DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Approaching, reloaded!.AdaptiveState.CurrentNarrativePhase);
+        Assert.Equal(DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Approaching, reloaded.AdaptiveState.PhaseOverrideFloor);
+        Assert.Equal("scenario-a", reloaded.AdaptiveState.PhaseOverrideScenarioId);
+        Assert.Equal(reloaded.AdaptiveState.CompletedScenarios, reloaded.AdaptiveState.PhaseOverrideCycleIndex);
+        Assert.Equal("/nextphase", reloaded.AdaptiveState.PhaseOverrideSource);
+        Assert.NotNull(reloaded.AdaptiveState.PhaseOverrideAppliedUtc);
+    }
+
+    [Fact]
+    public async Task SubmitPromptAsync_ActivePhaseFloor_PreventsBackslide()
+    {
+        var repository = new FakeRolePlayV2StateRepository();
+        var (service, _) = CreateService(repository);
+        var created = await service.CreateSessionAsync("Next Phase Floor Session");
+
+        var staleState = new AdaptiveScenarioState
+        {
+            SessionId = created.Id,
+            ActiveScenarioId = "scenario-a",
+            CurrentPhase = NarrativePhase.BuildUp,
+            InteractionCountInPhase = 0,
+            ConsecutiveLeadCount = 0,
+            LastEvaluationUtc = DateTime.UtcNow,
+            CycleIndex = 0,
+            ActiveFormulaVersion = "rpv2-default",
+            PhaseOverrideFloor = NarrativePhase.Approaching,
+            PhaseOverrideScenarioId = "scenario-a",
+            PhaseOverrideCycleIndex = 0,
+            PhaseOverrideSource = "/nextphase",
+            PhaseOverrideAppliedUtc = DateTime.UtcNow
+        };
+        await repository.SaveAdaptiveStateAsync(staleState);
+
+        var session = await service.GetSessionAsync(created.Id);
+        Assert.NotNull(session);
+        session!.AdaptiveState.ActiveScenarioId = "scenario-a";
+        session.AdaptiveState.CurrentNarrativePhase = DreamGenClone.Domain.StoryAnalysis.NarrativePhase.BuildUp;
+        await service.SaveSessionAsync(session);
+
+        await service.SubmitPromptAsync(new UnifiedPromptSubmission
+        {
+            SessionId = created.Id,
+            PromptText = "continue naturally",
+            Intent = PromptIntent.Instruction,
+            SelectedIdentityId = string.Empty,
+            SelectedIdentityType = IdentityOptionSource.Persona,
+            BehaviorModeAtSubmit = BehaviorMode.TakeTurns,
+            SubmittedVia = SubmissionSource.SendButton
+        });
+
+        var reloaded = await service.GetSessionAsync(created.Id);
+        Assert.NotNull(reloaded);
+        Assert.Equal(DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Approaching, reloaded!.AdaptiveState.CurrentNarrativePhase);
+        Assert.Equal(DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Approaching, reloaded.AdaptiveState.PhaseOverrideFloor);
+    }
+
+    [Fact]
+    public async Task RunRolePlayV2PipelinesAsync_NextPhaseFromClimax_ClearsPhaseOverrideLockOnReset()
+    {
+        var repository = new FakeRolePlayV2StateRepository();
+        var (service, _) = CreateService(repository);
+        var created = await service.CreateSessionAsync("Next Phase Reset Session");
+
+        var session = await service.GetSessionAsync(created.Id);
+        Assert.NotNull(session);
+        session!.AdaptiveState.ActiveScenarioId = "scenario-a";
+        session.AdaptiveState.CurrentNarrativePhase = DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Climax;
+        await repository.SaveAdaptiveStateAsync(new AdaptiveScenarioState
+        {
+            SessionId = session.Id,
+            ActiveScenarioId = "scenario-a",
+            CurrentPhase = NarrativePhase.Climax,
+            ActiveFormulaVersion = "rpv2-default",
+            LastEvaluationUtc = DateTime.UtcNow
+        });
+
+        await InvokeRunRolePlayV2PipelineAsync(service, session, NarrativePhase.Reset);
+
+        var reloaded = await service.GetSessionAsync(created.Id);
+        Assert.NotNull(reloaded);
+        Assert.Equal(DreamGenClone.Domain.StoryAnalysis.NarrativePhase.BuildUp, reloaded!.AdaptiveState.CurrentNarrativePhase);
+        Assert.Null(reloaded.AdaptiveState.PhaseOverrideFloor);
+        Assert.Null(reloaded.AdaptiveState.PhaseOverrideScenarioId);
+        Assert.Null(reloaded.AdaptiveState.PhaseOverrideCycleIndex);
+        Assert.Null(reloaded.AdaptiveState.PhaseOverrideSource);
+        Assert.Null(reloaded.AdaptiveState.PhaseOverrideAppliedUtc);
+    }
+
+    [Fact]
+    public async Task SubmitPromptAsync_Steer_DoesNotProgressPhaseState()
+    {
+        var repository = new FakeRolePlayV2StateRepository();
+        var (service, _) = CreateService(repository);
+        var created = await service.CreateSessionAsync("Steer Session");
+
+        var baseline = new AdaptiveScenarioState
+        {
+            SessionId = created.Id,
+            ActiveScenarioId = "scenario-a",
+            CurrentPhase = NarrativePhase.Committed,
+            InteractionCountInPhase = 7,
+            ConsecutiveLeadCount = 2,
+            LastEvaluationUtc = DateTime.UtcNow,
+            CycleIndex = 0,
+            ActiveFormulaVersion = "rpv2-default"
+        };
+        await repository.SaveAdaptiveStateAsync(baseline);
+
+        var session = await service.GetSessionAsync(created.Id);
+        Assert.NotNull(session);
+        session!.AdaptiveState.ActiveScenarioId = "scenario-a";
+        session.AdaptiveState.CurrentNarrativePhase = DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Committed;
+        await service.SaveSessionAsync(session);
+
+        var interaction = await service.SubmitPromptAsync(new UnifiedPromptSubmission
+        {
+            SessionId = created.Id,
+            PromptText = "/steer increase emotional tension with subtle jealousy cues",
+            Intent = PromptIntent.Instruction,
+            SelectedIdentityId = string.Empty,
+            SelectedIdentityType = IdentityOptionSource.Persona,
+            BehaviorModeAtSubmit = BehaviorMode.TakeTurns,
+            SubmittedVia = SubmissionSource.SendButton
+        });
+
+        Assert.Equal("Instruction", interaction.ActorName);
+
+        var persisted = await repository.LoadAdaptiveStateAsync(created.Id);
+        Assert.NotNull(persisted);
+        Assert.Equal(NarrativePhase.Committed, persisted!.CurrentPhase);
+        Assert.Equal(7, persisted.InteractionCountInPhase);
+
+        var reloaded = await service.GetSessionAsync(created.Id);
+        Assert.NotNull(reloaded);
+        Assert.Equal(DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Committed, reloaded!.AdaptiveState.CurrentNarrativePhase);
+    }
+
+    private static async Task InvokeRunRolePlayV2PipelineAsync(
+        RolePlayEngineService service,
+        RolePlaySession session,
+        NarrativePhase manualTarget)
+    {
+        var method = typeof(RolePlayEngineService).GetMethod(
+            "RunRolePlayV2PipelinesAsync",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+
+        var invokeResult = method!.Invoke(service,
+        [
+            session,
+            DecisionTrigger.InteractionStart,
+            CancellationToken.None,
+            false,
+            manualTarget
+        ]);
+
+        var task = Assert.IsAssignableFrom<Task>(invokeResult);
+        await task;
+    }
+
+    [Fact]
     public async Task BuildScenarioCandidates_CompletedScenarioPenalty_DemotesRepeatedTheme()
     {
         var service = RolePlayTestFactory.CreateEngineService();
@@ -471,6 +771,7 @@ public sealed class RolePlaySessionLifecycleTests
             new RolePlayTestFactory.NullRolePlayDebugEventSink(),
             NullLogger<RolePlayEngineService>.Instance,
             decisionPointService: new DecisionPointService(NullLogger<DecisionPointService>.Instance),
+            scenarioLifecycleService: new ScenarioLifecycleService(NullLogger<ScenarioLifecycleService>.Instance),
             v2StateRepository: v2StateRepository);
 
         return (service, fakeSessionService);
@@ -582,11 +883,20 @@ public sealed class RolePlaySessionLifecycleTests
 
     private sealed class FakeRolePlayV2StateRepository : IRolePlayV2StateRepository
     {
+        private readonly Dictionary<string, AdaptiveScenarioState> _states = new(StringComparer.OrdinalIgnoreCase);
         private readonly List<DecisionPoint> _points = [];
         private readonly Dictionary<string, IReadOnlyList<DecisionOption>> _options = new(StringComparer.OrdinalIgnoreCase);
 
-        public Task SaveAdaptiveStateAsync(AdaptiveScenarioState state, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task<AdaptiveScenarioState?> LoadAdaptiveStateAsync(string sessionId, CancellationToken cancellationToken = default) => Task.FromResult<AdaptiveScenarioState?>(null);
+        public Task SaveAdaptiveStateAsync(AdaptiveScenarioState state, CancellationToken cancellationToken = default)
+        {
+            _states[state.SessionId] = CloneState(state);
+            return Task.CompletedTask;
+        }
+
+        public Task<AdaptiveScenarioState?> LoadAdaptiveStateAsync(string sessionId, CancellationToken cancellationToken = default)
+            => Task.FromResult(_states.TryGetValue(sessionId, out var state)
+                ? CloneState(state)
+                : null);
         public Task SaveCandidateEvaluationsAsync(IReadOnlyList<ScenarioCandidateEvaluation> evaluations, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task<IReadOnlyList<ScenarioCandidateEvaluation>> LoadCandidateEvaluationsAsync(string sessionId, int take = 50, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ScenarioCandidateEvaluation>>([]);
         public Task SaveTransitionEventAsync(NarrativePhaseTransitionEvent transitionEvent, CancellationToken cancellationToken = default) => Task.CompletedTask;
@@ -621,6 +931,67 @@ public sealed class RolePlaySessionLifecycleTests
         public Task SaveFormulaVersionReferenceAsync(string sessionId, FormulaConfigVersion version, int cycleIndex, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task SaveUnsupportedSessionErrorAsync(UnsupportedSessionError error, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task<IReadOnlyList<UnsupportedSessionError>> LoadUnsupportedSessionErrorsAsync(string sessionId, int take = 20, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<UnsupportedSessionError>>([]);
+
+        private static AdaptiveScenarioState CloneState(AdaptiveScenarioState state)
+        {
+            return new AdaptiveScenarioState
+            {
+                SessionId = state.SessionId,
+                ActiveScenarioId = state.ActiveScenarioId,
+                ActiveVariantId = state.ActiveVariantId,
+                CurrentPhase = state.CurrentPhase,
+                InteractionCountInPhase = state.InteractionCountInPhase,
+                ConsecutiveLeadCount = state.ConsecutiveLeadCount,
+                LastEvaluationUtc = state.LastEvaluationUtc,
+                CycleIndex = state.CycleIndex,
+                ActiveFormulaVersion = state.ActiveFormulaVersion,
+                SelectedWillingnessProfileId = state.SelectedWillingnessProfileId,
+                SelectedNarrativeGateProfileId = state.SelectedNarrativeGateProfileId,
+                HusbandAwarenessProfileId = state.HusbandAwarenessProfileId,
+                PhaseOverrideFloor = state.PhaseOverrideFloor,
+                PhaseOverrideScenarioId = state.PhaseOverrideScenarioId,
+                PhaseOverrideCycleIndex = state.PhaseOverrideCycleIndex,
+                PhaseOverrideSource = state.PhaseOverrideSource,
+                PhaseOverrideAppliedUtc = state.PhaseOverrideAppliedUtc,
+                CurrentSceneLocation = state.CurrentSceneLocation,
+                CharacterLocations = state.CharacterLocations
+                    .Select(x => new CharacterLocationState
+                    {
+                        CharacterId = x.CharacterId,
+                        TrueLocation = x.TrueLocation,
+                        IsHidden = x.IsHidden,
+                        UpdatedUtc = x.UpdatedUtc
+                    })
+                    .ToList(),
+                CharacterLocationPerceptions = state.CharacterLocationPerceptions
+                    .Select(x => new CharacterLocationPerceptionState
+                    {
+                        ObserverCharacterId = x.ObserverCharacterId,
+                        TargetCharacterId = x.TargetCharacterId,
+                        PerceivedLocation = x.PerceivedLocation,
+                        Confidence = x.Confidence,
+                        HasLineOfSight = x.HasLineOfSight,
+                        IsInProximity = x.IsInProximity,
+                        KnowledgeSource = x.KnowledgeSource,
+                        UpdatedUtc = x.UpdatedUtc
+                    })
+                    .ToList(),
+                CharacterSnapshots = state.CharacterSnapshots
+                    .Select(x => new CharacterStatProfileV2
+                    {
+                        CharacterId = x.CharacterId,
+                        Desire = x.Desire,
+                        Restraint = x.Restraint,
+                        Tension = x.Tension,
+                        Connection = x.Connection,
+                        Dominance = x.Dominance,
+                        Loyalty = x.Loyalty,
+                        SelfRespect = x.SelfRespect,
+                        SnapshotUtc = x.SnapshotUtc
+                    })
+                    .ToList()
+            };
+        }
     }
 
     private static async Task CreateV2TablesAsync(string dbPath)
@@ -640,7 +1011,13 @@ public sealed class RolePlaySessionLifecycleTests
                 CycleIndex INTEGER NOT NULL,
                 ActiveFormulaVersion TEXT NOT NULL,
                 SelectedWillingnessProfileId TEXT NULL,
+                SelectedNarrativeGateProfileId TEXT NULL,
                 HusbandAwarenessProfileId TEXT NULL,
+                PhaseOverrideFloor TEXT NULL,
+                PhaseOverrideScenarioId TEXT NULL,
+                PhaseOverrideCycleIndex INTEGER NULL,
+                PhaseOverrideSource TEXT NULL,
+                PhaseOverrideAppliedUtc TEXT NULL,
                 CurrentSceneLocation TEXT NULL,
                 CharacterLocationsJson TEXT NOT NULL DEFAULT '[]',
                 CharacterLocationPerceptionsJson TEXT NOT NULL DEFAULT '[]',

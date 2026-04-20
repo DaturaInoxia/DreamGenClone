@@ -49,7 +49,10 @@ public sealed class LifecycleInputs
 {
     public bool ForceReset { get; init; }
     public bool ManualOverride { get; init; }
+    public NarrativePhase? ManualAdvanceTargetPhase { get; init; }
     public bool ClimaxCompletionRequested { get; init; }
+    public string? NarrativeGateProfileId { get; init; }
+    public bool SkipDefaultNarrativeGateProfileFallback { get; init; }
     public int InteractionsSinceCommitment { get; init; }
     public decimal ActiveScenarioConfidence { get; init; }
     public decimal ActiveScenarioFitScore { get; init; }

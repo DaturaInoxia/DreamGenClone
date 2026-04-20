@@ -19,22 +19,23 @@ public sealed class BehaviorModeService : IBehaviorModeService
         _logger.LogInformation("Role-play mode changed for session {SessionId}: {Mode}", session.Id, mode);
     }
 
-    public bool IsContinuationAllowed(BehaviorMode mode, ContinueAsActor actor)
+    public bool IsContinuationAllowed(BehaviorMode mode, ContinueAsActor actor, bool explicitSelection = false)
     {
         return mode switch
         {
             BehaviorMode.TakeTurns => true,
-            BehaviorMode.Spectate => actor != ContinueAsActor.You,
+            BehaviorMode.Spectate => actor != ContinueAsActor.You || explicitSelection,
             BehaviorMode.NpcOnly => actor == ContinueAsActor.Npc,
             _ => false
         };
     }
 
-    public IReadOnlyList<ContinueAsActor> GetAllowedActors(BehaviorMode mode)
+    public IReadOnlyList<ContinueAsActor> GetAllowedActors(BehaviorMode mode, bool explicitSelection = false)
     {
         return mode switch
         {
             BehaviorMode.TakeTurns => [ContinueAsActor.You, ContinueAsActor.Npc, ContinueAsActor.Custom],
+            BehaviorMode.Spectate when explicitSelection => [ContinueAsActor.You, ContinueAsActor.Npc, ContinueAsActor.Custom],
             BehaviorMode.Spectate => [ContinueAsActor.Npc, ContinueAsActor.Custom],
             BehaviorMode.NpcOnly => [ContinueAsActor.Npc],
             _ => []

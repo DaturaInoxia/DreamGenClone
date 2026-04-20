@@ -6,6 +6,56 @@ namespace DreamGenClone.Web.Application.RolePlay;
 
 public static class RolePlayAssistantPrompts
 {
+    public static IReadOnlyList<string> GetThemePhaseGuidanceLines(
+        RPTheme? activeTheme,
+        string phase,
+        int maxLines = 3)
+    {
+        if (activeTheme is null || activeTheme.PhaseGuidance.Count == 0)
+        {
+            return [];
+        }
+
+        var clampedMax = Math.Clamp(maxLines, 1, 8);
+        return activeTheme.PhaseGuidance
+            .Where(x => string.Equals(x.Phase.ToString(), phase, StringComparison.OrdinalIgnoreCase))
+            .Where(x => !string.IsNullOrWhiteSpace(x.GuidanceText))
+            .Select(x => x.GuidanceText.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(clampedMax)
+            .ToList();
+    }
+
+    public static IReadOnlyList<RPThemeAIGuidanceNote> GetPhaseRelevantThemeAIGuidanceNotes(
+        RPTheme? activeTheme,
+        string phase,
+        int maxNotes,
+        bool includeFormulaNotes = false)
+    {
+        if (activeTheme is null || activeTheme.AIGenerationNotes.Count == 0)
+        {
+            return [];
+        }
+
+        var clampedMax = Math.Clamp(maxNotes, 1, 12);
+        var phaseWeights = BuildSectionWeightsForPhase(phase);
+
+        return activeTheme.AIGenerationNotes
+            .Where(x => !string.IsNullOrWhiteSpace(x.Text))
+            .Where(x => includeFormulaNotes || x.Section != RPThemeAIGuidanceSection.FitFormula)
+            .Select(x => new
+            {
+                Note = x,
+                SectionWeight = phaseWeights.TryGetValue(x.Section, out var w) ? w : 999
+            })
+            .OrderBy(x => x.SectionWeight)
+            .ThenBy(x => x.Note.SortOrder)
+            .Select(x => x.Note)
+            .DistinctBy(x => x.Text.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Take(clampedMax)
+            .ToList();
+    }
+
     public static void AppendScenarioGuidance(
         StringBuilder promptBuilder,
         ScenarioGuidanceContext guidance,
@@ -80,24 +130,8 @@ public static class RolePlayAssistantPrompts
 
         var clampedMax = Math.Clamp(maxNotes, 1, 12);
         var weightedMax = Math.Clamp((int)Math.Round(clampedMax * (clampedInfluence / 100.0), MidpointRounding.AwayFromZero), 1, clampedMax);
-
-        var phaseWeights = BuildSectionWeightsForPhase(phase);
         var includeFormula = clampedInfluence >= 60;
-
-        var selectedNotes = activeTheme.AIGenerationNotes
-            .Where(x => !string.IsNullOrWhiteSpace(x.Text))
-            .Where(x => includeFormula || x.Section != RPThemeAIGuidanceSection.FitFormula)
-            .Select(x => new
-            {
-                Note = x,
-                SectionWeight = phaseWeights.TryGetValue(x.Section, out var w) ? w : 999
-            })
-            .OrderBy(x => x.SectionWeight)
-            .ThenBy(x => x.Note.SortOrder)
-            .Select(x => x.Note)
-            .DistinctBy(x => x.Text.Trim(), StringComparer.OrdinalIgnoreCase)
-            .Take(weightedMax)
-            .ToList();
+        var selectedNotes = GetPhaseRelevantThemeAIGuidanceNotes(activeTheme, phase, weightedMax, includeFormula);
 
         if (selectedNotes.Count == 0)
         {

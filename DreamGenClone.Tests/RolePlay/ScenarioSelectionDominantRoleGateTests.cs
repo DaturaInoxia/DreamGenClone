@@ -86,7 +86,8 @@ public sealed class ScenarioSelectionDominantRoleGateTests
             NullLogger<ScenarioSelectionService>.Instance,
             new FakeThemeCatalogService(),
             new FakeCharacterStateScenarioMapper(fitResults),
-            options);
+            narrativeGateProfileService: null,
+            options: options);
     }
 
     private sealed class FakeThemeCatalogService : IThemeCatalogService

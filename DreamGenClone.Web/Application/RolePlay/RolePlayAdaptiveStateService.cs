@@ -14,7 +14,6 @@ namespace DreamGenClone.Web.Application.RolePlay;
 public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
 {
     private const int MaxAdaptiveTransitionHistory = 25;
-    private const int ManualScenarioOverrideLockInteractions = 8;
     private const int DefaultThemeAffinityStackLimit = 1;
     private const int DefaultEarlyTurnInteractionThreshold = 3;
     private const int DefaultEarlyTurnPerStatDeltaCap = 2;
@@ -1004,11 +1003,17 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             return false;
         }
 
-        return state.InteractionsSinceCommitment < ManualScenarioOverrideLockInteractions;
+        // Manual override stays pinned until the user explicitly changes it.
+        return true;
     }
 
     private bool TryPivotActiveScenarioFromThemeMomentum(RolePlayAdaptiveState state)
     {
+        if (string.Equals(state.ThemeTracker.ThemeSelectionRule, "ManualOverride", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
         if (string.IsNullOrWhiteSpace(state.ActiveScenarioId))
         {
             return false;
@@ -1185,8 +1190,12 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
                 state.InteractionsSinceCommitment,
                 state.InteractionsInApproaching,
                 ExplicitClimaxRequested: ContainsCommand(interaction.Content, ["/climax"])
-                    || ContainsAny(interaction.Content, ["trigger climax"]),
-                ClimaxCompletionDetected: ContainsCommand(interaction.Content, ["/completeclimax", "/endclimax", "/end-climax"]),
+                    || ContainsAny(interaction.Content, ["trigger climax"])
+                    || (ContainsCommand(interaction.Content, ["/nextphase"])
+                        && state.CurrentNarrativePhase == NarrativePhase.Approaching),
+                ClimaxCompletionDetected: ContainsCommand(interaction.Content, ["/completeclimax", "/endclimax", "/end-climax"])
+                    || (ContainsCommand(interaction.Content, ["/nextphase"])
+                        && state.CurrentNarrativePhase == NarrativePhase.Climax),
                 ManualScenarioOverrideRequested: false,
                 ManualOverrideScenarioId: null,
                 CompletedScenarios: state.CompletedScenarios),

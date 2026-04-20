@@ -66,7 +66,7 @@
             <button type="button" class="nav-link @GetTabClass("willingness")" @onclick='() => _activeTab = "willingness"'>Willingness</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button type="button" class="nav-link @GetTabClass("narrative-gates")" @onclick='() => _activeTab = "narrative-gates"'>Narrative Gates</button>
+            <button type="button" class="nav-link @GetTabClass("narrative-gates")" @onclick='() => _activeTab = "narrative-gates"'>Narrative Gate Values</button>
         </li>
         <li class="nav-item" role="presentation">
             <button type="button" class="nav-link @GetTabClass("husband-awareness")" @onclick='() => _activeTab = "husband-awareness"'>Husband Awareness</button>
@@ -1196,6 +1196,11 @@
     else if (_activeTab == "narrative-gates")
     {
         <div class="row g-4">
+            <div class="col-12">
+                <div class="alert alert-info py-2 mb-0">
+                    This tab is where all phase gate values are edited (BuildUp->Committed, Committed->Approaching, Approaching->Climax, Climax->Reset).
+                </div>
+            </div>
             <div class="col-lg-4">
                 <div class="card h-100">
                     <div class="card-header d-flex justify-content-between align-items-center">
@@ -1788,8 +1793,29 @@
     [Parameter]
     public string? ProfileId { get; set; }
 
+    [Parameter]
+    [SupplyParameterFromQuery(Name = "tab")]
+    public string? Tab { get; set; }
+
     private string _activeTab = "ranking";
     private bool _isBusy;
+    private static readonly HashSet<string> _validTabs =
+    [
+        "ranking",
+        "tone",
+        "style",
+        "catalog",
+        "definitions",
+        "scenario-definitions",
+        "base-stats",
+        "willingness",
+        "narrative-gates",
+        "husband-awareness",
+        "roles",
+        "background-characters",
+        "flow-guide",
+        "perspective"
+    ];
 
     private List<ThemeProfile> _profiles = [];
     private string? _selectedProfileId;
@@ -1977,6 +2003,15 @@
 
     protected override async Task OnParametersSetAsync()
     {
+        if (!string.IsNullOrWhiteSpace(Tab))
+        {
+            var requestedTab = Tab.Trim().ToLowerInvariant();
+            if (_validTabs.Contains(requestedTab))
+            {
+                _activeTab = requestedTab;
+            }
+        }
+
         await ReloadAsync();
 
         if (!string.IsNullOrWhiteSpace(ProfileId))

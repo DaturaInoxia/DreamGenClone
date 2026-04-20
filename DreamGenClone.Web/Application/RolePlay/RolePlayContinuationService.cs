@@ -712,11 +712,12 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         var framingGuards = RolePlayAssistantPrompts.BuildFramingGuards(currentPhase, activeScenarioId);
         RolePlayAssistantPrompts.AppendScenarioGuidance(sb, guidanceContext, framingGuards);
 
+        RPTheme? activeTheme = null;
+
         if (session.UseRpThemeSubsystem
             && _rpThemeService is not null
             && !string.IsNullOrWhiteSpace(activeScenarioId))
         {
-            RPTheme? activeTheme = null;
             try
             {
                 activeTheme = await _rpThemeService.GetThemeAsync(activeScenarioId, cancellationToken);
@@ -737,6 +738,35 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                     session.ThemeAIGuidanceInfluencePercent,
                     session.MaxThemeAIGuidanceNotes);
             }
+        }
+
+        // Steer guidance should still be phase/theme grounded whenever we have an active scenario
+        // that maps to an RP theme, even if the RP theme subsystem flag is disabled.
+        if (activeTheme is null
+            && _rpThemeService is not null
+            && !string.IsNullOrWhiteSpace(activeScenarioId))
+        {
+            try
+            {
+                activeTheme = await _rpThemeService.GetThemeAsync(activeScenarioId, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Unable to load RP theme for steer grounding {ThemeId} in session {SessionId}.", activeScenarioId, session.Id);
+            }
+        }
+
+        var steerDirective = ResolveSteerDirective(session, promptText, intent);
+        if (!string.IsNullOrWhiteSpace(steerDirective))
+        {
+            AppendSteerGuidance(
+                sb,
+                session,
+                currentPhase,
+                activeTheme,
+                steerDirective,
+                session.UseThemeAIGuidanceNotesInPrompt,
+                session.MaxThemeAIGuidanceNotes);
         }
 
         _logger.LogInformation(
@@ -994,6 +1024,133 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
 
         sb.AppendLine("- Treat this theme description as a primary scene contract for the next response.");
         sb.AppendLine("- If multiple continuations are possible, choose the one that best matches this theme description while preserving continuity and safety constraints.");
+    }
+
+    private static void AppendSteerGuidance(
+        StringBuilder sb,
+        RolePlaySession session,
+        string currentPhase,
+        RPTheme? activeTheme,
+        string steerDirective,
+        bool includeThemeNotes,
+        int maxThemeNotes)
+    {
+        sb.AppendLine("Steer Flow Guidance:");
+        sb.AppendLine($"- Requested steer direction: {steerDirective}");
+        sb.AppendLine($"- Current narrative phase: {currentPhase}");
+
+        var location = session.AdaptiveState.CurrentSceneLocation;
+        if (!string.IsNullOrWhiteSpace(location))
+        {
+            sb.AppendLine($"- Keep this steer plausible for the current surroundings at '{location}'.");
+            sb.AppendLine("- If the steer implies changing location, add an explicit transition beat before characters arrive in a new place.");
+        }
+
+        if (session.AdaptiveState.CharacterLocations.Count > 0)
+        {
+            sb.AppendLine("- Respect known character locations and perception limits (line-of-sight/proximity). Do not imply impossible awareness.");
+        }
+
+        if (activeTheme is not null)
+        {
+            var themeLabel = string.IsNullOrWhiteSpace(activeTheme.Label) ? activeTheme.Id : activeTheme.Label;
+            sb.AppendLine($"- Active theme anchor: {themeLabel} ({activeTheme.Id}).");
+
+            var phaseGuidance = RolePlayAssistantPrompts.GetThemePhaseGuidanceLines(activeTheme, currentPhase, maxLines: 3);
+            if (phaseGuidance.Count > 0)
+            {
+                sb.AppendLine($"- Apply theme phase guidance for {currentPhase}:");
+                foreach (var line in phaseGuidance)
+                {
+                    sb.AppendLine($"  - {line}");
+                }
+            }
+
+            if (includeThemeNotes)
+            {
+                var notes = RolePlayAssistantPrompts.GetPhaseRelevantThemeAIGuidanceNotes(
+                    activeTheme,
+                    currentPhase,
+                    Math.Clamp(maxThemeNotes, 1, 6),
+                    includeFormulaNotes: false);
+                if (notes.Count > 0)
+                {
+                    sb.AppendLine("- Relevant theme AI guidance notes for this phase:");
+                    foreach (var note in notes)
+                    {
+                        sb.AppendLine($"  - [{note.Section}] {note.Text.Trim()}");
+                    }
+                }
+            }
+        }
+        else
+        {
+            var availableThemes = session.AdaptiveState.ThemeTracker.Themes.Values
+                .Where(x => !x.Blocked)
+                .OrderByDescending(x => x.Score)
+                .Take(3)
+                .ToList();
+
+            if (availableThemes.Count > 0)
+            {
+                sb.AppendLine("- No active theme is currently locked. Guide direction toward one of these available high-fit themes:");
+                foreach (var theme in availableThemes)
+                {
+                    var name = string.IsNullOrWhiteSpace(theme.ThemeName) ? theme.ThemeId : theme.ThemeName;
+                    sb.AppendLine($"  - {name} ({theme.ThemeId}), score={theme.Score:F1}, intensity={theme.Intensity}");
+                }
+                sb.AppendLine("- Choose a direction that naturally increases coherence with one of the above themes without abrupt pivots.");
+            }
+            else
+            {
+                sb.AppendLine("- No active or available themes are established yet. Steer toward a coherent, phase-appropriate direction and preserve scene plausibility.");
+            }
+        }
+    }
+
+    private static bool TryExtractSteerDirective(string promptText, out string directive)
+    {
+        directive = string.Empty;
+        if (string.IsNullOrWhiteSpace(promptText))
+        {
+            return false;
+        }
+
+        var raw = promptText.Trim();
+        if (!raw.StartsWith("/steer", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var remaining = raw.Length > 6 ? raw[6..].Trim() : string.Empty;
+        directive = string.IsNullOrWhiteSpace(remaining)
+            ? "Steer the scene in a meaningful, phase-consistent direction."
+            : remaining;
+        return true;
+    }
+
+    private static string? ResolveSteerDirective(RolePlaySession session, string promptText, PromptIntent intent)
+    {
+        if (intent == PromptIntent.Instruction
+            && TryExtractSteerDirective(promptText, out var currentDirective))
+        {
+            return currentDirective;
+        }
+
+        foreach (var interaction in session.Interactions.AsEnumerable().Reverse())
+        {
+            if (!string.Equals(interaction.ActorName, "Instruction", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (TryExtractSteerDirective(interaction.Content, out var historicalDirective))
+            {
+                return historicalDirective;
+            }
+        }
+
+        return null;
     }
 
     private static string ResolvePromptActorLabel(RolePlaySession session, string? actorIdOrName)

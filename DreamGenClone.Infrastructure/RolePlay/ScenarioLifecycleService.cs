@@ -22,9 +22,20 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
         LifecycleInputs inputs,
         CancellationToken cancellationToken = default)
     {
-        var profile = _gateProfileService is null
-            ? null
-            : await _gateProfileService.GetDefaultAsync(cancellationToken);
+        NarrativeGateProfile? profile = null;
+        if (_gateProfileService is not null)
+        {
+            if (!string.IsNullOrWhiteSpace(inputs.NarrativeGateProfileId))
+            {
+                profile = await _gateProfileService.GetAsync(inputs.NarrativeGateProfileId, cancellationToken);
+            }
+
+            if (!inputs.SkipDefaultNarrativeGateProfileFallback)
+            {
+                profile ??= await _gateProfileService.GetDefaultAsync(cancellationToken);
+            }
+        }
+
         var (transitioned, targetPhase, triggerType, reasonCode) = ResolveTransition(state, inputs, profile);
         if (!transitioned)
         {
@@ -55,8 +66,10 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
                 averageDesire,
                 averageRestraint,
                 inputs.EvidenceSummary,
+                inputs.NarrativeGateProfileId,
                 inputs.ForceReset,
                 inputs.ManualOverride,
+                ManualAdvanceTargetPhase = inputs.ManualAdvanceTargetPhase?.ToString(),
                 inputs.ClimaxCompletionRequested
             }),
             OccurredUtc = DateTime.UtcNow
@@ -164,6 +177,12 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
             return (true, NarrativePhase.Reset, TransitionTriggerType.Reset, "FORCE_RESET");
         }
 
+        if (inputs.ManualAdvanceTargetPhase.HasValue
+            && GetPhaseOrder(inputs.ManualAdvanceTargetPhase.Value) > GetPhaseOrder(state.CurrentPhase))
+        {
+            return (true, inputs.ManualAdvanceTargetPhase.Value, TransitionTriggerType.Override, "MANUAL_NEXT_PHASE");
+        }
+
         var averageDesire = GetAverageStat(state, static snapshot => snapshot.Desire);
         var averageRestraint = GetAverageStat(state, static snapshot => snapshot.Restraint);
         var metricValues = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
@@ -232,6 +251,17 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
 
         return (decimal)state.CharacterSnapshots.Average(x => selector(x));
     }
+
+    private static int GetPhaseOrder(NarrativePhase phase)
+        => phase switch
+        {
+            NarrativePhase.BuildUp => 0,
+            NarrativePhase.Committed => 1,
+            NarrativePhase.Approaching => 2,
+            NarrativePhase.Climax => 3,
+            NarrativePhase.Reset => 4,
+            _ => 0
+        };
 
     private static bool EvaluateConfiguredGate(
         NarrativeGateProfile? profile,

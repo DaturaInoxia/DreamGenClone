@@ -6,7 +6,7 @@ public interface IBehaviorModeService
 {
     void SetMode(RolePlaySession session, BehaviorMode mode);
 
-    bool IsContinuationAllowed(BehaviorMode mode, ContinueAsActor actor);
+    bool IsContinuationAllowed(BehaviorMode mode, ContinueAsActor actor, bool explicitSelection = false);
 
-    IReadOnlyList<ContinueAsActor> GetAllowedActors(BehaviorMode mode);
+    IReadOnlyList<ContinueAsActor> GetAllowedActors(BehaviorMode mode, bool explicitSelection = false);
 }

@@ -25,12 +25,16 @@ public sealed class RolePlayStateRepository : IRolePlayV2StateRepository
             INSERT INTO RolePlayV2AdaptiveStates (
                 SessionId, ActiveScenarioId, CurrentPhase, InteractionCountInPhase, ConsecutiveLeadCount,
                 LastEvaluationUtc, CycleIndex, ActiveFormulaVersion, ActiveVariantId,
-                SelectedWillingnessProfileId, HusbandAwarenessProfileId, CurrentSceneLocation,
+                SelectedWillingnessProfileId, SelectedNarrativeGateProfileId, HusbandAwarenessProfileId,
+                PhaseOverrideFloor, PhaseOverrideScenarioId, PhaseOverrideCycleIndex, PhaseOverrideSource, PhaseOverrideAppliedUtc,
+                CurrentSceneLocation,
                 CharacterLocationsJson, CharacterLocationPerceptionsJson, CharacterSnapshotsJson, UpdatedUtc)
             VALUES (
                 $sessionId, $activeScenarioId, $currentPhase, $interactionCountInPhase, $consecutiveLeadCount,
                 $lastEvaluationUtc, $cycleIndex, $activeFormulaVersion, $activeVariantId,
-                $selectedWillingnessProfileId, $husbandAwarenessProfileId, $currentSceneLocation,
+                $selectedWillingnessProfileId, $selectedNarrativeGateProfileId, $husbandAwarenessProfileId,
+                $phaseOverrideFloor, $phaseOverrideScenarioId, $phaseOverrideCycleIndex, $phaseOverrideSource, $phaseOverrideAppliedUtc,
+                $currentSceneLocation,
                 $characterLocationsJson, $characterLocationPerceptionsJson, $characterSnapshotsJson, $updatedUtc)
             ON CONFLICT(SessionId) DO UPDATE SET
                 ActiveScenarioId = excluded.ActiveScenarioId,
@@ -42,7 +46,13 @@ public sealed class RolePlayStateRepository : IRolePlayV2StateRepository
                 ActiveFormulaVersion = excluded.ActiveFormulaVersion,
                 ActiveVariantId = excluded.ActiveVariantId,
                 SelectedWillingnessProfileId = excluded.SelectedWillingnessProfileId,
+                SelectedNarrativeGateProfileId = excluded.SelectedNarrativeGateProfileId,
                 HusbandAwarenessProfileId = excluded.HusbandAwarenessProfileId,
+                PhaseOverrideFloor = excluded.PhaseOverrideFloor,
+                PhaseOverrideScenarioId = excluded.PhaseOverrideScenarioId,
+                PhaseOverrideCycleIndex = excluded.PhaseOverrideCycleIndex,
+                PhaseOverrideSource = excluded.PhaseOverrideSource,
+                PhaseOverrideAppliedUtc = excluded.PhaseOverrideAppliedUtc,
                 CurrentSceneLocation = excluded.CurrentSceneLocation,
                 CharacterLocationsJson = excluded.CharacterLocationsJson,
                 CharacterLocationPerceptionsJson = excluded.CharacterLocationPerceptionsJson,
@@ -60,7 +70,13 @@ public sealed class RolePlayStateRepository : IRolePlayV2StateRepository
         command.Parameters.AddWithValue("$activeFormulaVersion", state.ActiveFormulaVersion);
         command.Parameters.AddWithValue("$activeVariantId", (object?)state.ActiveVariantId ?? DBNull.Value);
         command.Parameters.AddWithValue("$selectedWillingnessProfileId", (object?)state.SelectedWillingnessProfileId ?? DBNull.Value);
+        command.Parameters.AddWithValue("$selectedNarrativeGateProfileId", (object?)state.SelectedNarrativeGateProfileId ?? DBNull.Value);
         command.Parameters.AddWithValue("$husbandAwarenessProfileId", (object?)state.HusbandAwarenessProfileId ?? DBNull.Value);
+        command.Parameters.AddWithValue("$phaseOverrideFloor", state.PhaseOverrideFloor?.ToString() ?? (object)DBNull.Value);
+        command.Parameters.AddWithValue("$phaseOverrideScenarioId", (object?)state.PhaseOverrideScenarioId ?? DBNull.Value);
+        command.Parameters.AddWithValue("$phaseOverrideCycleIndex", state.PhaseOverrideCycleIndex ?? (object)DBNull.Value);
+        command.Parameters.AddWithValue("$phaseOverrideSource", (object?)state.PhaseOverrideSource ?? DBNull.Value);
+        command.Parameters.AddWithValue("$phaseOverrideAppliedUtc", state.PhaseOverrideAppliedUtc?.ToString("O") ?? (object)DBNull.Value);
         command.Parameters.AddWithValue("$currentSceneLocation", (object?)state.CurrentSceneLocation ?? DBNull.Value);
         command.Parameters.AddWithValue("$characterLocationsJson", JsonSerializer.Serialize(state.CharacterLocations));
         command.Parameters.AddWithValue("$characterLocationPerceptionsJson", JsonSerializer.Serialize(state.CharacterLocationPerceptions));
@@ -77,8 +93,9 @@ public sealed class RolePlayStateRepository : IRolePlayV2StateRepository
         command.CommandText = """
             SELECT SessionId, ActiveScenarioId, CurrentPhase, InteractionCountInPhase, ConsecutiveLeadCount,
                  LastEvaluationUtc, CycleIndex, ActiveFormulaVersion, ActiveVariantId,
-                  SelectedWillingnessProfileId, HusbandAwarenessProfileId, CurrentSceneLocation,
-                  CharacterLocationsJson, CharacterLocationPerceptionsJson, CharacterSnapshotsJson
+                                SelectedWillingnessProfileId, SelectedNarrativeGateProfileId, HusbandAwarenessProfileId,
+                                PhaseOverrideFloor, PhaseOverrideScenarioId, PhaseOverrideCycleIndex, PhaseOverrideSource, PhaseOverrideAppliedUtc,
+                                CurrentSceneLocation, CharacterLocationsJson, CharacterLocationPerceptionsJson, CharacterSnapshotsJson
             FROM RolePlayV2AdaptiveStates
             WHERE SessionId = $sessionId;
             """;
@@ -102,25 +119,77 @@ public sealed class RolePlayStateRepository : IRolePlayV2StateRepository
             ActiveFormulaVersion = reader.GetString(7),
             ActiveVariantId = reader.IsDBNull(8) ? null : reader.GetString(8),
             SelectedWillingnessProfileId = reader.IsDBNull(9) ? null : reader.GetString(9),
-            HusbandAwarenessProfileId = reader.IsDBNull(10) ? null : reader.GetString(10),
-            CurrentSceneLocation = reader.IsDBNull(11) ? null : reader.GetString(11),
-            CharacterLocations = reader.IsDBNull(12)
+            SelectedNarrativeGateProfileId = reader.IsDBNull(10) ? null : reader.GetString(10),
+            HusbandAwarenessProfileId = reader.IsDBNull(11) ? null : reader.GetString(11),
+            PhaseOverrideFloor = reader.IsDBNull(12)
+                ? null
+                : (Enum.TryParse<NarrativePhase>(reader.GetString(12), out var overrideFloor) ? overrideFloor : null),
+            PhaseOverrideScenarioId = reader.IsDBNull(13) ? null : reader.GetString(13),
+            PhaseOverrideCycleIndex = reader.IsDBNull(14) ? null : reader.GetInt32(14),
+            PhaseOverrideSource = reader.IsDBNull(15) ? null : reader.GetString(15),
+            PhaseOverrideAppliedUtc = reader.IsDBNull(16)
+                ? null
+                : (DateTime.TryParse(reader.GetString(16), out var overrideAppliedUtc) ? overrideAppliedUtc : null),
+            CurrentSceneLocation = reader.IsDBNull(17) ? null : reader.GetString(17),
+            CharacterLocations = reader.IsDBNull(18)
                 ? []
-                : (JsonSerializer.Deserialize<List<CharacterLocationState>>(reader.GetString(12)) ?? []),
-            CharacterLocationPerceptions = reader.IsDBNull(13)
+                : (JsonSerializer.Deserialize<List<CharacterLocationState>>(reader.GetString(18)) ?? []),
+            CharacterLocationPerceptions = reader.IsDBNull(19)
                 ? []
-                : (JsonSerializer.Deserialize<List<CharacterLocationPerceptionState>>(reader.GetString(13)) ?? []),
-            CharacterSnapshots = JsonSerializer.Deserialize<List<CharacterStatProfileV2>>(reader.GetString(14)) ?? []
+                : (JsonSerializer.Deserialize<List<CharacterLocationPerceptionState>>(reader.GetString(19)) ?? []),
+            CharacterSnapshots = JsonSerializer.Deserialize<List<CharacterStatProfileV2>>(reader.GetString(20)) ?? []
         };
     }
 
     private static async Task EnsureAdaptiveStateSchemaAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {
+        if (!await HasColumnAsync(connection, "RolePlayV2AdaptiveStates", "SelectedNarrativeGateProfileId", cancellationToken))
+        {
+            await using var addNarrativeGateProfile = connection.CreateCommand();
+            addNarrativeGateProfile.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN SelectedNarrativeGateProfileId TEXT NULL";
+            await addNarrativeGateProfile.ExecuteNonQueryAsync(cancellationToken);
+        }
+
         if (!await HasColumnAsync(connection, "RolePlayV2AdaptiveStates", "CurrentSceneLocation", cancellationToken))
         {
             await using var addCurrentSceneLocation = connection.CreateCommand();
             addCurrentSceneLocation.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN CurrentSceneLocation TEXT NULL";
             await addCurrentSceneLocation.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        if (!await HasColumnAsync(connection, "RolePlayV2AdaptiveStates", "PhaseOverrideFloor", cancellationToken))
+        {
+            await using var addPhaseOverrideFloor = connection.CreateCommand();
+            addPhaseOverrideFloor.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN PhaseOverrideFloor TEXT NULL";
+            await addPhaseOverrideFloor.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        if (!await HasColumnAsync(connection, "RolePlayV2AdaptiveStates", "PhaseOverrideScenarioId", cancellationToken))
+        {
+            await using var addPhaseOverrideScenarioId = connection.CreateCommand();
+            addPhaseOverrideScenarioId.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN PhaseOverrideScenarioId TEXT NULL";
+            await addPhaseOverrideScenarioId.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        if (!await HasColumnAsync(connection, "RolePlayV2AdaptiveStates", "PhaseOverrideCycleIndex", cancellationToken))
+        {
+            await using var addPhaseOverrideCycleIndex = connection.CreateCommand();
+            addPhaseOverrideCycleIndex.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN PhaseOverrideCycleIndex INTEGER NULL";
+            await addPhaseOverrideCycleIndex.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        if (!await HasColumnAsync(connection, "RolePlayV2AdaptiveStates", "PhaseOverrideSource", cancellationToken))
+        {
+            await using var addPhaseOverrideSource = connection.CreateCommand();
+            addPhaseOverrideSource.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN PhaseOverrideSource TEXT NULL";
+            await addPhaseOverrideSource.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        if (!await HasColumnAsync(connection, "RolePlayV2AdaptiveStates", "PhaseOverrideAppliedUtc", cancellationToken))
+        {
+            await using var addPhaseOverrideAppliedUtc = connection.CreateCommand();
+            addPhaseOverrideAppliedUtc.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN PhaseOverrideAppliedUtc TEXT NULL";
+            await addPhaseOverrideAppliedUtc.ExecuteNonQueryAsync(cancellationToken);
         }
 
         if (!await HasColumnAsync(connection, "RolePlayV2AdaptiveStates", "CharacterLocationsJson", cancellationToken))

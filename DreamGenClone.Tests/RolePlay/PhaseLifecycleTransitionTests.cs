@@ -63,6 +63,37 @@ public sealed class PhaseLifecycleTransitionTests
     }
 
     [Fact]
+    public async Task ManualAdvanceTargetPhase_TransitionsImmediately()
+    {
+        var state = CreateState();
+        state.CurrentPhase = NarrativePhase.Committed;
+
+        var result = await _service.EvaluateTransitionAsync(state, new LifecycleInputs
+        {
+            ManualAdvanceTargetPhase = NarrativePhase.Approaching
+        });
+
+        Assert.True(result.Transitioned);
+        Assert.Equal(NarrativePhase.Approaching, result.TargetPhase);
+        Assert.Equal("MANUAL_NEXT_PHASE", result.Reason);
+    }
+
+    [Fact]
+    public async Task ManualAdvanceTargetPhase_DoesNotAllowBackwardTransition()
+    {
+        var state = CreateState();
+        state.CurrentPhase = NarrativePhase.Approaching;
+
+        var result = await _service.EvaluateTransitionAsync(state, new LifecycleInputs
+        {
+            ManualAdvanceTargetPhase = NarrativePhase.Committed
+        });
+
+        Assert.False(result.Transitioned);
+        Assert.Equal(NarrativePhase.Approaching, result.TargetPhase);
+    }
+
+    [Fact]
     public async Task ResetToBuildUp_ExecuteResetPreservesContinuityRelevantState()
     {
         var state = CreateState();
