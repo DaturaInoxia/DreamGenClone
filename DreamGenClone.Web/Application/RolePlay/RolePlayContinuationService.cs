@@ -714,8 +714,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
 
         RPTheme? activeTheme = null;
 
-        if (session.UseRpThemeSubsystem
-            && _rpThemeService is not null
+        if (_rpThemeService is not null
             && !string.IsNullOrWhiteSpace(activeScenarioId))
         {
             try

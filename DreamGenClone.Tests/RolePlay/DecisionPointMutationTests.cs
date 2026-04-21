@@ -12,7 +12,7 @@ public sealed class DecisionPointMutationTests
     [Fact]
     public async Task TriggeredDecisionPoint_GeneratesOptions()
     {
-        var state = RolePlayV2AcceptanceFixtureData.BuildBoundaryState(70, 40, 60);
+        var state = RolePlayAcceptanceFixtureData.BuildBoundaryState(70, 40, 60);
         state.ActiveScenarioId = "scenario-1";
         state.InteractionCountInPhase = 3;
 
@@ -26,7 +26,7 @@ public sealed class DecisionPointMutationTests
     [Fact]
     public async Task BuildUpPhase_UsesHiddenTransparency()
     {
-        var state = RolePlayV2AcceptanceFixtureData.BuildBoundaryState(45, 72, 40);
+        var state = RolePlayAcceptanceFixtureData.BuildBoundaryState(45, 72, 40);
         state.ActiveScenarioId = "scenario-1";
         state.InteractionCountInPhase = 3;
         state.CurrentPhase = NarrativePhase.BuildUp;
@@ -40,7 +40,7 @@ public sealed class DecisionPointMutationTests
     [Fact]
     public async Task HighDesireContext_ChangesOptionSet()
     {
-        var state = RolePlayV2AcceptanceFixtureData.BuildBoundaryState(78, 35, 75);
+        var state = RolePlayAcceptanceFixtureData.BuildBoundaryState(78, 35, 75);
         state.ActiveScenarioId = "scenario-1";
         state.InteractionCountInPhase = 3;
         state.CurrentPhase = NarrativePhase.Approaching;
@@ -63,7 +63,7 @@ public sealed class DecisionPointMutationTests
             InteractionCountInPhase = 3,
             CharacterSnapshots =
             [
-                new CharacterStatProfileV2
+                new CharacterStatProfile
                 {
                     CharacterId = "wife",
                     Desire = 40,
@@ -104,7 +104,7 @@ public sealed class DecisionPointMutationTests
             CurrentPhase = NarrativePhase.BuildUp,
             CharacterSnapshots =
             [
-                new CharacterStatProfileV2
+                new CharacterStatProfile
                 {
                     CharacterId = "becky",
                     Desire = 55,
@@ -115,7 +115,7 @@ public sealed class DecisionPointMutationTests
                     Loyalty = 50,
                     SelfRespect = 50
                 },
-                new CharacterStatProfileV2
+                new CharacterStatProfile
                 {
                     CharacterId = "ken",
                     Desire = 50,
@@ -168,7 +168,7 @@ public sealed class DecisionPointMutationTests
             CurrentPhase = NarrativePhase.BuildUp,
             CharacterSnapshots =
             [
-                new CharacterStatProfileV2
+                new CharacterStatProfile
                 {
                     CharacterId = "becky",
                     Desire = 54,
@@ -206,7 +206,7 @@ public sealed class DecisionPointMutationTests
     [Fact]
     public async Task ApplyDecision_PersistsStatDeltaMutations()
     {
-        var state = RolePlayV2AcceptanceFixtureData.BuildBoundaryState(50, 50, 50);
+        var state = RolePlayAcceptanceFixtureData.BuildBoundaryState(50, 50, 50);
         state.ActiveScenarioId = "scenario-1";
 
         var outcome = await _service.ApplyDecisionAsync(state, new DecisionSubmission
@@ -224,7 +224,7 @@ public sealed class DecisionPointMutationTests
     [Fact]
     public async Task CustomResponseFallback_ParsesDeltaMap()
     {
-        var state = RolePlayV2AcceptanceFixtureData.BuildBoundaryState(50, 50, 50);
+        var state = RolePlayAcceptanceFixtureData.BuildBoundaryState(50, 50, 50);
         state.ActiveScenarioId = "scenario-1";
 
         var outcome = await _service.ApplyDecisionAsync(state, new DecisionSubmission
@@ -249,7 +249,7 @@ public sealed class DecisionPointMutationTests
             CurrentPhase = NarrativePhase.Committed,
             CharacterSnapshots =
             [
-                new CharacterStatProfileV2
+                new CharacterStatProfile
                 {
                     CharacterId = "wife",
                     Desire = 50,
@@ -260,7 +260,7 @@ public sealed class DecisionPointMutationTests
                     Loyalty = 50,
                     SelfRespect = 50
                 },
-                new CharacterStatProfileV2
+                new CharacterStatProfile
                 {
                     CharacterId = "husband",
                     Desire = 50,
@@ -301,7 +301,7 @@ public sealed class DecisionPointMutationTests
             CurrentPhase = NarrativePhase.Climax,
             CharacterSnapshots =
             [
-                new CharacterStatProfileV2
+                new CharacterStatProfile
                 {
                     CharacterId = "wife",
                     Desire = 60,
@@ -312,7 +312,7 @@ public sealed class DecisionPointMutationTests
                     Loyalty = 60,
                     SelfRespect = 50
                 },
-                new CharacterStatProfileV2
+                new CharacterStatProfile
                 {
                     CharacterId = "husband",
                     Desire = 40,
@@ -346,7 +346,7 @@ public sealed class DecisionPointMutationTests
     [Fact]
     public async Task TransparencyOverride_UsesContextOverride()
     {
-        var state = RolePlayV2AcceptanceFixtureData.BuildBoundaryState(70, 45, 55);
+        var state = RolePlayAcceptanceFixtureData.BuildBoundaryState(70, 45, 55);
         state.ActiveScenarioId = "scenario-1";
         state.InteractionCountInPhase = 3;
         state.CurrentPhase = NarrativePhase.BuildUp;
@@ -375,7 +375,7 @@ public sealed class DecisionPointMutationTests
             CurrentPhase = NarrativePhase.Approaching,
             CharacterSnapshots =
             [
-                new CharacterStatProfileV2
+                new CharacterStatProfile
                 {
                     CharacterId = "becky",
                     Desire = 72,
@@ -386,7 +386,7 @@ public sealed class DecisionPointMutationTests
                     Loyalty = 52,
                     SelfRespect = 50
                 },
-                new CharacterStatProfileV2
+                new CharacterStatProfile
                 {
                     CharacterId = "alex",
                     Desire = 55,

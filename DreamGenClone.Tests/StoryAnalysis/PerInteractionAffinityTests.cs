@@ -235,9 +235,6 @@ public sealed class PerInteractionAffinityTests
 
         var service = new RolePlayAdaptiveStateService(
             new FakeCatalogService(),
-            scenarioDefinitionService: null,
-            scenarioSelectionEngine: null,
-            narrativePhaseManager: null,
             themePreferenceService: new FakePreferenceService(),
             rpThemeService: null,
             statKeywordCategoryService: null,

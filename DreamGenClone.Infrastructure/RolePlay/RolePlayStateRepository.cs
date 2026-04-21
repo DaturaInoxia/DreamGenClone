@@ -7,7 +7,7 @@ using Microsoft.Extensions.Options;
 
 namespace DreamGenClone.Infrastructure.RolePlay;
 
-public sealed class RolePlayStateRepository : IRolePlayV2StateRepository
+public sealed class RolePlayStateRepository : IRolePlayStateRepository
 {
     private readonly string _connectionString;
 

@@ -95,11 +95,6 @@ public sealed class RolePlaySession
     public string? SelectedRPThemeProfileId { get; set; }
 
     /// <summary>
-    /// True when this session should use the RP-only Theme/Profile subsystem for runtime paths.
-    /// Old sessions default to false when this property is absent in persisted payload.
-    /// </summary>
-    public bool UseRpThemeSubsystem { get; set; }
-
     /// <summary>Legacy alias — maps old SelectedRankingProfileId → SelectedThemeProfileId during deserialization.</summary>
     [JsonInclude]
     [JsonPropertyName("SelectedRankingProfileId")]

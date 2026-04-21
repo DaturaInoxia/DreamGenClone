@@ -132,7 +132,7 @@ public sealed class RolePlayContinuationNarrativeValidationTests
         {
             Id = "s4",
             PersonaName = "Becky",
-            UseRpThemeSubsystem = true,
+            
             UseThemeAIGuidanceNotesInPrompt = true,
             ThemeAIGuidanceInfluencePercent = 55,
             MaxThemeAIGuidanceNotes = 4,

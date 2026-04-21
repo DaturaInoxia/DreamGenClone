@@ -11,11 +11,11 @@ public sealed class RolePlaySessionCompatibilityService
 {
     private static readonly IReadOnlyList<string> RequiredStats = AdaptiveStatCatalog.CanonicalStatNames;
 
-    private readonly IRolePlayV2StateRepository _stateRepository;
+    private readonly IRolePlayStateRepository _stateRepository;
     private readonly ILogger<RolePlaySessionCompatibilityService> _logger;
 
     public RolePlaySessionCompatibilityService(
-        IRolePlayV2StateRepository stateRepository,
+        IRolePlayStateRepository stateRepository,
         ILogger<RolePlaySessionCompatibilityService> logger)
     {
         _stateRepository = stateRepository;

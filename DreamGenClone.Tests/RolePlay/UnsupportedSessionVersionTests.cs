@@ -36,7 +36,7 @@ public sealed class UnsupportedSessionVersionTests
         Assert.Empty(repository.States);
     }
 
-    private sealed class InMemoryStateRepository : IRolePlayV2StateRepository
+    private sealed class InMemoryStateRepository : IRolePlayStateRepository
     {
         public List<AdaptiveScenarioState> States { get; } = [];
         public List<UnsupportedSessionError> Errors { get; } = [];

@@ -18,32 +18,17 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
     private const int DefaultEarlyTurnInteractionThreshold = 3;
     private const int DefaultEarlyTurnPerStatDeltaCap = 2;
     private const int DefaultPerInteractionTotalDeltaBudget = 10;
-    private const int ResetExtremeLowThreshold = 10;
-    private const int ResetExtremeHighThreshold = 90;
-    private const int ResetExtremeHardTarget = 60;
-    private const double ResetSoftRetentionFactor = 0.35;
     private const double DefaultSuppressedEvidenceMultiplier = 0.20;
     private const double DefaultSuppressedEvidencePerTurnCap = 1.5;
-    private const int DefaultActiveScenarioNoHitStaleTurns = 2;
-    private const double DefaultPivotOvertakeMarginDefault = 2.0;
-    private const double DefaultPivotOvertakeMarginWhenStale = 1.0;
-    private const int DefaultPivotCommittedInteractionWindow = 3;
-    private const int DefaultPivotCommittedInteractionWindowWhenStale = 8;
 
     private readonly IThemeCatalogService _themeCatalogService;
     private readonly IIntensityProfileService? _intensityProfileService;
-    private readonly IScenarioDefinitionService? _scenarioDefinitionService;
-    private readonly IScenarioSelectionEngine? _scenarioSelectionEngine;
-    private readonly INarrativePhaseManager? _narrativePhaseManager;
     private readonly IThemePreferenceService? _themePreferenceService;
     private readonly IRPThemeService? _rpThemeService;
     private readonly IStatKeywordCategoryService? _statKeywordCategoryService;
     private readonly ISteeringProfileService? _steeringProfileService;
     private readonly IRolePlayDebugEventSink? _debugEventSink;
     private readonly ILogger<RolePlayAdaptiveStateService>? _logger;
-    private readonly bool _useScenarioDefinitionsForAdaptiveRuntime;
-    private readonly bool _useRpThemeSubsystem;
-    private readonly bool _useRpThemeSubsystemForNewSessionsOnly;
     private readonly int _themeAffinityStackLimit;
     private readonly int _earlyTurnInteractionThreshold;
     private readonly int _earlyTurnPerStatDeltaCap;
@@ -55,25 +40,11 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
     private readonly int _themeAffinityCapReset;
     private readonly double _suppressedEvidenceMultiplier;
     private readonly double _suppressedEvidencePerTurnCap;
-    private readonly int _activeScenarioNoHitStaleTurns;
-    private readonly double _pivotOvertakeMarginDefault;
-    private readonly double _pivotOvertakeMarginWhenStale;
-    private readonly int _pivotCommittedInteractionWindow;
-    private readonly int _pivotCommittedInteractionWindowWhenStale;
 
     public RolePlayAdaptiveStateService(
-        IThemeCatalogService themeCatalogService,
-        IScenarioSelectionEngine? scenarioSelectionEngine = null,
-        INarrativePhaseManager? narrativePhaseManager = null)
+        IThemeCatalogService themeCatalogService)
     {
         _themeCatalogService = themeCatalogService;
-        _intensityProfileService = null;
-        _scenarioDefinitionService = null;
-        _scenarioSelectionEngine = scenarioSelectionEngine;
-        _narrativePhaseManager = narrativePhaseManager;
-        _useScenarioDefinitionsForAdaptiveRuntime = false;
-        _useRpThemeSubsystem = true;
-        _useRpThemeSubsystemForNewSessionsOnly = true;
         _themeAffinityStackLimit = DefaultThemeAffinityStackLimit;
         _earlyTurnInteractionThreshold = DefaultEarlyTurnInteractionThreshold;
         _earlyTurnPerStatDeltaCap = DefaultEarlyTurnPerStatDeltaCap;
@@ -85,27 +56,14 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         _themeAffinityCapReset = 0;
         _suppressedEvidenceMultiplier = DefaultSuppressedEvidenceMultiplier;
         _suppressedEvidencePerTurnCap = DefaultSuppressedEvidencePerTurnCap;
-        _activeScenarioNoHitStaleTurns = DefaultActiveScenarioNoHitStaleTurns;
-        _pivotOvertakeMarginDefault = DefaultPivotOvertakeMarginDefault;
-        _pivotOvertakeMarginWhenStale = DefaultPivotOvertakeMarginWhenStale;
-        _pivotCommittedInteractionWindow = DefaultPivotCommittedInteractionWindow;
-        _pivotCommittedInteractionWindowWhenStale = DefaultPivotCommittedInteractionWindowWhenStale;
     }
 
     public RolePlayAdaptiveStateService(
         IThemeCatalogService themeCatalogService,
-        IIntensityProfileService intensityProfileService,
-        IScenarioSelectionEngine? scenarioSelectionEngine = null,
-        INarrativePhaseManager? narrativePhaseManager = null)
+        IIntensityProfileService intensityProfileService)
     {
         _themeCatalogService = themeCatalogService;
         _intensityProfileService = intensityProfileService;
-        _scenarioDefinitionService = null;
-        _scenarioSelectionEngine = scenarioSelectionEngine;
-        _narrativePhaseManager = narrativePhaseManager;
-        _useScenarioDefinitionsForAdaptiveRuntime = false;
-        _useRpThemeSubsystem = true;
-        _useRpThemeSubsystemForNewSessionsOnly = true;
         _themeAffinityStackLimit = DefaultThemeAffinityStackLimit;
         _earlyTurnInteractionThreshold = DefaultEarlyTurnInteractionThreshold;
         _earlyTurnPerStatDeltaCap = DefaultEarlyTurnPerStatDeltaCap;
@@ -117,30 +75,16 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         _themeAffinityCapReset = 0;
         _suppressedEvidenceMultiplier = DefaultSuppressedEvidenceMultiplier;
         _suppressedEvidencePerTurnCap = DefaultSuppressedEvidencePerTurnCap;
-        _activeScenarioNoHitStaleTurns = DefaultActiveScenarioNoHitStaleTurns;
-        _pivotOvertakeMarginDefault = DefaultPivotOvertakeMarginDefault;
-        _pivotOvertakeMarginWhenStale = DefaultPivotOvertakeMarginWhenStale;
-        _pivotCommittedInteractionWindow = DefaultPivotCommittedInteractionWindow;
-        _pivotCommittedInteractionWindowWhenStale = DefaultPivotCommittedInteractionWindowWhenStale;
     }
 
     public RolePlayAdaptiveStateService(
         IThemeCatalogService themeCatalogService,
-        IScenarioSelectionEngine? scenarioSelectionEngine,
-        INarrativePhaseManager? narrativePhaseManager,
         IRolePlayDebugEventSink debugEventSink,
         ILogger<RolePlayAdaptiveStateService> logger)
     {
         _themeCatalogService = themeCatalogService;
-        _intensityProfileService = null;
-        _scenarioDefinitionService = null;
-        _scenarioSelectionEngine = scenarioSelectionEngine;
-        _narrativePhaseManager = narrativePhaseManager;
         _debugEventSink = debugEventSink;
         _logger = logger;
-        _useScenarioDefinitionsForAdaptiveRuntime = false;
-        _useRpThemeSubsystem = true;
-        _useRpThemeSubsystemForNewSessionsOnly = true;
         _themeAffinityStackLimit = DefaultThemeAffinityStackLimit;
         _earlyTurnInteractionThreshold = DefaultEarlyTurnInteractionThreshold;
         _earlyTurnPerStatDeltaCap = DefaultEarlyTurnPerStatDeltaCap;
@@ -152,35 +96,10 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         _themeAffinityCapReset = 0;
         _suppressedEvidenceMultiplier = DefaultSuppressedEvidenceMultiplier;
         _suppressedEvidencePerTurnCap = DefaultSuppressedEvidencePerTurnCap;
-        _activeScenarioNoHitStaleTurns = DefaultActiveScenarioNoHitStaleTurns;
-        _pivotOvertakeMarginDefault = DefaultPivotOvertakeMarginDefault;
-        _pivotOvertakeMarginWhenStale = DefaultPivotOvertakeMarginWhenStale;
-        _pivotCommittedInteractionWindow = DefaultPivotCommittedInteractionWindow;
-        _pivotCommittedInteractionWindowWhenStale = DefaultPivotCommittedInteractionWindowWhenStale;
     }
 
     public RolePlayAdaptiveStateService(
         IThemeCatalogService themeCatalogService,
-        IScenarioSelectionEngine? scenarioSelectionEngine,
-        IRolePlayDebugEventSink debugEventSink,
-        ILogger<RolePlayAdaptiveStateService> logger)
-        : this(themeCatalogService, scenarioSelectionEngine, null, debugEventSink, logger)
-    {
-    }
-
-    public RolePlayAdaptiveStateService(
-        IThemeCatalogService themeCatalogService,
-        IRolePlayDebugEventSink debugEventSink,
-        ILogger<RolePlayAdaptiveStateService> logger)
-        : this(themeCatalogService, (IScenarioSelectionEngine?)null, (INarrativePhaseManager?)null, debugEventSink, logger)
-    {
-    }
-
-    public RolePlayAdaptiveStateService(
-        IThemeCatalogService themeCatalogService,
-        IScenarioDefinitionService? scenarioDefinitionService,
-        IScenarioSelectionEngine? scenarioSelectionEngine,
-        INarrativePhaseManager? narrativePhaseManager,
         IThemePreferenceService themePreferenceService,
         IRPThemeService? rpThemeService,
         IStatKeywordCategoryService? statKeywordCategoryService,
@@ -192,18 +111,12 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
     {
         _themeCatalogService = themeCatalogService;
         _intensityProfileService = intensityProfileService;
-        _scenarioDefinitionService = scenarioDefinitionService;
-        _scenarioSelectionEngine = scenarioSelectionEngine;
-        _narrativePhaseManager = narrativePhaseManager;
         _themePreferenceService = themePreferenceService;
         _rpThemeService = rpThemeService;
         _statKeywordCategoryService = statKeywordCategoryService;
         _steeringProfileService = styleProfileService;
         _debugEventSink = debugEventSink;
         _logger = logger;
-        _useScenarioDefinitionsForAdaptiveRuntime = storyAnalysisOptions?.Value.UseScenarioDefinitionsForAdaptiveRuntime == true;
-        _useRpThemeSubsystem = storyAnalysisOptions?.Value.UseRpThemeSubsystem ?? true;
-        _useRpThemeSubsystemForNewSessionsOnly = storyAnalysisOptions?.Value.UseRpThemeSubsystemForNewSessionsOnly ?? true;
         _themeAffinityStackLimit = Math.Max(1, storyAnalysisOptions?.Value.AdaptiveThemeAffinityStackLimit ?? DefaultThemeAffinityStackLimit);
         _earlyTurnInteractionThreshold = Math.Max(1, storyAnalysisOptions?.Value.AdaptiveEarlyTurnInteractionThreshold ?? DefaultEarlyTurnInteractionThreshold);
         _earlyTurnPerStatDeltaCap = Math.Max(1, storyAnalysisOptions?.Value.AdaptiveEarlyTurnPerStatDeltaCap ?? DefaultEarlyTurnPerStatDeltaCap);
@@ -215,23 +128,6 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         _themeAffinityCapReset = Math.Max(0, storyAnalysisOptions?.Value.AdaptiveThemeAffinityCapReset ?? 0);
         _suppressedEvidenceMultiplier = Math.Clamp(storyAnalysisOptions?.Value.SuppressedEvidenceMultiplier ?? DefaultSuppressedEvidenceMultiplier, 0.0, 1.0);
         _suppressedEvidencePerTurnCap = Math.Max(0.0, storyAnalysisOptions?.Value.SuppressedEvidencePerTurnCap ?? DefaultSuppressedEvidencePerTurnCap);
-        _activeScenarioNoHitStaleTurns = Math.Max(1, storyAnalysisOptions?.Value.ActiveScenarioNoHitStaleTurns ?? DefaultActiveScenarioNoHitStaleTurns);
-        _pivotOvertakeMarginDefault = Math.Max(0.0, storyAnalysisOptions?.Value.PivotOvertakeMarginDefault ?? DefaultPivotOvertakeMarginDefault);
-        _pivotOvertakeMarginWhenStale = Math.Max(0.0, storyAnalysisOptions?.Value.PivotOvertakeMarginWhenStale ?? DefaultPivotOvertakeMarginWhenStale);
-        _pivotCommittedInteractionWindow = Math.Max(1, storyAnalysisOptions?.Value.PivotCommittedInteractionWindow ?? DefaultPivotCommittedInteractionWindow);
-        _pivotCommittedInteractionWindowWhenStale = Math.Max(_pivotCommittedInteractionWindow, storyAnalysisOptions?.Value.PivotCommittedInteractionWindowWhenStale ?? DefaultPivotCommittedInteractionWindowWhenStale);
-    }
-
-    public RolePlayAdaptiveStateService(
-        IThemeCatalogService themeCatalogService,
-        IScenarioSelectionEngine? scenarioSelectionEngine,
-        IThemePreferenceService themePreferenceService,
-        IRPThemeService? rpThemeService,
-        ISteeringProfileService styleProfileService,
-        IRolePlayDebugEventSink debugEventSink,
-        ILogger<RolePlayAdaptiveStateService> logger)
-        : this(themeCatalogService, null, scenarioSelectionEngine, null, themePreferenceService, rpThemeService, null, styleProfileService, debugEventSink, logger)
-    {
     }
 
     public RolePlayAdaptiveStateService(
@@ -241,7 +137,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         ISteeringProfileService styleProfileService,
         IRolePlayDebugEventSink debugEventSink,
         ILogger<RolePlayAdaptiveStateService> logger)
-        : this(themeCatalogService, null, null, null, themePreferenceService, rpThemeService, null, styleProfileService, debugEventSink, logger)
+        : this(themeCatalogService, themePreferenceService, rpThemeService, null, styleProfileService, debugEventSink, logger)
     {
     }
 
@@ -251,7 +147,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         ISteeringProfileService styleProfileService,
         IRolePlayDebugEventSink debugEventSink,
         ILogger<RolePlayAdaptiveStateService> logger)
-        : this(themeCatalogService, null, null, null, themePreferenceService, null, null, styleProfileService, debugEventSink, logger)
+        : this(themeCatalogService, themePreferenceService, null, null, styleProfileService, debugEventSink, logger)
     {
     }
 
@@ -469,7 +365,6 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         ApplyInteractionDeltaPolicyCaps();
 
         RecalculateSelectedThemes(state, interaction);
-        await EvaluateScenarioCommitmentAsync(session, interaction, state, cancellationToken);
         state.ThemeTracker.UpdatedUtc = DateTime.UtcNow;
         RemoveNonCanonicalStatEntries(state);
 
@@ -834,652 +729,6 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         }
     }
 
-    private async Task EvaluateScenarioCommitmentAsync(
-        RolePlaySession session,
-        RolePlayInteraction interaction,
-        RolePlayAdaptiveState state,
-        CancellationToken cancellationToken)
-    {
-        // RP Theme v2 sessions: scenario commitment and phase transitions are handled exclusively
-        // by RunRolePlayV2PipelinesAsync in RolePlayEngineService. Do not run the v1 pipeline.
-        if (ShouldUseRpThemeSubsystem(session))
-        {
-            return;
-        }
-
-        var manualOverrideScenarioId = ExtractManualOverrideScenarioId(interaction.Content, state);
-        var manualOverrideRequested = !string.IsNullOrWhiteSpace(manualOverrideScenarioId);
-
-        if (manualOverrideRequested)
-        {
-            await HandleManualOverrideAsync(session, state, manualOverrideScenarioId!, cancellationToken);
-            _logger?.LogInformation(
-                "Manual scenario override requested for session {SessionId}: phase={Phase}, activeScenarioId={ActiveScenarioId}, requestedScenario={ScenarioId}, interactionCount={InteractionCount}",
-                session.Id,
-                state.CurrentNarrativePhase,
-                state.ActiveScenarioId,
-                manualOverrideScenarioId,
-                session.Interactions.Count + 1);
-            return;
-        }
-
-        if (_scenarioSelectionEngine is null && _narrativePhaseManager is null)
-        {
-            return;
-        }
-
-        if (IsManualOverrideLockActive(state))
-        {
-            IncrementPhaseCounters(state);
-            await EvaluatePhaseTransitionAsync(session, interaction, state, cancellationToken);
-            return;
-        }
-
-        if (state.CurrentNarrativePhase == NarrativePhase.BuildUp
-            && state.BuildUpCooldownInteractionsRemaining > 0)
-        {
-            state.BuildUpCooldownInteractionsRemaining--;
-            _logger?.LogInformation(
-                "BuildUp cooldown active for session {SessionId}: remaining={Remaining}, interactionCount={InteractionCount}",
-                session.Id,
-                state.BuildUpCooldownInteractionsRemaining,
-                session.Interactions.Count + 1);
-            return;
-        }
-
-        var candidates = state.ThemeTracker.Themes.Values
-            .Select(item => new ScenarioCandidateInput(
-                item.ThemeId,
-                Clamp01(item.Score / 12.0),
-                Clamp01((item.Breakdown.InteractionEvidenceSignal + item.Breakdown.ScenarioPhaseSignal) / 12.0),
-                Clamp01(item.Breakdown.ChoiceSignal <= 0 ? 0.0 : item.Breakdown.ChoiceSignal / 20.0),
-                !item.Blocked && item.Score > 0))
-            .ToList();
-
-        ScenarioSelectionResult? result = null;
-        if (_scenarioSelectionEngine is not null)
-        {
-            result = await _scenarioSelectionEngine.EvaluateAsync(
-            new AdaptiveScenarioSnapshot(
-                state.ActiveScenarioId,
-                state.CurrentNarrativePhase.ToString(),
-                session.Interactions.Count + 1,
-                AverageCharacterStat(state, "Desire"),
-                AverageCharacterStat(state, "Restraint"),
-                state.ActiveScenarioId is null
-                    ? 0
-                    : state.ThemeTracker.Themes.TryGetValue(state.ActiveScenarioId, out var activeItem)
-                        ? activeItem.Score
-                        : 0),
-            candidates,
-            new ScenarioSelectionContext(
-                BuildUpInteractionCount: session.Interactions.Count + 1,
-                ManualOverrideRequested: false,
-                ManualOverrideScenarioId: null),
-            cancellationToken);
-        }
-
-        if (result is not null)
-        {
-            var rankedById = result.RankedCandidates.ToDictionary(x => x.ScenarioId, StringComparer.OrdinalIgnoreCase);
-            foreach (var item in state.ThemeTracker.Themes.Values)
-            {
-                if (rankedById.TryGetValue(item.ThemeId, out var ranked))
-                {
-                    item.IsScenarioCandidate = true;
-                    item.NarrativeFitScore = ranked.FitScore;
-                    item.LastCandidateEvaluationTimeUtc = DateTime.UtcNow;
-                }
-                else
-                {
-                    item.IsScenarioCandidate = false;
-                    item.NarrativeFitScore = 0;
-                }
-            }
-
-            if (!string.IsNullOrWhiteSpace(result.SelectedScenarioId))
-            {
-                var wasUncommitted = state.ActiveScenarioId is null;
-                var wasDifferentScenario = !string.Equals(
-                    state.ActiveScenarioId,
-                    result.SelectedScenarioId,
-                    StringComparison.OrdinalIgnoreCase);
-                state.ActiveScenarioId = result.SelectedScenarioId;
-                state.ScenarioCommitmentTimeUtc ??= DateTime.UtcNow;
-
-                var shouldEnterCommitted = wasUncommitted
-                    || wasDifferentScenario
-                    || state.CurrentNarrativePhase is NarrativePhase.BuildUp or NarrativePhase.Reset;
-
-                if (shouldEnterCommitted)
-                {
-                    state.CurrentNarrativePhase = NarrativePhase.Committed;
-                    state.InteractionsSinceCommitment = 0;
-                    state.InteractionsInApproaching = 0;
-                }
-
-                foreach (var item in state.ThemeTracker.Themes.Values)
-                {
-                    if (!string.Equals(item.ThemeId, state.ActiveScenarioId, StringComparison.OrdinalIgnoreCase)
-                        && !item.Blocked)
-                    {
-                        item.IsScenarioCandidate = false;
-                    }
-                }
-            }
-
-            if (result.DeferredForTie && state.ActiveScenarioId is null)
-            {
-                state.CurrentNarrativePhase = NarrativePhase.BuildUp;
-            }
-
-            _logger?.LogInformation(
-                "Scenario commitment evaluation for session {SessionId}: phase={Phase}, activeScenarioId={ActiveScenarioId}, selected={SelectedScenarioId}, deferred={DeferredForTie}, candidateCount={CandidateCount}, interactionCount={InteractionCount}",
-                session.Id,
-                state.CurrentNarrativePhase,
-                state.ActiveScenarioId,
-                result.SelectedScenarioId,
-                result.DeferredForTie,
-                result.RankedCandidates.Count,
-                session.Interactions.Count + 1);
-        }
-
-        if (TryPivotActiveScenarioFromThemeMomentum(state))
-        {
-            _logger?.LogInformation(
-                "Scenario pivoted by context momentum for session {SessionId}: newActiveScenarioId={ActiveScenarioId}, phase={Phase}, interactionCount={InteractionCount}",
-                session.Id,
-                state.ActiveScenarioId,
-                state.CurrentNarrativePhase,
-                session.Interactions.Count + 1);
-        }
-
-        IncrementPhaseCounters(state);
-        await EvaluatePhaseTransitionAsync(session, interaction, state, cancellationToken);
-    }
-
-    private static bool IsManualOverrideLockActive(RolePlayAdaptiveState state)
-    {
-        if (!string.Equals(state.ThemeTracker.ThemeSelectionRule, "ManualOverride", StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        if (string.IsNullOrWhiteSpace(state.ActiveScenarioId))
-        {
-            return false;
-        }
-
-        // Manual override stays pinned until the user explicitly changes it.
-        return true;
-    }
-
-    private bool TryPivotActiveScenarioFromThemeMomentum(RolePlayAdaptiveState state)
-    {
-        if (string.Equals(state.ThemeTracker.ThemeSelectionRule, "ManualOverride", StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        if (string.IsNullOrWhiteSpace(state.ActiveScenarioId))
-        {
-            return false;
-        }
-
-        if (state.CurrentNarrativePhase is not (NarrativePhase.BuildUp or NarrativePhase.Committed))
-        {
-            return false;
-        }
-
-        if (!state.ThemeTracker.Themes.TryGetValue(state.ActiveScenarioId, out var activeTheme) || activeTheme.Blocked)
-        {
-            return false;
-        }
-
-        var isActiveScenarioStale = IsActiveScenarioStale(state, activeTheme.ThemeId);
-        var committedInteractionWindow = isActiveScenarioStale
-            ? _pivotCommittedInteractionWindowWhenStale
-            : _pivotCommittedInteractionWindow;
-
-        // Keep pivots to early flow unless active scenario has gone stale.
-        if (state.CurrentNarrativePhase == NarrativePhase.Committed
-            && state.InteractionsSinceCommitment > committedInteractionWindow)
-        {
-            return false;
-        }
-
-        var topCandidate = state.ThemeTracker.Themes.Values
-            .Where(x => !x.Blocked)
-            .OrderByDescending(x => x.Score)
-            .ThenByDescending(x => x.Breakdown.ChoiceSignal)
-            .ThenByDescending(x => x.Breakdown.InteractionEvidenceSignal)
-            .FirstOrDefault();
-
-        if (topCandidate is null)
-        {
-            return false;
-        }
-
-        var momentumCandidate = ResolveMomentumCandidate(state);
-        if (momentumCandidate is not null
-            && !string.Equals(momentumCandidate.ThemeId, activeTheme.ThemeId, StringComparison.OrdinalIgnoreCase)
-            && !momentumCandidate.Blocked)
-        {
-            var hasMeaningfulMomentum = momentumCandidate.Score >= (activeTheme.Score - 1.5)
-                || momentumCandidate.Breakdown.InteractionEvidenceSignal >= (activeTheme.Breakdown.InteractionEvidenceSignal + 1.5);
-
-            if (hasMeaningfulMomentum)
-            {
-                topCandidate = momentumCandidate;
-            }
-        }
-
-        if (string.Equals(topCandidate.ThemeId, activeTheme.ThemeId, StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        const double absoluteScoreFloor = 6.0;
-        var overtakeMargin = isActiveScenarioStale
-            ? _pivotOvertakeMarginWhenStale
-            : _pivotOvertakeMarginDefault;
-
-        if (topCandidate.Score < absoluteScoreFloor)
-        {
-            return false;
-        }
-
-        if (topCandidate.Score < activeTheme.Score + overtakeMargin)
-        {
-            return false;
-        }
-
-        state.ActiveScenarioId = topCandidate.ThemeId;
-        state.CurrentNarrativePhase = NarrativePhase.Committed;
-        state.ScenarioCommitmentTimeUtc = DateTime.UtcNow;
-        state.InteractionsSinceCommitment = 0;
-        state.InteractionsInApproaching = 0;
-
-        foreach (var item in state.ThemeTracker.Themes.Values)
-        {
-            item.IsScenarioCandidate = string.Equals(item.ThemeId, state.ActiveScenarioId, StringComparison.OrdinalIgnoreCase);
-        }
-
-        return true;
-    }
-
-    private bool IsActiveScenarioStale(RolePlayAdaptiveState state, string activeThemeId)
-    {
-        var evidenceByInteraction = state.ThemeTracker.RecentEvidence
-            .Where(x => !string.IsNullOrWhiteSpace(x.InteractionId)
-                && string.Equals(x.SignalType, "interaction-evidence", StringComparison.OrdinalIgnoreCase))
-            .GroupBy(x => x.InteractionId, StringComparer.OrdinalIgnoreCase)
-            .Select(group => new
-            {
-                InteractionId = group.Key,
-                HasActiveHit = group.Any(item => string.Equals(item.ThemeId, activeThemeId, StringComparison.OrdinalIgnoreCase))
-            })
-            .ToList();
-
-        if (evidenceByInteraction.Count < _activeScenarioNoHitStaleTurns)
-        {
-            return false;
-        }
-
-        var recent = evidenceByInteraction.TakeLast(_activeScenarioNoHitStaleTurns);
-        return recent.All(x => !x.HasActiveHit);
-    }
-
-    private static ThemeTrackerItem? ResolveMomentumCandidate(RolePlayAdaptiveState state)
-    {
-        var momentumThemeId = state.ThemeTracker.RecentEvidence
-            .TakeLast(8)
-            .GroupBy(x => x.ThemeId, StringComparer.OrdinalIgnoreCase)
-            .OrderByDescending(group => group.Sum(item => Math.Abs(item.Delta) * Math.Max(0.1, item.Confidence)))
-            .Select(group => group.Key)
-            .FirstOrDefault();
-
-        if (string.IsNullOrWhiteSpace(momentumThemeId))
-        {
-            return null;
-        }
-
-        return state.ThemeTracker.Themes.TryGetValue(momentumThemeId, out var momentum)
-            ? momentum
-            : null;
-    }
-
-    private static void IncrementPhaseCounters(RolePlayAdaptiveState state)
-    {
-        if (state.ActiveScenarioId is null)
-        {
-            return;
-        }
-
-        switch (state.CurrentNarrativePhase)
-        {
-            case NarrativePhase.Committed:
-                state.InteractionsSinceCommitment++;
-                break;
-            case NarrativePhase.Approaching:
-                state.InteractionsSinceCommitment++;
-                state.InteractionsInApproaching++;
-                break;
-            case NarrativePhase.Climax:
-                state.InteractionsSinceCommitment++;
-                state.InteractionsInApproaching++;
-                break;
-        }
-    }
-
-    private async Task EvaluatePhaseTransitionAsync(
-        RolePlaySession session,
-        RolePlayInteraction interaction,
-        RolePlayAdaptiveState state,
-        CancellationToken cancellationToken)
-    {
-        if (_narrativePhaseManager is null)
-        {
-            return;
-        }
-
-        // RP Theme v2 sessions: phase transitions are handled exclusively by RunRolePlayV2PipelinesAsync.
-        if (ShouldUseRpThemeSubsystem(session))
-        {
-            return;
-        }
-
-        var transition = await _narrativePhaseManager.EvaluateTransitionAsync(
-            new AdaptiveScenarioSnapshot(
-                state.ActiveScenarioId,
-                state.CurrentNarrativePhase.ToString(),
-                session.Interactions.Count + 1,
-                AverageCharacterStat(state, "Desire"),
-                AverageCharacterStat(state, "Restraint"),
-                state.ActiveScenarioId is not null && state.ThemeTracker.Themes.TryGetValue(state.ActiveScenarioId, out var activeItem)
-                    ? activeItem.Score
-                    : 0),
-            new NarrativeSignalSnapshot(
-                state.InteractionsSinceCommitment,
-                state.InteractionsInApproaching,
-                ExplicitClimaxRequested: ContainsCommand(interaction.Content, ["/climax"])
-                    || ContainsAny(interaction.Content, ["trigger climax"])
-                    || (ContainsCommand(interaction.Content, ["/nextphase"])
-                        && state.CurrentNarrativePhase == NarrativePhase.Approaching),
-                ClimaxCompletionDetected: ContainsCommand(interaction.Content, ["/completeclimax", "/endclimax", "/end-climax"])
-                    || (ContainsCommand(interaction.Content, ["/nextphase"])
-                        && state.CurrentNarrativePhase == NarrativePhase.Climax),
-                ManualScenarioOverrideRequested: false,
-                ManualOverrideScenarioId: null,
-                CompletedScenarios: state.CompletedScenarios),
-            cancellationToken);
-
-        if (!transition.Transitioned)
-        {
-            return;
-        }
-
-        if (!Enum.TryParse<NarrativePhase>(transition.NextPhase, out var nextPhase))
-        {
-            return;
-        }
-
-        state.CurrentNarrativePhase = nextPhase;
-        if (nextPhase == NarrativePhase.Approaching)
-        {
-            state.InteractionsInApproaching = 0;
-        }
-        else if (nextPhase == NarrativePhase.Climax)
-        {
-            state.InteractionsInApproaching = 0;
-        }
-
-        _logger?.LogInformation(
-            "Narrative phase transition for session {SessionId}: current={CurrentPhase}, next={NextPhase}, reason={Reason}, activeScenarioId={ActiveScenarioId}, interactionCount={InteractionCount}",
-            session.Id,
-            transition.CurrentPhase,
-            transition.NextPhase,
-            transition.Reason,
-            state.ActiveScenarioId,
-            session.Interactions.Count + 1);
-
-        if (nextPhase == NarrativePhase.Reset)
-        {
-            var resetSnapshot = await _narrativePhaseManager.ApplyResetAsync(
-                new AdaptiveScenarioSnapshot(
-                    state.ActiveScenarioId,
-                    state.CurrentNarrativePhase.ToString(),
-                    session.Interactions.Count + 1,
-                    AverageCharacterStat(state, "Desire"),
-                    AverageCharacterStat(state, "Restraint"),
-                    state.ActiveScenarioId is not null && state.ThemeTracker.Themes.TryGetValue(state.ActiveScenarioId, out var active)
-                        ? active.Score
-                        : 0),
-                new ResetTrigger("Automatic reset", false, null),
-                cancellationToken);
-
-            await ApplyResetSnapshotAsync(session, state, resetSnapshot, cancellationToken);
-            state.CurrentNarrativePhase = NarrativePhase.BuildUp;
-        }
-    }
-
-    private async Task HandleManualOverrideAsync(
-        RolePlaySession session,
-        RolePlayAdaptiveState state,
-        string requestedScenarioId,
-        CancellationToken cancellationToken)
-    {
-        if (_narrativePhaseManager is not null && !string.IsNullOrWhiteSpace(state.ActiveScenarioId))
-        {
-            var resetSnapshot = await _narrativePhaseManager.ApplyResetAsync(
-                new AdaptiveScenarioSnapshot(
-                    state.ActiveScenarioId,
-                    state.CurrentNarrativePhase.ToString(),
-                    0,
-                    AverageCharacterStat(state, "Desire"),
-                    AverageCharacterStat(state, "Restraint"),
-                    state.ThemeTracker.Themes.TryGetValue(state.ActiveScenarioId, out var active) ? active.Score : 0),
-                new ResetTrigger("Manual scenario override", true, requestedScenarioId),
-                cancellationToken);
-
-            await ApplyResetSnapshotAsync(session, state, resetSnapshot, cancellationToken);
-            state.CurrentNarrativePhase = NarrativePhase.BuildUp;
-        }
-
-        PrioritizeScenarioCandidate(state, requestedScenarioId);
-    }
-
-    private static void PrioritizeScenarioCandidate(RolePlayAdaptiveState state, string requestedScenarioId)
-    {
-        if (!state.ThemeTracker.Themes.TryGetValue(requestedScenarioId, out var requested))
-        {
-            return;
-        }
-
-        requested.Breakdown.ChoiceSignal = Math.Max(requested.Breakdown.ChoiceSignal, 20);
-        requested.IsScenarioCandidate = true;
-        requested.LastCandidateEvaluationTimeUtc = DateTime.UtcNow;
-    }
-
-    private static string? ExtractManualOverrideScenarioId(string? content, RolePlayAdaptiveState state)
-    {
-        if (string.IsNullOrWhiteSpace(content))
-        {
-            return null;
-        }
-
-        var lower = content.ToLowerInvariant();
-        var hasOverrideIntent = lower.Contains("override", StringComparison.Ordinal)
-            || lower.Contains("switch scenario", StringComparison.Ordinal)
-            || lower.Contains("set scenario", StringComparison.Ordinal);
-
-        if (!hasOverrideIntent)
-        {
-            return null;
-        }
-
-        foreach (var themeId in state.ThemeTracker.Themes.Keys)
-        {
-            if (lower.Contains(themeId.ToLowerInvariant(), StringComparison.Ordinal))
-            {
-                return themeId;
-            }
-        }
-
-        return null;
-    }
-
-    private static bool ContainsAny(string? content, IReadOnlyList<string> markers)
-    {
-        if (string.IsNullOrWhiteSpace(content))
-        {
-            return false;
-        }
-
-        var lower = content.ToLowerInvariant();
-        return markers.Any(marker => lower.Contains(marker, StringComparison.Ordinal));
-    }
-
-    private static bool ContainsCommand(string? content, IReadOnlyList<string> commands)
-    {
-        if (string.IsNullOrWhiteSpace(content))
-        {
-            return false;
-        }
-
-        var tokens = content
-            .Split([' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-
-        return tokens.Any(token => commands.Any(command => string.Equals(token, command, StringComparison.OrdinalIgnoreCase)));
-    }
-
-    private async Task ApplyResetSnapshotAsync(
-        RolePlaySession session,
-        RolePlayAdaptiveState state,
-        AdaptiveScenarioSnapshot snapshot,
-        CancellationToken cancellationToken)
-    {
-        if (!string.IsNullOrWhiteSpace(state.ActiveScenarioId))
-        {
-            state.ScenarioHistory.Add(new ScenarioMetadata
-            {
-                ScenarioId = state.ActiveScenarioId,
-                CompletedAtUtc = DateTime.UtcNow,
-                InteractionCount = state.InteractionsSinceCommitment,
-                PeakThemeScore = state.ThemeTracker.Themes.TryGetValue(state.ActiveScenarioId, out var active) ? (int)Math.Round(active.Score) : 0,
-                PeakDesireLevel = (int)Math.Round(AverageCharacterStat(state, "Desire")),
-                AverageRestraintLevel = AverageCharacterStat(state, "Restraint")
-            });
-            state.CompletedScenarios = state.ScenarioHistory.Count;
-        }
-
-        state.ActiveScenarioId = snapshot.ActiveScenarioId;
-        state.ScenarioCommitmentTimeUtc = null;
-        state.InteractionsSinceCommitment = 0;
-        state.InteractionsInApproaching = 0;
-        state.BuildUpCooldownInteractionsRemaining = 1;
-
-        RecenterCharacterStatsForReset(state);
-
-        if (Enum.TryParse<NarrativePhase>(snapshot.CurrentNarrativePhase, out var parsedPhase))
-        {
-            state.CurrentNarrativePhase = parsedPhase;
-        }
-
-        await ForceAdaptiveIntensityToFloorAsync(session, cancellationToken);
-    }
-
-    private async Task ForceAdaptiveIntensityToFloorAsync(RolePlaySession session, CancellationToken cancellationToken)
-    {
-        if (_intensityProfileService is null)
-        {
-            return;
-        }
-
-        var floorScale = RolePlayStyleResolver.ParseBoundScale(session.IntensityFloorOverride);
-        if (!floorScale.HasValue)
-        {
-            session.AdaptiveIntensityLastTransitionReason = "reset-floor-unavailable";
-            return;
-        }
-
-        var profiles = await _intensityProfileService.ListAsync(cancellationToken);
-        if (profiles.Count == 0)
-        {
-            session.AdaptiveIntensityLastTransitionReason = "reset-floor-no-profiles";
-            return;
-        }
-
-        var targetProfile = profiles.FirstOrDefault(x => (int)x.Intensity == floorScale.Value);
-        if (targetProfile is null)
-        {
-            session.AdaptiveIntensityLastTransitionReason = "reset-floor-target-profile-missing";
-            return;
-        }
-
-        if (string.Equals(session.AdaptiveIntensityProfileId, targetProfile.Id, StringComparison.OrdinalIgnoreCase))
-        {
-            session.AdaptiveIntensityLastTransitionReason = "reset-floor-already-applied";
-            return;
-        }
-
-        session.AdaptiveIntensityTransitions ??= [];
-        var fromProfileId = session.AdaptiveIntensityProfileId ?? session.SelectedIntensityProfileId ?? string.Empty;
-        session.AdaptiveIntensityProfileId = targetProfile.Id;
-        session.AdaptiveIntensityLastFromProfileId = fromProfileId;
-        session.AdaptiveIntensityLastToProfileId = targetProfile.Id;
-        session.AdaptiveIntensityLastTransitionReason = "reset-floor-applied";
-        session.AdaptiveIntensityLastTransitionUtc = DateTime.UtcNow;
-        session.AdaptiveIntensityTransitions.Add(new AdaptiveIntensityTransitionRecord
-        {
-            FromProfileId = fromProfileId,
-            ToProfileId = targetProfile.Id,
-            ReasonCode = "reset-floor-applied",
-            Source = "reset-engine",
-            OccurredUtc = session.AdaptiveIntensityLastTransitionUtc.Value
-        });
-
-        if (session.AdaptiveIntensityTransitions.Count > MaxAdaptiveTransitionHistory)
-        {
-            var trim = session.AdaptiveIntensityTransitions.Count - MaxAdaptiveTransitionHistory;
-            session.AdaptiveIntensityTransitions.RemoveRange(0, trim);
-        }
-    }
-
-    private static void RecenterCharacterStatsForReset(RolePlayAdaptiveState state)
-    {
-        foreach (var block in state.CharacterStats.Values)
-        {
-            EnsureDefaultStats(block.Stats);
-            foreach (var statName in AdaptiveStatCatalog.CanonicalStatNames)
-            {
-                if (!block.Stats.TryGetValue(statName, out var current))
-                {
-                    current = AdaptiveStatCatalog.DefaultValue;
-                }
-
-                block.Stats[statName] = ComputeResetStatTarget(current);
-            }
-
-            block.UpdatedUtc = DateTime.UtcNow;
-        }
-    }
-
-    private static int ComputeResetStatTarget(int current)
-    {
-        var clamped = Math.Clamp(current, AdaptiveStatCatalog.MinValue, AdaptiveStatCatalog.MaxValue);
-        var baseline = AdaptiveStatCatalog.DefaultValue;
-
-        if (clamped <= ResetExtremeLowThreshold || clamped >= ResetExtremeHighThreshold)
-        {
-            return ResetExtremeHardTarget;
-        }
-
-        var distanceFromBaseline = clamped - baseline;
-        var softened = baseline + (int)Math.Round(distanceFromBaseline * ResetSoftRetentionFactor, MidpointRounding.AwayFromZero);
-        return Math.Clamp(softened, AdaptiveStatCatalog.MinValue, AdaptiveStatCatalog.MaxValue);
-    }
-
     private static double AverageCharacterStat(RolePlayAdaptiveState state, string statName)
     {
         if (state.CharacterStats.Count == 0)
@@ -1522,24 +771,13 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
 
     private async Task<IReadOnlyList<ThemeCatalogEntry>> LoadRuntimeCatalogEntriesAsync(RolePlaySession session, CancellationToken cancellationToken)
     {
-        if (_rpThemeService is not null && ShouldUseRpThemeSubsystem(session) && !string.IsNullOrWhiteSpace(session.SelectedRPThemeProfileId))
+        if (_rpThemeService is not null && !string.IsNullOrWhiteSpace(session.SelectedRPThemeProfileId))
         {
             var rpThemes = await _rpThemeService.ListThemesByProfileAsync(session.SelectedRPThemeProfileId, includeDisabled: false, cancellationToken);
             if (rpThemes.Count > 0)
             {
                 return rpThemes
                     .Select(MapRpThemeToCatalogEntry)
-                    .ToList();
-            }
-        }
-
-        if (_useScenarioDefinitionsForAdaptiveRuntime && _scenarioDefinitionService is not null)
-        {
-            var definitions = await _scenarioDefinitionService.GetAllAsync(includeDisabled: false, cancellationToken);
-            if (definitions.Count > 0)
-            {
-                return definitions
-                    .Select(MapScenarioDefinitionToCatalogEntry)
                     .ToList();
             }
         }
@@ -1580,25 +818,6 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
     private static string BuildScenarioFitRulesJson(DreamGenClone.Domain.RolePlay.RPTheme theme)
     {
         return RPThemeFitRulesConverter.BuildScenarioFitRulesJson(theme);
-    }
-
-    private static ThemeCatalogEntry MapScenarioDefinitionToCatalogEntry(ScenarioDefinitionEntity definition)
-    {
-        return new ThemeCatalogEntry
-        {
-            Id = definition.Id,
-            Label = definition.Label,
-            Description = definition.Description,
-            Keywords = [.. definition.Keywords],
-            Weight = definition.Weight,
-            Category = definition.Category,
-            StatAffinities = new Dictionary<string, int>(definition.StatAffinities, StringComparer.OrdinalIgnoreCase),
-            ScenarioFitRules = definition.ScenarioFitRules,
-            IsEnabled = definition.IsEnabled,
-            IsBuiltIn = false,
-            CreatedUtc = definition.CreatedUtc,
-            UpdatedUtc = definition.UpdatedUtc
-        };
     }
 
     private static CharacterStatBlock GetOrCreateCharacterStats(RolePlayAdaptiveState state, string actorKey)
@@ -1936,7 +1155,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         CancellationToken cancellationToken)
     {
         var result = new Dictionary<string, IReadOnlyDictionary<string, IReadOnlyList<string>>>(StringComparer.OrdinalIgnoreCase);
-        if (_rpThemeService is null || !ShouldUseRpThemeSubsystem(session) || string.IsNullOrWhiteSpace(session.SelectedRPThemeProfileId))
+        if (_rpThemeService is null || string.IsNullOrWhiteSpace(session.SelectedRPThemeProfileId))
         {
             return result;
         }
@@ -2026,7 +1245,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
 
         // --- T030: Resolve ThemeProfile preferences and apply ChoiceSignal ---
         var blockedCount = 0;
-        if (_rpThemeService is not null && ShouldUseRpThemeSubsystem(session) && !string.IsNullOrWhiteSpace(session.SelectedRPThemeProfileId))
+        if (_rpThemeService is not null && !string.IsNullOrWhiteSpace(session.SelectedRPThemeProfileId))
         {
             var assignments = await _rpThemeService.ListProfileAssignmentsAsync(session.SelectedRPThemeProfileId, cancellationToken);
             var themes = await _rpThemeService.ListThemesAsync(includeDisabled: false, cancellationToken: cancellationToken);
@@ -2242,8 +1461,6 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             return false;
         }
 
-        await HandleManualOverrideAsync(session, state, requestedScenarioId, cancellationToken);
-
         state.ActiveScenarioId = requestedScenarioId;
         state.ScenarioCommitmentTimeUtc = DateTime.UtcNow;
         state.InteractionsSinceCommitment = 0;
@@ -2274,21 +1491,6 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             state.CurrentNarrativePhase);
 
         return true;
-    }
-
-    private bool ShouldUseRpThemeSubsystem(RolePlaySession session)
-    {
-        if (!_useRpThemeSubsystem)
-        {
-            return false;
-        }
-
-        if (!_useRpThemeSubsystemForNewSessionsOnly)
-        {
-            return true;
-        }
-
-        return session.UseRpThemeSubsystem;
     }
 
     private static ThemeCatalogEntry? FindCatalogEntryByPreference(

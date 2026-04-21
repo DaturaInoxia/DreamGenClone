@@ -5,9 +5,9 @@ namespace DreamGenClone.Infrastructure.RolePlay;
 
 public sealed class RolePlayDiagnosticsRepository : IRolePlayDiagnosticsRepository
 {
-    private readonly IRolePlayV2StateRepository _stateRepository;
+    private readonly IRolePlayStateRepository _stateRepository;
 
-    public RolePlayDiagnosticsRepository(IRolePlayV2StateRepository stateRepository)
+    public RolePlayDiagnosticsRepository(IRolePlayStateRepository stateRepository)
     {
         _stateRepository = stateRepository;
     }

@@ -26,14 +26,6 @@ public sealed class StoryAnalysisOptions
 
     public double RankConfidenceThreshold { get; set; } = 0.5;
 
-    public bool UseScenarioDefinitionsForAdaptiveRuntime { get; set; }
-
-    // Enables RP-only Theme/Profile subsystem for runtime candidate/guidance paths.
-    public bool UseRpThemeSubsystem { get; set; } = true;
-
-    // When true, RP subsystem only applies to sessions explicitly marked for it.
-    public bool UseRpThemeSubsystemForNewSessionsOnly { get; set; } = true;
-
     // Markdown source folder used by RP theme sync controls.
     public string RpThemeMarkdownSourcePath { get; set; } = "specs/v2/ThemeDefinitaions";
 
@@ -81,21 +73,6 @@ public sealed class StoryAnalysisOptions
 
     // Multiplier applied to weighted score when candidate gate fails.
     public double GateFailScorePenaltyMultiplier { get; set; } = 0.35;
-
-    // Number of recent evidence-bearing interactions to inspect for active-scenario staleness.
-    public int ActiveScenarioNoHitStaleTurns { get; set; } = 2;
-
-    // Default pivot overtake margin when active scenario is not stale.
-    public double PivotOvertakeMarginDefault { get; set; } = 2.0;
-
-    // Relaxed pivot overtake margin when active scenario is stale.
-    public double PivotOvertakeMarginWhenStale { get; set; } = 1.0;
-
-    // Max committed interactions since commitment where pivot is allowed when not stale.
-    public int PivotCommittedInteractionWindow { get; set; } = 3;
-
-    // Max committed interactions since commitment where pivot is allowed when stale.
-    public int PivotCommittedInteractionWindowWhenStale { get; set; } = 8;
 
     // Per-completion penalty applied to scenario candidate evidence/priority to reduce repeated picks.
     public double CompletedScenarioRepeatPenaltyPerRun { get; set; } = 0.20;

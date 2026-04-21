@@ -7,7 +7,7 @@
 @using DreamGenClone.Web.Application.RolePlay
 
 @inject RolePlayDebugEventService DebugEvents
-@inject IRolePlayV2StateRepository V2StateRepository
+@inject IRolePlayStateRepository StateRepository
 @inject NavigationManager Navigation
 
 @implements IAsyncDisposable
@@ -541,7 +541,7 @@
             .Take(20)
             .ToList());
 
-        var candidateEvaluations = await V2StateRepository.LoadCandidateEvaluationsAsync(sessionId, take: 80);
+        var candidateEvaluations = await StateRepository.LoadCandidateEvaluationsAsync(sessionId, take: 80);
         _roleFitBreakdownRows.Clear();
         _roleFitBreakdownRows.AddRange(ParseRoleFitBreakdownRows(candidateEvaluations)
             .OrderByDescending(x => x.Time)

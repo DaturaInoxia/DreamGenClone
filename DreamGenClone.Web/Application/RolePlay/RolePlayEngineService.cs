@@ -134,7 +134,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     private readonly IScenarioLifecycleService _scenarioLifecycleService;
     private readonly IConceptInjectionService _conceptInjectionService;
     private readonly IDecisionPointService _decisionPointService;
-    private readonly IRolePlayV2StateRepository _v2StateRepository;
+    private readonly IRolePlayStateRepository _stateRepository;
     private readonly ICompletionClient? _completionClient;
     private readonly IModelResolutionService? _modelResolutionService;
     private readonly IThemePreferenceService? _themePreferenceService;
@@ -142,8 +142,6 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     private readonly RolePlayPromptComposer _promptComposer;
     private readonly RolePlaySessionCompatibilityService? _compatibilityService;
     private readonly ILogger<RolePlayEngineService> _logger;
-    private readonly bool _useRpThemeSubsystem;
-    private readonly bool _useRpThemeSubsystemForNewSessionsOnly;
     private readonly decimal _completedScenarioRepeatPenaltyPerRun;
     private readonly decimal _completedScenarioRepeatPenaltyFloor;
     private readonly decimal _completedScenarioThemeScorePenalty;
@@ -167,7 +165,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         IScenarioLifecycleService? scenarioLifecycleService = null,
         IConceptInjectionService? conceptInjectionService = null,
         IDecisionPointService? decisionPointService = null,
-        IRolePlayV2StateRepository? v2StateRepository = null,
+        IRolePlayStateRepository? stateRepository = null,
         ICompletionClient? completionClient = null,
         IModelResolutionService? modelResolutionService = null,
         IThemePreferenceService? themePreferenceService = null,
@@ -192,7 +190,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         _scenarioLifecycleService = scenarioLifecycleService ?? new NullScenarioLifecycleService();
         _conceptInjectionService = conceptInjectionService ?? new NullConceptInjectionService();
         _decisionPointService = decisionPointService ?? new NullDecisionPointService();
-        _v2StateRepository = v2StateRepository ?? new NullRolePlayV2StateRepository();
+        _stateRepository = stateRepository ?? new NullRolePlayStateRepository();
         _completionClient = completionClient;
         _modelResolutionService = modelResolutionService;
         _themePreferenceService = themePreferenceService;
@@ -200,8 +198,6 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         _promptComposer = promptComposer ?? new RolePlayPromptComposer();
         _compatibilityService = compatibilityService;
         _logger = logger;
-        _useRpThemeSubsystem = storyAnalysisOptions?.Value.UseRpThemeSubsystem ?? true;
-        _useRpThemeSubsystemForNewSessionsOnly = storyAnalysisOptions?.Value.UseRpThemeSubsystemForNewSessionsOnly ?? true;
         _completedScenarioRepeatPenaltyPerRun = (decimal)Math.Clamp(storyAnalysisOptions?.Value.CompletedScenarioRepeatPenaltyPerRun ?? 0.20, 0d, 1d);
         _completedScenarioRepeatPenaltyFloor = (decimal)Math.Clamp(storyAnalysisOptions?.Value.CompletedScenarioRepeatPenaltyFloor ?? 0.40, 0d, 1d);
         _completedScenarioThemeScorePenalty = Math.Clamp(storyAnalysisOptions?.Value.CompletedScenarioThemeScorePenalty ?? 10, 0, 100);
@@ -231,7 +227,6 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             PersonaRole = CharacterRoleCatalog.Normalize(personaRole),
             PersonaRelationTargetId = CharacterRelationCatalog.NormalizeTargetId(personaRelationTargetId),
             PersonaPerspectiveMode = CharacterPerspectiveMode.FirstPersonInternalMonologue,
-            UseRpThemeSubsystem = _useRpThemeSubsystem
         };
 
         if (!string.IsNullOrWhiteSpace(scenarioId))
@@ -1077,7 +1072,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             return null;
         }
 
-        var points = await _v2StateRepository.LoadDecisionPointsAsync(sessionId, 30, cancellationToken);
+        var points = await _stateRepository.LoadDecisionPointsAsync(sessionId, 30, cancellationToken);
         if (points.Count == 0)
         {
             return null;
@@ -1095,7 +1090,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             return null;
         }
 
-        var options = await _v2StateRepository.LoadDecisionOptionsAsync(pending.DecisionPointId, cancellationToken);
+        var options = await _stateRepository.LoadDecisionOptionsAsync(pending.DecisionPointId, cancellationToken);
         options = ApplyTransparencyToDecisionOptions(options, pending.TransparencyMode);
         return new RolePlayPendingDecisionPrompt
         {
@@ -1114,7 +1109,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             return [];
         }
 
-        var points = await _v2StateRepository.LoadDecisionPointsAsync(sessionId, 60, cancellationToken);
+        var points = await _stateRepository.LoadDecisionPointsAsync(sessionId, 60, cancellationToken);
         if (points.Count == 0)
         {
             return [];
@@ -1137,7 +1132,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         var prompts = new List<RolePlayPendingDecisionPrompt>(deferredPoints.Count);
         foreach (var point in deferredPoints)
         {
-            var options = await _v2StateRepository.LoadDecisionOptionsAsync(point.DecisionPointId, cancellationToken);
+            var options = await _stateRepository.LoadDecisionOptionsAsync(point.DecisionPointId, cancellationToken);
             options = ApplyTransparencyToDecisionOptions(options, point.TransparencyMode);
             prompts.Add(new RolePlayPendingDecisionPrompt
             {
@@ -1782,7 +1777,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         bool explicitClimaxCompletionRequested = false,
         DreamGenClone.Domain.RolePlay.NarrativePhase? manualPhaseAdvanceTarget = null)
     {
-        var previousV2State = await _v2StateRepository.LoadAdaptiveStateAsync(session.Id, cancellationToken);
+        var previousV2State = await _stateRepository.LoadAdaptiveStateAsync(session.Id, cancellationToken);
         var v2State = HydrateV2State(session, previousV2State);
         NormalizePhaseOverrideLock(v2State);
         var climaxCompletionRequested = explicitClimaxCompletionRequested || IsClimaxCompletionRequested(session);
@@ -1797,7 +1792,6 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             : 1;
         v2State.InteractionCountInPhase = Math.Max(0, v2State.InteractionCountInPhase) + Math.Max(1, generatedSinceLastEval);
         var candidates = await BuildScenarioCandidatesAsync(session, cancellationToken);
-        var rpSubsystemSession = ShouldUseRpThemeSubsystem(session);
         var linkedNarrativeGateProfileId = await ResolveNarrativeGateProfileIdAsync(session, v2State, cancellationToken);
         v2State.SelectedNarrativeGateProfileId = linkedNarrativeGateProfileId;
 
@@ -1806,7 +1800,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         var evaluations = manualOverrideLockActive
             ? Array.Empty<DreamGenClone.Domain.RolePlay.ScenarioCandidateEvaluation>()
             : await _scenarioSelectionService.EvaluateCandidatesAsync(v2State, candidates, cancellationToken);
-        await _v2StateRepository.SaveCandidateEvaluationsAsync(evaluations, cancellationToken);
+        await _stateRepository.SaveCandidateEvaluationsAsync(evaluations, cancellationToken);
 
         var inResetPhase = v2State.CurrentPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.Reset;
         var commitResult = (manualOverrideLockActive || inResetPhase)
@@ -1962,7 +1956,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 ClimaxCompletionRequested = climaxCompletionRequested,
                 ManualAdvanceTargetPhase = manualPhaseAdvanceTarget,
                 NarrativeGateProfileId = linkedNarrativeGateProfileId,
-                SkipDefaultNarrativeGateProfileFallback = rpSubsystemSession && string.IsNullOrWhiteSpace(linkedNarrativeGateProfileId),
+                SkipDefaultNarrativeGateProfileFallback = string.IsNullOrWhiteSpace(linkedNarrativeGateProfileId),
                 ActiveScenarioConfidence = lifecycleConfidence,
                 ActiveScenarioFitScore = lifecycleFitScore,
                 EvidenceSummary = commitResult.Reason
@@ -2010,7 +2004,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
             if (lifecycle.TransitionEvent is not null)
             {
-                await _v2StateRepository.SaveTransitionEventAsync(lifecycle.TransitionEvent, cancellationToken);
+                await _stateRepository.SaveTransitionEventAsync(lifecycle.TransitionEvent, cancellationToken);
             }
 
             if (lifecycle.TargetPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.Reset)
@@ -2039,7 +2033,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                     StartedUtc = session.AdaptiveState.ScenarioCommitmentTimeUtc ?? DateTime.UtcNow,
                     CompletedUtc = DateTime.UtcNow
                 };
-                await _v2StateRepository.SaveCompletionMetadataAsync(completion, cancellationToken);
+                await _stateRepository.SaveCompletionMetadataAsync(completion, cancellationToken);
                 v2State = await _scenarioLifecycleService.ExecuteResetAsync(v2State, ResetReason.Completion, cancellationToken);
                 ApplyThemeSemiReset(session.AdaptiveState.ThemeTracker, completedScenarioId);
             }
@@ -2058,7 +2052,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         {
             var conceptContext = _promptComposer.BuildConceptContext(conceptCandidates, conceptTrigger);
             var conceptResult = await _conceptInjectionService.BuildGuidanceAsync(v2State, conceptContext, cancellationToken);
-            await _v2StateRepository.SaveConceptInjectionAsync(session.Id, conceptResult, cancellationToken);
+            await _stateRepository.SaveConceptInjectionAsync(session.Id, conceptResult, cancellationToken);
         }
 
         var effectiveDecisionTrigger = lifecycle.Transitioned
@@ -2148,7 +2142,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 var rewriteResult = await TryApplyAiDecisionOptionAnswersAsync(session, decisionPoint, options, cancellationToken);
                 options = rewriteResult.Options;
 
-                await _v2StateRepository.SaveDecisionPointAsync(decisionPoint, options, cancellationToken);
+                await _stateRepository.SaveDecisionPointAsync(decisionPoint, options, cancellationToken);
 
                 if (_debugEventSink is not null)
                 {
@@ -2257,7 +2251,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             }, cancellationToken);
         }
 
-        await _v2StateRepository.SaveFormulaVersionReferenceAsync(
+        await _stateRepository.SaveFormulaVersionReferenceAsync(
             session.Id,
             new DreamGenClone.Domain.RolePlay.FormulaConfigVersion
             {
@@ -2270,7 +2264,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             v2State.CycleIndex,
             cancellationToken);
 
-        await _v2StateRepository.SaveAdaptiveStateAsync(v2State, cancellationToken);
+        await _stateRepository.SaveAdaptiveStateAsync(v2State, cancellationToken);
         SyncSessionAdaptiveStateFromV2(session, v2State);
     }
 
@@ -2358,7 +2352,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         RolePlaySession session,
         CancellationToken cancellationToken)
     {
-        var snapshot = await _v2StateRepository.LoadAdaptiveStateAsync(session.Id, cancellationToken);
+        var snapshot = await _stateRepository.LoadAdaptiveStateAsync(session.Id, cancellationToken);
         if (snapshot is null)
         {
             return;
@@ -2701,7 +2695,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
     private async Task<bool> HasPendingDecisionPointAsync(RolePlaySession session, CancellationToken cancellationToken)
     {
-        var points = await _v2StateRepository.LoadDecisionPointsAsync(session.Id, 30, cancellationToken);
+        var points = await _stateRepository.LoadDecisionPointsAsync(session.Id, 30, cancellationToken);
         if (points.Count == 0)
         {
             return false;
@@ -2722,7 +2716,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             return false;
         }
 
-        var points = await _v2StateRepository.LoadDecisionPointsAsync(session.Id, 10, cancellationToken);
+        var points = await _stateRepository.LoadDecisionPointsAsync(session.Id, 10, cancellationToken);
         if (points.Count == 0)
         {
             return false;
@@ -3187,7 +3181,7 @@ Requirements:
             return null;
         }
 
-        var options = await _v2StateRepository.LoadDecisionOptionsAsync(decisionPointId, cancellationToken);
+        var options = await _stateRepository.LoadDecisionOptionsAsync(decisionPointId, cancellationToken);
         return options.FirstOrDefault(x => string.Equals(x.OptionId, optionId, StringComparison.OrdinalIgnoreCase));
     }
 
@@ -4304,7 +4298,7 @@ Requirements:
         string decisionPointId,
         CancellationToken cancellationToken)
     {
-        var points = await _v2StateRepository.LoadDecisionPointsAsync(sessionId, 30, cancellationToken);
+        var points = await _stateRepository.LoadDecisionPointsAsync(sessionId, 30, cancellationToken);
         return points.FirstOrDefault(x => string.Equals(x.DecisionPointId, decisionPointId, StringComparison.OrdinalIgnoreCase));
     }
 
@@ -4570,7 +4564,7 @@ Requirements:
             .ThenBy(x => x.Theme.ThemeId, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        if (_rpThemeService is not null && ShouldUseRpThemeSubsystem(session) && !string.IsNullOrWhiteSpace(session.SelectedRPThemeProfileId))
+        if (_rpThemeService is not null && !string.IsNullOrWhiteSpace(session.SelectedRPThemeProfileId))
         {
             var assignments = await _rpThemeService.ListProfileAssignmentsAsync(session.SelectedRPThemeProfileId, cancellationToken);
             var themes = await _rpThemeService.ListThemesAsync(includeDisabled: false, cancellationToken: cancellationToken);
@@ -4682,7 +4676,6 @@ Requirements:
         CancellationToken cancellationToken)
     {
         if (_rpThemeService is null
-            || !ShouldUseRpThemeSubsystem(session)
             || string.IsNullOrWhiteSpace(state.ActiveScenarioId))
         {
             return null;
@@ -4792,21 +4785,6 @@ Requirements:
         }
 
         return scenarioCharacterId;
-    }
-
-    private bool ShouldUseRpThemeSubsystem(RolePlaySession session)
-    {
-        if (!_useRpThemeSubsystem)
-        {
-            return false;
-        }
-
-        if (!_useRpThemeSubsystemForNewSessionsOnly)
-        {
-            return true;
-        }
-
-        return session.UseRpThemeSubsystem;
     }
 
     private static decimal NormalizeThemeScore(double score)
@@ -5111,7 +5089,7 @@ Requirements:
             => Task.FromResult(new DecisionOutcome { Applied = false, DecisionPointId = submission.DecisionPointId, OptionId = submission.OptionId, Summary = "Decision service disabled." });
     }
 
-    private sealed class NullRolePlayV2StateRepository : IRolePlayV2StateRepository
+    private sealed class NullRolePlayStateRepository : IRolePlayStateRepository
     {
         public Task SaveAdaptiveStateAsync(DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task<DreamGenClone.Domain.RolePlay.AdaptiveScenarioState?> LoadAdaptiveStateAsync(string sessionId, CancellationToken cancellationToken = default) => Task.FromResult<DreamGenClone.Domain.RolePlay.AdaptiveScenarioState?>(null);

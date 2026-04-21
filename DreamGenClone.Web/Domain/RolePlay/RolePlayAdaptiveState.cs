@@ -40,8 +40,6 @@ public sealed class RolePlayAdaptiveState
 
     public int InteractionsInApproaching { get; set; }
 
-    public int BuildUpCooldownInteractionsRemaining { get; set; }
-
     public string? CurrentSceneLocation { get; set; }
 
     public List<RolePlayCharacterLocationState> CharacterLocations { get; set; } = [];

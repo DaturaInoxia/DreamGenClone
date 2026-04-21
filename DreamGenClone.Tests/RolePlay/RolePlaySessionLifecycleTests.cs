@@ -135,7 +135,7 @@ public sealed class RolePlaySessionLifecycleTests
     [Fact]
     public async Task PendingDecisionPrompt_SkipsDeferredAndAppliedDecisionPoints()
     {
-        var repository = new FakeRolePlayV2StateRepository();
+        var repository = new FakeRolePlayStateRepository();
         var (service, _) = CreateService(repository);
         var created = await service.CreateSessionAsync("Queue Session");
 
@@ -176,7 +176,7 @@ public sealed class RolePlaySessionLifecycleTests
     [Fact]
     public async Task DeferRestoreAndSkipDecisionPoint_UpdatesQueueAndSessionState()
     {
-        var repository = new FakeRolePlayV2StateRepository();
+        var repository = new FakeRolePlayStateRepository();
         var (service, _) = CreateService(repository);
         var created = await service.CreateSessionAsync("Deferred Session");
 
@@ -225,7 +225,7 @@ public sealed class RolePlaySessionLifecycleTests
     [Fact]
     public async Task ApplyDecision_WithSteeringInstructions_AppendsConciseInstructionInteraction()
     {
-        var repository = new FakeRolePlayV2StateRepository();
+        var repository = new FakeRolePlayStateRepository();
         var (service, _) = CreateService(repository);
         var created = await service.CreateSessionAsync("Apply Decision Instruction Session");
 
@@ -277,7 +277,7 @@ public sealed class RolePlaySessionLifecycleTests
     [Fact]
     public async Task ContinueAs_AfterDecisionApply_SuppressesNarrativeForOneTurnOnly()
     {
-        var repository = new FakeRolePlayV2StateRepository();
+        var repository = new FakeRolePlayStateRepository();
         var (service, _) = CreateService(repository, suppressNarrativeAfterDecision: true);
         var created = await service.CreateSessionAsync("Decision Narrative Suppression Session");
 
@@ -340,7 +340,7 @@ public sealed class RolePlaySessionLifecycleTests
     [Fact]
     public async Task ContinueAs_AfterDecisionApply_WithSuppressionDisabled_IncludesNarrativeImmediately()
     {
-        var repository = new FakeRolePlayV2StateRepository();
+        var repository = new FakeRolePlayStateRepository();
         var (service, _) = CreateService(repository, suppressNarrativeAfterDecision: false);
         var created = await service.CreateSessionAsync("Decision Narrative Enabled Session");
 
@@ -431,7 +431,7 @@ public sealed class RolePlaySessionLifecycleTests
     [Fact]
     public async Task ApplyDecision_InjectsSelectedDialogueIntoInstructionPayload()
     {
-        var repository = new FakeRolePlayV2StateRepository();
+        var repository = new FakeRolePlayStateRepository();
         var (service, _) = CreateService(repository);
         var created = await service.CreateSessionAsync("Dialogue Injection Session");
 
@@ -557,9 +557,9 @@ public sealed class RolePlaySessionLifecycleTests
     }
 
     [Fact]
-    public async Task RunRolePlayV2PipelinesAsync_NextPhase_AppliesPhaseOverrideLockForActiveRun()
+    public async Task RunAdaptivePipelinesAsync_NextPhase_AppliesPhaseOverrideLockForActiveRun()
     {
-        var repository = new FakeRolePlayV2StateRepository();
+        var repository = new FakeRolePlayStateRepository();
         var (service, _) = CreateService(repository);
         var created = await service.CreateSessionAsync("Next Phase Lock Session");
 
@@ -576,7 +576,7 @@ public sealed class RolePlaySessionLifecycleTests
             LastEvaluationUtc = DateTime.UtcNow
         });
 
-        await InvokeRunRolePlayV2PipelineAsync(service, session, NarrativePhase.Approaching);
+        await InvokeRunAdaptivePipelineAsync(service, session, NarrativePhase.Approaching);
 
         var reloaded = await service.GetSessionAsync(created.Id);
         Assert.NotNull(reloaded);
@@ -591,7 +591,7 @@ public sealed class RolePlaySessionLifecycleTests
     [Fact]
     public async Task SubmitPromptAsync_ActivePhaseFloor_PreventsBackslide()
     {
-        var repository = new FakeRolePlayV2StateRepository();
+        var repository = new FakeRolePlayStateRepository();
         var (service, _) = CreateService(repository);
         var created = await service.CreateSessionAsync("Next Phase Floor Session");
 
@@ -639,7 +639,7 @@ public sealed class RolePlaySessionLifecycleTests
     [Fact]
     public async Task SubmitPromptAsync_BuildUpBackfillsActiveScenario_WhenMissing()
     {
-        var repository = new FakeRolePlayV2StateRepository();
+        var repository = new FakeRolePlayStateRepository();
         var (service, _) = CreateService(repository);
         var created = await service.CreateSessionAsync("BuildUp Invariant Session");
 
@@ -692,9 +692,9 @@ public sealed class RolePlaySessionLifecycleTests
     }
 
     [Fact]
-    public async Task RunRolePlayV2PipelinesAsync_NextPhaseFromClimax_ClearsPhaseOverrideLockOnReset()
+    public async Task RunAdaptivePipelinesAsync_NextPhaseFromClimax_ClearsPhaseOverrideLockOnReset()
     {
-        var repository = new FakeRolePlayV2StateRepository();
+        var repository = new FakeRolePlayStateRepository();
         var (service, _) = CreateService(repository);
         var created = await service.CreateSessionAsync("Next Phase Reset Session");
 
@@ -711,7 +711,7 @@ public sealed class RolePlaySessionLifecycleTests
             LastEvaluationUtc = DateTime.UtcNow
         });
 
-        await InvokeRunRolePlayV2PipelineAsync(service, session, NarrativePhase.Reset);
+        await InvokeRunAdaptivePipelineAsync(service, session, NarrativePhase.Reset);
 
         var reloaded = await service.GetSessionAsync(created.Id);
         Assert.NotNull(reloaded);
@@ -726,7 +726,7 @@ public sealed class RolePlaySessionLifecycleTests
     [Fact]
     public async Task SubmitPromptAsync_Steer_DoesNotProgressPhaseState()
     {
-        var repository = new FakeRolePlayV2StateRepository();
+        var repository = new FakeRolePlayStateRepository();
         var (service, _) = CreateService(repository);
         var created = await service.CreateSessionAsync("Steer Session");
 
@@ -772,13 +772,13 @@ public sealed class RolePlaySessionLifecycleTests
         Assert.Equal(DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Committed, reloaded!.AdaptiveState.CurrentNarrativePhase);
     }
 
-    private static async Task InvokeRunRolePlayV2PipelineAsync(
+    private static async Task InvokeRunAdaptivePipelineAsync(
         RolePlayEngineService service,
         RolePlaySession session,
         NarrativePhase manualTarget)
     {
         var method = typeof(RolePlayEngineService).GetMethod(
-            "RunRolePlayV2PipelinesAsync",
+            "RunAdaptivePipelinesAsync",
             BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(method);
 
@@ -851,7 +851,7 @@ public sealed class RolePlaySessionLifecycleTests
     }
 
     private static (RolePlayEngineService Service, FakeSessionService SessionService) CreateService(
-        IRolePlayV2StateRepository? v2StateRepository = null,
+        IRolePlayStateRepository? v2StateRepository = null,
         bool suppressNarrativeAfterDecision = false)
     {
         var fakeSessionService = new FakeSessionService();
@@ -991,7 +991,7 @@ public sealed class RolePlaySessionLifecycleTests
         }
     }
 
-    private sealed class FakeRolePlayV2StateRepository : IRolePlayV2StateRepository
+    private sealed class FakeRolePlayStateRepository : IRolePlayStateRepository
     {
         private readonly Dictionary<string, AdaptiveScenarioState> _states = new(StringComparer.OrdinalIgnoreCase);
         private readonly List<DecisionPoint> _points = [];

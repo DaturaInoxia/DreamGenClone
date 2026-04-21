@@ -2,7 +2,7 @@ using DreamGenClone.Domain.RolePlay;
 
 namespace DreamGenClone.Application.RolePlay;
 
-public interface IRolePlayV2StateRepository
+public interface IRolePlayStateRepository
 {
     Task SaveAdaptiveStateAsync(AdaptiveScenarioState state, CancellationToken cancellationToken = default);
     Task<AdaptiveScenarioState?> LoadAdaptiveStateAsync(string sessionId, CancellationToken cancellationToken = default);
