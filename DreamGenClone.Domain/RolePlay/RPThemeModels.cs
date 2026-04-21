@@ -160,3 +160,42 @@ public sealed class RPThemeImportIssue
     public string Severity { get; set; } = "Warning";
     public string Message { get; set; } = string.Empty;
 }
+
+public sealed class RPFinishingMoveMatrixRow
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string ProfileId { get; set; } = string.Empty;
+    public string DesireBand { get; set; } = "50-74";
+    public string SelfRespectBand { get; set; } = "30-59";
+    public string DominanceBand { get; set; } = "Medium";
+    public List<string> PrimaryLocations { get; set; } = [];
+    public List<string> SecondaryLocations { get; set; } = [];
+    public List<string> ExcludedLocations { get; set; } = [];
+    public string WifeBehaviorModifier { get; set; } = string.Empty;
+    public string OtherManBehaviorModifier { get; set; } = string.Empty;
+    public string TransitionInstruction { get; set; } = string.Empty;
+    public int SortOrder { get; set; }
+    public bool IsEnabled { get; set; } = true;
+    public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
+    public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;
+}
+
+public sealed class RPSteerPositionMatrixRow
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string ProfileId { get; set; } = string.Empty;
+    public string DesireBand { get; set; } = "30-59";
+    public string SelfRespectBand { get; set; } = "30-59";
+    public string WifeDominanceBand { get; set; } = "Medium";
+    public string OtherManDominanceBand { get; set; } = "Medium";
+    public List<string> PrimaryPositions { get; set; } = [];
+    public List<string> SecondaryPositions { get; set; } = [];
+    public List<string> ExcludedPositions { get; set; } = [];
+    public string WifeBehaviorModifier { get; set; } = string.Empty;
+    public string OtherManBehaviorModifier { get; set; } = string.Empty;
+    public string TransitionInstruction { get; set; } = string.Empty;
+    public int SortOrder { get; set; }
+    public bool IsEnabled { get; set; } = true;
+    public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
+    public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;
+}

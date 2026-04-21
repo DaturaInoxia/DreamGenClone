@@ -8,7 +8,7 @@ namespace DreamGenClone.Tests.RolePlay;
 public sealed class ScenarioSelectionBuildUpGateProfileTests
 {
     [Fact]
-    public async Task TryCommitScenarioAsync_NoBuildUpProfileRules_KeepsCurrentFallbackBehavior()
+    public async Task TryCommitScenarioAsync_NoBuildUpProfileRules_BlocksCommit()
     {
         var service = new ScenarioSelectionService(
             NullLogger<ScenarioSelectionService>.Instance,
@@ -33,8 +33,8 @@ public sealed class ScenarioSelectionBuildUpGateProfileTests
 
         var result = await service.TryCommitScenarioAsync(state, evaluations);
 
-        Assert.True(result.Committed);
-        Assert.Equal("only", result.ScenarioId);
+        // Without configured BuildUp → Committed profile rules, commit must be blocked.
+        Assert.False(result.Committed);
     }
 
     [Fact]
@@ -84,6 +84,104 @@ public sealed class ScenarioSelectionBuildUpGateProfileTests
 
         Assert.False(result.Committed);
         Assert.Contains("BuildUp profile gate blocked commit", result.Reason, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task TryCommitScenarioAsync_UsesDefaultProfile_WhenSelectedProfileMissing()
+    {
+        var profile = new NarrativeGateProfile
+        {
+            Id = "default-gate-profile",
+            Name = "Default BuildUp Gate",
+            Rules =
+            [
+                new NarrativeGateRule
+                {
+                    SortOrder = 1,
+                    FromPhase = "BuildUp",
+                    ToPhase = "Committed",
+                    MetricKey = NarrativeGateMetricKeys.InteractionsSinceCommitment,
+                    Comparator = NarrativeGateComparators.GreaterThanOrEqual,
+                    Threshold = 5m
+                }
+            ]
+        };
+
+        var service = new ScenarioSelectionService(
+            NullLogger<ScenarioSelectionService>.Instance,
+            narrativeGateProfileService: new StubNarrativeGateProfileService(profile));
+
+        var state = RolePlayV2AcceptanceFixtureData.BuildBoundaryState(desire: 70, restraint: 35, tension: 60);
+        state.CurrentPhase = NarrativePhase.BuildUp;
+        state.InteractionCountInPhase = 3;
+
+        var evaluations = new[]
+        {
+            new ScenarioCandidateEvaluation
+            {
+                SessionId = state.SessionId,
+                ScenarioId = "only",
+                StageBEligible = true,
+                FitScore = 90m,
+                Confidence = 0.90m,
+                TieBreakKey = "001:only"
+            }
+        };
+
+        var result = await service.TryCommitScenarioAsync(state, evaluations);
+
+        Assert.False(result.Committed);
+        Assert.Contains("BuildUp profile gate blocked commit", result.Reason, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task TryCommitScenarioAsync_BuildUpInteractionMinimum_IsEnforcedByProfileRules()
+    {
+        var profile = new NarrativeGateProfile
+        {
+            Id = "gate-profile-interactions",
+            Name = "BuildUp Interactions Gate",
+            Rules =
+            [
+                new NarrativeGateRule
+                {
+                    SortOrder = 1,
+                    FromPhase = "BuildUp",
+                    ToPhase = "Committed",
+                    MetricKey = NarrativeGateMetricKeys.InteractionsSinceCommitment,
+                    Comparator = NarrativeGateComparators.GreaterThanOrEqual,
+                    Threshold = 2m
+                }
+            ]
+        };
+
+        var service = new ScenarioSelectionService(
+            NullLogger<ScenarioSelectionService>.Instance,
+            narrativeGateProfileService: new StubNarrativeGateProfileService(profile));
+
+        var state = RolePlayV2AcceptanceFixtureData.BuildBoundaryState(desire: 70, restraint: 35, tension: 60);
+        state.CurrentPhase = NarrativePhase.BuildUp;
+        state.InteractionCountInPhase = 1;
+        state.SelectedNarrativeGateProfileId = profile.Id;
+
+        var evaluations = new[]
+        {
+            new ScenarioCandidateEvaluation
+            {
+                SessionId = state.SessionId,
+                ScenarioId = "only",
+                StageBEligible = true,
+                FitScore = 95m,
+                Confidence = 0.95m,
+                TieBreakKey = "001:only"
+            }
+        };
+
+        var result = await service.TryCommitScenarioAsync(state, evaluations);
+
+        Assert.False(result.Committed);
+        Assert.Contains("BuildUp profile gate blocked commit", result.Reason, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("BuildUp requires at least", result.Reason, StringComparison.OrdinalIgnoreCase);
     }
 
     private sealed class StubNarrativeGateProfileService : INarrativeGateProfileService

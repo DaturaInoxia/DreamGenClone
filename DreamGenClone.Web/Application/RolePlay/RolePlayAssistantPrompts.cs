@@ -94,6 +94,12 @@ public static class RolePlayAssistantPrompts
             return guards;
         }
 
+        if (phase == "BuildUp")
+        {
+            guards.Add("This is the BuildUp phase — tension and anticipation only. Do not write explicit sexual acts, physical consummation, or explicit physical contact of a sexual nature.");
+            guards.Add("Characters may flirt, exchange glances, build emotional tension, and suggestively interact, but all explicit escalation must be withheld until the scene advances past this phase.");
+        }
+
         if (phase is "Committed" or "Approaching" or "Climax")
         {
             guards.Add($"Keep all major beats aligned to '{activeScenarioId}'.");

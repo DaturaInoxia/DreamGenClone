@@ -32,6 +32,22 @@ public interface IRPThemeService
     Task<IReadOnlyList<RPThemeProfileThemeAssignment>> ListProfileAssignmentsAsync(string profileId, CancellationToken cancellationToken = default);
     Task<bool> DeleteProfileAssignmentAsync(string assignmentId, CancellationToken cancellationToken = default);
 
+    Task<RPFinishingMoveMatrixRow> SaveFinishingMoveMatrixRowAsync(RPFinishingMoveMatrixRow row, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<RPFinishingMoveMatrixRow>> ListFinishingMoveMatrixRowsAsync(CancellationToken cancellationToken = default);
+    Task<bool> DeleteFinishingMoveMatrixRowAsync(string rowId, CancellationToken cancellationToken = default);
+    Task<int> ImportFinishingMoveMatrixRowsFromJsonAsync(
+        string json,
+        bool replaceExisting = false,
+        CancellationToken cancellationToken = default);
+
+    Task<RPSteerPositionMatrixRow> SaveSteerPositionMatrixRowAsync(RPSteerPositionMatrixRow row, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<RPSteerPositionMatrixRow>> ListSteerPositionMatrixRowsAsync(CancellationToken cancellationToken = default);
+    Task<bool> DeleteSteerPositionMatrixRowAsync(string rowId, CancellationToken cancellationToken = default);
+    Task<int> ImportSteerPositionMatrixRowsFromJsonAsync(
+        string json,
+        bool replaceExisting = false,
+        CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<RPThemeImportResult>> ImportFromMarkdownAsync(
         IReadOnlyList<RPThemeImportFile> files,
         CancellationToken cancellationToken = default);

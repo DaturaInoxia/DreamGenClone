@@ -1,3 +1,5 @@
+using DreamGenClone.Application.RolePlay;
+using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Infrastructure.RolePlay;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -6,6 +8,21 @@ namespace DreamGenClone.Tests.RolePlay;
 public sealed class ScenarioSelectionHysteresisTests
 {
     private readonly ScenarioSelectionService _service = new(NullLogger<ScenarioSelectionService>.Instance);
+
+    private static ScenarioSelectionService CreateServiceWithProfile()
+    {
+        var profileService = new StubNarrativeGateProfileService(new NarrativeGateProfile
+        {
+            Id = "default",
+            Name = "Test Profile",
+            IsDefault = true,
+            Rules =
+            [
+                new() { SortOrder = 1, FromPhase = "BuildUp", ToPhase = "Committed", MetricKey = NarrativeGateMetricKeys.InteractionsSinceCommitment, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 2m }
+            ]
+        });
+        return new ScenarioSelectionService(NullLogger<ScenarioSelectionService>.Instance, narrativeGateProfileService: profileService);
+    }
 
     [Fact]
     public async Task TwoStageGatingAndRanking_ProducesEligibleOrderedCandidates()
@@ -23,6 +40,7 @@ public sealed class ScenarioSelectionHysteresisTests
     [Fact]
     public async Task NearTie_HysteresisRequiresConsecutiveLeadBeforeCommit()
     {
+        var service = CreateServiceWithProfile();
         var state = RolePlayV2AcceptanceFixtureData.BuildBoundaryState(desire: 60, restraint: 45, tension: 50);
         state.ConsecutiveLeadCount = 0;
         state.InteractionCountInPhase = 2;
@@ -33,11 +51,11 @@ public sealed class ScenarioSelectionHysteresisTests
                 new DreamGenClone.Application.RolePlay.ScenarioDefinition("B", "B", 0)
             };
 
-        var evaluations = await _service.EvaluateCandidatesAsync(state, candidates);
-        var firstResult = await _service.TryCommitScenarioAsync(state, evaluations);
+        var evaluations = await service.EvaluateCandidatesAsync(state, candidates);
+        var firstResult = await service.TryCommitScenarioAsync(state, evaluations);
 
         state.ConsecutiveLeadCount = firstResult.UpdatedConsecutiveLeadCount;
-        var secondResult = await _service.TryCommitScenarioAsync(state, evaluations);
+        var secondResult = await service.TryCommitScenarioAsync(state, evaluations);
 
         Assert.False(firstResult.Committed);
         Assert.Contains("tieSet=[", firstResult.Reason, StringComparison.OrdinalIgnoreCase);
@@ -65,6 +83,7 @@ public sealed class ScenarioSelectionHysteresisTests
     [Fact]
     public async Task TryCommitScenarioAsync_SingleEligibleCandidate_CommitsWithoutOverflow()
     {
+        var service = CreateServiceWithProfile();
         var state = RolePlayV2AcceptanceFixtureData.BuildBoundaryState(desire: 70, restraint: 40, tension: 50);
         state.InteractionCountInPhase = 2;
         var evaluations = new[]
@@ -80,7 +99,7 @@ public sealed class ScenarioSelectionHysteresisTests
             }
         };
 
-        var result = await _service.TryCommitScenarioAsync(state, evaluations);
+        var result = await service.TryCommitScenarioAsync(state, evaluations);
 
         Assert.True(result.Committed);
         Assert.Equal("only", result.ScenarioId);
@@ -112,5 +131,30 @@ public sealed class ScenarioSelectionHysteresisTests
         Assert.False(result.Committed);
         Assert.Equal("only", result.ScenarioId);
         Assert.Contains("already committed", result.Reason, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private sealed class StubNarrativeGateProfileService : INarrativeGateProfileService
+    {
+        private readonly Dictionary<string, NarrativeGateProfile> _profiles;
+
+        public StubNarrativeGateProfileService(params NarrativeGateProfile[] profiles)
+        {
+            _profiles = profiles.ToDictionary(x => x.Id, StringComparer.OrdinalIgnoreCase);
+        }
+
+        public Task<NarrativeGateProfile> SaveAsync(NarrativeGateProfile profile, CancellationToken cancellationToken = default)
+            => Task.FromResult(profile);
+
+        public Task<List<NarrativeGateProfile>> ListAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(_profiles.Values.ToList());
+
+        public Task<NarrativeGateProfile?> GetAsync(string id, CancellationToken cancellationToken = default)
+            => Task.FromResult(_profiles.TryGetValue(id, out var p) ? p : null);
+
+        public Task<NarrativeGateProfile?> GetDefaultAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(_profiles.Values.FirstOrDefault());
+
+        public Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default)
+            => Task.FromResult(_profiles.Remove(id));
     }
 }

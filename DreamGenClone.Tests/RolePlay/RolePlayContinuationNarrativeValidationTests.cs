@@ -400,6 +400,30 @@ public sealed class RolePlayContinuationNarrativeValidationTests
         public Task<bool> DeleteProfileAssignmentAsync(string assignmentId, CancellationToken cancellationToken = default)
             => Task.FromResult(false);
 
+        public Task<RPFinishingMoveMatrixRow> SaveFinishingMoveMatrixRowAsync(RPFinishingMoveMatrixRow row, CancellationToken cancellationToken = default)
+            => Task.FromResult(row);
+
+        public Task<IReadOnlyList<RPFinishingMoveMatrixRow>> ListFinishingMoveMatrixRowsAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<RPFinishingMoveMatrixRow>>([]);
+
+        public Task<bool> DeleteFinishingMoveMatrixRowAsync(string rowId, CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+
+        public Task<int> ImportFinishingMoveMatrixRowsFromJsonAsync(string json, bool replaceExisting = false, CancellationToken cancellationToken = default)
+            => Task.FromResult(0);
+
+        public Task<RPSteerPositionMatrixRow> SaveSteerPositionMatrixRowAsync(RPSteerPositionMatrixRow row, CancellationToken cancellationToken = default)
+            => Task.FromResult(row);
+
+        public Task<IReadOnlyList<RPSteerPositionMatrixRow>> ListSteerPositionMatrixRowsAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<RPSteerPositionMatrixRow>>([]);
+
+        public Task<bool> DeleteSteerPositionMatrixRowAsync(string rowId, CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+
+        public Task<int> ImportSteerPositionMatrixRowsFromJsonAsync(string json, bool replaceExisting = false, CancellationToken cancellationToken = default)
+            => Task.FromResult(0);
+
         public Task<IReadOnlyList<RPThemeImportResult>> ImportFromMarkdownAsync(IReadOnlyList<RPThemeImportFile> files, CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyList<RPThemeImportResult>>([]);
 

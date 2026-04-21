@@ -9,31 +9,80 @@ public sealed class PhaseLifecycleTransitionTests
 {
     private readonly ScenarioLifecycleService _service = new(NullLogger<ScenarioLifecycleService>.Instance);
 
+    private static ScenarioLifecycleService CreateServiceWithProfile()
+    {
+        var profileService = new StubNarrativeGateProfileService();
+        return new ScenarioLifecycleService(NullLogger<ScenarioLifecycleService>.Instance, profileService);
+    }
+
     [Fact]
     public async Task ValidLifecycleTransitionSequence_ProgressesInOrder()
     {
+        // All phase transitions require a configured profile — no hardcoded fallbacks.
+        var service = CreateServiceWithProfile();
         var state = CreateState();
+        state.CurrentPhase = NarrativePhase.Committed;
 
-        var toCommitted = await _service.EvaluateTransitionAsync(state, new LifecycleInputs { ActiveScenarioConfidence = 0.7m });
-        state.CurrentPhase = toCommitted.TargetPhase;
-
-        var toApproaching = await _service.EvaluateTransitionAsync(state, new LifecycleInputs { InteractionsSinceCommitment = 2, ActiveScenarioConfidence = 0.8m });
+        var toApproaching = await service.EvaluateTransitionAsync(state, new LifecycleInputs
+        {
+            InteractionsSinceCommitment = 3,
+            ActiveScenarioFitScore = 61m,
+            ActiveScenarioConfidence = 0.8m
+        });
         state.CurrentPhase = toApproaching.TargetPhase;
 
-        var toClimax = await _service.EvaluateTransitionAsync(state, new LifecycleInputs { InteractionsSinceCommitment = 4, ActiveScenarioFitScore = 80m });
+        var toClimax = await service.EvaluateTransitionAsync(state, new LifecycleInputs
+        {
+            InteractionsSinceCommitment = 1,
+            ActiveScenarioFitScore = 85m,
+            ActiveScenarioConfidence = 0.9m
+        });
         state.CurrentPhase = toClimax.TargetPhase;
 
-        var toReset = await _service.EvaluateTransitionAsync(state, new LifecycleInputs { ClimaxCompletionRequested = true });
+        var toReset = await service.EvaluateTransitionAsync(state, new LifecycleInputs { ClimaxCompletionRequested = true });
         state.CurrentPhase = toReset.TargetPhase;
 
-        var toBuildUp = await _service.EvaluateTransitionAsync(state, new LifecycleInputs());
+        var toBuildUp = await service.EvaluateTransitionAsync(state, new LifecycleInputs());
 
-        Assert.True(toCommitted.Transitioned);
-        Assert.Equal(NarrativePhase.Committed, toCommitted.TargetPhase);
         Assert.Equal(NarrativePhase.Approaching, toApproaching.TargetPhase);
         Assert.Equal(NarrativePhase.Climax, toClimax.TargetPhase);
         Assert.Equal(NarrativePhase.Reset, toReset.TargetPhase);
         Assert.Equal(NarrativePhase.BuildUp, toBuildUp.TargetPhase);
+    }
+
+    [Fact]
+    public async Task BuildUp_DoesNotTransitionToCommitted_ViaLifecycle()
+    {
+        var service = CreateServiceWithProfile();
+        var state = CreateState();
+
+        var result = await service.EvaluateTransitionAsync(state, new LifecycleInputs
+        {
+            ActiveScenarioConfidence = 0.99m,
+            ActiveScenarioFitScore = 95m,
+            InteractionsSinceCommitment = 100
+        });
+
+        Assert.False(result.Transitioned);
+        Assert.Equal(NarrativePhase.BuildUp, result.TargetPhase);
+    }
+
+    [Fact]
+    public async Task Committed_DoesNotTransitionWithoutProfile()
+    {
+        // Without a profile, no fallback thresholds — transition is blocked.
+        var state = CreateState();
+        state.CurrentPhase = NarrativePhase.Committed;
+
+        var result = await _service.EvaluateTransitionAsync(state, new LifecycleInputs
+        {
+            InteractionsSinceCommitment = 100,
+            ActiveScenarioConfidence = 0.99m,
+            ActiveScenarioFitScore = 95m
+        });
+
+        Assert.False(result.Transitioned);
+        Assert.Equal(NarrativePhase.Committed, result.TargetPhase);
     }
 
     [Fact]
@@ -169,7 +218,43 @@ public sealed class PhaseLifecycleTransitionTests
         ActiveFormulaVersion = "rpv2-default",
         CharacterSnapshots =
         [
-            new CharacterStatProfileV2 { CharacterId = "char-a", Desire = 60, Restraint = 40, Tension = 50, Connection = 55, Dominance = 50, Loyalty = 50, SelfRespect = 50 }
+            new CharacterStatProfileV2 { CharacterId = "char-a", Desire = 80, Restraint = 30, Tension = 50, Connection = 55, Dominance = 50, Loyalty = 50, SelfRespect = 50 }
         ]
     };
+
+    private sealed class StubNarrativeGateProfileService : INarrativeGateProfileService
+    {
+        private readonly NarrativeGateProfile _profile = new()
+        {
+            Id = "default-profile",
+            Name = "Defaults",
+            IsDefault = true,
+            Rules =
+            [
+                new() { SortOrder = 1, FromPhase = "Committed", ToPhase = "Approaching", MetricKey = NarrativeGateMetricKeys.ActiveScenarioScore, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 60m },
+                new() { SortOrder = 2, FromPhase = "Committed", ToPhase = "Approaching", MetricKey = NarrativeGateMetricKeys.AverageDesire, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 65m },
+                new() { SortOrder = 3, FromPhase = "Committed", ToPhase = "Approaching", MetricKey = NarrativeGateMetricKeys.AverageRestraint, Comparator = NarrativeGateComparators.LessThanOrEqual, Threshold = 45m },
+                new() { SortOrder = 4, FromPhase = "Committed", ToPhase = "Approaching", MetricKey = NarrativeGateMetricKeys.InteractionsSinceCommitment, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 3m },
+                new() { SortOrder = 5, FromPhase = "Approaching", ToPhase = "Climax", MetricKey = NarrativeGateMetricKeys.ActiveScenarioScore, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 80m },
+                new() { SortOrder = 6, FromPhase = "Approaching", ToPhase = "Climax", MetricKey = NarrativeGateMetricKeys.AverageDesire, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 75m },
+                new() { SortOrder = 7, FromPhase = "Approaching", ToPhase = "Climax", MetricKey = NarrativeGateMetricKeys.AverageRestraint, Comparator = NarrativeGateComparators.LessThanOrEqual, Threshold = 35m },
+                new() { SortOrder = 8, FromPhase = "Climax", ToPhase = "Reset", MetricKey = NarrativeGateMetricKeys.InteractionsSinceCommitment, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 12m }
+            ]
+        };
+
+        public Task<NarrativeGateProfile> SaveAsync(NarrativeGateProfile profile, CancellationToken cancellationToken = default)
+            => Task.FromResult(profile);
+
+        public Task<List<NarrativeGateProfile>> ListAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(new List<NarrativeGateProfile> { _profile });
+
+        public Task<NarrativeGateProfile?> GetAsync(string id, CancellationToken cancellationToken = default)
+            => Task.FromResult<NarrativeGateProfile?>(_profile);
+
+        public Task<NarrativeGateProfile?> GetDefaultAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult<NarrativeGateProfile?>(_profile);
+
+        public Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default)
+            => Task.FromResult(true);
+    }
 }

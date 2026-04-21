@@ -12,13 +12,11 @@ namespace DreamGenClone.Infrastructure.RolePlay;
 
 public sealed class ScenarioSelectionService : IScenarioSelectionService
 {
-    private const decimal NearTieThreshold = 0.8m;
-    private const int RequiredConsecutiveLeadCount = 2;
-
     private readonly ILogger<ScenarioSelectionService> _logger;
     private readonly IThemeCatalogService? _themeCatalogService;
     private readonly ICharacterStateScenarioMapper? _characterStateScenarioMapper;
     private readonly INarrativeGateProfileService? _narrativeGateProfileService;
+    private readonly IScenarioEngineSettingsRepository? _engineSettingsRepository;
     private readonly StoryAnalysisOptions _options;
 
     public ScenarioSelectionService(
@@ -26,12 +24,14 @@ public sealed class ScenarioSelectionService : IScenarioSelectionService
         IThemeCatalogService? themeCatalogService = null,
         ICharacterStateScenarioMapper? characterStateScenarioMapper = null,
         INarrativeGateProfileService? narrativeGateProfileService = null,
+        IScenarioEngineSettingsRepository? engineSettingsRepository = null,
         IOptions<StoryAnalysisOptions>? options = null)
     {
         _logger = logger;
         _themeCatalogService = themeCatalogService;
         _characterStateScenarioMapper = characterStateScenarioMapper;
         _narrativeGateProfileService = narrativeGateProfileService;
+        _engineSettingsRepository = engineSettingsRepository;
         _options = options?.Value ?? new StoryAnalysisOptions();
     }
 
@@ -40,15 +40,23 @@ public sealed class ScenarioSelectionService : IScenarioSelectionService
         IReadOnlyList<ScenarioDefinition> candidates,
         CancellationToken cancellationToken = default)
     {
-        var tier = ScenarioEligibilityService.ResolveWillingnessTier(state);
-        var stageBEligible = ScenarioEligibilityService.IsEligible(state) && !string.Equals(tier, "Blocked", StringComparison.Ordinal);
+        var engineSettings = _engineSettingsRepository is not null
+            ? await _engineSettingsRepository.LoadAsync(cancellationToken)
+            : new DreamGenClone.Domain.RolePlay.ScenarioEngineSettings();
+
+        var tier = ScenarioEligibilityService.ResolveWillingnessTier(state, engineSettings);
+        var stageBEligible = ScenarioEligibilityService.IsEligible(state, engineSettings) && !string.Equals(tier, "Blocked", StringComparison.Ordinal);
         var evaluationId = Guid.NewGuid().ToString("N");
         var fitResults = await ResolveFitResultsAsync(state, candidates, cancellationToken);
+
+        var charWeight = Clamp01((decimal)(engineSettings.CandidateCharacterAlignmentWeight));
+        var narWeight = Clamp01((decimal)(engineSettings.CandidateNarrativeEvidenceWeight));
+        var prefWeight = Clamp01((decimal)(engineSettings.CandidatePreferencePriorityWeight));
 
         var evaluations = candidates
             .Select(candidate =>
             {
-                var fallbackFit = ScenarioEligibilityService.ComputeFitScore(state, candidate);
+                var fallbackFit = ScenarioEligibilityService.ComputeFitScore(state, candidate, engineSettings);
                 var characterAlignmentScore = fitResults.TryGetValue(candidate.ScenarioId, out var fit)
                     ? Clamp01((decimal)fit.FitScore)
                     : Clamp01(fallbackFit / 100m);
@@ -56,9 +64,9 @@ public sealed class ScenarioSelectionService : IScenarioSelectionService
                 var narrativeEvidenceScore = Clamp01(candidate.NarrativeEvidenceScore);
                 var preferencePriorityScore = Clamp01(candidate.PreferencePriorityScore);
                 var weightedScore01 = Clamp01(
-                    (characterAlignmentScore * 0.50m)
-                    + (narrativeEvidenceScore * 0.30m)
-                    + (preferencePriorityScore * 0.20m));
+                    (characterAlignmentScore * charWeight)
+                    + (narrativeEvidenceScore * narWeight)
+                    + (preferencePriorityScore * prefWeight));
 
                 var gate = EvaluateCandidateGate(candidate.ScenarioId, fit, stageBEligible);
 
@@ -80,6 +88,7 @@ public sealed class ScenarioSelectionService : IScenarioSelectionService
                     NarrativeEvidenceScore = decimal.Round(narrativeEvidenceScore, 3, MidpointRounding.AwayFromZero),
                     PreferencePriorityScore = decimal.Round(preferencePriorityScore, 3, MidpointRounding.AwayFromZero),
                     FitScore = score,
+                    UnpenalizedFitScore = weightedScore,
                     Confidence = decimal.Round((decimal)confidence, 3, MidpointRounding.AwayFromZero),
                     TieBreakKey = $"{candidate.Priority:D3}:{candidate.ScenarioId}",
                     Rationale = gate.Passed
@@ -319,6 +328,12 @@ public sealed class ScenarioSelectionService : IScenarioSelectionService
         IReadOnlyList<ScenarioCandidateEvaluation> evaluations,
         CancellationToken cancellationToken = default)
     {
+        var engineSettings = _engineSettingsRepository is not null
+            ? await _engineSettingsRepository.LoadAsync(cancellationToken)
+            : new DreamGenClone.Domain.RolePlay.ScenarioEngineSettings();
+        var nearTieThreshold = (decimal)engineSettings.NearTieThreshold;
+        var requiredLeadCount = engineSettings.RequiredConsecutiveLeadCount;
+
         if (evaluations.Count == 0)
         {
             return new ScenarioCommitResult
@@ -349,19 +364,6 @@ public sealed class ScenarioSelectionService : IScenarioSelectionService
 
         if (state.CurrentPhase == NarrativePhase.BuildUp)
         {
-            var minBuildUpInteractions = Math.Max(1, _options.BuildUpMinInteractionsBeforeCommit);
-            if (state.InteractionCountInPhase < minBuildUpInteractions)
-            {
-                return new ScenarioCommitResult
-                {
-                    Committed = false,
-                    ScenarioId = leader.ScenarioId,
-                    UpdatedConsecutiveLeadCount = 0,
-                    Reason = $"BuildUp requires at least {minBuildUpInteractions} interactions before commit.",
-                    SelectedEvaluation = leader
-                };
-            }
-
             var profileGate = await EvaluateBuildUpProfileGateAsync(state, leader, cancellationToken);
             if (!profileGate.Passed)
             {
@@ -371,58 +373,156 @@ public sealed class ScenarioSelectionService : IScenarioSelectionService
                     ScenarioId = leader.ScenarioId,
                     UpdatedConsecutiveLeadCount = 0,
                     Reason = profileGate.Reason,
-                    SelectedEvaluation = leader
+                    SelectedEvaluation = leader,
+                    AuditMetadataJson = profileGate.AuditMetadataJson
                 };
             }
+
+            var commitCandidateAuditMetadataJson = profileGate.AuditMetadataJson;
+
+            // If the gate passed and the leading scenario is already the active scenario for this
+            // session, the scenario selection decision was already made in a prior cycle. Skip
+            // tie-breaking hysteresis entirely and commit directly — there is nothing left to decide.
+            var leaderIsActiveScenario = !string.IsNullOrWhiteSpace(state.ActiveScenarioId)
+                && string.Equals(state.ActiveScenarioId, leader.ScenarioId, StringComparison.OrdinalIgnoreCase);
+            if (leaderIsActiveScenario)
+            {
+                _logger.LogInformation(
+                    "RolePlayV2 BuildUp commit: active scenario confirmed as leader, skipping tie-breaker: SessionId={SessionId} ScenarioId={ScenarioId}",
+                    state.SessionId,
+                    leader.ScenarioId);
+
+                return new ScenarioCommitResult
+                {
+                    Committed = true,
+                    ScenarioId = leader.ScenarioId,
+                    UpdatedConsecutiveLeadCount = requiredLeadCount,
+                    Reason = "Committed because gate passed and leader matches already-active scenario.",
+                    SelectedEvaluation = leader,
+                    AuditMetadataJson = commitCandidateAuditMetadataJson
+                };
+            }
+
+            var lead = ordered.Count > 1
+                ? leader.FitScore - ordered[1].FitScore
+                : decimal.MaxValue;
+            var nearTie = ordered.Count > 1 && lead <= nearTieThreshold;
+            var tieSet = nearTie
+                ? ordered.Where(x => leader.FitScore - x.FitScore <= nearTieThreshold).ToList()
+                : [];
+            var tieSetSummary = tieSet.Count > 0
+                ? string.Join(", ", tieSet.Select(x => $"{x.ScenarioId}:{x.FitScore:0.###}"))
+                : string.Empty;
+
+            var updatedLeadCount = nearTie
+                ? state.ConsecutiveLeadCount + 1
+                : requiredLeadCount;
+
+            if (updatedLeadCount < requiredLeadCount)
+            {
+                _logger.LogInformation(
+                    "RolePlayV2 near-tie resolved by hysteresis: SessionId={SessionId} ScenarioId={ScenarioId} Lead={Lead} Count={Count}",
+                    state.SessionId,
+                    leader.ScenarioId,
+                    lead,
+                    updatedLeadCount);
+
+                return new ScenarioCommitResult
+                {
+                    Committed = false,
+                    ScenarioId = leader.ScenarioId,
+                    UpdatedConsecutiveLeadCount = updatedLeadCount,
+                    Reason = $"Near tie requires sustained lead before commit. leadDelta={lead:0.###}, tieThreshold={nearTieThreshold:0.###}, tieSet=[{tieSetSummary}]",
+                    SelectedEvaluation = leader,
+                    AuditMetadataJson = commitCandidateAuditMetadataJson
+                };
+            }
+
+            var sameAsActiveScenario = !string.IsNullOrWhiteSpace(state.ActiveScenarioId)
+                && string.Equals(state.ActiveScenarioId, leader.ScenarioId, StringComparison.OrdinalIgnoreCase);
+            var inActiveArc = state.CurrentPhase is not NarrativePhase.BuildUp and not NarrativePhase.Reset;
+            if (sameAsActiveScenario && inActiveArc)
+            {
+                return new ScenarioCommitResult
+                {
+                    Committed = false,
+                    ScenarioId = leader.ScenarioId,
+                    UpdatedConsecutiveLeadCount = updatedLeadCount,
+                    Reason = nearTie
+                        ? $"Leader unchanged; active scenario already committed. Suppressing no-op recommit. leadDelta={lead:0.###}, tieThreshold={nearTieThreshold:0.###}, tieSet=[{tieSetSummary}]"
+                        : $"Leader unchanged; active scenario already committed. Suppressing no-op recommit. leadDelta={lead:0.###}",
+                    SelectedEvaluation = leader,
+                    AuditMetadataJson = commitCandidateAuditMetadataJson
+                };
+            }
+
+            _logger.LogInformation(
+                RolePlayV2LogEvents.ScenarioCommitted,
+                state.SessionId,
+                leader.ScenarioId,
+                state.CycleIndex,
+                NarrativePhase.Committed);
+
+            return new ScenarioCommitResult
+            {
+                Committed = true,
+                ScenarioId = leader.ScenarioId,
+                UpdatedConsecutiveLeadCount = updatedLeadCount,
+                Reason = nearTie
+                    ? $"Committed after sustained near-tie lead. leadDelta={lead:0.###}, tieThreshold={nearTieThreshold:0.###}, tieSet=[{tieSetSummary}]"
+                    : $"Committed immediately due to clear score lead. leadDelta={lead:0.###}",
+                SelectedEvaluation = leader,
+                AuditMetadataJson = commitCandidateAuditMetadataJson
+            };
         }
 
-        var lead = ordered.Count > 1
+        var nonBuildUpLead = ordered.Count > 1
             ? leader.FitScore - ordered[1].FitScore
             : decimal.MaxValue;
-        var nearTie = ordered.Count > 1 && lead <= NearTieThreshold;
-        var tieSet = nearTie
-            ? ordered.Where(x => leader.FitScore - x.FitScore <= NearTieThreshold).ToList()
+        var nonBuildUpNearTie = ordered.Count > 1 && nonBuildUpLead <= nearTieThreshold;
+        var nonBuildUpTieSet = nonBuildUpNearTie
+            ? ordered.Where(x => leader.FitScore - x.FitScore <= nearTieThreshold).ToList()
             : [];
-        var tieSetSummary = tieSet.Count > 0
-            ? string.Join(", ", tieSet.Select(x => $"{x.ScenarioId}:{x.FitScore:0.###}"))
+        var nonBuildUpTieSetSummary = nonBuildUpTieSet.Count > 0
+            ? string.Join(", ", nonBuildUpTieSet.Select(x => $"{x.ScenarioId}:{x.FitScore:0.###}"))
             : string.Empty;
 
-        var updatedLeadCount = nearTie
+        var nonBuildUpUpdatedLeadCount = nonBuildUpNearTie
             ? state.ConsecutiveLeadCount + 1
-            : RequiredConsecutiveLeadCount;
+            : requiredLeadCount;
 
-        if (updatedLeadCount < RequiredConsecutiveLeadCount)
+        if (nonBuildUpUpdatedLeadCount < requiredLeadCount)
         {
             _logger.LogInformation(
                 "RolePlayV2 near-tie resolved by hysteresis: SessionId={SessionId} ScenarioId={ScenarioId} Lead={Lead} Count={Count}",
                 state.SessionId,
                 leader.ScenarioId,
-                lead,
-                updatedLeadCount);
+                nonBuildUpLead,
+                nonBuildUpUpdatedLeadCount);
 
             return new ScenarioCommitResult
             {
                 Committed = false,
                 ScenarioId = leader.ScenarioId,
-                UpdatedConsecutiveLeadCount = updatedLeadCount,
-                Reason = $"Near tie requires sustained lead before commit. leadDelta={lead:0.###}, tieThreshold={NearTieThreshold:0.###}, tieSet=[{tieSetSummary}]",
+                UpdatedConsecutiveLeadCount = nonBuildUpUpdatedLeadCount,
+                Reason = $"Near tie requires sustained lead before commit. leadDelta={nonBuildUpLead:0.###}, tieThreshold={nearTieThreshold:0.###}, tieSet=[{nonBuildUpTieSetSummary}]",
                 SelectedEvaluation = leader
             };
         }
 
-        var sameAsActiveScenario = !string.IsNullOrWhiteSpace(state.ActiveScenarioId)
+        var nonBuildUpSameAsActiveScenario = !string.IsNullOrWhiteSpace(state.ActiveScenarioId)
             && string.Equals(state.ActiveScenarioId, leader.ScenarioId, StringComparison.OrdinalIgnoreCase);
-        var inActiveArc = state.CurrentPhase is not NarrativePhase.BuildUp and not NarrativePhase.Reset;
-        if (sameAsActiveScenario && inActiveArc)
+        var nonBuildUpInActiveArc = state.CurrentPhase is not NarrativePhase.BuildUp and not NarrativePhase.Reset;
+        if (nonBuildUpSameAsActiveScenario && nonBuildUpInActiveArc)
         {
             return new ScenarioCommitResult
             {
                 Committed = false,
                 ScenarioId = leader.ScenarioId,
-                UpdatedConsecutiveLeadCount = updatedLeadCount,
-                Reason = nearTie
-                    ? $"Leader unchanged; active scenario already committed. Suppressing no-op recommit. leadDelta={lead:0.###}, tieThreshold={NearTieThreshold:0.###}, tieSet=[{tieSetSummary}]"
-                    : $"Leader unchanged; active scenario already committed. Suppressing no-op recommit. leadDelta={lead:0.###}",
+                UpdatedConsecutiveLeadCount = nonBuildUpUpdatedLeadCount,
+                Reason = nonBuildUpNearTie
+                    ? $"Leader unchanged; active scenario already committed. Suppressing no-op recommit. leadDelta={nonBuildUpLead:0.###}, tieThreshold={nearTieThreshold:0.###}, tieSet=[{nonBuildUpTieSetSummary}]"
+                    : $"Leader unchanged; active scenario already committed. Suppressing no-op recommit. leadDelta={nonBuildUpLead:0.###}",
                 SelectedEvaluation = leader
             };
         }
@@ -438,28 +538,39 @@ public sealed class ScenarioSelectionService : IScenarioSelectionService
         {
             Committed = true,
             ScenarioId = leader.ScenarioId,
-            UpdatedConsecutiveLeadCount = updatedLeadCount,
-            Reason = nearTie
-                ? $"Committed after sustained near-tie lead. leadDelta={lead:0.###}, tieThreshold={NearTieThreshold:0.###}, tieSet=[{tieSetSummary}]"
-                : $"Committed immediately due to clear score lead. leadDelta={lead:0.###}",
+            UpdatedConsecutiveLeadCount = nonBuildUpUpdatedLeadCount,
+            Reason = nonBuildUpNearTie
+                ? $"Committed after sustained near-tie lead. leadDelta={nonBuildUpLead:0.###}, tieThreshold={nearTieThreshold:0.###}, tieSet=[{nonBuildUpTieSetSummary}]"
+                : $"Committed immediately due to clear score lead. leadDelta={nonBuildUpLead:0.###}",
             SelectedEvaluation = leader
         };
     }
 
-    private async Task<(bool Passed, string Reason)> EvaluateBuildUpProfileGateAsync(
+    private async Task<BuildUpGateEvaluation> EvaluateBuildUpProfileGateAsync(
         AdaptiveScenarioState state,
         ScenarioCandidateEvaluation leader,
         CancellationToken cancellationToken)
     {
-        if (_narrativeGateProfileService is null || string.IsNullOrWhiteSpace(state.SelectedNarrativeGateProfileId))
+        if (_narrativeGateProfileService is null)
         {
-            return (true, "BuildUp profile gate not configured.");
+            return BuildUpGateEvaluation.CreateNotConfigured("BuildUp profile gate not configured.");
         }
 
-        var profile = await _narrativeGateProfileService.GetAsync(state.SelectedNarrativeGateProfileId, cancellationToken);
+        NarrativeGateProfile? profile;
+        var profileSource = "selected";
+        if (!string.IsNullOrWhiteSpace(state.SelectedNarrativeGateProfileId))
+        {
+            profile = await _narrativeGateProfileService.GetAsync(state.SelectedNarrativeGateProfileId, cancellationToken);
+        }
+        else
+        {
+            profile = await _narrativeGateProfileService.GetDefaultAsync(cancellationToken);
+            profileSource = "default";
+        }
+
         if (profile is null || profile.Rules.Count == 0)
         {
-            return (true, "BuildUp profile gate not configured.");
+            return BuildUpGateEvaluation.CreateNotConfigured("BuildUp profile gate not configured.");
         }
 
         var rules = profile.Rules
@@ -470,7 +581,7 @@ public sealed class ScenarioSelectionService : IScenarioSelectionService
 
         if (rules.Count == 0)
         {
-            return (true, "BuildUp profile gate not configured.");
+            return BuildUpGateEvaluation.CreateNotConfigured("BuildUp profile gate not configured.");
         }
 
         var averageDesire = state.CharacterSnapshots.Count == 0 ? 50m : (decimal)state.CharacterSnapshots.Average(x => x.Desire);
@@ -483,20 +594,53 @@ public sealed class ScenarioSelectionService : IScenarioSelectionService
             [NarrativeGateMetricKeys.InteractionsSinceCommitment] = state.InteractionCountInPhase
         };
 
+        var audits = new List<BuildUpGateRuleAudit>(rules.Count);
+
         foreach (var rule in rules)
         {
             if (!metricValues.TryGetValue(rule.MetricKey, out var actualValue))
             {
-                return (false, $"BuildUp profile gate blocked commit: metric '{rule.MetricKey}' unavailable.");
+                audits.Add(new BuildUpGateRuleAudit(
+                    rule.SortOrder,
+                    rule.MetricKey,
+                    rule.Comparator,
+                    rule.Threshold,
+                    null,
+                    false,
+                    "MetricUnavailable"));
+
+                return BuildUpGateEvaluation.CreateFailed(
+                    profile,
+                    profileSource,
+                    audits,
+                    $"BuildUp profile gate blocked commit: metric '{rule.MetricKey}' unavailable.");
             }
 
-            if (!Compare(actualValue, rule.Comparator, rule.Threshold))
+            var passed = Compare(actualValue, rule.Comparator, rule.Threshold);
+            audits.Add(new BuildUpGateRuleAudit(
+                rule.SortOrder,
+                rule.MetricKey,
+                rule.Comparator,
+                rule.Threshold,
+                actualValue,
+                passed,
+                passed ? "Passed" : "ThresholdNotMet"));
+
+            if (!passed)
             {
-                return (false, $"BuildUp profile gate blocked commit: {rule.MetricKey} {rule.Comparator} {rule.Threshold:0.###} not met (actual={actualValue:0.###}) in profile '{profile.Name}'.");
+                return BuildUpGateEvaluation.CreateFailed(
+                    profile,
+                    profileSource,
+                    audits,
+                    $"BuildUp profile gate blocked commit: {rule.MetricKey} {rule.Comparator} {rule.Threshold:0.###} not met (actual={actualValue:0.###}) in profile '{profile.Name}'.");
             }
         }
 
-        return (true, $"BuildUp profile gate passed via profile '{profile.Name}'.");
+        return BuildUpGateEvaluation.CreatePassed(
+            profile,
+            profileSource,
+            audits,
+            $"BuildUp profile gate passed via profile '{profile.Name}'.");
     }
 
     private static bool Compare(decimal actual, string comparator, decimal threshold)
@@ -510,5 +654,95 @@ public sealed class ScenarioSelectionService : IScenarioSelectionService
             NarrativeGateComparators.Equal => actual == threshold,
             _ => actual >= threshold
         };
+    }
+
+    private sealed record BuildUpGateRuleAudit(
+        int SortOrder,
+        string MetricKey,
+        string Comparator,
+        decimal Threshold,
+        decimal? Actual,
+        bool Passed,
+        string Status);
+
+    private sealed record BuildUpGateAuditEnvelope(
+        bool Passed,
+        bool Configured,
+        string? ProfileId,
+        string? ProfileName,
+        string? ProfileSource,
+        IReadOnlyList<BuildUpGateRuleAudit> Rules,
+        string Reason);
+
+    private sealed class BuildUpGateEvaluation
+    {
+        public bool Passed { get; init; }
+        public string Reason { get; init; } = string.Empty;
+        public string AuditMetadataJson { get; init; } = "{}";
+
+        public static BuildUpGateEvaluation CreateNotConfigured(string reason)
+        {
+            var audit = new BuildUpGateAuditEnvelope(
+                Passed: false,
+                Configured: false,
+                ProfileId: null,
+                ProfileName: null,
+                ProfileSource: null,
+                Rules: [],
+                Reason: reason);
+
+            return new BuildUpGateEvaluation
+            {
+                Passed = false,
+                Reason = reason,
+                AuditMetadataJson = JsonSerializer.Serialize(audit)
+            };
+        }
+
+        public static BuildUpGateEvaluation CreateFailed(
+            NarrativeGateProfile profile,
+            string profileSource,
+            IReadOnlyList<BuildUpGateRuleAudit> audits,
+            string reason)
+        {
+            var audit = new BuildUpGateAuditEnvelope(
+                Passed: false,
+                Configured: true,
+                ProfileId: profile.Id,
+                ProfileName: profile.Name,
+                ProfileSource: profileSource,
+                Rules: audits,
+                Reason: reason);
+
+            return new BuildUpGateEvaluation
+            {
+                Passed = false,
+                Reason = reason,
+                AuditMetadataJson = JsonSerializer.Serialize(audit)
+            };
+        }
+
+        public static BuildUpGateEvaluation CreatePassed(
+            NarrativeGateProfile profile,
+            string profileSource,
+            IReadOnlyList<BuildUpGateRuleAudit> audits,
+            string reason)
+        {
+            var audit = new BuildUpGateAuditEnvelope(
+                Passed: true,
+                Configured: true,
+                ProfileId: profile.Id,
+                ProfileName: profile.Name,
+                ProfileSource: profileSource,
+                Rules: audits,
+                Reason: reason);
+
+            return new BuildUpGateEvaluation
+            {
+                Passed = true,
+                Reason = reason,
+                AuditMetadataJson = JsonSerializer.Serialize(audit)
+            };
+        }
     }
 }

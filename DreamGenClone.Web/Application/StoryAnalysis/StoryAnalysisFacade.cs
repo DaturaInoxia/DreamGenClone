@@ -27,7 +27,9 @@ public sealed class StoryAnalysisFacade
     private readonly IThemeDefinitionService _themeDefinitionService;
     private readonly ICharacterStatPresetImportService _characterStatPresetImportService;
     private readonly IStatKeywordCategoryService _statKeywordCategoryService;
+    private readonly IRPThemeService _rpThemeService;
     private readonly ISqlitePersistence _persistence;
+    private readonly IScenarioEngineSettingsRepository _engineSettingsRepository;
 
     public StoryAnalysisFacade(
         IStorySummaryService summaryService,
@@ -48,7 +50,9 @@ public sealed class StoryAnalysisFacade
         IThemeDefinitionService themeDefinitionService,
         ICharacterStatPresetImportService characterStatPresetImportService,
         IStatKeywordCategoryService statKeywordCategoryService,
-        ISqlitePersistence persistence)
+        IRPThemeService rpThemeService,
+        ISqlitePersistence persistence,
+        IScenarioEngineSettingsRepository engineSettingsRepository)
     {
         _summaryService = summaryService;
         _analysisService = analysisService;
@@ -68,7 +72,9 @@ public sealed class StoryAnalysisFacade
         _themeDefinitionService = themeDefinitionService;
         _characterStatPresetImportService = characterStatPresetImportService;
         _statKeywordCategoryService = statKeywordCategoryService;
+        _rpThemeService = rpThemeService;
         _persistence = persistence;
+        _engineSettingsRepository = engineSettingsRepository;
     }
 
     // Summary
@@ -122,6 +128,38 @@ public sealed class StoryAnalysisFacade
 
     public Task<bool> DeleteThemeAsync(string id, CancellationToken cancellationToken = default)
         => _themeService.DeleteAsync(id, cancellationToken);
+
+    // Finishing Move Matrix Rows (global base table)
+    public Task<IReadOnlyList<RPFinishingMoveMatrixRow>> ListFinishingMoveMatrixRowsAsync(CancellationToken cancellationToken = default)
+        => _rpThemeService.ListFinishingMoveMatrixRowsAsync(cancellationToken);
+
+    public Task<RPFinishingMoveMatrixRow> SaveFinishingMoveMatrixRowAsync(RPFinishingMoveMatrixRow row, CancellationToken cancellationToken = default)
+        => _rpThemeService.SaveFinishingMoveMatrixRowAsync(row, cancellationToken);
+
+    public Task<bool> DeleteFinishingMoveMatrixRowAsync(string rowId, CancellationToken cancellationToken = default)
+        => _rpThemeService.DeleteFinishingMoveMatrixRowAsync(rowId, cancellationToken);
+
+    public Task<int> ImportFinishingMoveMatrixRowsFromJsonAsync(
+        string json,
+        bool replaceExisting = false,
+        CancellationToken cancellationToken = default)
+        => _rpThemeService.ImportFinishingMoveMatrixRowsFromJsonAsync(json, replaceExisting, cancellationToken);
+
+    // Steer Position Matrix Rows (global base table)
+    public Task<IReadOnlyList<RPSteerPositionMatrixRow>> ListSteerPositionMatrixRowsAsync(CancellationToken cancellationToken = default)
+        => _rpThemeService.ListSteerPositionMatrixRowsAsync(cancellationToken);
+
+    public Task<RPSteerPositionMatrixRow> SaveSteerPositionMatrixRowAsync(RPSteerPositionMatrixRow row, CancellationToken cancellationToken = default)
+        => _rpThemeService.SaveSteerPositionMatrixRowAsync(row, cancellationToken);
+
+    public Task<bool> DeleteSteerPositionMatrixRowAsync(string rowId, CancellationToken cancellationToken = default)
+        => _rpThemeService.DeleteSteerPositionMatrixRowAsync(rowId, cancellationToken);
+
+    public Task<int> ImportSteerPositionMatrixRowsFromJsonAsync(
+        string json,
+        bool replaceExisting = false,
+        CancellationToken cancellationToken = default)
+        => _rpThemeService.ImportSteerPositionMatrixRowsFromJsonAsync(json, replaceExisting, cancellationToken);
 
     // Intensity Profiles
     public Task<IntensityProfile> CreateIntensityProfileAsync(
@@ -351,4 +389,11 @@ public sealed class StoryAnalysisFacade
 
     public Task<IReadOnlyList<ThemeDefinitionDocument>> ListThemeDefinitionsAsync(CancellationToken cancellationToken = default)
         => _themeDefinitionService.LoadAllAsync(cancellationToken);
+
+    // Scenario Engine Settings
+    public Task<DreamGenClone.Domain.RolePlay.ScenarioEngineSettings> LoadScenarioEngineSettingsAsync(CancellationToken cancellationToken = default)
+        => _engineSettingsRepository.LoadAsync(cancellationToken);
+
+    public Task SaveScenarioEngineSettingsAsync(DreamGenClone.Domain.RolePlay.ScenarioEngineSettings settings, CancellationToken cancellationToken = default)
+        => _engineSettingsRepository.SaveAsync(settings, cancellationToken);
 }

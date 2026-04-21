@@ -101,7 +101,7 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
         {
             SessionId = state.SessionId,
             ActiveScenarioId = null,
-            CurrentPhase = NarrativePhase.BuildUp,
+            CurrentPhase = NarrativePhase.Reset,
             InteractionCountInPhase = 0,
             ConsecutiveLeadCount = 0,
             LastEvaluationUtc = DateTime.UtcNow,
@@ -178,7 +178,8 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
         }
 
         if (inputs.ManualAdvanceTargetPhase.HasValue
-            && GetPhaseOrder(inputs.ManualAdvanceTargetPhase.Value) > GetPhaseOrder(state.CurrentPhase))
+            && GetPhaseOrder(inputs.ManualAdvanceTargetPhase.Value) > GetPhaseOrder(state.CurrentPhase)
+            && state.CurrentPhase != NarrativePhase.Climax)
         {
             return (true, inputs.ManualAdvanceTargetPhase.Value, TransitionTriggerType.Override, "MANUAL_NEXT_PHASE");
         }
@@ -209,37 +210,34 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
 
         if (state.CurrentPhase == NarrativePhase.Climax)
         {
+            // Climax phase exits ONLY via explicit completion (/endclimax) or manual override.
+            // Configured gate rules for Climax→Reset are intentionally ignored here.
             if (inputs.ManualOverride || inputs.ClimaxCompletionRequested)
             {
                 return (true, NarrativePhase.Reset, TransitionTriggerType.Override, "CLIMAX_TO_RESET_EXPLICIT");
             }
 
-            if (HasConfiguredGateRules(profile, "Climax", "Reset"))
-            {
-                return EvaluateConfiguredGate(profile, "Climax", "Reset", metricValues)
-                    ? (true, NarrativePhase.Reset, TransitionTriggerType.InteractionCountGate, "CLIMAX_TO_RESET_GATE")
-                    : (false, state.CurrentPhase, TransitionTriggerType.Threshold, "NO_TRANSITION");
-            }
-
             return (false, state.CurrentPhase, TransitionTriggerType.Threshold, "NO_TRANSITION");
         }
 
-        return state.CurrentPhase switch
+        // BuildUp → Committed is handled exclusively by the commit gate in ScenarioSelectionService.
+        // All other phase transitions require configured gate profile rules from the database.
+        // No hardcoded fallback thresholds — if profile rules are missing, no transition occurs.
+
+        if (state.CurrentPhase == NarrativePhase.Reset)
         {
-            NarrativePhase.BuildUp when inputs.ActiveScenarioConfidence >= 0.55m
-                => (true, NarrativePhase.Committed, TransitionTriggerType.Threshold, "BUILDUP_TO_COMMITTED"),
+            if (HasConfiguredGateRules(profile, "Reset", "BuildUp"))
+            {
+                return EvaluateConfiguredGate(profile, "Reset", "BuildUp", metricValues)
+                    ? (true, NarrativePhase.BuildUp, TransitionTriggerType.Reset, "RESET_TO_BUILDUP")
+                    : (false, state.CurrentPhase, TransitionTriggerType.Threshold, "NO_TRANSITION");
+            }
 
-            NarrativePhase.Committed when inputs.InteractionsSinceCommitment >= 2 && inputs.ActiveScenarioConfidence >= 0.65m
-                => (true, NarrativePhase.Approaching, TransitionTriggerType.InteractionCountGate, "COMMITTED_TO_APPROACHING"),
+            // No configured gate: transition immediately (backward-compatible fallback).
+            return (true, NarrativePhase.BuildUp, TransitionTriggerType.Reset, "RESET_TO_BUILDUP");
+        }
 
-            NarrativePhase.Approaching when inputs.InteractionsSinceCommitment >= 4 && inputs.ActiveScenarioFitScore >= 72m
-                => (true, NarrativePhase.Climax, TransitionTriggerType.Threshold, "APPROACHING_TO_CLIMAX"),
-
-            NarrativePhase.Reset
-                => (true, NarrativePhase.BuildUp, TransitionTriggerType.Reset, "RESET_TO_BUILDUP"),
-
-            _ => (false, state.CurrentPhase, TransitionTriggerType.Threshold, "NO_TRANSITION")
-        };
+        return (false, state.CurrentPhase, TransitionTriggerType.Threshold, "NO_TRANSITION");
     }
 
     private static decimal GetAverageStat(AdaptiveScenarioState state, Func<CharacterStatProfileV2, int> selector)

@@ -11,6 +11,7 @@ public sealed class ScenarioCandidateEvaluation
     public decimal NarrativeEvidenceScore { get; set; }
     public decimal PreferencePriorityScore { get; set; }
     public decimal FitScore { get; set; }
+    public decimal UnpenalizedFitScore { get; set; }
     public decimal Confidence { get; set; }
     public string TieBreakKey { get; set; } = string.Empty;
     public string Rationale { get; set; } = string.Empty;

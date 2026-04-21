@@ -47,6 +47,7 @@ builder.Services.Configure<PersistenceOptions>(builder.Configuration.GetSection(
 builder.Services.Configure<StoryParserOptions>(builder.Configuration.GetSection(StoryParserOptions.SectionName));
 builder.Services.Configure<StoryAnalysisOptions>(builder.Configuration.GetSection(StoryAnalysisOptions.SectionName));
 builder.Services.Configure<ScenarioAdaptationOptions>(builder.Configuration.GetSection(ScenarioAdaptationOptions.SectionName));
+builder.Services.Configure<RolePlayDecisionOptions>(builder.Configuration.GetSection(RolePlayDecisionOptions.SectionName));
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
@@ -89,10 +90,13 @@ builder.Services.AddScoped<IRolePlayBranchService, RolePlayBranchService>();
 builder.Services.AddScoped<IInteractionCommandService, InteractionCommandService>();
 builder.Services.AddScoped<IInteractionRetryService, InteractionRetryService>();
 builder.Services.AddScoped<IScenarioSelectionService, ScenarioSelectionService>();
+builder.Services.AddScoped<IScenarioEngineSettingsRepository, ScenarioEngineSettingsRepository>();
 builder.Services.AddScoped<IScenarioLifecycleService, ScenarioLifecycleService>();
 builder.Services.AddScoped<ICharacterStateScenarioMapper, CharacterStateScenarioMapper>();
 builder.Services.AddScoped<IScenarioGuidanceGenerator, ScenarioGuidanceGenerator>();
 builder.Services.AddScoped<ScenarioGuidanceTemplateSeedService>();
+builder.Services.AddScoped<FinishingMoveMatrixSeedService>();
+builder.Services.AddScoped<SteerPositionMatrixSeedService>();
 builder.Services.AddScoped<IConceptInjectionService, ConceptInjectionService>();
 builder.Services.AddScoped<IDecisionPointService, DecisionPointService>();
 builder.Services.AddScoped<IOverrideAuthorizationService, OverrideAuthorizationService>();
@@ -179,6 +183,13 @@ using (var scope = app.Services.CreateScope())
 
     var scenarioGuidanceSeedService = scope.ServiceProvider.GetRequiredService<ScenarioGuidanceTemplateSeedService>();
     await scenarioGuidanceSeedService.SeedDefaultsAsync();
+
+    var finishingMoveMatrixSeedService = scope.ServiceProvider.GetRequiredService<FinishingMoveMatrixSeedService>();
+    await finishingMoveMatrixSeedService.SeedDefaultsAsync();
+
+    var steerPositionMatrixSeedService = scope.ServiceProvider.GetRequiredService<SteerPositionMatrixSeedService>();
+    await steerPositionMatrixSeedService.SeedDefaultsAsync();
+
 
     var statKeywordCategoryService = scope.ServiceProvider.GetRequiredService<IStatKeywordCategoryService>();
     await statKeywordCategoryService.SeedDefaultsAsync();

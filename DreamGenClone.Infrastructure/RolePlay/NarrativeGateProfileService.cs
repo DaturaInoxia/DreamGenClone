@@ -7,6 +7,9 @@ namespace DreamGenClone.Infrastructure.RolePlay;
 
 public sealed class NarrativeGateProfileService : INarrativeGateProfileService
 {
+    private const decimal DefaultBuildUpCommitScoreThreshold = 60m;
+    private const decimal DefaultBuildUpCommitInteractionThreshold = 2m;
+
     private readonly ISqlitePersistence _persistence;
     private readonly ILogger<NarrativeGateProfileService> _logger;
 
@@ -75,34 +78,66 @@ public sealed class NarrativeGateProfileService : INarrativeGateProfileService
     private async Task EnsureDefaultsAsync(CancellationToken cancellationToken)
     {
         var existing = await _persistence.LoadAllNarrativeGateProfilesAsync(cancellationToken);
-        if (existing.Count > 0)
+        if (existing.Count == 0)
         {
+            var now = DateTime.UtcNow;
+            var seeded = new NarrativeGateProfile
+            {
+                Name = "RolePlay Lifecycle Defaults",
+                Description = "Default gate thresholds for BuildUp -> Committed, Committed -> Approaching, Approaching -> Climax, and Reset -> BuildUp. Climax exits only via /endclimax (explicit completion).",
+                IsDefault = true,
+                CreatedUtc = now,
+                UpdatedUtc = now,
+                Rules = BuildDefaultRules()
+            };
+
+            await _persistence.SaveNarrativeGateProfileAsync(seeded, cancellationToken);
+            _logger.LogInformation("Seeded default narrative gate profile.");
             return;
         }
 
-        var now = DateTime.UtcNow;
-        var seeded = new NarrativeGateProfile
+        // Migration: ensure the default profile has a Reset → BuildUp minimum-interaction rule.
+        var defaultProfile = existing.FirstOrDefault(p => p.IsDefault);
+        if (defaultProfile is not null && !HasResetToBuildUpRule(defaultProfile.Rules))
         {
-            Name = "RolePlay Lifecycle Defaults",
-            Description = "Default gate thresholds for Committed -> Approaching, Approaching -> Climax, and Climax -> Reset.",
-            IsDefault = true,
-            CreatedUtc = now,
-            UpdatedUtc = now,
-            Rules =
-            [
-                new() { SortOrder = 1, FromPhase = "Committed", ToPhase = "Approaching", MetricKey = NarrativeGateMetricKeys.ActiveScenarioScore, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 60m },
-                new() { SortOrder = 2, FromPhase = "Committed", ToPhase = "Approaching", MetricKey = NarrativeGateMetricKeys.AverageDesire, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 65m },
-                new() { SortOrder = 3, FromPhase = "Committed", ToPhase = "Approaching", MetricKey = NarrativeGateMetricKeys.AverageRestraint, Comparator = NarrativeGateComparators.LessThanOrEqual, Threshold = 45m },
-                new() { SortOrder = 4, FromPhase = "Committed", ToPhase = "Approaching", MetricKey = NarrativeGateMetricKeys.InteractionsSinceCommitment, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 3m },
-                new() { SortOrder = 5, FromPhase = "Approaching", ToPhase = "Climax", MetricKey = NarrativeGateMetricKeys.ActiveScenarioScore, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 80m },
-                new() { SortOrder = 6, FromPhase = "Approaching", ToPhase = "Climax", MetricKey = NarrativeGateMetricKeys.AverageDesire, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 75m },
-                new() { SortOrder = 7, FromPhase = "Approaching", ToPhase = "Climax", MetricKey = NarrativeGateMetricKeys.AverageRestraint, Comparator = NarrativeGateComparators.LessThanOrEqual, Threshold = 35m },
-                new() { SortOrder = 8, FromPhase = "Climax", ToPhase = "Reset", MetricKey = NarrativeGateMetricKeys.InteractionsSinceCommitment, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 12m }
-            ]
-        };
+            var maxSortOrder = defaultProfile.Rules.Count == 0 ? 0 : defaultProfile.Rules.Max(r => r.SortOrder);
+            defaultProfile.Rules.Add(new NarrativeGateRule
+            {
+                SortOrder = maxSortOrder + 1,
+                FromPhase = "Reset",
+                ToPhase = "BuildUp",
+                MetricKey = NarrativeGateMetricKeys.InteractionsSinceCommitment,
+                Comparator = NarrativeGateComparators.GreaterThanOrEqual,
+                Threshold = 3m
+            });
+            defaultProfile.UpdatedUtc = DateTime.UtcNow;
+            await _persistence.SaveNarrativeGateProfileAsync(defaultProfile, cancellationToken);
+            _logger.LogInformation("Migrated default narrative gate profile: added Reset → BuildUp minimum-interaction rule.");
+        }
+    }
 
-        await _persistence.SaveNarrativeGateProfileAsync(seeded, cancellationToken);
-        _logger.LogInformation("Seeded default narrative gate profile.");
+    private static List<NarrativeGateRule> BuildDefaultRules()
+    {
+        return
+        [
+            new() { SortOrder = 1, FromPhase = "BuildUp", ToPhase = "Committed", MetricKey = NarrativeGateMetricKeys.ActiveScenarioScore, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = DefaultBuildUpCommitScoreThreshold },
+            new() { SortOrder = 2, FromPhase = "BuildUp", ToPhase = "Committed", MetricKey = NarrativeGateMetricKeys.InteractionsSinceCommitment, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = DefaultBuildUpCommitInteractionThreshold },
+            new() { SortOrder = 3, FromPhase = "Committed", ToPhase = "Approaching", MetricKey = NarrativeGateMetricKeys.ActiveScenarioScore, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 60m },
+            new() { SortOrder = 4, FromPhase = "Committed", ToPhase = "Approaching", MetricKey = NarrativeGateMetricKeys.AverageDesire, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 65m },
+            new() { SortOrder = 5, FromPhase = "Committed", ToPhase = "Approaching", MetricKey = NarrativeGateMetricKeys.AverageRestraint, Comparator = NarrativeGateComparators.LessThanOrEqual, Threshold = 45m },
+            new() { SortOrder = 6, FromPhase = "Committed", ToPhase = "Approaching", MetricKey = NarrativeGateMetricKeys.InteractionsSinceCommitment, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 3m },
+            new() { SortOrder = 7, FromPhase = "Approaching", ToPhase = "Climax", MetricKey = NarrativeGateMetricKeys.ActiveScenarioScore, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 80m },
+            new() { SortOrder = 8, FromPhase = "Approaching", ToPhase = "Climax", MetricKey = NarrativeGateMetricKeys.AverageDesire, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 75m },
+            new() { SortOrder = 9, FromPhase = "Approaching", ToPhase = "Climax", MetricKey = NarrativeGateMetricKeys.AverageRestraint, Comparator = NarrativeGateComparators.LessThanOrEqual, Threshold = 35m },
+            new() { SortOrder = 10, FromPhase = "Climax", ToPhase = "Reset", MetricKey = NarrativeGateMetricKeys.InteractionsSinceCommitment, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 12m },
+            new() { SortOrder = 11, FromPhase = "Reset", ToPhase = "BuildUp", MetricKey = NarrativeGateMetricKeys.InteractionsSinceCommitment, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 3m }
+        ];
+    }
+
+    private static bool HasResetToBuildUpRule(IReadOnlyList<NarrativeGateRule> rules)
+    {
+        return rules.Any(rule => string.Equals(rule.FromPhase, "Reset", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(rule.ToPhase, "BuildUp", StringComparison.OrdinalIgnoreCase));
     }
 
     private static List<NarrativeGateRule> NormalizeRules(IReadOnlyList<NarrativeGateRule> rules)

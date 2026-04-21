@@ -306,6 +306,62 @@
                     </div>
                 }
 
+                @if (string.Equals(_selectedEvent.EventKind, "AdaptiveCommitGateEvaluated", StringComparison.OrdinalIgnoreCase))
+                {
+                    var gateDetails = BuildAdaptiveCommitGateDetails(_selectedEvent.MetadataJson);
+                    <div class="rpd-panel">
+                        <h3>Adaptive Commit Gate</h3>
+                        <div class="rpd-kv"><span>Phase</span><strong>@(gateDetails.Phase ?? "-")</strong></div>
+                        <div class="rpd-kv"><span>Gate Result</span><strong>@gateDetails.GateResultLabel</strong></div>
+                        <div class="rpd-kv"><span>Configured</span><strong>@(gateDetails.Configured ? "Yes" : "No")</strong></div>
+                        <div class="rpd-kv"><span>Profile</span><strong>@gateDetails.ProfileLabel</strong></div>
+                        <div class="rpd-kv"><span>Profile Source</span><strong>@(gateDetails.ProfileSource ?? "-")</strong></div>
+                        <div class="rpd-kv"><span>Interaction Count</span><strong>@gateDetails.InteractionCount</strong></div>
+                        <div class="rpd-kv"><span>Candidate Count</span><strong>@gateDetails.CandidateCount</strong></div>
+                        <div class="rpd-kv"><span>Selected Scenario</span><strong>@(gateDetails.SelectedScenarioId ?? "-")</strong></div>
+                        <div class="rpd-kv"><span>Committed</span><strong>@(gateDetails.Committed ? "Yes" : "No")</strong></div>
+                        <div class="rpd-kv"><span>Reason</span><strong>@(gateDetails.Reason ?? "-")</strong></div>
+
+                        <h4>Rule Outcomes</h4>
+                        @if (gateDetails.Rules.Count == 0)
+                        {
+                            <div class="rpd-empty">No rule-level outcomes in metadata.</div>
+                        }
+                        else
+                        {
+                            <div class="table-responsive">
+                                <table class="table table-sm align-middle">
+                                    <thead>
+                                        <tr>
+                                            <th>#</th>
+                                            <th>Metric</th>
+                                            <th>Comparator</th>
+                                            <th>Threshold</th>
+                                            <th>Actual</th>
+                                            <th>Result</th>
+                                            <th>Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var row in gateDetails.Rules)
+                                        {
+                                            <tr>
+                                                <td>@row.SortOrder</td>
+                                                <td>@row.MetricKey</td>
+                                                <td>@row.Comparator</td>
+                                                <td>@row.ThresholdLabel</td>
+                                                <td>@row.ActualLabel</td>
+                                                <td>@(row.Passed ? "Pass" : "Fail")</td>
+                                                <td>@row.Status</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </div>
+                }
+
                 @if (string.Equals(_selectedEvent.EventKind, "LocationStateUpdated", StringComparison.OrdinalIgnoreCase))
                 {
                     var locationRows = BuildLocationTruthRows(_selectedEvent.MetadataJson);
@@ -594,6 +650,74 @@
         return rows;
     }
 
+    private static AdaptiveCommitGateDetails BuildAdaptiveCommitGateDetails(string? metadataJson)
+    {
+        if (string.IsNullOrWhiteSpace(metadataJson))
+        {
+            return AdaptiveCommitGateDetails.Empty;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(metadataJson);
+            var root = doc.RootElement;
+
+            var details = new AdaptiveCommitGateDetails
+            {
+                Phase = ReadString(root, "phase"),
+                InteractionCount = ReadInt(root, "interactionCount"),
+                CandidateCount = ReadInt(root, "candidateCount"),
+                SelectedScenarioId = ReadString(root, "selectedScenarioId"),
+                Committed = ReadBool(root, "committed"),
+                Reason = ReadString(root, "reason")
+            };
+
+            if (!TryGetPropertyIgnoreCase(root, "gateAudit", out var gateAuditElement)
+                || gateAuditElement.ValueKind != JsonValueKind.String)
+            {
+                return details;
+            }
+
+            var gateAuditJson = gateAuditElement.GetString();
+            if (string.IsNullOrWhiteSpace(gateAuditJson))
+            {
+                return details;
+            }
+
+            using var gateDoc = JsonDocument.Parse(gateAuditJson);
+            var gateRoot = gateDoc.RootElement;
+
+            details.Passed = ReadNullableBool(gateRoot, "passed");
+            details.Configured = ReadBool(gateRoot, "configured");
+            details.ProfileId = ReadString(gateRoot, "profileId");
+            details.ProfileName = ReadString(gateRoot, "profileName");
+            details.ProfileSource = ReadString(gateRoot, "profileSource");
+            details.Reason = ReadString(gateRoot, "reason") ?? details.Reason;
+
+            if (TryGetPropertyIgnoreCase(gateRoot, "rules", out var rulesElement)
+                && rulesElement.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in rulesElement.EnumerateArray())
+                {
+                    details.Rules.Add(new AdaptiveCommitGateRuleRow(
+                        SortOrder: ReadInt(item, "sortOrder"),
+                        MetricKey: ReadString(item, "metricKey") ?? "-",
+                        Comparator: ReadString(item, "comparator") ?? "-",
+                        ThresholdLabel: ReadDecimalLabel(item, "threshold"),
+                        ActualLabel: ReadDecimalLabel(item, "actual"),
+                        Passed: ReadBool(item, "passed"),
+                        Status: ReadString(item, "status") ?? "-"));
+                }
+            }
+
+            return details;
+        }
+        catch
+        {
+            return AdaptiveCommitGateDetails.Empty;
+        }
+    }
+
     private static Dictionary<string, int> ReadIntMap(JsonElement root, string propertyName)
     {
         var result = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -644,6 +768,63 @@
     }
 
     private sealed record AdaptiveDeltaRow(string StatName, int RawDelta, int AppliedDelta, string? PolicyAdjustment);
+
+    private sealed class AdaptiveCommitGateDetails
+    {
+        public string? Phase { get; set; }
+        public int InteractionCount { get; set; }
+        public int CandidateCount { get; set; }
+        public string? SelectedScenarioId { get; set; }
+        public bool Committed { get; set; }
+        public string? Reason { get; set; }
+        public bool Configured { get; set; }
+        public bool? Passed { get; set; }
+        public string? ProfileId { get; set; }
+        public string? ProfileName { get; set; }
+        public string? ProfileSource { get; set; }
+        public List<AdaptiveCommitGateRuleRow> Rules { get; } = [];
+
+        public string GateResultLabel => Passed switch
+        {
+            true => "Passed",
+            false => "Blocked",
+            null => Configured ? "Unknown" : "Not Configured"
+        };
+
+        public string ProfileLabel
+        {
+            get
+            {
+                if (!string.IsNullOrWhiteSpace(ProfileName) && !string.IsNullOrWhiteSpace(ProfileId))
+                {
+                    return $"{ProfileName} ({ProfileId})";
+                }
+
+                if (!string.IsNullOrWhiteSpace(ProfileName))
+                {
+                    return ProfileName;
+                }
+
+                if (!string.IsNullOrWhiteSpace(ProfileId))
+                {
+                    return ProfileId;
+                }
+
+                return "-";
+            }
+        }
+
+        public static AdaptiveCommitGateDetails Empty { get; } = new();
+    }
+
+    private sealed record AdaptiveCommitGateRuleRow(
+        int SortOrder,
+        string MetricKey,
+        string Comparator,
+        string ThresholdLabel,
+        string ActualLabel,
+        bool Passed,
+        string Status);
 
     private static List<LocationTruthRow> BuildLocationTruthRows(string? metadataJson)
     {
@@ -751,6 +932,34 @@
         }
 
         return value.ValueKind == JsonValueKind.True;
+    }
+
+    private static bool? ReadNullableBool(JsonElement element, string propertyName)
+    {
+        if (!TryGetPropertyIgnoreCase(element, propertyName, out var value))
+        {
+            return null;
+        }
+
+        return value.ValueKind switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            _ => null
+        };
+    }
+
+    private static string ReadDecimalLabel(JsonElement element, string propertyName)
+    {
+        if (!TryGetPropertyIgnoreCase(element, propertyName, out var value)
+            || value.ValueKind != JsonValueKind.Number)
+        {
+            return "-";
+        }
+
+        return value.TryGetDecimal(out var parsed)
+            ? parsed.ToString("0.###")
+            : value.ToString();
     }
 
     private static DateTime? ReadDateTime(JsonElement element, string propertyName)

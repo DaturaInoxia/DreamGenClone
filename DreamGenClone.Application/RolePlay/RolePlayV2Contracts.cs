@@ -43,6 +43,7 @@ public sealed class ScenarioCommitResult
     public int UpdatedConsecutiveLeadCount { get; init; }
     public string Reason { get; init; } = string.Empty;
     public ScenarioCandidateEvaluation? SelectedEvaluation { get; init; }
+    public string AuditMetadataJson { get; init; } = "{}";
 }
 
 public sealed class LifecycleInputs

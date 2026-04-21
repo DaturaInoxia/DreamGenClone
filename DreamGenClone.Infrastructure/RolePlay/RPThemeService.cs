@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using System.Text.Json;
 using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Application.StoryAnalysis;
 using DreamGenClone.Domain.RolePlay;
@@ -12,6 +13,10 @@ namespace DreamGenClone.Infrastructure.RolePlay;
 public sealed partial class RPThemeService : IRPThemeService
 {
     private const string AutoBackfillRationale = "auto-backfilled for canonical stat parity";
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        WriteIndented = false
+    };
 
     private readonly string _connectionString;
     private readonly ILogger<RPThemeService> _logger;
@@ -151,7 +156,42 @@ public sealed partial class RPThemeService : IRPThemeService
         await using (var command = connection.CreateCommand())
         {
             command.Transaction = tx;
-            if (await RPThemesTableHasProfileIdAsync(connection, cancellationToken))
+            var hasProfileId = await RPThemesTableHasProfileIdAsync(connection, cancellationToken);
+            var hasNarrativeGateProfileId = await RPThemesTableHasNarrativeGateProfileIdAsync(connection, cancellationToken);
+
+            if (hasProfileId && hasNarrativeGateProfileId)
+            {
+                command.CommandText = """
+                    INSERT INTO RPThemes (Id, ProfileId, NarrativeGateProfileId, Label, Description, Category, Weight, IsEnabled, CreatedUtc, UpdatedUtc)
+                    VALUES ($id, $profileId, $narrativeGateProfileId, $label, $description, $category, $weight, $isEnabled, $createdUtc, $updatedUtc)
+                    ON CONFLICT(Id) DO UPDATE SET
+                        ProfileId = excluded.ProfileId,
+                        NarrativeGateProfileId = excluded.NarrativeGateProfileId,
+                        Label = excluded.Label,
+                        Description = excluded.Description,
+                        Category = excluded.Category,
+                        Weight = excluded.Weight,
+                        IsEnabled = excluded.IsEnabled,
+                        UpdatedUtc = excluded.UpdatedUtc;
+                    """;
+                command.Parameters.AddWithValue("$profileId", IRPThemeService.GlobalThemeLibraryProfileId);
+            }
+            else if (hasNarrativeGateProfileId)
+            {
+                command.CommandText = """
+                    INSERT INTO RPThemes (Id, NarrativeGateProfileId, Label, Description, Category, Weight, IsEnabled, CreatedUtc, UpdatedUtc)
+                    VALUES ($id, $narrativeGateProfileId, $label, $description, $category, $weight, $isEnabled, $createdUtc, $updatedUtc)
+                    ON CONFLICT(Id) DO UPDATE SET
+                        NarrativeGateProfileId = excluded.NarrativeGateProfileId,
+                        Label = excluded.Label,
+                        Description = excluded.Description,
+                        Category = excluded.Category,
+                        Weight = excluded.Weight,
+                        IsEnabled = excluded.IsEnabled,
+                        UpdatedUtc = excluded.UpdatedUtc;
+                    """;
+            }
+            else if (hasProfileId)
             {
                 command.CommandText = """
                     INSERT INTO RPThemes (Id, ProfileId, Label, Description, Category, Weight, IsEnabled, CreatedUtc, UpdatedUtc)
@@ -180,6 +220,11 @@ public sealed partial class RPThemeService : IRPThemeService
                         IsEnabled = excluded.IsEnabled,
                         UpdatedUtc = excluded.UpdatedUtc;
                     """;
+            }
+
+            if (hasNarrativeGateProfileId)
+            {
+                command.Parameters.AddWithValue("$narrativeGateProfileId", (object?)theme.NarrativeGateProfileId ?? DBNull.Value);
             }
             command.Parameters.AddWithValue("$id", theme.Id);
             command.Parameters.AddWithValue("$label", theme.Label);
@@ -252,8 +297,8 @@ public sealed partial class RPThemeService : IRPThemeService
             theme.ParentThemeId = await LoadParentThemeIdAsync(connection, theme.Id, cancellationToken);
             theme.Keywords = await LoadThemeKeywordsAsync(connection, theme.Id, cancellationToken);
             theme.StatAffinities = await LoadThemeStatAffinitiesAsync(connection, theme.Id, cancellationToken);
-            theme.PhaseGuidance = await LoadThemePhaseGuidanceAsync(connection, theme.Id, cancellationToken);
-            theme.GuidancePoints = await LoadThemeGuidancePointsAsync(connection, theme.Id, cancellationToken);
+            theme.PhaseGuidance = await LoadThemePhaseGuidanceAsync(connection, theme.Id, _logger, cancellationToken);
+            theme.GuidancePoints = await LoadThemeGuidancePointsAsync(connection, theme.Id, _logger, cancellationToken);
             theme.FitRules = await LoadThemeFitRulesAsync(connection, theme.Id, cancellationToken);
             theme.AIGenerationNotes = await LoadThemeAIGuidanceNotesAsync(connection, theme.Id, cancellationToken);
             await EnsureCanonicalStatAffinitiesPersistedAsync(connection, theme, cancellationToken);
@@ -306,8 +351,8 @@ public sealed partial class RPThemeService : IRPThemeService
             theme.ParentThemeId = await LoadParentThemeIdAsync(connection, theme.Id, cancellationToken);
             theme.Keywords = await LoadThemeKeywordsAsync(connection, theme.Id, cancellationToken);
             theme.StatAffinities = await LoadThemeStatAffinitiesAsync(connection, theme.Id, cancellationToken);
-            theme.PhaseGuidance = await LoadThemePhaseGuidanceAsync(connection, theme.Id, cancellationToken);
-            theme.GuidancePoints = await LoadThemeGuidancePointsAsync(connection, theme.Id, cancellationToken);
+            theme.PhaseGuidance = await LoadThemePhaseGuidanceAsync(connection, theme.Id, _logger, cancellationToken);
+            theme.GuidancePoints = await LoadThemeGuidancePointsAsync(connection, theme.Id, _logger, cancellationToken);
             theme.FitRules = await LoadThemeFitRulesAsync(connection, theme.Id, cancellationToken);
             theme.AIGenerationNotes = await LoadThemeAIGuidanceNotesAsync(connection, theme.Id, cancellationToken);
             await EnsureCanonicalStatAffinitiesPersistedAsync(connection, theme, cancellationToken);
@@ -345,8 +390,8 @@ public sealed partial class RPThemeService : IRPThemeService
         theme.ParentThemeId = await LoadParentThemeIdAsync(connection, theme.Id, cancellationToken);
         theme.Keywords = await LoadThemeKeywordsAsync(connection, theme.Id, cancellationToken);
         theme.StatAffinities = await LoadThemeStatAffinitiesAsync(connection, theme.Id, cancellationToken);
-        theme.PhaseGuidance = await LoadThemePhaseGuidanceAsync(connection, theme.Id, cancellationToken);
-        theme.GuidancePoints = await LoadThemeGuidancePointsAsync(connection, theme.Id, cancellationToken);
+        theme.PhaseGuidance = await LoadThemePhaseGuidanceAsync(connection, theme.Id, _logger, cancellationToken);
+        theme.GuidancePoints = await LoadThemeGuidancePointsAsync(connection, theme.Id, _logger, cancellationToken);
         theme.FitRules = await LoadThemeFitRulesAsync(connection, theme.Id, cancellationToken);
         theme.AIGenerationNotes = await LoadThemeAIGuidanceNotesAsync(connection, theme.Id, cancellationToken);
         await EnsureCanonicalStatAffinitiesPersistedAsync(connection, theme, cancellationToken);
@@ -463,6 +508,394 @@ public sealed partial class RPThemeService : IRPThemeService
         command.CommandText = "DELETE FROM RPThemeProfileThemeAssignments WHERE Id = $id";
         command.Parameters.AddWithValue("$id", assignmentId);
         return await command.ExecuteNonQueryAsync(cancellationToken) > 0;
+    }
+
+    public async Task<RPFinishingMoveMatrixRow> SaveFinishingMoveMatrixRowAsync(RPFinishingMoveMatrixRow row, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+
+        row.Id = string.IsNullOrWhiteSpace(row.Id) ? Guid.NewGuid().ToString("N") : row.Id.Trim();
+        row.ProfileId = string.Empty;
+        row.DesireBand = (row.DesireBand ?? string.Empty).Trim();
+        row.SelfRespectBand = (row.SelfRespectBand ?? string.Empty).Trim();
+        row.DominanceBand = (row.DominanceBand ?? string.Empty).Trim();
+        row.PrimaryLocations = NormalizeLocationList(row.PrimaryLocations);
+        row.SecondaryLocations = NormalizeLocationList(row.SecondaryLocations);
+        row.ExcludedLocations = NormalizeLocationList(row.ExcludedLocations);
+        row.WifeBehaviorModifier = (row.WifeBehaviorModifier ?? string.Empty).Trim();
+        row.OtherManBehaviorModifier = (row.OtherManBehaviorModifier ?? string.Empty).Trim();
+        row.TransitionInstruction = (row.TransitionInstruction ?? string.Empty).Trim();
+        row.UpdatedUtc = DateTime.UtcNow;
+        if (row.CreatedUtc == default)
+        {
+            row.CreatedUtc = row.UpdatedUtc;
+        }
+
+        if (string.IsNullOrWhiteSpace(row.DesireBand) || string.IsNullOrWhiteSpace(row.SelfRespectBand) || string.IsNullOrWhiteSpace(row.DominanceBand))
+        {
+            throw new ArgumentException("DesireBand, SelfRespectBand, and DominanceBand are required.", nameof(row));
+        }
+
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO RPFinishingMoveMatrixRows (
+                Id, DesireBand, SelfRespectBand, DominanceBand,
+                PrimaryLocationsJson, SecondaryLocationsJson, ExcludedLocationsJson,
+                WifeBehaviorModifier, OtherManBehaviorModifier, TransitionInstruction,
+                SortOrder, IsEnabled, CreatedUtc, UpdatedUtc)
+            VALUES (
+                $id, $desireBand, $selfRespectBand, $dominanceBand,
+                $primaryLocationsJson, $secondaryLocationsJson, $excludedLocationsJson,
+                $wifeBehaviorModifier, $otherManBehaviorModifier, $transitionInstruction,
+                $sortOrder, $isEnabled, $createdUtc, $updatedUtc)
+            ON CONFLICT(Id) DO UPDATE SET
+                DesireBand = excluded.DesireBand,
+                SelfRespectBand = excluded.SelfRespectBand,
+                DominanceBand = excluded.DominanceBand,
+                PrimaryLocationsJson = excluded.PrimaryLocationsJson,
+                SecondaryLocationsJson = excluded.SecondaryLocationsJson,
+                ExcludedLocationsJson = excluded.ExcludedLocationsJson,
+                WifeBehaviorModifier = excluded.WifeBehaviorModifier,
+                OtherManBehaviorModifier = excluded.OtherManBehaviorModifier,
+                TransitionInstruction = excluded.TransitionInstruction,
+                SortOrder = excluded.SortOrder,
+                IsEnabled = excluded.IsEnabled,
+                UpdatedUtc = excluded.UpdatedUtc;
+            """;
+        command.Parameters.AddWithValue("$id", row.Id);
+        command.Parameters.AddWithValue("$desireBand", row.DesireBand);
+        command.Parameters.AddWithValue("$selfRespectBand", row.SelfRespectBand);
+        command.Parameters.AddWithValue("$dominanceBand", row.DominanceBand);
+        command.Parameters.AddWithValue("$primaryLocationsJson", SerializeStringList(row.PrimaryLocations));
+        command.Parameters.AddWithValue("$secondaryLocationsJson", SerializeStringList(row.SecondaryLocations));
+        command.Parameters.AddWithValue("$excludedLocationsJson", SerializeStringList(row.ExcludedLocations));
+        command.Parameters.AddWithValue("$wifeBehaviorModifier", row.WifeBehaviorModifier);
+        command.Parameters.AddWithValue("$otherManBehaviorModifier", row.OtherManBehaviorModifier);
+        command.Parameters.AddWithValue("$transitionInstruction", row.TransitionInstruction);
+        command.Parameters.AddWithValue("$sortOrder", row.SortOrder);
+        command.Parameters.AddWithValue("$isEnabled", row.IsEnabled ? 1 : 0);
+        command.Parameters.AddWithValue("$createdUtc", row.CreatedUtc.ToString("O"));
+        command.Parameters.AddWithValue("$updatedUtc", row.UpdatedUtc.ToString("O"));
+        await command.ExecuteNonQueryAsync(cancellationToken);
+
+        return row;
+    }
+
+    public async Task<IReadOnlyList<RPFinishingMoveMatrixRow>> ListFinishingMoveMatrixRowsAsync(CancellationToken cancellationToken = default)
+    {
+        var rows = new List<RPFinishingMoveMatrixRow>();
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT
+                Id, DesireBand, SelfRespectBand, DominanceBand,
+                PrimaryLocationsJson, SecondaryLocationsJson, ExcludedLocationsJson,
+                WifeBehaviorModifier, OtherManBehaviorModifier, TransitionInstruction,
+                SortOrder, IsEnabled, CreatedUtc, UpdatedUtc
+            FROM RPFinishingMoveMatrixRows
+            ORDER BY SortOrder, DesireBand, SelfRespectBand, DominanceBand, Id;
+            """;
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            rows.Add(new RPFinishingMoveMatrixRow
+            {
+                Id = reader.GetString(0),
+                DesireBand = reader.GetString(1),
+                SelfRespectBand = reader.GetString(2),
+                DominanceBand = reader.GetString(3),
+                PrimaryLocations = DeserializeStringList(reader.GetString(4)),
+                SecondaryLocations = DeserializeStringList(reader.GetString(5)),
+                ExcludedLocations = DeserializeStringList(reader.GetString(6)),
+                WifeBehaviorModifier = reader.GetString(7),
+                OtherManBehaviorModifier = reader.GetString(8),
+                TransitionInstruction = reader.GetString(9),
+                SortOrder = reader.GetInt32(10),
+                IsEnabled = reader.GetInt32(11) == 1,
+                CreatedUtc = DateTime.TryParse(reader.GetString(12), out var createdUtc) ? createdUtc : DateTime.UtcNow,
+                UpdatedUtc = DateTime.TryParse(reader.GetString(13), out var updatedUtc) ? updatedUtc : DateTime.UtcNow
+            });
+        }
+
+        return rows;
+    }
+
+    public async Task<bool> DeleteFinishingMoveMatrixRowAsync(string rowId, CancellationToken cancellationToken = default)
+    {
+        var normalizedRowId = (rowId ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(normalizedRowId))
+        {
+            return false;
+        }
+
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM RPFinishingMoveMatrixRows WHERE Id = $id";
+        command.Parameters.AddWithValue("$id", normalizedRowId);
+        return await command.ExecuteNonQueryAsync(cancellationToken) > 0;
+    }
+
+    public async Task<int> ImportFinishingMoveMatrixRowsFromJsonAsync(
+        string json,
+        bool replaceExisting = false,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return 0;
+        }
+
+        using var document = JsonDocument.Parse(json);
+        var sourceItems = ResolveImportArray(document.RootElement);
+
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await using var tx = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+
+        if (replaceExisting)
+        {
+            await using var clear = connection.CreateCommand();
+            clear.Transaction = tx;
+            clear.CommandText = "DELETE FROM RPFinishingMoveMatrixRows";
+            await clear.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        var importedCount = 0;
+        foreach (var item in sourceItems)
+        {
+            var desireBand = GetRequiredString(item, "desireBand", "desire");
+            var selfRespectBand = GetRequiredString(item, "selfRespectBand", "selfRespect");
+            var dominanceBand = GetRequiredString(item, "dominanceBand", "dominance");
+            if (string.IsNullOrWhiteSpace(desireBand) || string.IsNullOrWhiteSpace(selfRespectBand) || string.IsNullOrWhiteSpace(dominanceBand))
+            {
+                continue;
+            }
+
+            var row = new RPFinishingMoveMatrixRow
+            {
+                Id = GetString(item, "id") ?? Guid.NewGuid().ToString("N"),
+                DesireBand = desireBand,
+                SelfRespectBand = selfRespectBand,
+                DominanceBand = dominanceBand,
+                PrimaryLocations = GetStringList(item, "primaryLocations", "locationsPrimary"),
+                SecondaryLocations = GetStringList(item, "secondaryLocations", "locationsSecondary"),
+                ExcludedLocations = GetStringList(item, "excludedLocations", "locationsExcluded"),
+                WifeBehaviorModifier = GetString(item, "wifeBehaviorModifier", "wifeBehavior") ?? string.Empty,
+                OtherManBehaviorModifier = GetString(item, "otherManBehaviorModifier", "otherManBehavior") ?? string.Empty,
+                TransitionInstruction = GetString(item, "transitionInstruction", "transition", "transitionNote") ?? string.Empty,
+                SortOrder = GetInt(item, "sortOrder") ?? importedCount,
+                IsEnabled = GetBool(item, "isEnabled") ?? true,
+                CreatedUtc = DateTime.UtcNow,
+                UpdatedUtc = DateTime.UtcNow
+            };
+
+            await SaveFinishingMoveRowWithConnectionAsync(connection, tx, row, cancellationToken);
+            importedCount++;
+        }
+
+        await tx.CommitAsync(cancellationToken);
+        return importedCount;
+    }
+
+    public async Task<RPSteerPositionMatrixRow> SaveSteerPositionMatrixRowAsync(RPSteerPositionMatrixRow row, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+
+        row.Id = string.IsNullOrWhiteSpace(row.Id) ? Guid.NewGuid().ToString("N") : row.Id.Trim();
+        row.ProfileId = string.Empty;
+        row.DesireBand = (row.DesireBand ?? string.Empty).Trim();
+        row.SelfRespectBand = (row.SelfRespectBand ?? string.Empty).Trim();
+        row.WifeDominanceBand = (row.WifeDominanceBand ?? string.Empty).Trim();
+        row.OtherManDominanceBand = (row.OtherManDominanceBand ?? string.Empty).Trim();
+        row.PrimaryPositions = NormalizeLocationList(row.PrimaryPositions);
+        row.SecondaryPositions = NormalizeLocationList(row.SecondaryPositions);
+        row.ExcludedPositions = NormalizeLocationList(row.ExcludedPositions);
+        row.WifeBehaviorModifier = (row.WifeBehaviorModifier ?? string.Empty).Trim();
+        row.OtherManBehaviorModifier = (row.OtherManBehaviorModifier ?? string.Empty).Trim();
+        row.TransitionInstruction = (row.TransitionInstruction ?? string.Empty).Trim();
+        row.UpdatedUtc = DateTime.UtcNow;
+        if (row.CreatedUtc == default)
+        {
+            row.CreatedUtc = row.UpdatedUtc;
+        }
+
+        if (string.IsNullOrWhiteSpace(row.DesireBand)
+            || string.IsNullOrWhiteSpace(row.SelfRespectBand)
+            || string.IsNullOrWhiteSpace(row.WifeDominanceBand)
+            || string.IsNullOrWhiteSpace(row.OtherManDominanceBand))
+        {
+            throw new ArgumentException("DesireBand, SelfRespectBand, WifeDominanceBand, and OtherManDominanceBand are required.", nameof(row));
+        }
+
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO RPSteerPositionMatrixRows (
+                Id, DesireBand, SelfRespectBand, WifeDominanceBand, OtherManDominanceBand,
+                PrimaryPositionsJson, SecondaryPositionsJson, ExcludedPositionsJson,
+                WifeBehaviorModifier, OtherManBehaviorModifier, TransitionInstruction,
+                SortOrder, IsEnabled, CreatedUtc, UpdatedUtc)
+            VALUES (
+                $id, $desireBand, $selfRespectBand, $wifeDominanceBand, $otherManDominanceBand,
+                $primaryPositionsJson, $secondaryPositionsJson, $excludedPositionsJson,
+                $wifeBehaviorModifier, $otherManBehaviorModifier, $transitionInstruction,
+                $sortOrder, $isEnabled, $createdUtc, $updatedUtc)
+            ON CONFLICT(Id) DO UPDATE SET
+                DesireBand = excluded.DesireBand,
+                SelfRespectBand = excluded.SelfRespectBand,
+                WifeDominanceBand = excluded.WifeDominanceBand,
+                OtherManDominanceBand = excluded.OtherManDominanceBand,
+                PrimaryPositionsJson = excluded.PrimaryPositionsJson,
+                SecondaryPositionsJson = excluded.SecondaryPositionsJson,
+                ExcludedPositionsJson = excluded.ExcludedPositionsJson,
+                WifeBehaviorModifier = excluded.WifeBehaviorModifier,
+                OtherManBehaviorModifier = excluded.OtherManBehaviorModifier,
+                TransitionInstruction = excluded.TransitionInstruction,
+                SortOrder = excluded.SortOrder,
+                IsEnabled = excluded.IsEnabled,
+                UpdatedUtc = excluded.UpdatedUtc;
+            """;
+        command.Parameters.AddWithValue("$id", row.Id);
+        command.Parameters.AddWithValue("$desireBand", row.DesireBand);
+        command.Parameters.AddWithValue("$selfRespectBand", row.SelfRespectBand);
+        command.Parameters.AddWithValue("$wifeDominanceBand", row.WifeDominanceBand);
+        command.Parameters.AddWithValue("$otherManDominanceBand", row.OtherManDominanceBand);
+        command.Parameters.AddWithValue("$primaryPositionsJson", SerializeStringList(row.PrimaryPositions));
+        command.Parameters.AddWithValue("$secondaryPositionsJson", SerializeStringList(row.SecondaryPositions));
+        command.Parameters.AddWithValue("$excludedPositionsJson", SerializeStringList(row.ExcludedPositions));
+        command.Parameters.AddWithValue("$wifeBehaviorModifier", row.WifeBehaviorModifier);
+        command.Parameters.AddWithValue("$otherManBehaviorModifier", row.OtherManBehaviorModifier);
+        command.Parameters.AddWithValue("$transitionInstruction", row.TransitionInstruction);
+        command.Parameters.AddWithValue("$sortOrder", row.SortOrder);
+        command.Parameters.AddWithValue("$isEnabled", row.IsEnabled ? 1 : 0);
+        command.Parameters.AddWithValue("$createdUtc", row.CreatedUtc.ToString("O"));
+        command.Parameters.AddWithValue("$updatedUtc", row.UpdatedUtc.ToString("O"));
+        await command.ExecuteNonQueryAsync(cancellationToken);
+
+        return row;
+    }
+
+    public async Task<IReadOnlyList<RPSteerPositionMatrixRow>> ListSteerPositionMatrixRowsAsync(CancellationToken cancellationToken = default)
+    {
+        var rows = new List<RPSteerPositionMatrixRow>();
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT
+                Id, DesireBand, SelfRespectBand, WifeDominanceBand, OtherManDominanceBand,
+                PrimaryPositionsJson, SecondaryPositionsJson, ExcludedPositionsJson,
+                WifeBehaviorModifier, OtherManBehaviorModifier, TransitionInstruction,
+                SortOrder, IsEnabled, CreatedUtc, UpdatedUtc
+            FROM RPSteerPositionMatrixRows
+            ORDER BY SortOrder, DesireBand, SelfRespectBand, WifeDominanceBand, OtherManDominanceBand, Id;
+            """;
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            rows.Add(new RPSteerPositionMatrixRow
+            {
+                Id = reader.GetString(0),
+                DesireBand = reader.GetString(1),
+                SelfRespectBand = reader.GetString(2),
+                WifeDominanceBand = reader.GetString(3),
+                OtherManDominanceBand = reader.GetString(4),
+                PrimaryPositions = DeserializeStringList(reader.GetString(5)),
+                SecondaryPositions = DeserializeStringList(reader.GetString(6)),
+                ExcludedPositions = DeserializeStringList(reader.GetString(7)),
+                WifeBehaviorModifier = reader.GetString(8),
+                OtherManBehaviorModifier = reader.GetString(9),
+                TransitionInstruction = reader.GetString(10),
+                SortOrder = reader.GetInt32(11),
+                IsEnabled = reader.GetInt32(12) == 1,
+                CreatedUtc = DateTime.TryParse(reader.GetString(13), out var createdUtc) ? createdUtc : DateTime.UtcNow,
+                UpdatedUtc = DateTime.TryParse(reader.GetString(14), out var updatedUtc) ? updatedUtc : DateTime.UtcNow
+            });
+        }
+
+        return rows;
+    }
+
+    public async Task<bool> DeleteSteerPositionMatrixRowAsync(string rowId, CancellationToken cancellationToken = default)
+    {
+        var normalizedRowId = (rowId ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(normalizedRowId))
+        {
+            return false;
+        }
+
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM RPSteerPositionMatrixRows WHERE Id = $id";
+        command.Parameters.AddWithValue("$id", normalizedRowId);
+        return await command.ExecuteNonQueryAsync(cancellationToken) > 0;
+    }
+
+    public async Task<int> ImportSteerPositionMatrixRowsFromJsonAsync(
+        string json,
+        bool replaceExisting = false,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return 0;
+        }
+
+        using var document = JsonDocument.Parse(json);
+        var sourceItems = ResolveImportArray(document.RootElement);
+
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await using var tx = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+
+        if (replaceExisting)
+        {
+            await using var clear = connection.CreateCommand();
+            clear.Transaction = tx;
+            clear.CommandText = "DELETE FROM RPSteerPositionMatrixRows";
+            await clear.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        var importedCount = 0;
+        foreach (var item in sourceItems)
+        {
+            var desireBand = GetRequiredString(item, "desireBand", "desire");
+            var selfRespectBand = GetRequiredString(item, "selfRespectBand", "selfRespect");
+            var wifeDominanceBand = GetRequiredString(item, "wifeDominanceBand", "wifeDominance", "dominanceWife");
+            var otherManDominanceBand = GetRequiredString(item, "otherManDominanceBand", "otherManDominance", "dominanceOtherMan", "dominance");
+            if (string.IsNullOrWhiteSpace(desireBand)
+                || string.IsNullOrWhiteSpace(selfRespectBand)
+                || string.IsNullOrWhiteSpace(wifeDominanceBand)
+                || string.IsNullOrWhiteSpace(otherManDominanceBand))
+            {
+                continue;
+            }
+
+            var row = new RPSteerPositionMatrixRow
+            {
+                Id = GetString(item, "id") ?? Guid.NewGuid().ToString("N"),
+                DesireBand = desireBand,
+                SelfRespectBand = selfRespectBand,
+                WifeDominanceBand = wifeDominanceBand,
+                OtherManDominanceBand = otherManDominanceBand,
+                PrimaryPositions = GetStringList(item, "primaryPositions", "positionsPrimary", "primaryLocations"),
+                SecondaryPositions = GetStringList(item, "secondaryPositions", "positionsSecondary", "secondaryLocations"),
+                ExcludedPositions = GetStringList(item, "excludedPositions", "positionsExcluded", "excludedLocations"),
+                WifeBehaviorModifier = GetString(item, "wifeBehaviorModifier", "wifeBehavior") ?? string.Empty,
+                OtherManBehaviorModifier = GetString(item, "otherManBehaviorModifier", "otherManBehavior") ?? string.Empty,
+                TransitionInstruction = GetString(item, "transitionInstruction", "transition", "transitionNote") ?? string.Empty,
+                SortOrder = GetInt(item, "sortOrder") ?? importedCount,
+                IsEnabled = GetBool(item, "isEnabled") ?? true,
+                CreatedUtc = DateTime.UtcNow,
+                UpdatedUtc = DateTime.UtcNow
+            };
+
+            await SaveSteerPositionRowWithConnectionAsync(connection, tx, row, cancellationToken);
+            importedCount++;
+        }
+
+        await tx.CommitAsync(cancellationToken);
+        return importedCount;
     }
 
     public async Task<IReadOnlyList<RPThemeImportResult>> ImportFromMarkdownAsync(
@@ -1406,6 +1839,280 @@ public sealed partial class RPThemeService : IRPThemeService
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
+    private static async Task SaveFinishingMoveRowWithConnectionAsync(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        RPFinishingMoveMatrixRow row,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = tx;
+        command.CommandText = """
+            INSERT INTO RPFinishingMoveMatrixRows (
+                Id, DesireBand, SelfRespectBand, DominanceBand,
+                PrimaryLocationsJson, SecondaryLocationsJson, ExcludedLocationsJson,
+                WifeBehaviorModifier, OtherManBehaviorModifier, TransitionInstruction,
+                SortOrder, IsEnabled, CreatedUtc, UpdatedUtc)
+            VALUES (
+                $id, $desireBand, $selfRespectBand, $dominanceBand,
+                $primaryLocationsJson, $secondaryLocationsJson, $excludedLocationsJson,
+                $wifeBehaviorModifier, $otherManBehaviorModifier, $transitionInstruction,
+                $sortOrder, $isEnabled, $createdUtc, $updatedUtc)
+            ON CONFLICT(Id) DO UPDATE SET
+                DesireBand = excluded.DesireBand,
+                SelfRespectBand = excluded.SelfRespectBand,
+                DominanceBand = excluded.DominanceBand,
+                PrimaryLocationsJson = excluded.PrimaryLocationsJson,
+                SecondaryLocationsJson = excluded.SecondaryLocationsJson,
+                ExcludedLocationsJson = excluded.ExcludedLocationsJson,
+                WifeBehaviorModifier = excluded.WifeBehaviorModifier,
+                OtherManBehaviorModifier = excluded.OtherManBehaviorModifier,
+                TransitionInstruction = excluded.TransitionInstruction,
+                SortOrder = excluded.SortOrder,
+                IsEnabled = excluded.IsEnabled,
+                UpdatedUtc = excluded.UpdatedUtc;
+            """;
+        command.Parameters.AddWithValue("$id", row.Id);
+        command.Parameters.AddWithValue("$desireBand", row.DesireBand);
+        command.Parameters.AddWithValue("$selfRespectBand", row.SelfRespectBand);
+        command.Parameters.AddWithValue("$dominanceBand", row.DominanceBand);
+        command.Parameters.AddWithValue("$primaryLocationsJson", SerializeStringList(row.PrimaryLocations));
+        command.Parameters.AddWithValue("$secondaryLocationsJson", SerializeStringList(row.SecondaryLocations));
+        command.Parameters.AddWithValue("$excludedLocationsJson", SerializeStringList(row.ExcludedLocations));
+        command.Parameters.AddWithValue("$wifeBehaviorModifier", row.WifeBehaviorModifier);
+        command.Parameters.AddWithValue("$otherManBehaviorModifier", row.OtherManBehaviorModifier);
+        command.Parameters.AddWithValue("$transitionInstruction", row.TransitionInstruction);
+        command.Parameters.AddWithValue("$sortOrder", row.SortOrder);
+        command.Parameters.AddWithValue("$isEnabled", row.IsEnabled ? 1 : 0);
+        command.Parameters.AddWithValue("$createdUtc", row.CreatedUtc.ToString("O"));
+        command.Parameters.AddWithValue("$updatedUtc", row.UpdatedUtc.ToString("O"));
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task SaveSteerPositionRowWithConnectionAsync(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        RPSteerPositionMatrixRow row,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = tx;
+        command.CommandText = """
+            INSERT INTO RPSteerPositionMatrixRows (
+                Id, DesireBand, SelfRespectBand, WifeDominanceBand, OtherManDominanceBand,
+                PrimaryPositionsJson, SecondaryPositionsJson, ExcludedPositionsJson,
+                WifeBehaviorModifier, OtherManBehaviorModifier, TransitionInstruction,
+                SortOrder, IsEnabled, CreatedUtc, UpdatedUtc)
+            VALUES (
+                $id, $desireBand, $selfRespectBand, $wifeDominanceBand, $otherManDominanceBand,
+                $primaryPositionsJson, $secondaryPositionsJson, $excludedPositionsJson,
+                $wifeBehaviorModifier, $otherManBehaviorModifier, $transitionInstruction,
+                $sortOrder, $isEnabled, $createdUtc, $updatedUtc)
+            ON CONFLICT(Id) DO UPDATE SET
+                DesireBand = excluded.DesireBand,
+                SelfRespectBand = excluded.SelfRespectBand,
+                WifeDominanceBand = excluded.WifeDominanceBand,
+                OtherManDominanceBand = excluded.OtherManDominanceBand,
+                PrimaryPositionsJson = excluded.PrimaryPositionsJson,
+                SecondaryPositionsJson = excluded.SecondaryPositionsJson,
+                ExcludedPositionsJson = excluded.ExcludedPositionsJson,
+                WifeBehaviorModifier = excluded.WifeBehaviorModifier,
+                OtherManBehaviorModifier = excluded.OtherManBehaviorModifier,
+                TransitionInstruction = excluded.TransitionInstruction,
+                SortOrder = excluded.SortOrder,
+                IsEnabled = excluded.IsEnabled,
+                UpdatedUtc = excluded.UpdatedUtc;
+            """;
+        command.Parameters.AddWithValue("$id", row.Id);
+        command.Parameters.AddWithValue("$desireBand", row.DesireBand);
+        command.Parameters.AddWithValue("$selfRespectBand", row.SelfRespectBand);
+        command.Parameters.AddWithValue("$wifeDominanceBand", row.WifeDominanceBand);
+        command.Parameters.AddWithValue("$otherManDominanceBand", row.OtherManDominanceBand);
+        command.Parameters.AddWithValue("$primaryPositionsJson", SerializeStringList(row.PrimaryPositions));
+        command.Parameters.AddWithValue("$secondaryPositionsJson", SerializeStringList(row.SecondaryPositions));
+        command.Parameters.AddWithValue("$excludedPositionsJson", SerializeStringList(row.ExcludedPositions));
+        command.Parameters.AddWithValue("$wifeBehaviorModifier", row.WifeBehaviorModifier);
+        command.Parameters.AddWithValue("$otherManBehaviorModifier", row.OtherManBehaviorModifier);
+        command.Parameters.AddWithValue("$transitionInstruction", row.TransitionInstruction);
+        command.Parameters.AddWithValue("$sortOrder", row.SortOrder);
+        command.Parameters.AddWithValue("$isEnabled", row.IsEnabled ? 1 : 0);
+        command.Parameters.AddWithValue("$createdUtc", row.CreatedUtc.ToString("O"));
+        command.Parameters.AddWithValue("$updatedUtc", row.UpdatedUtc.ToString("O"));
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static IReadOnlyList<JsonElement> ResolveImportArray(JsonElement root)
+    {
+        if (root.ValueKind == JsonValueKind.Array)
+        {
+            return root.EnumerateArray().ToList();
+        }
+
+        if (root.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var propertyName in new[] { "rows", "matrixRows", "items", "data" })
+            {
+                if (TryGetPropertyIgnoreCase(root, propertyName, out var rowsElement) && rowsElement.ValueKind == JsonValueKind.Array)
+                {
+                    return rowsElement.EnumerateArray().ToList();
+                }
+            }
+        }
+
+        return [];
+    }
+
+    private static string SerializeStringList(IEnumerable<string> values)
+        => JsonSerializer.Serialize(NormalizeLocationList(values), JsonOptions);
+
+    private static List<string> DeserializeStringList(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return [];
+        }
+
+        try
+        {
+            var values = JsonSerializer.Deserialize<List<string>>(json, JsonOptions) ?? [];
+            return NormalizeLocationList(values);
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    private static List<string> NormalizeLocationList(IEnumerable<string>? values)
+    {
+        if (values is null)
+        {
+            return [];
+        }
+
+        return values
+            .Select(x => (x ?? string.Empty).Trim())
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static string? GetRequiredString(JsonElement element, params string[] aliases)
+        => GetString(element, aliases)?.Trim();
+
+    private static string? GetString(JsonElement element, params string[] aliases)
+    {
+        foreach (var alias in aliases)
+        {
+            if (TryGetPropertyIgnoreCase(element, alias, out var value))
+            {
+                return value.ValueKind switch
+                {
+                    JsonValueKind.String => value.GetString(),
+                    JsonValueKind.Number => value.GetRawText(),
+                    JsonValueKind.True => "true",
+                    JsonValueKind.False => "false",
+                    _ => null
+                };
+            }
+        }
+
+        return null;
+    }
+
+    private static int? GetInt(JsonElement element, params string[] aliases)
+    {
+        foreach (var alias in aliases)
+        {
+            if (!TryGetPropertyIgnoreCase(element, alias, out var value))
+            {
+                continue;
+            }
+
+            if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var number))
+            {
+                return number;
+            }
+
+            if (value.ValueKind == JsonValueKind.String && int.TryParse(value.GetString(), out number))
+            {
+                return number;
+            }
+        }
+
+        return null;
+    }
+
+    private static bool? GetBool(JsonElement element, params string[] aliases)
+    {
+        foreach (var alias in aliases)
+        {
+            if (!TryGetPropertyIgnoreCase(element, alias, out var value))
+            {
+                continue;
+            }
+
+            if (value.ValueKind == JsonValueKind.True)
+            {
+                return true;
+            }
+
+            if (value.ValueKind == JsonValueKind.False)
+            {
+                return false;
+            }
+
+            if (value.ValueKind == JsonValueKind.String && bool.TryParse(value.GetString(), out var parsed))
+            {
+                return parsed;
+            }
+        }
+
+        return null;
+    }
+
+    private static List<string> GetStringList(JsonElement element, params string[] aliases)
+    {
+        foreach (var alias in aliases)
+        {
+            if (!TryGetPropertyIgnoreCase(element, alias, out var value))
+            {
+                continue;
+            }
+
+            if (value.ValueKind == JsonValueKind.Array)
+            {
+                return NormalizeLocationList(value.EnumerateArray()
+                    .Where(x => x.ValueKind == JsonValueKind.String)
+                    .Select(x => x.GetString() ?? string.Empty));
+            }
+
+            if (value.ValueKind == JsonValueKind.String)
+            {
+                var text = value.GetString() ?? string.Empty;
+                var split = text.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+                return NormalizeLocationList(split);
+            }
+        }
+
+        return [];
+    }
+
+    private static bool TryGetPropertyIgnoreCase(JsonElement element, string name, out JsonElement value)
+    {
+        foreach (var property in element.EnumerateObject())
+        {
+            if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
+            {
+                value = property.Value;
+                return true;
+            }
+        }
+
+        value = default;
+        return false;
+    }
+
     private static async Task<string?> LoadParentThemeIdAsync(SqliteConnection connection, string themeId, CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
@@ -1459,7 +2166,7 @@ public sealed partial class RPThemeService : IRPThemeService
         return list;
     }
 
-    private static async Task<List<RPThemePhaseGuidance>> LoadThemePhaseGuidanceAsync(SqliteConnection connection, string themeId, CancellationToken cancellationToken)
+    private static async Task<List<RPThemePhaseGuidance>> LoadThemePhaseGuidanceAsync(SqliteConnection connection, string themeId, ILogger logger, CancellationToken cancellationToken)
     {
         var list = new List<RPThemePhaseGuidance>();
         await using var command = connection.CreateCommand();
@@ -1468,11 +2175,18 @@ public sealed partial class RPThemeService : IRPThemeService
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
+            var phaseRaw = reader.GetString(2);
+            if (!TryParseStoredNarrativePhase(phaseRaw, out var parsedPhase))
+            {
+                logger.LogError("RPThemePhaseGuidance row for theme '{ThemeId}' has unrecognised Phase value '{PhaseRaw}'. Row skipped — fix the data to restore guidance for this phase.", themeId, phaseRaw);
+                continue;
+            }
+
             list.Add(new RPThemePhaseGuidance
             {
                 Id = reader.GetString(0),
                 ThemeId = reader.GetString(1),
-                Phase = Enum.TryParse<NarrativePhase>(reader.GetString(2), out var phase) ? phase : NarrativePhase.BuildUp,
+                Phase = parsedPhase,
                 GuidanceText = reader.GetString(3)
             });
         }
@@ -1480,7 +2194,7 @@ public sealed partial class RPThemeService : IRPThemeService
         return list;
     }
 
-    private static async Task<List<RPThemeGuidancePoint>> LoadThemeGuidancePointsAsync(SqliteConnection connection, string themeId, CancellationToken cancellationToken)
+    private static async Task<List<RPThemeGuidancePoint>> LoadThemeGuidancePointsAsync(SqliteConnection connection, string themeId, ILogger logger, CancellationToken cancellationToken)
     {
         var list = new List<RPThemeGuidancePoint>();
         await using var command = connection.CreateCommand();
@@ -1489,11 +2203,18 @@ public sealed partial class RPThemeService : IRPThemeService
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
+            var phaseRaw = reader.GetString(2);
+            if (!TryParseStoredNarrativePhase(phaseRaw, out var parsedPhase))
+            {
+                logger.LogError("RPThemeGuidancePoints row for theme '{ThemeId}' has unrecognised Phase value '{PhaseRaw}'. Row skipped — fix the data to restore guidance for this phase.", themeId, phaseRaw);
+                continue;
+            }
+
             list.Add(new RPThemeGuidancePoint
             {
                 Id = reader.GetString(0),
                 ThemeId = reader.GetString(1),
-                Phase = Enum.TryParse<NarrativePhase>(reader.GetString(2), out var phase) ? phase : NarrativePhase.BuildUp,
+                Phase = parsedPhase,
                 PointType = Enum.TryParse<RPThemeGuidancePointType>(reader.GetString(3), out var pointType)
                     ? pointType
                     : RPThemeGuidancePointType.Emphasis,
@@ -1503,6 +2224,24 @@ public sealed partial class RPThemeService : IRPThemeService
         }
 
         return list;
+    }
+
+    private static bool TryParseStoredNarrativePhase(string rawValue, out NarrativePhase phase)
+    {
+        if (Enum.TryParse<NarrativePhase>(rawValue, ignoreCase: true, out phase))
+        {
+            return true;
+        }
+
+        // Backward compatibility for legacy typo persisted in older records.
+        if (string.Equals(rawValue, "Commited", StringComparison.OrdinalIgnoreCase))
+        {
+            phase = NarrativePhase.Committed;
+            return true;
+        }
+
+        phase = default;
+        return false;
     }
 
     private static async Task<List<RPThemeFitRule>> LoadThemeFitRulesAsync(SqliteConnection connection, string themeId, CancellationToken cancellationToken)
@@ -1666,8 +2405,53 @@ public sealed partial class RPThemeService : IRPThemeService
 
     private static async Task EnsureSupplementalTablesAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {
+        await MigrateLegacyMatrixTablesToGlobalAsync(connection, cancellationToken);
+
         await using var command = connection.CreateCommand();
         command.CommandText = """
+            CREATE TABLE IF NOT EXISTS RPFinishingMoveMatrixRows (
+                Id TEXT PRIMARY KEY,
+                DesireBand TEXT NOT NULL,
+                SelfRespectBand TEXT NOT NULL,
+                DominanceBand TEXT NOT NULL,
+                PrimaryLocationsJson TEXT NOT NULL DEFAULT '[]',
+                SecondaryLocationsJson TEXT NOT NULL DEFAULT '[]',
+                ExcludedLocationsJson TEXT NOT NULL DEFAULT '[]',
+                WifeBehaviorModifier TEXT NOT NULL DEFAULT '',
+                OtherManBehaviorModifier TEXT NOT NULL DEFAULT '',
+                TransitionInstruction TEXT NOT NULL DEFAULT '',
+                SortOrder INTEGER NOT NULL DEFAULT 0,
+                IsEnabled INTEGER NOT NULL DEFAULT 1,
+                CreatedUtc TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL,
+                UNIQUE (DesireBand, SelfRespectBand, DominanceBand)
+            );
+
+            CREATE INDEX IF NOT EXISTS IX_RPFinishingMoveMatrixRows_Sort
+                ON RPFinishingMoveMatrixRows (SortOrder, Id);
+
+            CREATE TABLE IF NOT EXISTS RPSteerPositionMatrixRows (
+                Id TEXT PRIMARY KEY,
+                DesireBand TEXT NOT NULL,
+                SelfRespectBand TEXT NOT NULL,
+                WifeDominanceBand TEXT NOT NULL,
+                OtherManDominanceBand TEXT NOT NULL,
+                PrimaryPositionsJson TEXT NOT NULL DEFAULT '[]',
+                SecondaryPositionsJson TEXT NOT NULL DEFAULT '[]',
+                ExcludedPositionsJson TEXT NOT NULL DEFAULT '[]',
+                WifeBehaviorModifier TEXT NOT NULL DEFAULT '',
+                OtherManBehaviorModifier TEXT NOT NULL DEFAULT '',
+                TransitionInstruction TEXT NOT NULL DEFAULT '',
+                SortOrder INTEGER NOT NULL DEFAULT 0,
+                IsEnabled INTEGER NOT NULL DEFAULT 1,
+                CreatedUtc TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL,
+                UNIQUE (DesireBand, SelfRespectBand, WifeDominanceBand, OtherManDominanceBand)
+            );
+
+            CREATE INDEX IF NOT EXISTS IX_RPSteerPositionMatrixRows_Sort
+                ON RPSteerPositionMatrixRows (SortOrder, Id);
+
             CREATE TABLE IF NOT EXISTS RPThemeAIGuidanceNotes (
                 Id TEXT PRIMARY KEY,
                 ThemeId TEXT NOT NULL,
@@ -1681,6 +2465,123 @@ public sealed partial class RPThemeService : IRPThemeService
                 ON RPThemeAIGuidanceNotes (ThemeId, SortOrder, Id);
             """;
         await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task MigrateLegacyMatrixTablesToGlobalAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        var finishingNeedsMigration = await TableHasColumnAsync(connection, "RPFinishingMoveMatrixRows", "ProfileId", cancellationToken);
+        var steerNeedsMigration = await TableHasColumnAsync(connection, "RPSteerPositionMatrixRows", "ProfileId", cancellationToken);
+
+        if (!finishingNeedsMigration && !steerNeedsMigration)
+        {
+            return;
+        }
+
+        await using var tx = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+
+        if (finishingNeedsMigration)
+        {
+            await using var archiveCommand = connection.CreateCommand();
+            archiveCommand.Transaction = tx;
+            archiveCommand.CommandText = """
+                CREATE TABLE IF NOT EXISTS RPFinishingMoveMatrixRows_Archived (
+                    Id TEXT NOT NULL,
+                    ProfileId TEXT NOT NULL,
+                    DesireBand TEXT NOT NULL,
+                    SelfRespectBand TEXT NOT NULL,
+                    DominanceBand TEXT NOT NULL,
+                    PrimaryLocationsJson TEXT NOT NULL DEFAULT '[]',
+                    SecondaryLocationsJson TEXT NOT NULL DEFAULT '[]',
+                    ExcludedLocationsJson TEXT NOT NULL DEFAULT '[]',
+                    WifeBehaviorModifier TEXT NOT NULL DEFAULT '',
+                    OtherManBehaviorModifier TEXT NOT NULL DEFAULT '',
+                    TransitionInstruction TEXT NOT NULL DEFAULT '',
+                    SortOrder INTEGER NOT NULL DEFAULT 0,
+                    IsEnabled INTEGER NOT NULL DEFAULT 1,
+                    CreatedUtc TEXT NOT NULL,
+                    UpdatedUtc TEXT NOT NULL,
+                    ArchivedUtc TEXT NOT NULL
+                );
+
+                INSERT INTO RPFinishingMoveMatrixRows_Archived (
+                    Id, ProfileId, DesireBand, SelfRespectBand, DominanceBand,
+                    PrimaryLocationsJson, SecondaryLocationsJson, ExcludedLocationsJson,
+                    WifeBehaviorModifier, OtherManBehaviorModifier, TransitionInstruction,
+                    SortOrder, IsEnabled, CreatedUtc, UpdatedUtc, ArchivedUtc)
+                SELECT
+                    Id, ProfileId, DesireBand, SelfRespectBand, DominanceBand,
+                    PrimaryLocationsJson, SecondaryLocationsJson, ExcludedLocationsJson,
+                    WifeBehaviorModifier, OtherManBehaviorModifier, TransitionInstruction,
+                    SortOrder, IsEnabled, CreatedUtc, UpdatedUtc, $archivedUtc
+                FROM RPFinishingMoveMatrixRows;
+
+                DROP TABLE RPFinishingMoveMatrixRows;
+                DROP INDEX IF EXISTS IX_RPFinishingMoveMatrixRows_Profile_Sort;
+                DROP INDEX IF EXISTS IX_RPFinishingMoveMatrixRows_Sort;
+            """;
+            archiveCommand.Parameters.AddWithValue("$archivedUtc", DateTime.UtcNow.ToString("O"));
+            await archiveCommand.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        if (steerNeedsMigration)
+        {
+            await using var archiveCommand = connection.CreateCommand();
+            archiveCommand.Transaction = tx;
+            archiveCommand.CommandText = """
+                CREATE TABLE IF NOT EXISTS RPSteerPositionMatrixRows_Archived (
+                    Id TEXT NOT NULL,
+                    ProfileId TEXT NOT NULL,
+                    DesireBand TEXT NOT NULL,
+                    SelfRespectBand TEXT NOT NULL,
+                    WifeDominanceBand TEXT NOT NULL,
+                    OtherManDominanceBand TEXT NOT NULL,
+                    PrimaryPositionsJson TEXT NOT NULL DEFAULT '[]',
+                    SecondaryPositionsJson TEXT NOT NULL DEFAULT '[]',
+                    ExcludedPositionsJson TEXT NOT NULL DEFAULT '[]',
+                    WifeBehaviorModifier TEXT NOT NULL DEFAULT '',
+                    OtherManBehaviorModifier TEXT NOT NULL DEFAULT '',
+                    TransitionInstruction TEXT NOT NULL DEFAULT '',
+                    SortOrder INTEGER NOT NULL DEFAULT 0,
+                    IsEnabled INTEGER NOT NULL DEFAULT 1,
+                    CreatedUtc TEXT NOT NULL,
+                    UpdatedUtc TEXT NOT NULL,
+                    ArchivedUtc TEXT NOT NULL
+                );
+
+                INSERT INTO RPSteerPositionMatrixRows_Archived (
+                    Id, ProfileId, DesireBand, SelfRespectBand, WifeDominanceBand, OtherManDominanceBand,
+                    PrimaryPositionsJson, SecondaryPositionsJson, ExcludedPositionsJson,
+                    WifeBehaviorModifier, OtherManBehaviorModifier, TransitionInstruction,
+                    SortOrder, IsEnabled, CreatedUtc, UpdatedUtc, ArchivedUtc)
+                SELECT
+                    Id, ProfileId, DesireBand, SelfRespectBand, WifeDominanceBand, OtherManDominanceBand,
+                    PrimaryPositionsJson, SecondaryPositionsJson, ExcludedPositionsJson,
+                    WifeBehaviorModifier, OtherManBehaviorModifier, TransitionInstruction,
+                    SortOrder, IsEnabled, CreatedUtc, UpdatedUtc, $archivedUtc
+                FROM RPSteerPositionMatrixRows;
+
+                DROP TABLE RPSteerPositionMatrixRows;
+                DROP INDEX IF EXISTS IX_RPSteerPositionMatrixRows_Profile_Sort;
+                DROP INDEX IF EXISTS IX_RPSteerPositionMatrixRows_Sort;
+            """;
+            archiveCommand.Parameters.AddWithValue("$archivedUtc", DateTime.UtcNow.ToString("O"));
+            await archiveCommand.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await tx.CommitAsync(cancellationToken);
+    }
+
+    private static async Task<bool> TableHasColumnAsync(
+        SqliteConnection connection,
+        string tableName,
+        string columnName,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('{tableName}') WHERE name = $columnName";
+        command.Parameters.AddWithValue("$columnName", columnName);
+        var count = Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken));
+        return count > 0;
     }
 
     private static async Task EnsureGlobalThemeLibraryProfileAsync(SqliteConnection connection, CancellationToken cancellationToken)

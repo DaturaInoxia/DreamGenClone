@@ -147,6 +147,8 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     private readonly decimal _completedScenarioRepeatPenaltyPerRun;
     private readonly decimal _completedScenarioRepeatPenaltyFloor;
     private readonly decimal _completedScenarioThemeScorePenalty;
+    private readonly bool _suppressNarrativeAfterDecision;
+    private readonly bool _suppressNarrativeAfterPhaseChange;
 
     public RolePlayEngineService(
         IRolePlayContinuationService continuationService,
@@ -172,7 +174,8 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         IRPThemeService? rpThemeService = null,
         RolePlayPromptComposer? promptComposer = null,
         RolePlaySessionCompatibilityService? compatibilityService = null,
-        IOptions<StoryAnalysisOptions>? storyAnalysisOptions = null)
+        IOptions<StoryAnalysisOptions>? storyAnalysisOptions = null,
+        IOptions<RolePlayDecisionOptions>? rolePlayDecisionOptions = null)
     {
         _continuationService = continuationService;
         _behaviorModeService = behaviorModeService;
@@ -202,6 +205,8 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         _completedScenarioRepeatPenaltyPerRun = (decimal)Math.Clamp(storyAnalysisOptions?.Value.CompletedScenarioRepeatPenaltyPerRun ?? 0.20, 0d, 1d);
         _completedScenarioRepeatPenaltyFloor = (decimal)Math.Clamp(storyAnalysisOptions?.Value.CompletedScenarioRepeatPenaltyFloor ?? 0.40, 0d, 1d);
         _completedScenarioThemeScorePenalty = Math.Clamp(storyAnalysisOptions?.Value.CompletedScenarioThemeScorePenalty ?? 10, 0, 100);
+        _suppressNarrativeAfterDecision = rolePlayDecisionOptions?.Value.SuppressNarrativeAfterDecision ?? false;
+        _suppressNarrativeAfterPhaseChange = rolePlayDecisionOptions?.Value.SuppressNarrativeAfterPhaseChange ?? false;
     }
 
     public async Task<RolePlaySession> CreateSessionAsync(
@@ -817,6 +822,10 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         }
 
         var explicitClimaxCompletionRequested = ContainsClimaxCompletionCommand(submission.PromptText);
+        // Always align V2 state into AdaptiveState immediately before resolving the manual phase target.
+        // This prevents V1 pipeline mutations (from UpdateFromInteractionAsync above) from polluting
+        // the phase used by ResolveManualPhaseAdvanceTarget, which must reflect the V2 canonical state.
+        await AlignPromptNarrativeStateWithV2Async(session, cancellationToken);
         var manualPhaseAdvanceTarget = ResolveManualPhaseAdvanceTarget(submission.PromptText, session.AdaptiveState.CurrentNarrativePhase);
         await RunRolePlayV2PipelinesAsync(
             session,
@@ -1195,7 +1204,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
         session.DeferredDecisionPointIds ??= [];
         session.DeferredDecisionPointIds.RemoveAll(x => string.Equals(x, decisionPointId, StringComparison.OrdinalIgnoreCase));
-        session.SuppressNextNarrativeAfterDecision = true;
+        session.SuppressNextNarrativeAfterDecision = _suppressNarrativeAfterDecision;
 
         var selectedOption = await ResolveAppliedDecisionOptionAsync(decisionPointId, optionId, cancellationToken);
         var (selectedDialogue, selectedDialogueSource) = ResolveSelectedDecisionDialogueWithSource(selectedOption, customResponseText);
@@ -1777,7 +1786,16 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         var v2State = HydrateV2State(session, previousV2State);
         NormalizePhaseOverrideLock(v2State);
         var climaxCompletionRequested = explicitClimaxCompletionRequested || IsClimaxCompletionRequested(session);
-        v2State.InteractionCountInPhase = Math.Max(0, v2State.InteractionCountInPhase) + 1;
+
+        // Count actual NPC/narrative interactions generated since the last pipeline evaluation,
+        // so batch ContinueAs calls (which may generate 2-3 interactions per button click) advance
+        // the counter correctly instead of always adding +1 regardless of batch size.
+        var generatedSinceLastEval = previousV2State?.LastEvaluationUtc is { } lastEval
+            ? session.Interactions.Count(x =>
+                x.CreatedAt > lastEval
+                && x.InteractionType is InteractionType.Npc or InteractionType.Custom or InteractionType.System)
+            : 1;
+        v2State.InteractionCountInPhase = Math.Max(0, v2State.InteractionCountInPhase) + Math.Max(1, generatedSinceLastEval);
         var candidates = await BuildScenarioCandidatesAsync(session, cancellationToken);
         var rpSubsystemSession = ShouldUseRpThemeSubsystem(session);
         var linkedNarrativeGateProfileId = await ResolveNarrativeGateProfileIdAsync(session, v2State, cancellationToken);
@@ -1790,15 +1808,63 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             : await _scenarioSelectionService.EvaluateCandidatesAsync(v2State, candidates, cancellationToken);
         await _v2StateRepository.SaveCandidateEvaluationsAsync(evaluations, cancellationToken);
 
-        var commitResult = manualOverrideLockActive
+        var inResetPhase = v2State.CurrentPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.Reset;
+        var commitResult = (manualOverrideLockActive || inResetPhase)
             ? new ScenarioCommitResult
             {
                 Committed = false,
                 ScenarioId = v2State.ActiveScenarioId,
                 UpdatedConsecutiveLeadCount = v2State.ConsecutiveLeadCount,
-                Reason = "ManualOverrideLockActive"
+                Reason = manualOverrideLockActive ? "ManualOverrideLockActive" : "ResetPhase"
             }
             : await _scenarioSelectionService.TryCommitScenarioAsync(v2State, evaluations, cancellationToken);
+
+        if (v2State.CurrentPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.BuildUp)
+        {
+            var gateSnapshot = ParseBuildUpGateAudit(commitResult.AuditMetadataJson);
+            var gateSummary = gateSnapshot.Passed switch
+            {
+                true => "passed",
+                false => "blocked",
+                null => "not-configured"
+            };
+
+            _logger.LogInformation(
+                "RolePlayV2 BuildUp commit gate {GateSummary}: SessionId={SessionId} ProfileId={ProfileId} ProfileName={ProfileName} Configured={Configured} Committed={Committed} CandidateScenarioId={CandidateScenarioId} InteractionCount={InteractionCount} CandidateCount={CandidateCount} Reason={Reason}",
+                gateSummary,
+                session.Id,
+                gateSnapshot.ProfileId,
+                gateSnapshot.ProfileName,
+                gateSnapshot.Configured,
+                commitResult.Committed,
+                commitResult.ScenarioId,
+                v2State.InteractionCountInPhase,
+                evaluations.Count,
+                commitResult.Reason);
+
+            await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+            {
+                SessionId = session.Id,
+                EventKind = "AdaptiveCommitGateEvaluated",
+                Severity = gateSnapshot.Passed == false ? "Warning" : "Info",
+                Summary = gateSnapshot.Passed == false
+                    ? "BuildUp commit blocked by gate rules"
+                    : gateSnapshot.Passed == true
+                        ? "BuildUp commit gate passed"
+                        : "BuildUp commit gate not configured",
+                MetadataJson = JsonSerializer.Serialize(new
+                {
+                    phase = v2State.CurrentPhase.ToString(),
+                    interactionCount = v2State.InteractionCountInPhase,
+                    candidateCount = evaluations.Count,
+                    selectedScenarioId = commitResult.ScenarioId,
+                    committed = commitResult.Committed,
+                    reason = commitResult.Reason,
+                    gateAudit = commitResult.AuditMetadataJson
+                })
+            }, cancellationToken);
+        }
+
         v2State.ConsecutiveLeadCount = commitResult.UpdatedConsecutiveLeadCount;
         var commitApplied = false;
         if (commitResult.Committed && !string.IsNullOrWhiteSpace(commitResult.ScenarioId))
@@ -1854,6 +1920,27 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             }
         }
 
+        // BuildUp always needs a selected scenario/theme even before commit gates allow phase promotion.
+        if (v2State.CurrentPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.BuildUp
+            && string.IsNullOrWhiteSpace(v2State.ActiveScenarioId))
+        {
+            var inferredScenarioId = !string.IsNullOrWhiteSpace(commitResult.ScenarioId)
+                ? commitResult.ScenarioId
+                : evaluations.FirstOrDefault(x => x.StageBEligible)?.ScenarioId
+                    ?? evaluations.FirstOrDefault()?.ScenarioId
+                    ?? candidates.FirstOrDefault()?.ScenarioId;
+
+            if (!string.IsNullOrWhiteSpace(inferredScenarioId))
+            {
+                v2State.ActiveScenarioId = inferredScenarioId;
+                _logger.LogInformation(
+                    "RolePlayV2 BuildUp active scenario backfilled: SessionId={SessionId} ScenarioId={ScenarioId} Reason={Reason}",
+                    session.Id,
+                    inferredScenarioId,
+                    commitResult.Reason);
+            }
+        }
+
         var activeScenarioEvaluation = evaluations.FirstOrDefault(x =>
             !string.IsNullOrWhiteSpace(v2State.ActiveScenarioId)
             && string.Equals(x.ScenarioId, v2State.ActiveScenarioId, StringComparison.OrdinalIgnoreCase));
@@ -1861,9 +1948,11 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         var lifecycleConfidence = commitApplied
             ? (commitResult.SelectedEvaluation?.Confidence ?? activeScenarioEvaluation?.Confidence ?? 0m)
             : (activeScenarioEvaluation?.Confidence ?? 0m);
+        // Use the unpenalized score for lifecycle gate evaluation — the gate penalty is for scenario
+        // selection competition only. Phase transitions should use the true narrative fit score.
         var lifecycleFitScore = commitApplied
-            ? (commitResult.SelectedEvaluation?.FitScore ?? activeScenarioEvaluation?.FitScore ?? 0m)
-            : (activeScenarioEvaluation?.FitScore ?? 0m);
+            ? (commitResult.SelectedEvaluation?.UnpenalizedFitScore ?? activeScenarioEvaluation?.UnpenalizedFitScore ?? 0m)
+            : (activeScenarioEvaluation?.UnpenalizedFitScore ?? 0m);
 
         var lifecycle = await _scenarioLifecycleService.EvaluateTransitionAsync(
             v2State,
@@ -1885,6 +1974,11 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             var transitionSourcePhase = v2State.CurrentPhase;
             v2State.CurrentPhase = lifecycle.TargetPhase;
             v2State.InteractionCountInPhase = 0;
+
+            if (_suppressNarrativeAfterPhaseChange)
+            {
+                session.SuppressNextNarrativeAfterDecision = true;
+            }
 
             if (manualPhaseAdvanceTarget.HasValue
                 && lifecycle.TargetPhase == manualPhaseAdvanceTarget.Value
@@ -2473,12 +2567,12 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             return null;
         }
 
+        // Climax exits ONLY via /endclimax — /nextphase is intentionally blocked here.
         return currentPhase switch
         {
             DreamGenClone.Domain.StoryAnalysis.NarrativePhase.BuildUp => DreamGenClone.Domain.RolePlay.NarrativePhase.Committed,
             DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Committed => DreamGenClone.Domain.RolePlay.NarrativePhase.Approaching,
             DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Approaching => DreamGenClone.Domain.RolePlay.NarrativePhase.Climax,
-            DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Climax => DreamGenClone.Domain.RolePlay.NarrativePhase.Reset,
             _ => null
         };
     }
@@ -4725,6 +4819,81 @@ Requirements:
     {
         var normalized = decimal.Round(priority / 5m, 4, MidpointRounding.AwayFromZero);
         return Math.Clamp(normalized, 0m, 1m);
+    }
+
+    private static BuildUpGateSnapshot ParseBuildUpGateAudit(string? auditMetadataJson)
+    {
+        if (string.IsNullOrWhiteSpace(auditMetadataJson))
+        {
+            return BuildUpGateSnapshot.Empty;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(auditMetadataJson);
+            var root = doc.RootElement;
+            return new BuildUpGateSnapshot(
+                Passed: ReadNullableBool(root, "passed"),
+                Configured: ReadNullableBool(root, "configured") ?? false,
+                ProfileId: ReadString(root, "profileId"),
+                ProfileName: ReadString(root, "profileName"));
+        }
+        catch
+        {
+            return BuildUpGateSnapshot.Empty;
+        }
+    }
+
+    private static bool? ReadNullableBool(JsonElement root, string propertyName)
+    {
+        if (!TryGetPropertyIgnoreCase(root, propertyName, out var value))
+        {
+            return null;
+        }
+
+        return value.ValueKind switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            _ => null
+        };
+    }
+
+    private static string? ReadString(JsonElement root, string propertyName)
+    {
+        if (!TryGetPropertyIgnoreCase(root, propertyName, out var value)
+            || value.ValueKind != JsonValueKind.String)
+        {
+            return null;
+        }
+
+        return value.GetString();
+    }
+
+    private static bool TryGetPropertyIgnoreCase(JsonElement element, string propertyName, out JsonElement value)
+    {
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            value = default;
+            return false;
+        }
+
+        foreach (var property in element.EnumerateObject())
+        {
+            if (string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase))
+            {
+                value = property.Value;
+                return true;
+            }
+        }
+
+        value = default;
+        return false;
+    }
+
+    private sealed record BuildUpGateSnapshot(bool? Passed, bool Configured, string? ProfileId, string? ProfileName)
+    {
+        public static BuildUpGateSnapshot Empty { get; } = new(null, false, null, null);
     }
 
     private static List<DreamGenClone.Domain.RolePlay.BehavioralConcept> BuildConceptCandidates(RolePlaySession session)

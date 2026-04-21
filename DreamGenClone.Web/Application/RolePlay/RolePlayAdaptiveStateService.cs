@@ -840,6 +840,13 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         RolePlayAdaptiveState state,
         CancellationToken cancellationToken)
     {
+        // RP Theme v2 sessions: scenario commitment and phase transitions are handled exclusively
+        // by RunRolePlayV2PipelinesAsync in RolePlayEngineService. Do not run the v1 pipeline.
+        if (ShouldUseRpThemeSubsystem(session))
+        {
+            return;
+        }
+
         var manualOverrideScenarioId = ExtractManualOverrideScenarioId(interaction.Content, state);
         var manualOverrideRequested = !string.IsNullOrWhiteSpace(manualOverrideScenarioId);
 
@@ -1172,6 +1179,12 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         CancellationToken cancellationToken)
     {
         if (_narrativePhaseManager is null)
+        {
+            return;
+        }
+
+        // RP Theme v2 sessions: phase transitions are handled exclusively by RunRolePlayV2PipelinesAsync.
+        if (ShouldUseRpThemeSubsystem(session))
         {
             return;
         }

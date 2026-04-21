@@ -89,6 +89,7 @@
     private List<string> _finishOptions = [];
     private string _selectedFinishOption = string.Empty;
     private string _finishOptionError = string.Empty;
+    private bool _finishUseGuidedFlow;
     private bool _nextPhasePopupOpen;
     private bool _nextPhaseOptionsLoading;
     private bool _nextPhaseOptionSubmitting;
@@ -101,6 +102,7 @@
     private List<string> _steerOptions = [];
     private string _selectedSteerOption = string.Empty;
     private string _steerOptionError = string.Empty;
+    private bool _steerUseGuidedFlow;
 
     // Identity
     private List<IdentityOption> _identityOptions = [];
@@ -127,6 +129,7 @@
     private static readonly TimeSpan PendingResponseRenderInterval = TimeSpan.FromMilliseconds(300);
     private RolePlayV2DiagnosticsSnapshot? _v2Diagnostics;
     private DreamGenClone.Domain.RolePlay.NarrativeGateProfile? _defaultNarrativeGateProfile;
+    private RPTheme? _activeRpTheme;
     private RolePlayPendingDecisionPrompt? _pendingDecisionPrompt;
     private List<RolePlayPendingDecisionPrompt> _deferredDecisionPrompts = [];
     private string? _dismissedDecisionPointId;
@@ -393,6 +396,7 @@
         }
 
         _v2Diagnostics = await RolePlayDiagnostics.GetSnapshotAsync(_session.Id);
+        _activeRpTheme = await LoadActiveRpThemeAsync();
         _pendingDecisionPrompt = await RolePlayEngine.GetPendingDecisionPromptAsync(_session.Id);
         _deferredDecisionPrompts = (await RolePlayEngine.GetDeferredDecisionPromptsAsync(_session.Id)).ToList();
         if (_pendingDecisionPrompt is null)
@@ -1086,6 +1090,7 @@
             _adaptiveThemeOverrideSelection = _session.AdaptiveState.ActiveScenarioId ?? _adaptiveThemeOverrideSelection;
             _adaptiveThemeOverrideStatus = $"Active theme overridden to {ResolveDecisionThemeLabel(_adaptiveThemeOverrideSelection)}.";
             _v2Diagnostics = await RolePlayDiagnostics.GetSnapshotAsync(_session.Id);
+            _activeRpTheme = await LoadActiveRpThemeAsync();
         }
         catch (Exception ex)
         {
@@ -1838,19 +1843,63 @@
 
         if (state.CurrentNarrativePhase == DreamGenClone.Domain.StoryAnalysis.NarrativePhase.BuildUp)
         {
-            var topCandidate = _v2Diagnostics?.CandidateEvaluations
+            var topEligibleCandidate = _v2Diagnostics?.CandidateEvaluations
+                .Where(x => x.StageBEligible)
                 .OrderByDescending(x => x.FitScore)
                 .ThenByDescending(x => x.Confidence)
                 .FirstOrDefault();
-            var fitScore = topCandidate?.FitScore ?? 0m;
+            var topCandidate = topEligibleCandidate
+                ?? _v2Diagnostics?.CandidateEvaluations
+                    .OrderByDescending(x => x.FitScore)
+                    .ThenByDescending(x => x.Confidence)
+                    .FirstOrDefault();
+            var fitScore = topEligibleCandidate?.FitScore;
             var interactionCount = _session.Interactions.Count;
-            var commitThresholdMet = fitScore >= 0.60m && interactionCount >= 2;
-            var fitGap = Math.Max(0m, 0.60m - fitScore);
-            var interactionGap = Math.Max(0, 2 - interactionCount);
-            rows.Add(new PhaseGateRow(
-                "BuildUp Commit Gate",
-                commitThresholdMet ? "Open" : "Closed",
-                $"Rules: top eligible fit>=0.60 AND build-up interactions>=2. Current fit={fitScore:0.00}, interactions={interactionCount}. {(commitThresholdMet ? "Gap: none" : $"Gap: need +{fitGap:0.00} fit and +{interactionGap} interactions")}."));
+
+            // Read thresholds from the configured Narrative Gate Profile (BuildUp → Committed rules).
+            var buildUpRules = _defaultNarrativeGateProfile?.Rules
+                .Where(r => string.Equals(r.FromPhase, "BuildUp", StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(r.ToPhase, "Committed", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            if (buildUpRules is null || buildUpRules.Count == 0)
+            {
+                rows.Add(new PhaseGateRow(
+                    "BuildUp Commit Gate",
+                    "Error",
+                    "No BuildUp → Committed rules configured in the Narrative Gate Profile. Configure rules in Profiles."));
+            }
+            else
+            {
+                var fitRule = buildUpRules.FirstOrDefault(r => string.Equals(r.MetricKey, DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.ActiveScenarioScore, StringComparison.OrdinalIgnoreCase));
+                var interactionRule = buildUpRules.FirstOrDefault(r => string.Equals(r.MetricKey, DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.InteractionsSinceCommitment, StringComparison.OrdinalIgnoreCase));
+                var fitThreshold = fitRule?.Threshold ?? 0m;
+                var interactionThreshold = interactionRule is not null ? (int)Math.Round(interactionRule.Threshold, MidpointRounding.AwayFromZero) : 0;
+                var commitThresholdMet = topEligibleCandidate is not null
+                    && (fitRule is null || fitScore >= fitThreshold)
+                    && (interactionRule is null || interactionCount >= interactionThreshold);
+                var fitGap = fitRule is null || topEligibleCandidate is null ? 0m : Math.Max(0m, fitThreshold - fitScore!.Value);
+                var interactionGap = interactionRule is null ? 0 : Math.Max(0, interactionThreshold - interactionCount);
+                var fitDisplay = fitScore is null ? "n/a" : $"{fitScore.Value:0.00}";
+
+                var ruleParts = new List<string>();
+                if (fitRule is not null) ruleParts.Add($"fit{fitRule.Comparator}{fitThreshold:0.##}");
+                if (interactionRule is not null) ruleParts.Add($"interactions{interactionRule.Comparator}{interactionThreshold}");
+                // Include any other configured rules (desire, restraint, etc.)
+                foreach (var r in buildUpRules.Where(r => r != fitRule && r != interactionRule))
+                    ruleParts.Add($"{r.MetricKey}{r.Comparator}{r.Threshold:0.##}");
+                var rulesText = string.Join(" AND ", ruleParts);
+
+                var gateDetail = topEligibleCandidate is null
+                    ? topCandidate is null
+                        ? "Candidate evaluations not available yet."
+                        : $"No eligible candidate yet (top candidate '{topCandidate.ScenarioId}' is ineligible)."
+                    : "Top eligible candidate loaded.";
+                rows.Add(new PhaseGateRow(
+                    "BuildUp Commit Gate",
+                    commitThresholdMet ? "Open" : "Closed",
+                    $"Rules ({_defaultNarrativeGateProfile!.Name}): {rulesText}. Current fit={fitDisplay}, interactions={interactionCount}. {(commitThresholdMet ? "Gap: none" : $"Gap: need +{fitGap:0.00} fit and +{interactionGap} interactions")}. {gateDetail}"));
+            }
         }
 
         switch (state.CurrentNarrativePhase)
@@ -1898,11 +1947,21 @@
                     "Transition opens when climax completion is signaled (for example '/completeclimax')."));
                 break;
             case DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Reset:
+            {
+                var resetInteractionRule = _defaultNarrativeGateProfile?.Rules
+                    .FirstOrDefault(r =>
+                        string.Equals(r.FromPhase, "Reset", StringComparison.OrdinalIgnoreCase)
+                        && string.Equals(r.ToPhase, "BuildUp", StringComparison.OrdinalIgnoreCase)
+                        && string.Equals(r.MetricKey, DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.InteractionsSinceCommitment, StringComparison.OrdinalIgnoreCase));
+                var resetThreshold = resetInteractionRule is not null ? (int)Math.Round(resetInteractionRule.Threshold, MidpointRounding.AwayFromZero) : 3;
+                var resetInteractions = state.InteractionsSinceCommitment;
+                var resetGateOpen = resetInteractions >= resetThreshold;
                 rows.Add(new PhaseGateRow(
                     "Gate: Reset -> BuildUp",
-                    "Automatic",
-                    "Reset advances directly to BuildUp on the next phase evaluation cycle."));
+                    resetGateOpen ? "Open" : "Waiting",
+                    $"Minimum {resetThreshold} interactions in Reset phase before returning to BuildUp (current: {resetInteractions}/{resetThreshold}). Commit is paused during Reset."));
                 break;
+            }
             case DreamGenClone.Domain.StoryAnalysis.NarrativePhase.BuildUp:
                 rows.Add(new PhaseGateRow(
                     "Gate: BuildUp -> Committed",
@@ -2028,10 +2087,7 @@
                 "Reset",
                 0,
                 "Completion is command-driven in current flow. Use '/completeclimax' when the climax has resolved."),
-            DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Reset => new PhaseProgressInfo(
-                "BuildUp",
-                100,
-                "Reset phase auto-advances to BuildUp on next phase evaluation."),
+            DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Reset => BuildResetProgress(state),
             _ => new PhaseProgressInfo("(unknown)", 0, "No phase metric available.")
         };
     }
@@ -2039,38 +2095,64 @@
     private PhaseProgressInfo BuildBuildUpProgress(RolePlayAdaptiveState state, double desire, double restraint, double tension)
     {
         var nextPhase = "Committed";
-        if (!string.IsNullOrWhiteSpace(state.ActiveScenarioId))
+
+        var buildUpRules = _defaultNarrativeGateProfile?.Rules
+            .Where(r => string.Equals(r.FromPhase, "BuildUp", StringComparison.OrdinalIgnoreCase)
+                && string.Equals(r.ToPhase, "Committed", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (buildUpRules is null || buildUpRules.Count == 0)
         {
-            return new PhaseProgressInfo(nextPhase, 100, "Active scenario committed; BuildUp gate is satisfied.");
+            return new PhaseProgressInfo(nextPhase, 0, "ERROR: No BuildUp → Committed rules configured in Narrative Gate Profile.");
         }
 
-        var topCandidate = _v2Diagnostics?.CandidateEvaluations
+        var topEligibleCandidate = _v2Diagnostics?.CandidateEvaluations
+            .Where(x => x.StageBEligible)
             .OrderByDescending(x => x.Confidence)
             .ThenByDescending(x => x.FitScore)
             .FirstOrDefault();
-        if (topCandidate is null)
-        {
-            var stageAOpen = desire >= 35;
-            var stageBOpen = tension >= 35 && restraint <= 80;
-            var desireGap = Math.Max(0, 35 - desire);
-            var tensionGap = Math.Max(0, 35 - tension);
-            var restraintGap = Math.Max(0, restraint - 80);
-            return new PhaseProgressInfo(
-                nextPhase,
-                0,
-                $"BuildUp gates: StageA desire>=35 (current {desire:0.0}, {(stageAOpen ? "OK" : $"need +{desireGap:0.0}")}); StageB tension>=35 (current {tension:0.0}, {(tension >= 35 ? "OK" : $"need +{tensionGap:0.0}")}) and restraint<=80 (current {restraint:0.0}, {(restraint <= 80 ? "OK" : $"need -{restraintGap:0.0}")}). Candidate confidence not available yet.");
-        }
+        var topCandidate = topEligibleCandidate
+            ?? _v2Diagnostics?.CandidateEvaluations
+                .OrderByDescending(x => x.Confidence)
+                .ThenByDescending(x => x.FitScore)
+                .FirstOrDefault();
 
-        var confidenceProgress = (int)Math.Round(Math.Clamp(topCandidate.Confidence * 100, 0, 100));
-        var stageAEligible = desire >= 35;
-        var stageBEligible = tension >= 35 && restraint <= 80;
-        var stageAGap = Math.Max(0, 35 - desire);
-        var stageBTensionGap = Math.Max(0, 35 - tension);
-        var stageBRestraintGap = Math.Max(0, restraint - 80);
+        var interactionCount = _session!.Interactions.Count;
+        var fitRule = buildUpRules.FirstOrDefault(r => string.Equals(r.MetricKey, DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.ActiveScenarioScore, StringComparison.OrdinalIgnoreCase));
+        var interactionRule = buildUpRules.FirstOrDefault(r => string.Equals(r.MetricKey, DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.InteractionsSinceCommitment, StringComparison.OrdinalIgnoreCase));
+
+        var fitThreshold = fitRule?.Threshold ?? 0m;
+        var interactionThreshold = interactionRule is not null ? (int)Math.Round(interactionRule.Threshold, MidpointRounding.AwayFromZero) : 0;
+        var fitScore = topEligibleCandidate?.FitScore ?? 0m;
+
+        // Calculate progress based on configured rules
+        var ruleCount = 0;
+        var progressSum = 0.0;
+        if (fitRule is not null)
+        {
+            ruleCount++;
+            progressSum += topEligibleCandidate is not null ? Math.Clamp((double)(fitScore / fitThreshold), 0, 1) : 0;
+        }
+        if (interactionRule is not null && interactionThreshold > 0)
+        {
+            ruleCount++;
+            progressSum += Math.Clamp((double)interactionCount / interactionThreshold, 0, 1);
+        }
+        var confidenceProgress = ruleCount > 0 ? (int)Math.Round(progressSum / ruleCount * 100.0) : 0;
+
+        var ruleParts = new List<string>();
+        foreach (var r in buildUpRules)
+            ruleParts.Add($"{r.MetricKey}{r.Comparator}{r.Threshold:0.##}");
+        var rulesText = string.Join(", ", ruleParts);
+
+        var candidateInfo = topCandidate is null
+            ? "No candidate evaluations available yet."
+            : $"Top candidate '{topCandidate.ScenarioId}' fit={topCandidate.FitScore:0.0}, confidence={topCandidate.Confidence:F2}.";
+
         return new PhaseProgressInfo(
             nextPhase,
             confidenceProgress,
-            $"BuildUp uses commitment readiness. Top candidate '{topCandidate.ScenarioId}' confidence={topCandidate.Confidence:F2}, fit={topCandidate.FitScore:F1}. Gates: StageA desire>=35 (current {desire:0.0}, {(stageAEligible ? "OK" : $"need +{stageAGap:0.0}")}); StageB tension>=35 (current {tension:0.0}, {(tension >= 35 ? "OK" : $"need +{stageBTensionGap:0.0}")}) and restraint<=80 (current {restraint:0.0}, {(restraint <= 80 ? "OK" : $"need -{stageBRestraintGap:0.0}")})."
+            $"Profile '{_defaultNarrativeGateProfile!.Name}' rules: {rulesText}. Interactions={interactionCount}. {candidateInfo}"
         );
     }
 
@@ -2106,41 +2188,48 @@
         );
     }
 
+    private PhaseProgressInfo BuildResetProgress(RolePlayAdaptiveState state)
+    {
+        var interactionRule = _defaultNarrativeGateProfile?.Rules
+            .FirstOrDefault(r =>
+                string.Equals(r.FromPhase, "Reset", StringComparison.OrdinalIgnoreCase)
+                && string.Equals(r.ToPhase, "BuildUp", StringComparison.OrdinalIgnoreCase)
+                && string.Equals(r.MetricKey, DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.InteractionsSinceCommitment, StringComparison.OrdinalIgnoreCase));
+        var threshold = interactionRule is not null ? (int)Math.Round(interactionRule.Threshold, MidpointRounding.AwayFromZero) : 3;
+        var current = state.InteractionsSinceCommitment;
+        var progress = threshold <= 0 ? 100 : (int)Math.Round(Math.Clamp((double)current / threshold, 0.0, 1.0) * 100.0);
+        var source = _defaultNarrativeGateProfile is not null ? $"Profile '{_defaultNarrativeGateProfile.Name}'" : "default";
+        return new PhaseProgressInfo(
+            "BuildUp",
+            progress,
+            $"{source}: minimum {threshold} Reset-phase interactions required before returning to BuildUp (current: {current}). Commit is paused during Reset.");
+    }
+
     private PhaseGateThresholds ResolveCommittedGateThresholds(RolePlayAdaptiveState state)
     {
-        var cycle = Math.Max(0, state.CompletedScenarios);
-        var fallback = new PhaseGateThresholds(
-            ScoreMin: Math.Max(45, 60 - (cycle * 4)),
-            DesireMin: Math.Max(50, 65 - (cycle * 4)),
-            RestraintMax: Math.Min(60, 45 + (cycle * 4)),
-            InteractionsMin: Math.Max(2, 3 - Math.Min(cycle, 1)),
-            Source: $"Auto threshold (cycle easing, completed={state.CompletedScenarios})");
-
-        return ResolveGateThresholdsFromProfileWithFallback("Committed", "Approaching", fallback);
+        return ResolveGateThresholdsFromProfile("Committed", "Approaching");
     }
 
     private PhaseGateThresholds ResolveApproachingGateThresholds(RolePlayAdaptiveState state)
     {
-        var cycle = Math.Max(0, state.CompletedScenarios);
-        var fallback = new PhaseGateThresholds(
-            ScoreMin: Math.Max(55, 80 - (cycle * 8)),
-            DesireMin: Math.Max(60, 75 - (cycle * 6)),
-            RestraintMax: Math.Min(55, 35 + (cycle * 6)),
-            InteractionsMin: 2,
-            Source: $"Auto threshold (cycle easing, completed={state.CompletedScenarios})");
-
-        return ResolveGateThresholdsFromProfileWithFallback("Approaching", "Climax", fallback);
+        return ResolveGateThresholdsFromProfile("Approaching", "Climax");
     }
 
-    private PhaseGateThresholds ResolveGateThresholdsFromProfileWithFallback(
+    private PhaseGateThresholds ResolveGateThresholdsFromProfile(
         string fromPhase,
-        string toPhase,
-        PhaseGateThresholds fallback)
+        string toPhase)
     {
         var profile = _defaultNarrativeGateProfile;
+        var notConfigured = new PhaseGateThresholds(
+            ScoreMin: 0,
+            DesireMin: 0,
+            RestraintMax: 100,
+            InteractionsMin: 0,
+            Source: $"ERROR: No {fromPhase} → {toPhase} rules configured in Narrative Gate Profile");
+
         if (profile?.Rules is null || profile.Rules.Count == 0)
         {
-            return fallback;
+            return notConfigured;
         }
 
         var rules = profile.Rules
@@ -2149,7 +2238,7 @@
             .ToList();
         if (rules.Count == 0)
         {
-            return fallback;
+            return notConfigured;
         }
 
         var hasScore = TryGetThreshold(
@@ -2175,21 +2264,17 @@
 
         if (!hasScore && !hasDesire && !hasRestraint && !hasInteractions)
         {
-            return fallback;
+            return notConfigured;
         }
 
-        var source = hasScore && hasDesire && hasRestraint && hasInteractions
-            ? $"Configured profile '{profile.Name}'"
-            : $"Configured profile '{profile.Name}' (missing metrics use auto fallback)";
-
         return new PhaseGateThresholds(
-            ScoreMin: hasScore ? scoreMin : fallback.ScoreMin,
-            DesireMin: hasDesire ? desireMin : fallback.DesireMin,
-            RestraintMax: hasRestraint ? restraintMax : fallback.RestraintMax,
+            ScoreMin: hasScore ? scoreMin : 0,
+            DesireMin: hasDesire ? desireMin : 0,
+            RestraintMax: hasRestraint ? restraintMax : 100,
             InteractionsMin: hasInteractions
                 ? Math.Max(0, (int)Math.Round(interactionsMin, MidpointRounding.AwayFromZero))
-                : fallback.InteractionsMin,
-            Source: source);
+                : 0,
+            Source: $"Profile '{profile.Name}'");
     }
 
     private static bool TryGetThreshold(
@@ -3342,11 +3427,11 @@
         }
     }
 
-    private async Task OpenFinishPopupAsync()
+    private Task OpenFinishPopupAsync()
     {
         if (_session is null || !IsClimaxPhase || IsFinishUiLocked)
         {
-            return;
+            return Task.CompletedTask;
         }
 
         _finishPopupOpen = true;
@@ -3356,13 +3441,11 @@
         _nextPhasePopupOpen = false;
         _steerPopupOpen = false;
         _finishOptionError = string.Empty;
+        _finishUseGuidedFlow = false;
+        _finishOptions.Clear();
+        _selectedFinishOption = string.Empty;
 
-        if (_finishOptions.Count > 0)
-        {
-            return;
-        }
-
-        await GenerateFinishOptionsAsync();
+        return Task.CompletedTask;
     }
 
     private async Task OpenNextPhasePopupAsync()
@@ -3504,11 +3587,11 @@
         }
     }
 
-    private async Task OpenSteerPopupAsync()
+    private Task OpenSteerPopupAsync()
     {
         if (_session is null || !IsSteerEligible || IsSteerUiLocked)
         {
-            return;
+            return Task.CompletedTask;
         }
 
         _steerPopupOpen = true;
@@ -3518,19 +3601,45 @@
         _finishPopupOpen = false;
         _nextPhasePopupOpen = false;
         _steerOptionError = string.Empty;
+        // Preserve _steerOptions, _selectedSteerOption, _steerUseGuidedFlow from last session.
 
-        if (_steerOptions.Count > 0)
-        {
-            return;
-        }
-
-        await GenerateSteerOptionsAsync();
+        return Task.CompletedTask;
     }
 
     private void CloseSteerPopup()
     {
         _steerPopupOpen = false;
         _steerOptionError = string.Empty;
+    }
+
+    private Task SetFinishFlowAsync(bool useGuided)
+    {
+        if (_finishUseGuidedFlow == useGuided)
+        {
+            return Task.CompletedTask;
+        }
+
+        _finishUseGuidedFlow = useGuided;
+        _finishOptions.Clear();
+        _selectedFinishOption = string.Empty;
+        _finishOptionError = string.Empty;
+
+        return Task.CompletedTask;
+    }
+
+    private Task SetSteerFlowAsync(bool useGuided)
+    {
+        if (_steerUseGuidedFlow == useGuided)
+        {
+            return Task.CompletedTask;
+        }
+
+        _steerUseGuidedFlow = useGuided;
+        _steerOptions.Clear();
+        _selectedSteerOption = string.Empty;
+        _steerOptionError = string.Empty;
+
+        return Task.CompletedTask;
     }
 
     private async Task GenerateSteerOptionsAsync()
@@ -3590,6 +3699,22 @@
         sb.AppendLine("Ground every option in current scene continuity and character plausibility.");
 
         await AppendThemeReferenceContextAsync(sb, phase);
+        if (_steerUseGuidedFlow)
+        {
+            var positionInstruction = BuildSteerPositionInstructionSnippet();
+            if (!string.IsNullOrWhiteSpace(positionInstruction))
+            {
+                sb.AppendLine($"Position instruction to enforce in each option: {positionInstruction}");
+            }
+
+            sb.AppendLine("Position mode requirement: each option must include explicit body positioning and orientation language, not only emotional direction.");
+            sb.AppendLine("Provide at least one option that maintains current positioning and at least one that transitions to a new position with a clear movement beat.");
+            await AppendSteerPositionMatrixContextAsync(sb);
+        }
+        else
+        {
+            sb.AppendLine("Use standard steering flow: do not enforce position-matrix constraints.");
+        }
 
         sb.AppendLine("Return ONLY a JSON array of strings with no markdown and no extra text.");
         return sb.ToString();
@@ -3630,10 +3755,594 @@
         sb.AppendLine("Keep options concise, grounded in continuity, and non-meta.");
 
         await AppendThemeReferenceContextAsync(sb, phase);
+        if (_finishUseGuidedFlow)
+        {
+            await AppendFinishingMoveMatrixContextAsync(sb);
+        }
+        else
+        {
+            sb.AppendLine("Use standard finishing flow: do not enforce finishing-matrix constraints.");
+        }
 
         sb.AppendLine("Ending moves should feel like a culmination of the active thematic and emotional direction, not a random pivot.");
         sb.AppendLine("Return ONLY a JSON array of strings with no markdown and no extra text.");
         return sb.ToString();
+    }
+
+    private async Task AppendFinishingMoveMatrixContextAsync(StringBuilder sb)
+    {
+        if (_session is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var enabledRows = (await RPThemeService.ListFinishingMoveMatrixRowsAsync())
+                .Where(x => x.IsEnabled)
+                .OrderBy(x => x.SortOrder)
+                .ToList();
+
+            if (enabledRows.Count == 0)
+            {
+                return;
+            }
+
+            var state = _session.AdaptiveState;
+            var desire = GetAverageAdaptiveStat(state, "Desire");
+            var selfRespect = GetAverageAdaptiveStat(state, "SelfRespect");
+            var dominance = GetAverageAdaptiveStat(state, "Dominance");
+
+            var matchedRows = enabledRows
+                .Where(x => MatchesFinishingMoveRow(x, desire, selfRespect, dominance))
+                .Take(6)
+                .ToList();
+
+            var selectedRows = matchedRows.Count > 0
+                ? matchedRows
+                : enabledRows.Take(6).ToList();
+
+            var selectionReason = matchedRows.Count > 0
+                ? $"Matched {matchedRows.Count} row(s)"
+                : "No exact band match; using top rows by sort order";
+
+            sb.AppendLine("Finishing move matrix rows (global base table):");
+            sb.AppendLine($"Current stats for band match: desire={desire:0.0}, selfRespect={selfRespect:0.0}, dominance={dominance:0.0}. {selectionReason}.");
+
+            foreach (var row in selectedRows)
+            {
+                var primary = row.PrimaryLocations.Count > 0 ? string.Join(", ", row.PrimaryLocations) : "none";
+                var secondary = row.SecondaryLocations.Count > 0 ? string.Join(", ", row.SecondaryLocations) : "none";
+                var excluded = row.ExcludedLocations.Count > 0 ? string.Join(", ", row.ExcludedLocations) : "none";
+
+                sb.AppendLine($"- desire={row.DesireBand}; selfRespect={row.SelfRespectBand}; dominance={row.DominanceBand}; primary={primary}; secondary={secondary}; excluded={excluded}; wifeBehavior={row.WifeBehaviorModifier}; otherManBehavior={row.OtherManBehaviorModifier}; transition={row.TransitionInstruction}");
+            }
+
+            sb.AppendLine("Prefer options that follow one matrix row closely and stay consistent with excluded locations.");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Unable to load finishing move matrix rows for session {SessionId}.", _session.Id);
+        }
+    }
+
+    private static bool MatchesFinishingMoveRow(RPFinishingMoveMatrixRow row, double desire, double selfRespect, double dominance)
+        => MatchesNumericBand(row.DesireBand, desire)
+           && MatchesNumericBand(row.SelfRespectBand, selfRespect)
+           && MatchesNumericBand(row.DominanceBand, dominance);
+
+    private async Task AppendSteerPositionMatrixContextAsync(StringBuilder sb)
+    {
+        if (_session is null)
+        {
+            return;
+        }
+        var recentContextText = BuildRecentSteerContextText();
+        var detectedPosition = DetectSteerPosition(recentContextText);
+        var spatialIntent = DetectSteerSpatialIntent(recentContextText);
+        var sexualContext = IsLikelySexualContext(recentContextText, detectedPosition, spatialIntent);
+
+        sb.AppendLine("Position flow context (interaction-derived):");
+        if (!string.IsNullOrWhiteSpace(detectedPosition))
+        {
+            sb.AppendLine($"Detected position: {detectedPosition}.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(spatialIntent))
+        {
+            sb.AppendLine($"Detected spatial intent: {spatialIntent}.");
+        }
+
+        if (!sexualContext)
+        {
+            sb.AppendLine("No explicit sexual cue detected. Focus on body positioning, gaze control, spacing, and movement continuity rather than explicit acts.");
+        }
+
+        try
+        {
+            var enabledRows = (await RPThemeService.ListSteerPositionMatrixRowsAsync())
+                .Where(x => x.IsEnabled)
+                .OrderBy(x => x.SortOrder)
+                .ToList();
+
+            if (enabledRows.Count == 0)
+            {
+                sb.AppendLine("No enabled steer position matrix rows found in the global base table; use interaction-derived position context only.");
+                return;
+            }
+
+            var state = _session.AdaptiveState;
+            var desire = GetAverageAdaptiveStat(state, "Desire");
+            var selfRespect = GetAverageAdaptiveStat(state, "SelfRespect");
+            var dominance = GetAverageAdaptiveStat(state, "Dominance");
+            var wifeDominance = GetAverageAdaptiveStatOrFallback(
+                state,
+                dominance,
+                "WifeDominance",
+                "WifeDom",
+                "PartnerDominance",
+                "FemaleDominance");
+            var otherManDominance = GetAverageAdaptiveStatOrFallback(
+                state,
+                dominance,
+                "OtherManDominance",
+                "OtherManDom",
+                "RivalDominance",
+                "BullDominance");
+
+            sb.AppendLine("Steer position matrix rows (global base table):");
+            sb.AppendLine($"Current stats for band match: desire={desire:0.0}, selfRespect={selfRespect:0.0}, wifeDominance={wifeDominance:0.0}, otherManDominance={otherManDominance:0.0}.");
+
+            var matchedRows = enabledRows
+                .Where(x => MatchesSteerPositionBands(x, desire, selfRespect, wifeDominance, otherManDominance))
+                .Select(x => new
+                {
+                    Row = x,
+                    PositionScore = ScoreSteerPositionMatch(x, detectedPosition)
+                })
+                .Where(x => x.PositionScore >= 0)
+                .OrderByDescending(x => x.PositionScore)
+                .ThenBy(x => x.Row.SortOrder)
+                .Take(6)
+                .Select(x => x.Row)
+                .ToList();
+
+            var selectedRows = matchedRows.Count > 0
+                ? matchedRows
+                : enabledRows.Take(6).ToList();
+
+            var detectedPositionLabel = string.IsNullOrWhiteSpace(detectedPosition) ? "none" : detectedPosition;
+            var selectionReason = matchedRows.Count > 0
+                ? $"Matched {matchedRows.Count} row(s) using bands and detected position '{detectedPositionLabel}'"
+                : "No exact steer matrix match; using top rows by sort order";
+
+            sb.AppendLine(selectionReason + ".");
+
+            foreach (var row in selectedRows)
+            {
+                var primary = row.PrimaryPositions.Count > 0 ? string.Join(", ", row.PrimaryPositions) : "none";
+                var secondary = row.SecondaryPositions.Count > 0 ? string.Join(", ", row.SecondaryPositions) : "none";
+                var excluded = row.ExcludedPositions.Count > 0 ? string.Join(", ", row.ExcludedPositions) : "none";
+
+                sb.AppendLine($"- desire={row.DesireBand}; selfRespect={row.SelfRespectBand}; wifeDominance={row.WifeDominanceBand}; otherManDominance={row.OtherManDominanceBand}; primary={primary}; secondary={secondary}; excluded={excluded}; wifeBehavior={row.WifeBehaviorModifier}; otherManBehavior={row.OtherManBehaviorModifier}; transition={row.TransitionInstruction}");
+            }
+
+            sb.AppendLine("Prefer steer options that align to one selected row and avoid excluded positions.");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Unable to load steer position matrix rows for session {SessionId}.", _session.Id);
+        }
+    }
+
+    private static bool MatchesSteerPositionBands(
+        RPSteerPositionMatrixRow row,
+        double desire,
+        double selfRespect,
+        double wifeDominance,
+        double otherManDominance)
+        => MatchesNumericBand(row.DesireBand, desire)
+           && MatchesNumericBand(row.SelfRespectBand, selfRespect)
+           && MatchesNumericBand(row.WifeDominanceBand, wifeDominance)
+           && MatchesNumericBand(row.OtherManDominanceBand, otherManDominance);
+
+    private static int ScoreSteerPositionMatch(RPSteerPositionMatrixRow row, string? detectedPosition)
+    {
+        if (string.IsNullOrWhiteSpace(detectedPosition))
+        {
+            return 0;
+        }
+
+        if (ContainsPositionToken(row.ExcludedPositions, detectedPosition))
+        {
+            return -1;
+        }
+
+        if (ContainsPositionToken(row.PrimaryPositions, detectedPosition))
+        {
+            return 2;
+        }
+
+        if (ContainsPositionToken(row.SecondaryPositions, detectedPosition))
+        {
+            return 1;
+        }
+
+        if (row.PrimaryPositions.Count > 0 || row.SecondaryPositions.Count > 0)
+        {
+            return 0;
+        }
+
+        return 0;
+    }
+
+    private string BuildRecentSteerContextText()
+    {
+        if (_session is null)
+        {
+            return string.Empty;
+        }
+
+        var parts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(_session.AdaptiveState.CurrentSceneLocation))
+        {
+            parts.Add(_session.AdaptiveState.CurrentSceneLocation);
+        }
+
+        foreach (var interaction in _session.Interactions.TakeLast(6))
+        {
+            if (!string.IsNullOrWhiteSpace(interaction.Content))
+            {
+                parts.Add(interaction.Content);
+            }
+        }
+
+        return string.Join("\n", parts);
+    }
+
+    private string BuildSteerPositionInstructionSnippet()
+    {
+        var recentContextText = BuildRecentSteerContextText();
+        var detectedPosition = DetectSteerPosition(recentContextText);
+        var spatialIntent = DetectSteerSpatialIntent(recentContextText);
+
+        var instructions = new List<string>();
+        if (!string.IsNullOrWhiteSpace(detectedPosition))
+        {
+            instructions.Add($"Detected position is '{detectedPosition}'; preserve it or explicitly transition from it.");
+        }
+        else
+        {
+            instructions.Add("Infer and state the immediate physical position from the latest interaction before steering.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(spatialIntent))
+        {
+            instructions.Add($"Maintain spatial intent '{spatialIntent}' unless intentionally reversing control.");
+        }
+
+        instructions.Add("Use explicit placement terms like behind, in front, face-to-face, hips, thighs, grip, and line-of-sight.");
+        return string.Join(" ", instructions);
+    }
+
+    private static string? DetectSteerPosition(string context)
+    {
+        if (string.IsNullOrWhiteSpace(context))
+        {
+            return null;
+        }
+
+        var normalized = context.ToLowerInvariant();
+        var positionMap = new[]
+        {
+            ("reverse cowgirl", new[] { "reverse cowgirl" }),
+            ("cowgirl", new[] { "cowgirl", "woman on top", "wife on top", "riding him" }),
+            ("missionary", new[] { "missionary", "face to face", "man on top" }),
+            ("doggy", new[] { "doggy", "doggystyle", "from behind", "rear entry" }),
+            ("spooning", new[] { "spooning", "side by side", "on their side" }),
+            ("standing", new[] { "standing", "against the wall", "standing up" }),
+            ("kneeling", new[] { "kneeling", "on knees", "on her knees" }),
+            ("oral", new[] { "oral", "blowjob", "cunnilingus", "giving head" })
+        };
+
+        foreach (var (label, terms) in positionMap)
+        {
+            if (terms.Any(term => normalized.Contains(term, StringComparison.OrdinalIgnoreCase)))
+            {
+                return label;
+            }
+        }
+
+        return null;
+    }
+
+    private static string? DetectSteerSpatialIntent(string context)
+    {
+        if (string.IsNullOrWhiteSpace(context))
+        {
+            return null;
+        }
+
+        var normalized = context.ToLowerInvariant();
+        var cueMap = new[]
+        {
+            ("blocking line-of-sight", new[] { "block his line of sight", "blocks his line of sight", "line of sight", "between them" }),
+            ("possessive claim", new[] { "claim her attention", "claiming her", "mine", "possessive" }),
+            ("control through grip", new[] { "grips", "gripping", "holds her thighs", "pins", "pinning" }),
+            ("body repositioning", new[] { "shifts his body", "repositions", "turns her", "pulls her", "angles her" }),
+            ("proximity pressure", new[] { "presses close", "crowds", "leans into", "close enough" })
+        };
+
+        foreach (var (label, terms) in cueMap)
+        {
+            if (terms.Any(term => normalized.Contains(term, StringComparison.OrdinalIgnoreCase)))
+            {
+                return label;
+            }
+        }
+
+        return null;
+    }
+
+    private static bool IsLikelySexualContext(string context, string? detectedPosition, string? spatialIntent)
+    {
+        if (!string.IsNullOrWhiteSpace(detectedPosition))
+        {
+            return true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(spatialIntent))
+        {
+            return true;
+        }
+
+        if (string.IsNullOrWhiteSpace(context))
+        {
+            return false;
+        }
+
+        var normalized = context.ToLowerInvariant();
+        var keywords = new[]
+        {
+            "sex",
+            "sexual",
+            "intimate",
+            "intimacy",
+            "kiss",
+            "thigh",
+            "hips",
+            "waist",
+            "lap",
+            "straddle",
+            "mount",
+            "moan",
+            "thrust",
+            "orgasm",
+            "climax",
+            "bed",
+            "naked"
+        };
+
+        return keywords.Any(normalized.Contains);
+    }
+
+    private static bool ContainsPositionToken(IReadOnlyList<string> positions, string token)
+    {
+        if (positions.Count == 0 || string.IsNullOrWhiteSpace(token))
+        {
+            return false;
+        }
+
+        var normalizedToken = NormalizePositionToken(token);
+        if (string.IsNullOrWhiteSpace(normalizedToken))
+        {
+            return false;
+        }
+
+        foreach (var position in positions)
+        {
+            var normalizedPosition = NormalizePositionToken(position);
+            if (string.IsNullOrWhiteSpace(normalizedPosition))
+            {
+                continue;
+            }
+
+            if (string.Equals(normalizedPosition, normalizedToken, StringComparison.OrdinalIgnoreCase)
+                || normalizedPosition.Contains(normalizedToken, StringComparison.OrdinalIgnoreCase)
+                || normalizedToken.Contains(normalizedPosition, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static string NormalizePositionToken(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        var lowered = value.Trim().ToLowerInvariant();
+        return Regex.Replace(lowered, "[^a-z0-9]+", " ").Trim();
+    }
+
+    private static double GetAverageAdaptiveStatOrFallback(RolePlayAdaptiveState state, double fallback, params string[] statNames)
+        => TryGetAverageAdaptiveStatAny(state, statNames, out var value)
+            ? value
+            : fallback;
+
+    private static bool TryGetAverageAdaptiveStatAny(RolePlayAdaptiveState state, IReadOnlyList<string> statNames, out double value)
+    {
+        foreach (var statName in statNames)
+        {
+            if (TryGetAverageAdaptiveStatByName(state, statName, out value))
+            {
+                return true;
+            }
+        }
+
+        value = AdaptiveStatCatalog.DefaultValue;
+        return false;
+    }
+
+    private static bool TryGetAverageAdaptiveStatByName(RolePlayAdaptiveState state, string statName, out double value)
+    {
+        var values = new List<double>();
+        foreach (var character in state.CharacterStats.Values)
+        {
+            var entry = character.Stats.FirstOrDefault(x => string.Equals(x.Key, statName, StringComparison.OrdinalIgnoreCase));
+            if (!string.IsNullOrWhiteSpace(entry.Key))
+            {
+                values.Add(entry.Value);
+            }
+        }
+
+        if (values.Count == 0)
+        {
+            value = AdaptiveStatCatalog.DefaultValue;
+            return false;
+        }
+
+        value = values.Average();
+        return true;
+    }
+
+    private static bool MatchesNumericBand(string? band, double value)
+    {
+        if (string.IsNullOrWhiteSpace(band))
+        {
+            return true;
+        }
+
+        var normalized = band.Trim();
+        if (string.Equals(normalized, "any", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(normalized, "all", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(normalized, "*", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var lower = normalized.ToLowerInvariant();
+        if (lower.Contains('|'))
+        {
+            return lower
+                .Split('|', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+                .Any(part => MatchesNumericBand(part, value));
+        }
+
+        if (TryMatchNamedBand(lower, value, out var namedBandMatch))
+        {
+            return namedBandMatch;
+        }
+
+        if (TryParseRangeBand(lower, out var min, out var max))
+        {
+            return value >= min && value <= max;
+        }
+
+        if (lower.StartsWith(">=", StringComparison.Ordinal) && double.TryParse(lower[2..], NumberStyles.Float, CultureInfo.InvariantCulture, out var minInclusive))
+        {
+            return value >= minInclusive;
+        }
+
+        if (lower.StartsWith(">", StringComparison.Ordinal) && double.TryParse(lower[1..], NumberStyles.Float, CultureInfo.InvariantCulture, out var minExclusive))
+        {
+            return value > minExclusive;
+        }
+
+        if (lower.StartsWith("<=", StringComparison.Ordinal) && double.TryParse(lower[2..], NumberStyles.Float, CultureInfo.InvariantCulture, out var maxInclusive))
+        {
+            return value <= maxInclusive;
+        }
+
+        if (lower.StartsWith("<", StringComparison.Ordinal) && double.TryParse(lower[1..], NumberStyles.Float, CultureInfo.InvariantCulture, out var maxExclusive))
+        {
+            return value < maxExclusive;
+        }
+
+        if (lower.EndsWith('+') && double.TryParse(lower[..^1], NumberStyles.Float, CultureInfo.InvariantCulture, out var plusMin))
+        {
+            return value >= plusMin;
+        }
+
+        if (double.TryParse(lower, NumberStyles.Float, CultureInfo.InvariantCulture, out var exact))
+        {
+            return Math.Abs(value - exact) < 0.0001;
+        }
+
+        return false;
+    }
+
+    private static bool TryMatchNamedBand(string lowerBand, double value, out bool matches)
+    {
+        switch (lowerBand)
+        {
+            case "low":
+                matches = value < 34d;
+                return true;
+            case "medium":
+            case "mid":
+                matches = value >= 34d && value < 67d;
+                return true;
+            case "high":
+                matches = value >= 67d;
+                return true;
+            default:
+                matches = false;
+                return false;
+        }
+    }
+
+    private static bool TryParseRangeBand(string lowerBand, out double min, out double max)
+    {
+        min = 0;
+        max = 0;
+
+        var separators = new[] { "-", " to ", "..", "~" };
+        foreach (var separator in separators)
+        {
+            var pieces = lowerBand.Split(separator, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+            if (pieces.Length != 2)
+            {
+                continue;
+            }
+
+            if (!double.TryParse(pieces[0], NumberStyles.Float, CultureInfo.InvariantCulture, out min)
+                || !double.TryParse(pieces[1], NumberStyles.Float, CultureInfo.InvariantCulture, out max))
+            {
+                continue;
+            }
+
+            if (max < min)
+            {
+                (min, max) = (max, min);
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    private async Task<RPTheme?> LoadActiveRpThemeAsync()
+    {
+        var activeScenarioId = _session?.AdaptiveState.ActiveScenarioId;
+        if (string.IsNullOrWhiteSpace(activeScenarioId))
+        {
+            return null;
+        }
+        try
+        {
+            return await RPThemeService.GetThemeAsync(activeScenarioId);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Unable to load active RP theme for session {SessionId}.", _session!.Id);
+            return null;
+        }
     }
 
     private async Task AppendThemeReferenceContextAsync(StringBuilder sb, string phase)
@@ -3746,12 +4455,32 @@
 
         try
         {
+            var selectedOption = _selectedSteerOption.Trim();
+            var positionInstruction = string.Empty;
+            if (_steerUseGuidedFlow)
+            {
+                positionInstruction = BuildSteerPositionInstructionSnippet();
+                if (string.IsNullOrWhiteSpace(positionInstruction))
+                {
+                    positionInstruction = "State an explicit physical position and orientation in the steer instruction.";
+                }
+
+                selectedOption = $"{selectedOption} [Position instruction: {positionInstruction}]";
+            }
+
+            Logger.LogInformation(
+                "Applying steer option for session {SessionId}: mode={Mode}, option={Option}, positionInstruction={PositionInstruction}",
+                _session.Id,
+                _steerUseGuidedFlow ? "Position" : "Direction",
+                _selectedSteerOption,
+                string.IsNullOrWhiteSpace(positionInstruction) ? "(none)" : positionInstruction);
+
             var submission = new UnifiedPromptSubmission
             {
                 SessionId = _session.Id,
-                PromptText = string.IsNullOrWhiteSpace(_selectedSteerOption)
+                PromptText = string.IsNullOrWhiteSpace(selectedOption)
                     ? "/steer"
-                    : $"/steer {_selectedSteerOption.Trim()}",
+                    : $"/steer {selectedOption}",
                 Intent = PromptIntent.Instruction,
                 SelectedIdentityId = string.Empty,
                 SelectedIdentityType = IdentityOptionSource.Persona,
@@ -5536,21 +6265,27 @@
                             @onclick:stopPropagation>
                         Custom
                     </button>
-                    <button class="rw-continue-chip"
+                        <button type="button"
+                            class="rw-continue-chip"
                             @onclick="OpenNextPhasePopupAsync"
                             disabled="@(!IsNextPhaseEligible || IsNextPhaseUiLocked)"
+                            @onclick:preventDefault
                             @onclick:stopPropagation>
                         Next Phase
                     </button>
-                    <button class="rw-continue-chip"
+                        <button type="button"
+                            class="rw-continue-chip"
                             @onclick="OpenSteerPopupAsync"
                             disabled="@(!IsSteerEligible || IsSteerUiLocked)"
+                            @onclick:preventDefault
                             @onclick:stopPropagation>
                         Steer
                     </button>
-                    <button class="rw-continue-chip rw-finish-chip @(_finishPopupOpen ? "is-active" : string.Empty)"
+                        <button type="button"
+                            class="rw-continue-chip rw-finish-chip @(_finishPopupOpen ? "is-active" : string.Empty)"
                             @onclick="OpenFinishPopupAsync"
                             disabled="@(!IsClimaxPhase || IsFinishUiLocked)"
+                            @onclick:preventDefault
                             @onclick:stopPropagation>
                         Finish
                     </button>
@@ -5615,7 +6350,17 @@
                 {
                     <div class="rw-popup rw-finish-popup">
                         <div class="rw-popup-header">
-                            <span class="rw-popup-intent-label">finish climax</span>
+                            <span class="rw-popup-intent-label">finish (@(_finishUseGuidedFlow ? "finishing move" : "finish"))</span>
+                        </div>
+                        <div class="rw-popup-actions rw-finish-popup-actions">
+                                <button type="button"
+                                    class="rw-popup-action-btn @(!_finishUseGuidedFlow ? "is-primary" : string.Empty)"
+                                    disabled="@(_finishOptionSubmitting || _finishOptionsLoading)"
+                                    @onclick="@(() => SetFinishFlowAsync(false))">Finish</button>
+                                <button type="button"
+                                    class="rw-popup-action-btn @(_finishUseGuidedFlow ? "is-primary" : string.Empty)"
+                                    disabled="@(_finishOptionSubmitting || _finishOptionsLoading)"
+                                    @onclick="@(() => SetFinishFlowAsync(true))">Finishing Move</button>
                         </div>
                         <div class="rw-finish-popup-body">
                             @if (_finishOptionsLoading)
@@ -5630,7 +6375,8 @@
                             {
                                 @foreach (var option in _finishOptions)
                                 {
-                                    <button class="rw-popup-item @(string.Equals(_selectedFinishOption, option, StringComparison.Ordinal) ? "is-selected" : string.Empty)"
+                                        <button type="button"
+                                            class="rw-popup-item @(string.Equals(_selectedFinishOption, option, StringComparison.Ordinal) ? "is-selected" : string.Empty)"
                                             disabled="@_finishOptionSubmitting"
                                             @onclick="@(() => _selectedFinishOption = option)">
                                         <div class="rw-popup-item-content">
@@ -5649,13 +6395,16 @@
                             <div class="rw-finish-error">@_finishOptionError</div>
                         }
                         <div class="rw-popup-actions rw-finish-popup-actions">
-                            <button class="rw-popup-action-btn"
+                                <button type="button"
+                                    class="rw-popup-action-btn"
                                     disabled="@_finishOptionSubmitting"
                                     @onclick="CloseFinishPopup">Cancel</button>
-                            <button class="rw-popup-action-btn"
+                                <button type="button"
+                                    class="rw-popup-action-btn"
                                     disabled="@_finishOptionSubmitting || _finishOptionsLoading"
-                                    @onclick="GenerateFinishOptionsAsync">Regenerate</button>
-                            <button class="rw-popup-action-btn is-primary"
+                                    @onclick="GenerateFinishOptionsAsync">@(_finishOptions.Count == 0 ? "Generate" : "Regenerate")</button>
+                                <button type="button"
+                                    class="rw-popup-action-btn is-primary"
                                     disabled="@(_finishOptionSubmitting || _finishOptionsLoading || string.IsNullOrWhiteSpace(_selectedFinishOption))"
                                     @onclick="ApplyFinishOptionAsync">Finish Scene</button>
                         </div>
@@ -5717,7 +6466,15 @@
                 {
                     <div class="rw-popup rw-finish-popup">
                         <div class="rw-popup-header">
-                            <span class="rw-popup-intent-label">steer</span>
+                            <span class="rw-popup-intent-label">steer (@(_steerUseGuidedFlow ? "position" : "direction"))</span>
+                        </div>
+                        <div class="rw-popup-actions rw-finish-popup-actions">
+                            <button class="rw-popup-action-btn @(!_steerUseGuidedFlow ? "is-primary" : string.Empty)"
+                                    disabled="@(_steerOptionSubmitting || _steerOptionsLoading)"
+                                    @onclick="@(() => SetSteerFlowAsync(false))">Direction</button>
+                            <button class="rw-popup-action-btn @(_steerUseGuidedFlow ? "is-primary" : string.Empty)"
+                                    disabled="@(_steerOptionSubmitting || _steerOptionsLoading)"
+                                    @onclick="@(() => SetSteerFlowAsync(true))">Position</button>
                         </div>
                         <div class="rw-finish-popup-body">
                             @if (_steerOptionsLoading)
@@ -5756,7 +6513,7 @@
                                     @onclick="CloseSteerPopup">Cancel</button>
                             <button class="rw-popup-action-btn"
                                     disabled="@(_steerOptionSubmitting || _steerOptionsLoading)"
-                                    @onclick="GenerateSteerOptionsAsync">Regenerate</button>
+                                    @onclick="GenerateSteerOptionsAsync">@(_steerOptions.Count == 0 ? "Generate" : "Regenerate")</button>
                             <button class="rw-popup-action-btn is-primary"
                                     disabled="@(_steerOptionSubmitting || _steerOptionsLoading || string.IsNullOrWhiteSpace(_selectedSteerOption))"
                                     @onclick="ApplySteerOptionAsync">Apply Steer</button>
@@ -6317,8 +7074,21 @@
                                 <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="@phaseProgress.ProgressPercent" style="height:8px; margin:4px 0 8px 0;">
                                     <div class="progress-bar @GetPhaseProgressBarClass()" style="width:@($"{phaseProgress.ProgressPercent}%")"></div>
                                 </div>
-                                <div class="rw-settings-info-row"><span>What This Means</span><span>@phaseProgress.Details</span></div>
+                                <div class="rw-settings-info-row rw-settings-info-row-block"><span>What This Means</span><span>@phaseProgress.Details</span></div>
                                 <div class="rw-settings-info-row"><span>Active Theme</span><span>@(string.IsNullOrWhiteSpace(_session.AdaptiveState.ActiveScenarioId) ? "(none)" : _session.AdaptiveState.ActiveScenarioId)</span></div>
+
+                                @{
+                                    var currentPhaseEnum = _session.AdaptiveState.CurrentNarrativePhase;
+                                    var phaseGuidanceLines = DreamGenClone.Web.Application.RolePlay.RolePlayAssistantPrompts.GetThemePhaseGuidanceLines(_activeRpTheme, currentPhaseEnum.ToString(), maxLines: 6);
+                                }
+                                @if (phaseGuidanceLines.Count > 0)
+                                {
+                                    <div class="rw-settings-info-row rw-settings-info-row-block rw-settings-info-row-heading mt-1"><span>Phase Guidance (@currentPhaseEnum)</span></div>
+                                    @foreach (var guidanceLine in phaseGuidanceLines)
+                                    {
+                                        <div class="rw-settings-info-row rw-settings-info-row-block rw-settings-info-row-guidance"><span>@guidanceLine</span></div>
+                                    }
+                                }
 
                                 <div class="rw-collapsible-section" style="margin-top:10px;">
                                     <button type="button" class="rw-collapsible-header" @onclick='() => ToggleAdaptiveSection("active-theme-gates")'>
@@ -6331,7 +7101,7 @@
                                             @foreach (var gate in activeGateRows)
                                             {
                                                 <div class="rw-settings-info-row"><span>@gate.Label</span><span class="@GetGateStatusBadgeClass(gate.Status)">@gate.Status</span></div>
-                                                <div class="rw-settings-info-row"><span>Required Or Gap</span><span>@gate.Details</span></div>
+                                                <div class="rw-settings-info-row rw-settings-info-row-block"><span>Required Or Gap</span><span>@gate.Details</span></div>
                                             }
                                         </div>
                                     }
@@ -6349,7 +7119,7 @@
                         {
                             var themeRows = GetAdaptiveThemeStatusRows();
                             <div class="rw-collapsible-body">
-                                <div class="text-muted small mb-2">Each theme shows score, readiness status, and what is missing for activation.</div>
+                                <div class="rw-adaptive-note">Each theme shows score, readiness status, and what is missing for activation.</div>
                                 @if (themeRows.Count == 0)
                                 {
                                     <p class="rw-scenario-empty">No theme tracker data yet. Generate interactions to populate scores.</p>
@@ -6373,7 +7143,7 @@
                                                 <div class="rw-collapsible-body">
                                                     <div class="rw-settings-info-row"><span>Theme Id</span><span>@row.ThemeId</span></div>
                                                     <div class="rw-settings-info-row"><span>Intensity</span><span>@row.Intensity</span></div>
-                                                    <div class="rw-settings-info-row"><span>Next Step</span><span>@row.NextStep</span></div>
+                                                    <div class="rw-settings-info-row rw-settings-info-row-block"><span>Next Step</span><span>@row.NextStep</span></div>
                                                     <div class="rw-settings-info-row"><span>Choice Signal</span><span>@row.ChoiceSignal.ToString("F2")</span></div>
                                                     <div class="rw-settings-info-row"><span>Character State Signal</span><span>@row.CharacterStateSignal.ToString("F2")</span></div>
                                                     <div class="rw-settings-info-row"><span>Interaction Evidence Signal</span><span>@row.InteractionEvidenceSignal.ToString("F2")</span></div>
@@ -6460,10 +7230,10 @@
                                     {
                                         <div class="rw-collapsible-body">
                                             <div class="rw-settings-info-row"><span>Resolution Reason</span><span>@GetEffectiveStyleReason()</span></div>
-                                            <div class="rw-settings-info-row"><span>Resolution Explanation</span><span>@GetEffectiveStyleReasonEnglishDetails()</span></div>
-                                            <div class="rw-settings-info-row"><span>Adaptive Transition Reason</span><span>@GetAdaptiveTransitionReason()</span></div>
+                                            <div class="rw-settings-info-row rw-settings-info-row-block"><span>Resolution Explanation</span><span>@GetEffectiveStyleReasonEnglishDetails()</span></div>
+                                            <div class="rw-settings-info-row rw-settings-info-row-block"><span>Adaptive Transition Reason</span><span>@GetAdaptiveTransitionReason()</span></div>
                                             <div class="rw-settings-info-row"><span>Adaptive Transition Time</span><span>@GetAdaptiveTransitionTime()</span></div>
-                                            <div class="rw-settings-info-row"><span>Adaptive Transition Path</span><span>@GetAdaptiveTransitionPath()</span></div>
+                                            <div class="rw-settings-info-row rw-settings-info-row-block"><span>Adaptive Transition Path</span><span>@GetAdaptiveTransitionPath()</span></div>
                                         </div>
                                     }
                                 </div>

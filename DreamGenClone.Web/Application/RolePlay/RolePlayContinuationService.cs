@@ -940,7 +940,8 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         }
         sb.AppendLine("Intensity Writing Contract:");
         sb.AppendLine("- Treat the resolved intensity description above as a required style contract for this turn.");
-        sb.AppendLine("- Prioritize that contract over generic tone guidance when there is any ambiguity.");
+        sb.AppendLine("- This contract governs WRITING STYLE and EXPLICITNESS LEVEL only — it does not override active Phase Guidance.");
+        sb.AppendLine("- Phase Guidance specifies WHAT scene actions and beats must occur; the intensity contract specifies HOW they are written.");
         sb.AppendLine("- Do not de-escalate below the resolved intensity level unless safety constraints require it.");
         sb.AppendLine($"Manual Intensity Pin: {(session.IsIntensityManuallyPinned ? "ON (resolved follows selected)" : "OFF (adaptive mode)")}");
         AppendEscalationGuidance(sb, session, actorName, currentPhase, intent);

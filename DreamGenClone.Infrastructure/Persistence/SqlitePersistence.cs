@@ -389,6 +389,49 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 UNIQUE (ProfileId, ThemeId)
             );
 
+            CREATE TABLE IF NOT EXISTS RPFinishingMoveMatrixRows (
+                Id TEXT PRIMARY KEY,
+                DesireBand TEXT NOT NULL,
+                SelfRespectBand TEXT NOT NULL,
+                DominanceBand TEXT NOT NULL,
+                PrimaryLocationsJson TEXT NOT NULL DEFAULT '[]',
+                SecondaryLocationsJson TEXT NOT NULL DEFAULT '[]',
+                ExcludedLocationsJson TEXT NOT NULL DEFAULT '[]',
+                WifeBehaviorModifier TEXT NOT NULL DEFAULT '',
+                OtherManBehaviorModifier TEXT NOT NULL DEFAULT '',
+                TransitionInstruction TEXT NOT NULL DEFAULT '',
+                SortOrder INTEGER NOT NULL DEFAULT 0,
+                IsEnabled INTEGER NOT NULL DEFAULT 1,
+                CreatedUtc TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL,
+                UNIQUE (DesireBand, SelfRespectBand, DominanceBand)
+            );
+
+            CREATE INDEX IF NOT EXISTS IX_RPFinishingMoveMatrixRows_Sort
+                ON RPFinishingMoveMatrixRows (SortOrder, Id);
+
+            CREATE TABLE IF NOT EXISTS RPSteerPositionMatrixRows (
+                Id TEXT PRIMARY KEY,
+                DesireBand TEXT NOT NULL,
+                SelfRespectBand TEXT NOT NULL,
+                WifeDominanceBand TEXT NOT NULL,
+                OtherManDominanceBand TEXT NOT NULL,
+                PrimaryPositionsJson TEXT NOT NULL DEFAULT '[]',
+                SecondaryPositionsJson TEXT NOT NULL DEFAULT '[]',
+                ExcludedPositionsJson TEXT NOT NULL DEFAULT '[]',
+                WifeBehaviorModifier TEXT NOT NULL DEFAULT '',
+                OtherManBehaviorModifier TEXT NOT NULL DEFAULT '',
+                TransitionInstruction TEXT NOT NULL DEFAULT '',
+                SortOrder INTEGER NOT NULL DEFAULT 0,
+                IsEnabled INTEGER NOT NULL DEFAULT 1,
+                CreatedUtc TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL,
+                UNIQUE (DesireBand, SelfRespectBand, WifeDominanceBand, OtherManDominanceBand)
+            );
+
+            CREATE INDEX IF NOT EXISTS IX_RPSteerPositionMatrixRows_Sort
+                ON RPSteerPositionMatrixRows (SortOrder, Id);
+
             CREATE TABLE IF NOT EXISTS RPThemeImportRuns (
                 Id TEXT PRIMARY KEY,
                 StartedUtc TEXT NOT NULL,
@@ -680,6 +723,12 @@ public sealed class SqlitePersistence : ISqlitePersistence
             CREATE TABLE IF NOT EXISTS AppMetadata (
                 Key TEXT PRIMARY KEY,
                 Value TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS ScenarioEngineSettings (
+                Id TEXT PRIMARY KEY,
+                SettingsJson TEXT NOT NULL,
                 UpdatedUtc TEXT NOT NULL
             );
             """;
@@ -1438,6 +1487,24 @@ public sealed class SqlitePersistence : ISqlitePersistence
         var updatedRows = await updateAssistantTokens.ExecuteNonQueryAsync(cancellationToken);
         if (updatedRows > 0)
             _logger.LogInformation("Migrated RolePlayAssistant function default: MaxTokens 500 → 2000");
+
+        // Migrate: ensure ScenarioEngineSettings table exists (for databases created before this table was added)
+        var checkEngineSettings = connection.CreateCommand();
+        checkEngineSettings.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='ScenarioEngineSettings'";
+        var hasEngineSettingsTable = Convert.ToInt64(await checkEngineSettings.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasEngineSettingsTable)
+        {
+            var createEngineSettings = connection.CreateCommand();
+            createEngineSettings.CommandText = """
+                CREATE TABLE IF NOT EXISTS ScenarioEngineSettings (
+                    Id TEXT PRIMARY KEY,
+                    SettingsJson TEXT NOT NULL,
+                    UpdatedUtc TEXT NOT NULL
+                );
+                """;
+            await createEngineSettings.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated: created ScenarioEngineSettings table");
+        }
 
         _logger.LogInformation("SQLite persistence initialized using {ConnectionString}", _options.ConnectionString);
     }

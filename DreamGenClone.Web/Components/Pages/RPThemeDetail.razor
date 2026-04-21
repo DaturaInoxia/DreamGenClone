@@ -75,15 +75,22 @@
                         <input class="form-control" @bind="_theme.ParentThemeId" placeholder="Optional" />
                     </div>
                     <div class="col-lg-6">
-                        <label class="form-label">Narrative Gate Profile</label>
-                        <select class="form-select" @bind="_theme.NarrativeGateProfileId" @bind:after="OnNarrativeGateProfileChangedAsync">
-                            <option value="">(Auto fallback thresholds)</option>
+                        <label class="form-label">Narrative Gate Profile <span class="text-danger">*</span></label>
+                        <select class="form-select @(string.IsNullOrWhiteSpace(_theme.NarrativeGateProfileId) ? "is-invalid" : "")" @bind="_theme.NarrativeGateProfileId" @bind:after="OnNarrativeGateProfileChangedAsync">
+                            <option value="">(Select a profile — required)</option>
                             @foreach (var profile in _narrativeGateProfiles)
                             {
                                 <option value="@profile.Id">@profile.Name</option>
                             }
                         </select>
-                        <div class="form-text">Applies to RP-theme subsystem sessions. Leaving empty preserves current auto fallback behavior. Edit shared profile values in <a href="/profiles?tab=narrative-gates">Profiles -> Narrative Gate Values</a>.</div>
+                        @if (string.IsNullOrWhiteSpace(_theme.NarrativeGateProfileId))
+                        {
+                            <div class="invalid-feedback">A Narrative Gate Profile is required. Phase transitions (Committed → Approaching → Climax) will not fire without one.</div>
+                        }
+                        else
+                        {
+                            <div class="form-text">Controls phase transition gates for sessions using the RP-theme subsystem. Edit shared profile values in <a href="/profiles?tab=narrative-gates">Profiles -> Narrative Gate Values</a>.</div>
+                        }
                     </div>
                     <div class="col-lg-6">
                         <label class="form-label">Enabled</label>
@@ -666,6 +673,12 @@
         try
         {
             NormalizeTheme();
+            if (string.IsNullOrWhiteSpace(_theme.NarrativeGateProfileId))
+            {
+                _error = "A Narrative Gate Profile is required. Phase transitions will not fire without one.";
+                return;
+            }
+
             var saved = await RPThemeService.SaveThemeAsync(_theme);
             _theme = saved;
             _status = "Theme saved.";

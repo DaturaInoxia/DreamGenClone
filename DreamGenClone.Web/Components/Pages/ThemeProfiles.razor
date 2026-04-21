@@ -36,6 +36,8 @@
             <span class="badge bg-danger-subtle text-danger-emphasis border">Husband Awareness: @_husbandAwarenessProfiles.Count</span>
             <span class="badge bg-info-subtle text-info-emphasis border">Roles: @_roleDefinitions.Count</span>
             <span class="badge bg-secondary-subtle text-secondary-emphasis border">Background Characters: @_backgroundCharacterProfiles.Count</span>
+            <span class="badge bg-danger-subtle text-danger-emphasis border">Finishing Move Rows: @_finishingMoveRows.Count</span>
+            <span class="badge bg-dark-subtle text-dark-emphasis border">Steer Position Rows: @_steerPositionRows.Count</span>
             <span class="badge bg-light text-dark border">Perspective Modes: @CharacterPerspectiveModes.All.Count</span>
         </div>
     </div>
@@ -78,10 +80,19 @@
             <button type="button" class="nav-link @GetTabClass("background-characters")" @onclick='() => _activeTab = "background-characters"'>Background Characters</button>
         </li>
         <li class="nav-item" role="presentation">
+            <button type="button" class="nav-link @GetTabClass("finishing-move")" @onclick='() => _activeTab = "finishing-move"'>Finishing Move</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button type="button" class="nav-link @GetTabClass("steer-position")" @onclick='() => _activeTab = "steer-position"'>Steer Position</button>
+        </li>
+        <li class="nav-item" role="presentation">
             <button type="button" class="nav-link @GetTabClass("flow-guide")" @onclick='() => _activeTab = "flow-guide"'>Flow Guide</button>
         </li>
         <li class="nav-item" role="presentation">
             <button type="button" class="nav-link @GetTabClass("perspective")" @onclick='() => _activeTab = "perspective"'>Perspective</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button type="button" class="nav-link @GetTabClass("selection-engine")" @onclick='() => _activeTab = "selection-engine"'>Selection Engine</button>
         </li>
     </ul>
 
@@ -311,6 +322,326 @@
                         <div class="card-body text-muted">Select a theme profile to edit its theme preferences.</div>
                     </div>
                 }
+            </div>
+        </div>
+    }
+    else if (_activeTab == "finishing-move")
+    {
+        <div class="row g-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>Finishing Move Matrix</strong>
+                            <small class="text-muted d-block">Global base table used by RP runtime finish option behavior.</small>
+                        </div>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="LoadFinishingMoveRowsAsync" disabled="@_isBusy">Refresh</button>
+                    </div>
+                    <div class="card-body">
+                        <div class="alert alert-info">
+                            Editing the global base matrix. Changes here apply to all RP sessions.
+                        </div>
+
+                        @if (!string.IsNullOrWhiteSpace(_finishingMoveStatus))
+                        {
+                            <div class="alert alert-success">@_finishingMoveStatus</div>
+                        }
+
+                        @if (!string.IsNullOrWhiteSpace(_finishingMoveError))
+                        {
+                            <div class="alert alert-danger">@_finishingMoveError</div>
+                        }
+
+                            <div class="table-responsive">
+                                <table class="table table-sm align-middle">
+                                    <thead>
+                                        <tr>
+                                            <th>Desire</th>
+                                            <th>Self Respect</th>
+                                            <th>Dominance</th>
+                                            <th>Primary</th>
+                                            <th>Secondary</th>
+                                            <th>Excluded</th>
+                                            <th>Sort</th>
+                                            <th>Enabled</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @if (_finishingMoveRows.Count == 0)
+                                        {
+                                            <tr>
+                                                <td colspan="9" class="text-muted">No finishing move base rows yet.</td>
+                                            </tr>
+                                        }
+                                        else
+                                        {
+                                            @foreach (var row in _finishingMoveRows)
+                                            {
+                                                <tr>
+                                                    <td>@row.DesireBand</td>
+                                                    <td>@row.SelfRespectBand</td>
+                                                    <td>@row.DominanceBand</td>
+                                                    <td class="small text-muted">@string.Join(", ", row.PrimaryLocations)</td>
+                                                    <td class="small text-muted">@string.Join(", ", row.SecondaryLocations)</td>
+                                                    <td class="small text-muted">@string.Join(", ", row.ExcludedLocations)</td>
+                                                    <td>@row.SortOrder</td>
+                                                    <td>@(row.IsEnabled ? "Yes" : "No")</td>
+                                                    <td>
+                                                        <button class="btn btn-sm btn-outline-primary me-1" @onclick="() => StartEditFinishingMoveRow(row)" disabled="@_isBusy">Edit</button>
+                                                        <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteFinishingMoveRowAsync(row.Id)" disabled="@_isBusy">Delete</button>
+                                                    </td>
+                                                </tr>
+                                            }
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <div class="border rounded p-3 mt-3 bg-light-subtle">
+                                <h6 class="mb-3">@(_editingFinishingMoveRowId is null ? "Add Matrix Row" : "Edit Matrix Row")</h6>
+                                <div class="row g-2">
+                                    <div class="col-md-2">
+                                        <label class="form-label">Desire Band</label>
+                                        <input class="form-control form-control-sm" @bind="_finishingMoveFormDesireBand" />
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label class="form-label">Self Respect</label>
+                                        <input class="form-control form-control-sm" @bind="_finishingMoveFormSelfRespectBand" />
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label class="form-label">Dominance</label>
+                                        <input class="form-control form-control-sm" @bind="_finishingMoveFormDominanceBand" />
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label class="form-label">Sort</label>
+                                        <input class="form-control form-control-sm" type="number" @bind="_finishingMoveFormSortOrder" />
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label class="form-label">Enabled</label>
+                                        <select class="form-select form-select-sm" @bind="_finishingMoveFormEnabled">
+                                            <option value="true">Yes</option>
+                                            <option value="false">No</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="row g-2 mt-1">
+                                    <div class="col-md-4">
+                                        <label class="form-label">Primary Locations (comma separated)</label>
+                                        <input class="form-control form-control-sm" @bind="_finishingMoveFormPrimaryLocations" />
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label">Secondary Locations (comma separated)</label>
+                                        <input class="form-control form-control-sm" @bind="_finishingMoveFormSecondaryLocations" />
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label">Excluded Locations (comma separated)</label>
+                                        <input class="form-control form-control-sm" @bind="_finishingMoveFormExcludedLocations" />
+                                    </div>
+                                </div>
+                                <div class="row g-2 mt-1">
+                                    <div class="col-md-6">
+                                        <label class="form-label">Wife Behavior Modifier</label>
+                                        <textarea class="form-control form-control-sm" rows="2" @bind="_finishingMoveFormWifeBehaviorModifier"></textarea>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">Other Man Behavior Modifier</label>
+                                        <textarea class="form-control form-control-sm" rows="2" @bind="_finishingMoveFormOtherManBehaviorModifier"></textarea>
+                                    </div>
+                                </div>
+                                <div class="row g-2 mt-1">
+                                    <div class="col-md-10">
+                                        <label class="form-label">Transition Instruction</label>
+                                        <input class="form-control form-control-sm" @bind="_finishingMoveFormTransitionInstruction" />
+                                    </div>
+                                    <div class="col-md-2 d-flex align-items-end">
+                                        <button class="btn btn-sm btn-primary w-100" @onclick="SaveFinishingMoveRowAsync" disabled="@_isBusy">@(_editingFinishingMoveRowId is null ? "Add Row" : "Save")</button>
+                                    </div>
+                                </div>
+                                @if (_editingFinishingMoveRowId is not null)
+                                {
+                                    <div class="mt-2 d-flex justify-content-end">
+                                        <button class="btn btn-sm btn-outline-secondary" @onclick="CancelEditFinishingMoveRow" disabled="@_isBusy">Cancel Edit</button>
+                                    </div>
+                                }
+                            </div>
+
+                        <div class="border rounded p-3 mt-3 bg-light-subtle">
+                            <h6 class="mb-3">Import JSON</h6>
+                            <textarea class="form-control form-control-sm" rows="8" @bind="_finishingMoveImportJson" placeholder='Paste rows JSON here (array or {"rows": [...]})'></textarea>
+                            <div class="form-check mt-2">
+                                <input id="finishingMoveReplace" type="checkbox" class="form-check-input" @bind="_finishingMoveReplaceExisting" />
+                                <label class="form-check-label" for="finishingMoveReplace">Replace existing base rows</label>
+                            </div>
+                            <div class="mt-2 d-flex justify-content-end">
+                                <button class="btn btn-sm btn-outline-primary" @onclick="ImportFinishingMoveJsonAsync" disabled="@_isBusy">Import</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+    else if (_activeTab == "steer-position")
+    {
+        <div class="row g-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>Steer Position Matrix</strong>
+                            <small class="text-muted d-block">Global base table used by RP runtime steer-position option behavior.</small>
+                        </div>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="LoadSteerPositionRowsAsync" disabled="@_isBusy">Refresh</button>
+                    </div>
+                    <div class="card-body">
+                        <div class="alert alert-info">
+                            Editing the global base matrix. Changes here apply to all RP sessions.
+                        </div>
+
+                        @if (!string.IsNullOrWhiteSpace(_steerPositionStatus))
+                        {
+                            <div class="alert alert-success">@_steerPositionStatus</div>
+                        }
+
+                        @if (!string.IsNullOrWhiteSpace(_steerPositionError))
+                        {
+                            <div class="alert alert-danger">@_steerPositionError</div>
+                        }
+
+                            <div class="table-responsive">
+                                <table class="table table-sm align-middle">
+                                    <thead>
+                                        <tr>
+                                            <th>Desire</th>
+                                            <th>Self Respect</th>
+                                            <th>Wife Dom</th>
+                                            <th>Other Man Dom</th>
+                                            <th>Primary</th>
+                                            <th>Secondary</th>
+                                            <th>Excluded</th>
+                                            <th>Sort</th>
+                                            <th>Enabled</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @if (_steerPositionRows.Count == 0)
+                                        {
+                                            <tr>
+                                                <td colspan="10" class="text-muted">No steer position base rows yet.</td>
+                                            </tr>
+                                        }
+                                        else
+                                        {
+                                            @foreach (var row in _steerPositionRows)
+                                            {
+                                                <tr>
+                                                    <td>@row.DesireBand</td>
+                                                    <td>@row.SelfRespectBand</td>
+                                                    <td>@row.WifeDominanceBand</td>
+                                                    <td>@row.OtherManDominanceBand</td>
+                                                    <td class="small text-muted">@string.Join(", ", row.PrimaryPositions)</td>
+                                                    <td class="small text-muted">@string.Join(", ", row.SecondaryPositions)</td>
+                                                    <td class="small text-muted">@string.Join(", ", row.ExcludedPositions)</td>
+                                                    <td>@row.SortOrder</td>
+                                                    <td>@(row.IsEnabled ? "Yes" : "No")</td>
+                                                    <td>
+                                                        <button class="btn btn-sm btn-outline-primary me-1" @onclick="() => StartEditSteerPositionRow(row)" disabled="@_isBusy">Edit</button>
+                                                        <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteSteerPositionRowAsync(row.Id)" disabled="@_isBusy">Delete</button>
+                                                    </td>
+                                                </tr>
+                                            }
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <div class="border rounded p-3 mt-3 bg-light-subtle">
+                                <h6 class="mb-3">@(_editingSteerPositionRowId is null ? "Add Matrix Row" : "Edit Matrix Row")</h6>
+                                <div class="row g-2">
+                                    <div class="col-md-2">
+                                        <label class="form-label">Desire Band</label>
+                                        <input class="form-control form-control-sm" @bind="_steerPositionFormDesireBand" />
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label class="form-label">Self Respect</label>
+                                        <input class="form-control form-control-sm" @bind="_steerPositionFormSelfRespectBand" />
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label class="form-label">Wife Dominance</label>
+                                        <input class="form-control form-control-sm" @bind="_steerPositionFormWifeDominanceBand" />
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label class="form-label">Other Man Dominance</label>
+                                        <input class="form-control form-control-sm" @bind="_steerPositionFormOtherManDominanceBand" />
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label class="form-label">Sort</label>
+                                        <input class="form-control form-control-sm" type="number" @bind="_steerPositionFormSortOrder" />
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label class="form-label">Enabled</label>
+                                        <select class="form-select form-select-sm" @bind="_steerPositionFormEnabled">
+                                            <option value="true">Yes</option>
+                                            <option value="false">No</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="row g-2 mt-1">
+                                    <div class="col-md-4">
+                                        <label class="form-label">Primary Positions (comma separated)</label>
+                                        <input class="form-control form-control-sm" @bind="_steerPositionFormPrimaryPositions" />
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label">Secondary Positions (comma separated)</label>
+                                        <input class="form-control form-control-sm" @bind="_steerPositionFormSecondaryPositions" />
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label">Excluded Positions (comma separated)</label>
+                                        <input class="form-control form-control-sm" @bind="_steerPositionFormExcludedPositions" />
+                                    </div>
+                                </div>
+                                <div class="row g-2 mt-1">
+                                    <div class="col-md-6">
+                                        <label class="form-label">Wife Behavior Modifier</label>
+                                        <textarea class="form-control form-control-sm" rows="2" @bind="_steerPositionFormWifeBehaviorModifier"></textarea>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">Other Man Behavior Modifier</label>
+                                        <textarea class="form-control form-control-sm" rows="2" @bind="_steerPositionFormOtherManBehaviorModifier"></textarea>
+                                    </div>
+                                </div>
+                                <div class="row g-2 mt-1">
+                                    <div class="col-md-10">
+                                        <label class="form-label">Transition Instruction</label>
+                                        <input class="form-control form-control-sm" @bind="_steerPositionFormTransitionInstruction" />
+                                    </div>
+                                    <div class="col-md-2 d-flex align-items-end">
+                                        <button class="btn btn-sm btn-primary w-100" @onclick="SaveSteerPositionRowAsync" disabled="@_isBusy">@(_editingSteerPositionRowId is null ? "Add Row" : "Save")</button>
+                                    </div>
+                                </div>
+                                @if (_editingSteerPositionRowId is not null)
+                                {
+                                    <div class="mt-2 d-flex justify-content-end">
+                                        <button class="btn btn-sm btn-outline-secondary" @onclick="CancelEditSteerPositionRow" disabled="@_isBusy">Cancel Edit</button>
+                                    </div>
+                                }
+                            </div>
+
+                        <div class="border rounded p-3 mt-3 bg-light-subtle">
+                            <h6 class="mb-3">Import JSON</h6>
+                            <textarea class="form-control form-control-sm" rows="8" @bind="_steerPositionImportJson" placeholder='Paste rows JSON here (array or {"rows": [...]})'></textarea>
+                            <div class="form-check mt-2">
+                                <input id="steerPositionReplace" type="checkbox" class="form-check-input" @bind="_steerPositionReplaceExisting" />
+                                <label class="form-check-label" for="steerPositionReplace">Replace existing base rows</label>
+                            </div>
+                            <div class="mt-2 d-flex justify-content-end">
+                                <button class="btn btn-sm btn-outline-primary" @onclick="ImportSteerPositionJsonAsync" disabled="@_isBusy">Import</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     }
@@ -1787,6 +2118,135 @@
             }
         </div>
     }
+
+    else if (_activeTab == "selection-engine")
+    {
+        <div class="row justify-content-center">
+            <div class="col-lg-8">
+
+                @if (!string.IsNullOrWhiteSpace(_engineSettingsError))
+                {
+                    <div class="alert alert-danger alert-dismissible fade show">
+                        @_engineSettingsError
+                        <button type="button" class="btn-close" @onclick="() => _engineSettingsError = null"></button>
+                    </div>
+                }
+                @if (!string.IsNullOrWhiteSpace(_engineSettingsStatus))
+                {
+                    <div class="alert alert-success alert-dismissible fade show">
+                        @_engineSettingsStatus
+                        <button type="button" class="btn-close" @onclick="() => _engineSettingsStatus = null"></button>
+                    </div>
+                }
+
+                <div class="card mb-3">
+                    <div class="card-header"><strong>Stage A — Willingness Tier Thresholds</strong></div>
+                    <div class="card-body">
+                        <p class="text-muted small">Avg Desire determines which willingness tier a session falls into. Below the Low minimum the tier is Blocked and scenario selection is suppressed.</p>
+                        <div class="row g-3">
+                            <div class="col-sm-4">
+                                <label class="form-label">High Desire Min</label>
+                                <input type="number" class="form-control" step="1" min="0" max="100" @bind="_engineSettings.StageAHighDesireMin" />
+                            </div>
+                            <div class="col-sm-4">
+                                <label class="form-label">Medium Desire Min</label>
+                                <input type="number" class="form-control" step="1" min="0" max="100" @bind="_engineSettings.StageAMediumDesireMin" />
+                            </div>
+                            <div class="col-sm-4">
+                                <label class="form-label">Low Desire Min</label>
+                                <input type="number" class="form-control" step="1" min="0" max="100" @bind="_engineSettings.StageALowDesireMin" />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card mb-3">
+                    <div class="card-header"><strong>Stage B — Eligibility Gate</strong></div>
+                    <div class="card-body">
+                        <p class="text-muted small">Both conditions must be met for a scenario candidate to be considered eligible. Ineligible candidates receive a score penalty instead of being excluded.</p>
+                        <div class="row g-3">
+                            <div class="col-sm-6">
+                                <label class="form-label">Min Avg Tension</label>
+                                <input type="number" class="form-control" step="1" min="0" max="100" @bind="_engineSettings.StageBMinTension" />
+                                <div class="form-text">Default: 35</div>
+                            </div>
+                            <div class="col-sm-6">
+                                <label class="form-label">Max Avg Restraint</label>
+                                <input type="number" class="form-control" step="1" min="0" max="100" @bind="_engineSettings.StageBMaxRestraint" />
+                                <div class="form-text">Default: 80. Set higher (e.g. 100) to disable restraint gating entirely.</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card mb-3">
+                    <div class="card-header"><strong>Legacy Fit-Score Weights</strong></div>
+                    <div class="card-body">
+                        <p class="text-muted small">Used when no LLM character-fit result is available. Weights should sum to 1.0.</p>
+                        <div class="row g-3">
+                            <div class="col-sm-4">
+                                <label class="form-label">Desire Weight</label>
+                                <input type="number" class="form-control" step="0.05" min="0" max="1" @bind="_engineSettings.LegacyFitDesireWeight" />
+                            </div>
+                            <div class="col-sm-4">
+                                <label class="form-label">Connection Weight</label>
+                                <input type="number" class="form-control" step="0.05" min="0" max="1" @bind="_engineSettings.LegacyFitConnectionWeight" />
+                            </div>
+                            <div class="col-sm-4">
+                                <label class="form-label">Tension Weight</label>
+                                <input type="number" class="form-control" step="0.05" min="0" max="1" @bind="_engineSettings.LegacyFitTensionWeight" />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card mb-3">
+                    <div class="card-header"><strong>Candidate Scoring Weights</strong></div>
+                    <div class="card-body">
+                        <p class="text-muted small">Weights applied when blending character-alignment, narrative-evidence, and preference-priority scores. Should sum to 1.0.</p>
+                        <div class="row g-3">
+                            <div class="col-sm-4">
+                                <label class="form-label">Character Alignment</label>
+                                <input type="number" class="form-control" step="0.05" min="0" max="1" @bind="_engineSettings.CandidateCharacterAlignmentWeight" />
+                            </div>
+                            <div class="col-sm-4">
+                                <label class="form-label">Narrative Evidence</label>
+                                <input type="number" class="form-control" step="0.05" min="0" max="1" @bind="_engineSettings.CandidateNarrativeEvidenceWeight" />
+                            </div>
+                            <div class="col-sm-4">
+                                <label class="form-label">Preference Priority</label>
+                                <input type="number" class="form-control" step="0.05" min="0" max="1" @bind="_engineSettings.CandidatePreferencePriorityWeight" />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card mb-3">
+                    <div class="card-header"><strong>Hysteresis / Tie-Break</strong></div>
+                    <div class="card-body">
+                        <p class="text-muted small">Controls how many consecutive cycles a candidate must lead before committing, and the FitScore delta that defines a near-tie.</p>
+                        <div class="row g-3">
+                            <div class="col-sm-6">
+                                <label class="form-label">Near-Tie Threshold</label>
+                                <input type="number" class="form-control" step="0.1" min="0" max="10" @bind="_engineSettings.NearTieThreshold" />
+                                <div class="form-text">Default: 0.8. FitScore gap below which two candidates are treated as tied.</div>
+                            </div>
+                            <div class="col-sm-6">
+                                <label class="form-label">Required Consecutive Lead Count</label>
+                                <input type="number" class="form-control" step="1" min="1" max="10" @bind="_engineSettings.RequiredConsecutiveLeadCount" />
+                                <div class="form-text">Default: 2. Cycles a candidate must lead before committing when in a near-tie.</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="d-flex gap-2 mt-3">
+                    <button class="btn btn-primary" @onclick="SaveEngineSettingsAsync" disabled="@_isBusy">Save</button>
+                    <button class="btn btn-outline-secondary" @onclick="ResetEngineSettingsAsync" disabled="@_isBusy">Reset to Defaults</button>
+                </div>
+            </div>
+        </div>
+    }
 </div>
 
 @code {
@@ -1813,8 +2273,12 @@
         "husband-awareness",
         "roles",
         "background-characters",
+        "finishing-move",
+        "steer-position",
         "flow-guide",
-        "perspective"
+        "perspective",
+        "selection-engine",
+        "selection-engine"
     ];
 
     private List<ThemeProfile> _profiles = [];
@@ -1836,6 +2300,48 @@
     private string _editThemeDescription = string.Empty;
     private ThemeTier _editThemeTier = ThemeTier.NiceToHave;
     private string _editThemeCatalogId = string.Empty;
+
+    // Selection Engine settings
+    private DreamGenClone.Domain.RolePlay.ScenarioEngineSettings _engineSettings = new();
+    private string? _engineSettingsError;
+    private string? _engineSettingsStatus;
+
+    private List<RPFinishingMoveMatrixRow> _finishingMoveRows = [];
+    private string? _finishingMoveError;
+    private string? _finishingMoveStatus;
+    private string? _editingFinishingMoveRowId;
+    private string _finishingMoveFormDesireBand = "50-74";
+    private string _finishingMoveFormSelfRespectBand = "30-59";
+    private string _finishingMoveFormDominanceBand = "Medium";
+    private string _finishingMoveFormPrimaryLocations = string.Empty;
+    private string _finishingMoveFormSecondaryLocations = string.Empty;
+    private string _finishingMoveFormExcludedLocations = string.Empty;
+    private string _finishingMoveFormWifeBehaviorModifier = string.Empty;
+    private string _finishingMoveFormOtherManBehaviorModifier = string.Empty;
+    private string _finishingMoveFormTransitionInstruction = string.Empty;
+    private int _finishingMoveFormSortOrder;
+    private bool _finishingMoveFormEnabled = true;
+    private string _finishingMoveImportJson = string.Empty;
+    private bool _finishingMoveReplaceExisting = true;
+
+    private List<RPSteerPositionMatrixRow> _steerPositionRows = [];
+    private string? _steerPositionError;
+    private string? _steerPositionStatus;
+    private string? _editingSteerPositionRowId;
+    private string _steerPositionFormDesireBand = "30-59";
+    private string _steerPositionFormSelfRespectBand = "30-59";
+    private string _steerPositionFormWifeDominanceBand = "Medium";
+    private string _steerPositionFormOtherManDominanceBand = "Medium";
+    private string _steerPositionFormPrimaryPositions = string.Empty;
+    private string _steerPositionFormSecondaryPositions = string.Empty;
+    private string _steerPositionFormExcludedPositions = string.Empty;
+    private string _steerPositionFormWifeBehaviorModifier = string.Empty;
+    private string _steerPositionFormOtherManBehaviorModifier = string.Empty;
+    private string _steerPositionFormTransitionInstruction = string.Empty;
+    private int _steerPositionFormSortOrder;
+    private bool _steerPositionFormEnabled = true;
+    private string _steerPositionImportJson = string.Empty;
+    private bool _steerPositionReplaceExisting = true;
 
     private List<IntensityProfile> _intensityProfiles = [];
     private string? _selectedToneId;
@@ -2013,6 +2519,8 @@
         }
 
         await ReloadAsync();
+        await LoadFinishingMoveRowsAsync();
+        await LoadSteerPositionRowsAsync();
 
         if (!string.IsNullOrWhiteSpace(ProfileId))
         {
@@ -2134,6 +2642,36 @@
             _selectedThemeDefinition = null;
             _themeDefinitionsError = ex.Message;
         }
+
+        _engineSettings = await Facade.LoadScenarioEngineSettingsAsync();
+    }
+
+    private async Task SaveEngineSettingsAsync()
+    {
+        _engineSettingsError = null;
+        _engineSettingsStatus = null;
+        _isBusy = true;
+        try
+        {
+            await Facade.SaveScenarioEngineSettingsAsync(_engineSettings);
+            _engineSettingsStatus = "Selection engine settings saved.";
+        }
+        catch (Exception ex)
+        {
+            _engineSettingsError = $"Save failed: {ex.Message}";
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task ResetEngineSettingsAsync()
+    {
+        _engineSettings = new DreamGenClone.Domain.RolePlay.ScenarioEngineSettings();
+        await SaveEngineSettingsAsync();
+        if (string.IsNullOrWhiteSpace(_engineSettingsError))
+            _engineSettingsStatus = "Settings reset to defaults and saved.";
     }
 
     private void SelectThemeDefinition(ThemeDefinitionDocument definition)
@@ -2150,9 +2688,13 @@
         _themes = _selectedProfile is not null
             ? await Facade.ListThemesByProfileAsync(profileId)
             : [];
+        _finishingMoveRows = (await Facade.ListFinishingMoveMatrixRowsAsync()).ToList();
+        _steerPositionRows = (await Facade.ListSteerPositionMatrixRowsAsync()).ToList();
         _editingThemeId = null;
         _themeError = null;
         _themeValidationError = null;
+        _finishingMoveError = null;
+        _steerPositionError = null;
     }
 
     private async Task CreateProfile()
@@ -2231,6 +2773,8 @@
             _selectedProfileId = null;
             _selectedProfile = null;
             _themes = [];
+            _finishingMoveRows = [];
+            _steerPositionRows = [];
             if (_profiles.Count > 0)
             {
                 await SelectProfile(_profiles[0].Id);
@@ -2384,6 +2928,301 @@
         {
             _isBusy = false;
         }
+    }
+
+    private async Task LoadFinishingMoveRowsAsync()
+    {
+        _finishingMoveRows = (await Facade.ListFinishingMoveMatrixRowsAsync()).ToList();
+    }
+
+    private void StartEditFinishingMoveRow(RPFinishingMoveMatrixRow row)
+    {
+        _editingFinishingMoveRowId = row.Id;
+        _finishingMoveFormDesireBand = row.DesireBand;
+        _finishingMoveFormSelfRespectBand = row.SelfRespectBand;
+        _finishingMoveFormDominanceBand = row.DominanceBand;
+        _finishingMoveFormPrimaryLocations = string.Join(", ", row.PrimaryLocations);
+        _finishingMoveFormSecondaryLocations = string.Join(", ", row.SecondaryLocations);
+        _finishingMoveFormExcludedLocations = string.Join(", ", row.ExcludedLocations);
+        _finishingMoveFormWifeBehaviorModifier = row.WifeBehaviorModifier;
+        _finishingMoveFormOtherManBehaviorModifier = row.OtherManBehaviorModifier;
+        _finishingMoveFormTransitionInstruction = row.TransitionInstruction;
+        _finishingMoveFormSortOrder = row.SortOrder;
+        _finishingMoveFormEnabled = row.IsEnabled;
+        _finishingMoveError = null;
+        _finishingMoveStatus = null;
+    }
+
+    private void CancelEditFinishingMoveRow()
+    {
+        _editingFinishingMoveRowId = null;
+        _finishingMoveFormDesireBand = "50-74";
+        _finishingMoveFormSelfRespectBand = "30-59";
+        _finishingMoveFormDominanceBand = "Medium";
+        _finishingMoveFormPrimaryLocations = string.Empty;
+        _finishingMoveFormSecondaryLocations = string.Empty;
+        _finishingMoveFormExcludedLocations = string.Empty;
+        _finishingMoveFormWifeBehaviorModifier = string.Empty;
+        _finishingMoveFormOtherManBehaviorModifier = string.Empty;
+        _finishingMoveFormTransitionInstruction = string.Empty;
+        _finishingMoveFormSortOrder = 0;
+        _finishingMoveFormEnabled = true;
+    }
+
+    private async Task SaveFinishingMoveRowAsync()
+    {
+        _finishingMoveError = null;
+        _finishingMoveStatus = null;
+        _isBusy = true;
+        try
+        {
+            await Facade.SaveFinishingMoveMatrixRowAsync(new RPFinishingMoveMatrixRow
+            {
+                Id = _editingFinishingMoveRowId ?? Guid.NewGuid().ToString("N"),
+                DesireBand = _finishingMoveFormDesireBand,
+                SelfRespectBand = _finishingMoveFormSelfRespectBand,
+                DominanceBand = _finishingMoveFormDominanceBand,
+                PrimaryLocations = ParseCsv(_finishingMoveFormPrimaryLocations),
+                SecondaryLocations = ParseCsv(_finishingMoveFormSecondaryLocations),
+                ExcludedLocations = ParseCsv(_finishingMoveFormExcludedLocations),
+                WifeBehaviorModifier = _finishingMoveFormWifeBehaviorModifier,
+                OtherManBehaviorModifier = _finishingMoveFormOtherManBehaviorModifier,
+                TransitionInstruction = _finishingMoveFormTransitionInstruction,
+                SortOrder = _finishingMoveFormSortOrder,
+                IsEnabled = _finishingMoveFormEnabled
+            });
+
+            await LoadFinishingMoveRowsAsync();
+            var wasEditing = _editingFinishingMoveRowId is not null;
+            CancelEditFinishingMoveRow();
+            _finishingMoveFormSortOrder = _finishingMoveRows.Count;
+            _finishingMoveStatus = wasEditing
+                ? "Finishing move row updated."
+                : "Finishing move row added.";
+        }
+        catch (Exception ex)
+        {
+            _finishingMoveError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task DeleteFinishingMoveRowAsync(string rowId)
+    {
+        _finishingMoveError = null;
+        _finishingMoveStatus = null;
+        _isBusy = true;
+        try
+        {
+            await Facade.DeleteFinishingMoveMatrixRowAsync(rowId);
+            await LoadFinishingMoveRowsAsync();
+            if (string.Equals(_editingFinishingMoveRowId, rowId, StringComparison.OrdinalIgnoreCase))
+            {
+                CancelEditFinishingMoveRow();
+            }
+
+            _finishingMoveStatus = "Finishing move row deleted.";
+        }
+        catch (Exception ex)
+        {
+            _finishingMoveError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task ImportFinishingMoveJsonAsync()
+    {
+        _finishingMoveError = null;
+        _finishingMoveStatus = null;
+        _isBusy = true;
+        try
+        {
+            var importedCount = await Facade.ImportFinishingMoveMatrixRowsFromJsonAsync(
+                _finishingMoveImportJson,
+                _finishingMoveReplaceExisting);
+
+            await LoadFinishingMoveRowsAsync();
+            if (importedCount > 0)
+            {
+                CancelEditFinishingMoveRow();
+                _finishingMoveFormSortOrder = _finishingMoveRows.Count;
+                _finishingMoveStatus = $"Imported {importedCount} finishing move row(s).";
+            }
+            else
+            {
+                _finishingMoveError = "No rows were imported. Verify JSON payload shape and required fields.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _finishingMoveError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task LoadSteerPositionRowsAsync()
+    {
+        _steerPositionRows = (await Facade.ListSteerPositionMatrixRowsAsync()).ToList();
+    }
+
+    private void StartEditSteerPositionRow(RPSteerPositionMatrixRow row)
+    {
+        _editingSteerPositionRowId = row.Id;
+        _steerPositionFormDesireBand = row.DesireBand;
+        _steerPositionFormSelfRespectBand = row.SelfRespectBand;
+        _steerPositionFormWifeDominanceBand = row.WifeDominanceBand;
+        _steerPositionFormOtherManDominanceBand = row.OtherManDominanceBand;
+        _steerPositionFormPrimaryPositions = string.Join(", ", row.PrimaryPositions);
+        _steerPositionFormSecondaryPositions = string.Join(", ", row.SecondaryPositions);
+        _steerPositionFormExcludedPositions = string.Join(", ", row.ExcludedPositions);
+        _steerPositionFormWifeBehaviorModifier = row.WifeBehaviorModifier;
+        _steerPositionFormOtherManBehaviorModifier = row.OtherManBehaviorModifier;
+        _steerPositionFormTransitionInstruction = row.TransitionInstruction;
+        _steerPositionFormSortOrder = row.SortOrder;
+        _steerPositionFormEnabled = row.IsEnabled;
+        _steerPositionError = null;
+        _steerPositionStatus = null;
+    }
+
+    private void CancelEditSteerPositionRow()
+    {
+        _editingSteerPositionRowId = null;
+        _steerPositionFormDesireBand = "30-59";
+        _steerPositionFormSelfRespectBand = "30-59";
+        _steerPositionFormWifeDominanceBand = "Medium";
+        _steerPositionFormOtherManDominanceBand = "Medium";
+        _steerPositionFormPrimaryPositions = string.Empty;
+        _steerPositionFormSecondaryPositions = string.Empty;
+        _steerPositionFormExcludedPositions = string.Empty;
+        _steerPositionFormWifeBehaviorModifier = string.Empty;
+        _steerPositionFormOtherManBehaviorModifier = string.Empty;
+        _steerPositionFormTransitionInstruction = string.Empty;
+        _steerPositionFormSortOrder = 0;
+        _steerPositionFormEnabled = true;
+    }
+
+    private async Task SaveSteerPositionRowAsync()
+    {
+        _steerPositionError = null;
+        _steerPositionStatus = null;
+        _isBusy = true;
+        try
+        {
+            await Facade.SaveSteerPositionMatrixRowAsync(new RPSteerPositionMatrixRow
+            {
+                Id = _editingSteerPositionRowId ?? Guid.NewGuid().ToString("N"),
+                DesireBand = _steerPositionFormDesireBand,
+                SelfRespectBand = _steerPositionFormSelfRespectBand,
+                WifeDominanceBand = _steerPositionFormWifeDominanceBand,
+                OtherManDominanceBand = _steerPositionFormOtherManDominanceBand,
+                PrimaryPositions = ParseCsv(_steerPositionFormPrimaryPositions),
+                SecondaryPositions = ParseCsv(_steerPositionFormSecondaryPositions),
+                ExcludedPositions = ParseCsv(_steerPositionFormExcludedPositions),
+                WifeBehaviorModifier = _steerPositionFormWifeBehaviorModifier,
+                OtherManBehaviorModifier = _steerPositionFormOtherManBehaviorModifier,
+                TransitionInstruction = _steerPositionFormTransitionInstruction,
+                SortOrder = _steerPositionFormSortOrder,
+                IsEnabled = _steerPositionFormEnabled
+            });
+
+            await LoadSteerPositionRowsAsync();
+            var wasEditing = _editingSteerPositionRowId is not null;
+            CancelEditSteerPositionRow();
+            _steerPositionFormSortOrder = _steerPositionRows.Count;
+            _steerPositionStatus = wasEditing
+                ? "Steer position row updated."
+                : "Steer position row added.";
+        }
+        catch (Exception ex)
+        {
+            _steerPositionError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task DeleteSteerPositionRowAsync(string rowId)
+    {
+        _steerPositionError = null;
+        _steerPositionStatus = null;
+        _isBusy = true;
+        try
+        {
+            await Facade.DeleteSteerPositionMatrixRowAsync(rowId);
+            await LoadSteerPositionRowsAsync();
+            if (string.Equals(_editingSteerPositionRowId, rowId, StringComparison.OrdinalIgnoreCase))
+            {
+                CancelEditSteerPositionRow();
+            }
+
+            _steerPositionStatus = "Steer position row deleted.";
+        }
+        catch (Exception ex)
+        {
+            _steerPositionError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task ImportSteerPositionJsonAsync()
+    {
+        _steerPositionError = null;
+        _steerPositionStatus = null;
+        _isBusy = true;
+        try
+        {
+            var importedCount = await Facade.ImportSteerPositionMatrixRowsFromJsonAsync(
+                _steerPositionImportJson,
+                _steerPositionReplaceExisting);
+
+            await LoadSteerPositionRowsAsync();
+            if (importedCount > 0)
+            {
+                CancelEditSteerPositionRow();
+                _steerPositionFormSortOrder = _steerPositionRows.Count;
+                _steerPositionStatus = $"Imported {importedCount} steer position row(s).";
+            }
+            else
+            {
+                _steerPositionError = "No rows were imported. Verify JSON payload shape and required fields.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _steerPositionError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private static List<string> ParseCsv(string input)
+    {
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            return [];
+        }
+
+        return input
+            .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .Select(x => x.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     private void StartCreateIntensity()

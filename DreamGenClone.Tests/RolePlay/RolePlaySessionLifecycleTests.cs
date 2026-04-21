@@ -278,7 +278,7 @@ public sealed class RolePlaySessionLifecycleTests
     public async Task ContinueAs_AfterDecisionApply_SuppressesNarrativeForOneTurnOnly()
     {
         var repository = new FakeRolePlayV2StateRepository();
-        var (service, _) = CreateService(repository);
+        var (service, _) = CreateService(repository, suppressNarrativeAfterDecision: true);
         var created = await service.CreateSessionAsync("Decision Narrative Suppression Session");
 
         var point = new DecisionPoint
@@ -335,6 +335,55 @@ public sealed class RolePlaySessionLifecycleTests
         var afterSecond = await service.GetSessionAsync(created.Id);
         Assert.NotNull(afterSecond);
         Assert.Contains(afterSecond!.Interactions, x => string.Equals(x.ActorName, "Narrative", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task ContinueAs_AfterDecisionApply_WithSuppressionDisabled_IncludesNarrativeImmediately()
+    {
+        var repository = new FakeRolePlayV2StateRepository();
+        var (service, _) = CreateService(repository, suppressNarrativeAfterDecision: false);
+        var created = await service.CreateSessionAsync("Decision Narrative Enabled Session");
+
+        var point = new DecisionPoint
+        {
+            SessionId = created.Id,
+            DecisionPointId = "dp-no-suppress-1",
+            CreatedUtc = DateTime.UtcNow,
+            AskingActorName = "Dean",
+            TargetActorId = "Becky",
+            TriggerSource = DecisionTrigger.CharacterDirectQuestion.ToString(),
+            TransparencyMode = TransparencyMode.Directional,
+            OptionIds = ["hold-back"]
+        };
+
+        await repository.SaveDecisionPointAsync(point,
+        [
+            new DecisionOption
+            {
+                DecisionPointId = "dp-no-suppress-1",
+                OptionId = "hold-back",
+                DisplayText = "Hold Back"
+            }
+        ]);
+
+        var outcome = await service.ApplyDecisionAsync(created.Id, "dp-no-suppress-1", "hold-back");
+        Assert.NotNull(outcome);
+        Assert.True(outcome!.Applied);
+
+        var firstContinue = await service.ContinueAsAsync(new ContinueAsRequest
+        {
+            SessionId = created.Id,
+            IncludeNarrative = true,
+            TriggeredBy = SubmissionSource.ContinueAsPopupContinue
+        });
+
+        Assert.True(firstContinue.Success);
+        Assert.NotNull(firstContinue.NarrativeOutput);
+
+        var afterFirst = await service.GetSessionAsync(created.Id);
+        Assert.NotNull(afterFirst);
+        Assert.False(afterFirst!.SuppressNextNarrativeAfterDecision);
+        Assert.Contains(afterFirst.Interactions, x => string.Equals(x.ActorName, "Narrative", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -588,6 +637,61 @@ public sealed class RolePlaySessionLifecycleTests
     }
 
     [Fact]
+    public async Task SubmitPromptAsync_BuildUpBackfillsActiveScenario_WhenMissing()
+    {
+        var repository = new FakeRolePlayV2StateRepository();
+        var (service, _) = CreateService(repository);
+        var created = await service.CreateSessionAsync("BuildUp Invariant Session");
+
+        var staleState = new AdaptiveScenarioState
+        {
+            SessionId = created.Id,
+            ActiveScenarioId = null,
+            CurrentPhase = NarrativePhase.BuildUp,
+            InteractionCountInPhase = 0,
+            ConsecutiveLeadCount = 0,
+            LastEvaluationUtc = DateTime.UtcNow,
+            CycleIndex = 0,
+            ActiveFormulaVersion = "rpv2-default"
+        };
+        await repository.SaveAdaptiveStateAsync(staleState);
+
+        var session = await service.GetSessionAsync(created.Id);
+        Assert.NotNull(session);
+        session!.AdaptiveState.ActiveScenarioId = null;
+        session.AdaptiveState.CurrentNarrativePhase = DreamGenClone.Domain.StoryAnalysis.NarrativePhase.BuildUp;
+        session.AdaptiveState.ThemeTracker.Themes = new Dictionary<string, ThemeTrackerItem>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["scenario-a"] = new ThemeTrackerItem
+            {
+                ThemeId = "scenario-a",
+                ThemeName = "Scenario A",
+                Score = 95
+            }
+        };
+        await service.SaveSessionAsync(session);
+
+        await service.SubmitPromptAsync(new UnifiedPromptSubmission
+        {
+            SessionId = created.Id,
+            PromptText = "continue naturally",
+            Intent = PromptIntent.Instruction,
+            SelectedIdentityId = string.Empty,
+            SelectedIdentityType = IdentityOptionSource.Persona,
+            BehaviorModeAtSubmit = BehaviorMode.TakeTurns,
+            SubmittedVia = SubmissionSource.SendButton
+        });
+
+        var reloaded = await service.GetSessionAsync(created.Id);
+        Assert.NotNull(reloaded);
+        Assert.False(string.IsNullOrWhiteSpace(reloaded!.AdaptiveState.ActiveScenarioId));
+        if (reloaded.AdaptiveState.CurrentNarrativePhase == DreamGenClone.Domain.StoryAnalysis.NarrativePhase.BuildUp)
+        {
+            Assert.False(string.IsNullOrWhiteSpace(reloaded.AdaptiveState.ActiveScenarioId));
+        }
+    }
+
+    [Fact]
     public async Task RunRolePlayV2PipelinesAsync_NextPhaseFromClimax_ClearsPhaseOverrideLockOnReset()
     {
         var repository = new FakeRolePlayV2StateRepository();
@@ -746,7 +850,9 @@ public sealed class RolePlaySessionLifecycleTests
         Assert.True(fresh.NarrativeEvidenceScore > repeat.NarrativeEvidenceScore);
     }
 
-    private static (RolePlayEngineService Service, FakeSessionService SessionService) CreateService(IRolePlayV2StateRepository? v2StateRepository = null)
+    private static (RolePlayEngineService Service, FakeSessionService SessionService) CreateService(
+        IRolePlayV2StateRepository? v2StateRepository = null,
+        bool suppressNarrativeAfterDecision = false)
     {
         var fakeSessionService = new FakeSessionService();
         var coreAutoSave = new FakeCoreAutoSaveCoordinator();
@@ -772,7 +878,11 @@ public sealed class RolePlaySessionLifecycleTests
             NullLogger<RolePlayEngineService>.Instance,
             decisionPointService: new DecisionPointService(NullLogger<DecisionPointService>.Instance),
             scenarioLifecycleService: new ScenarioLifecycleService(NullLogger<ScenarioLifecycleService>.Instance),
-            v2StateRepository: v2StateRepository);
+            v2StateRepository: v2StateRepository,
+            rolePlayDecisionOptions: Options.Create(new RolePlayDecisionOptions
+            {
+                SuppressNarrativeAfterDecision = suppressNarrativeAfterDecision
+            }));
 
         return (service, fakeSessionService);
     }
