@@ -42,3 +42,12 @@ These rules are mandatory for all coding tasks in this repository.
 - "best effort" or guessed RP values when configuration is missing.
 - duplicated configuration-source resolution logic across services.
 - hidden recovery paths that alter RP behavior without explicit configured data.
+
+## Project Backlog
+
+The project backlog is at `specs/Planning/backlog.md`.
+When the user refers to "the backlog", "backlog item", "add to the backlog", or "update the backlog", they mean this file.
+- Each item has a number (B-###), title, state, and notes.
+- Valid states: `new`, `designed`, `planned`, `implemented`, `debugging`, `done`, `done done`.
+- New ideas are added as `new`. Items progress through states as work advances.
+- Do not remove items from the backlog — change their state to `done done` when fully closed.
