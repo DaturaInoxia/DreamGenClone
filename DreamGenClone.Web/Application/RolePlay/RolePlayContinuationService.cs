@@ -997,12 +997,11 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             .Where(x => string.Equals(x.Phase.ToString(), phase, StringComparison.OrdinalIgnoreCase))
             .Where(x => !string.IsNullOrWhiteSpace(x.GuidanceText))
             .OrderBy(x => x.GuidanceText, StringComparer.OrdinalIgnoreCase)
-            .Take(3)
             .Select(x => x.GuidanceText.Trim())
             .ToList();
         if (phaseGuidance.Count > 0)
         {
-            sb.AppendLine($"- Phase Guidance ({phase}):");
+            sb.AppendLine($"- Required Phase Constraints ({phase}) — these directives are hard requirements for this response:");
             foreach (var line in phaseGuidance)
             {
                 sb.AppendLine($"  - {line}");
@@ -1014,7 +1013,6 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             .Where(x => x.PointType == RPThemeGuidancePointType.Emphasis)
             .Where(x => !string.IsNullOrWhiteSpace(x.Text))
             .OrderBy(x => x.SortOrder)
-            .Take(3)
             .Select(x => x.Text.Trim())
             .ToList();
         if (keyEmphasis.Count > 0)
@@ -1056,7 +1054,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             var themeLabel = string.IsNullOrWhiteSpace(activeTheme.Label) ? activeTheme.Id : activeTheme.Label;
             sb.AppendLine($"- Active theme anchor: {themeLabel} ({activeTheme.Id}).");
 
-            var phaseGuidance = RolePlayAssistantPrompts.GetThemePhaseGuidanceLines(activeTheme, currentPhase, maxLines: 3);
+            var phaseGuidance = RolePlayAssistantPrompts.GetThemePhaseGuidanceLines(activeTheme, currentPhase);
             if (phaseGuidance.Count > 0)
             {
                 sb.AppendLine($"- Apply theme phase guidance for {currentPhase}:");

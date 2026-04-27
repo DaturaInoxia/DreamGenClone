@@ -23,6 +23,7 @@ public interface IRPThemeService
     Task<bool> DeleteProfileAsync(string id, CancellationToken cancellationToken = default);
 
     Task<RPTheme> SaveThemeAsync(RPTheme theme, CancellationToken cancellationToken = default);
+    Task<RPTheme> CloneThemeAsync(string sourceThemeId, string newThemeId, string newThemeLabel, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<RPTheme>> ListThemesAsync(bool includeDisabled = false, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<RPTheme>> ListThemesByProfileAsync(string profileId, bool includeDisabled = false, CancellationToken cancellationToken = default);
     Task<RPTheme?> GetThemeAsync(string id, CancellationToken cancellationToken = default);

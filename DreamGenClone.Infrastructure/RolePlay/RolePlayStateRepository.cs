@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Domain.RolePlay;
@@ -14,6 +15,197 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
     public RolePlayStateRepository(IOptions<PersistenceOptions> options)
     {
         _connectionString = options.Value.ConnectionString;
+    }
+
+    public async Task<RolePlayTurn> StartTurnAsync(
+        string sessionId,
+        string turnKind,
+        string triggerSource,
+        string? initiatedByActorName,
+        string? inputInteractionId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            throw new InvalidOperationException("Session id is required to start a role-play turn.");
+        }
+
+        if (string.IsNullOrWhiteSpace(turnKind))
+        {
+            throw new InvalidOperationException("Turn kind is required to start a role-play turn.");
+        }
+
+        if (string.IsNullOrWhiteSpace(triggerSource))
+        {
+            throw new InvalidOperationException("Trigger source is required to start a role-play turn.");
+        }
+
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await EnsureTurnSchemaAsync(connection, cancellationToken);
+
+        var turnId = Guid.NewGuid().ToString("N");
+        var startedUtc = DateTime.UtcNow;
+        var nextIndex = 1;
+
+        await using (var nextIndexCommand = connection.CreateCommand())
+        {
+            nextIndexCommand.CommandText = "SELECT COALESCE(MAX(TurnIndex), 0) + 1 FROM RolePlayV2Turns WHERE SessionId = $sessionId;";
+            nextIndexCommand.Parameters.AddWithValue("$sessionId", sessionId);
+            nextIndex = Convert.ToInt32(await nextIndexCommand.ExecuteScalarAsync(cancellationToken));
+        }
+
+        await using (var insertCommand = connection.CreateCommand())
+        {
+            insertCommand.CommandText = """
+                INSERT INTO RolePlayV2Turns (
+                    TurnId, SessionId, TurnIndex, TurnKind, TriggerSource, InitiatedByActorName,
+                    InputInteractionId, OutputInteractionIdsJson, OutputInteractionCount,
+                    StartedUtc, CompletedUtc, Status, FailureReason, UpdatedUtc)
+                VALUES (
+                    $turnId, $sessionId, $turnIndex, $turnKind, $triggerSource, $initiatedByActorName,
+                    $inputInteractionId, $outputInteractionIdsJson, $outputInteractionCount,
+                    $startedUtc, NULL, $status, NULL, $updatedUtc);
+                """;
+            insertCommand.Parameters.AddWithValue("$turnId", turnId);
+            insertCommand.Parameters.AddWithValue("$sessionId", sessionId);
+            insertCommand.Parameters.AddWithValue("$turnIndex", nextIndex);
+            insertCommand.Parameters.AddWithValue("$turnKind", turnKind.Trim());
+            insertCommand.Parameters.AddWithValue("$triggerSource", triggerSource.Trim());
+            insertCommand.Parameters.AddWithValue("$initiatedByActorName", (object?)initiatedByActorName ?? DBNull.Value);
+            insertCommand.Parameters.AddWithValue("$inputInteractionId", (object?)inputInteractionId ?? DBNull.Value);
+            insertCommand.Parameters.AddWithValue("$outputInteractionIdsJson", "[]");
+            insertCommand.Parameters.AddWithValue("$outputInteractionCount", 0);
+            insertCommand.Parameters.AddWithValue("$startedUtc", startedUtc.ToString("O"));
+            insertCommand.Parameters.AddWithValue("$status", RolePlayTurnStatus.Started.ToString());
+            insertCommand.Parameters.AddWithValue("$updatedUtc", startedUtc.ToString("O"));
+            await insertCommand.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        return new RolePlayTurn
+        {
+            TurnId = turnId,
+            SessionId = sessionId,
+            TurnIndex = nextIndex,
+            TurnKind = turnKind.Trim(),
+            TriggerSource = triggerSource.Trim(),
+            InitiatedByActorName = initiatedByActorName,
+            InputInteractionId = inputInteractionId,
+            OutputInteractionIds = [],
+            StartedUtc = startedUtc,
+            Status = RolePlayTurnStatus.Started
+        };
+    }
+
+    public async Task CompleteTurnAsync(
+        string sessionId,
+        string turnId,
+        IReadOnlyList<string> outputInteractionIds,
+        bool succeeded,
+        string? failureReason = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            throw new InvalidOperationException("Session id is required to complete a role-play turn.");
+        }
+
+        if (string.IsNullOrWhiteSpace(turnId))
+        {
+            throw new InvalidOperationException("Turn id is required to complete a role-play turn.");
+        }
+
+        outputInteractionIds ??= [];
+        var completedUtc = DateTime.UtcNow;
+        var status = succeeded ? RolePlayTurnStatus.Completed : RolePlayTurnStatus.Failed;
+
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await EnsureTurnSchemaAsync(connection, cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE RolePlayV2Turns
+            SET OutputInteractionIdsJson = $outputInteractionIdsJson,
+                OutputInteractionCount = $outputInteractionCount,
+                CompletedUtc = $completedUtc,
+                Status = $status,
+                FailureReason = $failureReason,
+                UpdatedUtc = $updatedUtc
+            WHERE SessionId = $sessionId AND TurnId = $turnId;
+            """;
+        command.Parameters.AddWithValue("$outputInteractionIdsJson", JsonSerializer.Serialize(outputInteractionIds));
+        command.Parameters.AddWithValue("$outputInteractionCount", outputInteractionIds.Count);
+        command.Parameters.AddWithValue("$completedUtc", completedUtc.ToString("O"));
+        command.Parameters.AddWithValue("$status", status.ToString());
+        command.Parameters.AddWithValue("$failureReason", succeeded ? (object)DBNull.Value : (object?)(string.IsNullOrWhiteSpace(failureReason) ? "Turn execution failed." : failureReason.Trim()) ?? DBNull.Value);
+        command.Parameters.AddWithValue("$updatedUtc", completedUtc.ToString("O"));
+        command.Parameters.AddWithValue("$sessionId", sessionId);
+        command.Parameters.AddWithValue("$turnId", turnId);
+        var affected = await command.ExecuteNonQueryAsync(cancellationToken);
+        if (affected != 1)
+        {
+            throw new InvalidOperationException($"Unable to complete turn '{turnId}' for session '{sessionId}'.");
+        }
+    }
+
+    public async Task<IReadOnlyList<RolePlayTurn>> LoadTurnsAsync(string sessionId, int take = 100, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            throw new InvalidOperationException("Session id is required to load role-play turns.");
+        }
+
+        var turns = new List<RolePlayTurn>();
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await EnsureTurnSchemaAsync(connection, cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT TurnId, SessionId, TurnIndex, TurnKind, TriggerSource, InitiatedByActorName,
+                   InputInteractionId, OutputInteractionIdsJson, StartedUtc, CompletedUtc, Status, FailureReason
+            FROM RolePlayV2Turns
+            WHERE SessionId = $sessionId
+            ORDER BY TurnIndex DESC
+            LIMIT $take;
+            """;
+        command.Parameters.AddWithValue("$sessionId", sessionId);
+        command.Parameters.AddWithValue("$take", Math.Clamp(take, 1, 500));
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var statusRaw = reader.GetString(10);
+            if (!Enum.TryParse<RolePlayTurnStatus>(statusRaw, out var status))
+            {
+                throw new InvalidOperationException($"Unknown role-play turn status '{statusRaw}' for session '{sessionId}'.");
+            }
+
+            var outputJson = reader.GetString(7);
+            var outputInteractionIds = JsonSerializer.Deserialize<List<string>>(outputJson)
+                ?? throw new InvalidOperationException($"Invalid turn output interaction payload for session '{sessionId}'.");
+
+            turns.Add(new RolePlayTurn
+            {
+                TurnId = reader.GetString(0),
+                SessionId = reader.GetString(1),
+                TurnIndex = reader.GetInt32(2),
+                TurnKind = reader.GetString(3),
+                TriggerSource = reader.GetString(4),
+                InitiatedByActorName = reader.IsDBNull(5) ? null : reader.GetString(5),
+                InputInteractionId = reader.IsDBNull(6) ? null : reader.GetString(6),
+                OutputInteractionIds = outputInteractionIds,
+                StartedUtc = DateTime.TryParse(reader.GetString(8), out var startedUtc)
+                    ? startedUtc
+                    : throw new InvalidOperationException($"Invalid turn start timestamp for session '{sessionId}'."),
+                CompletedUtc = reader.IsDBNull(9)
+                    ? null
+                    : (DateTime.TryParse(reader.GetString(9), out var completedUtc)
+                        ? completedUtc
+                        : throw new InvalidOperationException($"Invalid turn completion timestamp for session '{sessionId}'.")),
+                Status = status,
+                FailureReason = reader.IsDBNull(11) ? null : reader.GetString(11)
+            });
+        }
+
+        turns.Reverse();
+        return turns;
     }
 
     public async Task SaveAdaptiveStateAsync(AdaptiveScenarioState state, CancellationToken cancellationToken = default)
@@ -111,10 +303,10 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
         {
             SessionId = reader.GetString(0),
             ActiveScenarioId = reader.IsDBNull(1) ? null : reader.GetString(1),
-            CurrentPhase = Enum.TryParse<NarrativePhase>(reader.GetString(2), out var phase) ? phase : NarrativePhase.BuildUp,
+            CurrentPhase = ParseNarrativePhase(reader.GetString(2), reader.GetString(0)),
             InteractionCountInPhase = reader.GetInt32(3),
             ConsecutiveLeadCount = reader.GetInt32(4),
-            LastEvaluationUtc = DateTime.TryParse(reader.GetString(5), out var evalUtc) ? evalUtc : DateTime.UtcNow,
+            LastEvaluationUtc = ParseUtcTimestamp(reader.GetString(5), reader.GetString(0)),
             CycleIndex = reader.GetInt32(6),
             ActiveFormulaVersion = reader.GetString(7),
             ActiveVariantId = reader.IsDBNull(8) ? null : reader.GetString(8),
@@ -139,6 +331,24 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 : (JsonSerializer.Deserialize<List<CharacterLocationPerceptionState>>(reader.GetString(19)) ?? []),
             CharacterSnapshots = JsonSerializer.Deserialize<List<CharacterStatProfileV2>>(reader.GetString(20)) ?? []
         };
+    }
+
+    private static NarrativePhase ParseNarrativePhase(string value, string sessionId)
+    {
+        if (Enum.TryParse<NarrativePhase>(value, out var phase))
+            return phase;
+        throw new InvalidOperationException(
+            $"RolePlayV2AdaptiveStates row for session '{sessionId}' has unrecognized CurrentPhase value '{value}'. " +
+            "Database state is corrupt; failing fast instead of silently defaulting.");
+    }
+
+    private static DateTime ParseUtcTimestamp(string value, string sessionId)
+    {
+        if (DateTime.TryParse(value, null, DateTimeStyles.AdjustToUniversal, out var dt))
+            return DateTime.SpecifyKind(dt, DateTimeKind.Utc);
+        throw new InvalidOperationException(
+            $"RolePlayV2AdaptiveStates row for session '{sessionId}' has unparseable LastEvaluationUtc value '{value}'. " +
+            "Database state is corrupt; failing fast instead of silently defaulting.");
     }
 
     private static async Task EnsureAdaptiveStateSchemaAsync(SqliteConnection connection, CancellationToken cancellationToken)
@@ -207,6 +417,34 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
         }
     }
 
+    private static async Task EnsureTurnSchemaAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            CREATE TABLE IF NOT EXISTS RolePlayV2Turns (
+                TurnId TEXT PRIMARY KEY,
+                SessionId TEXT NOT NULL,
+                TurnIndex INTEGER NOT NULL,
+                TurnKind TEXT NOT NULL,
+                TriggerSource TEXT NOT NULL,
+                InitiatedByActorName TEXT NULL,
+                InputInteractionId TEXT NULL,
+                OutputInteractionIdsJson TEXT NOT NULL DEFAULT '[]',
+                OutputInteractionCount INTEGER NOT NULL DEFAULT 0,
+                StartedUtc TEXT NOT NULL,
+                CompletedUtc TEXT NULL,
+                Status TEXT NOT NULL,
+                FailureReason TEXT NULL,
+                UpdatedUtc TEXT NOT NULL,
+                UNIQUE (SessionId, TurnIndex)
+            );
+
+            CREATE INDEX IF NOT EXISTS IX_RolePlayV2Turns_Session_TurnIndex
+                ON RolePlayV2Turns (SessionId, TurnIndex DESC);
+            """;
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
     private static async Task<bool> HasColumnAsync(
         SqliteConnection connection,
         string tableName,
@@ -235,11 +473,11 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 INSERT INTO RolePlayV2CandidateEvaluations (
                     SessionId, EvaluationId, ScenarioId, StageAWillingnessTier, StageBEligible,
                     CharacterAlignmentScore, NarrativeEvidenceScore, PreferencePriorityScore,
-                    FitScore, Confidence, TieBreakKey, Rationale, DetailsJson, EvaluatedUtc)
+                    FitScore, UnpenalizedFitScore, Confidence, TieBreakKey, Rationale, DetailsJson, EvaluatedUtc)
                 VALUES (
                     $sessionId, $evaluationId, $scenarioId, $tier, $eligible,
                     $characterAlignmentScore, $narrativeEvidenceScore, $preferencePriorityScore,
-                    $fitScore, $confidence, $tieBreakKey, $rationale, $detailsJson, $evaluatedUtc);
+                    $fitScore, $unpenalizedFitScore, $confidence, $tieBreakKey, $rationale, $detailsJson, $evaluatedUtc);
                 """;
             command.Parameters.AddWithValue("$sessionId", eval.SessionId);
             command.Parameters.AddWithValue("$evaluationId", eval.EvaluationId);
@@ -250,6 +488,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
             command.Parameters.AddWithValue("$narrativeEvidenceScore", eval.NarrativeEvidenceScore);
             command.Parameters.AddWithValue("$preferencePriorityScore", eval.PreferencePriorityScore);
             command.Parameters.AddWithValue("$fitScore", eval.FitScore);
+            command.Parameters.AddWithValue("$unpenalizedFitScore", eval.UnpenalizedFitScore);
             command.Parameters.AddWithValue("$confidence", eval.Confidence);
             command.Parameters.AddWithValue("$tieBreakKey", eval.TieBreakKey);
             command.Parameters.AddWithValue("$rationale", eval.Rationale);
@@ -572,7 +811,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
         command.CommandText = """
             SELECT SessionId, EvaluationId, ScenarioId, StageAWillingnessTier, StageBEligible,
                  CharacterAlignmentScore, NarrativeEvidenceScore, PreferencePriorityScore,
-                 FitScore, Confidence, TieBreakKey, Rationale, DetailsJson, EvaluatedUtc
+                 FitScore, UnpenalizedFitScore, Confidence, TieBreakKey, Rationale, DetailsJson, EvaluatedUtc
             FROM RolePlayV2CandidateEvaluations
             WHERE SessionId = $sessionId
             ORDER BY EvaluatedUtc DESC
@@ -595,11 +834,12 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 NarrativeEvidenceScore = reader.GetDecimal(6),
                 PreferencePriorityScore = reader.GetDecimal(7),
                 FitScore = reader.GetDecimal(8),
-                Confidence = reader.GetDecimal(9),
-                TieBreakKey = reader.GetString(10),
-                Rationale = reader.GetString(11),
-                DetailsJson = reader.GetString(12),
-                EvaluatedUtc = DateTime.TryParse(reader.GetString(13), out var evaluatedUtc) ? evaluatedUtc : DateTime.UtcNow
+                UnpenalizedFitScore = reader.GetDecimal(9),
+                Confidence = reader.GetDecimal(10),
+                TieBreakKey = reader.GetString(11),
+                Rationale = reader.GetString(12),
+                DetailsJson = reader.GetString(13),
+                EvaluatedUtc = DateTime.TryParse(reader.GetString(14), out var evaluatedUtc) ? evaluatedUtc : DateTime.UtcNow
             });
         }
 

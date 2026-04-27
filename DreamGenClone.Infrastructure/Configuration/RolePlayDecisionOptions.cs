@@ -9,4 +9,10 @@ public sealed class RolePlayDecisionOptions
 
     // Controls whether the narrative is suppressed on the turn a phase transition occurs.
     public bool SuppressNarrativeAfterPhaseChange { get; set; } = false;
+
+    // Feature flag for creating decision prompts when the narrative phase changes.
+    public bool EnablePhaseChangeDecisionPrompts { get; set; } = false;
+
+    // Feature flag for creating decision prompts when scene location changes.
+    public bool EnableSceneLocationDecisionPrompts { get; set; } = false;
 }

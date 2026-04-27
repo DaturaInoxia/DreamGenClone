@@ -13,6 +13,8 @@ public sealed class RolePlayDiagnosticsService : IRolePlayDiagnosticsService
 
     public async Task<RolePlayV2DiagnosticsSnapshot> GetSnapshotAsync(string sessionId, string? correlationId = null, CancellationToken cancellationToken = default)
     {
+        var adaptiveState = await _repository.LoadAdaptiveStateAsync(sessionId, cancellationToken);
+        var turns = await _repository.LoadTurnsAsync(sessionId, 200, cancellationToken);
         var candidates = await _repository.LoadCandidateEvaluationsAsync(sessionId, 100, cancellationToken);
         var transitions = await _repository.LoadTransitionEventsAsync(sessionId, 100, cancellationToken);
         var decisions = await _repository.LoadDecisionPointsAsync(sessionId, 100, cancellationToken);
@@ -21,6 +23,8 @@ public sealed class RolePlayDiagnosticsService : IRolePlayDiagnosticsService
         return new RolePlayV2DiagnosticsSnapshot
         {
             SessionId = sessionId,
+            AdaptiveState = adaptiveState,
+            Turns = turns,
             CandidateEvaluations = candidates,
             TransitionEvents = transitions,
             DecisionPoints = decisions,

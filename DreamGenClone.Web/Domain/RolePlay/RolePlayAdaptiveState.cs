@@ -85,6 +85,10 @@ public sealed class CharacterStatBlock
 
     public Dictionary<string, int> Stats { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
+    public Dictionary<string, int> LastStatDeltas { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    public DateTime? LastStatDeltaUpdatedUtc { get; set; }
+
     public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;
 }
 

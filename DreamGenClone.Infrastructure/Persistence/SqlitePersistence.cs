@@ -376,6 +376,21 @@ public sealed class SqlitePersistence : ISqlitePersistence
             CREATE INDEX IF NOT EXISTS IX_RPThemeAIGuidanceNotes_Theme_Sort
                 ON RPThemeAIGuidanceNotes (ThemeId, SortOrder, Id);
 
+            CREATE TABLE IF NOT EXISTS RPThemeNarrativeGateRules (
+                Id TEXT PRIMARY KEY,
+                ThemeId TEXT NOT NULL,
+                SortOrder INTEGER NOT NULL,
+                FromPhase TEXT NOT NULL,
+                ToPhase TEXT NOT NULL,
+                MetricKey TEXT NOT NULL,
+                Comparator TEXT NOT NULL,
+                Threshold REAL NOT NULL,
+                FOREIGN KEY (ThemeId) REFERENCES RPThemes(Id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS IX_RPThemeNarrativeGateRules_Theme_Sort
+                ON RPThemeNarrativeGateRules (ThemeId, SortOrder, Id);
+
             CREATE TABLE IF NOT EXISTS RPThemeProfileThemeAssignments (
                 Id TEXT PRIMARY KEY,
                 ProfileId TEXT NOT NULL,
@@ -620,6 +635,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 NarrativeEvidenceScore REAL NOT NULL DEFAULT 0,
                 PreferencePriorityScore REAL NOT NULL DEFAULT 0,
                 FitScore REAL NOT NULL,
+                UnpenalizedFitScore REAL NOT NULL DEFAULT 0,
                 Confidence REAL NOT NULL,
                 TieBreakKey TEXT NOT NULL,
                 Rationale TEXT NOT NULL,
@@ -689,6 +705,26 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 StatDeltaMap TEXT NOT NULL,
                 IsCustomResponseFallback INTEGER NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS RolePlayV2Turns (
+                TurnId TEXT PRIMARY KEY,
+                SessionId TEXT NOT NULL,
+                TurnIndex INTEGER NOT NULL,
+                TurnKind TEXT NOT NULL,
+                TriggerSource TEXT NOT NULL,
+                InitiatedByActorName TEXT NULL,
+                InputInteractionId TEXT NULL,
+                OutputInteractionIdsJson TEXT NOT NULL DEFAULT '[]',
+                OutputInteractionCount INTEGER NOT NULL DEFAULT 0,
+                StartedUtc TEXT NOT NULL,
+                CompletedUtc TEXT NULL,
+                Status TEXT NOT NULL,
+                FailureReason TEXT NULL,
+                UpdatedUtc TEXT NOT NULL,
+                UNIQUE (SessionId, TurnIndex)
+            );
+            CREATE INDEX IF NOT EXISTS IX_RolePlayV2Turns_Session_TurnIndex
+                ON RolePlayV2Turns (SessionId, TurnIndex DESC);
 
             CREATE TABLE IF NOT EXISTS RolePlayV2FormulaVersionRefs (
                 Id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -810,6 +846,18 @@ public sealed class SqlitePersistence : ISqlitePersistence
             alterDecisionChatInstructionAlways.CommandText = "ALTER TABLE RolePlayV2DecisionOptions ADD COLUMN ChatInstruction TEXT NOT NULL DEFAULT ''";
             await alterDecisionChatInstructionAlways.ExecuteNonQueryAsync(cancellationToken);
             _logger.LogInformation("Migrated RolePlayV2DecisionOptions table: added ChatInstruction column");
+        }
+
+        // Always ensure RolePlayV2CandidateEvaluations has UnpenalizedFitScore column.
+        var ensureCandidateUnpenalizedFitScoreColumn = connection.CreateCommand();
+        ensureCandidateUnpenalizedFitScoreColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RolePlayV2CandidateEvaluations') WHERE name='UnpenalizedFitScore'";
+        var hasCandidateUnpenalizedFitScoreColumn = Convert.ToInt64(await ensureCandidateUnpenalizedFitScoreColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasCandidateUnpenalizedFitScoreColumn)
+        {
+            var alterCandidateUnpenalizedFitScore = connection.CreateCommand();
+            alterCandidateUnpenalizedFitScore.CommandText = "ALTER TABLE RolePlayV2CandidateEvaluations ADD COLUMN UnpenalizedFitScore REAL NOT NULL DEFAULT 0";
+            await alterCandidateUnpenalizedFitScore.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated RolePlayV2CandidateEvaluations table: added UnpenalizedFitScore column");
         }
 
         // Always ensure ToneProfiles has phase-offset columns, even if legacy migrations are marked complete.

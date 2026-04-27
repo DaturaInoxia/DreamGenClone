@@ -13,6 +13,14 @@ namespace DreamGenClone.Infrastructure.RolePlay;
 public sealed partial class RPThemeService : IRPThemeService
 {
     private const string AutoBackfillRationale = "auto-backfilled for canonical stat parity";
+    private static readonly (string From, string To)[] RequiredNarrativeTransitions =
+    [
+        ("BuildUp", "Committed"),
+        ("Committed", "Approaching"),
+        ("Approaching", "Climax"),
+        ("Climax", "Reset"),
+        ("Reset", "BuildUp")
+    ];
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         WriteIndented = false
@@ -147,9 +155,14 @@ public sealed partial class RPThemeService : IRPThemeService
             throw new ArgumentException("Theme label is required.", nameof(theme));
         }
 
+        theme.NarrativeGateRules = NormalizeNarrativeGateRules(theme.NarrativeGateRules);
+
         EnsureCanonicalStatAffinities(theme);
 
         await using var connection = await OpenConnectionAsync(cancellationToken);
+        ValidateRequiredNarrativeTransitions(theme.NarrativeGateRules);
+        theme.NarrativeGateProfileId = null;
+
         await EnsureGlobalThemeLibraryProfileAsync(connection, cancellationToken);
         await using var tx = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
 
@@ -266,6 +279,145 @@ public sealed partial class RPThemeService : IRPThemeService
         return theme;
     }
 
+    public async Task<RPTheme> CloneThemeAsync(string sourceThemeId, string newThemeId, string newThemeLabel, CancellationToken cancellationToken = default)
+    {
+        sourceThemeId = (sourceThemeId ?? string.Empty).Trim();
+        newThemeId = (newThemeId ?? string.Empty).Trim();
+        newThemeLabel = (newThemeLabel ?? string.Empty).Trim();
+
+        if (string.IsNullOrWhiteSpace(sourceThemeId))
+        {
+            throw new ArgumentException("Source theme Id is required.", nameof(sourceThemeId));
+        }
+
+        if (string.IsNullOrWhiteSpace(newThemeId))
+        {
+            throw new ArgumentException("New theme Id is required.", nameof(newThemeId));
+        }
+
+        if (string.IsNullOrWhiteSpace(newThemeLabel))
+        {
+            throw new ArgumentException("New theme label is required.", nameof(newThemeLabel));
+        }
+
+        if (string.Equals(sourceThemeId, newThemeId, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Clone Id must be different from source theme Id.");
+        }
+
+        var sourceTheme = await GetThemeAsync(sourceThemeId, cancellationToken);
+        if (sourceTheme is null)
+        {
+            throw new InvalidOperationException($"Theme '{sourceThemeId}' was not found.");
+        }
+
+        var existingTarget = await GetThemeAsync(newThemeId, cancellationToken);
+        if (existingTarget is not null)
+        {
+            throw new InvalidOperationException($"Theme Id '{newThemeId}' already exists.");
+        }
+
+        var clonedTheme = new RPTheme
+        {
+            Id = newThemeId,
+            ParentThemeId = sourceTheme.ParentThemeId,
+            NarrativeGateProfileId = sourceTheme.NarrativeGateProfileId,
+            Label = newThemeLabel,
+            Description = sourceTheme.Description,
+            Category = sourceTheme.Category,
+            Weight = sourceTheme.Weight,
+            IsEnabled = sourceTheme.IsEnabled,
+            Keywords = sourceTheme.Keywords
+                .Select(keyword => new RPThemeKeyword
+                {
+                    Id = Guid.NewGuid().ToString("N"),
+                    ThemeId = newThemeId,
+                    GroupName = keyword.GroupName,
+                    Keyword = keyword.Keyword,
+                    SortOrder = keyword.SortOrder
+                })
+                .ToList(),
+            StatAffinities = sourceTheme.StatAffinities
+                .Select(affinity => new RPThemeStatAffinity
+                {
+                    Id = Guid.NewGuid().ToString("N"),
+                    ThemeId = newThemeId,
+                    StatName = affinity.StatName,
+                    Value = affinity.Value,
+                    Rationale = affinity.Rationale
+                })
+                .ToList(),
+            PhaseGuidance = sourceTheme.PhaseGuidance
+                .Select(guidance => new RPThemePhaseGuidance
+                {
+                    Id = Guid.NewGuid().ToString("N"),
+                    ThemeId = newThemeId,
+                    Phase = guidance.Phase,
+                    GuidanceText = guidance.GuidanceText
+                })
+                .ToList(),
+            GuidancePoints = sourceTheme.GuidancePoints
+                .Select(point => new RPThemeGuidancePoint
+                {
+                    Id = Guid.NewGuid().ToString("N"),
+                    ThemeId = newThemeId,
+                    Phase = point.Phase,
+                    PointType = point.PointType,
+                    Text = point.Text,
+                    SortOrder = point.SortOrder
+                })
+                .ToList(),
+            FitRules = sourceTheme.FitRules
+                .Select(rule =>
+                {
+                    var clonedRuleId = Guid.NewGuid().ToString("N");
+                    return new RPThemeFitRule
+                    {
+                        Id = clonedRuleId,
+                        ThemeId = newThemeId,
+                        RoleName = rule.RoleName,
+                        RoleWeight = rule.RoleWeight,
+                        Clauses = rule.Clauses
+                            .Select(clause => new RPThemeFitRuleClause
+                            {
+                                Id = Guid.NewGuid().ToString("N"),
+                                FitRuleId = clonedRuleId,
+                                StatName = clause.StatName,
+                                Comparator = clause.Comparator,
+                                Threshold = clause.Threshold,
+                                PenaltyWeight = clause.PenaltyWeight,
+                                Description = clause.Description
+                            })
+                            .ToList()
+                    };
+                })
+                .ToList(),
+            AIGenerationNotes = sourceTheme.AIGenerationNotes
+                .Select(note => new RPThemeAIGuidanceNote
+                {
+                    Id = Guid.NewGuid().ToString("N"),
+                    ThemeId = newThemeId,
+                    Section = note.Section,
+                    Text = note.Text,
+                    SortOrder = note.SortOrder
+                })
+                .ToList(),
+            NarrativeGateRules = sourceTheme.NarrativeGateRules
+                .Select(rule => new NarrativeGateRule
+                {
+                    SortOrder = rule.SortOrder,
+                    FromPhase = rule.FromPhase,
+                    ToPhase = rule.ToPhase,
+                    MetricKey = rule.MetricKey,
+                    Comparator = rule.Comparator,
+                    Threshold = rule.Threshold
+                })
+                .ToList()
+        };
+
+        return await SaveThemeAsync(clonedTheme, cancellationToken);
+    }
+
     public async Task<IReadOnlyList<RPTheme>> ListThemesAsync(bool includeDisabled = false, CancellationToken cancellationToken = default)
     {
         var themes = new List<RPTheme>();
@@ -301,7 +453,9 @@ public sealed partial class RPThemeService : IRPThemeService
             theme.GuidancePoints = await LoadThemeGuidancePointsAsync(connection, theme.Id, _logger, cancellationToken);
             theme.FitRules = await LoadThemeFitRulesAsync(connection, theme.Id, cancellationToken);
             theme.AIGenerationNotes = await LoadThemeAIGuidanceNotesAsync(connection, theme.Id, cancellationToken);
+            theme.NarrativeGateRules = await LoadThemeNarrativeGateRulesAsync(connection, theme.Id, cancellationToken);
             await EnsureCanonicalStatAffinitiesPersistedAsync(connection, theme, cancellationToken);
+            await EnsureThemeNarrativeGateRulesPersistedAsync(connection, theme, cancellationToken);
         }
 
         return themes;
@@ -355,7 +509,9 @@ public sealed partial class RPThemeService : IRPThemeService
             theme.GuidancePoints = await LoadThemeGuidancePointsAsync(connection, theme.Id, _logger, cancellationToken);
             theme.FitRules = await LoadThemeFitRulesAsync(connection, theme.Id, cancellationToken);
             theme.AIGenerationNotes = await LoadThemeAIGuidanceNotesAsync(connection, theme.Id, cancellationToken);
+            theme.NarrativeGateRules = await LoadThemeNarrativeGateRulesAsync(connection, theme.Id, cancellationToken);
             await EnsureCanonicalStatAffinitiesPersistedAsync(connection, theme, cancellationToken);
+            await EnsureThemeNarrativeGateRulesPersistedAsync(connection, theme, cancellationToken);
         }
 
         return themes;
@@ -394,7 +550,9 @@ public sealed partial class RPThemeService : IRPThemeService
         theme.GuidancePoints = await LoadThemeGuidancePointsAsync(connection, theme.Id, _logger, cancellationToken);
         theme.FitRules = await LoadThemeFitRulesAsync(connection, theme.Id, cancellationToken);
         theme.AIGenerationNotes = await LoadThemeAIGuidanceNotesAsync(connection, theme.Id, cancellationToken);
+        theme.NarrativeGateRules = await LoadThemeNarrativeGateRulesAsync(connection, theme.Id, cancellationToken);
         await EnsureCanonicalStatAffinitiesPersistedAsync(connection, theme, cancellationToken);
+        await EnsureThemeNarrativeGateRulesPersistedAsync(connection, theme, cancellationToken);
 
         return theme;
     }
@@ -1199,7 +1357,8 @@ public sealed partial class RPThemeService : IRPThemeService
             "DELETE FROM RPThemePhaseGuidance WHERE ThemeId = $themeId",
             "DELETE FROM RPThemeGuidancePoints WHERE ThemeId = $themeId",
             "DELETE FROM RPThemeAIGuidanceNotes WHERE ThemeId = $themeId",
-            "DELETE FROM RPThemeFitRules WHERE ThemeId = $themeId"
+            "DELETE FROM RPThemeFitRules WHERE ThemeId = $themeId",
+            "DELETE FROM RPThemeNarrativeGateRules WHERE ThemeId = $themeId"
         };
 
         foreach (var clearSql in clearTables)
@@ -1304,6 +1463,22 @@ public sealed partial class RPThemeService : IRPThemeService
             cmd.Parameters.AddWithValue("$section", note.Section.ToString());
             cmd.Parameters.AddWithValue("$text", note.Text);
             cmd.Parameters.AddWithValue("$sortOrder", note.SortOrder);
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        foreach (var rule in theme.NarrativeGateRules.Select((item, index) => (Rule: item, SortOrder: index + 1)))
+        {
+            await using var cmd = connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = "INSERT INTO RPThemeNarrativeGateRules (Id, ThemeId, SortOrder, FromPhase, ToPhase, MetricKey, Comparator, Threshold) VALUES ($id, $themeId, $sortOrder, $fromPhase, $toPhase, $metricKey, $comparator, $threshold)";
+            cmd.Parameters.AddWithValue("$id", Guid.NewGuid().ToString("N"));
+            cmd.Parameters.AddWithValue("$themeId", theme.Id);
+            cmd.Parameters.AddWithValue("$sortOrder", rule.SortOrder);
+            cmd.Parameters.AddWithValue("$fromPhase", rule.Rule.FromPhase);
+            cmd.Parameters.AddWithValue("$toPhase", rule.Rule.ToPhase);
+            cmd.Parameters.AddWithValue("$metricKey", rule.Rule.MetricKey);
+            cmd.Parameters.AddWithValue("$comparator", rule.Rule.Comparator);
+            cmd.Parameters.AddWithValue("$threshold", rule.Rule.Threshold);
             await cmd.ExecuteNonQueryAsync(cancellationToken);
         }
     }
@@ -2313,6 +2488,101 @@ public sealed partial class RPThemeService : IRPThemeService
         return list;
     }
 
+    private static async Task<List<NarrativeGateRule>> LoadThemeNarrativeGateRulesAsync(SqliteConnection connection, string themeId, CancellationToken cancellationToken)
+    {
+        var list = new List<NarrativeGateRule>();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT Id, SortOrder, FromPhase, ToPhase, MetricKey, Comparator, Threshold FROM RPThemeNarrativeGateRules WHERE ThemeId = $themeId ORDER BY SortOrder, Id";
+        command.Parameters.AddWithValue("$themeId", themeId);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            list.Add(new NarrativeGateRule
+            {
+                SortOrder = reader.GetInt32(1),
+                FromPhase = reader.GetString(2),
+                ToPhase = reader.GetString(3),
+                MetricKey = reader.GetString(4),
+                Comparator = reader.GetString(5),
+                Threshold = Convert.ToDecimal(reader.GetValue(6))
+            });
+        }
+
+        return NormalizeNarrativeGateRules(list);
+    }
+
+    private async Task EnsureThemeNarrativeGateRulesPersistedAsync(SqliteConnection connection, RPTheme theme, CancellationToken cancellationToken)
+    {
+        if (theme.NarrativeGateRules.Count > 0)
+        {
+            return;
+        }
+
+        var seed = await LoadDefaultNarrativeGateRulesAsync(connection, cancellationToken);
+        if (seed.Count == 0)
+        {
+            return;
+        }
+
+        theme.NarrativeGateRules = seed;
+        await using var tx = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        await ReplaceThemeChildrenAsync(connection, tx, theme, cancellationToken);
+        await tx.CommitAsync(cancellationToken);
+    }
+
+    private static async Task<List<NarrativeGateRule>> LoadDefaultNarrativeGateRulesAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT RulesJson FROM NarrativeGateProfiles WHERE IsDefault = 1 LIMIT 1";
+        var result = await command.ExecuteScalarAsync(cancellationToken);
+        if (result is not string rulesJson || string.IsNullOrWhiteSpace(rulesJson))
+        {
+            return [];
+        }
+
+        var parsed = JsonSerializer.Deserialize<List<NarrativeGateRule>>(rulesJson, JsonOptions) ?? [];
+        return NormalizeNarrativeGateRules(parsed);
+    }
+
+    private static List<NarrativeGateRule> NormalizeNarrativeGateRules(IReadOnlyList<NarrativeGateRule> rules)
+    {
+        return rules
+            .Where(rule => !string.IsNullOrWhiteSpace(rule.FromPhase)
+                && !string.IsNullOrWhiteSpace(rule.ToPhase)
+                && !string.IsNullOrWhiteSpace(rule.MetricKey)
+                && !string.IsNullOrWhiteSpace(rule.Comparator))
+            .Select((rule, index) => new NarrativeGateRule
+            {
+                SortOrder = index + 1,
+                FromPhase = rule.FromPhase.Trim(),
+                ToPhase = rule.ToPhase.Trim(),
+                MetricKey = rule.MetricKey.Trim(),
+                Comparator = rule.Comparator.Trim(),
+                Threshold = rule.Threshold
+            })
+            .ToList();
+    }
+
+    private static void ValidateRequiredNarrativeTransitions(IReadOnlyList<NarrativeGateRule> rules)
+    {
+        if (rules.Count == 0)
+        {
+            throw new ArgumentException("Theme narrative gate values require at least one rule.", nameof(rules));
+        }
+
+        var missingTransitions = RequiredNarrativeTransitions
+            .Where(required => !rules.Any(rule => string.Equals(rule.FromPhase, required.From, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(rule.ToPhase, required.To, StringComparison.OrdinalIgnoreCase)))
+            .Select(required => $"{required.From}->{required.To}")
+            .ToList();
+
+        if (missingTransitions.Count > 0)
+        {
+            throw new InvalidOperationException($"Theme narrative gate values are missing required transition paths: {string.Join(", ", missingTransitions)}");
+        }
+    }
+
     private async Task EnsureCanonicalStatAffinitiesPersistedAsync(SqliteConnection connection, RPTheme theme, CancellationToken cancellationToken)
     {
         if (!EnsureCanonicalStatAffinities(theme))
@@ -2463,6 +2733,21 @@ public sealed partial class RPThemeService : IRPThemeService
 
             CREATE INDEX IF NOT EXISTS IX_RPThemeAIGuidanceNotes_Theme_Sort
                 ON RPThemeAIGuidanceNotes (ThemeId, SortOrder, Id);
+
+            CREATE TABLE IF NOT EXISTS RPThemeNarrativeGateRules (
+                Id TEXT PRIMARY KEY,
+                ThemeId TEXT NOT NULL,
+                SortOrder INTEGER NOT NULL,
+                FromPhase TEXT NOT NULL,
+                ToPhase TEXT NOT NULL,
+                MetricKey TEXT NOT NULL,
+                Comparator TEXT NOT NULL,
+                Threshold REAL NOT NULL,
+                FOREIGN KEY (ThemeId) REFERENCES RPThemes(Id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS IX_RPThemeNarrativeGateRules_Theme_Sort
+                ON RPThemeNarrativeGateRules (ThemeId, SortOrder, Id);
             """;
         await command.ExecuteNonQueryAsync(cancellationToken);
     }

@@ -12,6 +12,12 @@ public sealed class RolePlayDiagnosticsRepository : IRolePlayDiagnosticsReposito
         _stateRepository = stateRepository;
     }
 
+    public Task<AdaptiveScenarioState?> LoadAdaptiveStateAsync(string sessionId, CancellationToken cancellationToken = default)
+        => _stateRepository.LoadAdaptiveStateAsync(sessionId, cancellationToken);
+
+    public Task<IReadOnlyList<RolePlayTurn>> LoadTurnsAsync(string sessionId, int take = 100, CancellationToken cancellationToken = default)
+        => _stateRepository.LoadTurnsAsync(sessionId, take, cancellationToken);
+
     public Task<IReadOnlyList<ScenarioCandidateEvaluation>> LoadCandidateEvaluationsAsync(string sessionId, int take = 100, CancellationToken cancellationToken = default)
         => _stateRepository.LoadCandidateEvaluationsAsync(sessionId, take, cancellationToken);
 

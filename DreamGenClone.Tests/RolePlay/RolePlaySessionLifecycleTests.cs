@@ -850,6 +850,59 @@ public sealed class RolePlaySessionLifecycleTests
         Assert.True(fresh.NarrativeEvidenceScore > repeat.NarrativeEvidenceScore);
     }
 
+    [Fact]
+    public async Task BuildScenarioCandidates_RecentCompletedThemeGetsAdditionalPenalty()
+    {
+        var service = RolePlayTestFactory.CreateEngineService();
+        var session = new RolePlaySession
+        {
+            AdaptiveState = new RolePlayAdaptiveState
+            {
+                ThemeTracker = new ThemeTrackerState
+                {
+                    Themes = new Dictionary<string, ThemeTrackerItem>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["older-theme"] = new ThemeTrackerItem
+                        {
+                            ThemeId = "older-theme",
+                            ThemeName = "Older Theme",
+                            Score = 90
+                        },
+                        ["recent-theme"] = new ThemeTrackerItem
+                        {
+                            ThemeId = "recent-theme",
+                            ThemeName = "Recent Theme",
+                            Score = 90
+                        }
+                    }
+                },
+                ScenarioHistory =
+                [
+                    new ScenarioMetadata { ScenarioId = "older-theme" },
+                    new ScenarioMetadata { ScenarioId = "recent-theme" }
+                ]
+            }
+        };
+
+        var method = typeof(RolePlayEngineService).GetMethod(
+            "BuildScenarioCandidatesAsync",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+
+        Assert.NotNull(method);
+
+        var invokeResult = method!.Invoke(service, [session, CancellationToken.None]);
+        Assert.IsType<Task<List<ScenarioDefinition>>>(invokeResult);
+
+        var candidates = await (Task<List<ScenarioDefinition>>)invokeResult!;
+        Assert.NotEmpty(candidates);
+
+        var older = Assert.Single(candidates.Where(x => x.ScenarioId == "older-theme"));
+        var recent = Assert.Single(candidates.Where(x => x.ScenarioId == "recent-theme"));
+
+        Assert.True(older.NarrativeEvidenceScore > recent.NarrativeEvidenceScore);
+        Assert.True(older.PreferencePriorityScore > recent.PreferencePriorityScore);
+    }
+
     private static (RolePlayEngineService Service, FakeSessionService SessionService) CreateService(
         IRolePlayStateRepository? v2StateRepository = null,
         bool suppressNarrativeAfterDecision = false)
@@ -878,7 +931,7 @@ public sealed class RolePlaySessionLifecycleTests
             NullLogger<RolePlayEngineService>.Instance,
             decisionPointService: new DecisionPointService(NullLogger<DecisionPointService>.Instance),
             scenarioLifecycleService: new ScenarioLifecycleService(NullLogger<ScenarioLifecycleService>.Instance),
-            v2StateRepository: v2StateRepository,
+            stateRepository: v2StateRepository,
             rolePlayDecisionOptions: Options.Create(new RolePlayDecisionOptions
             {
                 SuppressNarrativeAfterDecision = suppressNarrativeAfterDecision
@@ -996,6 +1049,60 @@ public sealed class RolePlaySessionLifecycleTests
         private readonly Dictionary<string, AdaptiveScenarioState> _states = new(StringComparer.OrdinalIgnoreCase);
         private readonly List<DecisionPoint> _points = [];
         private readonly Dictionary<string, IReadOnlyList<DecisionOption>> _options = new(StringComparer.OrdinalIgnoreCase);
+        private readonly List<RolePlayTurn> _turns = [];
+
+        public Task<RolePlayTurn> StartTurnAsync(string sessionId, string turnKind, string triggerSource, string? initiatedByActorName, string? inputInteractionId, CancellationToken cancellationToken = default)
+        {
+            var turn = new RolePlayTurn
+            {
+                TurnId = Guid.NewGuid().ToString("N"),
+                SessionId = sessionId,
+                TurnIndex = _turns.Count(x => string.Equals(x.SessionId, sessionId, StringComparison.OrdinalIgnoreCase)) + 1,
+                TurnKind = turnKind,
+                TriggerSource = triggerSource,
+                InitiatedByActorName = initiatedByActorName,
+                InputInteractionId = inputInteractionId,
+                StartedUtc = DateTime.UtcNow,
+                Status = RolePlayTurnStatus.Started
+            };
+            _turns.Add(turn);
+            return Task.FromResult(turn);
+        }
+
+        public Task CompleteTurnAsync(string sessionId, string turnId, IReadOnlyList<string> outputInteractionIds, bool succeeded, string? failureReason = null, CancellationToken cancellationToken = default)
+        {
+            var index = _turns.FindIndex(x => string.Equals(x.SessionId, sessionId, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(x.TurnId, turnId, StringComparison.OrdinalIgnoreCase));
+            if (index >= 0)
+            {
+                var existing = _turns[index];
+                _turns[index] = new RolePlayTurn
+                {
+                    TurnId = existing.TurnId,
+                    SessionId = existing.SessionId,
+                    TurnIndex = existing.TurnIndex,
+                    TurnKind = existing.TurnKind,
+                    TriggerSource = existing.TriggerSource,
+                    InitiatedByActorName = existing.InitiatedByActorName,
+                    InputInteractionId = existing.InputInteractionId,
+                    OutputInteractionIds = outputInteractionIds,
+                    StartedUtc = existing.StartedUtc,
+                    CompletedUtc = DateTime.UtcNow,
+                    Status = succeeded ? RolePlayTurnStatus.Completed : RolePlayTurnStatus.Failed,
+                    FailureReason = failureReason
+                };
+            }
+
+            return Task.CompletedTask;
+        }
+
+        public Task<IReadOnlyList<RolePlayTurn>> LoadTurnsAsync(string sessionId, int take = 100, CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<RolePlayTurn>>(_turns
+                .Where(x => string.Equals(x.SessionId, sessionId, StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(x => x.TurnIndex)
+                .Take(take)
+                .Reverse()
+                .ToList());
 
         public Task SaveAdaptiveStateAsync(AdaptiveScenarioState state, CancellationToken cancellationToken = default)
         {

@@ -179,28 +179,35 @@ public sealed class RolePlayDebugEventService : IRolePlayDebugEventSink
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            IEnumerable<string> fileLines;
             try
             {
-                fileLines = File.ReadLines(file);
+                using var fs = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                using var reader = new StreamReader(fs);
+                while (!reader.EndOfStream)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var line = reader.ReadLine();
+                    if (line is null) break;
+
+                    var hasSession = string.IsNullOrWhiteSpace(sessionId)
+                        || line.Contains(sessionId, StringComparison.OrdinalIgnoreCase);
+                    var hasCorrelation = string.IsNullOrWhiteSpace(correlationId)
+                        || line.Contains(correlationId, StringComparison.OrdinalIgnoreCase);
+
+                    if (hasSession && hasCorrelation)
+                    {
+                        lines.Add(line);
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to read log file {LogFile}", file);
                 continue;
-            }
-
-            foreach (var line in fileLines)
-            {
-                var hasSession = string.IsNullOrWhiteSpace(sessionId)
-                    || line.Contains(sessionId, StringComparison.OrdinalIgnoreCase);
-                var hasCorrelation = string.IsNullOrWhiteSpace(correlationId)
-                    || line.Contains(correlationId, StringComparison.OrdinalIgnoreCase);
-
-                if (hasSession && hasCorrelation)
-                {
-                    lines.Add(line);
-                }
             }
         }
 

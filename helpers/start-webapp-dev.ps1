@@ -48,6 +48,8 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+#pragma warning disable PSUseDeclaredVarsMoreThanAssignments
+
 $repoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $repoRoot
 
@@ -133,28 +135,28 @@ function Invoke-BuildWithLockRecovery {
     )
 
     Write-Host "Running: dotnet build --no-restore -v $Verbosity" -ForegroundColor DarkCyan
-    $buildOutput = @()
-    & dotnet build "$ProjectPath" -v $Verbosity --no-restore 2>&1 |
-        Tee-Object -Variable buildOutput |
-        ForEach-Object { Write-Host $_ }
-    $buildExit = $LASTEXITCODE
+    $firstBuildLines = & dotnet build "$ProjectPath" -v $Verbosity --no-restore 2>&1
+    foreach ($line in $firstBuildLines) {
+        Write-Host $line
+    }
 
-    if ($buildExit -eq 0) {
+    $firstExitCode = $LASTEXITCODE
+    if ($firstExitCode -eq 0) {
         return 0
     }
 
     $lockPids = [System.Collections.Generic.HashSet[int]]::new()
-    foreach ($line in $buildOutput) {
+    foreach ($line in $firstBuildLines) {
         if ($line -match 'file is locked by: ".*\((\d+)\)"') {
             [void]$lockPids.Add([int]$Matches[1])
         }
     }
 
     if ($lockPids.Count -eq 0) {
-        return $buildExit
+        return $firstExitCode
     }
 
-    Write-Host "Detected build file lock(s). Stopping lock-holder process(es): $($lockPids -join ', ')" -ForegroundColor Yellow
+    Write-Host "Build failed due to lock(s). Stopping lock-holder process(es): $($lockPids -join ', ')" -ForegroundColor Yellow
     foreach ($lockPid in $lockPids) {
         try {
             Stop-Process -Id $lockPid -Force -ErrorAction Stop
@@ -165,15 +167,22 @@ function Invoke-BuildWithLockRecovery {
         }
     }
 
-    Write-Host "Retrying build once after clearing lock(s)..." -ForegroundColor Yellow
-    $retryOutput = @()
-    & dotnet build "$ProjectPath" -v $Verbosity --no-restore 2>&1 |
-        Tee-Object -Variable retryOutput |
-        ForEach-Object { Write-Host $_ }
+    Write-Host "Retrying build once after lock recovery..." -ForegroundColor Yellow
+    $retryBuildLines = & dotnet build "$ProjectPath" -v $Verbosity --no-restore 2>&1
+    foreach ($line in $retryBuildLines) {
+        Write-Host $line
+    }
+
     return $LASTEXITCODE
 }
 
 Test-Prerequisites
+
+Write-Section "Dev target: $projectPath"
+$runMode = if ($Watch) { 'watch' } else { 'run' }
+$restoreMode = if ($Restore) { 'restore' } else { 'no-restore' }
+$stopMode = if ($SkipStop) { 'skip-stop' } else { 'stop-existing' }
+Write-Host "Mode: $runMode, $restoreMode, $stopMode" -ForegroundColor DarkCyan
 
 if (-not $SkipStop) {
     Write-Section "Stopping existing DreamGenClone web app"
@@ -194,9 +203,10 @@ if ($Restore) {
 
 if (-not $Watch) {
     Write-Section "Building web app (one-time)"
+    Write-Host "Build command target: $projectPath" -ForegroundColor DarkCyan
     $buildExit = Invoke-BuildWithLockRecovery -ProjectPath $projectPath -Verbosity $BuildVerbosity
     if ($buildExit -ne 0) {
-        Write-Host "Error: build failed. App was not started." -ForegroundColor Red
+        Write-Host "Error: build failed for '$projectPath'. App was not started." -ForegroundColor Red
         exit $buildExit
     }
 }
@@ -232,3 +242,5 @@ else {
 }
 
 exit $LASTEXITCODE
+
+#pragma warning restore PSUseDeclaredVarsMoreThanAssignments

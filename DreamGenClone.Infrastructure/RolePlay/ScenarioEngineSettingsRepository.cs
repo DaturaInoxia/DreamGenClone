@@ -2,7 +2,6 @@ using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Infrastructure.Configuration;
 using Microsoft.Data.Sqlite;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Text.Json;
 
@@ -13,14 +12,11 @@ public sealed class ScenarioEngineSettingsRepository : IScenarioEngineSettingsRe
     private const string SingletonId = "default";
 
     private readonly PersistenceOptions _options;
-    private readonly ILogger<ScenarioEngineSettingsRepository> _logger;
 
     public ScenarioEngineSettingsRepository(
-        IOptions<PersistenceOptions> options,
-        ILogger<ScenarioEngineSettingsRepository> logger)
+        IOptions<PersistenceOptions> options)
     {
         _options = options.Value;
-        _logger = logger;
     }
 
     public async Task<ScenarioEngineSettings> LoadAsync(CancellationToken cancellationToken = default)
@@ -35,18 +31,25 @@ public sealed class ScenarioEngineSettingsRepository : IScenarioEngineSettingsRe
         var result = await command.ExecuteScalarAsync(cancellationToken);
         if (result is null or DBNull)
         {
-            return new ScenarioEngineSettings();
+            throw new InvalidOperationException(
+                "ScenarioEngineSettings row not found in database. " +
+                "Required engine configuration is missing; configure engine settings in the UI before starting a session.");
         }
 
         try
         {
             return JsonSerializer.Deserialize<ScenarioEngineSettings>(result.ToString()!)
-                ?? new ScenarioEngineSettings();
+                ?? throw new InvalidOperationException(
+                    "ScenarioEngineSettings deserialized to null; the stored JSON is empty or invalid.");
+        }
+        catch (InvalidOperationException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to deserialize ScenarioEngineSettings; returning defaults");
-            return new ScenarioEngineSettings();
+            throw new InvalidOperationException(
+                "Failed to deserialize ScenarioEngineSettings from database. The stored JSON is corrupt.", ex);
         }
     }
 
@@ -73,6 +76,5 @@ public sealed class ScenarioEngineSettingsRepository : IScenarioEngineSettingsRe
         command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
 
         await command.ExecuteNonQueryAsync(cancellationToken);
-        _logger.LogInformation("Saved ScenarioEngineSettings");
     }
 }

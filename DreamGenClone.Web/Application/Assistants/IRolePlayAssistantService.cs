@@ -6,9 +6,12 @@ namespace DreamGenClone.Web.Application.Assistants;
 public sealed class RolePlayAssistantContext
 {
     public string SessionId { get; init; } = string.Empty;
+    public string? CorrelationId { get; init; }
     public string? ScenarioSummary { get; init; }
     public IReadOnlyList<string> RecentInteractions { get; init; } = [];
     public string? BehaviorMode { get; init; }
+    public string? CurrentNarrativePhase { get; init; }
+    public string? ActiveScenarioId { get; init; }
     public string? PersonaName { get; init; }
     public string? PersonaDescription { get; init; }
     public string? PersonaRole { get; init; }
@@ -34,6 +37,7 @@ public sealed class RolePlayAssistantContext
 
     // Adaptive/profile steering visibility for assistant guidance
     public string? SelectedThemeProfileId { get; init; }
+    public string? SelectedNarrativeGateProfileId { get; init; }
     public string? SelectedIntensityProfileId { get; init; }
     public string? AdaptiveIntensityProfileId { get; init; }
     public string? ActiveIntensityProfile { get; init; }

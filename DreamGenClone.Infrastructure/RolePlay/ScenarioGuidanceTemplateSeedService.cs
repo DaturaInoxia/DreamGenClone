@@ -16,6 +16,22 @@ public sealed class ScenarioGuidanceTemplateSeedService
     private static readonly SeedDefinition[] SeedTemplates =
     [
         new(
+            Guid.Parse("5f9a5d7b-2b34-4a2f-ae6d-9a8a2d8d1004"),
+            "scenario-guidance:threesome-spontaneous-exclusion-v2:default",
+            BuildTemplate(
+                "threesome-spontaneous-exclusion-v2",
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["BuildUp"] = "Establish the husband's anticipation and excitement alongside the wife's initial shyness. Keep the mood curious and hopeful; avoid any direct physical progression.",
+                    ["Committed"] = "Begin the threesome scenario with the wife warming up hesitantly. The husband is actively involved. Avoid depicting exclusion or shift of focus yet — ensure all three characters are engaged.",
+                    ["Approaching"] = "Gradually let the wife's engagement with the other man deepen while the husband's involvement starts to naturally diminish. Escalate her focus and his fading presence. Do not yet deliver full explicit consummation or complete exclusion — these belong in Climax.",
+                    ["Climax"] = "The wife is fully absorbed in the other man, the husband has faded to observer or invisible status. Deliver the emotional and physical peak: her obliviousness to his exclusion, his complex mix of arousal and hurt unfolds in full.",
+                    ["Reset"] = "Shift to aftermath: the husband's shock and quiet realization, the wife's gradual awareness of what happened. Reflective tone, no further explicit escalation.",
+                    ["Default"] = "Keep the emotional dynamics of the threesome — wife's growing enthusiasm, husband's diminishing role — as the central tension. Every beat should reinforce the spontaneous shift in focus."
+                },
+                ["wife's gradual shift of attention", "husband's mixed emotional state", "contrast between wife's absorption and husband's exclusion"],
+                ["intentional degradation or humiliation framing", "abrupt pivot away from the exclusion dynamic", "husband breaking scene to protest before climax"])),
+        new(
             Guid.Parse("5f9a5d7b-2b34-4a2f-ae6d-9a8a2d8d1001"),
             "scenario-guidance:dominance:default",
             BuildTemplate(

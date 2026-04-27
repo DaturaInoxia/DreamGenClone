@@ -244,18 +244,31 @@ public sealed class SessionService : ISessionService
             session.AdaptiveIntensityProfileId = session.SelectedIntensityProfileId;
         }
 
-        if (session.AdaptiveState.ActiveScenarioId is null)
+        if (string.IsNullOrWhiteSpace(session.AdaptiveState.ActiveScenarioId))
         {
-            if (session.AdaptiveState.CurrentNarrativePhase is NarrativePhase.Committed
-                or NarrativePhase.Approaching
-                or NarrativePhase.Climax)
+            var repairedScenarioId = ResolveScenarioIdFromThemeTracker(session.AdaptiveState.ThemeTracker);
+            if (!string.IsNullOrWhiteSpace(repairedScenarioId))
             {
-                session.AdaptiveState.CurrentNarrativePhase = NarrativePhase.BuildUp;
+                session.AdaptiveState.ActiveScenarioId = repairedScenarioId;
             }
         }
-        else if (session.AdaptiveState.CurrentNarrativePhase is NarrativePhase.BuildUp or NarrativePhase.Reset)
+    }
+
+
+    private static string? ResolveScenarioIdFromThemeTracker(ThemeTrackerState tracker)
+    {
+        if (!string.IsNullOrWhiteSpace(tracker.PrimaryThemeId)
+            && tracker.Themes.TryGetValue(tracker.PrimaryThemeId, out var primaryTheme)
+            && !primaryTheme.Blocked)
         {
-            session.AdaptiveState.CurrentNarrativePhase = NarrativePhase.Committed;
+            return primaryTheme.ThemeId;
         }
+
+        return tracker.Themes.Values
+            .Where(x => !x.Blocked)
+            .OrderByDescending(x => x.Score)
+            .ThenBy(x => x.ThemeId, StringComparer.OrdinalIgnoreCase)
+            .Select(x => x.ThemeId)
+            .FirstOrDefault();
     }
 }

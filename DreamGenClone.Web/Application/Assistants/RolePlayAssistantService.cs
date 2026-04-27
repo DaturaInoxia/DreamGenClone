@@ -1,32 +1,47 @@
 using System.Text;
+using System.Diagnostics;
 using DreamGenClone.Application.Abstractions;
 using DreamGenClone.Application.ModelManager;
 using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Infrastructure.Logging;
+using DreamGenClone.Web.Application.RolePlay;
 using Microsoft.Extensions.Logging;
 
 namespace DreamGenClone.Web.Application.Assistants;
 
 public sealed class RolePlayAssistantService : IRolePlayAssistantService
 {
+    private const int EvidenceEventTake = 80;
+    private const int EvidenceLogLineTake = 160;
+
     private readonly ICompletionClient _completionClient;
     private readonly IModelResolutionService _modelResolver;
     private readonly IAssistantContextManager _contextManager;
     private readonly IRolePlayDiagnosticsService? _diagnosticsService;
+    private readonly RolePlayDebugEventService? _debugEventService;
     private readonly ILogger<RolePlayAssistantService> _logger;
+
+    private enum AssistantQueryMode
+    {
+        Standard = 0,
+        EngineExpert = 1,
+        JsonOptionGenerator = 2
+    }
 
     public RolePlayAssistantService(
         ICompletionClient completionClient,
         IModelResolutionService modelResolver,
         IAssistantContextManager contextManager,
         ILogger<RolePlayAssistantService> logger,
-        IRolePlayDiagnosticsService? diagnosticsService = null)
+        IRolePlayDiagnosticsService? diagnosticsService = null,
+        RolePlayDebugEventService? debugEventService = null)
     {
         _completionClient = completionClient;
         _modelResolver = modelResolver;
         _contextManager = contextManager;
         _diagnosticsService = diagnosticsService;
+        _debugEventService = debugEventService;
         _logger = logger;
     }
 
@@ -56,33 +71,117 @@ public sealed class RolePlayAssistantService : IRolePlayAssistantService
         CancellationToken cancellationToken = default)
     {
         var sessionId = context.SessionId;
+        var correlationId = string.IsNullOrWhiteSpace(context.CorrelationId)
+            ? Guid.NewGuid().ToString("N")[..12]
+            : context.CorrelationId;
+        var totalStopwatch = Stopwatch.StartNew();
 
         // Add user message to conversation history
         _contextManager.AddUserMessage(sessionId, userPrompt);
 
+        var queryMode = ClassifyQueryMode(userPrompt);
+        var includeDiagnostics = queryMode == AssistantQueryMode.EngineExpert;
+        var includeEvidence = includeDiagnostics && IsEvidenceRequested(userPrompt);
+
         // Build the user message with conversation context and session state
-        var diagnostics = _diagnosticsService is null
+        var diagnosticsStopwatch = Stopwatch.StartNew();
+        var diagnostics = !includeDiagnostics || _diagnosticsService is null
             ? null
             : await _diagnosticsService.GetSnapshotAsync(sessionId, cancellationToken: cancellationToken);
+        diagnosticsStopwatch.Stop();
 
-        var userMessage = BuildUserMessage(sessionId, context, userPrompt, diagnostics);
-        _logger.LogInformation("Role-play assistant request initiated for session {SessionId}", sessionId);
+        var evidenceStopwatch = Stopwatch.StartNew();
+        var evidenceBlock = includeEvidence
+            ? await BuildEvidenceBlockAsync(sessionId, correlationId, userPrompt, cancellationToken)
+            : string.Empty;
+        evidenceStopwatch.Stop();
 
-        var resolved = await _modelResolver.ResolveAsync(
-            AppFunction.RolePlayAssistant,
-            sessionModelId: assistantModelId,
-            sessionTemperature: assistantTemperature,
-            sessionTopP: assistantTopP,
-            sessionMaxTokens: assistantMaxTokens,
-            cancellationToken: cancellationToken);
+        var promptBuildStopwatch = Stopwatch.StartNew();
+        var userMessage = BuildUserMessage(sessionId, context, userPrompt, diagnostics, queryMode, evidenceBlock);
+        promptBuildStopwatch.Stop();
 
-        var response = await _completionClient.GenerateAsync(
-            RolePlayAssistantPrompts.SystemPrompt,
-            userMessage,
-            resolved,
-            cancellationToken);
+        _logger.LogInformation(
+            "Role-play assistant request initiated: SessionId={SessionId}, CorrelationId={CorrelationId}, Mode={Mode}, DiagnosticsMs={DiagnosticsMs}, EvidenceMs={EvidenceMs}, PromptBuildMs={PromptBuildMs}, PromptLength={PromptLength}",
+            sessionId,
+            correlationId,
+            queryMode,
+            diagnosticsStopwatch.ElapsedMilliseconds,
+            evidenceStopwatch.ElapsedMilliseconds,
+            promptBuildStopwatch.ElapsedMilliseconds,
+            userMessage.Length);
 
-        var trimmedResponse = CleanResponse(response);
+        var resolveStopwatch = Stopwatch.StartNew();
+        var completionStopwatch = new Stopwatch();
+        var normalizeStopwatch = new Stopwatch();
+        string trimmedResponse;
+
+        try
+        {
+            var systemPrompt = SelectSystemPrompt(queryMode);
+
+            var resolved = await _modelResolver.ResolveAsync(
+                AppFunction.RolePlayAssistant,
+                sessionModelId: assistantModelId,
+                sessionTemperature: assistantTemperature,
+                sessionTopP: assistantTopP,
+                sessionMaxTokens: assistantMaxTokens,
+                cancellationToken: cancellationToken);
+            resolveStopwatch.Stop();
+
+            completionStopwatch.Start();
+            var response = await _completionClient.GenerateAsync(
+                systemPrompt,
+                userMessage,
+                resolved,
+                cancellationToken);
+            completionStopwatch.Stop();
+
+            normalizeStopwatch.Start();
+            trimmedResponse = CleanResponse(response);
+            normalizeStopwatch.Stop();
+        }
+        catch (OperationCanceledException ex)
+        {
+            totalStopwatch.Stop();
+            if (resolveStopwatch.IsRunning) resolveStopwatch.Stop();
+            if (completionStopwatch.IsRunning) completionStopwatch.Stop();
+            if (normalizeStopwatch.IsRunning) normalizeStopwatch.Stop();
+
+            var cancelReason = cancellationToken.IsCancellationRequested ? "CallerCanceledToken" : "DownstreamTimeoutOrCancel";
+            _logger.LogWarning(
+                ex,
+                "Role-play assistant request canceled: SessionId={SessionId}, CorrelationId={CorrelationId}, Reason={CancelReason}, DiagnosticsMs={DiagnosticsMs}, PromptBuildMs={PromptBuildMs}, ResolveMs={ResolveMs}, CompletionMs={CompletionMs}, NormalizeMs={NormalizeMs}, TotalMs={TotalMs}",
+                sessionId,
+                correlationId,
+                cancelReason,
+                diagnosticsStopwatch.ElapsedMilliseconds,
+                promptBuildStopwatch.ElapsedMilliseconds,
+                resolveStopwatch.ElapsedMilliseconds,
+                completionStopwatch.ElapsedMilliseconds,
+                normalizeStopwatch.ElapsedMilliseconds,
+                totalStopwatch.ElapsedMilliseconds);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            totalStopwatch.Stop();
+            if (resolveStopwatch.IsRunning) resolveStopwatch.Stop();
+            if (completionStopwatch.IsRunning) completionStopwatch.Stop();
+            if (normalizeStopwatch.IsRunning) normalizeStopwatch.Stop();
+
+            _logger.LogError(
+                ex,
+                "Role-play assistant request failed: SessionId={SessionId}, CorrelationId={CorrelationId}, DiagnosticsMs={DiagnosticsMs}, PromptBuildMs={PromptBuildMs}, ResolveMs={ResolveMs}, CompletionMs={CompletionMs}, NormalizeMs={NormalizeMs}, TotalMs={TotalMs}",
+                sessionId,
+                correlationId,
+                diagnosticsStopwatch.ElapsedMilliseconds,
+                promptBuildStopwatch.ElapsedMilliseconds,
+                resolveStopwatch.ElapsedMilliseconds,
+                completionStopwatch.ElapsedMilliseconds,
+                normalizeStopwatch.ElapsedMilliseconds,
+                totalStopwatch.ElapsedMilliseconds);
+            throw;
+        }
 
         // Add assistant response to conversation history
         _contextManager.AddAssistantResponse(sessionId, trimmedResponse);
@@ -99,7 +198,16 @@ public sealed class RolePlayAssistantService : IRolePlayAssistantService
                 diagnostics.CompatibilityErrors.Count);
         }
 
-        _logger.LogInformation("Role-play assistant suggestion generated for session {SessionId}", sessionId);
+        totalStopwatch.Stop();
+        _logger.LogInformation(
+            "Role-play assistant suggestion generated: SessionId={SessionId}, CorrelationId={CorrelationId}, ResolveMs={ResolveMs}, CompletionMs={CompletionMs}, NormalizeMs={NormalizeMs}, TotalMs={TotalMs}, ResponseLength={ResponseLength}",
+            sessionId,
+            correlationId,
+            resolveStopwatch.ElapsedMilliseconds,
+            completionStopwatch.ElapsedMilliseconds,
+            normalizeStopwatch.ElapsedMilliseconds,
+            totalStopwatch.ElapsedMilliseconds,
+            trimmedResponse.Length);
         return trimmedResponse;
     }
 
@@ -117,11 +225,19 @@ public sealed class RolePlayAssistantService : IRolePlayAssistantService
 
         _contextManager.AddUserMessage(sessionId, userPrompt);
 
-        var diagnostics = _diagnosticsService is null
+        var queryMode = ClassifyQueryMode(userPrompt);
+        var includeDiagnostics = queryMode == AssistantQueryMode.EngineExpert;
+        var includeEvidence = includeDiagnostics && IsEvidenceRequested(userPrompt);
+
+        var diagnostics = !includeDiagnostics || _diagnosticsService is null
             ? null
             : await _diagnosticsService.GetSnapshotAsync(sessionId, cancellationToken: cancellationToken);
 
-        var userMessage = BuildUserMessage(sessionId, context, userPrompt, diagnostics);
+        var evidenceBlock = includeEvidence
+            ? await BuildEvidenceBlockAsync(sessionId, context.CorrelationId, userPrompt, cancellationToken)
+            : string.Empty;
+
+        var userMessage = BuildUserMessage(sessionId, context, userPrompt, diagnostics, queryMode, evidenceBlock);
         _logger.LogInformation("Role-play assistant streaming request initiated for session {SessionId}", sessionId);
 
         var resolved = await _modelResolver.ResolveAsync(
@@ -132,8 +248,10 @@ public sealed class RolePlayAssistantService : IRolePlayAssistantService
             sessionMaxTokens: assistantMaxTokens,
             cancellationToken: cancellationToken);
 
+        var systemPrompt = SelectSystemPrompt(queryMode);
+
         var response = await _completionClient.StreamGenerateAsync(
-            RolePlayAssistantPrompts.SystemPrompt,
+            systemPrompt,
             userMessage,
             resolved,
             onChunk,
@@ -165,7 +283,28 @@ public sealed class RolePlayAssistantService : IRolePlayAssistantService
         _logger.LogInformation("Cleared role-play assistant chat for session {SessionId}", sessionId);
     }
 
-    private string BuildUserMessage(string sessionId, RolePlayAssistantContext context, string userPrompt, RolePlayV2DiagnosticsSnapshot? diagnostics)
+    private static string SelectSystemPrompt(AssistantQueryMode queryMode)
+    {
+        if (queryMode == AssistantQueryMode.JsonOptionGenerator)
+        {
+            return RolePlayAssistantPrompts.JsonOptionGeneratorSystemPrompt;
+        }
+
+        if (queryMode == AssistantQueryMode.EngineExpert)
+        {
+            return RolePlayAssistantPrompts.EngineExpertSystemPrompt;
+        }
+
+        return RolePlayAssistantPrompts.SystemPrompt;
+    }
+
+    private string BuildUserMessage(
+        string sessionId,
+        RolePlayAssistantContext context,
+        string userPrompt,
+        RolePlayV2DiagnosticsSnapshot? diagnostics,
+        AssistantQueryMode queryMode,
+        string evidenceBlock)
     {
         var sb = new StringBuilder();
 
@@ -201,6 +340,14 @@ public sealed class RolePlayAssistantService : IRolePlayAssistantService
         if (!string.IsNullOrWhiteSpace(context.BehaviorMode))
         {
             sb.AppendLine($"[Current Behavior Mode: {context.BehaviorMode}]");
+        }
+
+        if (!string.IsNullOrWhiteSpace(context.CurrentNarrativePhase)
+            || !string.IsNullOrWhiteSpace(context.ActiveScenarioId)
+            || !string.IsNullOrWhiteSpace(context.SelectedThemeProfileId)
+            || !string.IsNullOrWhiteSpace(context.SelectedNarrativeGateProfileId))
+        {
+            sb.AppendLine($"[Engine State: phase={context.CurrentNarrativePhase ?? "(unknown)"}, activeScenario={context.ActiveScenarioId ?? "(none)"}, themeProfile={context.SelectedThemeProfileId ?? "(none)"}, gateProfile={context.SelectedNarrativeGateProfileId ?? "(none)"}]");
         }
 
         if (!string.IsNullOrWhiteSpace(context.EffectiveStyleMode))
@@ -306,6 +453,17 @@ public sealed class RolePlayAssistantService : IRolePlayAssistantService
         if (diagnostics is not null)
         {
             sb.AppendLine($"[Diagnostics: candidates={diagnostics.CandidateEvaluations.Count}, transitions={diagnostics.TransitionEvents.Count}, decisions={diagnostics.DecisionPoints.Count}, errors={diagnostics.CompatibilityErrors.Count}]");
+            if (queryMode == AssistantQueryMode.EngineExpert)
+            {
+                AppendDetailedDiagnostics(sb, diagnostics);
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(evidenceBlock))
+        {
+            sb.AppendLine();
+            sb.AppendLine("[Evidence]");
+            sb.AppendLine(evidenceBlock);
         }
 
         // Include conversation history with truncation
@@ -336,6 +494,209 @@ public sealed class RolePlayAssistantService : IRolePlayAssistantService
         sb.AppendLine(userPrompt);
 
         return sb.ToString();
+    }
+
+    private static AssistantQueryMode ClassifyQueryMode(string userPrompt)
+    {
+        if (!string.IsNullOrWhiteSpace(userPrompt)
+            && userPrompt.Contains("Return ONLY a JSON array of strings with no markdown and no extra text.", StringComparison.OrdinalIgnoreCase))
+        {
+            return AssistantQueryMode.JsonOptionGenerator;
+        }
+
+        if (string.IsNullOrWhiteSpace(userPrompt))
+        {
+            return AssistantQueryMode.Standard;
+        }
+
+        var normalized = userPrompt.Trim();
+        var expertSignals = new[]
+        {
+            "why",
+            "how does",
+            "how do",
+            "explain",
+            "diagnostic",
+            "debug",
+            "theme gate",
+            "next phase",
+            "phase",
+            "steering",
+            "finish",
+            "candidate",
+            "profile",
+            "character stat",
+            "engine"
+        };
+
+        return expertSignals.Any(signal => normalized.Contains(signal, StringComparison.OrdinalIgnoreCase))
+            ? AssistantQueryMode.EngineExpert
+            : AssistantQueryMode.Standard;
+    }
+
+    private static bool IsEvidenceRequested(string userPrompt)
+    {
+        if (string.IsNullOrWhiteSpace(userPrompt))
+        {
+            return false;
+        }
+
+        var signals = new[]
+        {
+            "why",
+            "exact",
+            "evidence",
+            "prove",
+            "show log",
+            "logs",
+            "database",
+            "table",
+            "debug",
+            "what happened",
+            "reason"
+        };
+
+        return signals.Any(signal => userPrompt.Contains(signal, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private async Task<string> BuildEvidenceBlockAsync(
+        string sessionId,
+        string? correlationId,
+        string userPrompt,
+        CancellationToken cancellationToken)
+    {
+        if (_debugEventService is null)
+        {
+            return string.Empty;
+        }
+
+        var searchText = BuildEvidenceSearchText(userPrompt);
+        var events = await _debugEventService.QuerySessionEventsAsync(
+            sessionId,
+            search: searchText,
+            take: EvidenceEventTake,
+            cancellationToken: cancellationToken);
+
+        var logs = await _debugEventService.GetRecentLogLinesAsync(
+            sessionId,
+            correlationId,
+            take: EvidenceLogLineTake,
+            cancellationToken: cancellationToken);
+
+        if (events.Count == 0 && logs.Count == 0)
+        {
+            return "No matching debug events or log lines were found for the current session query.";
+        }
+
+        var sb = new StringBuilder();
+
+        if (events.Count > 0)
+        {
+            sb.AppendLine("Debug events (recent):");
+            foreach (var item in events.TakeLast(12))
+            {
+                sb.Append("- ");
+                sb.Append(item.CreatedUtc.ToString("O"));
+                sb.Append(" | ");
+                sb.Append(item.EventKind);
+                sb.Append(" | ");
+                sb.Append(item.Severity);
+                if (!string.IsNullOrWhiteSpace(item.Summary))
+                {
+                    sb.Append(" | ");
+                    sb.Append(TruncateForPrompt(item.Summary, 220));
+                }
+
+                sb.AppendLine();
+            }
+        }
+
+        if (logs.Count > 0)
+        {
+            sb.AppendLine("Recent log lines (filtered):");
+            foreach (var line in logs.TakeLast(18))
+            {
+                sb.AppendLine($"- {TruncateForPrompt(line, 260)}");
+            }
+        }
+
+        return sb.ToString().TrimEnd();
+    }
+
+    private static string? BuildEvidenceSearchText(string userPrompt)
+    {
+        if (string.IsNullOrWhiteSpace(userPrompt))
+        {
+            return null;
+        }
+
+        var cleaned = userPrompt.Trim();
+        if (cleaned.Length > 90)
+        {
+            cleaned = cleaned[..90];
+        }
+
+        return cleaned;
+    }
+
+    private static void AppendDetailedDiagnostics(StringBuilder sb, RolePlayV2DiagnosticsSnapshot diagnostics)
+    {
+        if (diagnostics.CandidateEvaluations.Count > 0)
+        {
+            sb.AppendLine("[Candidate Evaluations]");
+            foreach (var candidate in diagnostics.CandidateEvaluations
+                .OrderByDescending(x => x.EvaluatedUtc)
+                .Take(6))
+            {
+                sb.AppendLine($"- Scenario={candidate.ScenarioId}, Tier={candidate.StageAWillingnessTier}, StageB={(candidate.StageBEligible ? "pass" : "fail")}, Fit={candidate.FitScore:F3}, Confidence={candidate.Confidence:F3}, Reason={TruncateForPrompt(candidate.Rationale, 180)}");
+            }
+        }
+
+        if (diagnostics.TransitionEvents.Count > 0)
+        {
+            sb.AppendLine("[Recent Transitions]");
+            foreach (var transition in diagnostics.TransitionEvents
+                .OrderByDescending(x => x.OccurredUtc)
+                .Take(6))
+            {
+                sb.AppendLine($"- {transition.FromPhase}->{transition.ToPhase}, Trigger={transition.TriggerType}, ReasonCode={transition.ReasonCode}, At={transition.OccurredUtc:O}");
+            }
+        }
+
+        if (diagnostics.DecisionPoints.Count > 0)
+        {
+            sb.AppendLine("[Decision Points]");
+            foreach (var decision in diagnostics.DecisionPoints
+                .OrderByDescending(x => x.CreatedUtc)
+                .Take(4))
+            {
+                sb.AppendLine($"- Phase={decision.Phase}, Trigger={decision.TriggerSource}, Target={decision.TargetActorId}, Summary={TruncateForPrompt(decision.ContextSummary, 180)}");
+            }
+        }
+
+        if (diagnostics.CompatibilityErrors.Count > 0)
+        {
+            sb.AppendLine("[Compatibility Errors]");
+            foreach (var error in diagnostics.CompatibilityErrors
+                .OrderByDescending(x => x.EmittedUtc)
+                .Take(4))
+            {
+                sb.AppendLine($"- Code={error.ErrorCode}, MissingStats={string.Join(",", error.MissingCanonicalStats)}, Guidance={TruncateForPrompt(error.RecoveryGuidance, 180)}");
+            }
+        }
+    }
+
+    private static string TruncateForPrompt(string? value, int maxLength)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        var trimmed = value.Trim();
+        return trimmed.Length <= maxLength
+            ? trimmed
+            : trimmed[..maxLength] + "...";
     }
 
     /// <summary>

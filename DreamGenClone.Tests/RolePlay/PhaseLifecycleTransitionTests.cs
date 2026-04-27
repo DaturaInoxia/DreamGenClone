@@ -1,6 +1,8 @@
 using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Infrastructure.Configuration;
 using DreamGenClone.Infrastructure.RolePlay;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace DreamGenClone.Tests.RolePlay;
@@ -209,6 +211,150 @@ public sealed class PhaseLifecycleTransitionTests
         Assert.True((95 - high.Desire) > (65 - mid.Desire));
         Assert.Equal(30, high.Restraint);
         Assert.Equal(70, mid.Restraint);
+    }
+
+    [Fact]
+    public async Task ResetDecay_PullTowardBaselineDecreasesAsCycleIncreases()
+    {
+        var earlyCycleState = new AdaptiveScenarioState
+        {
+            SessionId = "cycle-early",
+            CurrentPhase = NarrativePhase.Reset,
+            CycleIndex = 0,
+            CharacterSnapshots =
+            [
+                new CharacterStatProfileV2
+                {
+                    CharacterId = "char-a",
+                    Desire = 90,
+                    Restraint = 20,
+                    Tension = 80,
+                    Connection = 55,
+                    Dominance = 70,
+                    Loyalty = 50,
+                    SelfRespect = 50
+                }
+            ]
+        };
+
+        var laterCycleState = new AdaptiveScenarioState
+        {
+            SessionId = "cycle-late",
+            CurrentPhase = NarrativePhase.Reset,
+            CycleIndex = 5,
+            CharacterSnapshots =
+            [
+                new CharacterStatProfileV2
+                {
+                    CharacterId = "char-a",
+                    Desire = 90,
+                    Restraint = 20,
+                    Tension = 80,
+                    Connection = 55,
+                    Dominance = 70,
+                    Loyalty = 50,
+                    SelfRespect = 50
+                }
+            ]
+        };
+
+        var earlyReset = await _service.ExecuteResetAsync(earlyCycleState, ResetReason.Completion);
+        var lateReset = await _service.ExecuteResetAsync(laterCycleState, ResetReason.Completion);
+
+        var early = earlyReset.CharacterSnapshots[0];
+        var late = lateReset.CharacterSnapshots[0];
+
+        Assert.True(late.Desire > early.Desire);
+        Assert.True(late.Tension > early.Tension);
+        Assert.True(late.Dominance > early.Dominance);
+        Assert.True(late.Restraint < early.Restraint);
+    }
+
+    [Fact]
+    public async Task ResetDecay_UsesConfiguredDesireBaselinePullSchedule()
+    {
+        var options = Options.Create(new StoryAnalysisOptions
+        {
+            ResetStatBaselines = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Desire"] = 40,
+                ["Restraint"] = 50,
+                ["Tension"] = 40,
+                ["Connection"] = 50,
+                ["Dominance"] = 50,
+                ["Loyalty"] = 50,
+                ["SelfRespect"] = 50
+            },
+            ResetStatBaselinePullSchedule = [0.8333, 0.5833, 0.3333, 0.2, 0.1667]
+        });
+        var service = new ScenarioLifecycleService(NullLogger<ScenarioLifecycleService>.Instance, storyAnalysisOptions: options);
+
+        var expectedByCycle = new Dictionary<int, int>
+        {
+            [1] = 50,
+            [2] = 65,
+            [3] = 80,
+            [4] = 88,
+            [5] = 90
+        };
+
+        foreach (var (cycle, expectedDesire) in expectedByCycle)
+        {
+            var state = new AdaptiveScenarioState
+            {
+                SessionId = $"session-cycle-{cycle}",
+                CurrentPhase = NarrativePhase.Reset,
+                CycleIndex = cycle - 1,
+                CharacterSnapshots =
+                [
+                    new CharacterStatProfileV2
+                    {
+                        CharacterId = "char-a",
+                        Desire = 100,
+                        Restraint = 20,
+                        Tension = 80,
+                        Connection = 55,
+                        Dominance = 70,
+                        Loyalty = 50,
+                        SelfRespect = 50
+                    }
+                ]
+            };
+
+            var reset = await service.ExecuteResetAsync(state, ResetReason.Completion);
+            Assert.Equal(expectedDesire, reset.CharacterSnapshots[0].Desire);
+        }
+
+        var belowBaselineState = new AdaptiveScenarioState
+        {
+            SessionId = "session-below-baseline",
+            CurrentPhase = NarrativePhase.Reset,
+            CycleIndex = 0,
+            CharacterSnapshots =
+            [
+                new CharacterStatProfileV2
+                {
+                    CharacterId = "char-b",
+                    Desire = 10,
+                    Restraint = 20,
+                    Tension = 10,
+                    Connection = 10,
+                    Dominance = 10,
+                    Loyalty = 10,
+                    SelfRespect = 10
+                }
+            ]
+        };
+
+        var belowBaselineReset = await service.ExecuteResetAsync(belowBaselineState, ResetReason.Completion);
+        var updated = belowBaselineReset.CharacterSnapshots[0];
+        Assert.True(updated.Desire > 10);
+        Assert.True(updated.Restraint > 20);
+        Assert.True(updated.Tension > 10);
+        Assert.True(updated.Connection > 10);
+        Assert.True(updated.Dominance > 10);
+        Assert.True(updated.Loyalty > 10);
+        Assert.True(updated.SelfRespect > 10);
     }
 
     private static AdaptiveScenarioState CreateState() => new()

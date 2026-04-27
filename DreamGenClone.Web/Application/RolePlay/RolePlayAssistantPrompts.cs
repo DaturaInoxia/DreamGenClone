@@ -8,21 +8,18 @@ public static class RolePlayAssistantPrompts
 {
     public static IReadOnlyList<string> GetThemePhaseGuidanceLines(
         RPTheme? activeTheme,
-        string phase,
-        int maxLines = 3)
+        string phase)
     {
         if (activeTheme is null || activeTheme.PhaseGuidance.Count == 0)
         {
             return [];
         }
 
-        var clampedMax = Math.Clamp(maxLines, 1, 8);
         return activeTheme.PhaseGuidance
             .Where(x => string.Equals(x.Phase.ToString(), phase, StringComparison.OrdinalIgnoreCase))
             .Where(x => !string.IsNullOrWhiteSpace(x.GuidanceText))
             .Select(x => x.GuidanceText.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Take(clampedMax)
             .ToList();
     }
 

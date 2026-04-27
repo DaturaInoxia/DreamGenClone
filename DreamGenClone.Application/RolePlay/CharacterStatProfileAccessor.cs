@@ -11,9 +11,9 @@ public static class CharacterStatProfileAccessor
 
     public static IReadOnlyList<string> CanonicalStatNames => AdaptiveStatCatalog.CanonicalStatNames;
 
-    public static CharacterStatProfile CreateFromStats(string characterId, IReadOnlyDictionary<string, int>? stats)
+    public static CharacterStatProfileV2 CreateFromStats(string characterId, IReadOnlyDictionary<string, int>? stats)
     {
-        var profile = new CharacterStatProfile
+        var profile = new CharacterStatProfileV2
         {
             CharacterId = characterId ?? string.Empty
         };
@@ -27,10 +27,10 @@ public static class CharacterStatProfileAccessor
         return profile;
     }
 
-    public static CharacterStatProfile CreateDefault(string characterId)
+    public static CharacterStatProfileV2 CreateDefault(string characterId)
         => CreateFromStats(characterId, null);
 
-    public static bool TryGetStat(CharacterStatProfile profile, string statName, out int value)
+    public static bool TryGetStat(CharacterStatProfileV2 profile, string statName, out int value)
     {
         value = AdaptiveStatCatalog.DefaultValue;
         if (profile is null || !TryResolveCanonicalStatName(statName, out var canonicalStatName))
@@ -47,10 +47,10 @@ public static class CharacterStatProfileAccessor
         return true;
     }
 
-    public static int GetStatOrDefault(CharacterStatProfile profile, string statName, int fallback = AdaptiveStatCatalog.DefaultValue)
+    public static int GetStatOrDefault(CharacterStatProfileV2 profile, string statName, int fallback = AdaptiveStatCatalog.DefaultValue)
         => TryGetStat(profile, statName, out var value) ? value : fallback;
 
-    public static bool SetStat(CharacterStatProfile profile, string statName, int value)
+    public static bool SetStat(CharacterStatProfileV2 profile, string statName, int value)
     {
         if (profile is null || !TryResolveCanonicalStatName(statName, out var canonicalStatName))
         {
@@ -66,7 +66,7 @@ public static class CharacterStatProfileAccessor
         return true;
     }
 
-    public static bool ApplyDelta(CharacterStatProfile profile, string statName, int delta)
+    public static bool ApplyDelta(CharacterStatProfileV2 profile, string statName, int delta)
     {
         if (!TryGetStat(profile, statName, out var current))
         {
@@ -97,7 +97,7 @@ public static class CharacterStatProfileAccessor
 
     private static IReadOnlyDictionary<string, PropertyInfo> BuildStatProperties()
     {
-        var properties = typeof(CharacterStatProfile)
+        var properties = typeof(CharacterStatProfileV2)
             .GetProperties(BindingFlags.Instance | BindingFlags.Public)
             .Where(p => p.CanRead && p.CanWrite && p.PropertyType == typeof(int))
             .ToDictionary(p => p.Name, p => p, StringComparer.OrdinalIgnoreCase);

@@ -17,6 +17,7 @@
         <div class="d-flex flex-wrap gap-2 justify-content-between align-items-center">
             <div class="d-flex gap-2">
                 <button class="btn btn-sm btn-primary" @onclick="SaveAsync" disabled="@_isBusy">Save Theme</button>
+                <button class="btn btn-sm btn-outline-primary" @onclick="OpenCloneDialog" disabled="@(_isBusy || _isNew)">Clone Theme</button>
                 <button class="btn btn-sm btn-outline-danger" @onclick="DeleteAsync" disabled="@(_isBusy || _isNew)">Delete Theme</button>
                 <button class="btn btn-sm btn-outline-secondary" @onclick="BackToList">Back To List</button>
             </div>
@@ -75,22 +76,15 @@
                         <input class="form-control" @bind="_theme.ParentThemeId" placeholder="Optional" />
                     </div>
                     <div class="col-lg-6">
-                        <label class="form-label">Narrative Gate Profile <span class="text-danger">*</span></label>
-                        <select class="form-select @(string.IsNullOrWhiteSpace(_theme.NarrativeGateProfileId) ? "is-invalid" : "")" @bind="_theme.NarrativeGateProfileId" @bind:after="OnNarrativeGateProfileChangedAsync">
-                            <option value="">(Select a profile — required)</option>
+                        <label class="form-label">Narrative Gate Template Profile</label>
+                        <select class="form-select" @bind="_theme.NarrativeGateProfileId">
+                            <option value="">(Optional template profile)</option>
                             @foreach (var profile in _narrativeGateProfiles)
                             {
                                 <option value="@profile.Id">@profile.Name</option>
                             }
                         </select>
-                        @if (string.IsNullOrWhiteSpace(_theme.NarrativeGateProfileId))
-                        {
-                            <div class="invalid-feedback">A Narrative Gate Profile is required. Phase transitions (Committed → Approaching → Climax) will not fire without one.</div>
-                        }
-                        else
-                        {
-                            <div class="form-text">Controls phase transition gates for sessions using the RP-theme subsystem. Edit shared profile values in <a href="/profiles?tab=narrative-gates">Profiles -> Narrative Gate Values</a>.</div>
-                        }
+                        <div class="form-text">Optional: select a profile to clone gate rows into this theme. Theme gate values are detached after cloning.</div>
                     </div>
                     <div class="col-lg-6">
                         <label class="form-label">Enabled</label>
@@ -113,101 +107,89 @@
                 <button type="button" class="btn btn-sm btn-outline-info" @onclick="@(() => ShowInfoForSection("Narrative Gate Values"))">What is this?</button>
             </div>
             <div class="card-body">
-                @if (string.IsNullOrWhiteSpace(_theme.NarrativeGateProfileId))
-                {
-                    <div class="text-muted">Select a Narrative Gate Profile in Theme Metadata to edit phase gate values for this theme. Without a profile, this theme uses auto fallback thresholds.</div>
-                }
-                else if (_linkedNarrativeGateProfile is null)
-                {
-                    <div class="alert alert-warning mb-0">The selected profile could not be loaded. Re-select a profile, then try again.</div>
-                }
-                else
-                {
-                    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
-                        <div>
-                            <div><strong>@_linkedNarrativeGateProfile.Name</strong></div>
-                            <div class="text-muted small">@_linkedNarrativeGateProfile.Id</div>
-                        </div>
-                        <div class="d-flex gap-2">
-                            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="LoadLinkedNarrativeGateProfileAsync" disabled="@_isBusy">Reload</button>
-                            <button type="button" class="btn btn-sm btn-primary" @onclick="SaveLinkedNarrativeGateProfileAsync" disabled="@_isBusy">Save Gate Values</button>
-                        </div>
+                <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+                    <div>
+                        <div><strong>Theme-local gate values</strong></div>
+                        <div class="text-muted small">Detached from profiles after cloning. Required transitions: BuildUp -> Committed, Committed -> Approaching, Approaching -> Climax, Climax -> Reset, Reset -> BuildUp.</div>
                     </div>
-
-                    @if (!string.IsNullOrWhiteSpace(_narrativeGateError))
-                    {
-                        <div class="alert alert-danger py-2">@_narrativeGateError</div>
-                    }
-                    else if (!string.IsNullOrWhiteSpace(_narrativeGateStatus))
-                    {
-                        <div class="alert alert-success py-2">@_narrativeGateStatus</div>
-                    }
-
-                    <button type="button" class="btn btn-sm btn-outline-primary mb-2" @onclick="AddNarrativeGateRule">Add Rule</button>
-                    <div class="table-responsive">
-                        <table class="table table-sm align-middle">
-                            <thead>
-                                <tr>
-                                    <th style="width: 150px;">From Phase</th>
-                                    <th style="width: 150px;">To Phase</th>
-                                    <th style="width: 240px;">Metric</th>
-                                    <th style="width: 120px;">Comparator</th>
-                                    <th style="width: 140px;">Threshold</th>
-                                    <th style="width: 120px;">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @if (_linkedNarrativeGateRules.Count == 0)
-                                {
-                                    <tr><td colspan="6" class="text-muted">No gate rules in this profile yet.</td></tr>
-                                }
-                                else
-                                {
-                                    @for (var i = 0; i < _linkedNarrativeGateRules.Count; i++)
-                                    {
-                                        var rowIndex = i;
-                                        <tr>
-                                            <td>
-                                                <select class="form-select form-select-sm" @bind="_linkedNarrativeGateRules[rowIndex].FromPhase">
-                                                    @foreach (var phaseName in _narrativePhaseNames)
-                                                    {
-                                                        <option value="@phaseName">@phaseName</option>
-                                                    }
-                                                </select>
-                                            </td>
-                                            <td>
-                                                <select class="form-select form-select-sm" @bind="_linkedNarrativeGateRules[rowIndex].ToPhase">
-                                                    @foreach (var phaseName in _narrativePhaseNames)
-                                                    {
-                                                        <option value="@phaseName">@phaseName</option>
-                                                    }
-                                                </select>
-                                            </td>
-                                            <td>
-                                                <select class="form-select form-select-sm" @bind="_linkedNarrativeGateRules[rowIndex].MetricKey">
-                                                    @foreach (var metricKey in _narrativeMetricKeys)
-                                                    {
-                                                        <option value="@metricKey">@metricKey</option>
-                                                    }
-                                                </select>
-                                            </td>
-                                            <td>
-                                                <select class="form-select form-select-sm" @bind="_linkedNarrativeGateRules[rowIndex].Comparator">
-                                                    @foreach (var comparator in _narrativeComparators)
-                                                    {
-                                                        <option value="@comparator">@comparator</option>
-                                                    }
-                                                </select>
-                                            </td>
-                                            <td><input class="form-control form-control-sm" type="number" step="0.01" @bind="_linkedNarrativeGateRules[rowIndex].Threshold" /></td>
-                                            <td><button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => RemoveNarrativeGateRule(rowIndex)">Remove</button></td>
-                                        </tr>
-                                    }
-                                }
-                            </tbody>
-                        </table>
+                    <div class="d-flex gap-2">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="LoadNarrativeGateTemplateAsync" disabled="@(_isBusy || string.IsNullOrWhiteSpace(_theme.NarrativeGateProfileId))">Load From Selected Profile</button>
                     </div>
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(_narrativeGateError))
+                {
+                    <div class="alert alert-danger py-2">@_narrativeGateError</div>
                 }
+                else if (!string.IsNullOrWhiteSpace(_narrativeGateStatus))
+                {
+                    <div class="alert alert-success py-2">@_narrativeGateStatus</div>
+                }
+
+                <button type="button" class="btn btn-sm btn-outline-primary mb-2" @onclick="AddNarrativeGateRule">Add Rule</button>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead>
+                            <tr>
+                                <th style="width: 150px;">From Phase</th>
+                                <th style="width: 150px;">To Phase</th>
+                                <th style="width: 240px;">Metric</th>
+                                <th style="width: 120px;">Comparator</th>
+                                <th style="width: 140px;">Threshold</th>
+                                <th style="width: 120px;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (_theme.NarrativeGateRules.Count == 0)
+                            {
+                                <tr><td colspan="6" class="text-muted">No gate rules configured for this theme yet.</td></tr>
+                            }
+                            else
+                            {
+                                @for (var i = 0; i < _theme.NarrativeGateRules.Count; i++)
+                                {
+                                    var rowIndex = i;
+                                    <tr>
+                                        <td>
+                                            <select class="form-select form-select-sm" @bind="_theme.NarrativeGateRules[rowIndex].FromPhase">
+                                                @foreach (var phaseName in _narrativePhaseNames)
+                                                {
+                                                    <option value="@phaseName">@phaseName</option>
+                                                }
+                                            </select>
+                                        </td>
+                                        <td>
+                                            <select class="form-select form-select-sm" @bind="_theme.NarrativeGateRules[rowIndex].ToPhase">
+                                                @foreach (var phaseName in _narrativePhaseNames)
+                                                {
+                                                    <option value="@phaseName">@phaseName</option>
+                                                }
+                                            </select>
+                                        </td>
+                                        <td>
+                                            <select class="form-select form-select-sm" @bind="_theme.NarrativeGateRules[rowIndex].MetricKey">
+                                                @foreach (var metricKey in _narrativeMetricKeys)
+                                                {
+                                                    <option value="@metricKey">@metricKey</option>
+                                                }
+                                            </select>
+                                        </td>
+                                        <td>
+                                            <select class="form-select form-select-sm" @bind="_theme.NarrativeGateRules[rowIndex].Comparator">
+                                                @foreach (var comparator in _narrativeComparators)
+                                                {
+                                                    <option value="@comparator">@comparator</option>
+                                                }
+                                            </select>
+                                        </td>
+                                        <td><input class="form-control form-control-sm" type="number" step="0.01" @bind="_theme.NarrativeGateRules[rowIndex].Threshold" /></td>
+                                        <td><button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => RemoveNarrativeGateRule(rowIndex)">Remove</button></td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
 
@@ -336,7 +318,9 @@
                                                 }
                                             </select>
                                         </td>
-                                        <td><input class="form-control form-control-sm" @bind="_theme.PhaseGuidance[rowIndex].GuidanceText" /></td>
+                                        <td>
+                                            <textarea class="form-control form-control-sm rp-phase-guidance-editor" rows="4" @bind="_theme.PhaseGuidance[rowIndex].GuidanceText"></textarea>
+                                        </td>
                                         <td><button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => RemovePhaseGuidance(rowIndex)">Remove</button></td>
                                     </tr>
                                 }
@@ -554,6 +538,46 @@
     </div>
 }
 
+@if (_showCloneModal)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0, 0, 0, 0.35);">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Clone Theme</h5>
+                    <button type="button" class="btn-close" @onclick="CloseCloneDialog"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="small text-muted mb-3">
+                        Creates a full clone of this theme, including metadata, keywords, stat affinities, phase guidance, guidance points, fit rules and clauses, AI guidance notes, and narrative gate values.
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Source Theme</label>
+                        <input class="form-control" value="@_theme.Id" disabled />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">New Theme Id</label>
+                        <input class="form-control" @bind="_cloneThemeId" />
+                        <div class="form-text">Default increments version suffix (for example: theme -> theme-v2, theme-v2 -> theme-v3). You can change it before cloning.</div>
+                    </div>
+                    <div class="mb-1">
+                        <label class="form-label">New Theme Label</label>
+                        <input class="form-control" @bind="_cloneThemeLabel" />
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(_cloneError))
+                    {
+                        <div class="text-danger small mt-2">@_cloneError</div>
+                    }
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" @onclick="CloseCloneDialog" disabled="@_isBusy">Cancel</button>
+                    <button type="button" class="btn btn-primary" @onclick="CloneThemeAsync" disabled="@_isBusy">Create Clone</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 <style>
     .rp-theme-detail-page .sticky-theme-actions {
         position: sticky;
@@ -569,6 +593,11 @@
     .rp-theme-detail-page details > summary::-webkit-details-marker {
         display: none;
     }
+
+    .rp-theme-detail-page .rp-phase-guidance-editor {
+        min-height: 7rem;
+        resize: vertical;
+    }
 </style>
 
 @code {
@@ -582,8 +611,6 @@
     private string _error = string.Empty;
     private List<string> _availableRoleNames = [];
     private List<NarrativeGateProfile> _narrativeGateProfiles = [];
-    private NarrativeGateProfile? _linkedNarrativeGateProfile;
-    private List<NarrativeGateRule> _linkedNarrativeGateRules = [];
     private string _narrativeGateStatus = string.Empty;
     private string _narrativeGateError = string.Empty;
     private static readonly IReadOnlyList<string> _narrativePhaseNames = Enum.GetNames<NarrativePhase>();
@@ -606,6 +633,10 @@
     private bool _showInfoModal;
     private string _infoTitle = string.Empty;
     private string _infoBody = string.Empty;
+    private bool _showCloneModal;
+    private string _cloneThemeId = string.Empty;
+    private string _cloneThemeLabel = string.Empty;
+    private string _cloneError = string.Empty;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -632,8 +663,6 @@
             if (_isNew)
             {
                 _theme = CreateEmptyTheme();
-                _linkedNarrativeGateProfile = null;
-                _linkedNarrativeGateRules = [];
                 return;
             }
 
@@ -647,7 +676,6 @@
             }
 
             _theme = loaded;
-            await LoadLinkedNarrativeGateProfileAsync();
         }
         catch (Exception ex)
         {
@@ -673,11 +701,6 @@
         try
         {
             NormalizeTheme();
-            if (string.IsNullOrWhiteSpace(_theme.NarrativeGateProfileId))
-            {
-                _error = "A Narrative Gate Profile is required. Phase transitions will not fire without one.";
-                return;
-            }
 
             var saved = await RPThemeService.SaveThemeAsync(_theme);
             _theme = saved;
@@ -736,6 +759,80 @@
         Navigation.NavigateTo("/rp-themes");
     }
 
+    private void OpenCloneDialog()
+    {
+        if (_isBusy || _isNew)
+        {
+            return;
+        }
+
+        _cloneError = string.Empty;
+        _cloneThemeId = BuildDefaultCloneThemeId(_theme.Id, _theme.Label);
+        _cloneThemeLabel = BuildDefaultCloneThemeLabel(_theme.Label);
+        _showCloneModal = true;
+    }
+
+    private void CloseCloneDialog()
+    {
+        if (_isBusy)
+        {
+            return;
+        }
+
+        _showCloneModal = false;
+        _cloneError = string.Empty;
+    }
+
+    private async Task CloneThemeAsync()
+    {
+        if (_isBusy)
+        {
+            return;
+        }
+
+        _cloneThemeId = (_cloneThemeId ?? string.Empty).Trim();
+        _cloneThemeLabel = (_cloneThemeLabel ?? string.Empty).Trim();
+
+        if (string.IsNullOrWhiteSpace(_cloneThemeId))
+        {
+            _cloneError = "New theme Id is required.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_cloneThemeLabel))
+        {
+            _cloneError = "New theme label is required.";
+            return;
+        }
+
+        if (string.Equals(_cloneThemeId, _theme.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            _cloneError = "Clone Id must be different from source theme Id.";
+            return;
+        }
+
+        _isBusy = true;
+        _cloneError = string.Empty;
+        _error = string.Empty;
+        _status = string.Empty;
+
+        try
+        {
+            var cloned = await RPThemeService.CloneThemeAsync(_theme.Id, _cloneThemeId, _cloneThemeLabel);
+            _showCloneModal = false;
+            _status = $"Theme cloned to '{cloned.Id}'.";
+            Navigation.NavigateTo($"/rp-themes/{Uri.EscapeDataString(cloned.Id)}", forceLoad: false);
+        }
+        catch (Exception ex)
+        {
+            _cloneError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
     private void ShowInfo(string title, string body)
     {
         _infoTitle = title;
@@ -763,27 +860,20 @@
             "Phase Guidance" => "Used by RP Engine prompt construction by narrative phase. These entries shape phase-specific writing direction.",
             "Guidance Points" => "Used by model prompt assembly. Emphasis/Avoidance points become concise instruction bullets per phase.",
             "Fit Rules" => "Used by RP Engine candidate gating/scoring. Character Role and RoleWeight scope weighting to specific participants; clauses enforce stat-level constraints.",
-            "Narrative Gate Values" => "Used by RP lifecycle transitions for RP Theme subsystem sessions. Values are stored in the linked narrative gate profile and control phase transitions such as BuildUp->Committed, Committed->Approaching, Approaching->Climax, and Climax->Reset.",
+            "Narrative Gate Values" => "Used by RP lifecycle transitions for RP Theme subsystem sessions. Values are stored on this theme as a detached copy and control phase transitions such as BuildUp->Committed, Committed->Approaching, Approaching->Climax, Climax->Reset, and Reset->BuildUp.",
             "AI Guidance Notes" => "Used by model prompt assembly. Notes are grouped into semantic sections to keep generation aligned with theme intent.",
             _ => "Information is available, but this section is currently not used by the RP Engine or model prompt path."
         };
     }
 
-    private async Task OnNarrativeGateProfileChangedAsync()
+    private async Task LoadNarrativeGateTemplateAsync()
     {
         _theme.NarrativeGateProfileId = string.IsNullOrWhiteSpace(_theme.NarrativeGateProfileId)
             ? null
             : _theme.NarrativeGateProfileId.Trim();
 
-        await LoadLinkedNarrativeGateProfileAsync();
-    }
-
-    private async Task LoadLinkedNarrativeGateProfileAsync()
-    {
         _narrativeGateError = string.Empty;
         _narrativeGateStatus = string.Empty;
-        _linkedNarrativeGateProfile = null;
-        _linkedNarrativeGateRules = [];
 
         if (string.IsNullOrWhiteSpace(_theme.NarrativeGateProfileId))
         {
@@ -797,87 +887,21 @@
             return;
         }
 
-        _linkedNarrativeGateProfile = profile;
-        _linkedNarrativeGateRules = profile.Rules
+        _theme.NarrativeGateRules = profile.Rules
             .OrderBy(x => x.SortOrder)
             .ThenBy(x => x.FromPhase, StringComparer.OrdinalIgnoreCase)
             .ThenBy(x => x.ToPhase, StringComparer.OrdinalIgnoreCase)
             .ThenBy(x => x.MetricKey, StringComparer.OrdinalIgnoreCase)
             .Select(CloneNarrativeGateRule)
             .ToList();
-    }
-
-    private async Task SaveLinkedNarrativeGateProfileAsync()
-    {
-        if (_isBusy)
-        {
-            return;
-        }
-
-        if (_linkedNarrativeGateProfile is null)
-        {
-            _narrativeGateError = "No linked narrative gate profile is loaded.";
-            return;
-        }
-
-        _isBusy = true;
-        _narrativeGateError = string.Empty;
-        _narrativeGateStatus = string.Empty;
-
-        try
-        {
-            var rules = _linkedNarrativeGateRules
-                .Where(rule => !string.IsNullOrWhiteSpace(rule.FromPhase)
-                    && !string.IsNullOrWhiteSpace(rule.ToPhase)
-                    && !string.IsNullOrWhiteSpace(rule.MetricKey)
-                    && !string.IsNullOrWhiteSpace(rule.Comparator))
-                .Select(CloneNarrativeGateRule)
-                .ToList();
-
-            for (var i = 0; i < rules.Count; i++)
-            {
-                rules[i].SortOrder = i + 1;
-                rules[i].FromPhase = rules[i].FromPhase.Trim();
-                rules[i].ToPhase = rules[i].ToPhase.Trim();
-                rules[i].MetricKey = rules[i].MetricKey.Trim();
-                rules[i].Comparator = rules[i].Comparator.Trim();
-            }
-
-            var saved = await StoryAnalysisFacade.SaveNarrativeGateProfileAsync(new NarrativeGateProfile
-            {
-                Id = _linkedNarrativeGateProfile.Id,
-                Name = _linkedNarrativeGateProfile.Name,
-                Description = _linkedNarrativeGateProfile.Description,
-                IsDefault = _linkedNarrativeGateProfile.IsDefault,
-                CreatedUtc = _linkedNarrativeGateProfile.CreatedUtc,
-                UpdatedUtc = _linkedNarrativeGateProfile.UpdatedUtc,
-                Rules = rules
-            });
-
-            _linkedNarrativeGateProfile = saved;
-            _linkedNarrativeGateRules = saved.Rules
-                .OrderBy(x => x.SortOrder)
-                .Select(CloneNarrativeGateRule)
-                .ToList();
-
-            _narrativeGateStatus = "Narrative gate values saved to linked profile.";
-            await LoadNarrativeGateProfilesAsync();
-        }
-        catch (Exception ex)
-        {
-            _narrativeGateError = ex.Message;
-        }
-        finally
-        {
-            _isBusy = false;
-        }
+        _narrativeGateStatus = $"Cloned narrative gate values from template profile '{profile.Name}'.";
     }
 
     private void AddNarrativeGateRule()
     {
-        _linkedNarrativeGateRules.Add(new NarrativeGateRule
+        _theme.NarrativeGateRules.Add(new NarrativeGateRule
         {
-            SortOrder = _linkedNarrativeGateRules.Count + 1,
+            SortOrder = _theme.NarrativeGateRules.Count + 1,
             FromPhase = NarrativePhase.BuildUp.ToString(),
             ToPhase = NarrativePhase.Committed.ToString(),
             MetricKey = NarrativeGateMetricKeys.ActiveScenarioScore,
@@ -888,12 +912,12 @@
 
     private void RemoveNarrativeGateRule(int index)
     {
-        if (index < 0 || index >= _linkedNarrativeGateRules.Count)
+        if (index < 0 || index >= _theme.NarrativeGateRules.Count)
         {
             return;
         }
 
-        _linkedNarrativeGateRules.RemoveAt(index);
+        _theme.NarrativeGateRules.RemoveAt(index);
     }
 
     private static NarrativeGateRule CloneNarrativeGateRule(NarrativeGateRule source)
@@ -1050,7 +1074,7 @@
     {
         _theme.Id = (_theme.Id ?? string.Empty).Trim();
         _theme.ParentThemeId = string.IsNullOrWhiteSpace(_theme.ParentThemeId) ? null : _theme.ParentThemeId.Trim();
-        _theme.NarrativeGateProfileId = string.IsNullOrWhiteSpace(_theme.NarrativeGateProfileId) ? null : _theme.NarrativeGateProfileId.Trim();
+        _theme.NarrativeGateProfileId = null;
         _theme.Label = (_theme.Label ?? string.Empty).Trim();
         _theme.Description = (_theme.Description ?? string.Empty).Trim();
         _theme.Category = (_theme.Category ?? string.Empty).Trim();
@@ -1152,6 +1176,22 @@
             })
             .ToList();
 
+        _theme.NarrativeGateRules = _theme.NarrativeGateRules
+            .Where(rule => !string.IsNullOrWhiteSpace(rule.FromPhase)
+                && !string.IsNullOrWhiteSpace(rule.ToPhase)
+                && !string.IsNullOrWhiteSpace(rule.MetricKey)
+                && !string.IsNullOrWhiteSpace(rule.Comparator))
+            .Select((rule, index) => new NarrativeGateRule
+            {
+                SortOrder = index + 1,
+                FromPhase = rule.FromPhase.Trim(),
+                ToPhase = rule.ToPhase.Trim(),
+                MetricKey = rule.MetricKey.Trim(),
+                Comparator = rule.Comparator.Trim(),
+                Threshold = rule.Threshold
+            })
+            .ToList();
+
         if (string.IsNullOrWhiteSpace(_theme.Id))
         {
             _theme.Id = ToThemeId(_theme.Label);
@@ -1184,7 +1224,8 @@
             PhaseGuidance = [],
             GuidancePoints = [],
             FitRules = [],
-            AIGenerationNotes = []
+            AIGenerationNotes = [],
+            NarrativeGateRules = []
         };
     }
 
@@ -1262,5 +1303,54 @@
         }
 
         return collapsed.Trim('-');
+    }
+
+    private static string BuildDefaultCloneThemeId(string sourceId, string sourceLabel)
+    {
+        var fallbackId = ToThemeId(sourceLabel);
+        var id = string.IsNullOrWhiteSpace(sourceId) ? fallbackId : sourceId.Trim();
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return "theme-v2";
+        }
+
+        var lowerId = id.ToLowerInvariant();
+        var suffixMarker = "-v";
+        var suffixIndex = lowerId.LastIndexOf(suffixMarker, StringComparison.Ordinal);
+        if (suffixIndex > 0)
+        {
+            var numericText = lowerId[(suffixIndex + suffixMarker.Length)..];
+            if (int.TryParse(numericText, out var currentVersion) && currentVersion >= 1)
+            {
+                var baseId = id[..suffixIndex];
+                return $"{baseId}-v{currentVersion + 1}";
+            }
+        }
+
+        return $"{id}-v2";
+    }
+
+    private static string BuildDefaultCloneThemeLabel(string sourceLabel)
+    {
+        var label = (sourceLabel ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(label))
+        {
+            return "Theme V2";
+        }
+
+        var markerIndex = label.LastIndexOf('V');
+        if (markerIndex > 0)
+        {
+            var prefix = label[..markerIndex].TrimEnd();
+            var numericText = label[(markerIndex + 1)..].Trim();
+            if (!string.IsNullOrWhiteSpace(prefix)
+                && int.TryParse(numericText, out var currentVersion)
+                && currentVersion >= 1)
+            {
+                return $"{prefix} V{currentVersion + 1}";
+            }
+        }
+
+        return $"{label} V2";
     }
 }

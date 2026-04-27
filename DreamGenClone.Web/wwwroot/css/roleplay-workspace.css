@@ -1037,13 +1037,14 @@
     border: 1px solid #2c2c2c;
     border-radius: 8px;
     background: #1a1a1a;
-    overflow: hidden;
+    overflow-x: auto;
+    overflow-y: hidden;
 }
 
 .rw-stat-grid-header,
 .rw-stat-grid-row {
     display: grid;
-    grid-template-columns: minmax(92px, 1.5fr) 1fr 1fr 1fr;
+    grid-template-columns: minmax(80px, 1.3fr) minmax(48px, 0.7fr) minmax(48px, 0.7fr) minmax(52px, 0.75fr);
     gap: 0;
 }
 
@@ -1060,10 +1061,11 @@
 }
 
 .rw-stat-cell {
-    font-size: 12px;
-    padding: 6px 8px;
+    font-size: 11px;
+    padding: 4px 6px;
     border-right: 1px solid #262626;
     color: #a4a4a4;
+    min-width: 0;
 }
 
 .rw-stat-cell:last-child {
@@ -1075,9 +1077,9 @@
 }
 
 .rw-stat-grid-header .rw-stat-cell {
-    text-transform: uppercase;
-    letter-spacing: 0.4px;
-    font-size: 11px;
+    text-transform: none;
+    letter-spacing: 0.2px;
+    font-size: 10px;
     font-weight: 600;
     color: #7f7f7f;
 }

@@ -53,6 +53,7 @@ public sealed class LifecycleInputs
     public NarrativePhase? ManualAdvanceTargetPhase { get; init; }
     public bool ClimaxCompletionRequested { get; init; }
     public string? NarrativeGateProfileId { get; init; }
+    public IReadOnlyList<NarrativeGateRule>? NarrativeGateRules { get; init; }
     public bool SkipDefaultNarrativeGateProfileFallback { get; init; }
     public int InteractionsSinceCommitment { get; init; }
     public decimal ActiveScenarioConfidence { get; init; }
@@ -143,6 +144,8 @@ public sealed class OverrideAuthorizationResult
 public sealed class RolePlayV2DiagnosticsSnapshot
 {
     public string SessionId { get; init; } = string.Empty;
+    public AdaptiveScenarioState? AdaptiveState { get; init; }
+    public IReadOnlyList<RolePlayTurn> Turns { get; init; } = [];
     public IReadOnlyList<ScenarioCandidateEvaluation> CandidateEvaluations { get; init; } = [];
     public IReadOnlyList<NarrativePhaseTransitionEvent> TransitionEvents { get; init; } = [];
     public IReadOnlyList<DecisionPoint> DecisionPoints { get; init; } = [];

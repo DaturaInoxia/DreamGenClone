@@ -177,6 +177,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         {
             actorStats = GetOrCreateCharacterStats(state, actorKey);
             statsBefore = new Dictionary<string, int>(actorStats.Stats, StringComparer.OrdinalIgnoreCase);
+            actorStats.LastStatDeltas ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         }
 
         var phaseAffinityCap = GetThemeAffinityPhaseCap(state.CurrentNarrativePhase);
@@ -524,6 +525,15 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             {
                 var baseline = statsBefore.TryGetValue(statName, out var before) ? before : AdaptiveStatCatalog.DefaultValue;
                 actorStats.Stats[statName] = Math.Clamp(baseline + finalDelta, AdaptiveStatCatalog.MinValue, AdaptiveStatCatalog.MaxValue);
+            }
+
+            var effectiveDeltas = adjustedDeltas
+                .Where(x => x.Value != 0)
+                .ToDictionary(x => x.Key, x => x.Value, StringComparer.OrdinalIgnoreCase);
+            if (effectiveDeltas.Count > 0)
+            {
+                actorStats.LastStatDeltas = effectiveDeltas;
+                actorStats.LastStatDeltaUpdatedUtc = DateTime.UtcNow;
             }
         }
 

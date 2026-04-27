@@ -2161,25 +2161,6 @@
                 </div>
 
                 <div class="card mb-3">
-                    <div class="card-header"><strong>Stage B — Eligibility Gate</strong></div>
-                    <div class="card-body">
-                        <p class="text-muted small">Both conditions must be met for a scenario candidate to be considered eligible. Ineligible candidates receive a score penalty instead of being excluded.</p>
-                        <div class="row g-3">
-                            <div class="col-sm-6">
-                                <label class="form-label">Min Avg Tension</label>
-                                <input type="number" class="form-control" step="1" min="0" max="100" @bind="_engineSettings.StageBMinTension" />
-                                <div class="form-text">Default: 35</div>
-                            </div>
-                            <div class="col-sm-6">
-                                <label class="form-label">Max Avg Restraint</label>
-                                <input type="number" class="form-control" step="1" min="0" max="100" @bind="_engineSettings.StageBMaxRestraint" />
-                                <div class="form-text">Default: 80. Set higher (e.g. 100) to disable restraint gating entirely.</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="card mb-3">
                     <div class="card-header"><strong>Legacy Fit-Score Weights</strong></div>
                     <div class="card-body">
                         <p class="text-muted small">Used when no LLM character-fit result is available. Weights should sum to 1.0.</p>
@@ -3843,12 +3824,27 @@
 
     private void StartCreateNarrativeGateProfile()
     {
+        var cloneSource = _narrativeGateProfiles.FirstOrDefault(x => string.Equals(x.Id, _selectedNarrativeGateProfileId, StringComparison.OrdinalIgnoreCase))
+            ?? _narrativeGateProfiles.FirstOrDefault();
+
         _selectedNarrativeGateProfileId = null;
         _narrativeGateFormName = string.Empty;
         _narrativeGateFormDescription = string.Empty;
         _narrativeGateFormIsDefault = false;
-        _climaxResetInteractionThreshold = 12m;
-        _narrativeGateFormRules = [];
+        _climaxResetInteractionThreshold = ResolveClimaxResetInteractionThreshold(cloneSource?.Rules ?? []);
+        _narrativeGateFormRules = (cloneSource?.Rules ?? [])
+            .Where(rule => !IsClimaxResetThresholdRule(rule))
+            .OrderBy(rule => rule.SortOrder)
+            .Select((rule, index) => new NarrativeGateRule
+            {
+                SortOrder = index + 1,
+                FromPhase = rule.FromPhase,
+                ToPhase = rule.ToPhase,
+                MetricKey = rule.MetricKey,
+                Comparator = rule.Comparator,
+                Threshold = rule.Threshold
+            })
+            .ToList();
         _narrativeGateError = null;
     }
 

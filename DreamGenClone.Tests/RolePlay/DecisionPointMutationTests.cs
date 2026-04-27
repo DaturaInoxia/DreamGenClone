@@ -63,7 +63,7 @@ public sealed class DecisionPointMutationTests
             InteractionCountInPhase = 3,
             CharacterSnapshots =
             [
-                new CharacterStatProfile
+                new CharacterStatProfileV2
                 {
                     CharacterId = "wife",
                     Desire = 40,
@@ -104,7 +104,7 @@ public sealed class DecisionPointMutationTests
             CurrentPhase = NarrativePhase.BuildUp,
             CharacterSnapshots =
             [
-                new CharacterStatProfile
+                new CharacterStatProfileV2
                 {
                     CharacterId = "becky",
                     Desire = 55,
@@ -115,7 +115,7 @@ public sealed class DecisionPointMutationTests
                     Loyalty = 50,
                     SelfRespect = 50
                 },
-                new CharacterStatProfile
+                new CharacterStatProfileV2
                 {
                     CharacterId = "ken",
                     Desire = 50,
@@ -168,7 +168,7 @@ public sealed class DecisionPointMutationTests
             CurrentPhase = NarrativePhase.BuildUp,
             CharacterSnapshots =
             [
-                new CharacterStatProfile
+                new CharacterStatProfileV2
                 {
                     CharacterId = "becky",
                     Desire = 54,
@@ -249,7 +249,7 @@ public sealed class DecisionPointMutationTests
             CurrentPhase = NarrativePhase.Committed,
             CharacterSnapshots =
             [
-                new CharacterStatProfile
+                new CharacterStatProfileV2
                 {
                     CharacterId = "wife",
                     Desire = 50,
@@ -260,7 +260,7 @@ public sealed class DecisionPointMutationTests
                     Loyalty = 50,
                     SelfRespect = 50
                 },
-                new CharacterStatProfile
+                new CharacterStatProfileV2
                 {
                     CharacterId = "husband",
                     Desire = 50,
@@ -301,7 +301,7 @@ public sealed class DecisionPointMutationTests
             CurrentPhase = NarrativePhase.Climax,
             CharacterSnapshots =
             [
-                new CharacterStatProfile
+                new CharacterStatProfileV2
                 {
                     CharacterId = "wife",
                     Desire = 60,
@@ -312,7 +312,7 @@ public sealed class DecisionPointMutationTests
                     Loyalty = 60,
                     SelfRespect = 50
                 },
-                new CharacterStatProfile
+                new CharacterStatProfileV2
                 {
                     CharacterId = "husband",
                     Desire = 40,
@@ -375,7 +375,7 @@ public sealed class DecisionPointMutationTests
             CurrentPhase = NarrativePhase.Approaching,
             CharacterSnapshots =
             [
-                new CharacterStatProfile
+                new CharacterStatProfileV2
                 {
                     CharacterId = "becky",
                     Desire = 72,
@@ -386,7 +386,7 @@ public sealed class DecisionPointMutationTests
                     Loyalty = 52,
                     SelfRespect = 50
                 },
-                new CharacterStatProfile
+                new CharacterStatProfileV2
                 {
                     CharacterId = "alex",
                     Desire = 55,

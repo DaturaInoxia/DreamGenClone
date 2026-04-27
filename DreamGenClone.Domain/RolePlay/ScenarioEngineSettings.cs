@@ -16,13 +16,6 @@ public sealed class ScenarioEngineSettings
     /// <summary>Minimum average desire required for the Low willingness tier (below = Blocked).</summary>
     public double StageALowDesireMin { get; set; } = 35;
 
-    // ── Stage B: Eligibility gate ─────────────────────────────────────────
-    /// <summary>Minimum average tension required for Stage B eligibility.</summary>
-    public double StageBMinTension { get; set; } = 35;
-
-    /// <summary>Maximum average restraint allowed for Stage B eligibility.</summary>
-    public double StageBMaxRestraint { get; set; } = 80;
-
     // ── Legacy fit-score component weights (used when no LLM fit result) ──
     /// <summary>Weight of avg Desire in the legacy ComputeFitScore formula.</summary>
     public double LegacyFitDesireWeight { get; set; } = 0.45;

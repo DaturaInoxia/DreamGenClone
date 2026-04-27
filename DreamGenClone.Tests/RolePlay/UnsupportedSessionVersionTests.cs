@@ -40,6 +40,31 @@ public sealed class UnsupportedSessionVersionTests
     {
         public List<AdaptiveScenarioState> States { get; } = [];
         public List<UnsupportedSessionError> Errors { get; } = [];
+        public List<RolePlayTurn> Turns { get; } = [];
+
+        public Task<RolePlayTurn> StartTurnAsync(string sessionId, string turnKind, string triggerSource, string? initiatedByActorName, string? inputInteractionId, CancellationToken cancellationToken = default)
+        {
+            var turn = new RolePlayTurn
+            {
+                TurnId = Guid.NewGuid().ToString("N"),
+                SessionId = sessionId,
+                TurnIndex = Turns.Count(x => string.Equals(x.SessionId, sessionId, StringComparison.OrdinalIgnoreCase)) + 1,
+                TurnKind = turnKind,
+                TriggerSource = triggerSource,
+                InitiatedByActorName = initiatedByActorName,
+                InputInteractionId = inputInteractionId,
+                StartedUtc = DateTime.UtcNow,
+                Status = RolePlayTurnStatus.Started
+            };
+            Turns.Add(turn);
+            return Task.FromResult(turn);
+        }
+
+        public Task CompleteTurnAsync(string sessionId, string turnId, IReadOnlyList<string> outputInteractionIds, bool succeeded, string? failureReason = null, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task<IReadOnlyList<RolePlayTurn>> LoadTurnsAsync(string sessionId, int take = 100, CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<RolePlayTurn>>(Turns.Where(x => string.Equals(x.SessionId, sessionId, StringComparison.OrdinalIgnoreCase)).Take(take).ToList());
 
         public Task SaveAdaptiveStateAsync(AdaptiveScenarioState state, CancellationToken cancellationToken = default)
         {

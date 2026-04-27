@@ -87,6 +87,12 @@ public sealed class ScenarioSelectionDominantRoleGateTests
             new FakeThemeCatalogService(),
             new FakeCharacterStateScenarioMapper(fitResults),
             narrativeGateProfileService: null,
+            engineSettingsRepository: new StubScenarioEngineSettingsRepository(new ScenarioEngineSettings
+            {
+                StageAHighDesireMin = 75,
+                StageAMediumDesireMin = 55,
+                StageALowDesireMin = 35
+            }),
             options: options);
     }
 
@@ -130,5 +136,16 @@ public sealed class ScenarioSelectionDominantRoleGateTests
             IReadOnlyList<ThemeCatalogEntry> catalogEntries,
             CancellationToken cancellationToken = default)
             => Task.FromResult(_fitResults);
+    }
+
+    private sealed class StubScenarioEngineSettingsRepository : IScenarioEngineSettingsRepository
+    {
+        private readonly ScenarioEngineSettings _settings;
+        public StubScenarioEngineSettingsRepository(ScenarioEngineSettings? settings = null)
+            => _settings = settings ?? new ScenarioEngineSettings();
+        public Task<ScenarioEngineSettings> LoadAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(_settings);
+        public Task SaveAsync(ScenarioEngineSettings settings, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
     }
 }

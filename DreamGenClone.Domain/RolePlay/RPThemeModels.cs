@@ -57,6 +57,7 @@ public sealed class RPTheme
     public List<RPThemeGuidancePoint> GuidancePoints { get; set; } = [];
     public List<RPThemeFitRule> FitRules { get; set; } = [];
     public List<RPThemeAIGuidanceNote> AIGenerationNotes { get; set; } = [];
+    public List<NarrativeGateRule> NarrativeGateRules { get; set; } = [];
 }
 
 public sealed class RPThemeRelationship

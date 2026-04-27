@@ -1,20 +1,84 @@
 using System.Text.Json;
 using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Infrastructure.Configuration;
 using DreamGenClone.Infrastructure.Logging;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace DreamGenClone.Infrastructure.RolePlay;
 
 public sealed class ScenarioLifecycleService : IScenarioLifecycleService
 {
+    private static readonly decimal[] DefaultResetDesirePullSchedule =
+    [
+        0.8333m,
+        0.5833m,
+        0.3333m,
+        0.2000m,
+        0.1667m
+    ];
+
     private readonly ILogger<ScenarioLifecycleService> _logger;
     private readonly INarrativeGateProfileService? _gateProfileService;
+    private readonly IReadOnlyDictionary<string, int> _resetStatBaselines;
+    private readonly IReadOnlyList<decimal> _resetStatPullSchedule;
 
-    public ScenarioLifecycleService(ILogger<ScenarioLifecycleService> logger, INarrativeGateProfileService? gateProfileService = null)
+    public ScenarioLifecycleService(
+        ILogger<ScenarioLifecycleService> logger,
+        INarrativeGateProfileService? gateProfileService = null,
+        IOptions<StoryAnalysisOptions>? storyAnalysisOptions = null)
     {
         _logger = logger;
         _gateProfileService = gateProfileService;
+        var configuredBaselines = storyAnalysisOptions?.Value.ResetStatBaselines;
+        var baselines = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Desire"] = 50,
+            ["Restraint"] = 50,
+            ["Tension"] = 50,
+            ["Connection"] = 50,
+            ["Dominance"] = 50,
+            ["Loyalty"] = 50,
+            ["SelfRespect"] = 50
+        };
+
+        if (configuredBaselines is { Count: > 0 })
+        {
+            foreach (var (key, value) in configuredBaselines)
+            {
+                if (string.IsNullOrWhiteSpace(key))
+                {
+                    continue;
+                }
+
+                baselines[key.Trim()] = Math.Clamp(value, 0, 100);
+            }
+        }
+        else
+        {
+            // Backward compatibility for pre-all-stats configs.
+            baselines["Desire"] = Math.Clamp(storyAnalysisOptions?.Value.ResetDesireBaseline ?? 50, 0, 100);
+        }
+
+        _resetStatBaselines = baselines;
+
+        var configuredPullSchedule = storyAnalysisOptions?.Value.ResetStatBaselinePullSchedule
+            ?.Select(x => (decimal)Math.Clamp(x, 0d, 1d))
+            .Where(x => x > 0m)
+            .ToArray();
+
+        if (configuredPullSchedule is not { Length: > 0 })
+        {
+            configuredPullSchedule = storyAnalysisOptions?.Value.ResetDesireBaselinePullSchedule
+                ?.Select(x => (decimal)Math.Clamp(x, 0d, 1d))
+                .Where(x => x > 0m)
+                .ToArray();
+        }
+
+        _resetStatPullSchedule = configuredPullSchedule is { Length: > 0 }
+            ? configuredPullSchedule
+            : DefaultResetDesirePullSchedule;
     }
 
     public async Task<PhaseTransitionResult> EvaluateTransitionAsync(
@@ -23,7 +87,27 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
         CancellationToken cancellationToken = default)
     {
         NarrativeGateProfile? profile = null;
-        if (_gateProfileService is not null)
+        if (inputs.NarrativeGateRules is { Count: > 0 })
+        {
+            profile = new NarrativeGateProfile
+            {
+                Id = inputs.NarrativeGateProfileId ?? "theme-local",
+                Name = "Theme Local Rules",
+                Rules = inputs.NarrativeGateRules
+                    .Select((rule, index) => new NarrativeGateRule
+                    {
+                        SortOrder = index + 1,
+                        FromPhase = rule.FromPhase,
+                        ToPhase = rule.ToPhase,
+                        MetricKey = rule.MetricKey,
+                        Comparator = rule.Comparator,
+                        Threshold = rule.Threshold
+                    })
+                    .ToList()
+            };
+        }
+
+        if (profile is null && _gateProfileService is not null)
         {
             if (!string.IsNullOrWhiteSpace(inputs.NarrativeGateProfileId))
             {
@@ -97,6 +181,9 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
         ResetReason reason,
         CancellationToken cancellationToken = default)
     {
+        var nextCycleIndex = state.CycleIndex + 1;
+        var statPull = ResolveResetBaselinePull(nextCycleIndex, _resetStatPullSchedule);
+
         var resetState = new AdaptiveScenarioState
         {
             SessionId = state.SessionId,
@@ -105,66 +192,86 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
             InteractionCountInPhase = 0,
             ConsecutiveLeadCount = 0,
             LastEvaluationUtc = DateTime.UtcNow,
-            CycleIndex = state.CycleIndex + 1,
+            CycleIndex = nextCycleIndex,
             ActiveFormulaVersion = state.ActiveFormulaVersion,
             CharacterSnapshots = state.CharacterSnapshots
-                .Select(ApplySemiResetDecay)
+                .Select(snapshot => ApplySemiResetDecay(
+                    snapshot,
+                    _resetStatBaselines,
+                    statPull))
                 .ToList()
         };
 
         _logger.LogInformation(
-            "RolePlayV2 reset executed: SessionId={SessionId} NewCycleIndex={CycleIndex} Reason={Reason}",
+            "RolePlayV2 reset executed: SessionId={SessionId} NewCycleIndex={CycleIndex} Reason={Reason} StatPull={StatPull} Baselines={Baselines}",
             state.SessionId,
             resetState.CycleIndex,
-            reason);
+            reason,
+            statPull,
+            JsonSerializer.Serialize(_resetStatBaselines));
 
         return Task.FromResult(resetState);
     }
 
-    private static CharacterStatProfileV2 ApplySemiResetDecay(CharacterStatProfileV2 snapshot)
+    private static CharacterStatProfileV2 ApplySemiResetDecay(
+        CharacterStatProfileV2 snapshot,
+        IReadOnlyDictionary<string, int> baselines,
+        decimal statPull)
     {
+        int ResolveBaseline(string statName)
+            => baselines.TryGetValue(statName, out var configured)
+                ? Math.Clamp(configured, 0, 100)
+                : 50;
+
         return new CharacterStatProfileV2
         {
             CharacterId = snapshot.CharacterId,
-            Desire = DecayElevatedStat(snapshot.Desire, baseDecay: 10, elevationMultiplier: 0.45, minimum: 50),
-            Restraint = MoveTowardNeutral(snapshot.Restraint, step: 10),
-            Tension = DecayElevatedStat(snapshot.Tension, baseDecay: 7, elevationMultiplier: 0.30, minimum: 0),
-            Connection = Math.Clamp(snapshot.Connection, 0, 100),
-            Dominance = DecayElevatedStat(snapshot.Dominance, baseDecay: 5, elevationMultiplier: 0.25, minimum: 0),
-            Loyalty = Math.Clamp(snapshot.Loyalty, 0, 100),
-            SelfRespect = Math.Clamp(snapshot.SelfRespect, 0, 100),
+            Desire = MoveTowardBaseline(snapshot.Desire, ResolveBaseline("Desire"), statPull),
+            Restraint = MoveTowardBaseline(snapshot.Restraint, ResolveBaseline("Restraint"), statPull),
+            Tension = MoveTowardBaseline(snapshot.Tension, ResolveBaseline("Tension"), statPull),
+            Connection = MoveTowardBaseline(snapshot.Connection, ResolveBaseline("Connection"), statPull),
+            Dominance = MoveTowardBaseline(snapshot.Dominance, ResolveBaseline("Dominance"), statPull),
+            Loyalty = MoveTowardBaseline(snapshot.Loyalty, ResolveBaseline("Loyalty"), statPull),
+            SelfRespect = MoveTowardBaseline(snapshot.SelfRespect, ResolveBaseline("SelfRespect"), statPull),
             SnapshotUtc = DateTime.UtcNow
         };
     }
 
-    private static int DecayElevatedStat(int value, int baseDecay, double elevationMultiplier, int minimum)
+    private static decimal ResolveResetBaselinePull(int cycleIndex, IReadOnlyList<decimal> pullSchedule)
+    {
+        if (pullSchedule.Count == 0)
+        {
+            return 0m;
+        }
+
+        var scheduleIndex = Math.Max(0, cycleIndex - 1);
+        if (scheduleIndex >= pullSchedule.Count)
+        {
+            scheduleIndex = pullSchedule.Count - 1;
+        }
+
+        return pullSchedule[scheduleIndex];
+    }
+
+    private static int MoveTowardBaseline(int value, int baseline, decimal pull)
     {
         var clamped = Math.Clamp(value, 0, 100);
-        if (clamped <= 50)
+        var target = Math.Clamp(baseline, 0, 100);
+        var normalizedPull = Math.Clamp(pull, 0m, 1m);
+
+        if (clamped == target || normalizedPull <= 0m)
         {
             return clamped;
         }
 
-        var elevation = clamped - 50;
-        var variableDecay = (int)Math.Round(elevation * elevationMultiplier, MidpointRounding.AwayFromZero);
-        var decayed = clamped - baseDecay - variableDecay;
-        return Math.Clamp(decayed, minimum, 100);
-    }
-
-    private static int MoveTowardNeutral(int value, int step)
-    {
-        var clamped = Math.Clamp(value, 0, 100);
-        if (clamped < 50)
+        var delta = target - clamped;
+        var adjustment = (int)Math.Round(delta * (double)normalizedPull, MidpointRounding.AwayFromZero);
+        if (adjustment == 0)
         {
-            return Math.Min(50, clamped + step);
+            adjustment = delta > 0 ? 1 : -1;
         }
 
-        if (clamped > 50)
-        {
-            return Math.Max(50, clamped - step);
-        }
-
-        return clamped;
+        return Math.Clamp(clamped + adjustment, 0, 100);
     }
 
     private static (bool Transitioned, NarrativePhase TargetPhase, TransitionTriggerType TriggerType, string ReasonCode) ResolveTransition(

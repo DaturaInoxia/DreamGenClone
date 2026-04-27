@@ -16,6 +16,7 @@ public sealed class ScenarioSelectionService : IScenarioSelectionService
     private readonly IThemeCatalogService? _themeCatalogService;
     private readonly ICharacterStateScenarioMapper? _characterStateScenarioMapper;
     private readonly INarrativeGateProfileService? _narrativeGateProfileService;
+    private readonly IRPThemeService? _rpThemeService;
     private readonly IScenarioEngineSettingsRepository? _engineSettingsRepository;
     private readonly StoryAnalysisOptions _options;
 
@@ -24,6 +25,7 @@ public sealed class ScenarioSelectionService : IScenarioSelectionService
         IThemeCatalogService? themeCatalogService = null,
         ICharacterStateScenarioMapper? characterStateScenarioMapper = null,
         INarrativeGateProfileService? narrativeGateProfileService = null,
+        IRPThemeService? rpThemeService = null,
         IScenarioEngineSettingsRepository? engineSettingsRepository = null,
         IOptions<StoryAnalysisOptions>? options = null)
     {
@@ -31,6 +33,7 @@ public sealed class ScenarioSelectionService : IScenarioSelectionService
         _themeCatalogService = themeCatalogService;
         _characterStateScenarioMapper = characterStateScenarioMapper;
         _narrativeGateProfileService = narrativeGateProfileService;
+        _rpThemeService = rpThemeService;
         _engineSettingsRepository = engineSettingsRepository;
         _options = options?.Value ?? new StoryAnalysisOptions();
     }
@@ -40,12 +43,15 @@ public sealed class ScenarioSelectionService : IScenarioSelectionService
         IReadOnlyList<ScenarioDefinition> candidates,
         CancellationToken cancellationToken = default)
     {
-        var engineSettings = _engineSettingsRepository is not null
-            ? await _engineSettingsRepository.LoadAsync(cancellationToken)
-            : new DreamGenClone.Domain.RolePlay.ScenarioEngineSettings();
+        if (_engineSettingsRepository is null)
+            throw new InvalidOperationException(
+                "ScenarioEngineSettingsRepository is not available. " +
+                "Engine settings are required for candidate evaluation; ensure IScenarioEngineSettingsRepository is registered in DI.");
+
+        var engineSettings = await _engineSettingsRepository.LoadAsync(cancellationToken);
 
         var tier = ScenarioEligibilityService.ResolveWillingnessTier(state, engineSettings);
-        var stageBEligible = ScenarioEligibilityService.IsEligible(state, engineSettings) && !string.Equals(tier, "Blocked", StringComparison.Ordinal);
+        var stageBEligible = !string.Equals(tier, "Blocked", StringComparison.Ordinal);
         var evaluationId = Guid.NewGuid().ToString("N");
         var fitResults = await ResolveFitResultsAsync(state, candidates, cancellationToken);
 
@@ -247,13 +253,21 @@ public sealed class ScenarioSelectionService : IScenarioSelectionService
     {
         if (!stageBEligible)
         {
-            return new CandidateGateDecision(false, "legacy", "Candidate blocked by willingness or eligibility pre-gate.");
+            return new CandidateGateDecision(false, "pre-gate", "Candidate blocked by willingness or eligibility pre-gate.");
         }
 
-        var strategy = (_options.BuildUpSelectionCandidateGateStrategy ?? "legacy").Trim();
+        var rawStrategy = _options.BuildUpSelectionCandidateGateStrategy;
+        if (string.IsNullOrWhiteSpace(rawStrategy))
+            throw new InvalidOperationException(
+                "BuildUpSelectionCandidateGateStrategy is not configured. " +
+                "A gate strategy value is required; set it in appsettings or via the engine settings UI.");
+
+        var strategy = rawStrategy.Trim();
         if (!string.Equals(strategy, "dominant-role", StringComparison.OrdinalIgnoreCase))
         {
-            return new CandidateGateDecision(true, "legacy", "Legacy candidate gate passed.");
+            throw new InvalidOperationException(
+                $"Unrecognized BuildUpSelectionCandidateGateStrategy '{strategy}'. " +
+                "The only supported V2 strategy is 'dominant-role'. Update the configuration to remove the legacy strategy.");
         }
 
         if (fit is null || fit.CharacterRoleScores.Count == 0)
@@ -262,10 +276,9 @@ public sealed class ScenarioSelectionService : IScenarioSelectionService
         }
 
         var roleFailures = ParseRoleFailures(fit.Failures);
-        var minScore = Math.Clamp(_options.BuildUpSelectionDominantRoleMinScore, 0.0, 1.0);
 
         var passingRoles = fit.CharacterRoleScores
-            .Where(x => x.Value >= minScore && !roleFailures.Contains(x.Key))
+            .Where(x => !roleFailures.Contains(x.Key))
             .OrderByDescending(x => x.Value)
             .ToList();
 
@@ -275,7 +288,7 @@ public sealed class ScenarioSelectionService : IScenarioSelectionService
             return new CandidateGateDecision(
                 true,
                 "dominant-role",
-                $"Dominant-role gate passed via role '{top.Key}' score={top.Value:0.###} (threshold={minScore:0.###}).");
+                $"Dominant-role gate passed via role '{top.Key}' (no clause failures, score={top.Value:0.###}).");
         }
 
         var bestRole = fit.CharacterRoleScores
@@ -287,13 +300,10 @@ public sealed class ScenarioSelectionService : IScenarioSelectionService
             return new CandidateGateDecision(false, "dominant-role", "Dominant-role gate failed: no eligible role scores.");
         }
 
-        var failureSuffix = roleFailures.Contains(bestRole.Key)
-            ? "best role has one or more failed clauses"
-            : "best role score below threshold";
         return new CandidateGateDecision(
             false,
             "dominant-role",
-            $"Dominant-role gate failed for scenario '{scenarioId}': best role '{bestRole.Key}' score={bestRole.Value:0.###}, threshold={minScore:0.###}, {failureSuffix}.");
+            $"Dominant-role gate failed for scenario '{scenarioId}': all evaluated roles have failed clauses ({string.Join(", ", roleFailures)}).");
     }
 
     private static HashSet<string> ParseRoleFailures(IReadOnlyList<string> failures)
@@ -328,9 +338,12 @@ public sealed class ScenarioSelectionService : IScenarioSelectionService
         IReadOnlyList<ScenarioCandidateEvaluation> evaluations,
         CancellationToken cancellationToken = default)
     {
-        var engineSettings = _engineSettingsRepository is not null
-            ? await _engineSettingsRepository.LoadAsync(cancellationToken)
-            : new DreamGenClone.Domain.RolePlay.ScenarioEngineSettings();
+        if (_engineSettingsRepository is null)
+            throw new InvalidOperationException(
+                "ScenarioEngineSettingsRepository is not available. " +
+                "Engine settings are required for scenario commit evaluation; ensure IScenarioEngineSettingsRepository is registered in DI.");
+
+        var engineSettings = await _engineSettingsRepository.LoadAsync(cancellationToken);
         var nearTieThreshold = (decimal)engineSettings.NearTieThreshold;
         var requiredLeadCount = engineSettings.RequiredConsecutiveLeadCount;
 
@@ -356,6 +369,7 @@ public sealed class ScenarioSelectionService : IScenarioSelectionService
             return new ScenarioCommitResult
             {
                 Committed = false,
+                ScenarioId = leader.ScenarioId,
                 UpdatedConsecutiveLeadCount = 0,
                 Reason = "Leader is not eligible after two-stage gating.",
                 SelectedEvaluation = leader
@@ -551,21 +565,71 @@ public sealed class ScenarioSelectionService : IScenarioSelectionService
         ScenarioCandidateEvaluation leader,
         CancellationToken cancellationToken)
     {
-        if (_narrativeGateProfileService is null)
-        {
-            return BuildUpGateEvaluation.CreateNotConfigured("BuildUp profile gate not configured.");
-        }
-
         NarrativeGateProfile? profile;
         var profileSource = "selected";
         if (!string.IsNullOrWhiteSpace(state.SelectedNarrativeGateProfileId))
         {
+            if (_narrativeGateProfileService is null)
+            {
+                return BuildUpGateEvaluation.CreateNotConfigured(
+                    "BuildUp profile gate missing required configuration: selected narrative gate profile service is unavailable.");
+            }
+
             profile = await _narrativeGateProfileService.GetAsync(state.SelectedNarrativeGateProfileId, cancellationToken);
+            if (profile is null)
+            {
+                return BuildUpGateEvaluation.CreateNotConfigured(
+                    $"BuildUp profile gate missing required configuration: selected narrative gate profile '{state.SelectedNarrativeGateProfileId}' not found.");
+            }
         }
         else
         {
-            profile = await _narrativeGateProfileService.GetDefaultAsync(cancellationToken);
-            profileSource = "default";
+            if (_rpThemeService is null)
+            {
+                return BuildUpGateEvaluation.CreateNotConfigured(
+                    "BuildUp profile gate missing required configuration: RP theme service is unavailable.");
+            }
+
+            var themeId = !string.IsNullOrWhiteSpace(leader.ScenarioId)
+                ? leader.ScenarioId
+                : state.ActiveScenarioId;
+            if (string.IsNullOrWhiteSpace(themeId))
+            {
+                return BuildUpGateEvaluation.CreateNotConfigured(
+                    "BuildUp profile gate missing required configuration: no leader scenario id is available for theme-local gate rules.");
+            }
+
+            var theme = await _rpThemeService.GetThemeAsync(themeId, cancellationToken);
+            if (theme is null)
+            {
+                return BuildUpGateEvaluation.CreateNotConfigured(
+                    $"BuildUp profile gate missing required configuration: theme '{themeId}' not found.");
+            }
+
+            if (theme.NarrativeGateRules.Count == 0)
+            {
+                return BuildUpGateEvaluation.CreateNotConfigured(
+                    $"BuildUp profile gate missing required configuration: theme '{theme.Id}' has no narrative gate rules.");
+            }
+
+            profile = new NarrativeGateProfile
+            {
+                Id = theme.Id,
+                Name = "Theme Local Rules",
+                Rules = theme.NarrativeGateRules
+                    .OrderBy(rule => rule.SortOrder)
+                    .Select((rule, index) => new NarrativeGateRule
+                    {
+                        SortOrder = index + 1,
+                        FromPhase = rule.FromPhase,
+                        ToPhase = rule.ToPhase,
+                        MetricKey = rule.MetricKey,
+                        Comparator = rule.Comparator,
+                        Threshold = rule.Threshold
+                    })
+                    .ToList()
+            };
+            profileSource = "theme-local";
         }
 
         if (profile is null || profile.Rules.Count == 0)
@@ -616,7 +680,24 @@ public sealed class ScenarioSelectionService : IScenarioSelectionService
                     $"BuildUp profile gate blocked commit: metric '{rule.MetricKey}' unavailable.");
             }
 
-            var passed = Compare(actualValue, rule.Comparator, rule.Threshold);
+            if (!TryCompare(actualValue, rule.Comparator, rule.Threshold, out var passed))
+            {
+                audits.Add(new BuildUpGateRuleAudit(
+                    rule.SortOrder,
+                    rule.MetricKey,
+                    rule.Comparator,
+                    rule.Threshold,
+                    actualValue,
+                    false,
+                    "InvalidComparator"));
+
+                return BuildUpGateEvaluation.CreateFailed(
+                    profile,
+                    profileSource,
+                    audits,
+                    $"BuildUp profile gate blocked commit: comparator '{rule.Comparator}' is invalid for metric '{rule.MetricKey}'.");
+            }
+
             audits.Add(new BuildUpGateRuleAudit(
                 rule.SortOrder,
                 rule.MetricKey,
@@ -643,17 +724,29 @@ public sealed class ScenarioSelectionService : IScenarioSelectionService
             $"BuildUp profile gate passed via profile '{profile.Name}'.");
     }
 
-    private static bool Compare(decimal actual, string comparator, decimal threshold)
+    private static bool TryCompare(decimal actual, string comparator, decimal threshold, out bool passed)
     {
-        return comparator.Trim() switch
+        switch (comparator.Trim())
         {
-            NarrativeGateComparators.GreaterThanOrEqual => actual >= threshold,
-            NarrativeGateComparators.GreaterThan => actual > threshold,
-            NarrativeGateComparators.LessThanOrEqual => actual <= threshold,
-            NarrativeGateComparators.LessThan => actual < threshold,
-            NarrativeGateComparators.Equal => actual == threshold,
-            _ => actual >= threshold
-        };
+            case NarrativeGateComparators.GreaterThanOrEqual:
+                passed = actual >= threshold;
+                return true;
+            case NarrativeGateComparators.GreaterThan:
+                passed = actual > threshold;
+                return true;
+            case NarrativeGateComparators.LessThanOrEqual:
+                passed = actual <= threshold;
+                return true;
+            case NarrativeGateComparators.LessThan:
+                passed = actual < threshold;
+                return true;
+            case NarrativeGateComparators.Equal:
+                passed = actual == threshold;
+                return true;
+            default:
+                passed = false;
+                return false;
+        }
     }
 
     private sealed record BuildUpGateRuleAudit(

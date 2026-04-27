@@ -14,8 +14,11 @@
 @using DreamGenClone.Application.ModelManager
 @using DreamGenClone.Application.Templates
 @using DreamGenClone.Application.RolePlay
+@using DreamGenClone.Application.Abstractions
 @using DreamGenClone.Domain.Templates
 @using DreamGenClone.Domain.ModelManager
+@using DreamGenClone.Infrastructure.Configuration
+@using Microsoft.Extensions.Options
 
 @inject IRolePlayEngineService RolePlayEngine
 @inject IRolePlayBranchService RolePlayBranchService
@@ -35,8 +38,11 @@
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
 @inject ILogger<RolePlayWorkspace> Logger
+@inject IOptions<LmStudioOptions> LmStudioConfiguration
+@inject IRolePlayDebugEventSink RolePlayDebugEventSink
 @implements IAsyncDisposable
 @using System.Globalization
+@using System.Diagnostics
 @using System.Text
 @using System.Text.Json
 @using System.Text.RegularExpressions
@@ -72,6 +78,8 @@
     private int _lastRenderedInteractionCount = -1;
     private bool _shouldFollowStoryUpdates = true;
     private bool _scenarioDirty;
+    private bool _sessionStatsDirty;
+    private string? _personaProfileSelection;
     private bool _isDisposed;
 
     // Scenario section collapse state (all collapsed by default)
@@ -90,6 +98,7 @@
     private string _selectedFinishOption = string.Empty;
     private string _finishOptionError = string.Empty;
     private bool _finishUseGuidedFlow;
+    private CancellationTokenSource? _finishOptionsGenerationCts;
     private bool _nextPhasePopupOpen;
     private bool _nextPhaseOptionsLoading;
     private bool _nextPhaseOptionSubmitting;
@@ -129,7 +138,15 @@
     private static readonly TimeSpan PendingResponseRenderInterval = TimeSpan.FromMilliseconds(300);
     private RolePlayV2DiagnosticsSnapshot? _v2Diagnostics;
     private DreamGenClone.Domain.RolePlay.NarrativeGateProfile? _defaultNarrativeGateProfile;
+    private DreamGenClone.Domain.RolePlay.NarrativeGateProfile? _selectedNarrativeGateProfile;
+    // Effective profile for all phase gate threshold resolution: selected > theme-local > default.
+    // Set by ResolveBuildUpGateRuleCacheAsync and consumed by ResolveGateThresholdsFromProfile.
+    private DreamGenClone.Domain.RolePlay.NarrativeGateProfile? _resolvedEffectiveNarrativeGateProfile;
+    private DreamGenClone.Domain.RolePlay.ScenarioEngineSettings _scenarioEngineSettings = new();
     private RPTheme? _activeRpTheme;
+    private IReadOnlyList<DreamGenClone.Domain.RolePlay.NarrativeGateRule> _resolvedBuildUpCommittedRules = [];
+    private string _resolvedBuildUpCommittedRuleSource = "(unresolved)";
+    private string? _resolvedBuildUpCommittedRuleError;
     private RolePlayPendingDecisionPrompt? _pendingDecisionPrompt;
     private List<RolePlayPendingDecisionPrompt> _deferredDecisionPrompts = [];
     private string? _dismissedDecisionPointId;
@@ -197,6 +214,10 @@
         }
 
         _defaultNarrativeGateProfile = await StoryAnalysisFacade.GetDefaultNarrativeGateProfileAsync();
+        _selectedNarrativeGateProfile = string.IsNullOrWhiteSpace(_session.AdaptiveState.SelectedNarrativeGateProfileId)
+            ? null
+            : await StoryAnalysisFacade.GetNarrativeGateProfileAsync(_session.AdaptiveState.SelectedNarrativeGateProfileId);
+        _scenarioEngineSettings = await StoryAnalysisFacade.LoadScenarioEngineSettingsAsync();
 
         var sessionUpdated = false;
 
@@ -397,6 +418,7 @@
 
         _v2Diagnostics = await RolePlayDiagnostics.GetSnapshotAsync(_session.Id);
         _activeRpTheme = await LoadActiveRpThemeAsync();
+        await ResolveBuildUpGateRuleCacheAsync();
         _pendingDecisionPrompt = await RolePlayEngine.GetPendingDecisionPromptAsync(_session.Id);
         _deferredDecisionPrompts = (await RolePlayEngine.GetDeferredDecisionPromptsAsync(_session.Id)).ToList();
         if (_pendingDecisionPrompt is null)
@@ -456,10 +478,10 @@
 
     private void ToggleIntentPopup()
     {
+        DismissFinishPopup();
         _intentPopupOpen = !_intentPopupOpen;
         _identityPopupOpen = false;
         _continueCustomPopupOpen = false;
-        _finishPopupOpen = false;
         _nextPhasePopupOpen = false;
         _steerPopupOpen = false;
     }
@@ -472,10 +494,10 @@
 
     private void ToggleIdentityPopup()
     {
+        DismissFinishPopup();
         _identityPopupOpen = !_identityPopupOpen;
         _intentPopupOpen = false;
         _continueCustomPopupOpen = false;
-        _finishPopupOpen = false;
         _nextPhasePopupOpen = false;
         _steerPopupOpen = false;
     }
@@ -496,7 +518,7 @@
         _intentPopupOpen = false;
         _identityPopupOpen = false;
         _continueCustomPopupOpen = false;
-        _finishPopupOpen = false;
+        DismissFinishPopup();
         _nextPhasePopupOpen = false;
         _steerPopupOpen = false;
     }
@@ -813,7 +835,7 @@
             _session.AssistantModelId ?? "(default)");
     }
 
-    private RolePlayAssistantContext BuildAssistantContext()
+    private RolePlayAssistantContext BuildAssistantContext(string? correlationId = null)
     {
         var recentInteractions = (_session?.Interactions ?? [])
             .Where(i => !i.IsExcluded && i.ParentInteractionId is null)
@@ -861,9 +883,12 @@
         return new RolePlayAssistantContext
         {
             SessionId = _session!.Id,
+            CorrelationId = correlationId,
             ScenarioSummary = scenarioSummary,
             RecentInteractions = recentInteractions,
             BehaviorMode = _session.BehaviorMode.ToString(),
+            CurrentNarrativePhase = _session.AdaptiveState.CurrentNarrativePhase.ToString(),
+            ActiveScenarioId = _session.AdaptiveState.ActiveScenarioId,
             PersonaName = _session.PersonaName,
             PersonaDescription = _session.PersonaDescription,
             PersonaRole = CharacterRoleCatalog.Normalize(_session.PersonaRole),
@@ -886,6 +911,7 @@
             ScenarioWorldRules = _loadedScenario?.Setting?.WorldRules ?? [],
             FullCharacterDetails = fullCharacterDetails,
             SelectedThemeProfileId = _session.SelectedRPThemeProfileId ?? _session.SelectedThemeProfileId,
+            SelectedNarrativeGateProfileId = _session.AdaptiveState.SelectedNarrativeGateProfileId,
             SelectedIntensityProfileId = _session.SelectedIntensityProfileId,
             AdaptiveIntensityProfileId = _session.AdaptiveIntensityProfileId,
             ActiveIntensityProfile = GetAdaptiveIntensityProfileName(),
@@ -920,6 +946,7 @@
     }
 
     private void MarkScenarioDirty() => _scenarioDirty = true;
+    private void MarkSessionStatsDirty() { _sessionStatsDirty = true; MarkScenarioDirty(); }
 
     private void ToggleScenarioSection(string section)
     {
@@ -929,8 +956,46 @@
 
     private async Task OnSaveScenarioClicked()
     {
-        await SaveScenarioAsync();
+        // Snapshot manual stat overrides before any potential scenario rebuild
+        Dictionary<string, Dictionary<string, int>>? statSnapshot = null;
+        if (_sessionStatsDirty && _session is not null)
+        {
+            statSnapshot = _session.AdaptiveState.CharacterStats
+                .ToDictionary(
+                    kvp => kvp.Key,
+                    kvp => new Dictionary<string, int>(kvp.Value.Stats, StringComparer.OrdinalIgnoreCase),
+                    StringComparer.OrdinalIgnoreCase);
+        }
+
+        if (_scenarioDirty)
+        {
+            await SaveScenarioAsync(); // may rebuild adaptive state from scenario
+        }
+
+        if (_sessionStatsDirty && _session is not null)
+        {
+            // Re-apply user stat overrides on top of any rebuild result
+            if (statSnapshot is not null)
+            {
+                foreach (var (actorKey, stats) in statSnapshot)
+                {
+                    if (!_session.AdaptiveState.CharacterStats.TryGetValue(actorKey, out var block))
+                    {
+                        block = new CharacterStatBlock { CharacterId = actorKey };
+                        foreach (var s in AdaptiveStatCatalog.CanonicalStatNames)
+                            block.Stats[s] = AdaptiveStatCatalog.DefaultValue;
+                        _session.AdaptiveState.CharacterStats[actorKey] = block;
+                    }
+                    foreach (var (statName, value) in stats)
+                        block.Stats[statName] = value;
+                }
+            }
+            await SaveSessionSettingsAsync();
+        }
+
         _scenarioDirty = false;
+        _sessionStatsDirty = false;
+        StateHasChanged();
     }
 
     private async Task SaveScenarioAsync()
@@ -1813,10 +1878,10 @@
         var loyalty = GetAverageAdaptiveStat(state, "Loyalty");
         var selfRespect = GetAverageAdaptiveStat(state, "SelfRespect");
         var activeScenarioScore = GetLifecycleActiveScenarioScore(state, out var activeScenarioScoreSource);
-        var willingnessTier = ResolveWillingnessTier(desire);
+        var willingnessTier = ResolveWillingnessTier(desire, _scenarioEngineSettings);
+        var stageALowDesireMin = _scenarioEngineSettings.StageALowDesireMin;
         var stageAOpen = !string.Equals(willingnessTier, "Blocked", StringComparison.OrdinalIgnoreCase);
-        var stageBOpen = tension >= 35 && restraint <= 80;
-        var stageEligible = stageAOpen && stageBOpen;
+        var stageEligible = stageAOpen;
 
         var rows = new List<PhaseGateRow>();
         rows.Add(new PhaseGateRow(
@@ -1824,22 +1889,11 @@
             "Live",
             $"Desire={desire:0.0}, Restraint={restraint:0.0}, Tension={tension:0.0}, Connection={connection:0.0}, Dominance={dominance:0.0}, Loyalty={loyalty:0.0}, SelfRespect={selfRespect:0.0}, ActiveScenarioScore={activeScenarioScore:0.0} ({activeScenarioScoreSource}), CompletedScenarios={state.CompletedScenarios}."));
 
-        var desireGapToStageA = Math.Max(0, 35 - desire);
+        var desireGapToStageA = Math.Max(0, stageALowDesireMin - desire);
         rows.Add(new PhaseGateRow(
             "Selection Gate A: Willingness Tier",
             stageAOpen ? "Open" : "Closed",
-            $"Rule: avg desire >=35 required (tier not Blocked). Current desire={desire:0.0}, tier={willingnessTier}. {(stageAOpen ? "Gap: none" : $"Gap: need +{desireGapToStageA:0.0} desire")}."));
-
-        var tensionGapToStageB = Math.Max(0, 35 - tension);
-        var restraintGapToStageB = Math.Max(0, restraint - 80);
-        var stageBGapText = stageBOpen
-            ? "Gap: none"
-            : $"Gap: need +{tensionGapToStageB:0.0} tension and -{restraintGapToStageB:0.0} restraint (as applicable)";
-
-        rows.Add(new PhaseGateRow(
-            "Selection Gate B: Eligibility",
-            stageBOpen ? "Open" : "Closed",
-            $"Rules: avg tension>=35 AND avg restraint<=80. Current tension={tension:0.0}, restraint={restraint:0.0}. Combined stage eligibility={(stageEligible ? "Open" : "Closed")}. {stageBGapText}."));
+            $"{(stageAOpen ? "✓" : "✗")} Desire = {desire:0.0} (requires ≥ {stageALowDesireMin:0.##}){(!stageAOpen ? $" — need +{desireGapToStageA:0.0} to pass" : " — pass")}.\n{(stageAOpen ? "✓" : "✗")} Willingness tier = {willingnessTier}{(!stageAOpen ? " — must not be Blocked" : " — pass (not Blocked)")}."  ));
 
         if (state.CurrentNarrativePhase == DreamGenClone.Domain.StoryAnalysis.NarrativePhase.BuildUp)
         {
@@ -1853,52 +1907,107 @@
                     .OrderByDescending(x => x.FitScore)
                     .ThenByDescending(x => x.Confidence)
                     .FirstOrDefault();
-            var fitScore = topEligibleCandidate?.FitScore;
-            var interactionCount = _session.Interactions.Count;
+            // Use the best available fit score: eligible candidate first, then top non-eligible.
+            // Guard against UnpenalizedFitScore=0m default masking the actual FitScore.
+            var fitScore = topEligibleCandidate is not null
+                ? (topEligibleCandidate.UnpenalizedFitScore != 0m ? topEligibleCandidate.UnpenalizedFitScore : topEligibleCandidate.FitScore)
+                : topCandidate is not null
+                    ? (topCandidate.UnpenalizedFitScore != 0m ? topCandidate.UnpenalizedFitScore : topCandidate.FitScore)
+                    : (decimal?)null;
+            var interactionCount = _v2Diagnostics?.AdaptiveState?.InteractionCountInPhase ?? 0;
+            var averageDesire = GetAverageAdaptiveStat(state, "Desire");
+            var averageRestraint = GetAverageAdaptiveStat(state, "Restraint");
+            var averageTension = GetAverageAdaptiveStat(state, "Tension");
+            var averageConnection = GetAverageAdaptiveStat(state, "Connection");
+            var averageDominance = GetAverageAdaptiveStat(state, "Dominance");
+            var averageLoyalty = GetAverageAdaptiveStat(state, "Loyalty");
+            var averageSelfRespect = GetAverageAdaptiveStat(state, "SelfRespect");
+            var metricValues = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
+            {
+                [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.ActiveScenarioScore] = fitScore ?? 0m,
+                [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.InteractionsSinceCommitment] = interactionCount,
+                [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageDesire] = (decimal)averageDesire,
+                [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageRestraint] = (decimal)averageRestraint,
+                [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageTension] = (decimal)averageTension,
+                [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageConnection] = (decimal)averageConnection,
+                [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageDominance] = (decimal)averageDominance,
+                [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageLoyalty] = (decimal)averageLoyalty,
+                [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageSelfRespect] = (decimal)averageSelfRespect
+            };
 
-            // Read thresholds from the configured Narrative Gate Profile (BuildUp → Committed rules).
-            var buildUpRules = _defaultNarrativeGateProfile?.Rules
-                .Where(r => string.Equals(r.FromPhase, "BuildUp", StringComparison.OrdinalIgnoreCase)
-                    && string.Equals(r.ToPhase, "Committed", StringComparison.OrdinalIgnoreCase))
-                .ToList();
+            // Read thresholds from the resolved configured source (selected profile or theme-local rules).
+            var buildUpRules = _resolvedBuildUpCommittedRules.ToList();
 
-            if (buildUpRules is null || buildUpRules.Count == 0)
+            if (buildUpRules.Count == 0)
             {
                 rows.Add(new PhaseGateRow(
                     "BuildUp Commit Gate",
                     "Error",
-                    "No BuildUp → Committed rules configured in the Narrative Gate Profile. Configure rules in Profiles."));
+                    _resolvedBuildUpCommittedRuleError
+                        ?? "No BuildUp -> Committed rules configured from selected profile or theme-local configuration."));
             }
             else
             {
-                var fitRule = buildUpRules.FirstOrDefault(r => string.Equals(r.MetricKey, DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.ActiveScenarioScore, StringComparison.OrdinalIgnoreCase));
-                var interactionRule = buildUpRules.FirstOrDefault(r => string.Equals(r.MetricKey, DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.InteractionsSinceCommitment, StringComparison.OrdinalIgnoreCase));
-                var fitThreshold = fitRule?.Threshold ?? 0m;
-                var interactionThreshold = interactionRule is not null ? (int)Math.Round(interactionRule.Threshold, MidpointRounding.AwayFromZero) : 0;
-                var commitThresholdMet = topEligibleCandidate is not null
-                    && (fitRule is null || fitScore >= fitThreshold)
-                    && (interactionRule is null || interactionCount >= interactionThreshold);
-                var fitGap = fitRule is null || topEligibleCandidate is null ? 0m : Math.Max(0m, fitThreshold - fitScore!.Value);
-                var interactionGap = interactionRule is null ? 0 : Math.Max(0, interactionThreshold - interactionCount);
-                var fitDisplay = fitScore is null ? "n/a" : $"{fitScore.Value:0.00}";
+                if (topEligibleCandidate is null)
+                {
+                    // Gate A may be open in live stats while stale diagnostics show no eligible candidate.
+                    var eligibilityHeader = stageEligible
+                        ? $"⚠ No eligible candidate in last engine run (diagnostics stale — re-evaluates next cycle). Top candidate: {topCandidate?.ScenarioId ?? "(none)"} fit={fitScore?.ToString("0.00") ?? "n/a"}."
+                        : topCandidate is null
+                            ? "No candidate evaluations yet. Engine has not run or no scenarios match the active theme."
+                            : $"✗ Top candidate '{topCandidate.ScenarioId}' did not pass the fit gate (fit={fitScore?.ToString("0.00") ?? "n/a"}). Gate A must be open first.";
 
-                var ruleParts = new List<string>();
-                if (fitRule is not null) ruleParts.Add($"fit{fitRule.Comparator}{fitThreshold:0.##}");
-                if (interactionRule is not null) ruleParts.Add($"interactions{interactionRule.Comparator}{interactionThreshold}");
-                // Include any other configured rules (desire, restraint, etc.)
-                foreach (var r in buildUpRules.Where(r => r != fitRule && r != interactionRule))
-                    ruleParts.Add($"{r.MetricKey}{r.Comparator}{r.Threshold:0.##}");
-                var rulesText = string.Join(" AND ", ruleParts);
-
-                var gateDetail = topEligibleCandidate is null
-                    ? topCandidate is null
-                        ? "Candidate evaluations not available yet."
-                        : $"No eligible candidate yet (top candidate '{topCandidate.ScenarioId}' is ineligible)."
-                    : "Top eligible candidate loaded.";
-                rows.Add(new PhaseGateRow(
-                    "BuildUp Commit Gate",
-                    commitThresholdMet ? "Open" : "Closed",
-                    $"Rules ({_defaultNarrativeGateProfile!.Name}): {rulesText}. Current fit={fitDisplay}, interactions={interactionCount}. {(commitThresholdMet ? "Gap: none" : $"Gap: need +{fitGap:0.00} fit and +{interactionGap} interactions")}. {gateDetail}"));
+                    var ruleLines = new List<string> { eligibilityHeader, $"Commit rules ({_resolvedBuildUpCommittedRuleSource}):" };
+                    foreach (var rule in buildUpRules)
+                    {
+                        if (!metricValues.TryGetValue(rule.MetricKey, out var val))
+                        {
+                            ruleLines.Add($"? {rule.MetricKey}: value unavailable");
+                            continue;
+                        }
+                        if (!TryCompareRuleMetric(val, rule.Comparator, rule.Threshold, out var rulePass))
+                        {
+                            ruleLines.Add($"? {rule.MetricKey}: invalid comparator '{rule.Comparator}'");
+                            continue;
+                        }
+                        ruleLines.Add(rulePass
+                            ? $"✓ {rule.MetricKey} = {val:0.##} (requires {rule.Comparator} {rule.Threshold:0.##}) — pass"
+                            : $"✗ {rule.MetricKey} = {val:0.##} (requires {rule.Comparator} {rule.Threshold:0.##}) — {ComputeRuleGapDescription(val, rule.Comparator, rule.Threshold)}");
+                    }
+                    rows.Add(new PhaseGateRow(
+                        "BuildUp Commit Gate",
+                        "Closed",
+                        string.Join("\n", ruleLines)));
+                }
+                else
+                {
+                    var fitDisplay = fitScore?.ToString("0.00") ?? "n/a";
+                    var ruleLines = new List<string> { $"✓ Fit-gate eligible: {topEligibleCandidate.ScenarioId} (fit={fitDisplay})", $"Commit rules ({_resolvedBuildUpCommittedRuleSource}):" };
+                    var allRulesPassed = true;
+                    foreach (var rule in buildUpRules)
+                    {
+                        if (!metricValues.TryGetValue(rule.MetricKey, out var actualValue))
+                        {
+                            ruleLines.Add($"? {rule.MetricKey}: value unavailable");
+                            allRulesPassed = false;
+                            continue;
+                        }
+                        if (!TryCompareRuleMetric(actualValue, rule.Comparator, rule.Threshold, out var passed))
+                        {
+                            ruleLines.Add($"? {rule.MetricKey}: invalid comparator '{rule.Comparator}'");
+                            allRulesPassed = false;
+                            continue;
+                        }
+                        if (!passed) allRulesPassed = false;
+                        ruleLines.Add(passed
+                            ? $"✓ {rule.MetricKey} = {actualValue:0.##} (requires {rule.Comparator} {rule.Threshold:0.##}) — pass"
+                            : $"✗ {rule.MetricKey} = {actualValue:0.##} (requires {rule.Comparator} {rule.Threshold:0.##}) — {ComputeRuleGapDescription(actualValue, rule.Comparator, rule.Threshold)}");
+                    }
+                    rows.Add(new PhaseGateRow(
+                        "BuildUp Commit Gate",
+                        allRulesPassed ? "Open" : "Closed",
+                        string.Join("\n", ruleLines)));
+                }
             }
         }
 
@@ -1980,19 +2089,25 @@
         return rows;
     }
 
-    private static string ResolveWillingnessTier(double desire)
+    private static string ResolveWillingnessTier(
+        double desire,
+        DreamGenClone.Domain.RolePlay.ScenarioEngineSettings? settings = null)
     {
-        if (desire >= 75)
+        var highMin = settings?.StageAHighDesireMin ?? 75;
+        var mediumMin = settings?.StageAMediumDesireMin ?? 55;
+        var lowMin = settings?.StageALowDesireMin ?? 35;
+
+        if (desire >= highMin)
         {
             return "High";
         }
 
-        if (desire >= 55)
+        if (desire >= mediumMin)
         {
             return "Medium";
         }
 
-        if (desire >= 35)
+        if (desire >= lowMin)
         {
             return "Low";
         }
@@ -2096,14 +2211,14 @@
     {
         var nextPhase = "Committed";
 
-        var buildUpRules = _defaultNarrativeGateProfile?.Rules
-            .Where(r => string.Equals(r.FromPhase, "BuildUp", StringComparison.OrdinalIgnoreCase)
-                && string.Equals(r.ToPhase, "Committed", StringComparison.OrdinalIgnoreCase))
-            .ToList();
+        var buildUpRules = _resolvedBuildUpCommittedRules.ToList();
 
-        if (buildUpRules is null || buildUpRules.Count == 0)
+        if (buildUpRules.Count == 0)
         {
-            return new PhaseProgressInfo(nextPhase, 0, "ERROR: No BuildUp → Committed rules configured in Narrative Gate Profile.");
+            return new PhaseProgressInfo(
+                nextPhase,
+                0,
+                $"ERROR: {_resolvedBuildUpCommittedRuleError ?? "No BuildUp -> Committed rules configured from selected profile or theme-local configuration."}");
         }
 
         var topEligibleCandidate = _v2Diagnostics?.CandidateEvaluations
@@ -2117,27 +2232,55 @@
                 .ThenByDescending(x => x.FitScore)
                 .FirstOrDefault();
 
-        var interactionCount = _session!.Interactions.Count;
-        var fitRule = buildUpRules.FirstOrDefault(r => string.Equals(r.MetricKey, DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.ActiveScenarioScore, StringComparison.OrdinalIgnoreCase));
-        var interactionRule = buildUpRules.FirstOrDefault(r => string.Equals(r.MetricKey, DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.InteractionsSinceCommitment, StringComparison.OrdinalIgnoreCase));
+        var interactionCount = _v2Diagnostics?.AdaptiveState?.InteractionCountInPhase ?? 0;
+        var fitScore = topEligibleCandidate?.UnpenalizedFitScore ?? topEligibleCandidate?.FitScore ?? 0m;
+        var metricValues = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
+        {
+            [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.ActiveScenarioScore] = fitScore,
+            [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.InteractionsSinceCommitment] = interactionCount,
+            [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageDesire] = (decimal)GetAverageAdaptiveStat(_session.AdaptiveState, "Desire"),
+            [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageRestraint] = (decimal)GetAverageAdaptiveStat(_session.AdaptiveState, "Restraint"),
+            [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageTension] = (decimal)GetAverageAdaptiveStat(_session.AdaptiveState, "Tension"),
+            [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageConnection] = (decimal)GetAverageAdaptiveStat(_session.AdaptiveState, "Connection"),
+            [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageDominance] = (decimal)GetAverageAdaptiveStat(_session.AdaptiveState, "Dominance"),
+            [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageLoyalty] = (decimal)GetAverageAdaptiveStat(_session.AdaptiveState, "Loyalty"),
+            [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageSelfRespect] = (decimal)GetAverageAdaptiveStat(_session.AdaptiveState, "SelfRespect")
+        };
 
-        var fitThreshold = fitRule?.Threshold ?? 0m;
-        var interactionThreshold = interactionRule is not null ? (int)Math.Round(interactionRule.Threshold, MidpointRounding.AwayFromZero) : 0;
-        var fitScore = topEligibleCandidate?.FitScore ?? 0m;
-
-        // Calculate progress based on configured rules
         var ruleCount = 0;
         var progressSum = 0.0;
-        if (fitRule is not null)
+        foreach (var rule in buildUpRules)
         {
+            if (!metricValues.TryGetValue(rule.MetricKey, out var actualValue))
+            {
+                continue;
+            }
+
             ruleCount++;
-            progressSum += topEligibleCandidate is not null ? Math.Clamp((double)(fitScore / fitThreshold), 0, 1) : 0;
+            if (!TryCompareRuleMetric(actualValue, rule.Comparator, rule.Threshold, out var passed))
+            {
+                continue;
+            }
+
+            if (passed)
+            {
+                progressSum += 1.0;
+                continue;
+            }
+
+            var partial = rule.Comparator switch
+            {
+                DreamGenClone.Domain.RolePlay.NarrativeGateComparators.GreaterThanOrEqual or DreamGenClone.Domain.RolePlay.NarrativeGateComparators.GreaterThan
+                    => rule.Threshold == 0 ? 1.0 : Math.Clamp((double)(actualValue / rule.Threshold), 0, 1),
+                DreamGenClone.Domain.RolePlay.NarrativeGateComparators.LessThanOrEqual or DreamGenClone.Domain.RolePlay.NarrativeGateComparators.LessThan
+                    => actualValue <= 0 ? 1.0 : Math.Clamp((double)(rule.Threshold / actualValue), 0, 1),
+                DreamGenClone.Domain.RolePlay.NarrativeGateComparators.Equal
+                    => Math.Clamp(1.0 - Math.Abs((double)(actualValue - rule.Threshold)) / 100.0, 0, 1),
+                _ => 0.0
+            };
+            progressSum += partial;
         }
-        if (interactionRule is not null && interactionThreshold > 0)
-        {
-            ruleCount++;
-            progressSum += Math.Clamp((double)interactionCount / interactionThreshold, 0, 1);
-        }
+
         var confidenceProgress = ruleCount > 0 ? (int)Math.Round(progressSum / ruleCount * 100.0) : 0;
 
         var ruleParts = new List<string>();
@@ -2152,8 +2295,91 @@
         return new PhaseProgressInfo(
             nextPhase,
             confidenceProgress,
-            $"Profile '{_defaultNarrativeGateProfile!.Name}' rules: {rulesText}. Interactions={interactionCount}. {candidateInfo}"
+            $"{_resolvedBuildUpCommittedRuleSource} rules: {rulesText}. Runtime interactionMetric={interactionCount}. {candidateInfo}"
         );
+    }
+
+    private async Task ResolveBuildUpGateRuleCacheAsync()
+    {
+        _resolvedBuildUpCommittedRules = [];
+        _resolvedBuildUpCommittedRuleSource = "(unresolved)";
+        _resolvedBuildUpCommittedRuleError = null;
+
+        if (_session is null)
+        {
+            _resolvedBuildUpCommittedRuleError = "Session unavailable while resolving BuildUp gate rules.";
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_session.AdaptiveState.SelectedNarrativeGateProfileId))
+        {
+            if (_selectedNarrativeGateProfile is null)
+            {
+                _resolvedBuildUpCommittedRuleError = $"Selected narrative gate profile '{_session.AdaptiveState.SelectedNarrativeGateProfileId}' not found.";
+                return;
+            }
+
+            _resolvedBuildUpCommittedRuleSource = $"Profile '{_selectedNarrativeGateProfile.Name}'";
+            _resolvedEffectiveNarrativeGateProfile = _selectedNarrativeGateProfile;
+            _resolvedBuildUpCommittedRules = _selectedNarrativeGateProfile.Rules
+                .Where(r => string.Equals(r.FromPhase, "BuildUp", StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(r.ToPhase, "Committed", StringComparison.OrdinalIgnoreCase))
+                .OrderBy(r => r.SortOrder)
+                .ToList();
+
+            if (_resolvedBuildUpCommittedRules.Count == 0)
+            {
+                _resolvedBuildUpCommittedRuleError = $"Selected profile '{_selectedNarrativeGateProfile.Name}' has no BuildUp -> Committed rules.";
+            }
+
+            return;
+        }
+
+        var topEligibleCandidateScenarioId = _v2Diagnostics?.CandidateEvaluations
+            .Where(x => x.StageBEligible)
+            .OrderByDescending(x => x.FitScore)
+            .ThenByDescending(x => x.Confidence)
+            .FirstOrDefault()?.ScenarioId;
+        var topCandidateScenarioId = _v2Diagnostics?.CandidateEvaluations
+            .OrderByDescending(x => x.FitScore)
+            .ThenByDescending(x => x.Confidence)
+            .FirstOrDefault()?.ScenarioId;
+        var themeId = !string.IsNullOrWhiteSpace(_session.AdaptiveState.ActiveScenarioId)
+            ? _session.AdaptiveState.ActiveScenarioId
+            : !string.IsNullOrWhiteSpace(topEligibleCandidateScenarioId)
+                ? topEligibleCandidateScenarioId
+                : topCandidateScenarioId;
+
+        if (string.IsNullOrWhiteSpace(themeId))
+        {
+            _resolvedBuildUpCommittedRuleError = "No scenario/theme id available to resolve BuildUp gate rules.";
+            return;
+        }
+
+        var theme = await RPThemeService.GetThemeAsync(themeId);
+        if (theme is null)
+        {
+            _resolvedBuildUpCommittedRuleError = $"Theme '{themeId}' not found while resolving BuildUp gate rules.";
+            return;
+        }
+
+        _resolvedBuildUpCommittedRuleSource = $"Theme '{theme.Id}' local rules";
+        _resolvedEffectiveNarrativeGateProfile = new DreamGenClone.Domain.RolePlay.NarrativeGateProfile
+        {
+            Id = theme.Id,
+            Name = $"Theme '{theme.Id}' local rules",
+            Rules = theme.NarrativeGateRules.ToList()
+        };
+        _resolvedBuildUpCommittedRules = theme.NarrativeGateRules
+            .Where(r => string.Equals(r.FromPhase, "BuildUp", StringComparison.OrdinalIgnoreCase)
+                && string.Equals(r.ToPhase, "Committed", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(r => r.SortOrder)
+            .ToList();
+
+        if (_resolvedBuildUpCommittedRules.Count == 0)
+        {
+            _resolvedBuildUpCommittedRuleError = $"Theme '{theme.Id}' has no BuildUp -> Committed rules.";
+        }
     }
 
     private PhaseProgressInfo BuildCommittedProgress(RolePlayAdaptiveState state, double activeScenarioScore, double desire, double restraint, int interactionsSinceCommitment)
@@ -2219,7 +2445,9 @@
         string fromPhase,
         string toPhase)
     {
-        var profile = _defaultNarrativeGateProfile;
+        // Use the effective profile (selected or theme-local) to match what the engine actually evaluates.
+        // Fall back to the default profile only when no effective profile has been resolved.
+        var profile = _resolvedEffectiveNarrativeGateProfile ?? _defaultNarrativeGateProfile;
         var notConfigured = new PhaseGateThresholds(
             ScoreMin: 0,
             DesireMin: 0,
@@ -2295,6 +2523,259 @@
         return true;
     }
 
+    private static string ComputeRuleGapDescription(decimal actual, string comparator, decimal threshold)
+        => (comparator ?? string.Empty).Trim() switch
+        {
+            DreamGenClone.Domain.RolePlay.NarrativeGateComparators.GreaterThanOrEqual or
+            DreamGenClone.Domain.RolePlay.NarrativeGateComparators.GreaterThan
+                => $"need +{threshold - actual:0.##} more (to reach {threshold:0.##})",
+            DreamGenClone.Domain.RolePlay.NarrativeGateComparators.LessThanOrEqual or
+            DreamGenClone.Domain.RolePlay.NarrativeGateComparators.LessThan
+                => $"need -{actual - threshold:0.##} less (to reach {threshold:0.##})",
+            _ => $"value {actual:0.##} does not meet threshold {threshold:0.##}"
+        };
+
+    private static bool TryCompareRuleMetric(decimal actual, string comparator, decimal threshold, out bool passed)
+    {
+        switch ((comparator ?? string.Empty).Trim())
+        {
+            case DreamGenClone.Domain.RolePlay.NarrativeGateComparators.GreaterThanOrEqual:
+                passed = actual >= threshold;
+                return true;
+            case DreamGenClone.Domain.RolePlay.NarrativeGateComparators.GreaterThan:
+                passed = actual > threshold;
+                return true;
+            case DreamGenClone.Domain.RolePlay.NarrativeGateComparators.LessThanOrEqual:
+                passed = actual <= threshold;
+                return true;
+            case DreamGenClone.Domain.RolePlay.NarrativeGateComparators.LessThan:
+                passed = actual < threshold;
+                return true;
+            case DreamGenClone.Domain.RolePlay.NarrativeGateComparators.Equal:
+                passed = actual == threshold;
+                return true;
+            default:
+                passed = false;
+                return false;
+        }
+    }
+
+    private (string Status, string NextStep) GetSimpleRuntimeSummary()
+    {
+        if (_session is null)
+        {
+            return ("Session not loaded.", "Wait for session load.");
+        }
+
+        var state = _session.AdaptiveState;
+        var phase = state.CurrentNarrativePhase;
+        var phaseProgress = GetCurrentPhaseProgress();
+        if (phase == DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Committed)
+        {
+            var thresholds = ResolveCommittedGateThresholds(state);
+            if (thresholds.Source.StartsWith("ERROR", StringComparison.OrdinalIgnoreCase))
+            {
+                return (
+                    "Next phase Approaching is blocked.",
+                    thresholds.Source);
+            }
+
+            var activeScenarioScore = GetLifecycleActiveScenarioScore(state, out _);
+            var desire = GetAverageAdaptiveStat(state, "Desire");
+            var restraint = GetAverageAdaptiveStat(state, "Restraint");
+            var interactionsSinceCommitment = GetEffectiveInteractionsSinceCommitment(state);
+
+            if (activeScenarioScore < thresholds.ScoreMin)
+            {
+                return (
+                    "Next phase Approaching is blocked.",
+                    $"Raise score to {thresholds.ScoreMin:0} (current {activeScenarioScore:0.0}).");
+            }
+
+            if (desire < thresholds.DesireMin)
+            {
+                return (
+                    "Next phase Approaching is blocked.",
+                    $"Raise desire to {thresholds.DesireMin:0} (current {desire:0.0}).");
+            }
+
+            if (restraint > thresholds.RestraintMax)
+            {
+                return (
+                    "Next phase Approaching is blocked.",
+                    $"Lower restraint to {thresholds.RestraintMax:0} (current {restraint:0.0}).");
+            }
+
+            if (interactionsSinceCommitment < thresholds.InteractionsMin)
+            {
+                return (
+                    "Next phase Approaching is blocked.",
+                    $"Add interactions to {thresholds.InteractionsMin} (current {interactionsSinceCommitment}).");
+            }
+
+            return (
+                "Next phase Approaching is ready.",
+                "All Committed gate rules are passing.");
+        }
+
+        if (phase == DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Approaching)
+        {
+            var thresholds = ResolveApproachingGateThresholds(state);
+            if (thresholds.Source.StartsWith("ERROR", StringComparison.OrdinalIgnoreCase))
+            {
+                return (
+                    "Next phase Climax is blocked.",
+                    thresholds.Source);
+            }
+
+            var activeScenarioScore = GetLifecycleActiveScenarioScore(state, out _);
+            var desire = GetAverageAdaptiveStat(state, "Desire");
+            var restraint = GetAverageAdaptiveStat(state, "Restraint");
+            var interactionsSinceCommitment = GetEffectiveInteractionsSinceCommitment(state);
+            var interactionsInApproaching = GetEffectiveInteractionsInApproaching(state, interactionsSinceCommitment);
+
+            if (activeScenarioScore < thresholds.ScoreMin)
+            {
+                return (
+                    "Next phase Climax is blocked.",
+                    $"Raise score to {thresholds.ScoreMin:0} (current {activeScenarioScore:0.0}).");
+            }
+
+            if (desire < thresholds.DesireMin)
+            {
+                return (
+                    "Next phase Climax is blocked.",
+                    $"Raise desire to {thresholds.DesireMin:0} (current {desire:0.0}).");
+            }
+
+            if (restraint > thresholds.RestraintMax)
+            {
+                return (
+                    "Next phase Climax is blocked.",
+                    $"Lower restraint to {thresholds.RestraintMax:0} (current {restraint:0.0}).");
+            }
+
+            if (interactionsInApproaching < thresholds.InteractionsMin)
+            {
+                return (
+                    "Next phase Climax is blocked.",
+                    $"Add approaching interactions to {thresholds.InteractionsMin} (current {interactionsInApproaching}).");
+            }
+
+            return (
+                "Next phase Climax is ready.",
+                "All Approaching gate rules are passing.");
+        }
+
+        if (phase == DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Reset)
+        {
+            var interactionRule = _defaultNarrativeGateProfile?.Rules
+                .FirstOrDefault(r =>
+                    string.Equals(r.FromPhase, "Reset", StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(r.ToPhase, "BuildUp", StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(r.MetricKey, DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.InteractionsSinceCommitment, StringComparison.OrdinalIgnoreCase));
+            var threshold = interactionRule is not null ? (int)Math.Round(interactionRule.Threshold, MidpointRounding.AwayFromZero) : 3;
+            var current = state.InteractionsSinceCommitment;
+            if (current < threshold)
+            {
+                return (
+                    "Next phase BuildUp is blocked.",
+                    $"Add Reset interactions to {threshold} (current {current}).");
+            }
+
+            return (
+                "Next phase BuildUp is ready.",
+                "Reset interaction rule is passing.");
+        }
+
+        if (phase == DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Climax)
+        {
+            return (
+                "Next phase Reset is ready.",
+                "Proceed to transition out of Climax.");
+        }
+
+        if (phase != DreamGenClone.Domain.StoryAnalysis.NarrativePhase.BuildUp)
+        {
+            return ($"Next phase {phaseProgress.NextPhase} pending.", phaseProgress.Details);
+        }
+
+        var topEligibleCandidate = _v2Diagnostics?.CandidateEvaluations
+            .Where(x => x.StageBEligible)
+            .OrderByDescending(x => x.FitScore)
+            .ThenByDescending(x => x.Confidence)
+            .FirstOrDefault();
+        if (topEligibleCandidate is null)
+        {
+            // Check whether live Gate A is open (may differ from stale diagnostics).
+            var liveDesire = GetAverageAdaptiveStat(state, "Desire");
+            var liveWillingnessTier = ResolveWillingnessTier(liveDesire, _scenarioEngineSettings);
+            var liveStageAOpen = !string.Equals(liveWillingnessTier, "Blocked", StringComparison.OrdinalIgnoreCase);
+            if (liveStageAOpen)
+            {
+                return (
+                    "BuildUp commit pending re-evaluation.",
+                    "Gate A is open. Candidates will be re-evaluated for fit on the next engine cycle.");
+            }
+            return (
+                "BuildUp commit is blocked: Gate A closed.",
+                $"Desire = {liveDesire:0.0} (needs ≥ {_scenarioEngineSettings.StageALowDesireMin:0.##}). Raise desire to open Gate A.");
+        }
+
+        var buildUpRules = _resolvedBuildUpCommittedRules;
+        if (buildUpRules.Count == 0)
+        {
+            return (
+                "BuildUp commit rules are missing.",
+                _resolvedBuildUpCommittedRuleError ?? "Configure BuildUp -> Committed rules for selected profile/theme.");
+        }
+
+        var fitScore = topEligibleCandidate.UnpenalizedFitScore != 0m
+            ? topEligibleCandidate.UnpenalizedFitScore
+            : topEligibleCandidate.FitScore;
+        var interactionCount = _v2Diagnostics?.AdaptiveState?.InteractionCountInPhase ?? 0;
+        var metricValues = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
+        {
+            [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.ActiveScenarioScore] = fitScore,
+            [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.InteractionsSinceCommitment] = interactionCount,
+            [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageDesire] = (decimal)GetAverageAdaptiveStat(_session.AdaptiveState, "Desire"),
+            [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageRestraint] = (decimal)GetAverageAdaptiveStat(_session.AdaptiveState, "Restraint"),
+            [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageTension] = (decimal)GetAverageAdaptiveStat(_session.AdaptiveState, "Tension"),
+            [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageConnection] = (decimal)GetAverageAdaptiveStat(_session.AdaptiveState, "Connection"),
+            [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageDominance] = (decimal)GetAverageAdaptiveStat(_session.AdaptiveState, "Dominance"),
+            [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageLoyalty] = (decimal)GetAverageAdaptiveStat(_session.AdaptiveState, "Loyalty"),
+            [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageSelfRespect] = (decimal)GetAverageAdaptiveStat(_session.AdaptiveState, "SelfRespect")
+        };
+
+        foreach (var rule in buildUpRules)
+        {
+            if (!metricValues.TryGetValue(rule.MetricKey, out var actualValue))
+            {
+                return (
+                    $"BuildUp commit is blocked: {rule.MetricKey} value is unavailable.",
+                    $"Populate {rule.MetricKey} metric and retry.");
+            }
+
+            if (!TryCompareRuleMetric(actualValue, rule.Comparator, rule.Threshold, out var passed))
+            {
+                return (
+                    $"BuildUp commit is blocked: invalid comparator '{rule.Comparator}'.",
+                    $"Fix comparator for {rule.MetricKey} in gate rules.");
+            }
+
+            if (!passed)
+            {
+                return (
+                    $"BuildUp commit is blocked: {rule.MetricKey} is {actualValue:0.##}, needs {rule.Comparator}{rule.Threshold:0.##}.",
+                    $"Raise/lower {rule.MetricKey} until this rule passes.");
+            }
+        }
+
+        return (
+            "All BuildUp commit rules are open.",
+            "Commit should happen on this/next evaluation cycle unless a higher-level lock is active.");
+    }
+
     private int GetEffectiveInteractionsSinceCommitment(RolePlayAdaptiveState state)
     {
         var raw = state.InteractionsSinceCommitment;
@@ -2357,9 +2838,13 @@
             return 0;
         }
 
-        var diagnosticsFitScore = _v2Diagnostics?.CandidateEvaluations
-            .FirstOrDefault(x => string.Equals(x.ScenarioId, state.ActiveScenarioId, StringComparison.OrdinalIgnoreCase))
-            ?.FitScore;
+        var activeEval = _v2Diagnostics?.CandidateEvaluations
+            .FirstOrDefault(x => string.Equals(x.ScenarioId, state.ActiveScenarioId, StringComparison.OrdinalIgnoreCase));
+        // Use UnpenalizedFitScore to match what the lifecycle engine uses (RolePlayEngineService.lifecycleFitScore).
+        // The gate-fail penalty is for candidate selection competition only, not phase transitions.
+        var diagnosticsFitScore = activeEval is not null
+            ? (activeEval.UnpenalizedFitScore > 0m ? activeEval.UnpenalizedFitScore : activeEval.FitScore)
+            : (decimal?)null;
 
         if (diagnosticsFitScore is not null)
         {
@@ -2422,37 +2907,19 @@
     private AdaptiveSelectionGateSnapshot BuildAdaptiveSelectionGateSnapshot(RolePlayAdaptiveState state)
     {
         var desire = GetAverageAdaptiveStat(state, "Desire");
-        var tension = GetAverageAdaptiveStat(state, "Tension");
-        var restraint = GetAverageAdaptiveStat(state, "Restraint");
-        var stageAOpen = desire >= 35;
-        var stageBOpen = tension >= 35 && restraint <= 80;
+        var stageALowDesireMin = _scenarioEngineSettings.StageALowDesireMin;
+        var stageAOpen = desire >= stageALowDesireMin;
 
         var gapParts = new List<string>();
         if (!stageAOpen)
         {
-            gapParts.Add($"Need +{Math.Max(0, 35 - desire):0.0} Desire (target 35)");
-        }
-
-        if (!stageBOpen)
-        {
-            if (tension < 35)
-            {
-                gapParts.Add($"Need +{Math.Max(0, 35 - tension):0.0} Tension (target 35)");
-            }
-
-            if (restraint > 80)
-            {
-                gapParts.Add($"Need -{Math.Max(0, restraint - 80):0.0} Restraint (target <= 80)");
-            }
+            gapParts.Add($"Need +{Math.Max(0, stageALowDesireMin - desire):0.0} Desire (target {stageALowDesireMin:0.##})");
         }
 
         return new AdaptiveSelectionGateSnapshot(
             StageAOpen: stageAOpen,
-            StageBOpen: stageBOpen,
             Desire: desire,
-            Tension: tension,
-            Restraint: restraint,
-            GapSummary: gapParts.Count == 0 ? "No gate gaps. Selection gates are open." : string.Join("; ", gapParts));
+            GapSummary: gapParts.Count == 0 ? "No gate gaps. Selection gate is open." : string.Join("; ", gapParts));
     }
 
     private IReadOnlyList<AdaptiveThemeStatusRow> GetAdaptiveThemeStatusRows()
@@ -2492,7 +2959,7 @@
 
                 var nextStep = theme.Blocked
                     ? "Theme is blocked by profile/dealbreaker rules and cannot become active until unblocked."
-                    : !gateSnapshot.StageAOpen || !gateSnapshot.StageBOpen
+                    : !gateSnapshot.StageAOpen
                         ? gateSnapshot.GapSummary
                         : isActive
                             ? "Currently active. Keep gate values healthy to retain momentum."
@@ -2636,7 +3103,24 @@
         character.BaseStats = AdaptiveStatCatalog.NormalizeComplete(profile.DefaultStats);
         character.Gender = CharacterGenderCatalog.NormalizeForCharacter(profile.TargetGender);
         character.Role = CharacterRoleCatalog.Normalize(profile.TargetRole);
-        MarkScenarioDirty();
+
+        // Also apply to live session stats so changes show immediately
+        if (!string.IsNullOrWhiteSpace(character.Name) && _session is not null)
+        {
+            var actorKey = character.Name.Trim();
+            if (!_session.AdaptiveState.CharacterStats.TryGetValue(actorKey, out var liveBlock))
+            {
+                liveBlock = new CharacterStatBlock { CharacterId = actorKey };
+                foreach (var s in AdaptiveStatCatalog.CanonicalStatNames)
+                    liveBlock.Stats[s] = AdaptiveStatCatalog.DefaultValue;
+                _session.AdaptiveState.CharacterStats[actorKey] = liveBlock;
+            }
+            foreach (var (statName, value) in character.BaseStats)
+                liveBlock.Stats[statName] = value;
+            liveBlock.UpdatedUtc = DateTime.UtcNow;
+        }
+
+        MarkSessionStatsDirty();
     }
 
     private int GetScenarioCharacterStat(Character character, string statName)
@@ -2661,6 +3145,52 @@
 
         character.BaseStats[statName] = Math.Clamp(parsed, AdaptiveStatCatalog.MinValue, AdaptiveStatCatalog.MaxValue);
         MarkScenarioDirty();
+    }
+
+    // ── Live session stat overrides (write directly to AdaptiveState.CharacterStats) ─────
+
+    private int GetCharacterLiveSessionStat(string actorKey, string statName)
+    {
+        if (_session is null) return AdaptiveStatCatalog.DefaultValue;
+        if (_session.AdaptiveState.CharacterStats.TryGetValue(actorKey, out var block)
+            && block.Stats.TryGetValue(statName, out var value))
+        {
+            return value;
+        }
+        return AdaptiveStatCatalog.DefaultValue;
+    }
+
+    private void SetCharacterLiveSessionStat(string actorKey, string statName, string? rawValue)
+    {
+        if (_session is null) return;
+        if (!int.TryParse(rawValue, out var parsed))
+            parsed = AdaptiveStatCatalog.DefaultValue;
+        parsed = Math.Clamp(parsed, AdaptiveStatCatalog.MinValue, AdaptiveStatCatalog.MaxValue);
+
+        if (!_session.AdaptiveState.CharacterStats.TryGetValue(actorKey, out var block))
+        {
+            block = new CharacterStatBlock { CharacterId = actorKey };
+            foreach (var s in AdaptiveStatCatalog.CanonicalStatNames)
+                block.Stats[s] = AdaptiveStatCatalog.DefaultValue;
+            _session.AdaptiveState.CharacterStats[actorKey] = block;
+        }
+        block.Stats[statName] = parsed;
+        block.UpdatedUtc = DateTime.UtcNow;
+        MarkSessionStatsDirty();
+    }
+
+    private int GetPersonaLiveSessionStat(string statName)
+    {
+        if (_session is null) return AdaptiveStatCatalog.DefaultValue;
+        var key = string.IsNullOrWhiteSpace(_session.PersonaName) ? "You" : _session.PersonaName;
+        return GetCharacterLiveSessionStat(key, statName);
+    }
+
+    private void SetPersonaLiveSessionStat(string statName, string? rawValue)
+    {
+        if (_session is null) return;
+        var key = string.IsNullOrWhiteSpace(_session.PersonaName) ? "You" : _session.PersonaName;
+        SetCharacterLiveSessionStat(key, statName, rawValue);
     }
 
     private (string BaselineProfile, string MigratingToProfile) GetCharacterProfileAlignment(string actorName, CharacterStatBlock block)
@@ -2733,6 +3263,36 @@
     private static string FormatCharacterStatDelta(int currentValue, int baselineValue)
     {
         var delta = currentValue - baselineValue;
+        return FormatSignedDelta(delta);
+    }
+
+    private static string GetLastCharacterStatDeltaClass(int delta)
+    {
+        if (delta > 0)
+        {
+            return "rw-stat-cell rw-stat-current-higher";
+        }
+
+        if (delta < 0)
+        {
+            return "rw-stat-cell rw-stat-current-lower";
+        }
+
+        return "rw-stat-cell rw-stat-current-neutral";
+    }
+
+    private static int GetLastCharacterStatDelta(CharacterStatBlock statBlock, string statName)
+    {
+        if (statBlock.LastStatDeltas is null)
+        {
+            return 0;
+        }
+
+        return statBlock.LastStatDeltas.TryGetValue(statName, out var value) ? value : 0;
+    }
+
+    private static string FormatSignedDelta(int delta)
+    {
         if (delta == 0)
         {
             return "0";
@@ -2796,6 +3356,39 @@
         return _baseStatProfiles.Where(profile =>
             CharacterGenderCatalog.IsProfileApplicableToCharacter(profile.TargetGender, character.Gender)
             && CharacterRoleCatalog.IsProfileApplicableToCharacter(profile.TargetRole, character.Role));
+    }
+
+    private IEnumerable<BaseStatProfile> GetApplicableBaseStatProfilesForPersona()
+    {
+        if (_session is null) return [];
+        return _baseStatProfiles.Where(profile =>
+            CharacterGenderCatalog.IsProfileApplicableToCharacter(profile.TargetGender, _session.PersonaGender)
+            && CharacterRoleCatalog.IsProfileApplicableToCharacter(profile.TargetRole, _session.PersonaRole));
+    }
+
+    private void ApplyPersonaProfile()
+    {
+        if (_session is null || string.IsNullOrWhiteSpace(_personaProfileSelection)) return;
+
+        var profile = _baseStatProfiles.FirstOrDefault(x =>
+            string.Equals(x.Id, _personaProfileSelection, StringComparison.OrdinalIgnoreCase)
+            && CharacterGenderCatalog.IsProfileApplicableToCharacter(x.TargetGender, _session.PersonaGender)
+            && CharacterRoleCatalog.IsProfileApplicableToCharacter(x.TargetRole, _session.PersonaRole));
+        if (profile is null) return;
+
+        var normalizedStats = AdaptiveStatCatalog.NormalizeComplete(profile.DefaultStats);
+        var personaKey = string.IsNullOrWhiteSpace(_session.PersonaName) ? "You" : _session.PersonaName;
+        if (!_session.AdaptiveState.CharacterStats.TryGetValue(personaKey, out var block))
+        {
+            block = new CharacterStatBlock { CharacterId = personaKey };
+            foreach (var s in AdaptiveStatCatalog.CanonicalStatNames)
+                block.Stats[s] = AdaptiveStatCatalog.DefaultValue;
+            _session.AdaptiveState.CharacterStats[personaKey] = block;
+        }
+        foreach (var (statName, value) in normalizedStats)
+            block.Stats[statName] = value;
+        block.UpdatedUtc = DateTime.UtcNow;
+        MarkSessionStatsDirty();
     }
 
     private IReadOnlyList<string> GetCharacterRoleOptions(string? selectedRole = null)
@@ -3211,7 +3804,7 @@
     private bool IsSteerEligible => _session is not null
         && _session.AdaptiveState.CurrentNarrativePhase != DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Reset;
 
-    private bool IsFinishUiLocked => _isSubmitting || _finishOptionsLoading || _finishOptionSubmitting;
+    private bool IsFinishUiLocked => _isSubmitting || _finishOptionSubmitting;
 
     private bool IsNextPhaseUiLocked => _isSubmitting || _nextPhaseOptionsLoading || _nextPhaseOptionSubmitting;
 
@@ -3421,7 +4014,7 @@
         _identityPopupOpen = false;
         if (_continueCustomPopupOpen)
         {
-            _finishPopupOpen = false;
+            DismissFinishPopup();
             _nextPhasePopupOpen = false;
             _steerPopupOpen = false;
         }
@@ -3429,10 +4022,36 @@
 
     private Task OpenFinishPopupAsync()
     {
-        if (_session is null || !IsClimaxPhase || IsFinishUiLocked)
+        if (_session is null)
         {
+            Logger.LogWarning("Finish popup ignored because session is null.");
             return Task.CompletedTask;
         }
+
+        if (!IsClimaxPhase)
+        {
+            Logger.LogInformation(
+                "Finish popup ignored: not in climax phase. SessionId={SessionId} CurrentPhase={CurrentPhase}",
+                _session.Id,
+                _session.AdaptiveState.CurrentNarrativePhase);
+            return Task.CompletedTask;
+        }
+
+        if (_isSubmitting || _finishOptionSubmitting)
+        {
+            Logger.LogInformation(
+                "Finish popup ignored: submit lock active. SessionId={SessionId} IsSubmitting={IsSubmitting} OptionSubmitting={OptionSubmitting}",
+                _session.Id,
+                _isSubmitting,
+                _finishOptionSubmitting);
+            return Task.CompletedTask;
+        }
+
+        Logger.LogInformation(
+            "Opening Finish popup: SessionId={SessionId} FlowMode={FlowMode} CachedOptions={CachedOptions}",
+            _session.Id,
+            _finishUseGuidedFlow ? "FinishingMove" : "Finish",
+            _finishOptions.Count);
 
         _finishPopupOpen = true;
         _continueCustomPopupOpen = false;
@@ -3441,19 +4060,44 @@
         _nextPhasePopupOpen = false;
         _steerPopupOpen = false;
         _finishOptionError = string.Empty;
-        _finishUseGuidedFlow = false;
-        _finishOptions.Clear();
-        _selectedFinishOption = string.Empty;
+        // Preserve _finishOptions, _selectedFinishOption, _finishUseGuidedFlow from last open.
 
         return Task.CompletedTask;
     }
 
     private async Task OpenNextPhasePopupAsync()
     {
-        if (_session is null || !IsNextPhaseEligible || IsNextPhaseUiLocked)
+        if (_session is null)
         {
+            Logger.LogWarning("Next Phase popup ignored because session is null.");
             return;
         }
+
+        if (!IsNextPhaseEligible)
+        {
+            Logger.LogWarning(
+                "Next Phase popup ignored: ineligible phase. SessionId={SessionId} CurrentPhase={CurrentPhase}",
+                _session.Id,
+                _session.AdaptiveState.CurrentNarrativePhase);
+            return;
+        }
+
+        if (IsNextPhaseUiLocked)
+        {
+            Logger.LogInformation(
+                "Next Phase popup ignored: UI locked. SessionId={SessionId} IsSubmitting={IsSubmitting} OptionsLoading={OptionsLoading} OptionSubmitting={OptionSubmitting}",
+                _session.Id,
+                _isSubmitting,
+                _nextPhaseOptionsLoading,
+                _nextPhaseOptionSubmitting);
+            return;
+        }
+
+        Logger.LogInformation(
+            "Opening Next Phase popup: SessionId={SessionId} CurrentPhase={CurrentPhase} CachedOptions={CachedOptions}",
+            _session.Id,
+            _session.AdaptiveState.CurrentNarrativePhase,
+            _nextPhaseOptions.Count);
 
         _nextPhasePopupOpen = true;
         _continueCustomPopupOpen = false;
@@ -3481,6 +4125,10 @@
     {
         if (_session is null || !IsNextPhaseEligible)
         {
+            Logger.LogInformation(
+                "Next Phase option generation skipped. SessionMissing={SessionMissing} Eligible={Eligible}",
+                _session is null,
+                IsNextPhaseEligible);
             return;
         }
 
@@ -3489,6 +4137,7 @@
         try
         {
             var context = BuildAssistantContext();
+            var currentPhase = _session.AdaptiveState.CurrentNarrativePhase;
             var targetLabel = _session.AdaptiveState.CurrentNarrativePhase switch
             {
                 DreamGenClone.Domain.StoryAnalysis.NarrativePhase.BuildUp => "Committed",
@@ -3497,6 +4146,12 @@
                 DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Climax => "Reset",
                 _ => "Next"
             };
+
+            Logger.LogInformation(
+                "Generating Next Phase options: SessionId={SessionId} CurrentPhase={CurrentPhase} TargetLabel={TargetLabel}",
+                _session.Id,
+                currentPhase,
+                targetLabel);
 
             var prompt = await BuildNextPhaseOptionsPromptAsync(targetLabel);
 
@@ -3511,9 +4166,20 @@
             _nextPhaseOptions = ParseFinishOptions(response).ToList();
             if (_nextPhaseOptions.Count == 0)
             {
+                Logger.LogWarning(
+                    "Next Phase option generation returned no options: SessionId={SessionId} CurrentPhase={CurrentPhase} TargetLabel={TargetLabel}",
+                    _session.Id,
+                    currentPhase,
+                    targetLabel);
                 _nextPhaseOptionError = "Could not generate phase options. Try again.";
                 return;
             }
+
+            Logger.LogInformation(
+                "Generated Next Phase options: SessionId={SessionId} CurrentPhase={CurrentPhase} OptionCount={OptionCount}",
+                _session.Id,
+                currentPhase,
+                _nextPhaseOptions.Count);
 
             _selectedNextPhaseOption = _nextPhaseOptions[0];
         }
@@ -3530,13 +4196,52 @@
 
     private async Task ApplyNextPhaseOptionAsync()
     {
-        if (_session is null
-            || string.IsNullOrWhiteSpace(_selectedNextPhaseOption)
-            || !IsNextPhaseEligible
-            || IsNextPhaseUiLocked)
+        if (_session is null)
         {
+            Logger.LogWarning("Apply Next Phase ignored because session is null.");
             return;
         }
+
+        if (string.IsNullOrWhiteSpace(_selectedNextPhaseOption))
+        {
+            Logger.LogWarning("Apply Next Phase ignored due empty selected option: SessionId={SessionId}", _session.Id);
+            return;
+        }
+
+        if (!IsNextPhaseEligible)
+        {
+            Logger.LogWarning(
+                "Apply Next Phase ignored: ineligible phase. SessionId={SessionId} CurrentPhase={CurrentPhase}",
+                _session.Id,
+                _session.AdaptiveState.CurrentNarrativePhase);
+            return;
+        }
+
+        if (IsNextPhaseUiLocked)
+        {
+            Logger.LogInformation(
+                "Apply Next Phase ignored: UI locked. SessionId={SessionId} IsSubmitting={IsSubmitting} OptionsLoading={OptionsLoading} OptionSubmitting={OptionSubmitting}",
+                _session.Id,
+                _isSubmitting,
+                _nextPhaseOptionsLoading,
+                _nextPhaseOptionSubmitting);
+            return;
+        }
+
+        var currentPhase = _session.AdaptiveState.CurrentNarrativePhase;
+        var selectedDirective = _selectedNextPhaseOption.Trim();
+        var commandPrefix = currentPhase == DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Climax
+            ? "/endclimax"
+            : "/nextphase";
+        var commandText = string.IsNullOrWhiteSpace(selectedDirective)
+            ? commandPrefix
+            : $"{commandPrefix} {selectedDirective}";
+
+        Logger.LogInformation(
+            "Applying Next Phase option: SessionId={SessionId} CurrentPhase={CurrentPhase} Command={Command}",
+            _session.Id,
+            currentPhase,
+            commandText);
 
         _nextPhaseOptionSubmitting = true;
         _isSubmitting = true;
@@ -3551,12 +4256,11 @@
 
         try
         {
+            var phaseBeforeSubmit = currentPhase;
             var submission = new UnifiedPromptSubmission
             {
                 SessionId = _session.Id,
-                PromptText = string.IsNullOrWhiteSpace(_selectedNextPhaseOption)
-                    ? "/nextphase"
-                    : $"/nextphase {_selectedNextPhaseOption.Trim()}",
+                PromptText = commandText,
                 Intent = PromptIntent.Instruction,
                 SelectedIdentityId = string.Empty,
                 SelectedIdentityType = IdentityOptionSource.Persona,
@@ -3566,9 +4270,25 @@
             };
 
             await RolePlayEngine.SubmitPromptAsync(submission, onChunk: null);
+            await LoadSessionAsync();
+
+            var phaseAfterSubmit = _session?.AdaptiveState.CurrentNarrativePhase;
+            if (phaseAfterSubmit.HasValue && phaseAfterSubmit.Value == phaseBeforeSubmit)
+            {
+                _nextPhaseOptionError = currentPhase == DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Climax
+                    ? "Phase did not advance. Climax requires completion and may still be gated by state constraints."
+                    : "Phase did not advance. Check transition gates and try again.";
+                _nextPhasePopupOpen = true;
+                Logger.LogWarning(
+                    "Next Phase command completed without transition in UI: SessionId={SessionId} Phase={Phase} Command={Command}",
+                    _session?.Id,
+                    phaseAfterSubmit,
+                    commandText);
+                return;
+            }
+
             _nextPhaseOptions.Clear();
             _selectedNextPhaseOption = string.Empty;
-            await LoadSessionAsync();
         }
         catch (Exception ex)
         {
@@ -3617,6 +4337,16 @@
         if (_finishUseGuidedFlow == useGuided)
         {
             return Task.CompletedTask;
+        }
+
+        if (_finishOptionsLoading)
+        {
+            Logger.LogInformation(
+                "Finish flow changed during generation; canceling in-flight generation. SessionId={SessionId} NewFlowMode={FlowMode}",
+                _session?.Id,
+                useGuided ? "FinishingMove" : "Finish");
+            _finishOptionsGenerationCts?.Cancel();
+            _finishOptionsLoading = false;
         }
 
         _finishUseGuidedFlow = useGuided;
@@ -4381,7 +5111,7 @@
                 sb.AppendLine($"Theme description: {activeTheme.Description.Trim()}");
             }
 
-            var phaseGuidance = DreamGenClone.Web.Application.RolePlay.RolePlayAssistantPrompts.GetThemePhaseGuidanceLines(activeTheme, phase, maxLines: 3);
+            var phaseGuidance = DreamGenClone.Web.Application.RolePlay.RolePlayAssistantPrompts.GetThemePhaseGuidanceLines(activeTheme, phase);
             if (phaseGuidance.Count > 0)
             {
                 sb.AppendLine($"Theme phase guidance for {phase}:");
@@ -4511,25 +5241,80 @@
         }
     }
 
-    private void CloseFinishPopup()
+    private async Task CloseFinishPopup()
+    {
+        await CancelFinishGenerationAsync("ExplicitCancelButton");
+        DismissFinishPopup();
+        _finishOptionError = string.Empty;
+    }
+
+    private void DismissFinishPopup()
     {
         _finishPopupOpen = false;
-        _finishOptionError = string.Empty;
     }
 
     private async Task GenerateFinishOptionsAsync()
     {
-        if (_session is null)
+        if (_session is null || _finishOptionsLoading)
         {
+            Logger.LogInformation(
+                "Finish option generation skipped. SessionMissing={SessionMissing} AlreadyLoading={AlreadyLoading}",
+                _session is null,
+                _finishOptionsLoading);
             return;
         }
+
+        _finishOptionsGenerationCts?.Cancel();
+        _finishOptionsGenerationCts?.Dispose();
+        _finishOptionsGenerationCts = new CancellationTokenSource();
+        var configuredTimeoutSeconds = Math.Clamp(LmStudioConfiguration.Value.TimeoutSeconds, 10, 600);
+        var cancellationToken = _finishOptionsGenerationCts.Token;
+        var finishGenerationCorrelationId = Guid.NewGuid().ToString("N")[..12];
+        var totalStopwatch = Stopwatch.StartNew();
+        var usedFallback = false;
+        var outcome = "Success";
 
         _finishOptionsLoading = true;
         _finishOptionError = string.Empty;
         try
         {
-            var context = BuildAssistantContext();
+            var contextBuildStopwatch = Stopwatch.StartNew();
+            var context = BuildAssistantContext(finishGenerationCorrelationId);
+            contextBuildStopwatch.Stop();
+
+            var promptBuildStopwatch = Stopwatch.StartNew();
             var prompt = await BuildFinishOptionsPromptAsync();
+            promptBuildStopwatch.Stop();
+
+            await WriteFinishDebugEventAsync(
+                finishGenerationCorrelationId,
+                eventKind: "FinishPromptRequested",
+                severity: "Info",
+                summary: $"Finish prompt requested ({(_finishUseGuidedFlow ? "FinishingMove" : "Finish")}).",
+                durationMs: null,
+                metadata: new
+                {
+                    flowMode = _finishUseGuidedFlow ? "FinishingMove" : "Finish",
+                    timeoutSeconds = configuredTimeoutSeconds,
+                    contextBuildMs = contextBuildStopwatch.ElapsedMilliseconds,
+                    promptBuildMs = promptBuildStopwatch.ElapsedMilliseconds,
+                    promptLength = prompt.Length,
+                    recentInteractions = context.RecentInteractions.Count,
+                    prompt
+                });
+
+            Logger.LogInformation(
+                "Generating finish options: SessionId={SessionId} CorrelationId={CorrelationId} FlowMode={FlowMode} TimeoutSeconds={TimeoutSeconds} ContextBuildMs={ContextBuildMs} PromptBuildMs={PromptBuildMs} PromptLength={PromptLength} RecentInteractions={RecentInteractions}",
+                _session.Id,
+                finishGenerationCorrelationId,
+                _finishUseGuidedFlow ? "FinishingMove" : "Finish",
+                configuredTimeoutSeconds,
+                contextBuildStopwatch.ElapsedMilliseconds,
+                promptBuildStopwatch.ElapsedMilliseconds,
+                prompt.Length,
+                context.RecentInteractions.Count);
+
+            var assistantCallStopwatch = Stopwatch.StartNew();
 
             var response = await RolePlayAssistant.GenerateSuggestionAsync(
                 context,
@@ -4537,26 +5322,262 @@
                 assistantModelId: string.IsNullOrWhiteSpace(_session.AssistantModelId) ? null : _session.AssistantModelId,
                 assistantTemperature: _session.AssistantTemperature,
                 assistantTopP: _session.AssistantTopP,
-                assistantMaxTokens: _session.AssistantMaxTokens);
+                assistantMaxTokens: _session.AssistantMaxTokens,
+                cancellationToken: cancellationToken);
+            assistantCallStopwatch.Stop();
+
+            Logger.LogInformation(
+                "Finish assistant response preview: SessionId={SessionId} CorrelationId={CorrelationId} ResponseLength={ResponseLength} Preview={ResponsePreview}",
+                _session.Id,
+                finishGenerationCorrelationId,
+                response.Length,
+                BuildLogPreview(response, 320));
+
+            var parseStopwatch = Stopwatch.StartNew();
 
             _finishOptions = ParseFinishOptions(response).ToList();
+            parseStopwatch.Stop();
+
+            await WriteFinishDebugEventAsync(
+                finishGenerationCorrelationId,
+                eventKind: "FinishPromptResponseReceived",
+                severity: "Info",
+                summary: "Finish prompt response received.",
+                durationMs: (int)assistantCallStopwatch.ElapsedMilliseconds,
+                metadata: new
+                {
+                    flowMode = _finishUseGuidedFlow ? "FinishingMove" : "Finish",
+                    responseLength = response.Length,
+                    responsePreview = BuildLogPreview(response, 500),
+                    parsedOptionCount = _finishOptions.Count,
+                    options = _finishOptions
+                });
+
             if (_finishOptions.Count == 0)
             {
-                _finishOptionError = "Could not generate finish options. Try again.";
+                Logger.LogWarning(
+                    "Finish option generation returned no options: SessionId={SessionId} CorrelationId={CorrelationId} FlowMode={FlowMode} AssistantCallMs={AssistantCallMs} ParseMs={ParseMs} ResponseLength={ResponseLength}",
+                    _session.Id,
+                    finishGenerationCorrelationId,
+                    _finishUseGuidedFlow ? "FinishingMove" : "Finish",
+                    assistantCallStopwatch.ElapsedMilliseconds,
+                    parseStopwatch.ElapsedMilliseconds,
+                    response.Length);
+                _finishOptions = BuildFallbackFinishOptions().ToList();
+                _selectedFinishOption = _finishOptions[0];
+                _finishOptionError = "Model returned no options. Using local fallback options.";
+                usedFallback = true;
+                outcome = "EmptyModelOutputFallback";
+
+                await WriteFinishDebugEventAsync(
+                    finishGenerationCorrelationId,
+                    eventKind: "FinishPromptEmptyOutputFallback",
+                    severity: "Warning",
+                    summary: "Finish prompt returned no valid options; using fallback.",
+                    durationMs: (int)totalStopwatch.ElapsedMilliseconds,
+                    metadata: new
+                    {
+                        flowMode = _finishUseGuidedFlow ? "FinishingMove" : "Finish",
+                        fallbackOptions = _finishOptions
+                    });
                 return;
             }
 
+            Logger.LogInformation(
+                "Generated finish options: SessionId={SessionId} CorrelationId={CorrelationId} FlowMode={FlowMode} OptionCount={OptionCount} AssistantCallMs={AssistantCallMs} ParseMs={ParseMs} FirstOption={FirstOption}",
+                _session.Id,
+                finishGenerationCorrelationId,
+                _finishUseGuidedFlow ? "FinishingMove" : "Finish",
+                _finishOptions.Count,
+                assistantCallStopwatch.ElapsedMilliseconds,
+                parseStopwatch.ElapsedMilliseconds,
+                BuildLogPreview(_finishOptions[0], 180));
+
             _selectedFinishOption = _finishOptions[0];
+        }
+        catch (OperationCanceledException ex)
+        {
+            var canceledByUser = cancellationToken.IsCancellationRequested;
+            outcome = canceledByUser ? "CanceledByUser" : "ProviderCanceledOrTimedOut";
+            _finishOptionError = canceledByUser
+                ? "Finish generation canceled."
+                : "Finish generation was canceled by the provider or timed out. Try Regenerate.";
+
+            Logger.LogWarning(
+                ex,
+                "Finish option generation canceled: SessionId={SessionId} CorrelationId={CorrelationId} FlowMode={FlowMode} CanceledByUser={CanceledByUser} TimeoutSeconds={TimeoutSeconds} ElapsedMs={ElapsedMs}",
+                _session?.Id,
+                finishGenerationCorrelationId,
+                _finishUseGuidedFlow ? "FinishingMove" : "Finish",
+                canceledByUser,
+                configuredTimeoutSeconds,
+                totalStopwatch.ElapsedMilliseconds);
+
+            await WriteFinishDebugEventAsync(
+                finishGenerationCorrelationId,
+                eventKind: canceledByUser ? "FinishPromptCanceledByUser" : "FinishPromptProviderTimeoutOrCancel",
+                severity: "Warning",
+                summary: canceledByUser
+                    ? "Finish prompt generation canceled by user action."
+                    : "Finish prompt generation canceled by provider or timeout.",
+                durationMs: (int)totalStopwatch.ElapsedMilliseconds,
+                metadata: new
+                {
+                    flowMode = _finishUseGuidedFlow ? "FinishingMove" : "Finish",
+                    timeoutSeconds = configuredTimeoutSeconds,
+                    canceledByUser
+                });
         }
         catch (Exception ex)
         {
-            _finishOptionError = ex.Message;
-            Logger.LogError(ex, "Failed generating finish options for session {SessionId}", _session.Id);
+            _finishOptions = BuildFallbackFinishOptions().ToList();
+            _selectedFinishOption = _finishOptions[0];
+            _finishOptionError = "Finish option generation failed. Using local fallback options.";
+            usedFallback = true;
+            outcome = "ExceptionFallback";
+            Logger.LogError(
+                ex,
+                "Failed generating finish options for session {SessionId}: CorrelationId={CorrelationId}, FlowMode={FlowMode}, TimeoutSeconds={TimeoutSeconds}, ElapsedMs={ElapsedMs}",
+                _session.Id,
+                finishGenerationCorrelationId,
+                _finishUseGuidedFlow ? "FinishingMove" : "Finish",
+                configuredTimeoutSeconds,
+                totalStopwatch.ElapsedMilliseconds);
+
+            await WriteFinishDebugEventAsync(
+                finishGenerationCorrelationId,
+                eventKind: "FinishPromptFailed",
+                severity: "Error",
+                summary: "Finish prompt generation failed; fallback options used.",
+                durationMs: (int)totalStopwatch.ElapsedMilliseconds,
+                metadata: new
+                {
+                    flowMode = _finishUseGuidedFlow ? "FinishingMove" : "Finish",
+                    timeoutSeconds = configuredTimeoutSeconds,
+                    exceptionType = ex.GetType().Name,
+                    exceptionMessage = ex.Message,
+                    fallbackOptions = _finishOptions
+                });
         }
         finally
         {
+            totalStopwatch.Stop();
+
+            await WriteFinishDebugEventAsync(
+                finishGenerationCorrelationId,
+                eventKind: "FinishPromptCompleted",
+                severity: usedFallback ? "Warning" : "Info",
+                summary: $"Finish prompt completed with outcome {outcome}.",
+                durationMs: (int)totalStopwatch.ElapsedMilliseconds,
+                metadata: new
+                {
+                    flowMode = _finishUseGuidedFlow ? "FinishingMove" : "Finish",
+                    outcome,
+                    usedFallback,
+                    optionCount = _finishOptions.Count,
+                    selectedOption = _selectedFinishOption
+                });
+
+            Logger.LogInformation(
+                "Finish option generation completed: SessionId={SessionId} CorrelationId={CorrelationId} Outcome={Outcome} UsedFallback={UsedFallback} ElapsedMs={ElapsedMs} OptionCount={OptionCount}",
+                _session?.Id,
+                finishGenerationCorrelationId,
+                outcome,
+                usedFallback,
+                totalStopwatch.ElapsedMilliseconds,
+                _finishOptions.Count);
+
             _finishOptionsLoading = false;
+            _finishOptionsGenerationCts?.Dispose();
+            _finishOptionsGenerationCts = null;
         }
+    }
+
+    private async Task CancelFinishGenerationAsync(string reason)
+    {
+        if (_finishOptionsGenerationCts is null && !_finishOptionsLoading)
+        {
+            return;
+        }
+
+        Logger.LogInformation(
+            "Canceling finish option generation: SessionId={SessionId} Reason={Reason} PopupOpen={PopupOpen}",
+            _session?.Id,
+            reason,
+            _finishPopupOpen);
+
+        _finishOptionsGenerationCts?.Cancel();
+        _finishOptionsLoading = false;
+
+        if (_session is not null)
+        {
+            await WriteFinishDebugEventAsync(
+                correlationId: null,
+                eventKind: "FinishPromptCancelRequested",
+                severity: "Info",
+                summary: $"Finish prompt cancellation requested ({reason}).",
+                durationMs: null,
+                metadata: new
+                {
+                    reason,
+                    popupOpen = _finishPopupOpen,
+                    hasOptions = _finishOptions.Count > 0
+                });
+        }
+    }
+
+    private async Task WriteFinishDebugEventAsync(
+        string? correlationId,
+        string eventKind,
+        string severity,
+        string summary,
+        int? durationMs,
+        object metadata)
+    {
+        if (_session is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await RolePlayDebugEventSink.WriteAsync(new RolePlayDebugEventRecord
+            {
+                SessionId = _session.Id,
+                CorrelationId = correlationId,
+                EventKind = eventKind,
+                Severity = severity,
+                ActorName = "FinishPopup",
+                ModelIdentifier = string.IsNullOrWhiteSpace(_session.AssistantModelId) ? null : _session.AssistantModelId,
+                DurationMs = durationMs,
+                Summary = summary,
+                MetadataJson = JsonSerializer.Serialize(metadata)
+            });
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Failed to write finish debug event: SessionId={SessionId} EventKind={EventKind}", _session.Id, eventKind);
+        }
+    }
+
+    private IReadOnlyList<string> BuildFallbackFinishOptions()
+    {
+        if (_finishUseGuidedFlow)
+        {
+            return
+            [
+                "Lock in eye contact and control the pace with one decisive, grounded finishing beat.",
+                "Shift posture to close distance deliberately, then deliver a concise ending line that seals intent.",
+                "Hold position, lower the tempo, and end on a clear, dominant choice that resolves the climax."
+            ];
+        }
+
+        return
+        [
+            "Close the moment with a direct line that resolves the immediate tension and lands the scene.",
+            "Take one clear final action that confirms the emotional outcome and ends the beat cleanly.",
+            "Pause, acknowledge the shift between characters, and finish with a concise closing move."
+        ];
     }
 
     private async Task ApplyFinishOptionAsync()
@@ -4626,6 +5647,8 @@
                 .Select(x => x.Trim())
                 .Where(x => !string.IsNullOrWhiteSpace(x))
                 .Select(x => x.Trim('"'))
+                .Select(x => x.Trim())
+                .Where(IsLikelyGeneratedOptionLine)
                 .Where(x => x.Length > 4)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .Take(5)
@@ -4668,6 +5691,86 @@
             .Select(line => Regex.Replace(line, "^\\d+[\\.)]\\s*", string.Empty))
             .ToList();
         return NormalizeOptions(lines);
+
+        static bool IsLikelyGeneratedOptionLine(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return false;
+            }
+
+            var value = text.Trim();
+            var lower = value.ToLowerInvariant();
+            var wordCount = Regex.Matches(value, "[A-Za-z0-9']+").Count;
+            if (value.StartsWith("[", StringComparison.Ordinal)
+                || value.StartsWith("{", StringComparison.Ordinal)
+                || value.StartsWith("```", StringComparison.Ordinal)
+                || value.StartsWith("**", StringComparison.Ordinal)
+                || value.EndsWith(":", StringComparison.Ordinal)
+                || value.Length > 260
+                || wordCount < 4
+                || wordCount > 48
+                || value.Contains("Return ONLY a JSON array", StringComparison.OrdinalIgnoreCase)
+                || value.Contains("Generate exactly", StringComparison.OrdinalIgnoreCase)
+                || value.Contains("Use standard", StringComparison.OrdinalIgnoreCase)
+                || value.Contains("Current stats for band match", StringComparison.OrdinalIgnoreCase)
+                || value.Contains("Finishing move matrix rows", StringComparison.OrdinalIgnoreCase)
+                || value.Contains("Theme description:", StringComparison.OrdinalIgnoreCase)
+                || value.Contains("Relevant theme AI guidance notes", StringComparison.OrdinalIgnoreCase)
+                || value.Contains("SessionId=", StringComparison.OrdinalIgnoreCase)
+                || lower.Contains("recent interactions")
+                || lower.Contains("scenario summary")
+                || lower.Contains("output format")
+                || lower.Contains("json array")
+                || lower.Contains("assistant prompt")
+                || lower.Contains("system prompt")
+                || lower.Contains("you are")
+                || lower.Contains("actions to take")
+                || lower.Contains("prompt area")
+                || lower.Contains("instruction intent")
+                || lower.Contains("paste the following")
+                || lower.Contains("system-level directive")
+                || lower.Contains("override standard narrative generation")
+                || lower.Contains("task:")
+                || lower.Contains("constraints:")
+                || lower.Contains("instruction:")
+                || lower.Contains("example output")
+                || lower.Contains("option 1")
+                || lower.Contains("option 2")
+                || lower.Contains("option 3")
+                || lower.Contains("option 4")
+                || lower.Contains("option 5")
+                || lower.StartsWith("avoidance:")
+                || lower.Contains("phase guidance")
+                || lower.Contains("theme guidance"))
+            {
+                return false;
+            }
+
+            return !Regex.IsMatch(value,
+                "^(Generate|Return|Use|Keep|Each|Every|Active|Relevant|No active|No strong|Theme phase guidance|Position mode requirement|Ending moves should|Actions to take|Prompt area|Instruction intent|Paste)\\b",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        }
+    }
+
+    private static string BuildLogPreview(string value, int maxLength)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        var singleLine = value
+            .Replace("\r", " ", StringComparison.Ordinal)
+            .Replace("\n", " ", StringComparison.Ordinal)
+            .Trim();
+
+        if (singleLine.Length <= maxLength)
+        {
+            return singleLine;
+        }
+
+        return singleLine[..maxLength] + "...";
     }
 
     private void ToggleContinueIdentitySelection(string optionId)
@@ -4865,6 +5968,12 @@
 
     private string BuildDecisionQuestionText(DreamGenClone.Domain.RolePlay.DecisionPoint point)
     {
+        if (!string.IsNullOrWhiteSpace(point.ContextSummary)
+            && LooksLikeQuestionPrompt(point.ContextSummary))
+        {
+            return point.ContextSummary.Trim();
+        }
+
         var decisionActor = ResolveDecisionActorShortLabel(point.TargetActorId);
         var askingActor = ResolveDecisionActorShortLabel(point.AskingActorName);
         var currentLocation = _session?.AdaptiveState?.CurrentSceneLocation;
@@ -4885,6 +5994,20 @@
         }
 
         return $"Given this moment, what does {decisionActor} choose to say or do next?";
+    }
+
+    private static bool LooksLikeQuestionPrompt(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return false;
+        }
+
+        var normalized = text.Trim();
+        return normalized.Contains('?', StringComparison.Ordinal)
+            || normalized.Contains("what", StringComparison.OrdinalIgnoreCase)
+            || normalized.Contains("how", StringComparison.OrdinalIgnoreCase)
+            || normalized.Contains("which", StringComparison.OrdinalIgnoreCase);
     }
 
     private string ResolveDecisionActorShortLabel(string? actorIdOrName)
@@ -5217,6 +6340,9 @@
     public async ValueTask DisposeAsync()
     {
         _isDisposed = true;
+        _finishOptionsGenerationCts?.Cancel();
+        _finishOptionsGenerationCts?.Dispose();
+        _finishOptionsGenerationCts = null;
 
         if (_resizeInitialized)
         {
@@ -5665,6 +6791,10 @@
     private bool IsContinueIdentitySelected(IdentityOption option) => _continueSelectedIdentityIds.Contains(option.Id);
 
     private int ContinueSelectionCount => ContinueIdentityOptions.Count(x => _continueSelectedIdentityIds.Contains(x.Id));
+    private int TotalTurns => _v2Diagnostics?.Turns.Count ?? 0;
+    private string LatestTurnSummary => _v2Diagnostics?.Turns.LastOrDefault() is { } turn
+        ? $"#{turn.TurnIndex} {turn.TurnKind} ({turn.Status})"
+        : "(none)";
 
     private string ShellStyle => $"--rw-settings-width: {_workspaceSettings.SettingsPanelWidth}px;";
 }
@@ -5682,7 +6812,7 @@
                 @if (_session is not null)
                 {
                     <span class="rw-session-title">@_session.Title</span>
-                    <span class="rw-session-meta">@_session.Interactions.Count interactions · @_session.BehaviorMode</span>
+                    <span class="rw-session-meta">@_session.Interactions.Count interactions · @TotalTurns turns · @_session.BehaviorMode</span>
                 }
             </div>
             <div class="rw-header-right">
@@ -6355,11 +7485,11 @@
                         <div class="rw-popup-actions rw-finish-popup-actions">
                                 <button type="button"
                                     class="rw-popup-action-btn @(!_finishUseGuidedFlow ? "is-primary" : string.Empty)"
-                                    disabled="@(_finishOptionSubmitting || _finishOptionsLoading)"
+                                    disabled="@_finishOptionSubmitting"
                                     @onclick="@(() => SetFinishFlowAsync(false))">Finish</button>
                                 <button type="button"
                                     class="rw-popup-action-btn @(_finishUseGuidedFlow ? "is-primary" : string.Empty)"
-                                    disabled="@(_finishOptionSubmitting || _finishOptionsLoading)"
+                                    disabled="@_finishOptionSubmitting"
                                     @onclick="@(() => SetFinishFlowAsync(true))">Finishing Move</button>
                         </div>
                         <div class="rw-finish-popup-body">
@@ -6401,7 +7531,7 @@
                                     @onclick="CloseFinishPopup">Cancel</button>
                                 <button type="button"
                                     class="rw-popup-action-btn"
-                                    disabled="@_finishOptionSubmitting || _finishOptionsLoading"
+                                    disabled="@(_finishOptionSubmitting || _finishOptionsLoading)"
                                     @onclick="GenerateFinishOptionsAsync">@(_finishOptions.Count == 0 ? "Generate" : "Regenerate")</button>
                                 <button type="button"
                                     class="rw-popup-action-btn is-primary"
@@ -6857,19 +7987,32 @@
                                                     <button class="btn btn-outline-primary" type="button" @onclick="@(() => ApplyScenarioCharacterProfile(character))">Apply</button>
                                                 </div>
                                             </div>
+                                            @{
+                                                var charActorKey = character.Name?.Trim() ?? string.Empty;
+                                                var charHasLiveStats = !string.IsNullOrWhiteSpace(charActorKey)
+                                                    && _session.AdaptiveState.CharacterStats.ContainsKey(charActorKey);
+                                            }
                                             <div class="rw-scenario-field">
-                                                <label class="rw-scenario-field-label">Character Base Stats (Scenario Override)</label>
-                                                @foreach (var statName in AdaptiveStatCatalog.CanonicalStatNames)
+                                                <label class="rw-scenario-field-label">Current Session Stats (@(string.IsNullOrWhiteSpace(charActorKey) ? "(no name)" : charActorKey))@(charHasLiveStats ? "" : " — not in session yet")</label>
+                                                <div class="rw-adaptive-note mb-1">Live adaptive stat values for this character. Changes take effect immediately and persist to the session.</div>
+                                                @if (!string.IsNullOrWhiteSpace(charActorKey))
                                                 {
-                                                    <div class="input-group input-group-sm mb-1" style="max-width: 360px;">
-                                                        <span class="input-group-text" style="min-width: 140px;">@statName</span>
-                                                        <input type="number"
-                                                               class="form-control"
-                                                               min="0"
-                                                               max="100"
-                                                               value="@GetScenarioCharacterStat(character, statName)"
-                                                               @onchange="@(e => SetScenarioCharacterStat(character, statName, e.Value?.ToString()))" />
-                                                    </div>
+                                                    @foreach (var statName in AdaptiveStatCatalog.CanonicalStatNames)
+                                                    {
+                                                        <div class="input-group input-group-sm mb-1" style="max-width: 360px;">
+                                                            <span class="input-group-text" style="min-width: 140px;">@statName</span>
+                                                            <input type="number"
+                                                                   class="form-control"
+                                                                   min="0"
+                                                                   max="100"
+                                                                   value="@GetCharacterLiveSessionStat(charActorKey, statName)"
+                                                                   @onchange="@(e => SetCharacterLiveSessionStat(charActorKey, statName, e.Value?.ToString()))" />
+                                                        </div>
+                                                    }
+                                                }
+                                                else
+                                                {
+                                                    <div class="text-muted small">Set a character name to enable live stat editing.</div>
                                                 }
                                             </div>
                                         </div>
@@ -6901,6 +8044,28 @@
                                                   @onchange="@(e => { _session.PersonaDescription = e.Value?.ToString() ?? ""; _ = SaveSessionSettingsAsync(); })"></textarea>
                                     </div>
                                     <div class="rw-scenario-field">
+                                        <label class="rw-scenario-field-label">Role</label>
+                                        <select class="rw-mode-select"
+                                                value="@CharacterRoleCatalog.Normalize(_session.PersonaRole)"
+                                                @onchange="@(e => { _session.PersonaRole = CharacterRoleCatalog.Normalize(e.Value?.ToString()); _ = SaveSessionSettingsAsync(); })">
+                                            @foreach (var option in GetCharacterRoleOptions(_session.PersonaRole))
+                                            {
+                                                <option value="@option">@option</option>
+                                            }
+                                        </select>
+                                    </div>
+                                    <div class="rw-scenario-field">
+                                        <label class="rw-scenario-field-label">Gender</label>
+                                        <select class="rw-mode-select"
+                                                value="@CharacterGenderCatalog.NormalizeForCharacter(_session.PersonaGender)"
+                                                @onchange="@(e => { _session.PersonaGender = CharacterGenderCatalog.NormalizeForCharacter(e.Value?.ToString()); _ = SaveSessionSettingsAsync(); })">
+                                            @foreach (var option in CharacterGenderCatalog.CharacterGenders)
+                                            {
+                                                <option value="@option">@option</option>
+                                            }
+                                        </select>
+                                    </div>
+                                    <div class="rw-scenario-field">
                                         <label class="rw-scenario-field-label">Perspective</label>
                                         <select class="rw-mode-select"
                                                 value="@_session.PersonaPerspectiveMode"
@@ -6923,15 +8088,50 @@
                                             }
                                         </select>
                                     </div>
+                                    <div class="rw-scenario-field">
+                                        <label class="rw-scenario-field-label">Character Stat Profile</label>
+                                        <div class="input-group input-group-sm">
+                                            <select class="form-select"
+                                                    value="@(_personaProfileSelection ?? string.Empty)"
+                                                    @onchange="@(e => _personaProfileSelection = string.IsNullOrWhiteSpace(e.Value?.ToString()) ? null : e.Value?.ToString())">
+                                                <option value="">(Select Profile)</option>
+                                                @foreach (var profile in GetApplicableBaseStatProfilesForPersona())
+                                                {
+                                                    <option value="@profile.Id">@profile.Name (@CharacterGenderCatalog.NormalizeForProfile(profile.TargetGender) / @CharacterRoleCatalog.Normalize(profile.TargetRole))</option>
+                                                }
+                                            </select>
+                                            <button class="btn btn-outline-primary" type="button" @onclick="ApplyPersonaProfile">Apply</button>
+                                        </div>
+                                    </div>
+                                    @{
+                                        var personaStatKey = string.IsNullOrWhiteSpace(_session.PersonaName) ? "You" : _session.PersonaName;
+                                        var personaHasLiveStats = _session.AdaptiveState.CharacterStats.ContainsKey(personaStatKey);
+                                    }
+                                    <div class="rw-scenario-field">
+                                        <label class="rw-scenario-field-label">Current Session Stats (@personaStatKey)@(personaHasLiveStats ? "" : " — not in session yet")</label>
+                                        <div class="rw-adaptive-note mb-1">These are the live adaptive stat values for the persona. Changes take effect immediately and persist to the session.</div>
+                                        @foreach (var statName in AdaptiveStatCatalog.CanonicalStatNames)
+                                        {
+                                            <div class="input-group input-group-sm mb-1" style="max-width: 360px;">
+                                                <span class="input-group-text" style="min-width: 140px;">@statName</span>
+                                                <input type="number"
+                                                       class="form-control"
+                                                       min="0"
+                                                       max="100"
+                                                       value="@GetPersonaLiveSessionStat(statName)"
+                                                       @onchange="@(e => SetPersonaLiveSessionStat(statName, e.Value?.ToString()))" />
+                                            </div>
+                                        }
+                                    </div>
                                 </div>
                             }
                         </div>
 
                         @* ── Save Button ── *@
-                        <button class="rw-scenario-save-btn @(_scenarioDirty ? "" : "is-disabled")"
-                                disabled="@(!_scenarioDirty)"
+                        <button class="rw-scenario-save-btn @(_scenarioDirty || _sessionStatsDirty ? "" : "is-disabled")"
+                                disabled="@(!(_scenarioDirty || _sessionStatsDirty))"
                                 @onclick="OnSaveScenarioClicked">
-                            @(_scenarioDirty ? "Save Scenario Changes" : "No Changes")
+                            @(_scenarioDirty || _sessionStatsDirty ? "Save Changes" : "No Changes")
                         </button>
                     }
                     else
@@ -6960,6 +8160,9 @@
                                 </optgroup>
                             }
                         </select>
+                    </div>
+                    <div class="text-muted small mb-2">
+                        Ask detailed engine questions like: "Why did next phase not advance?", "Why was this theme selected?", or "Show evidence from logs/debug events for this session".
                     </div>
                     <AssistantPanel Title="Role-Play Assistant"
                                     SessionId="@_session.Id"
@@ -7067,10 +8270,13 @@
                         @if (IsAdaptiveSectionExpanded("runtime"))
                         {
                             var phaseProgress = GetCurrentPhaseProgress();
+                            var simpleSummary = GetSimpleRuntimeSummary();
                             var activeGateRows = GetPhaseGateRows().Where(x => IsPrimaryUserGate(x.Label)).ToList();
                             <div class="rw-collapsible-body">
                                 <div class="rw-settings-info-row"><span>Current Phase</span><span>@_session.AdaptiveState.CurrentNarrativePhase</span></div>
                                 <div class="rw-settings-info-row"><span>Phase Progress</span><span>@($"{phaseProgress.ProgressPercent}% to {phaseProgress.NextPhase}")</span></div>
+                                <div class="rw-settings-info-row rw-settings-info-row-block"><span>Simple Status</span><span>@simpleSummary.Status</span></div>
+                                <div class="rw-settings-info-row rw-settings-info-row-block"><span>Simple Next Step</span><span>@simpleSummary.NextStep</span></div>
                                 <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="@phaseProgress.ProgressPercent" style="height:8px; margin:4px 0 8px 0;">
                                     <div class="progress-bar @GetPhaseProgressBarClass()" style="width:@($"{phaseProgress.ProgressPercent}%")"></div>
                                 </div>
@@ -7079,7 +8285,7 @@
 
                                 @{
                                     var currentPhaseEnum = _session.AdaptiveState.CurrentNarrativePhase;
-                                    var phaseGuidanceLines = DreamGenClone.Web.Application.RolePlay.RolePlayAssistantPrompts.GetThemePhaseGuidanceLines(_activeRpTheme, currentPhaseEnum.ToString(), maxLines: 6);
+                                    var phaseGuidanceLines = DreamGenClone.Web.Application.RolePlay.RolePlayAssistantPrompts.GetThemePhaseGuidanceLines(_activeRpTheme, currentPhaseEnum.ToString());
                                 }
                                 @if (phaseGuidanceLines.Count > 0)
                                 {
@@ -7101,7 +8307,19 @@
                                             @foreach (var gate in activeGateRows)
                                             {
                                                 <div class="rw-settings-info-row"><span>@gate.Label</span><span class="@GetGateStatusBadgeClass(gate.Status)">@gate.Status</span></div>
-                                                <div class="rw-settings-info-row rw-settings-info-row-block"><span>Required Or Gap</span><span>@gate.Details</span></div>
+                                                var gateDetailLines = gate.Details.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+                                                if (gateDetailLines.Length <= 1)
+                                                {
+                                                    <div class="rw-settings-info-row rw-settings-info-row-block"><span>Status</span><span>@gate.Details</span></div>
+                                                }
+                                                else
+                                                {
+                                                    <div class="rw-settings-info-row rw-settings-info-row-block rw-settings-info-row-heading"><span>Status</span></div>
+                                                    @foreach (var detailLine in gateDetailLines)
+                                                    {
+                                                        <div class="rw-settings-info-row rw-settings-info-row-block rw-settings-info-row-guidance"><span>@detailLine</span></div>
+                                                    }
+                                                }
                                             }
                                         </div>
                                     }
@@ -7188,19 +8406,20 @@
                                                     <div class="rw-stat-grid" role="table" aria-label="Baseline and current character stats">
                                                         <div class="rw-stat-grid-header" role="row">
                                                             <span class="rw-stat-cell rw-stat-col-name" role="columnheader">Stat</span>
-                                                            <span class="rw-stat-cell rw-stat-col-baseline" role="columnheader">Baseline</span>
-                                                            <span class="rw-stat-cell rw-stat-col-current" role="columnheader">Current</span>
-                                                            <span class="rw-stat-cell rw-stat-col-delta" role="columnheader">Delta</span>
+                                                            <span class="rw-stat-cell rw-stat-col-baseline" role="columnheader">Base</span>
+                                                            <span class="rw-stat-cell rw-stat-col-current" role="columnheader">Curr</span>
+                                                            <span class="rw-stat-cell rw-stat-col-delta" role="columnheader">dLast</span>
                                                         </div>
                                                         @foreach (var statName in AdaptiveStatCatalog.CanonicalStatNames)
                                                         {
                                                             var baselineValue = GetCharacterBaselineStatValue(actorStats.Key, statName);
                                                             var currentValue = GetCharacterStatValue(actorStats.Value, statName);
+                                                            var lastDeltaValue = GetLastCharacterStatDelta(actorStats.Value, statName);
                                                             <div class="rw-stat-grid-row" role="row">
                                                                 <span class="rw-stat-cell rw-stat-col-name" role="cell">@statName</span>
                                                                 <span class="rw-stat-cell rw-stat-col-baseline" role="cell">@baselineValue</span>
                                                                 <span class="@GetCharacterStatDeltaClass(currentValue, baselineValue) rw-stat-col-current" role="cell">@currentValue</span>
-                                                                <span class="@GetCharacterStatDeltaClass(currentValue, baselineValue) rw-stat-col-delta" role="cell">@FormatCharacterStatDelta(currentValue, baselineValue)</span>
+                                                                <span class="@GetLastCharacterStatDeltaClass(lastDeltaValue) rw-stat-col-delta" role="cell">@FormatSignedDelta(lastDeltaValue)</span>
                                                             </div>
                                                         }
                                                     </div>
@@ -7245,6 +8464,8 @@
                                 else
                                 {
                                     <div class="rw-settings-info-row"><span>Correlation</span><span>@_v2Diagnostics.CorrelationId</span></div>
+                                    <div class="rw-settings-info-row"><span>Turns</span><span>@_v2Diagnostics.Turns.Count</span></div>
+                                    <div class="rw-settings-info-row"><span>Latest Turn</span><span>@LatestTurnSummary</span></div>
                                     <div class="rw-settings-info-row"><span>Candidate Evaluations</span><span>@_v2Diagnostics.CandidateEvaluations.Count</span></div>
                                     <div class="rw-settings-info-row"><span>Transitions</span><span>@_v2Diagnostics.TransitionEvents.Count</span></div>
                                     <div class="rw-settings-info-row"><span>Decision Points</span><span>@_v2Diagnostics.DecisionPoints.Count</span></div>
@@ -7264,7 +8485,7 @@
 @code {
     private sealed record MenuRect(double Top, double Left, double Bottom, double Right, double Width, double Height);
     private sealed record PhaseGateRow(string Label, string Status, string Details);
-    private sealed record AdaptiveSelectionGateSnapshot(bool StageAOpen, bool StageBOpen, double Desire, double Tension, double Restraint, string GapSummary);
+    private sealed record AdaptiveSelectionGateSnapshot(bool StageAOpen, double Desire, string GapSummary);
     private sealed record AdaptiveThemeStatusRow(
         string ThemeId,
         string ThemeName,

@@ -1,5 +1,6 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -175,103 +176,192 @@ public sealed class CompletionClient : ICompletionClient
         ResolvedModel resolved,
         CancellationToken cancellationToken)
     {
-        var startTime = DateTime.UtcNow;
+        var totalStopwatch = Stopwatch.StartNew();
+        long setupMs = 0;
+        long requestMs = 0;
+        long readMs = 0;
+        long parseMs = 0;
+        long continuationMs = 0;
+        var continuationCalls = 0;
+        var finishReason = string.Empty;
+        var choiceCount = 0;
 
-        var client = _httpClientFactory.CreateClient("CompletionClient");
-
-        // Ensure BaseAddress ends with "/" so relative path resolution works correctly.
-        // HttpClient resolves "v1/chat/completions" relative to "https://host/api/"
-        // but "/v1/chat/completions" would reset to the root, ignoring the base path.
-        var baseUrl = resolved.ProviderBaseUrl.TrimEnd('/') + "/";
-        client.BaseAddress = new Uri(baseUrl);
-        client.Timeout = TimeSpan.FromSeconds(resolved.ProviderTimeoutSeconds);
-
-        if (!string.IsNullOrEmpty(resolved.ApiKeyEncrypted))
+        try
         {
-            try
+            var setupStopwatch = Stopwatch.StartNew();
+            var client = _httpClientFactory.CreateClient("CompletionClient");
+
+            // Ensure BaseAddress ends with "/" so relative path resolution works correctly.
+            // HttpClient resolves "v1/chat/completions" relative to "https://host/api/"
+            // but "/v1/chat/completions" would reset to the root, ignoring the base path.
+            var baseUrl = resolved.ProviderBaseUrl.TrimEnd('/') + "/";
+            client.BaseAddress = new Uri(baseUrl);
+            client.Timeout = TimeSpan.FromSeconds(resolved.ProviderTimeoutSeconds);
+
+            if (!string.IsNullOrEmpty(resolved.ApiKeyEncrypted))
             {
-                var decryptedKey = _encryptionService.Decrypt(resolved.ApiKeyEncrypted);
-                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", decryptedKey);
+                try
+                {
+                    var decryptedKey = _encryptionService.Decrypt(resolved.ApiKeyEncrypted);
+                    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", decryptedKey);
+                }
+                catch (System.Security.Cryptography.CryptographicException ex)
+                {
+                    _logger.LogError(ex, "Failed to decrypt API key for provider {ProviderName}. Please re-enter the API key in Model Manager.", resolved.ProviderName);
+                    throw;
+                }
             }
-            catch (System.Security.Cryptography.CryptographicException ex)
+
+            var payload = new ChatRequest
             {
-                _logger.LogError(ex, "Failed to decrypt API key for provider {ProviderName}. Please re-enter the API key in Model Manager.", resolved.ProviderName);
-                throw;
-            }
-        }
-
-        var payload = new ChatRequest
-        {
-            Model = resolved.ModelIdentifier,
-            Messages = messages,
-            Temperature = resolved.Temperature,
-            TopP = resolved.TopP,
-            MaxTokens = resolved.MaxTokens
-        };
-
-        // Strip leading "/" from path so it resolves relative to BaseAddress, not root
-        var relativePath = resolved.ChatCompletionsPath.TrimStart('/');
-
-        _logger.LogDebug("Sending completion request to {BaseUrl}{Path} with model {Model}",
-            baseUrl, relativePath, resolved.ModelIdentifier);
-
-        using var response = await client.PostAsJsonAsync(relativePath, payload, cancellationToken);
-
-        if (!response.IsSuccessStatusCode)
-        {
-            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-            var statusCode = (int)response.StatusCode;
-
-            var errorMessage = statusCode switch
-            {
-                401 => $"Invalid API key for provider {resolved.ProviderName}",
-                429 => $"Rate limit exceeded for provider {resolved.ProviderName}",
-                >= 500 => $"Server error from provider {resolved.ProviderName}: {statusCode}",
-                _ => $"Request failed for provider {resolved.ProviderName}: {statusCode}"
+                Model = resolved.ModelIdentifier,
+                Messages = messages,
+                Temperature = resolved.Temperature,
+                TopP = resolved.TopP,
+                MaxTokens = resolved.MaxTokens
             };
 
-            _logger.LogError("Completion request failed: {ErrorMessage}, Response={ErrorContent}", errorMessage, errorContent);
-            response.EnsureSuccessStatusCode();
-        }
+            // Strip leading "/" from path so it resolves relative to BaseAddress, not root
+            var relativePath = resolved.ChatCompletionsPath.TrimStart('/');
+            setupStopwatch.Stop();
+            setupMs = setupStopwatch.ElapsedMilliseconds;
 
-        var rawBody = await response.Content.ReadAsStringAsync(cancellationToken);
-        var (content, finishReason, choiceCount) = ParseContent(rawBody, resolved);
-
-        if (string.Equals(finishReason, "length", StringComparison.OrdinalIgnoreCase) &&
-            !string.IsNullOrWhiteSpace(content))
-        {
-            _logger.LogWarning(
-                "Completion hit token limit, requesting continuation: Model={ModelIdentifier}, Provider={ProviderName}, MaxTokens={MaxTokens}",
+            _logger.LogInformation(
+                "Completion request start: Model={ModelIdentifier}, Provider={ProviderName}, SessionOverride={IsSessionOverride}, TimeoutSeconds={TimeoutSeconds}, MessageCount={MessageCount}, MessageChars={MessageChars}, SetupMs={SetupMs}",
                 resolved.ModelIdentifier,
                 resolved.ProviderName,
-                resolved.MaxTokens);
+                resolved.IsSessionOverride,
+                resolved.ProviderTimeoutSeconds,
+                messages.Count,
+                messages.Sum(x => x.Content?.Length ?? 0),
+                setupMs);
 
-            content = await ContinueTruncatedResponseAsync(
-                client,
-                relativePath,
-                messages,
-                resolved,
-                content,
-                cancellationToken);
+            _logger.LogDebug("Sending completion request to {BaseUrl}{Path} with model {Model}",
+                baseUrl, relativePath, resolved.ModelIdentifier);
+
+            var requestStopwatch = Stopwatch.StartNew();
+            using var response = await client.PostAsJsonAsync(relativePath, payload, cancellationToken);
+            requestStopwatch.Stop();
+            requestMs = requestStopwatch.ElapsedMilliseconds;
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                var statusCode = (int)response.StatusCode;
+
+                var errorMessage = statusCode switch
+                {
+                    401 => $"Invalid API key for provider {resolved.ProviderName}",
+                    429 => $"Rate limit exceeded for provider {resolved.ProviderName}",
+                    >= 500 => $"Server error from provider {resolved.ProviderName}: {statusCode}",
+                    _ => $"Request failed for provider {resolved.ProviderName}: {statusCode}"
+                };
+
+                _logger.LogError("Completion request failed: {ErrorMessage}, Response={ErrorContent}", errorMessage, errorContent);
+                response.EnsureSuccessStatusCode();
+            }
+
+            var readStopwatch = Stopwatch.StartNew();
+            var rawBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            readStopwatch.Stop();
+            readMs = readStopwatch.ElapsedMilliseconds;
+
+            var parseStopwatch = Stopwatch.StartNew();
+            var parsed = ParseContent(rawBody, resolved);
+            parseStopwatch.Stop();
+            parseMs = parseStopwatch.ElapsedMilliseconds;
+
+            var content = parsed.Content;
+            finishReason = parsed.FinishReason ?? string.Empty;
+            choiceCount = parsed.ChoiceCount;
+
+            if (string.Equals(finishReason, "length", StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrWhiteSpace(content))
+            {
+                _logger.LogWarning(
+                    "Completion hit token limit, requesting continuation: Model={ModelIdentifier}, Provider={ProviderName}, MaxTokens={MaxTokens}",
+                    resolved.ModelIdentifier,
+                    resolved.ProviderName,
+                    resolved.MaxTokens);
+
+                var continuationStopwatch = Stopwatch.StartNew();
+                var continuationResult = await ContinueTruncatedResponseAsync(
+                    client,
+                    relativePath,
+                    messages,
+                    resolved,
+                    content,
+                    cancellationToken);
+                continuationStopwatch.Stop();
+
+                continuationMs = continuationStopwatch.ElapsedMilliseconds;
+                continuationCalls = continuationResult.CallCount;
+                content = continuationResult.Content;
+            }
+
+            if (string.IsNullOrWhiteSpace(content))
+            {
+                _logger.LogWarning(
+                    "Completion returned empty content: Model={ModelIdentifier}, Provider={ProviderName}, FinishReason={FinishReason}, ChoicesCount={ChoicesCount}, RawLength={RawLength}, Body={RawBody}",
+                    resolved.ModelIdentifier, resolved.ProviderName,
+                    finishReason,
+                    choiceCount,
+                    rawBody.Length,
+                    rawBody.Length > 2000 ? rawBody[..2000] : rawBody);
+            }
+
+            totalStopwatch.Stop();
+            _logger.LogInformation(
+                "Completion request completed: Model={ModelIdentifier}, Provider={ProviderName}, SessionOverride={IsSessionOverride}, TotalMs={TotalMs}, SetupMs={SetupMs}, HttpMs={HttpMs}, ReadMs={ReadMs}, ParseMs={ParseMs}, ContinuationMs={ContinuationMs}, ContinuationCalls={ContinuationCalls}, FinishReason={FinishReason}, ChoiceCount={ChoiceCount}",
+                resolved.ModelIdentifier,
+                resolved.ProviderName,
+                resolved.IsSessionOverride,
+                totalStopwatch.ElapsedMilliseconds,
+                setupMs,
+                requestMs,
+                readMs,
+                parseMs,
+                continuationMs,
+                continuationCalls,
+                finishReason,
+                choiceCount);
+
+            return content ?? string.Empty;
         }
-
-        if (string.IsNullOrWhiteSpace(content))
+        catch (TaskCanceledException ex)
         {
+            totalStopwatch.Stop();
+            var cancelReason = cancellationToken.IsCancellationRequested ? "CallerCanceledToken" : "HttpTimeoutOrTransportCancel";
             _logger.LogWarning(
-                "Completion returned empty content: Model={ModelIdentifier}, Provider={ProviderName}, FinishReason={FinishReason}, ChoicesCount={ChoicesCount}, RawLength={RawLength}, Body={RawBody}",
-                resolved.ModelIdentifier, resolved.ProviderName,
-                finishReason ?? "null",
-                choiceCount,
-                rawBody.Length,
-                rawBody.Length > 2000 ? rawBody[..2000] : rawBody);
+                ex,
+                "Completion request canceled: Model={ModelIdentifier}, Provider={ProviderName}, Reason={CancelReason}, TimeoutSeconds={TimeoutSeconds}, ElapsedMs={ElapsedMs}, SetupMs={SetupMs}, HttpMs={HttpMs}, ReadMs={ReadMs}, ParseMs={ParseMs}",
+                resolved.ModelIdentifier,
+                resolved.ProviderName,
+                cancelReason,
+                resolved.ProviderTimeoutSeconds,
+                totalStopwatch.ElapsedMilliseconds,
+                setupMs,
+                requestMs,
+                readMs,
+                parseMs);
+            throw;
         }
-
-        var duration = DateTime.UtcNow - startTime;
-        _logger.LogInformation(
-            "Completion request completed: Model={ModelIdentifier}, Provider={ProviderName}, SessionOverride={IsSessionOverride}, Duration={DurationMs}ms",
-            resolved.ModelIdentifier, resolved.ProviderName, resolved.IsSessionOverride, (int)duration.TotalMilliseconds);
-
-        return content ?? string.Empty;
+        catch (Exception ex)
+        {
+            totalStopwatch.Stop();
+            _logger.LogError(
+                ex,
+                "Completion request failed: Model={ModelIdentifier}, Provider={ProviderName}, TimeoutSeconds={TimeoutSeconds}, ElapsedMs={ElapsedMs}, SetupMs={SetupMs}, HttpMs={HttpMs}, ReadMs={ReadMs}, ParseMs={ParseMs}",
+                resolved.ModelIdentifier,
+                resolved.ProviderName,
+                resolved.ProviderTimeoutSeconds,
+                totalStopwatch.ElapsedMilliseconds,
+                setupMs,
+                requestMs,
+                readMs,
+                parseMs);
+            throw;
+        }
     }
 
     private async Task<string> SendCompletionStreamingAsync(
@@ -399,13 +489,14 @@ public sealed class CompletionClient : ICompletionClient
         }
         else if (string.Equals(finishReason, "length", StringComparison.OrdinalIgnoreCase))
         {
-            var continuation = await ContinueTruncatedResponseAsync(
+            var continuationResult = await ContinueTruncatedResponseAsync(
                 client,
                 relativePath,
                 messages,
                 resolved,
                 content,
                 cancellationToken);
+            var continuation = continuationResult.Content;
 
             if (continuation.Length > content.Length)
             {
@@ -499,7 +590,7 @@ public sealed class CompletionClient : ICompletionClient
         }
     }
 
-    private async Task<string> ContinueTruncatedResponseAsync(
+    private async Task<(string Content, int CallCount)> ContinueTruncatedResponseAsync(
         HttpClient client,
         string relativePath,
         List<ChatMessage> originalMessages,
@@ -509,6 +600,7 @@ public sealed class CompletionClient : ICompletionClient
     {
         const int maxContinuationCalls = 2;
         var accumulated = initialContent;
+        var callCount = 0;
 
         for (var i = 0; i < maxContinuationCalls; i++)
         {
@@ -527,19 +619,33 @@ public sealed class CompletionClient : ICompletionClient
                 MaxTokens = resolved.MaxTokens
             };
 
+            var continuationCallStopwatch = Stopwatch.StartNew();
             using var continuationResponse = await client.PostAsJsonAsync(relativePath, continuationPayload, cancellationToken);
+            continuationCallStopwatch.Stop();
+            callCount++;
             if (!continuationResponse.IsSuccessStatusCode)
             {
                 _logger.LogWarning(
-                    "Continuation call failed: Model={ModelIdentifier}, Provider={ProviderName}, Status={StatusCode}",
+                    "Continuation call failed: Model={ModelIdentifier}, Provider={ProviderName}, Status={StatusCode}, CallIndex={CallIndex}, DurationMs={DurationMs}",
                     resolved.ModelIdentifier,
                     resolved.ProviderName,
-                    (int)continuationResponse.StatusCode);
+                    (int)continuationResponse.StatusCode,
+                    i + 1,
+                    continuationCallStopwatch.ElapsedMilliseconds);
                 break;
             }
 
             var continuationRaw = await continuationResponse.Content.ReadAsStringAsync(cancellationToken);
             var (segment, finishReason, _) = ParseContent(continuationRaw, resolved);
+
+            _logger.LogInformation(
+                "Continuation call completed: Model={ModelIdentifier}, Provider={ProviderName}, CallIndex={CallIndex}, DurationMs={DurationMs}, SegmentLength={SegmentLength}, FinishReason={FinishReason}",
+                resolved.ModelIdentifier,
+                resolved.ProviderName,
+                i + 1,
+                continuationCallStopwatch.ElapsedMilliseconds,
+                segment?.Length ?? 0,
+                finishReason ?? string.Empty);
 
             if (string.IsNullOrWhiteSpace(segment))
             {
@@ -554,7 +660,7 @@ public sealed class CompletionClient : ICompletionClient
             }
         }
 
-        return accumulated;
+        return (accumulated, callCount);
     }
 
     private (string? Content, string? FinishReason, int ChoiceCount) ParseContent(string rawBody, ResolvedModel resolved)

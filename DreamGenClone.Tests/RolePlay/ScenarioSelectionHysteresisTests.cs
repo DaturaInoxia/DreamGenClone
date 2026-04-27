@@ -7,7 +7,9 @@ namespace DreamGenClone.Tests.RolePlay;
 
 public sealed class ScenarioSelectionHysteresisTests
 {
-    private readonly ScenarioSelectionService _service = new(NullLogger<ScenarioSelectionService>.Instance);
+    private readonly ScenarioSelectionService _service = new(
+        NullLogger<ScenarioSelectionService>.Instance,
+        engineSettingsRepository: new StubScenarioEngineSettingsRepository());
 
     private static ScenarioSelectionService CreateServiceWithProfile()
     {
@@ -21,7 +23,10 @@ public sealed class ScenarioSelectionHysteresisTests
                 new() { SortOrder = 1, FromPhase = "BuildUp", ToPhase = "Committed", MetricKey = NarrativeGateMetricKeys.InteractionsSinceCommitment, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 2m }
             ]
         });
-        return new ScenarioSelectionService(NullLogger<ScenarioSelectionService>.Instance, narrativeGateProfileService: profileService);
+        return new ScenarioSelectionService(
+            NullLogger<ScenarioSelectionService>.Instance,
+            narrativeGateProfileService: profileService,
+            engineSettingsRepository: new StubScenarioEngineSettingsRepository());
     }
 
     [Fact]
@@ -131,6 +136,17 @@ public sealed class ScenarioSelectionHysteresisTests
         Assert.False(result.Committed);
         Assert.Equal("only", result.ScenarioId);
         Assert.Contains("already committed", result.Reason, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private sealed class StubScenarioEngineSettingsRepository : IScenarioEngineSettingsRepository
+    {
+        private readonly ScenarioEngineSettings _settings;
+        public StubScenarioEngineSettingsRepository(ScenarioEngineSettings? settings = null)
+            => _settings = settings ?? new ScenarioEngineSettings();
+        public Task<ScenarioEngineSettings> LoadAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(_settings);
+        public Task SaveAsync(ScenarioEngineSettings settings, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
     }
 
     private sealed class StubNarrativeGateProfileService : INarrativeGateProfileService

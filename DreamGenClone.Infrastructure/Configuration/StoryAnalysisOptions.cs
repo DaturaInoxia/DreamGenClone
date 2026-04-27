@@ -65,8 +65,8 @@ public sealed class StoryAnalysisOptions
     // Commitment score threshold used after ranking.
     public double BuildUpSelectionCommitThreshold { get; set; } = 0.60;
 
-    // Candidate gate strategy before scoring/ranking. Supported: legacy, dominant-role.
-    public string BuildUpSelectionCandidateGateStrategy { get; set; } = "legacy";
+    // Candidate gate strategy before scoring/ranking. Supported value: dominant-role.
+    public string BuildUpSelectionCandidateGateStrategy { get; set; } = "dominant-role";
 
     // Minimum per-role score required when dominant-role gate strategy is active.
     public double BuildUpSelectionDominantRoleMinScore { get; set; } = 0.85;
@@ -80,8 +80,35 @@ public sealed class StoryAnalysisOptions
     // Lower bound for repeated-scenario score multiplier after penalties are applied.
     public double CompletedScenarioRepeatPenaltyFloor { get; set; } = 0.40;
 
+    // Additional one-cycle multiplier for the most recently completed scenario to improve near-term variety.
+    public double CompletedScenarioRecentPenaltyMultiplier { get; set; } = 0.65;
+
     // Theme tracker score penalty applied to the just-completed scenario during reset.
     public int CompletedScenarioThemeScorePenalty { get; set; } = 10;
+
+    // Per-cycle reduction in reset pull toward baseline for elevated stats.
+    // Example: 0.10 means each completed cycle reduces reset pull by 10%.
+    public double ResetDecayReductionPerCycle { get; set; } = 0.10;
+
+    // Maximum total reset pull reduction from cycle scaling.
+    public double ResetDecayReductionCap { get; set; } = 0.60;
+
+    // Baseline targets used when semi-resetting adaptive stats.
+    // Keys: Desire, Restraint, Tension, Connection, Dominance, Loyalty, SelfRespect.
+    public Dictionary<string, int> ResetStatBaselines { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    // Per-cycle pull fraction toward stat baselines (cycle 1 uses index 0).
+    // If cycle count exceeds this list, the last entry is reused.
+    public List<double> ResetStatBaselinePullSchedule { get; set; } = [];
+
+    // Baseline target used when semi-resetting desire.
+    // Legacy fallback when ResetStatBaselines is not configured.
+    public int ResetDesireBaseline { get; set; } = 50;
+
+    // Per-cycle pull fraction toward desire baseline (cycle 1 uses index 0).
+    // Legacy fallback when ResetStatBaselinePullSchedule is not configured.
+    // If cycle count exceeds this list, the last entry is reused.
+    public List<double> ResetDesireBaselinePullSchedule { get; set; } = [];
 
     // Minimum BuildUp interactions required before a scenario can be committed.
     public int BuildUpMinInteractionsBeforeCommit { get; set; } = 2;

@@ -3,7 +3,7 @@ using DreamGenClone.Domain.RolePlay;
 
 namespace DreamGenClone.Tests.RolePlay;
 
-public static class RolePlayV2AcceptanceFixtureData
+public static class RolePlayAcceptanceFixtureData
 {
     public static AdaptiveScenarioState BuildBoundaryState(int desire, int restraint, int tension)
     {
@@ -14,7 +14,7 @@ public static class RolePlayV2AcceptanceFixtureData
             CurrentPhase = NarrativePhase.BuildUp,
             CharacterSnapshots =
             [
-                new CharacterStatProfile
+                new CharacterStatProfileV2
                 {
                     CharacterId = "char-a",
                     Desire = desire,
@@ -35,4 +35,17 @@ public static class RolePlayV2AcceptanceFixtureData
         new ScenarioDefinition("scenario-beta", "Beta", 2),
         new ScenarioDefinition("scenario-gamma", "Gamma", 1)
     ];
+}
+
+public static class RolePlayV2AcceptanceFixtureData
+{
+    public static AdaptiveScenarioState BuildBoundaryState(int desire, int restraint, int tension)
+    {
+        return RolePlayAcceptanceFixtureData.BuildBoundaryState(desire, restraint, tension);
+    }
+
+    public static IReadOnlyList<ScenarioDefinition> BuildCompetingScenarioSignals()
+    {
+        return RolePlayAcceptanceFixtureData.BuildCompetingScenarioSignals();
+    }
 }

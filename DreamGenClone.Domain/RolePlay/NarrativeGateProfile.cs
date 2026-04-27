@@ -37,6 +37,11 @@ public static class NarrativeGateMetricKeys
     public const string ActiveScenarioScore = "ActiveScenarioScore";
     public const string AverageDesire = "AverageDesire";
     public const string AverageRestraint = "AverageRestraint";
+    public const string AverageTension = "AverageTension";
+    public const string AverageConnection = "AverageConnection";
+    public const string AverageDominance = "AverageDominance";
+    public const string AverageLoyalty = "AverageLoyalty";
+    public const string AverageSelfRespect = "AverageSelfRespect";
     public const string InteractionsSinceCommitment = "InteractionsSinceCommitment";
 }
 

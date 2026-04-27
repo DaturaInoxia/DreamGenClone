@@ -103,7 +103,7 @@ public sealed class RolePlayContinuationScenarioGuidanceTests
             ]
         };
 
-        var lines = RolePlayAssistantPrompts.GetThemePhaseGuidanceLines(theme, "Committed", maxLines: 3);
+        var lines = RolePlayAssistantPrompts.GetThemePhaseGuidanceLines(theme, "Committed");
 
         Assert.Equal(2, lines.Count);
         Assert.Contains("Committed guidance.", lines);

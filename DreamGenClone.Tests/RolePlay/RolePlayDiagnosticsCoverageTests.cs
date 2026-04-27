@@ -39,6 +39,17 @@ public sealed class RolePlayDiagnosticsCoverageTests
 
     private sealed class FakeDiagnosticsRepository : IRolePlayDiagnosticsRepository
     {
+        public Task<AdaptiveScenarioState?> LoadAdaptiveStateAsync(string sessionId, CancellationToken cancellationToken = default)
+            => Task.FromResult<AdaptiveScenarioState?>(new AdaptiveScenarioState
+            {
+                SessionId = sessionId,
+                CurrentPhase = NarrativePhase.BuildUp,
+                InteractionCountInPhase = 7
+            });
+
+        public Task<IReadOnlyList<RolePlayTurn>> LoadTurnsAsync(string sessionId, int take = 100, CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<RolePlayTurn>>([new RolePlayTurn { SessionId = sessionId, TurnId = "turn-1", TurnIndex = 1, TurnKind = "SubmitPrompt", TriggerSource = "Send", StartedUtc = DateTime.UtcNow, Status = RolePlayTurnStatus.Completed }]);
+
         public Task<IReadOnlyList<ScenarioCandidateEvaluation>> LoadCandidateEvaluationsAsync(string sessionId, int take = 100, CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyList<ScenarioCandidateEvaluation>>([new ScenarioCandidateEvaluation { SessionId = sessionId, ScenarioId = "s", EvaluationId = "e" }]);
 

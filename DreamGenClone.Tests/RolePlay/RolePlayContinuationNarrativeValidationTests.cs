@@ -379,6 +379,17 @@ public sealed class RolePlayContinuationNarrativeValidationTests
         public Task<RPTheme> SaveThemeAsync(RPTheme theme, CancellationToken cancellationToken = default)
             => Task.FromResult(theme);
 
+        public Task<RPTheme> CloneThemeAsync(string sourceThemeId, string newThemeId, string newThemeLabel, CancellationToken cancellationToken = default)
+            => Task.FromResult(new RPTheme
+            {
+                Id = newThemeId,
+                Label = newThemeLabel,
+                Description = _theme.Description,
+                Category = _theme.Category,
+                Weight = _theme.Weight,
+                IsEnabled = _theme.IsEnabled
+            });
+
         public Task<IReadOnlyList<RPTheme>> ListThemesAsync(bool includeDisabled = false, CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyList<RPTheme>>([_theme]);
 

@@ -1,6 +1,7 @@
 using DreamGenClone.Application.ModelManager;
 using DreamGenClone.Domain.ModelManager;
 using Microsoft.Extensions.Logging;
+using System.Diagnostics;
 
 namespace DreamGenClone.Web.Application.ModelManager;
 
@@ -31,17 +32,23 @@ public sealed class ModelResolutionService : IModelResolutionService
         int? sessionMaxTokens = null,
         CancellationToken cancellationToken = default)
     {
+        var totalStopwatch = Stopwatch.StartNew();
+
         // Session override path
         if (!string.IsNullOrEmpty(sessionModelId))
         {
+            var modelLookupStopwatch = Stopwatch.StartNew();
             var sessionModel = await _modelRepository.GetByIdAsync(sessionModelId, cancellationToken);
+            modelLookupStopwatch.Stop();
             if (sessionModel is null || !sessionModel.IsEnabled)
             {
                 throw new ModelResolutionException(
                     $"Session override model '{sessionModelId}' is not available. Select a different model in the settings panel or clear the override.");
             }
 
+            var providerLookupStopwatch = Stopwatch.StartNew();
             var sessionProvider = await _providerRepository.GetByIdAsync(sessionModel.ProviderId, cancellationToken);
+            providerLookupStopwatch.Stop();
             if (sessionProvider is null || !sessionProvider.IsEnabled)
             {
                 throw new ModelResolutionException(
@@ -49,7 +56,9 @@ public sealed class ModelResolutionService : IModelResolutionService
             }
 
             // Use session parameters with fallback to function default parameters
+            var functionDefaultLookupStopwatch = Stopwatch.StartNew();
             var functionDefault = await _functionDefaultRepository.GetByFunctionAsync(function, cancellationToken);
+            functionDefaultLookupStopwatch.Stop();
 
             var resolved = new ResolvedModel(
                 ProviderBaseUrl: sessionProvider.BaseUrl,
@@ -63,29 +72,43 @@ public sealed class ModelResolutionService : IModelResolutionService
                 ProviderName: sessionProvider.Name,
                 IsSessionOverride: true);
 
+            totalStopwatch.Stop();
+
             _logger.LogInformation(
-                "Model resolved via session override: Function={Function}, Model={ModelIdentifier}, Provider={ProviderName}",
-                function, resolved.ModelIdentifier, resolved.ProviderName);
+                "Model resolved via session override: Function={Function}, Model={ModelIdentifier}, Provider={ProviderName}, ModelLookupMs={ModelLookupMs}, ProviderLookupMs={ProviderLookupMs}, FunctionDefaultLookupMs={FunctionDefaultLookupMs}, TotalMs={TotalMs}",
+                function,
+                resolved.ModelIdentifier,
+                resolved.ProviderName,
+                modelLookupStopwatch.ElapsedMilliseconds,
+                providerLookupStopwatch.ElapsedMilliseconds,
+                functionDefaultLookupStopwatch.ElapsedMilliseconds,
+                totalStopwatch.ElapsedMilliseconds);
 
             return resolved;
         }
 
         // Function default path
+        var functionDefaultLookupStopwatchDefaultPath = Stopwatch.StartNew();
         var funcDefault = await _functionDefaultRepository.GetByFunctionAsync(function, cancellationToken);
+        functionDefaultLookupStopwatchDefaultPath.Stop();
         if (funcDefault is null)
         {
             throw new ModelResolutionException(
                 $"No model configured for function '{function}'. Configure a default model in Model Manager (/model-manager).");
         }
 
+        var modelLookupStopwatchDefaultPath = Stopwatch.StartNew();
         var model = await _modelRepository.GetByIdAsync(funcDefault.ModelId, cancellationToken);
+        modelLookupStopwatchDefaultPath.Stop();
         if (model is null || !model.IsEnabled)
         {
             throw new ModelResolutionException(
                 $"The default model for function '{function}' is no longer available. Update the model assignment in Model Manager (/model-manager).");
         }
 
+        var providerLookupStopwatchDefaultPath = Stopwatch.StartNew();
         var provider = await _providerRepository.GetByIdAsync(model.ProviderId, cancellationToken);
+        providerLookupStopwatchDefaultPath.Stop();
         if (provider is null || !provider.IsEnabled)
         {
             throw new ModelResolutionException(
@@ -104,9 +127,17 @@ public sealed class ModelResolutionService : IModelResolutionService
             ProviderName: provider.Name,
             IsSessionOverride: false);
 
+        totalStopwatch.Stop();
+
         _logger.LogInformation(
-            "Model resolved via function default: Function={Function}, Model={ModelIdentifier}, Provider={ProviderName}",
-            function, result.ModelIdentifier, result.ProviderName);
+            "Model resolved via function default: Function={Function}, Model={ModelIdentifier}, Provider={ProviderName}, FunctionDefaultLookupMs={FunctionDefaultLookupMs}, ModelLookupMs={ModelLookupMs}, ProviderLookupMs={ProviderLookupMs}, TotalMs={TotalMs}",
+            function,
+            result.ModelIdentifier,
+            result.ProviderName,
+            functionDefaultLookupStopwatchDefaultPath.ElapsedMilliseconds,
+            modelLookupStopwatchDefaultPath.ElapsedMilliseconds,
+            providerLookupStopwatchDefaultPath.ElapsedMilliseconds,
+            totalStopwatch.ElapsedMilliseconds);
 
         return result;
     }

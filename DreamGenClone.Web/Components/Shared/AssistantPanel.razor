@@ -4,17 +4,17 @@
 <div class="assistant-panel">
     <div class="assistant-header-row">
         <h4>@Title</h4>
-        <button class="btn btn-secondary btn-xs" @onclick="OnCreateChat" disabled="@IsProcessing">New Chat</button>
+        <button class="btn btn-secondary btn-xs" @onclick="OnCreateChat">New Chat</button>
     </div>
 
     <div class="assistant-chat-picker-row">
-        <select class="assistant-chat-select" value="@ActiveChatId" @onchange="OnChatSelectionChanged" disabled="@IsProcessing">
+        <select class="assistant-chat-select" value="@ActiveChatId" @onchange="OnChatSelectionChanged">
             @foreach (var chat in Chats)
             {
                 <option value="@chat.Id">@chat.Title</option>
             }
         </select>
-        <button class="btn btn-secondary btn-xs" @onclick="OnDeleteChat" disabled="@(IsProcessing || Chats.Count <= 1 || string.IsNullOrWhiteSpace(ActiveChatId))">Delete</button>
+        <button class="btn btn-secondary btn-xs" @onclick="OnDeleteChat" disabled="@(Chats.Count <= 1 || string.IsNullOrWhiteSpace(ActiveChatId))">Delete</button>
     </div>
     
     <div class="assistant-conversation" style="max-height: @ConversationMaxHeightCss;" @ref="_conversationRef">
@@ -39,7 +39,7 @@
                         <button class="copy-btn"
                                 title="Copy response"
                                 @onclick="(() => CopyAssistantMessageAsync(renderedText, i))"
-                                disabled="@IsProcessing">
+                                >
                             @(_copiedMessageIndex == i ? "Copied" : "Copy")
                         </button>
                     }
@@ -50,7 +50,7 @@
 
     <div class="assistant-input-group">
         <textarea rows="3"
-              placeholder="Ask for assistance..."
+              placeholder="Ask for assistance (e.g., why phase did not advance, why this theme was selected, what to change in profiles/stats)..."
               @bind="UserPrompt"
               @bind:event="oninput"
               @onkeyup="OnInputKeyUp"></textarea>
@@ -65,7 +65,7 @@
                     <span>Send</span>
                 }
             </button>
-            <button class="btn btn-secondary" @onclick="OnClearChat" disabled="@(Messages.Count == 0 || IsProcessing)">
+            <button class="btn btn-secondary" @onclick="OnClearChat" disabled="@(Messages.Count == 0)">
                 Clear Chat
             </button>
         </div>
@@ -132,27 +132,45 @@
         await JS.InvokeVoidAsync("rolePlayWorkspace.scrollElementToBottom", _conversationRef);
     }
 
-    private async Task OnSendRequest()
+    private Task OnSendRequest()
     {
-        if (string.IsNullOrWhiteSpace(UserPrompt)) return;
+        if (string.IsNullOrWhiteSpace(UserPrompt) || IsProcessing)
+        {
+            return Task.CompletedTask;
+        }
 
+        var promptToSend = UserPrompt;
+        UserPrompt = string.Empty;
         IsProcessing = true;
         ErrorMessage = string.Empty;
 
+        // Run generation asynchronously so the event handler returns immediately
+        // and the surrounding workspace UI remains interactive while streaming.
+        _ = ProcessGenerateRequestAsync(promptToSend);
+        return Task.CompletedTask;
+    }
+
+    private async Task ProcessGenerateRequestAsync(string promptToSend)
+    {
         try
         {
-            var promptToSend = UserPrompt;
-            UserPrompt = string.Empty;
-
             await OnGenerateRequest.InvokeAsync(promptToSend);
         }
         catch (Exception ex)
         {
-            ErrorMessage = $"Error: {ex.Message}";
+            await InvokeAsync(() =>
+            {
+                ErrorMessage = $"Error: {ex.Message}";
+                StateHasChanged();
+            });
         }
         finally
         {
-            IsProcessing = false;
+            await InvokeAsync(() =>
+            {
+                IsProcessing = false;
+                StateHasChanged();
+            });
         }
     }
 

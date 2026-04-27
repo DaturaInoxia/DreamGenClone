@@ -4,6 +4,21 @@ namespace DreamGenClone.Application.RolePlay;
 
 public interface IRolePlayStateRepository
 {
+    Task<RolePlayTurn> StartTurnAsync(
+        string sessionId,
+        string turnKind,
+        string triggerSource,
+        string? initiatedByActorName,
+        string? inputInteractionId,
+        CancellationToken cancellationToken = default);
+    Task CompleteTurnAsync(
+        string sessionId,
+        string turnId,
+        IReadOnlyList<string> outputInteractionIds,
+        bool succeeded,
+        string? failureReason = null,
+        CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<RolePlayTurn>> LoadTurnsAsync(string sessionId, int take = 100, CancellationToken cancellationToken = default);
     Task SaveAdaptiveStateAsync(AdaptiveScenarioState state, CancellationToken cancellationToken = default);
     Task<AdaptiveScenarioState?> LoadAdaptiveStateAsync(string sessionId, CancellationToken cancellationToken = default);
     Task SaveCandidateEvaluationsAsync(IReadOnlyList<ScenarioCandidateEvaluation> evaluations, CancellationToken cancellationToken = default);

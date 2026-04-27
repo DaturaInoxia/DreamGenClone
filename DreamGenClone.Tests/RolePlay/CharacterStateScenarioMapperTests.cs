@@ -39,8 +39,8 @@ public sealed class CharacterStateScenarioMapperTests
             SessionId = "s1",
             CharacterSnapshots =
             [
-                new CharacterStatProfile { CharacterId = "alpha", Dominance = 88, Desire = 70, Tension = 60 },
-                new CharacterStatProfile { CharacterId = "beta", Desire = 75, Tension = 65, Restraint = 40 }
+                new CharacterStatProfileV2 { CharacterId = "alpha", Dominance = 88, Desire = 70, Tension = 60 },
+                new CharacterStatProfileV2 { CharacterId = "beta", Desire = 75, Tension = 65, Restraint = 40 }
             ]
         };
 
@@ -104,7 +104,7 @@ public sealed class CharacterStateScenarioMapperTests
             SessionId = "s1",
             CharacterSnapshots =
             [
-                new CharacterStatProfile
+                new CharacterStatProfileV2
                 {
                     CharacterId = "alpha",
                     Desire = 70,
@@ -176,7 +176,7 @@ public sealed class CharacterStateScenarioMapperTests
             SessionId = "s1",
             CharacterSnapshots =
             [
-                new CharacterStatProfile { CharacterId = "alpha", Desire = 45, Tension = 60, Dominance = 50, Restraint = 40, Connection = 50, Loyalty = 50, SelfRespect = 50 }
+                new CharacterStatProfileV2 { CharacterId = "alpha", Desire = 45, Tension = 60, Dominance = 50, Restraint = 40, Connection = 50, Loyalty = 50, SelfRespect = 50 }
             ]
         };
 

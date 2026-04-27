@@ -12,7 +12,8 @@ public sealed class ScenarioSelectionBuildUpGateProfileTests
     {
         var service = new ScenarioSelectionService(
             NullLogger<ScenarioSelectionService>.Instance,
-            narrativeGateProfileService: new StubNarrativeGateProfileService());
+            narrativeGateProfileService: new StubNarrativeGateProfileService(),
+            engineSettingsRepository: new StubScenarioEngineSettingsRepository());
 
         var state = RolePlayV2AcceptanceFixtureData.BuildBoundaryState(desire: 55, restraint: 45, tension: 50);
         state.CurrentPhase = NarrativePhase.BuildUp;
@@ -60,7 +61,8 @@ public sealed class ScenarioSelectionBuildUpGateProfileTests
 
         var service = new ScenarioSelectionService(
             NullLogger<ScenarioSelectionService>.Instance,
-            narrativeGateProfileService: new StubNarrativeGateProfileService(profile));
+            narrativeGateProfileService: new StubNarrativeGateProfileService(profile),
+            engineSettingsRepository: new StubScenarioEngineSettingsRepository());
 
         var state = RolePlayV2AcceptanceFixtureData.BuildBoundaryState(desire: 70, restraint: 35, tension: 60);
         state.CurrentPhase = NarrativePhase.BuildUp;
@@ -87,29 +89,44 @@ public sealed class ScenarioSelectionBuildUpGateProfileTests
     }
 
     [Fact]
-    public async Task TryCommitScenarioAsync_UsesDefaultProfile_WhenSelectedProfileMissing()
+    public async Task TryCommitScenarioAsync_SelectedProfileMissing_FailsExplicitly()
     {
-        var profile = new NarrativeGateProfile
-        {
-            Id = "default-gate-profile",
-            Name = "Default BuildUp Gate",
-            Rules =
-            [
-                new NarrativeGateRule
-                {
-                    SortOrder = 1,
-                    FromPhase = "BuildUp",
-                    ToPhase = "Committed",
-                    MetricKey = NarrativeGateMetricKeys.InteractionsSinceCommitment,
-                    Comparator = NarrativeGateComparators.GreaterThanOrEqual,
-                    Threshold = 5m
-                }
-            ]
-        };
-
         var service = new ScenarioSelectionService(
             NullLogger<ScenarioSelectionService>.Instance,
-            narrativeGateProfileService: new StubNarrativeGateProfileService(profile));
+            narrativeGateProfileService: new StubNarrativeGateProfileService(),
+            engineSettingsRepository: new StubScenarioEngineSettingsRepository());
+
+        var state = RolePlayV2AcceptanceFixtureData.BuildBoundaryState(desire: 70, restraint: 35, tension: 60);
+        state.CurrentPhase = NarrativePhase.BuildUp;
+        state.InteractionCountInPhase = 3;
+        state.SelectedNarrativeGateProfileId = "missing-profile";
+
+        var evaluations = new[]
+        {
+            new ScenarioCandidateEvaluation
+            {
+                SessionId = state.SessionId,
+                ScenarioId = "only",
+                StageBEligible = true,
+                FitScore = 90m,
+                Confidence = 0.90m,
+                TieBreakKey = "001:only"
+            }
+        };
+
+        var result = await service.TryCommitScenarioAsync(state, evaluations);
+
+        Assert.False(result.Committed);
+        Assert.Contains("selected narrative gate profile 'missing-profile' not found", result.Reason, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task TryCommitScenarioAsync_NoSelectedProfile_AndNoThemeService_FailsExplicitly()
+    {
+        var service = new ScenarioSelectionService(
+            NullLogger<ScenarioSelectionService>.Instance,
+            narrativeGateProfileService: new StubNarrativeGateProfileService(),
+            engineSettingsRepository: new StubScenarioEngineSettingsRepository());
 
         var state = RolePlayV2AcceptanceFixtureData.BuildBoundaryState(desire: 70, restraint: 35, tension: 60);
         state.CurrentPhase = NarrativePhase.BuildUp;
@@ -131,7 +148,7 @@ public sealed class ScenarioSelectionBuildUpGateProfileTests
         var result = await service.TryCommitScenarioAsync(state, evaluations);
 
         Assert.False(result.Committed);
-        Assert.Contains("BuildUp profile gate blocked commit", result.Reason, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("RP theme service is unavailable", result.Reason, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -157,7 +174,8 @@ public sealed class ScenarioSelectionBuildUpGateProfileTests
 
         var service = new ScenarioSelectionService(
             NullLogger<ScenarioSelectionService>.Instance,
-            narrativeGateProfileService: new StubNarrativeGateProfileService(profile));
+            narrativeGateProfileService: new StubNarrativeGateProfileService(profile),
+            engineSettingsRepository: new StubScenarioEngineSettingsRepository());
 
         var state = RolePlayV2AcceptanceFixtureData.BuildBoundaryState(desire: 70, restraint: 35, tension: 60);
         state.CurrentPhase = NarrativePhase.BuildUp;
@@ -182,6 +200,17 @@ public sealed class ScenarioSelectionBuildUpGateProfileTests
         Assert.False(result.Committed);
         Assert.Contains("BuildUp profile gate blocked commit", result.Reason, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("BuildUp requires at least", result.Reason, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private sealed class StubScenarioEngineSettingsRepository : IScenarioEngineSettingsRepository
+    {
+        private readonly ScenarioEngineSettings _settings;
+        public StubScenarioEngineSettingsRepository(ScenarioEngineSettings? settings = null)
+            => _settings = settings ?? new ScenarioEngineSettings();
+        public Task<ScenarioEngineSettings> LoadAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(_settings);
+        public Task SaveAsync(ScenarioEngineSettings settings, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
     }
 
     private sealed class StubNarrativeGateProfileService : INarrativeGateProfileService
