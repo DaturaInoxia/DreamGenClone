@@ -750,6 +750,16 @@ public sealed class SqlitePersistence : ISqlitePersistence
             CREATE INDEX IF NOT EXISTS IX_RolePlayV2UnsupportedErrors_Session_EmittedUtc
                 ON RolePlayV2UnsupportedSessionErrors (SessionId, EmittedUtc DESC);
 
+            CREATE TABLE IF NOT EXISTS ClimaxBeatEntries (
+                BeatCode TEXT PRIMARY KEY,
+                StageNumber INTEGER NOT NULL,
+                StageName TEXT NOT NULL,
+                SubBeatName TEXT NOT NULL,
+                HintsJson TEXT NOT NULL DEFAULT '[]',
+                NextBeatCode TEXT NULL,
+                MinTurnsBeforeAdvance INTEGER NOT NULL DEFAULT 1
+            );
+
             """;
 
         await command.ExecuteNonQueryAsync(cancellationToken);

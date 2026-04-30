@@ -150,6 +150,7 @@ builder.Services.AddSingleton<IHealthCheckRepository, HealthCheckRepository>();
 builder.Services.AddSingleton<IDatabaseBackupRepository, DatabaseBackupRepository>();
 builder.Services.AddSingleton<IApiKeyEncryptionService, ApiKeyEncryptionService>();
 builder.Services.AddSingleton<ICompletionClient, CompletionClient>();
+builder.Services.AddSingleton<IClimaxBeatRepository, ClimaxBeatRepository>();
 builder.Services.AddHttpClient("CompletionClient");
 builder.Services.AddScoped<IModelResolutionService, ModelResolutionService>();
 builder.Services.AddScoped<IHealthCheckService, HealthCheckService>();
@@ -189,6 +190,9 @@ using (var scope = app.Services.CreateScope())
 
     var statKeywordCategoryService = scope.ServiceProvider.GetRequiredService<IStatKeywordCategoryService>();
     await statKeywordCategoryService.SeedDefaultsAsync();
+
+    var climaxBeatRepository = scope.ServiceProvider.GetRequiredService<IClimaxBeatRepository>();
+    await climaxBeatRepository.SeedDefaultsAsync();
 
     var themePreferenceService = scope.ServiceProvider.GetRequiredService<IThemePreferenceService>();
     await themePreferenceService.AutoLinkToCatalogAsync();

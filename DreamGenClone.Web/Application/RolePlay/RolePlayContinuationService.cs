@@ -42,6 +42,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
     private readonly IRolePlayDebugEventSink _debugEventSink;
     private readonly IRPThemeService? _rpThemeService;
     private readonly IRolePlayDiagnosticsService? _diagnosticsService;
+    private readonly IClimaxBeatRepository? _climaxBeatRepository;
     private readonly ILogger<RolePlayContinuationService> _logger;
 
     public RolePlayContinuationService(
@@ -57,7 +58,8 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         IRolePlayDebugEventSink debugEventSink,
         ILogger<RolePlayContinuationService> logger,
         IRolePlayDiagnosticsService? diagnosticsService = null,
-        IRPThemeService? rpThemeService = null)
+        IRPThemeService? rpThemeService = null,
+        IClimaxBeatRepository? climaxBeatRepository = null)
     {
         _completionClient = completionClient;
         _modelResolver = modelResolver;
@@ -71,6 +73,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         _debugEventSink = debugEventSink;
         _rpThemeService = rpThemeService;
         _diagnosticsService = diagnosticsService;
+        _climaxBeatRepository = climaxBeatRepository;
         _logger = logger;
     }
 
@@ -951,6 +954,35 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         var styleHint = string.IsNullOrWhiteSpace(scenarioStyle)
             ? effectiveStyleLabel
             : $"{scenarioStyle} | effective mode: {effectiveStyleLabel}";
+
+        // Beat cursor context: inject current sub-beat framing when in Climax phase.
+        if (string.Equals(currentPhase, "Climax", StringComparison.OrdinalIgnoreCase)
+            && intent != PromptIntent.Instruction
+            && !string.IsNullOrWhiteSpace(session.AdaptiveState.CurrentBeatCode)
+            && _climaxBeatRepository is not null)
+        {
+            var beatEntry = await _climaxBeatRepository.GetByCodeAsync(session.AdaptiveState.CurrentBeatCode, cancellationToken);
+            if (beatEntry is null)
+            {
+                _logger.LogWarning(
+                    "ClimaxBeatCursor: BeatCode {BeatCode} not found in repository — skipping beat context injection",
+                    session.AdaptiveState.CurrentBeatCode);
+            }
+            else
+            {
+                sb.AppendLine("Beat Stage Context:");
+                sb.AppendLine($"Stage {beatEntry.StageNumber} — {beatEntry.StageName} / {beatEntry.BeatCode} — {beatEntry.SubBeatName}");
+                foreach (var hint in beatEntry.Hints)
+                    sb.AppendLine($"- {hint}");
+                if (beatEntry.NextBeatCode is not null)
+                {
+                    var nextEntry = await _climaxBeatRepository.GetByCodeAsync(beatEntry.NextBeatCode, cancellationToken);
+                    var nextLabel = nextEntry is not null ? $"{beatEntry.NextBeatCode} — {nextEntry.SubBeatName}" : beatEntry.NextBeatCode;
+                    sb.AppendLine($"Next: {nextLabel}");
+                }
+                sb.AppendLine("Do not skip ahead — write this beat, then advance one beat when complete.");
+            }
+        }
 
         // Place the per-turn prompt text immediately before the final writing instruction
         // so it carries maximum authority (LLMs weight instructions near the end of long prompts).

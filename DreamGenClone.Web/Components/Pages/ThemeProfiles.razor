@@ -14,6 +14,7 @@
 @using DreamGenClone.Domain.StoryAnalysis
 
 @inject StoryAnalysisFacade Facade
+@inject DreamGenClone.Application.RolePlay.IClimaxBeatRepository ClimaxBeatRepository
 
 <PageTitle>Profiles</PageTitle>
 
@@ -93,6 +94,9 @@
         </li>
         <li class="nav-item" role="presentation">
             <button type="button" class="nav-link @GetTabClass("selection-engine")" @onclick='() => _activeTab = "selection-engine"'>Selection Engine</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button type="button" class="nav-link @GetTabClass("beat-sheet")" @onclick='() => _activeTab = "beat-sheet"'>Beat Sheet</button>
         </li>
     </ul>
 
@@ -2241,6 +2245,146 @@
             </div>
         </div>
     }
+    else if (_activeTab == "beat-sheet")
+    {
+        <div class="row justify-content-center">
+            <div class="col-lg-10">
+
+                @if (!string.IsNullOrWhiteSpace(_beatSheetError))
+                {
+                    <div class="alert alert-danger alert-dismissible fade show">
+                        @_beatSheetError
+                        <button type="button" class="btn-close" @onclick="() => _beatSheetError = null"></button>
+                    </div>
+                }
+                @if (!string.IsNullOrWhiteSpace(_beatSheetStatus))
+                {
+                    <div class="alert alert-success alert-dismissible fade show">
+                        @_beatSheetStatus
+                        <button type="button" class="btn-close" @onclick="() => _beatSheetStatus = null"></button>
+                    </div>
+                }
+
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <p class="text-muted mb-0 small">DB-backed beat sheet. Each row is one sub-beat in the physical escalation sequence (1a → 8g). The cursor advances automatically during Climax phase.</p>
+                    <button class="btn btn-outline-danger btn-sm" @onclick="ResetBeatSheetAsync" disabled="@_isBusy">Reset to Defaults</button>
+                </div>
+
+                <div class="card mb-4">
+                    <div class="card-header"><strong>Sub-Beats</strong></div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-sm table-hover mb-0 align-middle">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Code</th>
+                                        <th>Stage</th>
+                                        <th>Sub-Beat Name</th>
+                                        <th>Min Turns</th>
+                                        <th>Next</th>
+                                        <th></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @if (_beatEntries.Count == 0)
+                                    {
+                                        <tr><td colspan="6" class="text-muted text-center py-3">No beat entries found. Click Reset to Defaults to seed.</td></tr>
+                                    }
+                                    @foreach (var entry in _beatEntries)
+                                    {
+                                        @if (_editingBeatCode == entry.BeatCode)
+                                        {
+                                            <tr class="table-warning">
+                                                <td><code>@entry.BeatCode</code></td>
+                                                <td>
+                                                    <input type="number" class="form-control form-control-sm" style="width:4rem" min="1" max="8" @bind="_editBeatStageNumber" />
+                                                </td>
+                                                <td>
+                                                    <input class="form-control form-control-sm" @bind="_editBeatSubBeatName" placeholder="Sub-Beat Name" />
+                                                    <input class="form-control form-control-sm mt-1" @bind="_editBeatStageName" placeholder="Stage Name" />
+                                                    <textarea class="form-control form-control-sm mt-1" rows="3" @bind="_editBeatHints" placeholder="Hints — one per line"></textarea>
+                                                </td>
+                                                <td>
+                                                    @if (_editBeatMinTurns == int.MaxValue)
+                                                    {
+                                                        <input type="number" class="form-control form-control-sm" style="width:5rem" value="2147483647" disabled />
+                                                    }
+                                                    else
+                                                    {
+                                                        <input type="number" class="form-control form-control-sm" style="width:5rem" min="1" @bind="_editBeatMinTurns" />
+                                                    }
+                                                </td>
+                                                <td>
+                                                    <input class="form-control form-control-sm" @bind="_editBeatNextCode" placeholder="Next BeatCode or empty" />
+                                                </td>
+                                                <td>
+                                                    <button class="btn btn-success btn-sm me-1" @onclick="SaveBeatEntryAsync" disabled="@_isBusy">Save</button>
+                                                    <button class="btn btn-outline-secondary btn-sm" @onclick="CancelBeatEdit">Cancel</button>
+                                                </td>
+                                            </tr>
+                                        }
+                                        else
+                                        {
+                                            <tr @onclick="() => StartBeatEdit(entry)" style="cursor:pointer">
+                                                <td><code>@entry.BeatCode</code></td>
+                                                <td><span class="badge bg-secondary">@entry.StageNumber — @entry.StageName</span></td>
+                                                <td>@entry.SubBeatName</td>
+                                                <td>@(entry.MinTurnsBeforeAdvance == int.MaxValue ? "∞" : entry.MinTurnsBeforeAdvance.ToString())</td>
+                                                <td>@(entry.NextBeatCode ?? "—")</td>
+                                                <td>
+                                                    <button class="btn btn-outline-danger btn-sm" @onclick:stopPropagation="true" @onclick="() => DeleteBeatEntryAsync(entry.BeatCode)" disabled="@_isBusy">×</button>
+                                                </td>
+                                            </tr>
+                                        }
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header"><strong>Add Entry</strong></div>
+                    <div class="card-body">
+                        <div class="row g-2 align-items-end">
+                            <div class="col-auto">
+                                <label class="form-label">Beat Code</label>
+                                <input class="form-control form-control-sm" style="width:5rem" @bind="_newBeatCode" placeholder="e.g. 1c" />
+                            </div>
+                            <div class="col-auto">
+                                <label class="form-label">Stage #</label>
+                                <input type="number" class="form-control form-control-sm" style="width:4rem" min="1" max="8" @bind="_newBeatStageNumber" />
+                            </div>
+                            <div class="col">
+                                <label class="form-label">Stage Name</label>
+                                <input class="form-control form-control-sm" @bind="_newBeatStageName" placeholder="Stage Name" />
+                            </div>
+                            <div class="col">
+                                <label class="form-label">Sub-Beat Name</label>
+                                <input class="form-control form-control-sm" @bind="_newBeatSubBeatName" placeholder="Sub-Beat Name" />
+                            </div>
+                            <div class="col-auto">
+                                <label class="form-label">Min Turns</label>
+                                <input type="number" class="form-control form-control-sm" style="width:5rem" min="1" @bind="_newBeatMinTurns" />
+                            </div>
+                            <div class="col-auto">
+                                <label class="form-label">Next Code</label>
+                                <input class="form-control form-control-sm" style="width:5rem" @bind="_newBeatNextCode" placeholder="or empty" />
+                            </div>
+                        </div>
+                        <div class="mt-2">
+                            <label class="form-label">Hints (one per line)</label>
+                            <textarea class="form-control form-control-sm" rows="3" @bind="_newBeatHints" placeholder="One hint per line"></textarea>
+                        </div>
+                        <div class="mt-2">
+                            <button class="btn btn-primary btn-sm" @onclick="AddBeatEntryAsync" disabled="@_isBusy">Add Entry</button>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    }
 </div>
 
 @code {
@@ -2272,7 +2416,7 @@
         "flow-guide",
         "perspective",
         "selection-engine",
-        "selection-engine"
+        "beat-sheet"
     ];
 
     private List<ThemeProfile> _profiles = [];
@@ -2299,6 +2443,25 @@
     private DreamGenClone.Domain.RolePlay.ScenarioEngineSettings _engineSettings = new();
     private string? _engineSettingsError;
     private string? _engineSettingsStatus;
+
+    // Beat Sheet
+    private List<DreamGenClone.Domain.RolePlay.ClimaxBeatEntry> _beatEntries = [];
+    private string? _beatSheetError;
+    private string? _beatSheetStatus;
+    private string? _editingBeatCode;
+    private byte _editBeatStageNumber = 1;
+    private string _editBeatStageName = string.Empty;
+    private string _editBeatSubBeatName = string.Empty;
+    private string _editBeatHints = string.Empty;
+    private int _editBeatMinTurns = 1;
+    private string _editBeatNextCode = string.Empty;
+    private string _newBeatCode = string.Empty;
+    private byte _newBeatStageNumber = 1;
+    private string _newBeatStageName = string.Empty;
+    private string _newBeatSubBeatName = string.Empty;
+    private string _newBeatHints = string.Empty;
+    private int _newBeatMinTurns = 1;
+    private string _newBeatNextCode = string.Empty;
 
     private List<RPFinishingMoveMatrixRow> _finishingMoveRows = [];
     private string? _finishingMoveError;
@@ -2517,6 +2680,7 @@
         await ReloadAsync();
         await LoadFinishingMoveRowsAsync();
         await LoadSteerPositionRowsAsync();
+        await LoadBeatEntriesAsync();
 
         if (!string.IsNullOrWhiteSpace(ProfileId))
         {
@@ -2676,6 +2840,160 @@
     }
 
     private string GetTabClass(string tab) => _activeTab == tab ? "active" : string.Empty;
+
+    // -----------------------------------------------------------------------
+    // Beat Sheet
+    // -----------------------------------------------------------------------
+
+    private async Task LoadBeatEntriesAsync()
+    {
+        try
+        {
+            _beatEntries = (await ClimaxBeatRepository.GetAllAsync()).ToList();
+        }
+        catch (Exception ex)
+        {
+            _beatSheetError = $"Load failed: {ex.Message}";
+        }
+    }
+
+    private void StartBeatEdit(DreamGenClone.Domain.RolePlay.ClimaxBeatEntry entry)
+    {
+        _editingBeatCode = entry.BeatCode;
+        _editBeatStageNumber = entry.StageNumber;
+        _editBeatStageName = entry.StageName;
+        _editBeatSubBeatName = entry.SubBeatName;
+        _editBeatHints = string.Join("\n", entry.Hints);
+        _editBeatMinTurns = entry.MinTurnsBeforeAdvance;
+        _editBeatNextCode = entry.NextBeatCode ?? string.Empty;
+        _beatSheetError = null;
+        _beatSheetStatus = null;
+    }
+
+    private void CancelBeatEdit()
+    {
+        _editingBeatCode = null;
+    }
+
+    private async Task SaveBeatEntryAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_editingBeatCode)) return;
+        _beatSheetError = null;
+        _beatSheetStatus = null;
+        _isBusy = true;
+        try
+        {
+            var entry = new DreamGenClone.Domain.RolePlay.ClimaxBeatEntry
+            {
+                BeatCode = _editingBeatCode,
+                StageNumber = _editBeatStageNumber,
+                StageName = _editBeatStageName.Trim(),
+                SubBeatName = _editBeatSubBeatName.Trim(),
+                Hints = _editBeatHints
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .ToList(),
+                MinTurnsBeforeAdvance = _editBeatMinTurns,
+                NextBeatCode = string.IsNullOrWhiteSpace(_editBeatNextCode) ? null : _editBeatNextCode.Trim()
+            };
+            await ClimaxBeatRepository.SaveAsync(entry);
+            _editingBeatCode = null;
+            await LoadBeatEntriesAsync();
+            _beatSheetStatus = $"Beat {entry.BeatCode} saved.";
+        }
+        catch (Exception ex)
+        {
+            _beatSheetError = $"Save failed: {ex.Message}";
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task DeleteBeatEntryAsync(string beatCode)
+    {
+        _beatSheetError = null;
+        _beatSheetStatus = null;
+        _isBusy = true;
+        try
+        {
+            await ClimaxBeatRepository.DeleteAsync(beatCode);
+            await LoadBeatEntriesAsync();
+            _beatSheetStatus = $"Beat {beatCode} deleted.";
+        }
+        catch (Exception ex)
+        {
+            _beatSheetError = $"Delete failed: {ex.Message}";
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task AddBeatEntryAsync()
+    {
+        _beatSheetError = null;
+        _beatSheetStatus = null;
+        if (string.IsNullOrWhiteSpace(_newBeatCode))
+        {
+            _beatSheetError = "Beat Code is required.";
+            return;
+        }
+        _isBusy = true;
+        try
+        {
+            var entry = new DreamGenClone.Domain.RolePlay.ClimaxBeatEntry
+            {
+                BeatCode = _newBeatCode.Trim(),
+                StageNumber = _newBeatStageNumber,
+                StageName = _newBeatStageName.Trim(),
+                SubBeatName = _newBeatSubBeatName.Trim(),
+                Hints = _newBeatHints
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .ToList(),
+                MinTurnsBeforeAdvance = _newBeatMinTurns,
+                NextBeatCode = string.IsNullOrWhiteSpace(_newBeatNextCode) ? null : _newBeatNextCode.Trim()
+            };
+            await ClimaxBeatRepository.SaveAsync(entry);
+            _newBeatCode = string.Empty;
+            _newBeatSubBeatName = string.Empty;
+            _newBeatHints = string.Empty;
+            _newBeatNextCode = string.Empty;
+            _newBeatMinTurns = 1;
+            await LoadBeatEntriesAsync();
+            _beatSheetStatus = $"Beat {entry.BeatCode} added.";
+        }
+        catch (Exception ex)
+        {
+            _beatSheetError = $"Add failed: {ex.Message}";
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task ResetBeatSheetAsync()
+    {
+        _beatSheetError = null;
+        _beatSheetStatus = null;
+        _isBusy = true;
+        try
+        {
+            await ClimaxBeatRepository.ResetToDefaultsAsync();
+            await LoadBeatEntriesAsync();
+            _beatSheetStatus = "Beat sheet reset to defaults (32 sub-beats).";
+        }
+        catch (Exception ex)
+        {
+            _beatSheetError = $"Reset failed: {ex.Message}";
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
 
     private async Task SelectProfile(string profileId)
     {

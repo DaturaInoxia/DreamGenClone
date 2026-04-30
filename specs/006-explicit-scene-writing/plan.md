@@ -106,14 +106,6 @@ No constitution violations. No complexity justifications needed.
 | D-010 | Persistence: EF Core vs raw ADO.NET? | Raw ADO.NET — this project has no EF Core. Follow existing `pragma_table_info` + `ALTER TABLE ADD COLUMN` migration pattern used for all previous column additions to `ToneProfiles` |
 | D-011 | Position/act spanning across turns | A single position or act is sustained and elaborated across multiple turns before any transition. "Advance" means richer description within the current act — not a required position change per turn. |
 | D-012 | Male climax gate | Prompt-only enforcement: The AI is instructed not to write male orgasm/ejaculation until `/endclimax` is issued. If a male appears to climax mid-scene the scene continues — they are not done. No code state tracking needed; handled entirely in directives. |
-| D-013 | Beat cursor advance — where? | In `UpdateFromInteractionAsync` in `RolePlayAdaptiveStateService`, after each Climax-phase NPC or Narrative interaction. |
-| D-014 | Beat cursor advance — when? | Increment `TurnsInCurrentBeatStage` each qualifying turn; advance when count >= `MinTurnsBeforeAdvance` for the current stage. |
-| D-015 | MinTurnsBeforeAdvance default | 2 for Stages 1-7. Stage 8 is `int.MaxValue` — never auto-advances; stays until `/endclimax`. |
-| D-016 | Beat cursor initialization | Set `CurrentBeatStage = 1`, `TurnsInCurrentBeatStage = 0` when phase transitions TO Climax. |
-| D-017 | Beat cursor reset | Null out both on phase exit from Climax or session end. |
-| D-018 | Beat stage prompt injection position | Immediately after `GetStaticSceneDirective()` call in `BuildPromptAsync`, as a `Beat Stage Context:` block of ≤6 lines. |
-| D-019 | Catalog location | Static class `ClimaxBeatStageCatalog` in `DreamGenClone.Web/Application/RolePlay/` — no DI, no DB, populated from `beat-sheet-master.md`. |
-| D-020 | Catalog entry fields | `StageNumber`, `StageName`, `SubBeatHints` (3-4 strings), `NextStageName`, `MinTurnsBeforeAdvance`. |
 
 ---
 
@@ -176,40 +168,3 @@ Replace "each turn advances by one measured increment: a position change, a new 
 
 **Step 17** — `SceneWritingDirectivePromptTests.cs` (T024 + T025)  
 Add three tests: `BuildFramingGuards_Climax_ContainsEndClimaxGate`, `ScenarioGuidanceContextFactory_ClimaxFallback_ContainsEndClimaxGate`, `BuildFramingGuards_Climax_ContainsPositionSpanningDirective`.
-
-### Phase 8 — Multi-Perspective Climax Turns (Retroactive)
-
-**Step 18** — `RolePlayEngineService.ContinueAsAsync` batch loop promptText (T027)  
-First character (i==0) in a Climax batch: "advance naturally / escalate / establish this turn's scene clearly so other participants can react." Subsequent characters (i>0): "match and deepen the physical moment already established — do not advance to a new act."
-
-**Step 19** — `RolePlayEngineService.DetermineNarrativePrompt()` Climax return (T028)  
-Return omniscient summary prompt: close the turn with a rich third-person account of the full scene as all characters just described it; do not advance beyond what characters established.
-
-**Step 20** — Remove Turn Scene Contract from static locations (T029/T030)  
-Remove "hold / sustain same act / do not advance" language from `GetStaticSceneDirective`, `AppendEscalationGuidance`, and `BuildFramingGuards` so the first-character promptText can actually advance the scene.
-
-**Step 21** — Fix `ShouldAutoNarrate()` consecutive-count logic (T030)  
-Include `InteractionType.User` in the consecutive-message count so batches containing a persona User-type interaction do not incorrectly terminate the auto-narrative trigger count.
-
-### Phase 9 — Beat Stage Cursor (schema change)
-
-**Step 22** — `RolePlayAdaptiveState.cs`  
-Add: `public byte? CurrentBeatStage { get; set; }` and `public int TurnsInCurrentBeatStage { get; set; }`.
-
-**Step 23** — `SqlitePersistence.cs` — `InitializeSchemaAsync` + save/load (T032)  
-Inline migration: check `pragma_table_info('RolePlayV2AdaptiveStates')` for `CurrentBeatStage` (INTEGER NULL) and `TurnsInCurrentBeatStage` (INTEGER NOT NULL DEFAULT 0); add each if absent; log at Information. Update `SaveAdaptiveStateAsync` and `LoadAdaptiveStateAsync` to include both columns.
-
-**Step 24** — `ClimaxBeatStageCatalog.cs` (new static class, T033)  
-Public static class in `DreamGenClone.Web/Application/RolePlay/`. Exposes `IReadOnlyList<ClimaxBeatStageEntry> Stages` with 8 entries populated from `beat-sheet-master.md`. Each entry: `StageNumber` (byte), `StageName` (string), `SubBeatHints` (string[], 3-4 items), `NextStageName` (string), `MinTurnsBeforeAdvance` (int; 2 for Stages 1-7, `int.MaxValue` for Stage 8). `TryGetStage(byte n, out ClimaxBeatStageEntry e)` helper.
-
-**Step 25** — `RolePlayAdaptiveStateService.UpdateFromInteractionAsync()` — advance logic (T034)  
-When `currentPhase == "Climax"` and interaction is NPC or Narrative: increment `TurnsInCurrentBeatStage`; if count >= `MinTurnsBeforeAdvance` for current stage AND stage < 8, advance `CurrentBeatStage` by 1 and reset counter to 0; log stage advance at Information with session ID and new stage.
-
-**Step 26** — `RolePlayAdaptiveStateService.UpdateFromInteractionAsync()` — cursor init/reset (T035)  
-On phase transition TO Climax: set `CurrentBeatStage = 1`, `TurnsInCurrentBeatStage = 0`. On phase transition AWAY from Climax: null out `CurrentBeatStage`, reset `TurnsInCurrentBeatStage = 0`.
-
-**Step 27** — `RolePlayContinuationService.BuildPromptAsync()` — stage context injection (T036)  
-When `currentPhase == "Climax"` and `CurrentBeatStage` is not null: call `ClimaxBeatStageCatalog.TryGetStage(...)`, append a `Beat Stage Context:` block (6 lines max) immediately after the `GetStaticSceneDirective()` call. Block: current stage number + name, 3-4 sub-beat hint lines, next stage name + transition permission. Skip entirely if stage is null or catalog miss.
-
-**Step 28** — Tests (T037) + build gate (T038)  
-`ClimaxBeatStageCatalogTests.cs`: Catalog_Contains8Stages, Stage8_MinTurnsBeforeAdvance_IsMaxValue, TryGetStage valid/invalid. Prompt tests: BuildPromptAsync_ClimaxWithStage_ContainsBeatStageContext, BuildPromptAsync_ClimaxWithoutStage_NoBeatStageContext. Build + test gate confirming migration safe on existing DB.

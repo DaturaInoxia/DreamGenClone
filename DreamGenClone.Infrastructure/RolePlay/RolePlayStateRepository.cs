@@ -220,14 +220,16 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 SelectedWillingnessProfileId, SelectedNarrativeGateProfileId, HusbandAwarenessProfileId,
                 PhaseOverrideFloor, PhaseOverrideScenarioId, PhaseOverrideCycleIndex, PhaseOverrideSource, PhaseOverrideAppliedUtc,
                 CurrentSceneLocation,
-                CharacterLocationsJson, CharacterLocationPerceptionsJson, CharacterSnapshotsJson, UpdatedUtc)
+                CharacterLocationsJson, CharacterLocationPerceptionsJson, CharacterSnapshotsJson,
+                CurrentBeatCode, TurnsInCurrentBeat, UpdatedUtc)
             VALUES (
                 $sessionId, $activeScenarioId, $currentPhase, $interactionCountInPhase, $consecutiveLeadCount,
                 $lastEvaluationUtc, $cycleIndex, $activeFormulaVersion, $activeVariantId,
                 $selectedWillingnessProfileId, $selectedNarrativeGateProfileId, $husbandAwarenessProfileId,
                 $phaseOverrideFloor, $phaseOverrideScenarioId, $phaseOverrideCycleIndex, $phaseOverrideSource, $phaseOverrideAppliedUtc,
                 $currentSceneLocation,
-                $characterLocationsJson, $characterLocationPerceptionsJson, $characterSnapshotsJson, $updatedUtc)
+                $characterLocationsJson, $characterLocationPerceptionsJson, $characterSnapshotsJson,
+                $currentBeatCode, $turnsInCurrentBeat, $updatedUtc)
             ON CONFLICT(SessionId) DO UPDATE SET
                 ActiveScenarioId = excluded.ActiveScenarioId,
                 CurrentPhase = excluded.CurrentPhase,
@@ -249,6 +251,8 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 CharacterLocationsJson = excluded.CharacterLocationsJson,
                 CharacterLocationPerceptionsJson = excluded.CharacterLocationPerceptionsJson,
                 CharacterSnapshotsJson = excluded.CharacterSnapshotsJson,
+                CurrentBeatCode = excluded.CurrentBeatCode,
+                TurnsInCurrentBeat = excluded.TurnsInCurrentBeat,
                 UpdatedUtc = excluded.UpdatedUtc;
             """;
 
@@ -273,6 +277,8 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
         command.Parameters.AddWithValue("$characterLocationsJson", JsonSerializer.Serialize(state.CharacterLocations));
         command.Parameters.AddWithValue("$characterLocationPerceptionsJson", JsonSerializer.Serialize(state.CharacterLocationPerceptions));
         command.Parameters.AddWithValue("$characterSnapshotsJson", JsonSerializer.Serialize(state.CharacterSnapshots));
+        command.Parameters.AddWithValue("$currentBeatCode", (object?)state.CurrentBeatCode ?? DBNull.Value);
+        command.Parameters.AddWithValue("$turnsInCurrentBeat", state.TurnsInCurrentBeat);
         command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
@@ -287,7 +293,8 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                  LastEvaluationUtc, CycleIndex, ActiveFormulaVersion, ActiveVariantId,
                                 SelectedWillingnessProfileId, SelectedNarrativeGateProfileId, HusbandAwarenessProfileId,
                                 PhaseOverrideFloor, PhaseOverrideScenarioId, PhaseOverrideCycleIndex, PhaseOverrideSource, PhaseOverrideAppliedUtc,
-                                CurrentSceneLocation, CharacterLocationsJson, CharacterLocationPerceptionsJson, CharacterSnapshotsJson
+                                CurrentSceneLocation, CharacterLocationsJson, CharacterLocationPerceptionsJson, CharacterSnapshotsJson,
+                                CurrentBeatCode, TurnsInCurrentBeat
             FROM RolePlayV2AdaptiveStates
             WHERE SessionId = $sessionId;
             """;
@@ -329,7 +336,9 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
             CharacterLocationPerceptions = reader.IsDBNull(19)
                 ? []
                 : (JsonSerializer.Deserialize<List<CharacterLocationPerceptionState>>(reader.GetString(19)) ?? []),
-            CharacterSnapshots = JsonSerializer.Deserialize<List<CharacterStatProfileV2>>(reader.GetString(20)) ?? []
+            CharacterSnapshots = JsonSerializer.Deserialize<List<CharacterStatProfileV2>>(reader.GetString(20)) ?? [],
+            CurrentBeatCode = reader.IsDBNull(21) ? null : reader.GetString(21),
+            TurnsInCurrentBeat = reader.IsDBNull(22) ? 0 : reader.GetInt32(22)
         };
     }
 
@@ -414,6 +423,20 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
             await using var addCharacterLocationPerceptions = connection.CreateCommand();
             addCharacterLocationPerceptions.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN CharacterLocationPerceptionsJson TEXT NOT NULL DEFAULT '[]'";
             await addCharacterLocationPerceptions.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        if (!await HasColumnAsync(connection, "RolePlayV2AdaptiveStates", "CurrentBeatCode", cancellationToken))
+        {
+            await using var addCurrentBeatCode = connection.CreateCommand();
+            addCurrentBeatCode.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN CurrentBeatCode TEXT NULL";
+            await addCurrentBeatCode.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        if (!await HasColumnAsync(connection, "RolePlayV2AdaptiveStates", "TurnsInCurrentBeat", cancellationToken))
+        {
+            await using var addTurnsInCurrentBeat = connection.CreateCommand();
+            addTurnsInCurrentBeat.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN TurnsInCurrentBeat INTEGER NOT NULL DEFAULT 0";
+            await addTurnsInCurrentBeat.ExecuteNonQueryAsync(cancellationToken);
         }
     }
 
