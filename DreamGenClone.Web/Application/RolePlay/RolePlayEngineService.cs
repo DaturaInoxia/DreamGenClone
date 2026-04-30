@@ -153,6 +153,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     private readonly bool _suppressNarrativeAfterPhaseChange;
     private readonly bool _enablePhaseChangeDecisionPrompts;
     private readonly bool _enableSceneLocationDecisionPrompts;
+    private readonly IClimaxBeatRepository? _climaxBeatRepository;
 
     public RolePlayEngineService(
         IRolePlayContinuationService continuationService,
@@ -180,7 +181,8 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         RolePlaySessionCompatibilityService? compatibilityService = null,
         IOptions<StoryAnalysisOptions>? storyAnalysisOptions = null,
         IOptions<RolePlayDecisionOptions>? rolePlayDecisionOptions = null,
-        ITemplateService? templateService = null)
+        ITemplateService? templateService = null,
+        IClimaxBeatRepository? climaxBeatRepository = null)
     {
         _continuationService = continuationService;
         _behaviorModeService = behaviorModeService;
@@ -214,6 +216,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         _suppressNarrativeAfterPhaseChange = rolePlayDecisionOptions?.Value.SuppressNarrativeAfterPhaseChange ?? false;
         _enablePhaseChangeDecisionPrompts = rolePlayDecisionOptions?.Value.EnablePhaseChangeDecisionPrompts ?? false;
         _enableSceneLocationDecisionPrompts = rolePlayDecisionOptions?.Value.EnableSceneLocationDecisionPrompts ?? false;
+        _climaxBeatRepository = climaxBeatRepository;
     }
 
     public async Task<RolePlaySession> CreateSessionAsync(
@@ -1117,9 +1120,14 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 var candidate = sceneActors[i];
                 var actor = candidate.Actor;
                 var actorName = candidate.Name;
-                var promptText = i == 0
-                    ? "Continue the scene naturally with the next character response."
-                    : "Continue the conversation naturally, building on the previous response.";
+                var isClimaxPhase = string.Equals(session.AdaptiveState.CurrentNarrativePhase.ToString(), "Climax", StringComparison.OrdinalIgnoreCase);
+                var promptText = isClimaxPhase
+                    ? (i == 0
+                        ? "You are the first to respond this turn. Advance the scene naturally from where it left off — escalate physical intimacy, deepen the act, or progress to the next beat as continuity allows. Describe the moment from your character's perspective with explicit physical and sensory detail. Establish this turn's scene clearly so other participants can react to the same moment."
+                        : "Describe the same scene moment your turn-partner just established, from your own perspective. Match and deepen the physical moment they set — give your character's sensations, reactions, and dialogue for that exact beat. Do not advance to a new act or jump ahead of what has already been established this turn.")
+                    : (i == 0
+                        ? "Continue the scene naturally with the next character response."
+                        : "Continue the conversation naturally, building on the previous response.");
 
                 await AlignPromptNarrativeStateWithV2Async(session, cancellationToken);
                 var interaction = await _continuationService.ContinueAsync(
@@ -1803,11 +1811,14 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         if (lastInteraction.InteractionType == InteractionType.System && lastInteraction.ActorName == "Instruction")
             return true;
 
-        // Count consecutive character messages without narrative
+        // Count consecutive character messages without narrative.
+        // Include User-type interactions (persona auto-generated in a batch) — these are not
+        // manual user submissions (that case is caught above when lastInteraction.User → return true).
+        // Only stop at System interactions (Narrative, Instruction, etc.).
         var consecutiveMessages = 0;
         for (var i = recent.Count - 1; i >= 0; i--)
         {
-            if (recent[i].InteractionType is InteractionType.Npc or InteractionType.Custom)
+            if (recent[i].InteractionType is InteractionType.Npc or InteractionType.Custom or InteractionType.User)
                 consecutiveMessages++;
             else
                 break;
@@ -1857,6 +1868,12 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
         if (lastInteraction is null)
             return "Set the scene and establish the atmosphere.";
+
+        if (string.Equals(session.AdaptiveState.CurrentNarrativePhase.ToString(), "Climax", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Write an omniscient narrative description of the full scene as it stands this turn. Describe the physical moment, setting, character positions, sensations, and atmosphere in explicit detail. All participants have already described this same moment from their own perspectives — your role is to close the turn with a rich, omniscient account of what is happening right now. Do not advance the scene beyond what the characters have already established."
+                + " Write at least 300 words. Use direct, explicit language.";
+        }
 
         return lastInteraction.InteractionType switch
         {
@@ -2505,6 +2522,58 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             v2State.CycleIndex,
             cancellationToken);
 
+        // Beat cursor: init when entering Climax, reset when leaving, advance when staying.
+        var priorPhase = previousV2State?.CurrentPhase;
+        var finalPhase = v2State.CurrentPhase;
+
+        if (finalPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.Climax
+            && priorPhase != DreamGenClone.Domain.RolePlay.NarrativePhase.Climax)
+        {
+            // Just entered Climax (or first run with Climax): initialize cursor.
+            v2State.CurrentBeatCode = "1a";
+            v2State.TurnsInCurrentBeat = 0;
+            _logger.LogInformation("ClimaxBeatCursor initialized: SessionId={SessionId} BeatCode=1a", session.Id);
+        }
+        else if (finalPhase != DreamGenClone.Domain.RolePlay.NarrativePhase.Climax
+                 && v2State.CurrentBeatCode != null)
+        {
+            // Left Climax: clear cursor.
+            v2State.CurrentBeatCode = null;
+            v2State.TurnsInCurrentBeat = 0;
+        }
+        else if (finalPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.Climax
+                 && v2State.CurrentBeatCode == null)
+        {
+            // In Climax but cursor missing (session upgrade): recover to "1a".
+            v2State.CurrentBeatCode = "1a";
+            v2State.TurnsInCurrentBeat = 0;
+            _logger.LogInformation("ClimaxBeatCursor recovered to 1a: SessionId={SessionId}", session.Id);
+        }
+        else if (finalPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.Climax
+                 && v2State.CurrentBeatCode != null
+                 && generatedSinceLastEval > 0
+                 && _climaxBeatRepository != null)
+        {
+            // Still in Climax with new interactions: advance cursor if threshold met.
+            v2State.TurnsInCurrentBeat += generatedSinceLastEval;
+            var beatEntry = await _climaxBeatRepository.GetByCodeAsync(v2State.CurrentBeatCode, cancellationToken);
+            if (beatEntry is null)
+            {
+                _logger.LogWarning(
+                    "ClimaxBeatCursor: BeatCode {BeatCode} not found in repository: SessionId={SessionId}",
+                    v2State.CurrentBeatCode, session.Id);
+            }
+            else if (beatEntry.NextBeatCode is not null
+                     && v2State.TurnsInCurrentBeat >= beatEntry.MinTurnsBeforeAdvance)
+            {
+                _logger.LogInformation(
+                    "ClimaxBeatCursor advanced: {From} -> {To} after {Turns} turns in beat: SessionId={SessionId}",
+                    v2State.CurrentBeatCode, beatEntry.NextBeatCode, v2State.TurnsInCurrentBeat, session.Id);
+                v2State.CurrentBeatCode = beatEntry.NextBeatCode;
+                v2State.TurnsInCurrentBeat = 0;
+            }
+        }
+
         // Refresh evaluation watermark so generatedSinceLastEval only counts interactions
         // created after this pipeline execution.
         v2State.LastEvaluationUtc = DateTime.UtcNow;
@@ -2574,6 +2643,8 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 UpdatedUtc = x.UpdatedUtc
             })
             .ToList();
+        mapped.CurrentBeatCode = previousState.CurrentBeatCode;
+        mapped.TurnsInCurrentBeat = previousState.TurnsInCurrentBeat;
         return mapped;
     }
 
@@ -2647,6 +2718,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             : 0;
         session.AdaptiveState.SelectedNarrativeGateProfileId = v2State.SelectedNarrativeGateProfileId;
         session.AdaptiveState.CurrentSceneLocation = v2State.CurrentSceneLocation;
+        session.AdaptiveState.CurrentBeatCode = v2State.CurrentBeatCode;
         session.AdaptiveState.CharacterLocations = v2State.CharacterLocations
             .Select(x => new RolePlayCharacterLocationState
             {

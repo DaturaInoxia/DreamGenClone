@@ -594,6 +594,7 @@ public sealed class RolePlayAdaptiveStateServiceTests
             int approachingPhaseOffset,
             int climaxPhaseOffset,
             int resetPhaseOffset,
+            string sceneDirective = "",
             CancellationToken cancellationToken = default)
         {
             var created = new IntensityProfile
@@ -629,6 +630,7 @@ public sealed class RolePlayAdaptiveStateServiceTests
             int approachingPhaseOffset,
             int climaxPhaseOffset,
             int resetPhaseOffset,
+            string sceneDirective = "",
             CancellationToken cancellationToken = default)
         {
             var existing = _profiles.FirstOrDefault(x => string.Equals(x.Id, id, StringComparison.OrdinalIgnoreCase));

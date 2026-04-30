@@ -20,6 +20,8 @@ public sealed class IntensityProfile
 
     public int ResetPhaseOffset { get; set; } = -1;
 
+    public string SceneDirective { get; set; } = string.Empty;
+
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
 
     public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;

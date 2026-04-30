@@ -47,6 +47,12 @@ public sealed class RolePlayAdaptiveState
     public List<RolePlayCharacterLocationPerceptionState> CharacterLocationPerceptions { get; set; } = [];
 
     public List<ScenarioMetadata> ScenarioHistory { get; set; } = [];
+
+    /// <summary>
+    /// BeatCode of the current sub-beat cursor during Climax phase, e.g. "1a", "8g".
+    /// Null when not in Climax phase. Synced from AdaptiveScenarioState by the engine.
+    /// </summary>
+    public string? CurrentBeatCode { get; set; }
 }
 
 public sealed class RolePlayCharacterLocationState

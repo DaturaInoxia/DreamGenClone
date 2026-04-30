@@ -23,6 +23,18 @@ public sealed class AdaptiveScenarioState
     public List<CharacterLocationState> CharacterLocations { get; set; } = [];
     public List<CharacterLocationPerceptionState> CharacterLocationPerceptions { get; set; } = [];
     public List<CharacterStatProfileV2> CharacterSnapshots { get; set; } = [];
+
+    /// <summary>
+    /// BeatCode of the current sub-beat cursor during Climax phase, e.g. "1a", "8g".
+    /// Null when not in Climax phase.
+    /// </summary>
+    public string? CurrentBeatCode { get; set; }
+
+    /// <summary>
+    /// How many turns have elapsed in the current sub-beat since the cursor last advanced.
+    /// Reset to 0 when CurrentBeatCode changes.
+    /// </summary>
+    public int TurnsInCurrentBeat { get; set; }
 }
 
 public sealed class CharacterLocationState

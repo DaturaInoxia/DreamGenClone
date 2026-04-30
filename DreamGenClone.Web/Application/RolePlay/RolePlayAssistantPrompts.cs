@@ -106,6 +106,11 @@ public static class RolePlayAssistantPrompts
         if (phase == "Climax")
         {
             guards.Add("Deliver high-intensity culmination consistent with established relational dynamics.");
+            guards.Add("Every turn must advance the scene to a new beat. Do not repeat the same physical act, position, or sensation that was the focus of the immediately preceding turn.");
+            guards.Add("Within each stage of physical intimacy, vary position, tempo, who is the focus, and specific sensations each turn. Same stage is fine — same description is forbidden.");
+            guards.Add("Write with explicit positional and sensory detail; name body parts and movements specifically.");
+            guards.Add("Narrative urgency (time pressure, risk of interruption) must increase writing intensity, not truncate scene length.");
+            guards.Add("Do NOT write male characters reaching orgasm, ejaculating, or concluding the encounter. Male completion is gated by the user command /endclimax; until it arrives, sustain the scene.");
         }
 
         return guards;

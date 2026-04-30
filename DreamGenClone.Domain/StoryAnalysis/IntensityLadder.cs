@@ -54,8 +54,9 @@ public static class IntensityLadder
             IntensityLevel.Emotional => "Emotion-forward intimacy and relationship focus.",
             IntensityLevel.SuggestivePg12 => "Flirty and suggestive with restrained explicitness.",
             IntensityLevel.SensualMature => "Sensory, mature tone emphasizing tension and pacing.",
-            IntensityLevel.Explicit => "Direct and erotic delivery with openly expressed intensity.",
-            _ => "Maximum intensity with no softening of explicit content."
+            IntensityLevel.Explicit => "Direct and explicit physical delivery. Each turn describes specific acts, body parts, and sensations. Scene pacing sustains the encounter across multiple turns without rushing to resolution.",
+            IntensityLevel.Hardcore => "Maximum-intensity explicit delivery. Every physical act and sensation is named with full specificity and no softening. Scene sustains and escalates across turns with zero fade-to-black.",
+            _ => "Explicit intensity level with no softening of content."
         };
     }
 }
