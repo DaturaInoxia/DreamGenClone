@@ -786,20 +786,6 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
 
         sb.AppendLine($"Continue as: {actorName}");
 
-        if (!string.IsNullOrWhiteSpace(promptText))
-        {
-            var intentLabel = intent switch
-            {
-                PromptIntent.Message => "Message",
-                PromptIntent.Narrative => "Narrative Direction",
-                PromptIntent.Instruction => "Instruction",
-                _ => "Prompt"
-            };
-
-            sb.AppendLine($"{intentLabel}:");
-            sb.AppendLine(promptText.Trim());
-        }
-
         AppendScenarioPriorities(sb, scenarioGoals, scenarioConflicts, scenarioNarrativeGuidelines);
 
         if (!string.IsNullOrWhiteSpace(session.SelectedThemeProfileId))
@@ -919,11 +905,12 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         }
 
         var resolvedIntensityDescription = string.Empty;
+        IntensityProfile? resolvedProfile = null;
         var resolvedScale = RolePlayStyleResolver.ParseBoundScale(effectiveStyleLabel);
         if (resolvedScale.HasValue)
         {
             var intensityProfiles = await _intensityProfileService.ListAsync(cancellationToken);
-            var resolvedProfile = intensityProfiles.FirstOrDefault(x => (int)x.Intensity == resolvedScale.Value && !string.IsNullOrWhiteSpace(x.Description))
+            resolvedProfile = intensityProfiles.FirstOrDefault(x => (int)x.Intensity == resolvedScale.Value && !string.IsNullOrWhiteSpace(x.Description))
                 ?? intensityProfiles.FirstOrDefault(x => (int)x.Intensity == resolvedScale.Value);
 
             resolvedIntensityDescription = !string.IsNullOrWhiteSpace(resolvedProfile?.Description)
@@ -945,22 +932,66 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         sb.AppendLine($"Manual Intensity Pin: {(session.IsIntensityManuallyPinned ? "ON (resolved follows selected)" : "OFF (adaptive mode)")}");
         AppendEscalationGuidance(sb, session, actorName, currentPhase, intent);
 
+        if (resolvedScale.HasValue && resolvedScale.Value >= (int)IntensityLevel.Explicit && currentPhase != "BuildUp" && intent != PromptIntent.Instruction)
+        {
+            var sanitizedDirective = PromptSanitizer.SanitizeSceneDirective(resolvedProfile?.SceneDirective);
+            if (!string.IsNullOrEmpty(sanitizedDirective))
+            {
+                _logger.LogDebug("Scene Writing Directive source: profile-configured, scale={Scale}", resolvedScale.Value);
+                sb.AppendLine("Scene Writing Directive:");
+                sb.AppendLine(sanitizedDirective);
+            }
+            else
+            {
+                _logger.LogDebug("Scene Writing Directive source: static, scale={Scale}", resolvedScale.Value);
+                sb.Append(GetStaticSceneDirective());
+            }
+        }
+
         var styleHint = string.IsNullOrWhiteSpace(scenarioStyle)
             ? effectiveStyleLabel
             : $"{scenarioStyle} | effective mode: {effectiveStyleLabel}";
 
+        // Place the per-turn prompt text immediately before the final writing instruction
+        // so it carries maximum authority (LLMs weight instructions near the end of long prompts).
+        if (!string.IsNullOrWhiteSpace(promptText))
+        {
+            var intentLabel = intent switch
+            {
+                PromptIntent.Message => "Message",
+                PromptIntent.Narrative => "Narrative Direction",
+                PromptIntent.Instruction => "Instruction",
+                _ => "Prompt"
+            };
+
+            sb.AppendLine($"{intentLabel}:");
+            sb.AppendLine(promptText.Trim());
+        }
+
         if (intent == PromptIntent.Narrative)
         {
-            sb.AppendLine($"Write the next narrative passage in THIRD PERSON. " +
-                $"Refer to {personaName} by name when needed — NEVER use \"I\" or first person. " +
-                "Treat this as omniscient scene narration: describe environment, pacing, transitions, and multi-character flow. " +
-                "Do not center the passage on one character's private feelings or inner monologue unless the user explicitly asks for that. " +
-                "Keep this section focused on scene description and transitions, not character back-and-forth dialogue. " +
-                "Use at most one short quoted line only when needed to bridge the scene naturally. " +
-                "Do NOT write extended dialogue exchanges in Narrative; those belong in character responses. " +
-                "Wrong: multiple quoted lines with character ping-pong. Right: a descriptive transition with maybe one brief spoken fragment. " +
-                "Prefer externally observable actions, body language, and scene-level state changes. " +
-                $"Use vivid sensory details and match the established tone ({styleHint}). Output 100-300 words.");
+            if (string.Equals(currentPhase, "Climax", StringComparison.OrdinalIgnoreCase))
+            {
+                sb.AppendLine($"Write an omniscient narrative description of the full scene as it stands this turn. " +
+                    $"Refer to {personaName} by name when needed — NEVER use \"I\" or first person. " +
+                    "Describe the physical moment, setting, character positions, sensations, and atmosphere in explicit detail. " +
+                    "All participants have already described this same moment from their own perspectives — your role is to close the turn with a rich, omniscient account of what is happening right now. " +
+                    "Do not advance the scene beyond what the characters have already established this turn. " +
+                    $"Use vivid sensory details and match the established tone ({styleHint}). Write at least 300 words.");
+            }
+            else
+            {
+                sb.AppendLine($"Write the next narrative passage in THIRD PERSON. " +
+                    $"Refer to {personaName} by name when needed — NEVER use \"I\" or first person. " +
+                    "Treat this as omniscient scene narration: describe environment, pacing, transitions, and multi-character flow. " +
+                    "Do not center the passage on one character's private feelings or inner monologue unless the user explicitly asks for that. " +
+                    "Keep this section focused on scene description and transitions, not character back-and-forth dialogue. " +
+                    "Use at most one short quoted line only when needed to bridge the scene naturally. " +
+                    "Do NOT write extended dialogue exchanges in Narrative; those belong in character responses. " +
+                    "Wrong: multiple quoted lines with character ping-pong. Right: a descriptive transition with maybe one brief spoken fragment. " +
+                    "Prefer externally observable actions, body language, and scene-level state changes. " +
+                    $"Use vivid sensory details and match the established tone ({styleHint}). Output 100-300 words.");
+            }
         }
         else
         {
@@ -1219,8 +1250,50 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
 
         if (phase == "Climax")
         {
-            sb.AppendLine("- Deliver a decisive high-intensity beat now instead of incremental teasing.");
+            sb.AppendLine("- Every turn must advance to a new beat. Do not describe the same physical act or position that was the focus of the previous turn.");
+            sb.AppendLine("- Vary who is the focus, the position, the tempo, or the specific sensation each turn. Repetition of the same scene state is explicitly forbidden.");
+            sb.AppendLine("- You may remain in the same overall stage of intimacy (e.g. still oral), but every turn must shift something concrete: angle, position, who is leading, intensity, or body focus.");
+            sb.AppendLine("- Write explicit physical description — name body parts, movements, and sensations specifically.");
+            sb.AppendLine("- Urgency and narrative pressure should appear in character energy, dialogue, and pacing — not in abbreviating the scene.");
+            sb.AppendLine("- If in-narrative time pressure exists, use it to raise intensity of description, not to rush to conclusion.");
+            sb.AppendLine("- Do not imply or skip ahead to a post-scene state; remain in the physical moment.");
+            sb.AppendLine("- Do not write male characters reaching orgasm or ejaculating. Male completion requires the user command /endclimax; until that command appears, the scene always continues.");
+            sb.AppendLine("- Write at least 350 words this turn. Fill the length with explicit physical and sensory detail specific to the current act and position.");
         }
+    }
+
+    private static string GetStaticSceneDirective()
+    {
+        return """
+            Scene Writing Directive:
+            Progression Contract:
+            - Read the last interaction. Identify what physical act or beat was just described.
+            - This response MUST move to a different beat, position, or sensation. Writing the same act or physical focus as the previous response is explicitly forbidden.
+            - You may stay in the same broad stage of intimacy, but every response must shift something concrete: angle, who is leading, position, tempo, or body focus.
+            Physical Escalation Sequence — follow this order unless established context requires otherwise:
+              Stage 1 — Clothed contact: touching, groping, kissing mouth/neck, hands roaming over clothing
+              Stage 2 — Undressing: removing clothes; kissing, licking, and sucking bare skin (chest, nipples, stomach)
+              Stage 3 — Intimate touch: bare hands on private areas; stroking, rubbing, fingering
+              Stage 4 — Sustained manual: handjob, fingering, grinding, mutual stimulation
+              Stage 5 — Oral (initial): first oral contact; light, exploratory, teasing
+              Stage 6 — Oral (building): sustained oral; rhythm established; hands involved
+              Stage 7 — Oral (intense): full oral, peak arousal, close to edge
+              Stage 8 — Penetrative: only after Stages 5-7 have been visited
+            Rules:
+            - Advance at most one stage per response. Do not skip multiple stages at once.
+            - Do not revisit an earlier stage once it has been passed unless the characters explicitly reset.
+            - Do not rush through stages in one response — each stage earns multiple turns of deepening.
+            Response Length:
+            - Write at least 350 words for each Climax-phase response. Fill that length with explicit physical and sensory detail — no filler repetition.
+            Pacing and Urgency:
+            - Narrative urgency is expressed through action intensity, breathless dialogue, and emotional tone. It does NOT abbreviate the writing or skip stages.
+            - Even a hurried encounter spans multiple full beats. The characters may be rushed; the prose remains detailed.
+            Male Climax Gate:
+            - Male characters do not orgasm or ejaculate until the user submits the command /endclimax. Until that command appears, the scene always continues.
+            - If a male character appears to have climaxed, the scene does not end — they are not done. Sustain or continue the physical encounter.
+            Continuity Awareness:
+            - Use direct, explicit language appropriate to the resolved intensity level.
+            """;
     }
 
     private static Dictionary<string, int>? ResolvePromptActorStats(RolePlaySession session, string actorName)

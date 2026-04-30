@@ -299,6 +299,7 @@ public sealed class RolePlayContinuationNarrativeValidationTests
             int approachingPhaseOffset,
             int climaxPhaseOffset,
             int resetPhaseOffset,
+            string sceneDirective = "",
             CancellationToken cancellationToken = default)
             => throw new NotImplementedException();
 
@@ -318,6 +319,7 @@ public sealed class RolePlayContinuationNarrativeValidationTests
             int approachingPhaseOffset,
             int climaxPhaseOffset,
             int resetPhaseOffset,
+            string sceneDirective = "",
             CancellationToken cancellationToken = default)
             => Task.FromResult<IntensityProfile?>(null);
 

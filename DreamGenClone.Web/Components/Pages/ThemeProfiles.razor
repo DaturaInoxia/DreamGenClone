@@ -714,6 +714,19 @@
                                 <textarea class="form-control" rows="3" @bind="_toneFormDescription"></textarea>
                             </div>
                             <div class="col-12">
+                                <label class="form-label">Scene Writing Directive <span class="text-muted small">(Explicit / Hardcore only)</span></label>
+                                <textarea class="form-control"
+                                          rows="5"
+                                          maxlength="2000"
+                                          placeholder="Optional: custom scene-writing instructions for explicit scenes at this intensity level. Leave empty to use the built-in default directive."
+                                          disabled="@(!IsSceneDirectiveActive)"
+                                          @bind="_toneFormSceneDirective"></textarea>
+                                @if (!IsSceneDirectiveActive)
+                                {
+                                    <div class="form-text text-warning">Scene writing directives only apply to Explicit and Hardcore intensity levels.</div>
+                                }
+                            </div>
+                            <div class="col-12">
                                 <label class="form-label">Flow Phase Offsets</label>
                                 <div class="row g-2">
                                     <div class="col-6 col-md-2">
@@ -2328,7 +2341,9 @@
     private string? _selectedToneId;
     private string _toneFormName = string.Empty;
     private string _toneFormDescription = string.Empty;
+    private string _toneFormSceneDirective = string.Empty;
     private IntensityLevel _toneFormIntensity = IntensityLevel.Emotional;
+    private bool IsSceneDirectiveActive => _toneFormIntensity >= IntensityLevel.Explicit;
     private int _toneBuildUpOffset;
     private int _toneCommittedOffset;
     private int _toneApproachingOffset = 1;
@@ -3211,6 +3226,7 @@
         _selectedToneId = null;
         _toneFormName = string.Empty;
         _toneFormDescription = string.Empty;
+        _toneFormSceneDirective = string.Empty;
         _toneFormIntensity = IntensityLevel.Emotional;
         _toneBuildUpOffset = 0;
         _toneCommittedOffset = 0;
@@ -3231,6 +3247,7 @@
         _selectedToneId = tone.Id;
         _toneFormName = tone.Name;
         _toneFormDescription = tone.Description;
+        _toneFormSceneDirective = tone.SceneDirective;
         _toneFormIntensity = tone.Intensity;
         _toneBuildUpOffset = tone.BuildUpPhaseOffset;
         _toneCommittedOffset = tone.CommittedPhaseOffset;
@@ -3262,7 +3279,8 @@
                     _toneCommittedOffset,
                     _toneApproachingOffset,
                     _toneClimaxOffset,
-                    _toneResetOffset);
+                    _toneResetOffset,
+                    _toneFormSceneDirective);
                 await ReloadAsync();
                 SelectIntensity(created.Id);
             }
@@ -3277,7 +3295,8 @@
                     _toneCommittedOffset,
                     _toneApproachingOffset,
                     _toneClimaxOffset,
-                    _toneResetOffset);
+                    _toneResetOffset,
+                    _toneFormSceneDirective);
                 await ReloadAsync();
                 SelectIntensity(_selectedToneId);
             }

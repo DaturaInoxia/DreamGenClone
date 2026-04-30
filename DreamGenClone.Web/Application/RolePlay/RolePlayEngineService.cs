@@ -1117,9 +1117,14 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 var candidate = sceneActors[i];
                 var actor = candidate.Actor;
                 var actorName = candidate.Name;
-                var promptText = i == 0
-                    ? "Continue the scene naturally with the next character response."
-                    : "Continue the conversation naturally, building on the previous response.";
+                var isClimaxPhase = string.Equals(session.AdaptiveState.CurrentNarrativePhase.ToString(), "Climax", StringComparison.OrdinalIgnoreCase);
+                var promptText = isClimaxPhase
+                    ? (i == 0
+                        ? "You are the first to respond this turn. Advance the scene naturally from where it left off — escalate physical intimacy, deepen the act, or progress to the next beat as continuity allows. Describe the moment from your character's perspective with explicit physical and sensory detail. Establish this turn's scene clearly so other participants can react to the same moment."
+                        : "Describe the same scene moment your turn-partner just established, from your own perspective. Match and deepen the physical moment they set — give your character's sensations, reactions, and dialogue for that exact beat. Do not advance to a new act or jump ahead of what has already been established this turn.")
+                    : (i == 0
+                        ? "Continue the scene naturally with the next character response."
+                        : "Continue the conversation naturally, building on the previous response.");
 
                 await AlignPromptNarrativeStateWithV2Async(session, cancellationToken);
                 var interaction = await _continuationService.ContinueAsync(
@@ -1803,11 +1808,14 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         if (lastInteraction.InteractionType == InteractionType.System && lastInteraction.ActorName == "Instruction")
             return true;
 
-        // Count consecutive character messages without narrative
+        // Count consecutive character messages without narrative.
+        // Include User-type interactions (persona auto-generated in a batch) — these are not
+        // manual user submissions (that case is caught above when lastInteraction.User → return true).
+        // Only stop at System interactions (Narrative, Instruction, etc.).
         var consecutiveMessages = 0;
         for (var i = recent.Count - 1; i >= 0; i--)
         {
-            if (recent[i].InteractionType is InteractionType.Npc or InteractionType.Custom)
+            if (recent[i].InteractionType is InteractionType.Npc or InteractionType.Custom or InteractionType.User)
                 consecutiveMessages++;
             else
                 break;
@@ -1857,6 +1865,12 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
         if (lastInteraction is null)
             return "Set the scene and establish the atmosphere.";
+
+        if (string.Equals(session.AdaptiveState.CurrentNarrativePhase.ToString(), "Climax", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Write an omniscient narrative description of the full scene as it stands this turn. Describe the physical moment, setting, character positions, sensations, and atmosphere in explicit detail. All participants have already described this same moment from their own perspectives — your role is to close the turn with a rich, omniscient account of what is happening right now. Do not advance the scene beyond what the characters have already established."
+                + " Write at least 300 words. Use direct, explicit language.";
+        }
 
         return lastInteraction.InteractionType switch
         {
