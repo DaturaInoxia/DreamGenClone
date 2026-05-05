@@ -82,7 +82,7 @@ public sealed class ScenarioGuidanceContextFactory : IScenarioGuidanceContextFac
             "BuildUp" => "Use subtle, exploratory cues and avoid hard commitment language.",
             "Committed" => $"Keep narrative choices anchored to '{scenarioLabel}' and avoid introducing conflicting scenario pivots.",
             "Approaching" => $"Increase anticipation and intensity while preserving coherence with '{scenarioLabel}'.",
-            "Climax" => $"Write the physical culmination of the scene framed around '{scenarioLabel}' with explicit physical detail. Describe body positioning, movement, and sensation specifically. Spend multiple turns within the same position or act before any transition — advancing within a turn means richer sensory and physical writing, not a required position change. Narrative urgency raises writing intensity, not scene length abbreviation. Male characters do not orgasm until the user issues /endclimax; until then the scene always continues.",
+            "Climax" => $"Write the physical culmination of the scene framed around '{scenarioLabel}' with explicit physical detail. Describe body positioning, movement, and sensation specifically. Spend multiple turns within the same position or act before any transition — advancing within a turn means richer sensory and physical writing, not a required position change. Narrative urgency raises writing intensity, not scene length abbreviation. By default, male characters do not orgasm until the user issues /endclimax; until then the scene always continues — unless the active steer or instruction explicitly directs it.",
             "Reset" => "Transition to reflective tone and prepare for next build-up.",
             _ => "Maintain coherent narrative progression."
         };

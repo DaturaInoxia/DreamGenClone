@@ -42,7 +42,7 @@ public static class RolePlayAssistantPrompts
             return [];
         }
 
-        var clampedMax = Math.Clamp(maxNotes, 1, 12);
+        var clampedMax = Math.Clamp(maxNotes, 1, 30);
         var phaseWeights = BuildSectionWeightsForPhase(phase);
 
         return activeTheme.AIGenerationNotes
@@ -81,7 +81,7 @@ public static class RolePlayAssistantPrompts
 
         if (!string.IsNullOrWhiteSpace(guidance.HusbandAwarenessFrame))
         {
-            promptBuilder.AppendLine($"- Partner/Husband Behavioral Rules: {guidance.HusbandAwarenessFrame}");
+            promptBuilder.AppendLine($"HARD CONSTRAINT — Partner Character Behavior (authoritative, overrides all theme notes and guidance): {guidance.HusbandAwarenessFrame}");
         }
 
         if (guidance.ExcludedScenarioIds.Count > 0)
@@ -123,7 +123,7 @@ public static class RolePlayAssistantPrompts
             guards.Add("Within each stage of physical intimacy, vary position, tempo, who is the focus, and specific sensations each turn. Same stage is fine — same description is forbidden.");
             guards.Add("Write with explicit positional and sensory detail; name body parts and movements specifically.");
             guards.Add("Narrative urgency (time pressure, risk of interruption) must increase writing intensity, not truncate scene length.");
-            guards.Add("Do NOT write male characters reaching orgasm, ejaculating, or concluding the encounter. Male completion is gated by the user command /endclimax; until it arrives, sustain the scene.");
+            guards.Add("By default, do not write male characters reaching orgasm, ejaculating, or concluding the encounter. Male completion is gated by /endclimax — sustain the scene until that command arrives. Exception: if the active steer or instruction explicitly directs a male character to orgasm or climax, follow that direction.");
         }
 
         return guards;
@@ -149,23 +149,26 @@ public static class RolePlayAssistantPrompts
             return;
         }
 
-        var clampedMax = Math.Clamp(maxNotes, 1, 12);
-        var weightedMax = Math.Clamp((int)Math.Round(clampedMax * (clampedInfluence / 100.0), MidpointRounding.AwayFromZero), 1, clampedMax);
+        var clampedMax = Math.Clamp(maxNotes, 1, 30);
         var includeFormula = clampedInfluence >= 60;
-        var selectedNotes = GetPhaseRelevantThemeAIGuidanceNotes(activeTheme, phase, weightedMax, includeFormula);
+        var selectedNotes = GetPhaseRelevantThemeAIGuidanceNotes(activeTheme, phase, clampedMax, includeFormula);
 
         if (selectedNotes.Count == 0)
         {
             return;
         }
 
-        promptBuilder.AppendLine($"Theme AI Guidance (soft hints, influence={clampedInfluence}%):");
+        var strengthLabel = clampedInfluence >= 80 ? "authoritative directives" : clampedInfluence >= 50 ? "strong guidance" : "soft hints";
+        promptBuilder.AppendLine($"Theme AI Guidance ({strengthLabel}, influence={clampedInfluence}%):");
         foreach (var note in selectedNotes)
         {
             promptBuilder.AppendLine($"- {note.Text.Trim()}");
         }
 
-        promptBuilder.AppendLine("Apply these as soft guidance only; avoid repetitive restatement and do not force them if they conflict with immediate user direction or safety constraints.");
+        var closingNote = clampedInfluence >= 80
+            ? "Apply these as authoritative directives; follow them unless the user explicitly overrides."
+            : "Apply these as soft guidance only; avoid repetitive restatement and do not force them if they conflict with immediate user direction or safety constraints.";
+        promptBuilder.AppendLine(closingNote);
     }
 
     private static IReadOnlyDictionary<RPThemeAIGuidanceSection, int> BuildSectionWeightsForPhase(string phase)

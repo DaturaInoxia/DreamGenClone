@@ -412,6 +412,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 PrimaryLocationsJson TEXT NOT NULL DEFAULT '[]',
                 SecondaryLocationsJson TEXT NOT NULL DEFAULT '[]',
                 ExcludedLocationsJson TEXT NOT NULL DEFAULT '[]',
+                WifeReceptivity TEXT NOT NULL DEFAULT '',
                 WifeBehaviorModifier TEXT NOT NULL DEFAULT '',
                 OtherManBehaviorModifier TEXT NOT NULL DEFAULT '',
                 TransitionInstruction TEXT NOT NULL DEFAULT '',
@@ -908,6 +909,18 @@ public sealed class SqlitePersistence : ISqlitePersistence
             alterToneSceneDirective.CommandText = "ALTER TABLE ToneProfiles ADD COLUMN SceneDirective TEXT NOT NULL DEFAULT ''";
             await alterToneSceneDirective.ExecuteNonQueryAsync(cancellationToken);
             _logger.LogInformation("Migrated ToneProfiles table: added SceneDirective column");
+        }
+
+        // Always ensure RPFinishingMoveMatrixRows has WifeReceptivity column.
+        var ensureFinishingMoveWifeReceptivityColumn = connection.CreateCommand();
+        ensureFinishingMoveWifeReceptivityColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RPFinishingMoveMatrixRows') WHERE name='WifeReceptivity'";
+        var hasFinishingMoveWifeReceptivityColumn = Convert.ToInt64(await ensureFinishingMoveWifeReceptivityColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasFinishingMoveWifeReceptivityColumn)
+        {
+            var alterFinishingMoveWifeReceptivity = connection.CreateCommand();
+            alterFinishingMoveWifeReceptivity.CommandText = "ALTER TABLE RPFinishingMoveMatrixRows ADD COLUMN WifeReceptivity TEXT NOT NULL DEFAULT ''";
+            await alterFinishingMoveWifeReceptivity.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated RPFinishingMoveMatrixRows table: added WifeReceptivity column");
         }
 
         var shouldRunLegacyMigrations = await ShouldRunLegacyMigrationsAsync(connection, cancellationToken);

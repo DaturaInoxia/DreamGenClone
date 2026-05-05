@@ -153,6 +153,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     private readonly bool _suppressNarrativeAfterPhaseChange;
     private readonly bool _enablePhaseChangeDecisionPrompts;
     private readonly bool _enableSceneLocationDecisionPrompts;
+    private readonly bool _enableDecisionPrompts;
     private readonly IClimaxBeatRepository? _climaxBeatRepository;
 
     public RolePlayEngineService(
@@ -216,6 +217,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         _suppressNarrativeAfterPhaseChange = rolePlayDecisionOptions?.Value.SuppressNarrativeAfterPhaseChange ?? false;
         _enablePhaseChangeDecisionPrompts = rolePlayDecisionOptions?.Value.EnablePhaseChangeDecisionPrompts ?? false;
         _enableSceneLocationDecisionPrompts = rolePlayDecisionOptions?.Value.EnableSceneLocationDecisionPrompts ?? false;
+        _enableDecisionPrompts = rolePlayDecisionOptions?.Value.EnableDecisionPrompts ?? false;
         _climaxBeatRepository = climaxBeatRepository;
     }
 
@@ -2373,6 +2375,12 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
         if (!hasPendingDecision && !isInDecisionCooldown && triggerEligibleForDecisionCreation && hasActiveScenarioForDecisionCreation)
         {
+            if (!_enableDecisionPrompts)
+            {
+                decisionSkipReasons.Add("DecisionPromptsDisabled");
+            }
+            else
+            {
             var decisionContexts = BuildDecisionGenerationContexts(
                 session,
                 v2State,
@@ -2448,6 +2456,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             {
                 decisionSkipReasons.Add("NoEligibleDecisionGenerated");
             }
+            } // end else (_enableDecisionPrompts)
         }
 
         _logger.LogInformation(

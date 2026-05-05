@@ -26,7 +26,7 @@ public sealed class RPFinishingMoveMatrixServiceTests : IDisposable
         {
             DesireBand = "75-100",
             SelfRespectBand = "0-29",
-            DominanceBand = "High",
+            DominanceBand = "60-100",
             PrimaryLocations = ["bedroom", "living room"],
             SecondaryLocations = ["balcony"],
             ExcludedLocations = ["bathroom"],
@@ -42,7 +42,7 @@ public sealed class RPFinishingMoveMatrixServiceTests : IDisposable
         Assert.Equal(created.Id, row.Id);
         Assert.Equal("75-100", row.DesireBand);
         Assert.Equal("0-29", row.SelfRespectBand);
-        Assert.Equal("High", row.DominanceBand);
+        Assert.Equal("60-100", row.DominanceBand);
         Assert.Contains("bedroom", row.PrimaryLocations);
         Assert.Contains("bathroom", row.ExcludedLocations);
 
@@ -60,7 +60,7 @@ public sealed class RPFinishingMoveMatrixServiceTests : IDisposable
         {
             DesireBand = "50-74",
             SelfRespectBand = "30-59",
-            DominanceBand = "Medium",
+            DominanceBand = "30-59",
             PrimaryLocations = ["kitchen"],
             SortOrder = 0,
             IsEnabled = true
@@ -72,7 +72,7 @@ public sealed class RPFinishingMoveMatrixServiceTests : IDisposable
             {
               "desireBand": "75-100",
               "selfRespectBand": "0-29",
-              "dominanceBand": "High",
+              "dominanceBand": "60-100",
               "primaryLocations": ["bedroom"],
               "secondaryLocations": ["living room"],
               "excludedLocations": ["bathroom"],
@@ -85,7 +85,7 @@ public sealed class RPFinishingMoveMatrixServiceTests : IDisposable
             {
               "desire": "25-49",
               "selfRespect": "60-89",
-              "dominance": "Low",
+              "dominance": "0-29",
               "locationsPrimary": ["hallway"],
               "locationsSecondary": [],
               "locationsExcluded": ["bedroom"],
@@ -106,10 +106,10 @@ public sealed class RPFinishingMoveMatrixServiceTests : IDisposable
         Assert.Equal(2, rows.Count);
         Assert.DoesNotContain(rows, r => r.DesireBand == "50-74");
 
-        var high = Assert.Single(rows, r => r.DominanceBand == "High");
+        var high = Assert.Single(rows, r => r.DominanceBand == "60-100");
         Assert.Contains("bedroom", high.PrimaryLocations);
 
-        var low = Assert.Single(rows, r => r.DominanceBand == "Low");
+        var low = Assert.Single(rows, r => r.DominanceBand == "0-29");
         Assert.False(low.IsEnabled);
         Assert.Contains("bedroom", low.ExcludedLocations);
     }

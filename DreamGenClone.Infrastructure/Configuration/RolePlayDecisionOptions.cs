@@ -18,4 +18,8 @@ public sealed class RolePlayDecisionOptions
 
     // Feature flag for AI-generated question header text on decision prompts.
     public bool EnableAiDecisionQuestionText { get; set; } = false;
+
+    // Master feature flag — when false, the entire decision prompt system is bypassed:
+    // no decision points are created, no LLM rewrite is called, and the UI poll returns nothing.
+    public bool EnableDecisionPrompts { get; set; } = false;
 }

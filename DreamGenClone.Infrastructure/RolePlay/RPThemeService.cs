@@ -680,6 +680,7 @@ public sealed partial class RPThemeService : IRPThemeService
         row.PrimaryLocations = NormalizeLocationList(row.PrimaryLocations);
         row.SecondaryLocations = NormalizeLocationList(row.SecondaryLocations);
         row.ExcludedLocations = NormalizeLocationList(row.ExcludedLocations);
+        row.WifeReceptivity = (row.WifeReceptivity ?? string.Empty).Trim();
         row.WifeBehaviorModifier = (row.WifeBehaviorModifier ?? string.Empty).Trim();
         row.OtherManBehaviorModifier = (row.OtherManBehaviorModifier ?? string.Empty).Trim();
         row.TransitionInstruction = (row.TransitionInstruction ?? string.Empty).Trim();
@@ -700,12 +701,12 @@ public sealed partial class RPThemeService : IRPThemeService
             INSERT INTO RPFinishingMoveMatrixRows (
                 Id, DesireBand, SelfRespectBand, DominanceBand,
                 PrimaryLocationsJson, SecondaryLocationsJson, ExcludedLocationsJson,
-                WifeBehaviorModifier, OtherManBehaviorModifier, TransitionInstruction,
+                WifeReceptivity, WifeBehaviorModifier, OtherManBehaviorModifier, TransitionInstruction,
                 SortOrder, IsEnabled, CreatedUtc, UpdatedUtc)
             VALUES (
                 $id, $desireBand, $selfRespectBand, $dominanceBand,
                 $primaryLocationsJson, $secondaryLocationsJson, $excludedLocationsJson,
-                $wifeBehaviorModifier, $otherManBehaviorModifier, $transitionInstruction,
+                $wifeReceptivity, $wifeBehaviorModifier, $otherManBehaviorModifier, $transitionInstruction,
                 $sortOrder, $isEnabled, $createdUtc, $updatedUtc)
             ON CONFLICT(Id) DO UPDATE SET
                 DesireBand = excluded.DesireBand,
@@ -714,6 +715,7 @@ public sealed partial class RPThemeService : IRPThemeService
                 PrimaryLocationsJson = excluded.PrimaryLocationsJson,
                 SecondaryLocationsJson = excluded.SecondaryLocationsJson,
                 ExcludedLocationsJson = excluded.ExcludedLocationsJson,
+                WifeReceptivity = excluded.WifeReceptivity,
                 WifeBehaviorModifier = excluded.WifeBehaviorModifier,
                 OtherManBehaviorModifier = excluded.OtherManBehaviorModifier,
                 TransitionInstruction = excluded.TransitionInstruction,
@@ -728,6 +730,7 @@ public sealed partial class RPThemeService : IRPThemeService
         command.Parameters.AddWithValue("$primaryLocationsJson", SerializeStringList(row.PrimaryLocations));
         command.Parameters.AddWithValue("$secondaryLocationsJson", SerializeStringList(row.SecondaryLocations));
         command.Parameters.AddWithValue("$excludedLocationsJson", SerializeStringList(row.ExcludedLocations));
+        command.Parameters.AddWithValue("$wifeReceptivity", row.WifeReceptivity);
         command.Parameters.AddWithValue("$wifeBehaviorModifier", row.WifeBehaviorModifier);
         command.Parameters.AddWithValue("$otherManBehaviorModifier", row.OtherManBehaviorModifier);
         command.Parameters.AddWithValue("$transitionInstruction", row.TransitionInstruction);
@@ -749,7 +752,7 @@ public sealed partial class RPThemeService : IRPThemeService
             SELECT
                 Id, DesireBand, SelfRespectBand, DominanceBand,
                 PrimaryLocationsJson, SecondaryLocationsJson, ExcludedLocationsJson,
-                WifeBehaviorModifier, OtherManBehaviorModifier, TransitionInstruction,
+                WifeReceptivity, WifeBehaviorModifier, OtherManBehaviorModifier, TransitionInstruction,
                 SortOrder, IsEnabled, CreatedUtc, UpdatedUtc
             FROM RPFinishingMoveMatrixRows
             ORDER BY SortOrder, DesireBand, SelfRespectBand, DominanceBand, Id;
@@ -767,13 +770,14 @@ public sealed partial class RPThemeService : IRPThemeService
                 PrimaryLocations = DeserializeStringList(reader.GetString(4)),
                 SecondaryLocations = DeserializeStringList(reader.GetString(5)),
                 ExcludedLocations = DeserializeStringList(reader.GetString(6)),
-                WifeBehaviorModifier = reader.GetString(7),
-                OtherManBehaviorModifier = reader.GetString(8),
-                TransitionInstruction = reader.GetString(9),
-                SortOrder = reader.GetInt32(10),
-                IsEnabled = reader.GetInt32(11) == 1,
-                CreatedUtc = DateTime.TryParse(reader.GetString(12), out var createdUtc) ? createdUtc : DateTime.UtcNow,
-                UpdatedUtc = DateTime.TryParse(reader.GetString(13), out var updatedUtc) ? updatedUtc : DateTime.UtcNow
+                WifeReceptivity = reader.GetString(7),
+                WifeBehaviorModifier = reader.GetString(8),
+                OtherManBehaviorModifier = reader.GetString(9),
+                TransitionInstruction = reader.GetString(10),
+                SortOrder = reader.GetInt32(11),
+                IsEnabled = reader.GetInt32(12) == 1,
+                CreatedUtc = DateTime.TryParse(reader.GetString(13), out var createdUtc) ? createdUtc : DateTime.UtcNow,
+                UpdatedUtc = DateTime.TryParse(reader.GetString(14), out var updatedUtc) ? updatedUtc : DateTime.UtcNow
             });
         }
 
@@ -839,6 +843,7 @@ public sealed partial class RPThemeService : IRPThemeService
                 PrimaryLocations = GetStringList(item, "primaryLocations", "locationsPrimary"),
                 SecondaryLocations = GetStringList(item, "secondaryLocations", "locationsSecondary"),
                 ExcludedLocations = GetStringList(item, "excludedLocations", "locationsExcluded"),
+                WifeReceptivity = GetString(item, "wifeReceptivity") ?? string.Empty,
                 WifeBehaviorModifier = GetString(item, "wifeBehaviorModifier", "wifeBehavior") ?? string.Empty,
                 OtherManBehaviorModifier = GetString(item, "otherManBehaviorModifier", "otherManBehavior") ?? string.Empty,
                 TransitionInstruction = GetString(item, "transitionInstruction", "transition", "transitionNote") ?? string.Empty,
@@ -2026,12 +2031,12 @@ public sealed partial class RPThemeService : IRPThemeService
             INSERT INTO RPFinishingMoveMatrixRows (
                 Id, DesireBand, SelfRespectBand, DominanceBand,
                 PrimaryLocationsJson, SecondaryLocationsJson, ExcludedLocationsJson,
-                WifeBehaviorModifier, OtherManBehaviorModifier, TransitionInstruction,
+                WifeReceptivity, WifeBehaviorModifier, OtherManBehaviorModifier, TransitionInstruction,
                 SortOrder, IsEnabled, CreatedUtc, UpdatedUtc)
             VALUES (
                 $id, $desireBand, $selfRespectBand, $dominanceBand,
                 $primaryLocationsJson, $secondaryLocationsJson, $excludedLocationsJson,
-                $wifeBehaviorModifier, $otherManBehaviorModifier, $transitionInstruction,
+                $wifeReceptivity, $wifeBehaviorModifier, $otherManBehaviorModifier, $transitionInstruction,
                 $sortOrder, $isEnabled, $createdUtc, $updatedUtc)
             ON CONFLICT(Id) DO UPDATE SET
                 DesireBand = excluded.DesireBand,
@@ -2040,6 +2045,7 @@ public sealed partial class RPThemeService : IRPThemeService
                 PrimaryLocationsJson = excluded.PrimaryLocationsJson,
                 SecondaryLocationsJson = excluded.SecondaryLocationsJson,
                 ExcludedLocationsJson = excluded.ExcludedLocationsJson,
+                WifeReceptivity = excluded.WifeReceptivity,
                 WifeBehaviorModifier = excluded.WifeBehaviorModifier,
                 OtherManBehaviorModifier = excluded.OtherManBehaviorModifier,
                 TransitionInstruction = excluded.TransitionInstruction,
@@ -2054,6 +2060,7 @@ public sealed partial class RPThemeService : IRPThemeService
         command.Parameters.AddWithValue("$primaryLocationsJson", SerializeStringList(row.PrimaryLocations));
         command.Parameters.AddWithValue("$secondaryLocationsJson", SerializeStringList(row.SecondaryLocations));
         command.Parameters.AddWithValue("$excludedLocationsJson", SerializeStringList(row.ExcludedLocations));
+        command.Parameters.AddWithValue("$wifeReceptivity", row.WifeReceptivity);
         command.Parameters.AddWithValue("$wifeBehaviorModifier", row.WifeBehaviorModifier);
         command.Parameters.AddWithValue("$otherManBehaviorModifier", row.OtherManBehaviorModifier);
         command.Parameters.AddWithValue("$transitionInstruction", row.TransitionInstruction);
@@ -2687,6 +2694,7 @@ public sealed partial class RPThemeService : IRPThemeService
                 PrimaryLocationsJson TEXT NOT NULL DEFAULT '[]',
                 SecondaryLocationsJson TEXT NOT NULL DEFAULT '[]',
                 ExcludedLocationsJson TEXT NOT NULL DEFAULT '[]',
+                WifeReceptivity TEXT NOT NULL DEFAULT '',
                 WifeBehaviorModifier TEXT NOT NULL DEFAULT '',
                 OtherManBehaviorModifier TEXT NOT NULL DEFAULT '',
                 TransitionInstruction TEXT NOT NULL DEFAULT '',

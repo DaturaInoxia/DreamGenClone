@@ -156,6 +156,8 @@ Fit Score = (Wife Tension × 0.25) +
 
 ### Climax Phase
 
+[BeatStyle:episodic]
+
 **Scenario-Specific Context:**
 - The encounter(s) occur in hidden locations with time pressure
 - Brief but intense encounters framed by the thrill of proximity to partner
@@ -167,6 +169,15 @@ Fit Score = (Wife Tension × 0.25) +
 - Transgressor: Mix of physical intimacy, logistical stress, thrill of secret, and effort to appear normal upon return
 - Other Party: Awareness of timing constraints, thrill of the stolen moments, coordination with transgressor
 - Partner: Normal social engagement, occasional notice of absences, potential mild concern but no awareness
+
+**Physical Escalation Across Encounters (Required):**
+- Each disappearance encounter must be more physically explicit and advanced than the previous one
+- First encounter: kissing and clothed contact only
+- Second encounter: partial or full undressing with explicit bare-skin touching
+- Third encounter: oral sex (mouth on genitals, explicit and sustained)
+- Fourth or fifth encounter: full penetrative intercourse
+- Within each rushed encounter, characters advance rapidly through multiple physical stages — time pressure creates urgency that accelerates physical content, not reduces it
+- Write each hidden encounter as explicitly sexual, urgent, and heat-driven — not vague, not romantic, not restrained
 
 **Post-Climax Possibilities:**
 1. **Final disappearance of the event:** Most daring encounter as event winds down, highest risk
@@ -195,7 +206,6 @@ Fit Score = (Wife Tension × 0.25) +
 - The contrast between the public social space and private hidden encounters
 
 **What to Avoid:**
-- Do not have the partner witness the transgression directly
 - Do not remove the social setting—the proximity to the event is critical
 - Do not make disappearances too long or obvious—they must remain plausible
 - Do not skip the excuse-making process—how transgressor explains absences is key
@@ -206,7 +216,8 @@ Fit Score = (Wife Tension × 0.25) +
 - Excuses should evolve from simple to more elaborate as disappearances increase
 - Non-verbal cues after returning (adjusting clothes, checking reflection, composed demeanor) may indicate effort
 - The other party should coordinate timing and signals for departures
-- Encounters are brief and opportunistic—no extended romantic scenes
+- Encounters are brief in clock time but explicitly sexual and physically direct in content — urgency intensifies physical detail, not reduces it
+- Each encounter must escalate beyond the previous one in physical intensity: kissing → undressing and explicit touch → oral → intercourse
 
 **Scenario Distinction from Related Themes:**
 - **Vs. Hotel/Separate Location scenarios:** Here, encounters happen AT the same venue, not separate locations

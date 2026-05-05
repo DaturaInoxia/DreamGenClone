@@ -168,10 +168,11 @@ public sealed class RPFinishingMoveMatrixRow
     public string ProfileId { get; set; } = string.Empty;
     public string DesireBand { get; set; } = "50-74";
     public string SelfRespectBand { get; set; } = "30-59";
-    public string DominanceBand { get; set; } = "Medium";
+    public string DominanceBand { get; set; } = "30-59";
     public List<string> PrimaryLocations { get; set; } = [];
     public List<string> SecondaryLocations { get; set; } = [];
     public List<string> ExcludedLocations { get; set; } = [];
+    public string WifeReceptivity { get; set; } = string.Empty;
     public string WifeBehaviorModifier { get; set; } = string.Empty;
     public string OtherManBehaviorModifier { get; set; } = string.Empty;
     public string TransitionInstruction { get; set; } = string.Empty;

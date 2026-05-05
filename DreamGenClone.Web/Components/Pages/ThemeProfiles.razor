@@ -366,6 +366,7 @@
                                             <th>Primary</th>
                                             <th>Secondary</th>
                                             <th>Excluded</th>
+                                            <th>Receptivity</th>
                                             <th>Sort</th>
                                             <th>Enabled</th>
                                             <th>Actions</th>
@@ -375,7 +376,7 @@
                                         @if (_finishingMoveRows.Count == 0)
                                         {
                                             <tr>
-                                                <td colspan="9" class="text-muted">No finishing move base rows yet.</td>
+                                                <td colspan="10" class="text-muted">No finishing move base rows yet.</td>
                                             </tr>
                                         }
                                         else
@@ -389,6 +390,7 @@
                                                     <td class="small text-muted">@string.Join(", ", row.PrimaryLocations)</td>
                                                     <td class="small text-muted">@string.Join(", ", row.SecondaryLocations)</td>
                                                     <td class="small text-muted">@string.Join(", ", row.ExcludedLocations)</td>
+                                                    <td class="small">@row.WifeReceptivity</td>
                                                     <td>@row.SortOrder</td>
                                                     <td>@(row.IsEnabled ? "Yes" : "No")</td>
                                                     <td>
@@ -444,11 +446,25 @@
                                     </div>
                                 </div>
                                 <div class="row g-2 mt-1">
-                                    <div class="col-md-6">
+                                    <div class="col-md-3">
+                                        <label class="form-label">Wife Receptivity</label>
+                                        <select class="form-select form-select-sm" @bind="_finishingMoveFormWifeReceptivity">
+                                            <option value="">(none)</option>
+                                            <option value="Begging">Begging</option>
+                                            <option value="Enthusiastic">Enthusiastic</option>
+                                            <option value="Eager">Eager</option>
+                                            <option value="Accepting">Accepting</option>
+                                            <option value="Tolerating">Tolerating</option>
+                                            <option value="Reluctant">Reluctant</option>
+                                            <option value="CumDodging">Cum Dodging</option>
+                                            <option value="Enduring">Enduring</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-4">
                                         <label class="form-label">Wife Behavior Modifier</label>
                                         <textarea class="form-control form-control-sm" rows="2" @bind="_finishingMoveFormWifeBehaviorModifier"></textarea>
                                     </div>
-                                    <div class="col-md-6">
+                                    <div class="col-md-5">
                                         <label class="form-label">Other Man Behavior Modifier</label>
                                         <textarea class="form-control form-control-sm" rows="2" @bind="_finishingMoveFormOtherManBehaviorModifier"></textarea>
                                     </div>
@@ -2469,10 +2485,11 @@
     private string? _editingFinishingMoveRowId;
     private string _finishingMoveFormDesireBand = "50-74";
     private string _finishingMoveFormSelfRespectBand = "30-59";
-    private string _finishingMoveFormDominanceBand = "Medium";
+    private string _finishingMoveFormDominanceBand = "30-59";
     private string _finishingMoveFormPrimaryLocations = string.Empty;
     private string _finishingMoveFormSecondaryLocations = string.Empty;
     private string _finishingMoveFormExcludedLocations = string.Empty;
+    private string _finishingMoveFormWifeReceptivity = string.Empty;
     private string _finishingMoveFormWifeBehaviorModifier = string.Empty;
     private string _finishingMoveFormOtherManBehaviorModifier = string.Empty;
     private string _finishingMoveFormTransitionInstruction = string.Empty;
@@ -3258,6 +3275,7 @@
         _finishingMoveFormPrimaryLocations = string.Join(", ", row.PrimaryLocations);
         _finishingMoveFormSecondaryLocations = string.Join(", ", row.SecondaryLocations);
         _finishingMoveFormExcludedLocations = string.Join(", ", row.ExcludedLocations);
+        _finishingMoveFormWifeReceptivity = row.WifeReceptivity;
         _finishingMoveFormWifeBehaviorModifier = row.WifeBehaviorModifier;
         _finishingMoveFormOtherManBehaviorModifier = row.OtherManBehaviorModifier;
         _finishingMoveFormTransitionInstruction = row.TransitionInstruction;
@@ -3276,6 +3294,7 @@
         _finishingMoveFormPrimaryLocations = string.Empty;
         _finishingMoveFormSecondaryLocations = string.Empty;
         _finishingMoveFormExcludedLocations = string.Empty;
+        _finishingMoveFormWifeReceptivity = string.Empty;
         _finishingMoveFormWifeBehaviorModifier = string.Empty;
         _finishingMoveFormOtherManBehaviorModifier = string.Empty;
         _finishingMoveFormTransitionInstruction = string.Empty;
@@ -3299,6 +3318,7 @@
                 PrimaryLocations = ParseCsv(_finishingMoveFormPrimaryLocations),
                 SecondaryLocations = ParseCsv(_finishingMoveFormSecondaryLocations),
                 ExcludedLocations = ParseCsv(_finishingMoveFormExcludedLocations),
+                WifeReceptivity = _finishingMoveFormWifeReceptivity,
                 WifeBehaviorModifier = _finishingMoveFormWifeBehaviorModifier,
                 OtherManBehaviorModifier = _finishingMoveFormOtherManBehaviorModifier,
                 TransitionInstruction = _finishingMoveFormTransitionInstruction,

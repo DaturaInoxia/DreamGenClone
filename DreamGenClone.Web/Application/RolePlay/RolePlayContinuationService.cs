@@ -988,7 +988,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                 }
                 var isEpisodic = RolePlayAssistantPrompts.IsEpisodicBeatStyle(activeTheme, currentPhase);
                 sb.AppendLine(isEpisodic
-                    ? "This is a brief encounter — write this beat then close the encounter naturally (they return to the social space). The next encounter will resume from the next beat."
+                    ? "This is a brief, urgent encounter — explicit and heated, not slow or romantic. Let the scene flow naturally through this beat and advance across the next 2-3 beats as urgency drives escalation. Be explicit: name body parts, describe movements and sensations directly. Each encounter must be MORE physically advanced than the previous one — escalating across disappearances toward full intercourse. Override: the 'advance only one stage per response' and 'multiple turns per stage' rules do NOT apply here — a rushed episode covers multiple stages. Close at a natural stopping point (they return to the social space). The next encounter resumes from the next beat."
                     : "Do not skip ahead — write this beat, then advance one beat when complete.");
             }
         }
@@ -1114,11 +1114,6 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         {
             sb.AppendLine($"- Keep this steer plausible for the current surroundings at '{location}'.");
             sb.AppendLine("- If the steer implies changing location, add an explicit transition beat before characters arrive in a new place.");
-        }
-
-        if (session.AdaptiveState.CharacterLocations.Count > 0)
-        {
-            sb.AppendLine("- Respect known character locations and perception limits (line-of-sight/proximity). Do not imply impossible awareness.");
         }
 
         if (activeTheme is not null)
@@ -1342,7 +1337,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             sb.AppendLine("- Urgency and narrative pressure should appear in character energy, dialogue, and pacing — not in abbreviating the scene.");
             sb.AppendLine("- If in-narrative time pressure exists, use it to raise intensity of description, not to rush to conclusion.");
             sb.AppendLine("- Do not imply or skip ahead to a post-scene state; remain in the physical moment.");
-            sb.AppendLine("- Do not write male characters reaching orgasm or ejaculating. Male completion requires the user command /endclimax; until that command appears, the scene always continues.");
+            sb.AppendLine("- By default, do not write male characters reaching orgasm or ejaculating. The scene always continues until /endclimax — unless the active steer or instruction explicitly directs male climax or orgasm.");
             sb.AppendLine("- Write at least 350 words this turn. Fill the length with explicit physical and sensory detail specific to the current act and position.");
         }
     }
@@ -1374,8 +1369,9 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             - Narrative urgency is expressed through action intensity, breathless dialogue, and emotional tone. It does NOT abbreviate the writing or skip stages.
             - Even a hurried encounter spans multiple full beats. The characters may be rushed; the prose remains detailed.
             Male Climax Gate:
-            - Male characters do not orgasm or ejaculate until the user submits the command /endclimax. Until that command appears, the scene always continues.
-            - If a male character appears to have climaxed, the scene does not end — they are not done. Sustain or continue the physical encounter.
+            - By default, male characters do not orgasm or ejaculate until the user submits the command /endclimax. Until that command appears, the scene always continues.
+            - Exception: if the active steer or instruction explicitly directs a male character to orgasm or climax, follow that direction and write it.
+            - If no explicit direction is given and a male character appears to have climaxed, the scene does not end — sustain or continue the physical encounter.
             Continuity Awareness:
             - Use direct, explicit language appropriate to the resolved intensity level.
             """;

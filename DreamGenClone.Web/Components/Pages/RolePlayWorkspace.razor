@@ -436,8 +436,12 @@
         _v2Diagnostics = await RolePlayDiagnostics.GetSnapshotAsync(_session.Id);
         _activeRpTheme = await LoadActiveRpThemeAsync();
         await ResolveBuildUpGateRuleCacheAsync();
-        _pendingDecisionPrompt = await RolePlayEngine.GetPendingDecisionPromptAsync(_session.Id);
-        _deferredDecisionPrompts = (await RolePlayEngine.GetDeferredDecisionPromptsAsync(_session.Id)).ToList();
+        _pendingDecisionPrompt = DecisionOptions.Value.EnableDecisionPrompts
+            ? await RolePlayEngine.GetPendingDecisionPromptAsync(_session.Id)
+            : null;
+        _deferredDecisionPrompts = DecisionOptions.Value.EnableDecisionPrompts
+            ? (await RolePlayEngine.GetDeferredDecisionPromptsAsync(_session.Id)).ToList()
+            : [];
         if (_pendingDecisionPrompt is null)
         {
             _dismissedDecisionPointId = null;
@@ -1258,7 +1262,7 @@
             return;
         }
 
-        _session.MaxThemeAIGuidanceNotes = Math.Clamp(ParseIntFromChangeEvent(args, _session.MaxThemeAIGuidanceNotes), 1, 12);
+        _session.MaxThemeAIGuidanceNotes = Math.Clamp(ParseIntFromChangeEvent(args, _session.MaxThemeAIGuidanceNotes), 1, 30);
         await SaveSessionSettingsAsync();
     }
 
@@ -4570,10 +4574,10 @@
                 var secondary = row.SecondaryLocations.Count > 0 ? string.Join(", ", row.SecondaryLocations) : "none";
                 var excluded = row.ExcludedLocations.Count > 0 ? string.Join(", ", row.ExcludedLocations) : "none";
 
-                sb.AppendLine($"- desire={row.DesireBand}; selfRespect={row.SelfRespectBand}; dominance={row.DominanceBand}; primary={primary}; secondary={secondary}; excluded={excluded}; wifeBehavior={row.WifeBehaviorModifier}; otherManBehavior={row.OtherManBehaviorModifier}; transition={row.TransitionInstruction}");
+                sb.AppendLine($"- desire={row.DesireBand}; selfRespect={row.SelfRespectBand}; dominance={row.DominanceBand}; primary={primary}; secondary={secondary}; excluded={excluded}; wifeReceptivity={row.WifeReceptivity}; wifeBehavior={row.WifeBehaviorModifier}; otherManBehavior={row.OtherManBehaviorModifier}; transition={row.TransitionInstruction}");
             }
 
-            sb.AppendLine("Prefer options that follow one matrix row closely and stay consistent with excluded locations.");
+            sb.AppendLine("Prefer options that follow one matrix row closely and stay consistent with excluded locations. Wife receptivity describes how she receives the finish: Begging = she actively wants it on her; Enthusiastic/Eager = she welcomes it; Accepting = she is okay with it; Tolerating = she endures without enthusiasm; Reluctant = she dislikes it but complies; CumDodging = she tries to avoid or dodge; Enduring = she has no choice and takes it.");
         }
         catch (Exception ex)
         {
@@ -4776,7 +4780,7 @@
             instructions.Add($"Maintain spatial intent '{spatialIntent}' unless intentionally reversing control.");
         }
 
-        instructions.Add("Use explicit placement terms like behind, in front, face-to-face, hips, thighs, grip, and line-of-sight.");
+        instructions.Add("Use explicit placement terms like behind, in front, face-to-face, hips, thighs, and grip.");
         return string.Join(" ", instructions);
     }
 
@@ -4821,7 +4825,6 @@
         var normalized = context.ToLowerInvariant();
         var cueMap = new[]
         {
-            ("blocking line-of-sight", new[] { "block his line of sight", "blocks his line of sight", "line of sight", "between them" }),
             ("possessive claim", new[] { "claim her attention", "claiming her", "mine", "possessive" }),
             ("control through grip", new[] { "grips", "gripping", "holds her thighs", "pins", "pinning" }),
             ("body repositioning", new[] { "shifts his body", "repositions", "turns her", "pulls her", "angles her" }),
@@ -5113,6 +5116,27 @@
             sb.AppendLine("Keep surroundings and movement plausible for this location. Do not teleport characters or jump locations without transition beats.");
         }
 
+        var recentNarrativeInteractions = _session.Interactions
+            .Where(x => !string.Equals(x.ActorName, "Instruction", StringComparison.OrdinalIgnoreCase))
+            .TakeLast(4)
+            .ToList();
+        if (recentNarrativeInteractions.Count > 0)
+        {
+            sb.AppendLine("Recent scene context (ground all options strictly in this continuity — do not introduce places, objects, or characters not already present here):");
+            foreach (var recentInteraction in recentNarrativeInteractions)
+            {
+                var snippet = string.IsNullOrWhiteSpace(recentInteraction.Content)
+                    ? string.Empty
+                    : recentInteraction.Content.Length > 300
+                        ? recentInteraction.Content[..300].TrimEnd() + "\u2026"
+                        : recentInteraction.Content.TrimEnd();
+                if (!string.IsNullOrWhiteSpace(snippet))
+                {
+                    sb.AppendLine($"- [{recentInteraction.ActorName}]: {snippet}");
+                }
+            }
+        }
+
         var activeScenarioId = _session.AdaptiveState.ActiveScenarioId;
         RPTheme? activeTheme = null;
         if (!string.IsNullOrWhiteSpace(activeScenarioId))
@@ -5149,7 +5173,7 @@
             var guidanceNotes = DreamGenClone.Web.Application.RolePlay.RolePlayAssistantPrompts.GetPhaseRelevantThemeAIGuidanceNotes(
                 activeTheme,
                 phase,
-                maxNotes: Math.Clamp(_session.MaxThemeAIGuidanceNotes, 2, 6),
+                maxNotes: Math.Clamp(_session.MaxThemeAIGuidanceNotes, 1, 30),
                 includeFormulaNotes: false);
             if (guidanceNotes.Count > 0)
             {
@@ -7107,22 +7131,6 @@
                                         </div>
                                     }
 
-                                    @if (DecisionOptions.Value.EnableAiDecisionQuestionText)
-                                    {
-                                        <div class="rw-scenario-field" style="margin-top:10px;">
-                                            <label class="rw-scenario-field-label">Question</label>
-                                            <div class="small" style="white-space:pre-wrap; color:#d9d9d9;">@BuildDecisionQuestionText(_pendingDecisionPrompt.DecisionPoint)</div>
-                                        </div>
-                                    }
-
-                                    @if (!string.IsNullOrWhiteSpace(_pendingDecisionPrompt.DecisionPoint.ContextSummary))
-                                    {
-                                        <div class="rw-scenario-field" style="margin-top:10px;">
-                                            <label class="rw-scenario-field-label">Context Summary</label>
-                                            <div class="small" style="white-space:pre-wrap; color:#b8b8b8;">@_pendingDecisionPrompt.DecisionPoint.ContextSummary</div>
-                                        </div>
-                                    }
-
                                     @if (!string.IsNullOrWhiteSpace(_decisionPromptError))
                                     {
                                         <div class="rw-error-inline" style="margin-top:10px;">@_decisionPromptError</div>
@@ -7802,6 +7810,32 @@
                     <div class="rw-settings-section">
                         <div class="rw-settings-section-label">Model Override</div>
                         <ModelSettingsPanel SessionId="@_session.Id" OnSettingsUpdated="OnModelSettingsUpdated" />
+                    </div>
+
+                    <div class="rw-settings-section">
+                        <div class="rw-settings-section-label">Theme AI Guidance Notes</div>
+                        <div class="rw-scenario-field">
+                            <label class="rw-scenario-field-label">Enabled</label>
+                            <input type="checkbox" checked="@_session.UseThemeAIGuidanceNotesInPrompt" @onchange="OnThemeAIGuidanceEnabledChanged" />
+                        </div>
+                        @if (_session.UseThemeAIGuidanceNotesInPrompt)
+                        {
+                            <div class="rw-scenario-field">
+                                <label class="rw-scenario-field-label">Max Notes</label>
+                                <input type="number" class="rw-settings-input" style="width:70px;"
+                                       min="1" max="30"
+                                       value="@_session.MaxThemeAIGuidanceNotes"
+                                       @onchange="OnThemeAIGuidanceMaxNotesChanged" />
+                            </div>
+                            <div class="rw-scenario-field">
+                                <label class="rw-scenario-field-label">Influence %</label>
+                                <input type="number" class="rw-settings-input" style="width:70px;"
+                                       min="0" max="100"
+                                       value="@_session.ThemeAIGuidanceInfluencePercent"
+                                       @onchange="OnThemeAIGuidanceInfluenceChanged" />
+                            </div>
+                            <div class="text-muted small">&ge;80% = authoritative directives &middot; &ge;50% = strong guidance &middot; &lt;50% = soft hints</div>
+                        }
                     </div>
 
                 </div>
