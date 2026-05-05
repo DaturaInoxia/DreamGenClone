@@ -65,7 +65,8 @@ public sealed class ScenarioGuidanceContextFactory : IScenarioGuidanceContextFac
             input.CurrentPhase,
             input.ActiveScenarioId,
             mergedGuidanceText,
-            input.SuppressedScenarioIds);
+            input.SuppressedScenarioIds,
+            generated.HusbandAwarenessFrame);
     }
 
     private static ScenarioGuidanceContext CreateFallback(ScenarioGuidanceInput input)

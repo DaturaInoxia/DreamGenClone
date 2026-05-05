@@ -31,6 +31,7 @@ public sealed class ScenarioGuidanceRequest
 public sealed class ScenarioGuidanceOutput
 {
     public string GuidanceText { get; init; } = string.Empty;
+    public string HusbandAwarenessFrame { get; init; } = string.Empty;
     public IReadOnlyList<string> EmphasisPoints { get; init; } = [];
     public IReadOnlyList<string> AvoidancePoints { get; init; } = [];
     public string Source { get; init; } = "Fallback";

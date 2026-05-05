@@ -15,4 +15,7 @@ public sealed class RolePlayDecisionOptions
 
     // Feature flag for creating decision prompts when scene location changes.
     public bool EnableSceneLocationDecisionPrompts { get; set; } = false;
+
+    // Feature flag for AI-generated question header text on decision prompts.
+    public bool EnableAiDecisionQuestionText { get; set; } = false;
 }

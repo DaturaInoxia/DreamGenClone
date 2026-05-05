@@ -38,7 +38,13 @@
 
     <div class="form-group">
         <label for="maxtokens-@SessionId">Max Tokens (@CurrentSettings.MaxTokens)</label>
-        <input type="number" id="maxtokens-@SessionId" class="form-control" min="50" max="4000" step="50" @bind="CurrentSettings.MaxTokens" @bind:event="oninput" @onchange="OnSettingsChanged" />
+        <input type="number" id="maxtokens-@SessionId" class="form-control" min="50" max="16000" step="50" @bind="CurrentSettings.MaxTokens" @bind:event="oninput" @onchange="OnSettingsChanged" />
+    </div>
+
+    <div class="form-group">
+        <label for="contextwindow-@SessionId">Context Window — turns (@(CurrentSettings.ContextWindowSize > 0 ? CurrentSettings.ContextWindowSize : 30))</label>
+        <input type="number" id="contextwindow-@SessionId" class="form-control" min="4" max="60" step="1" @bind="CurrentSettings.ContextWindowSize" @bind:event="oninput" @onchange="OnSettingsChanged" />
+        <small class="text-muted">Number of recent turns sent to the model. Lower = smaller request. Default: 30.</small>
     </div>
 </div>
 

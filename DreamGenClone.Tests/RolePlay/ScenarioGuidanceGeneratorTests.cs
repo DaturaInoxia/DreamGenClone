@@ -123,12 +123,14 @@ public sealed class ScenarioGuidanceGeneratorTests
             {
                 Id = "husband-1",
                 Name = "Aware Partner",
+                Description = "Aware and interested but mostly observational.",
                 AwarenessLevel = 90,
                 AcceptanceLevel = 80,
                 VoyeurismLevel = 70,
                 ParticipationLevel = 50,
                 EncouragementLevel = 60,
-                RiskTolerance = 40
+                RiskTolerance = 40,
+                Notes = "Wants details and occasional observation."
             });
 
         var service = new ScenarioGuidanceGenerator(
@@ -158,7 +160,8 @@ public sealed class ScenarioGuidanceGeneratorTests
 
         Assert.Contains("Willingness band 'Test Band'", output.GuidanceText, StringComparison.Ordinal);
         Assert.Contains("from Loyalty=90", output.GuidanceText, StringComparison.Ordinal);
-        Assert.Contains("awareness=90", output.GuidanceText, StringComparison.Ordinal);
+        Assert.Contains("Partner/husband behavioral frame:", output.GuidanceText, StringComparison.Ordinal);
+        Assert.Contains("Wants details and occasional observation.", output.GuidanceText, StringComparison.Ordinal);
     }
 
     private sealed class FakeTemplateService : ITemplateService

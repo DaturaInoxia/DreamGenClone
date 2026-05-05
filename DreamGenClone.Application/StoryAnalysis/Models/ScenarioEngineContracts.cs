@@ -19,4 +19,5 @@ public sealed record ScenarioGuidanceContext(
     string Phase,
     string? ActiveScenarioId,
     string GuidanceText,
-    IReadOnlyList<string> ExcludedScenarioIds);
+    IReadOnlyList<string> ExcludedScenarioIds,
+    string HusbandAwarenessFrame = "");

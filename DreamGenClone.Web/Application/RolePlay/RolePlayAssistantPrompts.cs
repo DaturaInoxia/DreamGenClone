@@ -23,6 +23,14 @@ public static class RolePlayAssistantPrompts
             .ToList();
     }
 
+    public static bool IsEpisodicBeatStyle(RPTheme? activeTheme, string phase)
+    {
+        if (activeTheme is null) return false;
+        return activeTheme.PhaseGuidance
+            .Where(x => string.Equals(x.Phase.ToString(), phase, StringComparison.OrdinalIgnoreCase))
+            .Any(x => x.GuidanceText.Contains("[BeatStyle:episodic]", StringComparison.OrdinalIgnoreCase));
+    }
+
     public static IReadOnlyList<RPThemeAIGuidanceNote> GetPhaseRelevantThemeAIGuidanceNotes(
         RPTheme? activeTheme,
         string phase,
@@ -70,6 +78,11 @@ public static class RolePlayAssistantPrompts
         }
 
         promptBuilder.AppendLine($"- Guidance: {guidance.GuidanceText}");
+
+        if (!string.IsNullOrWhiteSpace(guidance.HusbandAwarenessFrame))
+        {
+            promptBuilder.AppendLine($"- Partner/Husband Behavioral Rules: {guidance.HusbandAwarenessFrame}");
+        }
 
         if (guidance.ExcludedScenarioIds.Count > 0)
         {

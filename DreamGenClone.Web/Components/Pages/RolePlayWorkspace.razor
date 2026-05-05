@@ -39,6 +39,7 @@
 @inject IJSRuntime JS
 @inject ILogger<RolePlayWorkspace> Logger
 @inject IOptions<LmStudioOptions> LmStudioConfiguration
+@inject IOptions<RolePlayDecisionOptions> DecisionOptions
 @inject IRolePlayDebugEventSink RolePlayDebugEventSink
 @implements IAsyncDisposable
 @using System.Globalization
@@ -112,6 +113,21 @@
     private string _selectedSteerOption = string.Empty;
     private string _steerOptionError = string.Empty;
     private bool _steerUseGuidedFlow;
+    private bool _timeSkipPopupOpen;
+    private bool _timeSkipSubmitting;
+    private string _timeSkipCustomText = string.Empty;
+    private string _selectedTimeSkipPreset = string.Empty;
+    private string _timeSkipError = string.Empty;
+
+    private static readonly string[] TimeSkipPresets =
+    [
+        "the next morning",
+        "later that night",
+        "a few hours later",
+        "the following day",
+        "the next evening",
+        "the following week",
+    ];
 
     // Identity
     private List<IdentityOption> _identityOptions = [];
@@ -278,7 +294,8 @@
             SessionModelId = _session.SessionModelId,
             Temperature = _session.SessionTemperature,
             TopP = _session.SessionTopP,
-            MaxTokens = _session.SessionMaxTokens
+            MaxTokens = _session.SessionMaxTokens,
+            ContextWindowSize = _session.ContextWindowSize
         };
         ModelSettingsService.UpdateSettings(_session.Id, persistedSettings);
 
@@ -542,14 +559,17 @@
         _session.SessionTemperature = settings.Temperature;
         _session.SessionTopP = settings.TopP;
         _session.SessionMaxTokens = settings.MaxTokens;
+        if (settings.ContextWindowSize > 0)
+            _session.ContextWindowSize = settings.ContextWindowSize;
         await RolePlayEngine.SaveSessionAsync(_session);
         Logger.LogInformation(
-            "Model settings persisted to session {SessionId}: model={ModelId}, temp={Temp}, topP={TopP}, maxTokens={MaxTokens}",
+            "Model settings persisted to session {SessionId}: model={ModelId}, temp={Temp}, topP={TopP}, maxTokens={MaxTokens}, contextWindow={ContextWindow}",
             _session.Id,
             settings.SessionModelId ?? "(default)",
             settings.Temperature,
             settings.TopP,
-            settings.MaxTokens);
+            settings.MaxTokens,
+            _session.ContextWindowSize);
     }
 
     // --- Assistant Panel ---
@@ -3804,11 +3824,16 @@
     private bool IsSteerEligible => _session is not null
         && _session.AdaptiveState.CurrentNarrativePhase != DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Reset;
 
+    private bool IsTimeSkipEligible => _session is not null
+        && _session.AdaptiveState.CurrentNarrativePhase != DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Reset;
+
     private bool IsFinishUiLocked => _isSubmitting || _finishOptionSubmitting;
 
     private bool IsNextPhaseUiLocked => _isSubmitting || _nextPhaseOptionsLoading || _nextPhaseOptionSubmitting;
 
     private bool IsSteerUiLocked => _isSubmitting || _steerOptionsLoading || _steerOptionSubmitting;
+
+    private bool IsTimeSkipUiLocked => _isSubmitting || _timeSkipSubmitting;
 
     private bool ShowPendingResponseIndicator =>
         _isAwaitingModelResponse && !string.IsNullOrWhiteSpace(_pendingResponseLabel);
@@ -5977,23 +6002,43 @@
         var decisionActor = ResolveDecisionActorShortLabel(point.TargetActorId);
         var askingActor = ResolveDecisionActorShortLabel(point.AskingActorName);
         var currentLocation = _session?.AdaptiveState?.CurrentSceneLocation;
+        var isLatePhase = point.Phase is DreamGenClone.Domain.RolePlay.NarrativePhase.Approaching
+            or DreamGenClone.Domain.RolePlay.NarrativePhase.Climax;
 
         if (string.Equals(point.TriggerSource, "CharacterDirectQuestion", StringComparison.OrdinalIgnoreCase))
         {
-            return $"{askingActor} asked {decisionActor} a direct question. How does {decisionActor} respond right now?";
+            return isLatePhase
+                ? $"{askingActor} put the question directly to {decisionActor}. How does {decisionActor} answer?"
+                : $"{askingActor} asked {decisionActor} a direct question. How does {decisionActor} respond right now?";
         }
 
         if (string.Equals(point.TriggerSource, "SceneLocationChanged", StringComparison.OrdinalIgnoreCase))
         {
             if (!string.IsNullOrWhiteSpace(currentLocation))
             {
-                return $"The scene has shifted to {currentLocation}. What does {decisionActor} say or do next?";
+                return isLatePhase
+                    ? $"The scene has moved to {currentLocation}. What does {decisionActor} do now?"
+                    : $"The scene has shifted to {currentLocation}. What does {decisionActor} say or do next?";
             }
 
-            return $"The scene context has shifted. What does {decisionActor} say or do next?";
+            return isLatePhase
+                ? $"The setting has changed. How does {decisionActor} react?"
+                : $"The scene context has shifted. What does {decisionActor} say or do next?";
         }
 
-        return $"Given this moment, what does {decisionActor} choose to say or do next?";
+        if (string.Equals(point.TriggerSource, "PhaseChanged", StringComparison.OrdinalIgnoreCase))
+        {
+            return isLatePhase
+                ? $"The moment is building. What does {decisionActor} do next?"
+                : $"The dynamic between the characters is shifting. What does {decisionActor} choose?";
+        }
+
+        return point.Phase switch
+        {
+            DreamGenClone.Domain.RolePlay.NarrativePhase.Climax => $"Right now, what does {decisionActor} say or do?",
+            DreamGenClone.Domain.RolePlay.NarrativePhase.Approaching => $"How does {decisionActor} respond to this moment?",
+            _ => $"Given this moment, what does {decisionActor} choose to say or do next?"
+        };
     }
 
     private static bool LooksLikeQuestionPrompt(string text)
@@ -7062,10 +7107,13 @@
                                         </div>
                                     }
 
-                                    <div class="rw-scenario-field" style="margin-top:10px;">
-                                        <label class="rw-scenario-field-label">Question</label>
-                                        <div class="small" style="white-space:pre-wrap; color:#d9d9d9;">@BuildDecisionQuestionText(_pendingDecisionPrompt.DecisionPoint)</div>
-                                    </div>
+                                    @if (DecisionOptions.Value.EnableAiDecisionQuestionText)
+                                    {
+                                        <div class="rw-scenario-field" style="margin-top:10px;">
+                                            <label class="rw-scenario-field-label">Question</label>
+                                            <div class="small" style="white-space:pre-wrap; color:#d9d9d9;">@BuildDecisionQuestionText(_pendingDecisionPrompt.DecisionPoint)</div>
+                                        </div>
+                                    }
 
                                     @if (!string.IsNullOrWhiteSpace(_pendingDecisionPrompt.DecisionPoint.ContextSummary))
                                     {

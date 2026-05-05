@@ -66,15 +66,12 @@ public sealed class ScenarioGuidanceGenerator : IScenarioGuidanceGenerator
             guidanceText = $"{guidanceText} {willingnessInterpretation}";
         }
 
-        var husbandAwarenessInterpretation = await BuildHusbandAwarenessInterpretationAsync(request, cancellationToken);
-        if (!string.IsNullOrWhiteSpace(husbandAwarenessInterpretation))
-        {
-            guidanceText = $"{guidanceText} {husbandAwarenessInterpretation}";
-        }
+        var husbandAwarenessFrame = await BuildHusbandAwarenessInterpretationAsync(request, cancellationToken);
 
         return new ScenarioGuidanceOutput
         {
             GuidanceText = guidanceText,
+            HusbandAwarenessFrame = husbandAwarenessFrame,
             EmphasisPoints = template.EmphasisPoints,
             AvoidancePoints = template.AvoidancePoints,
             Source = $"Template:{template.ScenarioId}"
@@ -323,6 +320,63 @@ public sealed class ScenarioGuidanceGenerator : IScenarioGuidanceGenerator
             return string.Empty;
         }
 
-        return $"Partner-awareness frame: awareness={profile.AwarenessLevel}, acceptance={profile.AcceptanceLevel}, voyeurism={profile.VoyeurismLevel}, participation={profile.ParticipationLevel}, encouragement={profile.EncouragementLevel}, risk={profile.RiskTolerance}.";
+        if (!string.IsNullOrWhiteSpace(profile.Notes))
+        {
+            return $"Partner/husband behavioral frame: {profile.Notes.Trim()}";
+        }
+
+        // Notes not set — fall back to attribute-derived text.
+        var sb = new System.Text.StringBuilder();
+        sb.Append("Partner/husband behavioral frame:");
+
+        sb.Append(profile.AwarenessLevel switch
+        {
+            <= 20 => " The partner has no idea anything is happening; do not write them as suspicious or aware.",
+            <= 50 => " The partner senses something may be off but avoids confrontation and does not investigate.",
+            <= 75 => " The partner is aware something may be occurring but has chosen not to intervene.",
+            _     => " The partner is fully aware of the encounter and has chosen to observe — not confront, not interrupt."
+        });
+
+        sb.Append(profile.AcceptanceLevel switch
+        {
+            <= 20 => " They do not accept this and would react with visible anger if directly confronted.",
+            <= 50 => " They feel conflicted and uncomfortable but are holding back their reaction.",
+            <= 75 => " They accept what is happening even if uneasy, and will not act to stop it.",
+            _     => " They are fully at ease with the encounter continuing."
+        });
+
+        sb.Append(profile.VoyeurismLevel switch
+        {
+            <= 20 => " They have no desire to watch or listen — they stay away and avert attention.",
+            <= 50 => " They are mildly curious but resist the urge to watch or listen closely.",
+            <= 75 => " They find themselves wanting to observe and may quietly position for a better view.",
+            _     => " They actively want to watch and listen; they will deliberately position themselves to observe and will NOT interrupt the encounter."
+        });
+
+        sb.Append(profile.ParticipationLevel switch
+        {
+            <= 20 => " They will not participate in any way.",
+            <= 50 => " They might participate briefly only if explicitly and directly invited.",
+            <= 75 => " They may seek limited participation if an opening arises.",
+            _     => " They actively want to join and may initiate direct participation."
+        });
+
+        sb.Append(profile.EncouragementLevel switch
+        {
+            <= 20 => " They provide no sign of approval or encouragement.",
+            <= 50 => " They are passively tolerant — no active encouragement.",
+            <= 75 => " They may signal tacit approval through body language or brief remarks.",
+            _     => " They openly encourage and facilitate the encounter."
+        });
+
+        sb.Append(profile.RiskTolerance switch
+        {
+            <= 20 => " Any sign of exposure would cause them to immediately retreat or shut everything down.",
+            <= 50 => " They strongly prefer discretion and will back away if exposure risk rises.",
+            <= 75 => " They accept moderate risk of the encounter being noticed.",
+            _     => " They are comfortable with significant exposure risk."
+        });
+
+        return sb.ToString();
     }
 }

@@ -26,6 +26,11 @@ public sealed class ModelSettings
     public int MaxTokens { get; set; } = 500;
 
     /// <summary>
+    /// Number of recent interactions to include as context. 0 means use session default (30).
+    /// </summary>
+    public int ContextWindowSize { get; set; } = 0;
+
+    /// <summary>
     /// Whether the user has explicitly set an override (any field changed from default).
     /// </summary>
     public bool HasOverride => SessionModelId != null;
@@ -40,7 +45,8 @@ public sealed class ModelSettings
             SessionModelId = SessionModelId,
             Temperature = Temperature,
             TopP = TopP,
-            MaxTokens = MaxTokens
+            MaxTokens = MaxTokens,
+            ContextWindowSize = ContextWindowSize
         };
     }
 }

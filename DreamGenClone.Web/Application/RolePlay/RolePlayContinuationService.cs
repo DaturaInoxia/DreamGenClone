@@ -771,6 +771,12 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                 session.MaxThemeAIGuidanceNotes);
         }
 
+        var timeSkipLabel = ResolveTimeSkipDirective(session, promptText, intent);
+        if (!string.IsNullOrWhiteSpace(timeSkipLabel))
+        {
+            AppendTimeSkipGuidance(sb, timeSkipLabel, currentPhase);
+        }
+
         _logger.LogInformation(
             "Guidance context generated for session {SessionId}: phase={Phase}, activeScenarioId={ActiveScenarioId}, excludedCount={ExcludedCount}",
             session.Id,
@@ -980,7 +986,10 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                     var nextLabel = nextEntry is not null ? $"{beatEntry.NextBeatCode} — {nextEntry.SubBeatName}" : beatEntry.NextBeatCode;
                     sb.AppendLine($"Next: {nextLabel}");
                 }
-                sb.AppendLine("Do not skip ahead — write this beat, then advance one beat when complete.");
+                var isEpisodic = RolePlayAssistantPrompts.IsEpisodicBeatStyle(activeTheme, currentPhase);
+                sb.AppendLine(isEpisodic
+                    ? "This is a brief encounter — write this beat then close the encounter naturally (they return to the social space). The next encounter will resume from the next beat."
+                    : "Do not skip ahead — write this beat, then advance one beat when complete.");
             }
         }
 
@@ -1060,7 +1069,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             .Where(x => string.Equals(x.Phase.ToString(), phase, StringComparison.OrdinalIgnoreCase))
             .Where(x => !string.IsNullOrWhiteSpace(x.GuidanceText))
             .OrderBy(x => x.GuidanceText, StringComparer.OrdinalIgnoreCase)
-            .Select(x => x.GuidanceText.Trim())
+            .Select(x => Regex.Replace(x.GuidanceText.Trim(), @"\[Beat[^\]]*\]", "", RegexOptions.IgnoreCase).Trim())
             .ToList();
         if (phaseGuidance.Count > 0)
         {
@@ -1188,6 +1197,50 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             ? "Steer the scene in a meaningful, phase-consistent direction."
             : remaining;
         return true;
+    }
+
+    private static bool TryExtractTimeSkipDirective(string promptText, out string label)
+    {
+        label = string.Empty;
+        if (string.IsNullOrWhiteSpace(promptText))
+        {
+            return false;
+        }
+
+        var raw = promptText.Trim();
+        if (!raw.StartsWith("/timeskip", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var remaining = raw.Length > 9 ? raw[9..].Trim() : string.Empty;
+        label = string.IsNullOrWhiteSpace(remaining) ? "the next scene" : remaining;
+        return true;
+    }
+
+    /// <summary>
+    /// Time skips are one-shot — only resolved from the current turn, never carried forward from history.
+    /// </summary>
+    private static string? ResolveTimeSkipDirective(RolePlaySession session, string promptText, PromptIntent intent)
+    {
+        if (intent == PromptIntent.Instruction
+            && TryExtractTimeSkipDirective(promptText, out var label))
+        {
+            return label;
+        }
+
+        return null;
+    }
+
+    private static void AppendTimeSkipGuidance(StringBuilder sb, string label, string currentPhase)
+    {
+        sb.AppendLine("Narrative Time Skip:");
+        sb.AppendLine($"- Time advance: {label}");
+        sb.AppendLine("- The current scene moment ends here. Open the next passage with a brief orienting sentence that anchors the new time and place.");
+        sb.AppendLine("- Do not narrate the passage of time in detail — cut directly to the new moment.");
+        sb.AppendLine("- Characters react naturally to the new setting; do not recap prior events.");
+        sb.AppendLine($"- Maintain narrative phase continuity: current phase is {currentPhase}.");
+        sb.AppendLine("- After the time-skip opening, continue the narrative from the new moment forward as normal.");
     }
 
     private static string? ResolveSteerDirective(RolePlaySession session, string promptText, PromptIntent intent)
