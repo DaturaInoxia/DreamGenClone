@@ -4551,9 +4551,16 @@
             var desire = GetAverageAdaptiveStat(state, "Desire");
             var selfRespect = GetAverageAdaptiveStat(state, "SelfRespect");
             var dominance = GetAverageAdaptiveStat(state, "Dominance");
+            var otherManDominance = GetAverageAdaptiveStatOrFallback(
+                state,
+                dominance,
+                "OtherManDominance",
+                "OtherManDom",
+                "RivalDominance",
+                "BullDominance");
 
             var matchedRows = enabledRows
-                .Where(x => MatchesFinishingMoveRow(x, desire, selfRespect, dominance))
+                .Where(x => MatchesFinishingMoveRow(x, desire, selfRespect, otherManDominance))
                 .Take(6)
                 .ToList();
 
@@ -4566,7 +4573,7 @@
                 : "No exact band match; using top rows by sort order";
 
             sb.AppendLine("Finishing move matrix rows (global base table):");
-            sb.AppendLine($"Current stats for band match: desire={desire:0.0}, selfRespect={selfRespect:0.0}, dominance={dominance:0.0}. {selectionReason}.");
+            sb.AppendLine($"Current stats for band match: desire={desire:0.0}, selfRespect={selfRespect:0.0}, otherManDominance={otherManDominance:0.0}. {selectionReason}.");
 
             foreach (var row in selectedRows)
             {
@@ -4574,10 +4581,94 @@
                 var secondary = row.SecondaryLocations.Count > 0 ? string.Join(", ", row.SecondaryLocations) : "none";
                 var excluded = row.ExcludedLocations.Count > 0 ? string.Join(", ", row.ExcludedLocations) : "none";
 
-                sb.AppendLine($"- desire={row.DesireBand}; selfRespect={row.SelfRespectBand}; dominance={row.DominanceBand}; primary={primary}; secondary={secondary}; excluded={excluded}; wifeReceptivity={row.WifeReceptivity}; wifeBehavior={row.WifeBehaviorModifier}; otherManBehavior={row.OtherManBehaviorModifier}; transition={row.TransitionInstruction}");
+                sb.AppendLine($"- desire={row.DesireBand}; selfRespect={row.SelfRespectBand}; otherManDominance={row.OtherManDominanceBand}; primary={primary}; secondary={secondary}; excluded={excluded}; wifeReceptivity={row.WifeReceptivity}; wifeBehavior={row.WifeBehaviorModifier}; otherManBehavior={row.OtherManBehaviorModifier}; transition={row.TransitionInstruction}");
             }
 
             sb.AppendLine("Prefer options that follow one matrix row closely and stay consistent with excluded locations. Wife receptivity describes how she receives the finish: Begging = she actively wants it on her; Enthusiastic/Eager = she welcomes it; Accepting = she is okay with it; Tolerating = she endures without enthusiasm; Reluctant = she dislikes it but complies; CumDodging = she tries to avoid or dodge; Enduring = she has no choice and takes it.");
+
+            // ── Catalog sections ────────────────────────────────────────────────
+            var eligibleLocations = (await RPThemeService.ListFinishLocationsAsync())
+                .Where(loc => MatchesBandEligibility(loc.EligibleDesireBands, desire)
+                           && MatchesBandEligibility(loc.EligibleSelfRespectBands, selfRespect)
+                           && MatchesBandEligibility(loc.EligibleOtherManDominanceBands, otherManDominance))
+                .OrderBy(loc => loc.SortOrder)
+                .ToList();
+
+            Logger.LogDebug("Finishing move catalog eligible counts: locations={Locations}.", eligibleLocations.Count);
+
+            if (eligibleLocations.Count > 0)
+            {
+                sb.AppendLine("Finishing Move – Locations (eligible by current stats):");
+                foreach (var loc in eligibleLocations)
+                    sb.AppendLine($"- [{loc.Category}] {loc.Name}: {loc.Description}");
+            }
+
+            var hasFacialLocation = eligibleLocations.Any(loc =>
+                string.Equals(loc.Category, "Facial", StringComparison.OrdinalIgnoreCase));
+
+            if (hasFacialLocation)
+            {
+                var eligibleFacialTypes = (await RPThemeService.ListFinishFacialTypesAsync())
+                    .Where(ft => MatchesBandEligibility(ft.EligibleDesireBands, desire)
+                              && MatchesBandEligibility(ft.EligibleSelfRespectBands, selfRespect)
+                              && MatchesBandEligibility(ft.EligibleOtherManDominanceBands, otherManDominance))
+                    .OrderBy(ft => ft.SortOrder)
+                    .ToList();
+
+                Logger.LogDebug("Finishing move catalog eligible counts: facialTypes={FacialTypes}.", eligibleFacialTypes.Count);
+
+                if (eligibleFacialTypes.Count > 0)
+                {
+                    sb.AppendLine("Finishing Move – Facial Types (eligible, apply only when a facial location is chosen):");
+                    foreach (var ft in eligibleFacialTypes)
+                        sb.AppendLine($"- {ft.Name}: {ft.PhysicalCues}");
+                }
+            }
+
+            var eligibleReceptivity = (await RPThemeService.ListFinishReceptivityLevelsAsync())
+                .Where(r => MatchesBandEligibility(r.EligibleDesireBands, desire)
+                         && MatchesBandEligibility(r.EligibleSelfRespectBands, selfRespect))
+                .OrderBy(r => r.SortOrder)
+                .ToList();
+
+            Logger.LogDebug("Finishing move catalog eligible counts: receptivity={Receptivity}.", eligibleReceptivity.Count);
+
+            if (eligibleReceptivity.Count > 0)
+            {
+                sb.AppendLine("Finishing Move – Receptivity (eligible wife receptivity levels):");
+                foreach (var r in eligibleReceptivity)
+                    sb.AppendLine($"- {r.Name}: {r.PhysicalCues} — {r.NarrativeCue}");
+            }
+
+            var eligibleHisControl = (await RPThemeService.ListFinishHisControlLevelsAsync())
+                .Where(hc => MatchesBandEligibility(hc.EligibleOtherManDominanceBands, otherManDominance))
+                .OrderBy(hc => hc.SortOrder)
+                .ToList();
+
+            Logger.LogDebug("Finishing move catalog eligible counts: hisControl={HisControl}.", eligibleHisControl.Count);
+
+            if (eligibleHisControl.Count > 0)
+            {
+                sb.AppendLine("Finishing Move – His Control (eligible control levels):");
+                foreach (var hc in eligibleHisControl)
+                    sb.AppendLine($"- {hc.Name}: {hc.Description} Example: {hc.ExampleDialogue}");
+            }
+
+            var eligibleTransitions = (await RPThemeService.ListFinishTransitionActionsAsync())
+                .Where(t => MatchesBandEligibility(t.EligibleDesireBands, desire)
+                         && MatchesBandEligibility(t.EligibleSelfRespectBands, selfRespect)
+                         && MatchesBandEligibility(t.EligibleOtherManDominanceBands, otherManDominance))
+                .OrderBy(t => t.SortOrder)
+                .ToList();
+
+            Logger.LogDebug("Finishing move catalog eligible counts: transitions={Transitions}.", eligibleTransitions.Count);
+
+            if (eligibleTransitions.Count > 0)
+            {
+                sb.AppendLine("Finishing Move – Transitions (eligible pre-finish transition actions):");
+                foreach (var t in eligibleTransitions)
+                    sb.AppendLine($"- {t.Name}: {t.TransitionText}");
+            }
         }
         catch (Exception ex)
         {
@@ -4585,10 +4676,10 @@
         }
     }
 
-    private static bool MatchesFinishingMoveRow(RPFinishingMoveMatrixRow row, double desire, double selfRespect, double dominance)
+    private static bool MatchesFinishingMoveRow(RPFinishingMoveMatrixRow row, double desire, double selfRespect, double otherManDominance)
         => MatchesNumericBand(row.DesireBand, desire)
            && MatchesNumericBand(row.SelfRespectBand, selfRespect)
-           && MatchesNumericBand(row.DominanceBand, dominance);
+           && MatchesNumericBand(row.OtherManDominanceBand, otherManDominance);
 
     private async Task AppendSteerPositionMatrixContextAsync(StringBuilder sb)
     {
@@ -5083,6 +5174,21 @@
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Returns true if the stat value falls within any band listed in <paramref name="eligibleBands"/>.
+    /// A null/empty eligibleBands means "any" — always returns true.
+    /// Multiple bands are separated by commas.
+    /// </summary>
+    private static bool MatchesBandEligibility(string? eligibleBands, double statValue)
+    {
+        if (string.IsNullOrWhiteSpace(eligibleBands))
+            return true;
+
+        return eligibleBands
+            .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .Any(part => MatchesNumericBand(part, statValue));
     }
 
     private async Task<RPTheme?> LoadActiveRpThemeAsync()

@@ -97,6 +97,11 @@ builder.Services.AddScoped<IScenarioGuidanceGenerator, ScenarioGuidanceGenerator
 builder.Services.AddScoped<ScenarioGuidanceTemplateSeedService>();
 builder.Services.AddScoped<FinishingMoveMatrixSeedService>();
 builder.Services.AddScoped<SteerPositionMatrixSeedService>();
+builder.Services.AddScoped<RPFinishLocationSeedService>();
+builder.Services.AddScoped<RPFinishFacialTypeSeedService>();
+builder.Services.AddScoped<RPFinishReceptivityLevelSeedService>();
+builder.Services.AddScoped<RPFinishHisControlLevelSeedService>();
+builder.Services.AddScoped<RPFinishTransitionActionSeedService>();
 builder.Services.AddScoped<IConceptInjectionService, ConceptInjectionService>();
 builder.Services.AddScoped<IDecisionPointService, DecisionPointService>();
 builder.Services.AddScoped<IOverrideAuthorizationService, OverrideAuthorizationService>();
@@ -186,6 +191,21 @@ using (var scope = app.Services.CreateScope())
 
     var steerPositionMatrixSeedService = scope.ServiceProvider.GetRequiredService<SteerPositionMatrixSeedService>();
     await steerPositionMatrixSeedService.SeedDefaultsAsync();
+
+    var finishLocationSeedService = scope.ServiceProvider.GetRequiredService<RPFinishLocationSeedService>();
+    await finishLocationSeedService.SeedDefaultsAsync();
+
+    var finishFacialTypeSeedService = scope.ServiceProvider.GetRequiredService<RPFinishFacialTypeSeedService>();
+    await finishFacialTypeSeedService.SeedDefaultsAsync();
+
+    var finishReceptivitySeedService = scope.ServiceProvider.GetRequiredService<RPFinishReceptivityLevelSeedService>();
+    await finishReceptivitySeedService.SeedDefaultsAsync();
+
+    var finishHisControlSeedService = scope.ServiceProvider.GetRequiredService<RPFinishHisControlLevelSeedService>();
+    await finishHisControlSeedService.SeedDefaultsAsync();
+
+    var finishTransitionSeedService = scope.ServiceProvider.GetRequiredService<RPFinishTransitionActionSeedService>();
+    await finishTransitionSeedService.SeedDefaultsAsync();
 
 
     var statKeywordCategoryService = scope.ServiceProvider.GetRequiredService<IStatKeywordCategoryService>();

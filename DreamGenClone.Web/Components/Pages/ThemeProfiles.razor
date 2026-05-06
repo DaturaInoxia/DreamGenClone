@@ -362,7 +362,7 @@
                                         <tr>
                                             <th>Desire</th>
                                             <th>Self Respect</th>
-                                            <th>Dominance</th>
+                                            <th>Other Man Dominance</th>
                                             <th>Primary</th>
                                             <th>Secondary</th>
                                             <th>Excluded</th>
@@ -386,7 +386,7 @@
                                                 <tr>
                                                     <td>@row.DesireBand</td>
                                                     <td>@row.SelfRespectBand</td>
-                                                    <td>@row.DominanceBand</td>
+                                                    <td>@row.OtherManDominanceBand</td>
                                                     <td class="small text-muted">@string.Join(", ", row.PrimaryLocations)</td>
                                                     <td class="small text-muted">@string.Join(", ", row.SecondaryLocations)</td>
                                                     <td class="small text-muted">@string.Join(", ", row.ExcludedLocations)</td>
@@ -416,7 +416,7 @@
                                         <input class="form-control form-control-sm" @bind="_finishingMoveFormSelfRespectBand" />
                                     </div>
                                     <div class="col-md-2">
-                                        <label class="form-label">Dominance</label>
+                                        <label class="form-label">Other Man Dominance</label>
                                         <input class="form-control form-control-sm" @bind="_finishingMoveFormDominanceBand" />
                                     </div>
                                     <div class="col-md-2">
@@ -495,6 +495,531 @@
                             </div>
                             <div class="mt-2 d-flex justify-content-end">
                                 <button class="btn btn-sm btn-outline-primary" @onclick="ImportFinishingMoveJsonAsync" disabled="@_isBusy">Import</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>Finishing Move – Locations</strong>
+                            <small class="text-muted d-block">Catalog of eligible finish locations used at climax phase.</small>
+                        </div>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="LoadFinishLocationsAsync" disabled="@_isBusy">Refresh</button>
+                    </div>
+                    <div class="card-body">
+                        @if (!string.IsNullOrWhiteSpace(_finishLocationStatus))
+                        {
+                            <div class="alert alert-success">@_finishLocationStatus</div>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(_finishLocationError))
+                        {
+                            <div class="alert alert-danger">@_finishLocationError</div>
+                        }
+                        <div class="table-responsive mb-3">
+                            <table class="table table-sm align-middle">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Category</th>
+                                        <th>Eligible Desire</th>
+                                        <th>Eligible Self Respect</th>
+                                        <th>Eligible OtherManDom</th>
+                                        <th>Sort</th>
+                                        <th>Enabled</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @if (_finishLocations.Count == 0)
+                                    {
+                                        <tr><td colspan="8" class="text-muted">No location entries yet.</td></tr>
+                                    }
+                                    @foreach (var entry in _finishLocations)
+                                    {
+                                        <tr class="@(entry.IsEnabled ? "" : "text-muted opacity-50")">
+                                            <td>@entry.Name</td>
+                                            <td>@entry.Category</td>
+                                            <td>@(string.IsNullOrWhiteSpace(entry.EligibleDesireBands) ? "(any)" : entry.EligibleDesireBands)</td>
+                                            <td>@(string.IsNullOrWhiteSpace(entry.EligibleSelfRespectBands) ? "(any)" : entry.EligibleSelfRespectBands)</td>
+                                            <td>@(string.IsNullOrWhiteSpace(entry.EligibleOtherManDominanceBands) ? "(any)" : entry.EligibleOtherManDominanceBands)</td>
+                                            <td>@entry.SortOrder</td>
+                                            <td>@(entry.IsEnabled ? "Yes" : "No")</td>
+                                            <td>
+                                                <button class="btn btn-sm btn-outline-primary me-1" @onclick="() => StartEditFinishLocation(entry)" disabled="@_isBusy">Edit</button>
+                                                <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteFinishLocationAsync(entry.Id)" disabled="@_isBusy">Delete</button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="border rounded p-3">
+                            <h6 class="mb-3">@(_editingFinishLocationId is null ? "Add Location" : "Edit Location")</h6>
+                            <div class="row g-2 mb-2">
+                                <div class="col-md-3">
+                                    <label class="form-label">Name</label>
+                                    <input class="form-control form-control-sm" @bind="_finishLocationFormName" />
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label">Category</label>
+                                    <select class="form-select form-select-sm" @bind="_finishLocationFormCategory">
+                                        <option value="Internal">Internal</option>
+                                        <option value="External">External</option>
+                                        <option value="Facial">Facial</option>
+                                        <option value="OnBody">OnBody</option>
+                                        <option value="Withdrawal">Withdrawal</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label">Eligible Desire</label>
+                                    <input class="form-control form-control-sm" placeholder="(any)" @bind="_finishLocationFormEligibleDesireBands" />
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label">Eligible Self Respect</label>
+                                    <input class="form-control form-control-sm" placeholder="(any)" @bind="_finishLocationFormEligibleSelfRespectBands" />
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label">Eligible OtherManDom</label>
+                                    <input class="form-control form-control-sm" placeholder="(any)" @bind="_finishLocationFormEligibleOtherManDominanceBands" />
+                                </div>
+                            </div>
+                            <div class="row g-2 mb-2">
+                                <div class="col-md-6">
+                                    <label class="form-label">Description</label>
+                                    <input class="form-control form-control-sm" @bind="_finishLocationFormDescription" />
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label">Sort Order</label>
+                                    <input type="number" class="form-control form-control-sm" @bind="_finishLocationFormSortOrder" />
+                                </div>
+                                <div class="col-md-2 d-flex align-items-end">
+                                    <div class="form-check mb-1">
+                                        <input class="form-check-input" type="checkbox" @bind="_finishLocationFormEnabled" id="finishLocationEnabled" />
+                                        <label class="form-check-label" for="finishLocationEnabled">Enabled</label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="mt-2 d-flex gap-2">
+                                <button class="btn btn-sm btn-primary" @onclick="SaveFinishLocationAsync" disabled="@_isBusy">Save</button>
+                                @if (_editingFinishLocationId is not null)
+                                {
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="CancelEditFinishLocation" disabled="@_isBusy">Cancel</button>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>Finishing Move – Facial Types</strong>
+                            <small class="text-muted d-block">Catalog of facial finish types (active only when a facial location is eligible).</small>
+                        </div>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="LoadFinishFacialTypesAsync" disabled="@_isBusy">Refresh</button>
+                    </div>
+                    <div class="card-body">
+                        @if (!string.IsNullOrWhiteSpace(_finishFacialTypeStatus))
+                        {
+                            <div class="alert alert-success">@_finishFacialTypeStatus</div>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(_finishFacialTypeError))
+                        {
+                            <div class="alert alert-danger">@_finishFacialTypeError</div>
+                        }
+                        <div class="table-responsive mb-3">
+                            <table class="table table-sm align-middle">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Physical Cues</th>
+                                        <th>Eligible Desire</th>
+                                        <th>Eligible Self Respect</th>
+                                        <th>Eligible OtherManDom</th>
+                                        <th>Sort</th>
+                                        <th>Enabled</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @if (_finishFacialTypes.Count == 0)
+                                    {
+                                        <tr><td colspan="8" class="text-muted">No facial type entries yet.</td></tr>
+                                    }
+                                    @foreach (var entry in _finishFacialTypes)
+                                    {
+                                        <tr class="@(entry.IsEnabled ? "" : "text-muted opacity-50")">
+                                            <td>@entry.Name</td>
+                                            <td>@entry.PhysicalCues</td>
+                                            <td>@(string.IsNullOrWhiteSpace(entry.EligibleDesireBands) ? "(any)" : entry.EligibleDesireBands)</td>
+                                            <td>@(string.IsNullOrWhiteSpace(entry.EligibleSelfRespectBands) ? "(any)" : entry.EligibleSelfRespectBands)</td>
+                                            <td>@(string.IsNullOrWhiteSpace(entry.EligibleOtherManDominanceBands) ? "(any)" : entry.EligibleOtherManDominanceBands)</td>
+                                            <td>@entry.SortOrder</td>
+                                            <td>@(entry.IsEnabled ? "Yes" : "No")</td>
+                                            <td>
+                                                <button class="btn btn-sm btn-outline-primary me-1" @onclick="() => StartEditFinishFacialType(entry)" disabled="@_isBusy">Edit</button>
+                                                <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteFinishFacialTypeAsync(entry.Id)" disabled="@_isBusy">Delete</button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="border rounded p-3">
+                            <h6 class="mb-3">@(_editingFinishFacialTypeId is null ? "Add Facial Type" : "Edit Facial Type")</h6>
+                            <div class="row g-2 mb-2">
+                                <div class="col-md-3">
+                                    <label class="form-label">Name</label>
+                                    <input class="form-control form-control-sm" @bind="_finishFacialTypeFormName" />
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">Physical Cues</label>
+                                    <input class="form-control form-control-sm" @bind="_finishFacialTypeFormPhysicalCues" />
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label">Eligible Desire</label>
+                                    <input class="form-control form-control-sm" placeholder="(any)" @bind="_finishFacialTypeFormEligibleDesireBands" />
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label">Eligible Self Respect</label>
+                                    <input class="form-control form-control-sm" placeholder="(any)" @bind="_finishFacialTypeFormEligibleSelfRespectBands" />
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label">Eligible OtherManDom</label>
+                                    <input class="form-control form-control-sm" placeholder="(any)" @bind="_finishFacialTypeFormEligibleOtherManDominanceBands" />
+                                </div>
+                            </div>
+                            <div class="row g-2 mb-2">
+                                <div class="col-md-6">
+                                    <label class="form-label">Description</label>
+                                    <input class="form-control form-control-sm" @bind="_finishFacialTypeFormDescription" />
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label">Sort Order</label>
+                                    <input type="number" class="form-control form-control-sm" @bind="_finishFacialTypeFormSortOrder" />
+                                </div>
+                                <div class="col-md-2 d-flex align-items-end">
+                                    <div class="form-check mb-1">
+                                        <input class="form-check-input" type="checkbox" @bind="_finishFacialTypeFormEnabled" id="finishFacialTypeEnabled" />
+                                        <label class="form-check-label" for="finishFacialTypeEnabled">Enabled</label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="mt-2 d-flex gap-2">
+                                <button class="btn btn-sm btn-primary" @onclick="SaveFinishFacialTypeAsync" disabled="@_isBusy">Save</button>
+                                @if (_editingFinishFacialTypeId is not null)
+                                {
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="CancelEditFinishFacialType" disabled="@_isBusy">Cancel</button>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>Finishing Move – Receptivity Levels</strong>
+                            <small class="text-muted d-block">Catalog of wife receptivity levels at climax phase.</small>
+                        </div>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="LoadFinishReceptivityLevelsAsync" disabled="@_isBusy">Refresh</button>
+                    </div>
+                    <div class="card-body">
+                        @if (!string.IsNullOrWhiteSpace(_finishReceptivityStatus))
+                        {
+                            <div class="alert alert-success">@_finishReceptivityStatus</div>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(_finishReceptivityError))
+                        {
+                            <div class="alert alert-danger">@_finishReceptivityError</div>
+                        }
+                        <div class="table-responsive mb-3">
+                            <table class="table table-sm align-middle">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Physical Cues</th>
+                                        <th>Narrative Cue</th>
+                                        <th>Eligible Desire</th>
+                                        <th>Eligible Self Respect</th>
+                                        <th>Sort</th>
+                                        <th>Enabled</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @if (_finishReceptivityLevels.Count == 0)
+                                    {
+                                        <tr><td colspan="8" class="text-muted">No receptivity level entries yet.</td></tr>
+                                    }
+                                    @foreach (var entry in _finishReceptivityLevels)
+                                    {
+                                        <tr class="@(entry.IsEnabled ? "" : "text-muted opacity-50")">
+                                            <td>@entry.Name</td>
+                                            <td>@entry.PhysicalCues</td>
+                                            <td>@entry.NarrativeCue</td>
+                                            <td>@(string.IsNullOrWhiteSpace(entry.EligibleDesireBands) ? "(any)" : entry.EligibleDesireBands)</td>
+                                            <td>@(string.IsNullOrWhiteSpace(entry.EligibleSelfRespectBands) ? "(any)" : entry.EligibleSelfRespectBands)</td>
+                                            <td>@entry.SortOrder</td>
+                                            <td>@(entry.IsEnabled ? "Yes" : "No")</td>
+                                            <td>
+                                                <button class="btn btn-sm btn-outline-primary me-1" @onclick="() => StartEditFinishReceptivityLevel(entry)" disabled="@_isBusy">Edit</button>
+                                                <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteFinishReceptivityLevelAsync(entry.Id)" disabled="@_isBusy">Delete</button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="border rounded p-3">
+                            <h6 class="mb-3">@(_editingFinishReceptivityId is null ? "Add Receptivity Level" : "Edit Receptivity Level")</h6>
+                            <div class="row g-2 mb-2">
+                                <div class="col-md-3">
+                                    <label class="form-label">Name</label>
+                                    <input class="form-control form-control-sm" @bind="_finishReceptivityFormName" />
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">Physical Cues</label>
+                                    <input class="form-control form-control-sm" @bind="_finishReceptivityFormPhysicalCues" />
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">Narrative Cue</label>
+                                    <input class="form-control form-control-sm" @bind="_finishReceptivityFormNarrativeCue" />
+                                </div>
+                            </div>
+                            <div class="row g-2 mb-2">
+                                <div class="col-md-3">
+                                    <label class="form-label">Eligible Desire</label>
+                                    <input class="form-control form-control-sm" placeholder="(any)" @bind="_finishReceptivityFormEligibleDesireBands" />
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">Eligible Self Respect</label>
+                                    <input class="form-control form-control-sm" placeholder="(any)" @bind="_finishReceptivityFormEligibleSelfRespectBands" />
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label">Sort Order</label>
+                                    <input type="number" class="form-control form-control-sm" @bind="_finishReceptivityFormSortOrder" />
+                                </div>
+                                <div class="col-md-2 d-flex align-items-end">
+                                    <div class="form-check mb-1">
+                                        <input class="form-check-input" type="checkbox" @bind="_finishReceptivityFormEnabled" id="finishReceptivityEnabled" />
+                                        <label class="form-check-label" for="finishReceptivityEnabled">Enabled</label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="mt-2 d-flex gap-2">
+                                <button class="btn btn-sm btn-primary" @onclick="SaveFinishReceptivityLevelAsync" disabled="@_isBusy">Save</button>
+                                @if (_editingFinishReceptivityId is not null)
+                                {
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="CancelEditFinishReceptivityLevel" disabled="@_isBusy">Cancel</button>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>Finishing Move – His Control Levels</strong>
+                            <small class="text-muted d-block">Catalog of other-man control levels at climax phase.</small>
+                        </div>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="LoadFinishHisControlLevelsAsync" disabled="@_isBusy">Refresh</button>
+                    </div>
+                    <div class="card-body">
+                        @if (!string.IsNullOrWhiteSpace(_finishHisControlStatus))
+                        {
+                            <div class="alert alert-success">@_finishHisControlStatus</div>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(_finishHisControlError))
+                        {
+                            <div class="alert alert-danger">@_finishHisControlError</div>
+                        }
+                        <div class="table-responsive mb-3">
+                            <table class="table table-sm align-middle">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Example Dialogue</th>
+                                        <th>Eligible OtherManDom</th>
+                                        <th>Sort</th>
+                                        <th>Enabled</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @if (_finishHisControlLevels.Count == 0)
+                                    {
+                                        <tr><td colspan="6" class="text-muted">No his-control level entries yet.</td></tr>
+                                    }
+                                    @foreach (var entry in _finishHisControlLevels)
+                                    {
+                                        <tr class="@(entry.IsEnabled ? "" : "text-muted opacity-50")">
+                                            <td>@entry.Name</td>
+                                            <td>@entry.ExampleDialogue</td>
+                                            <td>@(string.IsNullOrWhiteSpace(entry.EligibleOtherManDominanceBands) ? "(any)" : entry.EligibleOtherManDominanceBands)</td>
+                                            <td>@entry.SortOrder</td>
+                                            <td>@(entry.IsEnabled ? "Yes" : "No")</td>
+                                            <td>
+                                                <button class="btn btn-sm btn-outline-primary me-1" @onclick="() => StartEditFinishHisControlLevel(entry)" disabled="@_isBusy">Edit</button>
+                                                <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteFinishHisControlLevelAsync(entry.Id)" disabled="@_isBusy">Delete</button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="border rounded p-3">
+                            <h6 class="mb-3">@(_editingFinishHisControlId is null ? "Add His Control Level" : "Edit His Control Level")</h6>
+                            <div class="row g-2 mb-2">
+                                <div class="col-md-3">
+                                    <label class="form-label">Name</label>
+                                    <input class="form-control form-control-sm" @bind="_finishHisControlFormName" />
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Example Dialogue</label>
+                                    <input class="form-control form-control-sm" @bind="_finishHisControlFormExampleDialogue" />
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">Eligible OtherManDom</label>
+                                    <input class="form-control form-control-sm" placeholder="(any)" @bind="_finishHisControlFormEligibleOtherManDominanceBands" />
+                                </div>
+                            </div>
+                            <div class="row g-2 mb-2">
+                                <div class="col-md-6">
+                                    <label class="form-label">Description</label>
+                                    <input class="form-control form-control-sm" @bind="_finishHisControlFormDescription" />
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label">Sort Order</label>
+                                    <input type="number" class="form-control form-control-sm" @bind="_finishHisControlFormSortOrder" />
+                                </div>
+                                <div class="col-md-2 d-flex align-items-end">
+                                    <div class="form-check mb-1">
+                                        <input class="form-check-input" type="checkbox" @bind="_finishHisControlFormEnabled" id="finishHisControlEnabled" />
+                                        <label class="form-check-label" for="finishHisControlEnabled">Enabled</label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="mt-2 d-flex gap-2">
+                                <button class="btn btn-sm btn-primary" @onclick="SaveFinishHisControlLevelAsync" disabled="@_isBusy">Save</button>
+                                @if (_editingFinishHisControlId is not null)
+                                {
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="CancelEditFinishHisControlLevel" disabled="@_isBusy">Cancel</button>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>Finishing Move – Transition Actions</strong>
+                            <small class="text-muted d-block">Catalog of transition actions leading into the climax finish.</small>
+                        </div>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="LoadFinishTransitionActionsAsync" disabled="@_isBusy">Refresh</button>
+                    </div>
+                    <div class="card-body">
+                        @if (!string.IsNullOrWhiteSpace(_finishTransitionStatus))
+                        {
+                            <div class="alert alert-success">@_finishTransitionStatus</div>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(_finishTransitionError))
+                        {
+                            <div class="alert alert-danger">@_finishTransitionError</div>
+                        }
+                        <div class="table-responsive mb-3">
+                            <table class="table table-sm align-middle">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Transition Text</th>
+                                        <th>Eligible Desire</th>
+                                        <th>Eligible Self Respect</th>
+                                        <th>Eligible OtherManDom</th>
+                                        <th>Sort</th>
+                                        <th>Enabled</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @if (_finishTransitionActions.Count == 0)
+                                    {
+                                        <tr><td colspan="8" class="text-muted">No transition action entries yet.</td></tr>
+                                    }
+                                    @foreach (var entry in _finishTransitionActions)
+                                    {
+                                        <tr class="@(entry.IsEnabled ? "" : "text-muted opacity-50")">
+                                            <td>@entry.Name</td>
+                                            <td>@entry.TransitionText</td>
+                                            <td>@(string.IsNullOrWhiteSpace(entry.EligibleDesireBands) ? "(any)" : entry.EligibleDesireBands)</td>
+                                            <td>@(string.IsNullOrWhiteSpace(entry.EligibleSelfRespectBands) ? "(any)" : entry.EligibleSelfRespectBands)</td>
+                                            <td>@(string.IsNullOrWhiteSpace(entry.EligibleOtherManDominanceBands) ? "(any)" : entry.EligibleOtherManDominanceBands)</td>
+                                            <td>@entry.SortOrder</td>
+                                            <td>@(entry.IsEnabled ? "Yes" : "No")</td>
+                                            <td>
+                                                <button class="btn btn-sm btn-outline-primary me-1" @onclick="() => StartEditFinishTransitionAction(entry)" disabled="@_isBusy">Edit</button>
+                                                <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteFinishTransitionActionAsync(entry.Id)" disabled="@_isBusy">Delete</button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="border rounded p-3">
+                            <h6 class="mb-3">@(_editingFinishTransitionId is null ? "Add Transition Action" : "Edit Transition Action")</h6>
+                            <div class="row g-2 mb-2">
+                                <div class="col-md-3">
+                                    <label class="form-label">Name</label>
+                                    <input class="form-control form-control-sm" @bind="_finishTransitionFormName" />
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">Transition Text</label>
+                                    <input class="form-control form-control-sm" @bind="_finishTransitionFormTransitionText" />
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label">Eligible Desire</label>
+                                    <input class="form-control form-control-sm" placeholder="(any)" @bind="_finishTransitionFormEligibleDesireBands" />
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label">Eligible Self Respect</label>
+                                    <input class="form-control form-control-sm" placeholder="(any)" @bind="_finishTransitionFormEligibleSelfRespectBands" />
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label">Eligible OtherManDom</label>
+                                    <input class="form-control form-control-sm" placeholder="(any)" @bind="_finishTransitionFormEligibleOtherManDominanceBands" />
+                                </div>
+                            </div>
+                            <div class="row g-2 mb-2">
+                                <div class="col-md-6">
+                                    <label class="form-label">Description</label>
+                                    <input class="form-control form-control-sm" @bind="_finishTransitionFormDescription" />
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label">Sort Order</label>
+                                    <input type="number" class="form-control form-control-sm" @bind="_finishTransitionFormSortOrder" />
+                                </div>
+                                <div class="col-md-2 d-flex align-items-end">
+                                    <div class="form-check mb-1">
+                                        <input class="form-check-input" type="checkbox" @bind="_finishTransitionFormEnabled" id="finishTransitionEnabled" />
+                                        <label class="form-check-label" for="finishTransitionEnabled">Enabled</label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="mt-2 d-flex gap-2">
+                                <button class="btn btn-sm btn-primary" @onclick="SaveFinishTransitionActionAsync" disabled="@_isBusy">Save</button>
+                                @if (_editingFinishTransitionId is not null)
+                                {
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="CancelEditFinishTransitionAction" disabled="@_isBusy">Cancel</button>
+                                }
                             </div>
                         </div>
                     </div>
@@ -2498,6 +3023,74 @@
     private string _finishingMoveImportJson = string.Empty;
     private bool _finishingMoveReplaceExisting = true;
 
+    // Finish Locations catalog state
+    private List<RPFinishLocation> _finishLocations = [];
+    private string? _finishLocationError;
+    private string? _finishLocationStatus;
+    private string? _editingFinishLocationId;
+    private string _finishLocationFormName = string.Empty;
+    private string _finishLocationFormCategory = "Internal";
+    private string _finishLocationFormDescription = string.Empty;
+    private string _finishLocationFormEligibleDesireBands = string.Empty;
+    private string _finishLocationFormEligibleSelfRespectBands = string.Empty;
+    private string _finishLocationFormEligibleOtherManDominanceBands = string.Empty;
+    private int _finishLocationFormSortOrder;
+    private bool _finishLocationFormEnabled = true;
+
+    // Finish Facial Types catalog state
+    private List<RPFinishFacialType> _finishFacialTypes = [];
+    private string? _finishFacialTypeError;
+    private string? _finishFacialTypeStatus;
+    private string? _editingFinishFacialTypeId;
+    private string _finishFacialTypeFormName = string.Empty;
+    private string _finishFacialTypeFormDescription = string.Empty;
+    private string _finishFacialTypeFormPhysicalCues = string.Empty;
+    private string _finishFacialTypeFormEligibleDesireBands = string.Empty;
+    private string _finishFacialTypeFormEligibleSelfRespectBands = string.Empty;
+    private string _finishFacialTypeFormEligibleOtherManDominanceBands = string.Empty;
+    private int _finishFacialTypeFormSortOrder;
+    private bool _finishFacialTypeFormEnabled = true;
+
+    // Finish Receptivity Levels catalog state
+    private List<RPFinishReceptivityLevel> _finishReceptivityLevels = [];
+    private string? _finishReceptivityError;
+    private string? _finishReceptivityStatus;
+    private string? _editingFinishReceptivityId;
+    private string _finishReceptivityFormName = string.Empty;
+    private string _finishReceptivityFormDescription = string.Empty;
+    private string _finishReceptivityFormPhysicalCues = string.Empty;
+    private string _finishReceptivityFormNarrativeCue = string.Empty;
+    private string _finishReceptivityFormEligibleDesireBands = string.Empty;
+    private string _finishReceptivityFormEligibleSelfRespectBands = string.Empty;
+    private int _finishReceptivityFormSortOrder;
+    private bool _finishReceptivityFormEnabled = true;
+
+    // Finish His Control Levels catalog state
+    private List<RPFinishHisControlLevel> _finishHisControlLevels = [];
+    private string? _finishHisControlError;
+    private string? _finishHisControlStatus;
+    private string? _editingFinishHisControlId;
+    private string _finishHisControlFormName = string.Empty;
+    private string _finishHisControlFormDescription = string.Empty;
+    private string _finishHisControlFormExampleDialogue = string.Empty;
+    private string _finishHisControlFormEligibleOtherManDominanceBands = string.Empty;
+    private int _finishHisControlFormSortOrder;
+    private bool _finishHisControlFormEnabled = true;
+
+    // Finish Transition Actions catalog state
+    private List<RPFinishTransitionAction> _finishTransitionActions = [];
+    private string? _finishTransitionError;
+    private string? _finishTransitionStatus;
+    private string? _editingFinishTransitionId;
+    private string _finishTransitionFormName = string.Empty;
+    private string _finishTransitionFormDescription = string.Empty;
+    private string _finishTransitionFormTransitionText = string.Empty;
+    private string _finishTransitionFormEligibleDesireBands = string.Empty;
+    private string _finishTransitionFormEligibleSelfRespectBands = string.Empty;
+    private string _finishTransitionFormEligibleOtherManDominanceBands = string.Empty;
+    private int _finishTransitionFormSortOrder;
+    private bool _finishTransitionFormEnabled = true;
+
     private List<RPSteerPositionMatrixRow> _steerPositionRows = [];
     private string? _steerPositionError;
     private string? _steerPositionStatus;
@@ -2698,6 +3291,11 @@
         await LoadFinishingMoveRowsAsync();
         await LoadSteerPositionRowsAsync();
         await LoadBeatEntriesAsync();
+        await LoadFinishLocationsAsync();
+        await LoadFinishFacialTypesAsync();
+        await LoadFinishReceptivityLevelsAsync();
+        await LoadFinishHisControlLevelsAsync();
+        await LoadFinishTransitionActionsAsync();
 
         if (!string.IsNullOrWhiteSpace(ProfileId))
         {
@@ -3271,7 +3869,7 @@
         _editingFinishingMoveRowId = row.Id;
         _finishingMoveFormDesireBand = row.DesireBand;
         _finishingMoveFormSelfRespectBand = row.SelfRespectBand;
-        _finishingMoveFormDominanceBand = row.DominanceBand;
+        _finishingMoveFormDominanceBand = row.OtherManDominanceBand;
         _finishingMoveFormPrimaryLocations = string.Join(", ", row.PrimaryLocations);
         _finishingMoveFormSecondaryLocations = string.Join(", ", row.SecondaryLocations);
         _finishingMoveFormExcludedLocations = string.Join(", ", row.ExcludedLocations);
@@ -3290,7 +3888,7 @@
         _editingFinishingMoveRowId = null;
         _finishingMoveFormDesireBand = "50-74";
         _finishingMoveFormSelfRespectBand = "30-59";
-        _finishingMoveFormDominanceBand = "Medium";
+        _finishingMoveFormDominanceBand = "30-59";
         _finishingMoveFormPrimaryLocations = string.Empty;
         _finishingMoveFormSecondaryLocations = string.Empty;
         _finishingMoveFormExcludedLocations = string.Empty;
@@ -3314,7 +3912,7 @@
                 Id = _editingFinishingMoveRowId ?? Guid.NewGuid().ToString("N"),
                 DesireBand = _finishingMoveFormDesireBand,
                 SelfRespectBand = _finishingMoveFormSelfRespectBand,
-                DominanceBand = _finishingMoveFormDominanceBand,
+                OtherManDominanceBand = _finishingMoveFormDominanceBand,
                 PrimaryLocations = ParseCsv(_finishingMoveFormPrimaryLocations),
                 SecondaryLocations = ParseCsv(_finishingMoveFormSecondaryLocations),
                 ExcludedLocations = ParseCsv(_finishingMoveFormExcludedLocations),
@@ -3403,8 +4001,451 @@
         }
     }
 
-    private async Task LoadSteerPositionRowsAsync()
+    // ── Finish Locations ─────────────────────────────────────────────────────
+    private async Task LoadFinishLocationsAsync()
     {
+        _finishLocations = (await Facade.ListFinishLocationsAsync(includeDisabled: true)).ToList();
+    }
+
+    private void StartEditFinishLocation(RPFinishLocation entry)
+    {
+        _editingFinishLocationId = entry.Id;
+        _finishLocationFormName = entry.Name;
+        _finishLocationFormCategory = entry.Category;
+        _finishLocationFormDescription = entry.Description ?? string.Empty;
+        _finishLocationFormEligibleDesireBands = entry.EligibleDesireBands ?? string.Empty;
+        _finishLocationFormEligibleSelfRespectBands = entry.EligibleSelfRespectBands ?? string.Empty;
+        _finishLocationFormEligibleOtherManDominanceBands = entry.EligibleOtherManDominanceBands ?? string.Empty;
+        _finishLocationFormSortOrder = entry.SortOrder;
+        _finishLocationFormEnabled = entry.IsEnabled;
+    }
+
+    private void CancelEditFinishLocation()
+    {
+        _editingFinishLocationId = null;
+        _finishLocationFormName = string.Empty;
+        _finishLocationFormCategory = "Internal";
+        _finishLocationFormDescription = string.Empty;
+        _finishLocationFormEligibleDesireBands = string.Empty;
+        _finishLocationFormEligibleSelfRespectBands = string.Empty;
+        _finishLocationFormEligibleOtherManDominanceBands = string.Empty;
+        _finishLocationFormSortOrder = _finishLocations.Count;
+        _finishLocationFormEnabled = true;
+    }
+
+    private async Task SaveFinishLocationAsync()
+    {
+        _finishLocationError = null;
+        _finishLocationStatus = null;
+        _isBusy = true;
+        try
+        {
+            var entry = new RPFinishLocation
+            {
+                Id = _editingFinishLocationId ?? string.Empty,
+                Name = _finishLocationFormName,
+                Category = _finishLocationFormCategory,
+                Description = _finishLocationFormDescription,
+                EligibleDesireBands = _finishLocationFormEligibleDesireBands,
+                EligibleSelfRespectBands = _finishLocationFormEligibleSelfRespectBands,
+                EligibleOtherManDominanceBands = _finishLocationFormEligibleOtherManDominanceBands,
+                SortOrder = _finishLocationFormSortOrder,
+                IsEnabled = _finishLocationFormEnabled
+            };
+            await Facade.SaveFinishLocationAsync(entry);
+            await LoadFinishLocationsAsync();
+            var wasEditing = _editingFinishLocationId is not null;
+            CancelEditFinishLocation();
+            _finishLocationStatus = wasEditing ? "Location updated." : "Location added.";
+        }
+        catch (Exception ex)
+        {
+            _finishLocationError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task DeleteFinishLocationAsync(string entryId)
+    {
+        _finishLocationError = null;
+        _finishLocationStatus = null;
+        _isBusy = true;
+        try
+        {
+            await Facade.DeleteFinishLocationAsync(entryId);
+            await LoadFinishLocationsAsync();
+            if (string.Equals(_editingFinishLocationId, entryId, StringComparison.OrdinalIgnoreCase))
+                CancelEditFinishLocation();
+            _finishLocationStatus = "Location deleted.";
+        }
+        catch (Exception ex)
+        {
+            _finishLocationError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    // ── Finish Facial Types ───────────────────────────────────────────────────
+    private async Task LoadFinishFacialTypesAsync()
+    {
+        _finishFacialTypes = (await Facade.ListFinishFacialTypesAsync(includeDisabled: true)).ToList();
+    }
+
+    private void StartEditFinishFacialType(RPFinishFacialType entry)
+    {
+        _editingFinishFacialTypeId = entry.Id;
+        _finishFacialTypeFormName = entry.Name;
+        _finishFacialTypeFormDescription = entry.Description ?? string.Empty;
+        _finishFacialTypeFormPhysicalCues = entry.PhysicalCues ?? string.Empty;
+        _finishFacialTypeFormEligibleDesireBands = entry.EligibleDesireBands ?? string.Empty;
+        _finishFacialTypeFormEligibleSelfRespectBands = entry.EligibleSelfRespectBands ?? string.Empty;
+        _finishFacialTypeFormEligibleOtherManDominanceBands = entry.EligibleOtherManDominanceBands ?? string.Empty;
+        _finishFacialTypeFormSortOrder = entry.SortOrder;
+        _finishFacialTypeFormEnabled = entry.IsEnabled;
+    }
+
+    private void CancelEditFinishFacialType()
+    {
+        _editingFinishFacialTypeId = null;
+        _finishFacialTypeFormName = string.Empty;
+        _finishFacialTypeFormDescription = string.Empty;
+        _finishFacialTypeFormPhysicalCues = string.Empty;
+        _finishFacialTypeFormEligibleDesireBands = string.Empty;
+        _finishFacialTypeFormEligibleSelfRespectBands = string.Empty;
+        _finishFacialTypeFormEligibleOtherManDominanceBands = string.Empty;
+        _finishFacialTypeFormSortOrder = _finishFacialTypes.Count;
+        _finishFacialTypeFormEnabled = true;
+    }
+
+    private async Task SaveFinishFacialTypeAsync()
+    {
+        _finishFacialTypeError = null;
+        _finishFacialTypeStatus = null;
+        _isBusy = true;
+        try
+        {
+            var entry = new RPFinishFacialType
+            {
+                Id = _editingFinishFacialTypeId ?? string.Empty,
+                Name = _finishFacialTypeFormName,
+                Description = _finishFacialTypeFormDescription,
+                PhysicalCues = _finishFacialTypeFormPhysicalCues,
+                EligibleDesireBands = _finishFacialTypeFormEligibleDesireBands,
+                EligibleSelfRespectBands = _finishFacialTypeFormEligibleSelfRespectBands,
+                EligibleOtherManDominanceBands = _finishFacialTypeFormEligibleOtherManDominanceBands,
+                SortOrder = _finishFacialTypeFormSortOrder,
+                IsEnabled = _finishFacialTypeFormEnabled
+            };
+            await Facade.SaveFinishFacialTypeAsync(entry);
+            await LoadFinishFacialTypesAsync();
+            var wasEditing = _editingFinishFacialTypeId is not null;
+            CancelEditFinishFacialType();
+            _finishFacialTypeStatus = wasEditing ? "Facial type updated." : "Facial type added.";
+        }
+        catch (Exception ex)
+        {
+            _finishFacialTypeError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task DeleteFinishFacialTypeAsync(string entryId)
+    {
+        _finishFacialTypeError = null;
+        _finishFacialTypeStatus = null;
+        _isBusy = true;
+        try
+        {
+            await Facade.DeleteFinishFacialTypeAsync(entryId);
+            await LoadFinishFacialTypesAsync();
+            if (string.Equals(_editingFinishFacialTypeId, entryId, StringComparison.OrdinalIgnoreCase))
+                CancelEditFinishFacialType();
+            _finishFacialTypeStatus = "Facial type deleted.";
+        }
+        catch (Exception ex)
+        {
+            _finishFacialTypeError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    // ── Finish Receptivity Levels ─────────────────────────────────────────────
+    private async Task LoadFinishReceptivityLevelsAsync()
+    {
+        _finishReceptivityLevels = (await Facade.ListFinishReceptivityLevelsAsync(includeDisabled: true)).ToList();
+    }
+
+    private void StartEditFinishReceptivityLevel(RPFinishReceptivityLevel entry)
+    {
+        _editingFinishReceptivityId = entry.Id;
+        _finishReceptivityFormName = entry.Name;
+        _finishReceptivityFormDescription = entry.Description ?? string.Empty;
+        _finishReceptivityFormPhysicalCues = entry.PhysicalCues ?? string.Empty;
+        _finishReceptivityFormNarrativeCue = entry.NarrativeCue ?? string.Empty;
+        _finishReceptivityFormEligibleDesireBands = entry.EligibleDesireBands ?? string.Empty;
+        _finishReceptivityFormEligibleSelfRespectBands = entry.EligibleSelfRespectBands ?? string.Empty;
+        _finishReceptivityFormSortOrder = entry.SortOrder;
+        _finishReceptivityFormEnabled = entry.IsEnabled;
+    }
+
+    private void CancelEditFinishReceptivityLevel()
+    {
+        _editingFinishReceptivityId = null;
+        _finishReceptivityFormName = string.Empty;
+        _finishReceptivityFormDescription = string.Empty;
+        _finishReceptivityFormPhysicalCues = string.Empty;
+        _finishReceptivityFormNarrativeCue = string.Empty;
+        _finishReceptivityFormEligibleDesireBands = string.Empty;
+        _finishReceptivityFormEligibleSelfRespectBands = string.Empty;
+        _finishReceptivityFormSortOrder = _finishReceptivityLevels.Count;
+        _finishReceptivityFormEnabled = true;
+    }
+
+    private async Task SaveFinishReceptivityLevelAsync()
+    {
+        _finishReceptivityError = null;
+        _finishReceptivityStatus = null;
+        _isBusy = true;
+        try
+        {
+            var entry = new RPFinishReceptivityLevel
+            {
+                Id = _editingFinishReceptivityId ?? string.Empty,
+                Name = _finishReceptivityFormName,
+                Description = _finishReceptivityFormDescription,
+                PhysicalCues = _finishReceptivityFormPhysicalCues,
+                NarrativeCue = _finishReceptivityFormNarrativeCue,
+                EligibleDesireBands = _finishReceptivityFormEligibleDesireBands,
+                EligibleSelfRespectBands = _finishReceptivityFormEligibleSelfRespectBands,
+                SortOrder = _finishReceptivityFormSortOrder,
+                IsEnabled = _finishReceptivityFormEnabled
+            };
+            await Facade.SaveFinishReceptivityLevelAsync(entry);
+            await LoadFinishReceptivityLevelsAsync();
+            var wasEditing = _editingFinishReceptivityId is not null;
+            CancelEditFinishReceptivityLevel();
+            _finishReceptivityStatus = wasEditing ? "Receptivity level updated." : "Receptivity level added.";
+        }
+        catch (Exception ex)
+        {
+            _finishReceptivityError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task DeleteFinishReceptivityLevelAsync(string entryId)
+    {
+        _finishReceptivityError = null;
+        _finishReceptivityStatus = null;
+        _isBusy = true;
+        try
+        {
+            await Facade.DeleteFinishReceptivityLevelAsync(entryId);
+            await LoadFinishReceptivityLevelsAsync();
+            if (string.Equals(_editingFinishReceptivityId, entryId, StringComparison.OrdinalIgnoreCase))
+                CancelEditFinishReceptivityLevel();
+            _finishReceptivityStatus = "Receptivity level deleted.";
+        }
+        catch (Exception ex)
+        {
+            _finishReceptivityError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    // ── Finish His Control Levels ─────────────────────────────────────────────
+    private async Task LoadFinishHisControlLevelsAsync()
+    {
+        _finishHisControlLevels = (await Facade.ListFinishHisControlLevelsAsync(includeDisabled: true)).ToList();
+    }
+
+    private void StartEditFinishHisControlLevel(RPFinishHisControlLevel entry)
+    {
+        _editingFinishHisControlId = entry.Id;
+        _finishHisControlFormName = entry.Name;
+        _finishHisControlFormDescription = entry.Description ?? string.Empty;
+        _finishHisControlFormExampleDialogue = entry.ExampleDialogue ?? string.Empty;
+        _finishHisControlFormEligibleOtherManDominanceBands = entry.EligibleOtherManDominanceBands ?? string.Empty;
+        _finishHisControlFormSortOrder = entry.SortOrder;
+        _finishHisControlFormEnabled = entry.IsEnabled;
+    }
+
+    private void CancelEditFinishHisControlLevel()
+    {
+        _editingFinishHisControlId = null;
+        _finishHisControlFormName = string.Empty;
+        _finishHisControlFormDescription = string.Empty;
+        _finishHisControlFormExampleDialogue = string.Empty;
+        _finishHisControlFormEligibleOtherManDominanceBands = string.Empty;
+        _finishHisControlFormSortOrder = _finishHisControlLevels.Count;
+        _finishHisControlFormEnabled = true;
+    }
+
+    private async Task SaveFinishHisControlLevelAsync()
+    {
+        _finishHisControlError = null;
+        _finishHisControlStatus = null;
+        _isBusy = true;
+        try
+        {
+            var entry = new RPFinishHisControlLevel
+            {
+                Id = _editingFinishHisControlId ?? string.Empty,
+                Name = _finishHisControlFormName,
+                Description = _finishHisControlFormDescription,
+                ExampleDialogue = _finishHisControlFormExampleDialogue,
+                EligibleOtherManDominanceBands = _finishHisControlFormEligibleOtherManDominanceBands,
+                SortOrder = _finishHisControlFormSortOrder,
+                IsEnabled = _finishHisControlFormEnabled
+            };
+            await Facade.SaveFinishHisControlLevelAsync(entry);
+            await LoadFinishHisControlLevelsAsync();
+            var wasEditing = _editingFinishHisControlId is not null;
+            CancelEditFinishHisControlLevel();
+            _finishHisControlStatus = wasEditing ? "His control level updated." : "His control level added.";
+        }
+        catch (Exception ex)
+        {
+            _finishHisControlError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task DeleteFinishHisControlLevelAsync(string entryId)
+    {
+        _finishHisControlError = null;
+        _finishHisControlStatus = null;
+        _isBusy = true;
+        try
+        {
+            await Facade.DeleteFinishHisControlLevelAsync(entryId);
+            await LoadFinishHisControlLevelsAsync();
+            if (string.Equals(_editingFinishHisControlId, entryId, StringComparison.OrdinalIgnoreCase))
+                CancelEditFinishHisControlLevel();
+            _finishHisControlStatus = "His control level deleted.";
+        }
+        catch (Exception ex)
+        {
+            _finishHisControlError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    // ── Finish Transition Actions ─────────────────────────────────────────────
+    private async Task LoadFinishTransitionActionsAsync()
+    {
+        _finishTransitionActions = (await Facade.ListFinishTransitionActionsAsync(includeDisabled: true)).ToList();
+    }
+
+    private void StartEditFinishTransitionAction(RPFinishTransitionAction entry)
+    {
+        _editingFinishTransitionId = entry.Id;
+        _finishTransitionFormName = entry.Name;
+        _finishTransitionFormDescription = entry.Description ?? string.Empty;
+        _finishTransitionFormTransitionText = entry.TransitionText ?? string.Empty;
+        _finishTransitionFormEligibleDesireBands = entry.EligibleDesireBands ?? string.Empty;
+        _finishTransitionFormEligibleSelfRespectBands = entry.EligibleSelfRespectBands ?? string.Empty;
+        _finishTransitionFormEligibleOtherManDominanceBands = entry.EligibleOtherManDominanceBands ?? string.Empty;
+        _finishTransitionFormSortOrder = entry.SortOrder;
+        _finishTransitionFormEnabled = entry.IsEnabled;
+    }
+
+    private void CancelEditFinishTransitionAction()
+    {
+        _editingFinishTransitionId = null;
+        _finishTransitionFormName = string.Empty;
+        _finishTransitionFormDescription = string.Empty;
+        _finishTransitionFormTransitionText = string.Empty;
+        _finishTransitionFormEligibleDesireBands = string.Empty;
+        _finishTransitionFormEligibleSelfRespectBands = string.Empty;
+        _finishTransitionFormEligibleOtherManDominanceBands = string.Empty;
+        _finishTransitionFormSortOrder = _finishTransitionActions.Count;
+        _finishTransitionFormEnabled = true;
+    }
+
+    private async Task SaveFinishTransitionActionAsync()
+    {
+        _finishTransitionError = null;
+        _finishTransitionStatus = null;
+        _isBusy = true;
+        try
+        {
+            var entry = new RPFinishTransitionAction
+            {
+                Id = _editingFinishTransitionId ?? string.Empty,
+                Name = _finishTransitionFormName,
+                Description = _finishTransitionFormDescription,
+                TransitionText = _finishTransitionFormTransitionText,
+                EligibleDesireBands = _finishTransitionFormEligibleDesireBands,
+                EligibleSelfRespectBands = _finishTransitionFormEligibleSelfRespectBands,
+                EligibleOtherManDominanceBands = _finishTransitionFormEligibleOtherManDominanceBands,
+                SortOrder = _finishTransitionFormSortOrder,
+                IsEnabled = _finishTransitionFormEnabled
+            };
+            await Facade.SaveFinishTransitionActionAsync(entry);
+            await LoadFinishTransitionActionsAsync();
+            var wasEditing = _editingFinishTransitionId is not null;
+            CancelEditFinishTransitionAction();
+            _finishTransitionStatus = wasEditing ? "Transition action updated." : "Transition action added.";
+        }
+        catch (Exception ex)
+        {
+            _finishTransitionError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task DeleteFinishTransitionActionAsync(string entryId)
+    {
+        _finishTransitionError = null;
+        _finishTransitionStatus = null;
+        _isBusy = true;
+        try
+        {
+            await Facade.DeleteFinishTransitionActionAsync(entryId);
+            await LoadFinishTransitionActionsAsync();
+            if (string.Equals(_editingFinishTransitionId, entryId, StringComparison.OrdinalIgnoreCase))
+                CancelEditFinishTransitionAction();
+            _finishTransitionStatus = "Transition action deleted.";
+        }
+        catch (Exception ex)
+        {
+            _finishTransitionError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task LoadSteerPositionRowsAsync()    {
         _steerPositionRows = (await Facade.ListSteerPositionMatrixRowsAsync()).ToList();
     }
 

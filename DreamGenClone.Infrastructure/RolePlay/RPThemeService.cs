@@ -676,7 +676,7 @@ public sealed partial class RPThemeService : IRPThemeService
         row.ProfileId = string.Empty;
         row.DesireBand = (row.DesireBand ?? string.Empty).Trim();
         row.SelfRespectBand = (row.SelfRespectBand ?? string.Empty).Trim();
-        row.DominanceBand = (row.DominanceBand ?? string.Empty).Trim();
+        row.OtherManDominanceBand = (row.OtherManDominanceBand ?? string.Empty).Trim();
         row.PrimaryLocations = NormalizeLocationList(row.PrimaryLocations);
         row.SecondaryLocations = NormalizeLocationList(row.SecondaryLocations);
         row.ExcludedLocations = NormalizeLocationList(row.ExcludedLocations);
@@ -690,28 +690,28 @@ public sealed partial class RPThemeService : IRPThemeService
             row.CreatedUtc = row.UpdatedUtc;
         }
 
-        if (string.IsNullOrWhiteSpace(row.DesireBand) || string.IsNullOrWhiteSpace(row.SelfRespectBand) || string.IsNullOrWhiteSpace(row.DominanceBand))
+        if (string.IsNullOrWhiteSpace(row.DesireBand) || string.IsNullOrWhiteSpace(row.SelfRespectBand) || string.IsNullOrWhiteSpace(row.OtherManDominanceBand))
         {
-            throw new ArgumentException("DesireBand, SelfRespectBand, and DominanceBand are required.", nameof(row));
+            throw new ArgumentException("DesireBand, SelfRespectBand, and OtherManDominanceBand are required.", nameof(row));
         }
 
         await using var connection = await OpenConnectionAsync(cancellationToken);
         await using var command = connection.CreateCommand();
         command.CommandText = """
             INSERT INTO RPFinishingMoveMatrixRows (
-                Id, DesireBand, SelfRespectBand, DominanceBand,
+                Id, DesireBand, SelfRespectBand, OtherManDominanceBand,
                 PrimaryLocationsJson, SecondaryLocationsJson, ExcludedLocationsJson,
                 WifeReceptivity, WifeBehaviorModifier, OtherManBehaviorModifier, TransitionInstruction,
                 SortOrder, IsEnabled, CreatedUtc, UpdatedUtc)
             VALUES (
-                $id, $desireBand, $selfRespectBand, $dominanceBand,
+                $id, $desireBand, $selfRespectBand, $otherManDominanceBand,
                 $primaryLocationsJson, $secondaryLocationsJson, $excludedLocationsJson,
                 $wifeReceptivity, $wifeBehaviorModifier, $otherManBehaviorModifier, $transitionInstruction,
                 $sortOrder, $isEnabled, $createdUtc, $updatedUtc)
             ON CONFLICT(Id) DO UPDATE SET
                 DesireBand = excluded.DesireBand,
                 SelfRespectBand = excluded.SelfRespectBand,
-                DominanceBand = excluded.DominanceBand,
+                OtherManDominanceBand = excluded.OtherManDominanceBand,
                 PrimaryLocationsJson = excluded.PrimaryLocationsJson,
                 SecondaryLocationsJson = excluded.SecondaryLocationsJson,
                 ExcludedLocationsJson = excluded.ExcludedLocationsJson,
@@ -726,7 +726,7 @@ public sealed partial class RPThemeService : IRPThemeService
         command.Parameters.AddWithValue("$id", row.Id);
         command.Parameters.AddWithValue("$desireBand", row.DesireBand);
         command.Parameters.AddWithValue("$selfRespectBand", row.SelfRespectBand);
-        command.Parameters.AddWithValue("$dominanceBand", row.DominanceBand);
+        command.Parameters.AddWithValue("$otherManDominanceBand", row.OtherManDominanceBand);
         command.Parameters.AddWithValue("$primaryLocationsJson", SerializeStringList(row.PrimaryLocations));
         command.Parameters.AddWithValue("$secondaryLocationsJson", SerializeStringList(row.SecondaryLocations));
         command.Parameters.AddWithValue("$excludedLocationsJson", SerializeStringList(row.ExcludedLocations));
@@ -750,12 +750,12 @@ public sealed partial class RPThemeService : IRPThemeService
         await using var command = connection.CreateCommand();
         command.CommandText = """
             SELECT
-                Id, DesireBand, SelfRespectBand, DominanceBand,
+                Id, DesireBand, SelfRespectBand, OtherManDominanceBand,
                 PrimaryLocationsJson, SecondaryLocationsJson, ExcludedLocationsJson,
                 WifeReceptivity, WifeBehaviorModifier, OtherManBehaviorModifier, TransitionInstruction,
                 SortOrder, IsEnabled, CreatedUtc, UpdatedUtc
             FROM RPFinishingMoveMatrixRows
-            ORDER BY SortOrder, DesireBand, SelfRespectBand, DominanceBand, Id;
+            ORDER BY SortOrder, DesireBand, SelfRespectBand, OtherManDominanceBand, Id;
             """;
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -766,7 +766,7 @@ public sealed partial class RPThemeService : IRPThemeService
                 Id = reader.GetString(0),
                 DesireBand = reader.GetString(1),
                 SelfRespectBand = reader.GetString(2),
-                DominanceBand = reader.GetString(3),
+                OtherManDominanceBand = reader.GetString(3),
                 PrimaryLocations = DeserializeStringList(reader.GetString(4)),
                 SecondaryLocations = DeserializeStringList(reader.GetString(5)),
                 ExcludedLocations = DeserializeStringList(reader.GetString(6)),
@@ -799,6 +799,418 @@ public sealed partial class RPThemeService : IRPThemeService
         return await command.ExecuteNonQueryAsync(cancellationToken) > 0;
     }
 
+    // ── Finishing Move Catalog ──────────────────────────────────────────────
+
+    public async Task<RPFinishLocation> SaveFinishLocationAsync(RPFinishLocation entry, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        entry.Id = string.IsNullOrWhiteSpace(entry.Id) ? Guid.NewGuid().ToString("N") : entry.Id.Trim();
+        entry.Name = (entry.Name ?? string.Empty).Trim();
+        entry.UpdatedUtc = DateTime.UtcNow;
+        if (entry.CreatedUtc == default) entry.CreatedUtc = entry.UpdatedUtc;
+
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO RPFinishLocations (
+                Id, Name, Description, Category,
+                EligibleDesireBands, EligibleSelfRespectBands, EligibleOtherManDominanceBands,
+                SortOrder, IsEnabled, CreatedUtc, UpdatedUtc)
+            VALUES (
+                $id, $name, $description, $category,
+                $eligibleDesireBands, $eligibleSelfRespectBands, $eligibleOtherManDominanceBands,
+                $sortOrder, $isEnabled, $createdUtc, $updatedUtc)
+            ON CONFLICT(Id) DO UPDATE SET
+                Name = excluded.Name,
+                Description = excluded.Description,
+                Category = excluded.Category,
+                EligibleDesireBands = excluded.EligibleDesireBands,
+                EligibleSelfRespectBands = excluded.EligibleSelfRespectBands,
+                EligibleOtherManDominanceBands = excluded.EligibleOtherManDominanceBands,
+                SortOrder = excluded.SortOrder,
+                IsEnabled = excluded.IsEnabled,
+                UpdatedUtc = excluded.UpdatedUtc;
+            """;
+        command.Parameters.AddWithValue("$id", entry.Id);
+        command.Parameters.AddWithValue("$name", entry.Name);
+        command.Parameters.AddWithValue("$description", entry.Description ?? string.Empty);
+        command.Parameters.AddWithValue("$category", entry.Category ?? string.Empty);
+        command.Parameters.AddWithValue("$eligibleDesireBands", entry.EligibleDesireBands ?? string.Empty);
+        command.Parameters.AddWithValue("$eligibleSelfRespectBands", entry.EligibleSelfRespectBands ?? string.Empty);
+        command.Parameters.AddWithValue("$eligibleOtherManDominanceBands", entry.EligibleOtherManDominanceBands ?? string.Empty);
+        command.Parameters.AddWithValue("$sortOrder", entry.SortOrder);
+        command.Parameters.AddWithValue("$isEnabled", entry.IsEnabled ? 1 : 0);
+        command.Parameters.AddWithValue("$createdUtc", entry.CreatedUtc.ToString("O"));
+        command.Parameters.AddWithValue("$updatedUtc", entry.UpdatedUtc.ToString("O"));
+        await command.ExecuteNonQueryAsync(cancellationToken);
+        _logger.LogInformation("Saved RPFinishLocation {Id} ({Name}).", entry.Id, entry.Name);
+        return entry;
+    }
+
+    public async Task<IReadOnlyList<RPFinishLocation>> ListFinishLocationsAsync(bool includeDisabled = false, CancellationToken cancellationToken = default)
+    {
+        var rows = new List<RPFinishLocation>();
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = includeDisabled
+            ? "SELECT Id, Name, Description, Category, EligibleDesireBands, EligibleSelfRespectBands, EligibleOtherManDominanceBands, SortOrder, IsEnabled, CreatedUtc, UpdatedUtc FROM RPFinishLocations ORDER BY SortOrder, Id"
+            : "SELECT Id, Name, Description, Category, EligibleDesireBands, EligibleSelfRespectBands, EligibleOtherManDominanceBands, SortOrder, IsEnabled, CreatedUtc, UpdatedUtc FROM RPFinishLocations WHERE IsEnabled = 1 ORDER BY SortOrder, Id";
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            rows.Add(new RPFinishLocation
+            {
+                Id = reader.GetString(0), Name = reader.GetString(1), Description = reader.GetString(2),
+                Category = reader.GetString(3), EligibleDesireBands = reader.GetString(4),
+                EligibleSelfRespectBands = reader.GetString(5), EligibleOtherManDominanceBands = reader.GetString(6),
+                SortOrder = reader.GetInt32(7), IsEnabled = reader.GetInt32(8) == 1,
+                CreatedUtc = DateTime.TryParse(reader.GetString(9), out var c) ? c : DateTime.UtcNow,
+                UpdatedUtc = DateTime.TryParse(reader.GetString(10), out var u) ? u : DateTime.UtcNow
+            });
+        }
+        return rows;
+    }
+
+    public async Task<bool> DeleteFinishLocationAsync(string entryId, CancellationToken cancellationToken = default)
+    {
+        var id = (entryId ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(id)) return false;
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM RPFinishLocations WHERE Id = $id";
+        command.Parameters.AddWithValue("$id", id);
+        var deleted = await command.ExecuteNonQueryAsync(cancellationToken) > 0;
+        if (deleted) _logger.LogInformation("Deleted RPFinishLocation {Id}.", id);
+        return deleted;
+    }
+
+    public async Task<RPFinishFacialType> SaveFinishFacialTypeAsync(RPFinishFacialType entry, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        entry.Id = string.IsNullOrWhiteSpace(entry.Id) ? Guid.NewGuid().ToString("N") : entry.Id.Trim();
+        entry.Name = (entry.Name ?? string.Empty).Trim();
+        entry.UpdatedUtc = DateTime.UtcNow;
+        if (entry.CreatedUtc == default) entry.CreatedUtc = entry.UpdatedUtc;
+
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO RPFinishFacialTypes (
+                Id, Name, Description, PhysicalCues,
+                EligibleDesireBands, EligibleSelfRespectBands, EligibleOtherManDominanceBands,
+                SortOrder, IsEnabled, CreatedUtc, UpdatedUtc)
+            VALUES (
+                $id, $name, $description, $physicalCues,
+                $eligibleDesireBands, $eligibleSelfRespectBands, $eligibleOtherManDominanceBands,
+                $sortOrder, $isEnabled, $createdUtc, $updatedUtc)
+            ON CONFLICT(Id) DO UPDATE SET
+                Name = excluded.Name,
+                Description = excluded.Description,
+                PhysicalCues = excluded.PhysicalCues,
+                EligibleDesireBands = excluded.EligibleDesireBands,
+                EligibleSelfRespectBands = excluded.EligibleSelfRespectBands,
+                EligibleOtherManDominanceBands = excluded.EligibleOtherManDominanceBands,
+                SortOrder = excluded.SortOrder,
+                IsEnabled = excluded.IsEnabled,
+                UpdatedUtc = excluded.UpdatedUtc;
+            """;
+        command.Parameters.AddWithValue("$id", entry.Id);
+        command.Parameters.AddWithValue("$name", entry.Name);
+        command.Parameters.AddWithValue("$description", entry.Description ?? string.Empty);
+        command.Parameters.AddWithValue("$physicalCues", entry.PhysicalCues ?? string.Empty);
+        command.Parameters.AddWithValue("$eligibleDesireBands", entry.EligibleDesireBands ?? string.Empty);
+        command.Parameters.AddWithValue("$eligibleSelfRespectBands", entry.EligibleSelfRespectBands ?? string.Empty);
+        command.Parameters.AddWithValue("$eligibleOtherManDominanceBands", entry.EligibleOtherManDominanceBands ?? string.Empty);
+        command.Parameters.AddWithValue("$sortOrder", entry.SortOrder);
+        command.Parameters.AddWithValue("$isEnabled", entry.IsEnabled ? 1 : 0);
+        command.Parameters.AddWithValue("$createdUtc", entry.CreatedUtc.ToString("O"));
+        command.Parameters.AddWithValue("$updatedUtc", entry.UpdatedUtc.ToString("O"));
+        await command.ExecuteNonQueryAsync(cancellationToken);
+        _logger.LogInformation("Saved RPFinishFacialType {Id} ({Name}).", entry.Id, entry.Name);
+        return entry;
+    }
+
+    public async Task<IReadOnlyList<RPFinishFacialType>> ListFinishFacialTypesAsync(bool includeDisabled = false, CancellationToken cancellationToken = default)
+    {
+        var rows = new List<RPFinishFacialType>();
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = includeDisabled
+            ? "SELECT Id, Name, Description, PhysicalCues, EligibleDesireBands, EligibleSelfRespectBands, EligibleOtherManDominanceBands, SortOrder, IsEnabled, CreatedUtc, UpdatedUtc FROM RPFinishFacialTypes ORDER BY SortOrder, Id"
+            : "SELECT Id, Name, Description, PhysicalCues, EligibleDesireBands, EligibleSelfRespectBands, EligibleOtherManDominanceBands, SortOrder, IsEnabled, CreatedUtc, UpdatedUtc FROM RPFinishFacialTypes WHERE IsEnabled = 1 ORDER BY SortOrder, Id";
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            rows.Add(new RPFinishFacialType
+            {
+                Id = reader.GetString(0), Name = reader.GetString(1), Description = reader.GetString(2),
+                PhysicalCues = reader.GetString(3), EligibleDesireBands = reader.GetString(4),
+                EligibleSelfRespectBands = reader.GetString(5), EligibleOtherManDominanceBands = reader.GetString(6),
+                SortOrder = reader.GetInt32(7), IsEnabled = reader.GetInt32(8) == 1,
+                CreatedUtc = DateTime.TryParse(reader.GetString(9), out var c) ? c : DateTime.UtcNow,
+                UpdatedUtc = DateTime.TryParse(reader.GetString(10), out var u) ? u : DateTime.UtcNow
+            });
+        }
+        return rows;
+    }
+
+    public async Task<bool> DeleteFinishFacialTypeAsync(string entryId, CancellationToken cancellationToken = default)
+    {
+        var id = (entryId ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(id)) return false;
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM RPFinishFacialTypes WHERE Id = $id";
+        command.Parameters.AddWithValue("$id", id);
+        var deleted = await command.ExecuteNonQueryAsync(cancellationToken) > 0;
+        if (deleted) _logger.LogInformation("Deleted RPFinishFacialType {Id}.", id);
+        return deleted;
+    }
+
+    public async Task<RPFinishReceptivityLevel> SaveFinishReceptivityLevelAsync(RPFinishReceptivityLevel entry, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        entry.Id = string.IsNullOrWhiteSpace(entry.Id) ? Guid.NewGuid().ToString("N") : entry.Id.Trim();
+        entry.Name = (entry.Name ?? string.Empty).Trim();
+        entry.UpdatedUtc = DateTime.UtcNow;
+        if (entry.CreatedUtc == default) entry.CreatedUtc = entry.UpdatedUtc;
+
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO RPFinishReceptivityLevels (
+                Id, Name, Description, PhysicalCues, NarrativeCue,
+                EligibleDesireBands, EligibleSelfRespectBands,
+                SortOrder, IsEnabled, CreatedUtc, UpdatedUtc)
+            VALUES (
+                $id, $name, $description, $physicalCues, $narrativeCue,
+                $eligibleDesireBands, $eligibleSelfRespectBands,
+                $sortOrder, $isEnabled, $createdUtc, $updatedUtc)
+            ON CONFLICT(Id) DO UPDATE SET
+                Name = excluded.Name,
+                Description = excluded.Description,
+                PhysicalCues = excluded.PhysicalCues,
+                NarrativeCue = excluded.NarrativeCue,
+                EligibleDesireBands = excluded.EligibleDesireBands,
+                EligibleSelfRespectBands = excluded.EligibleSelfRespectBands,
+                SortOrder = excluded.SortOrder,
+                IsEnabled = excluded.IsEnabled,
+                UpdatedUtc = excluded.UpdatedUtc;
+            """;
+        command.Parameters.AddWithValue("$id", entry.Id);
+        command.Parameters.AddWithValue("$name", entry.Name);
+        command.Parameters.AddWithValue("$description", entry.Description ?? string.Empty);
+        command.Parameters.AddWithValue("$physicalCues", entry.PhysicalCues ?? string.Empty);
+        command.Parameters.AddWithValue("$narrativeCue", entry.NarrativeCue ?? string.Empty);
+        command.Parameters.AddWithValue("$eligibleDesireBands", entry.EligibleDesireBands ?? string.Empty);
+        command.Parameters.AddWithValue("$eligibleSelfRespectBands", entry.EligibleSelfRespectBands ?? string.Empty);
+        command.Parameters.AddWithValue("$sortOrder", entry.SortOrder);
+        command.Parameters.AddWithValue("$isEnabled", entry.IsEnabled ? 1 : 0);
+        command.Parameters.AddWithValue("$createdUtc", entry.CreatedUtc.ToString("O"));
+        command.Parameters.AddWithValue("$updatedUtc", entry.UpdatedUtc.ToString("O"));
+        await command.ExecuteNonQueryAsync(cancellationToken);
+        _logger.LogInformation("Saved RPFinishReceptivityLevel {Id} ({Name}).", entry.Id, entry.Name);
+        return entry;
+    }
+
+    public async Task<IReadOnlyList<RPFinishReceptivityLevel>> ListFinishReceptivityLevelsAsync(bool includeDisabled = false, CancellationToken cancellationToken = default)
+    {
+        var rows = new List<RPFinishReceptivityLevel>();
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = includeDisabled
+            ? "SELECT Id, Name, Description, PhysicalCues, NarrativeCue, EligibleDesireBands, EligibleSelfRespectBands, SortOrder, IsEnabled, CreatedUtc, UpdatedUtc FROM RPFinishReceptivityLevels ORDER BY SortOrder, Id"
+            : "SELECT Id, Name, Description, PhysicalCues, NarrativeCue, EligibleDesireBands, EligibleSelfRespectBands, SortOrder, IsEnabled, CreatedUtc, UpdatedUtc FROM RPFinishReceptivityLevels WHERE IsEnabled = 1 ORDER BY SortOrder, Id";
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            rows.Add(new RPFinishReceptivityLevel
+            {
+                Id = reader.GetString(0), Name = reader.GetString(1), Description = reader.GetString(2),
+                PhysicalCues = reader.GetString(3), NarrativeCue = reader.GetString(4),
+                EligibleDesireBands = reader.GetString(5), EligibleSelfRespectBands = reader.GetString(6),
+                SortOrder = reader.GetInt32(7), IsEnabled = reader.GetInt32(8) == 1,
+                CreatedUtc = DateTime.TryParse(reader.GetString(9), out var c) ? c : DateTime.UtcNow,
+                UpdatedUtc = DateTime.TryParse(reader.GetString(10), out var u) ? u : DateTime.UtcNow
+            });
+        }
+        return rows;
+    }
+
+    public async Task<bool> DeleteFinishReceptivityLevelAsync(string entryId, CancellationToken cancellationToken = default)
+    {
+        var id = (entryId ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(id)) return false;
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM RPFinishReceptivityLevels WHERE Id = $id";
+        command.Parameters.AddWithValue("$id", id);
+        var deleted = await command.ExecuteNonQueryAsync(cancellationToken) > 0;
+        if (deleted) _logger.LogInformation("Deleted RPFinishReceptivityLevel {Id}.", id);
+        return deleted;
+    }
+
+    public async Task<RPFinishHisControlLevel> SaveFinishHisControlLevelAsync(RPFinishHisControlLevel entry, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        entry.Id = string.IsNullOrWhiteSpace(entry.Id) ? Guid.NewGuid().ToString("N") : entry.Id.Trim();
+        entry.Name = (entry.Name ?? string.Empty).Trim();
+        entry.UpdatedUtc = DateTime.UtcNow;
+        if (entry.CreatedUtc == default) entry.CreatedUtc = entry.UpdatedUtc;
+
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO RPFinishHisControlLevels (
+                Id, Name, Description, ExampleDialogue,
+                EligibleOtherManDominanceBands,
+                SortOrder, IsEnabled, CreatedUtc, UpdatedUtc)
+            VALUES (
+                $id, $name, $description, $exampleDialogue,
+                $eligibleOtherManDominanceBands,
+                $sortOrder, $isEnabled, $createdUtc, $updatedUtc)
+            ON CONFLICT(Id) DO UPDATE SET
+                Name = excluded.Name,
+                Description = excluded.Description,
+                ExampleDialogue = excluded.ExampleDialogue,
+                EligibleOtherManDominanceBands = excluded.EligibleOtherManDominanceBands,
+                SortOrder = excluded.SortOrder,
+                IsEnabled = excluded.IsEnabled,
+                UpdatedUtc = excluded.UpdatedUtc;
+            """;
+        command.Parameters.AddWithValue("$id", entry.Id);
+        command.Parameters.AddWithValue("$name", entry.Name);
+        command.Parameters.AddWithValue("$description", entry.Description ?? string.Empty);
+        command.Parameters.AddWithValue("$exampleDialogue", entry.ExampleDialogue ?? string.Empty);
+        command.Parameters.AddWithValue("$eligibleOtherManDominanceBands", entry.EligibleOtherManDominanceBands ?? string.Empty);
+        command.Parameters.AddWithValue("$sortOrder", entry.SortOrder);
+        command.Parameters.AddWithValue("$isEnabled", entry.IsEnabled ? 1 : 0);
+        command.Parameters.AddWithValue("$createdUtc", entry.CreatedUtc.ToString("O"));
+        command.Parameters.AddWithValue("$updatedUtc", entry.UpdatedUtc.ToString("O"));
+        await command.ExecuteNonQueryAsync(cancellationToken);
+        _logger.LogInformation("Saved RPFinishHisControlLevel {Id} ({Name}).", entry.Id, entry.Name);
+        return entry;
+    }
+
+    public async Task<IReadOnlyList<RPFinishHisControlLevel>> ListFinishHisControlLevelsAsync(bool includeDisabled = false, CancellationToken cancellationToken = default)
+    {
+        var rows = new List<RPFinishHisControlLevel>();
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = includeDisabled
+            ? "SELECT Id, Name, Description, ExampleDialogue, EligibleOtherManDominanceBands, SortOrder, IsEnabled, CreatedUtc, UpdatedUtc FROM RPFinishHisControlLevels ORDER BY SortOrder, Id"
+            : "SELECT Id, Name, Description, ExampleDialogue, EligibleOtherManDominanceBands, SortOrder, IsEnabled, CreatedUtc, UpdatedUtc FROM RPFinishHisControlLevels WHERE IsEnabled = 1 ORDER BY SortOrder, Id";
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            rows.Add(new RPFinishHisControlLevel
+            {
+                Id = reader.GetString(0), Name = reader.GetString(1), Description = reader.GetString(2),
+                ExampleDialogue = reader.GetString(3), EligibleOtherManDominanceBands = reader.GetString(4),
+                SortOrder = reader.GetInt32(5), IsEnabled = reader.GetInt32(6) == 1,
+                CreatedUtc = DateTime.TryParse(reader.GetString(7), out var c) ? c : DateTime.UtcNow,
+                UpdatedUtc = DateTime.TryParse(reader.GetString(8), out var u) ? u : DateTime.UtcNow
+            });
+        }
+        return rows;
+    }
+
+    public async Task<bool> DeleteFinishHisControlLevelAsync(string entryId, CancellationToken cancellationToken = default)
+    {
+        var id = (entryId ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(id)) return false;
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM RPFinishHisControlLevels WHERE Id = $id";
+        command.Parameters.AddWithValue("$id", id);
+        var deleted = await command.ExecuteNonQueryAsync(cancellationToken) > 0;
+        if (deleted) _logger.LogInformation("Deleted RPFinishHisControlLevel {Id}.", id);
+        return deleted;
+    }
+
+    public async Task<RPFinishTransitionAction> SaveFinishTransitionActionAsync(RPFinishTransitionAction entry, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        entry.Id = string.IsNullOrWhiteSpace(entry.Id) ? Guid.NewGuid().ToString("N") : entry.Id.Trim();
+        entry.Name = (entry.Name ?? string.Empty).Trim();
+        entry.UpdatedUtc = DateTime.UtcNow;
+        if (entry.CreatedUtc == default) entry.CreatedUtc = entry.UpdatedUtc;
+
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO RPFinishTransitionActions (
+                Id, Name, Description, TransitionText,
+                EligibleDesireBands, EligibleSelfRespectBands, EligibleOtherManDominanceBands,
+                SortOrder, IsEnabled, CreatedUtc, UpdatedUtc)
+            VALUES (
+                $id, $name, $description, $transitionText,
+                $eligibleDesireBands, $eligibleSelfRespectBands, $eligibleOtherManDominanceBands,
+                $sortOrder, $isEnabled, $createdUtc, $updatedUtc)
+            ON CONFLICT(Id) DO UPDATE SET
+                Name = excluded.Name,
+                Description = excluded.Description,
+                TransitionText = excluded.TransitionText,
+                EligibleDesireBands = excluded.EligibleDesireBands,
+                EligibleSelfRespectBands = excluded.EligibleSelfRespectBands,
+                EligibleOtherManDominanceBands = excluded.EligibleOtherManDominanceBands,
+                SortOrder = excluded.SortOrder,
+                IsEnabled = excluded.IsEnabled,
+                UpdatedUtc = excluded.UpdatedUtc;
+            """;
+        command.Parameters.AddWithValue("$id", entry.Id);
+        command.Parameters.AddWithValue("$name", entry.Name);
+        command.Parameters.AddWithValue("$description", entry.Description ?? string.Empty);
+        command.Parameters.AddWithValue("$transitionText", entry.TransitionText ?? string.Empty);
+        command.Parameters.AddWithValue("$eligibleDesireBands", entry.EligibleDesireBands ?? string.Empty);
+        command.Parameters.AddWithValue("$eligibleSelfRespectBands", entry.EligibleSelfRespectBands ?? string.Empty);
+        command.Parameters.AddWithValue("$eligibleOtherManDominanceBands", entry.EligibleOtherManDominanceBands ?? string.Empty);
+        command.Parameters.AddWithValue("$sortOrder", entry.SortOrder);
+        command.Parameters.AddWithValue("$isEnabled", entry.IsEnabled ? 1 : 0);
+        command.Parameters.AddWithValue("$createdUtc", entry.CreatedUtc.ToString("O"));
+        command.Parameters.AddWithValue("$updatedUtc", entry.UpdatedUtc.ToString("O"));
+        await command.ExecuteNonQueryAsync(cancellationToken);
+        _logger.LogInformation("Saved RPFinishTransitionAction {Id} ({Name}).", entry.Id, entry.Name);
+        return entry;
+    }
+
+    public async Task<IReadOnlyList<RPFinishTransitionAction>> ListFinishTransitionActionsAsync(bool includeDisabled = false, CancellationToken cancellationToken = default)
+    {
+        var rows = new List<RPFinishTransitionAction>();
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = includeDisabled
+            ? "SELECT Id, Name, Description, TransitionText, EligibleDesireBands, EligibleSelfRespectBands, EligibleOtherManDominanceBands, SortOrder, IsEnabled, CreatedUtc, UpdatedUtc FROM RPFinishTransitionActions ORDER BY SortOrder, Id"
+            : "SELECT Id, Name, Description, TransitionText, EligibleDesireBands, EligibleSelfRespectBands, EligibleOtherManDominanceBands, SortOrder, IsEnabled, CreatedUtc, UpdatedUtc FROM RPFinishTransitionActions WHERE IsEnabled = 1 ORDER BY SortOrder, Id";
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            rows.Add(new RPFinishTransitionAction
+            {
+                Id = reader.GetString(0), Name = reader.GetString(1), Description = reader.GetString(2),
+                TransitionText = reader.GetString(3), EligibleDesireBands = reader.GetString(4),
+                EligibleSelfRespectBands = reader.GetString(5), EligibleOtherManDominanceBands = reader.GetString(6),
+                SortOrder = reader.GetInt32(7), IsEnabled = reader.GetInt32(8) == 1,
+                CreatedUtc = DateTime.TryParse(reader.GetString(9), out var c) ? c : DateTime.UtcNow,
+                UpdatedUtc = DateTime.TryParse(reader.GetString(10), out var u) ? u : DateTime.UtcNow
+            });
+        }
+        return rows;
+    }
+
+    public async Task<bool> DeleteFinishTransitionActionAsync(string entryId, CancellationToken cancellationToken = default)
+    {
+        var id = (entryId ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(id)) return false;
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM RPFinishTransitionActions WHERE Id = $id";
+        command.Parameters.AddWithValue("$id", id);
+        var deleted = await command.ExecuteNonQueryAsync(cancellationToken) > 0;
+        if (deleted) _logger.LogInformation("Deleted RPFinishTransitionAction {Id}.", id);
+        return deleted;
+    }
+
     public async Task<int> ImportFinishingMoveMatrixRowsFromJsonAsync(
         string json,
         bool replaceExisting = false,
@@ -828,8 +1240,8 @@ public sealed partial class RPThemeService : IRPThemeService
         {
             var desireBand = GetRequiredString(item, "desireBand", "desire");
             var selfRespectBand = GetRequiredString(item, "selfRespectBand", "selfRespect");
-            var dominanceBand = GetRequiredString(item, "dominanceBand", "dominance");
-            if (string.IsNullOrWhiteSpace(desireBand) || string.IsNullOrWhiteSpace(selfRespectBand) || string.IsNullOrWhiteSpace(dominanceBand))
+            var otherManDominanceBand = GetRequiredString(item, "otherManDominanceBand", "dominanceBand", "dominance");
+            if (string.IsNullOrWhiteSpace(desireBand) || string.IsNullOrWhiteSpace(selfRespectBand) || string.IsNullOrWhiteSpace(otherManDominanceBand))
             {
                 continue;
             }
@@ -839,7 +1251,7 @@ public sealed partial class RPThemeService : IRPThemeService
                 Id = GetString(item, "id") ?? Guid.NewGuid().ToString("N"),
                 DesireBand = desireBand,
                 SelfRespectBand = selfRespectBand,
-                DominanceBand = dominanceBand,
+                OtherManDominanceBand = otherManDominanceBand,
                 PrimaryLocations = GetStringList(item, "primaryLocations", "locationsPrimary"),
                 SecondaryLocations = GetStringList(item, "secondaryLocations", "locationsSecondary"),
                 ExcludedLocations = GetStringList(item, "excludedLocations", "locationsExcluded"),
@@ -2029,19 +2441,19 @@ public sealed partial class RPThemeService : IRPThemeService
         command.Transaction = tx;
         command.CommandText = """
             INSERT INTO RPFinishingMoveMatrixRows (
-                Id, DesireBand, SelfRespectBand, DominanceBand,
+                Id, DesireBand, SelfRespectBand, OtherManDominanceBand,
                 PrimaryLocationsJson, SecondaryLocationsJson, ExcludedLocationsJson,
                 WifeReceptivity, WifeBehaviorModifier, OtherManBehaviorModifier, TransitionInstruction,
                 SortOrder, IsEnabled, CreatedUtc, UpdatedUtc)
             VALUES (
-                $id, $desireBand, $selfRespectBand, $dominanceBand,
+                $id, $desireBand, $selfRespectBand, $otherManDominanceBand,
                 $primaryLocationsJson, $secondaryLocationsJson, $excludedLocationsJson,
                 $wifeReceptivity, $wifeBehaviorModifier, $otherManBehaviorModifier, $transitionInstruction,
                 $sortOrder, $isEnabled, $createdUtc, $updatedUtc)
             ON CONFLICT(Id) DO UPDATE SET
                 DesireBand = excluded.DesireBand,
                 SelfRespectBand = excluded.SelfRespectBand,
-                DominanceBand = excluded.DominanceBand,
+                OtherManDominanceBand = excluded.OtherManDominanceBand,
                 PrimaryLocationsJson = excluded.PrimaryLocationsJson,
                 SecondaryLocationsJson = excluded.SecondaryLocationsJson,
                 ExcludedLocationsJson = excluded.ExcludedLocationsJson,
@@ -2056,7 +2468,7 @@ public sealed partial class RPThemeService : IRPThemeService
         command.Parameters.AddWithValue("$id", row.Id);
         command.Parameters.AddWithValue("$desireBand", row.DesireBand);
         command.Parameters.AddWithValue("$selfRespectBand", row.SelfRespectBand);
-        command.Parameters.AddWithValue("$dominanceBand", row.DominanceBand);
+        command.Parameters.AddWithValue("$otherManDominanceBand", row.OtherManDominanceBand);
         command.Parameters.AddWithValue("$primaryLocationsJson", SerializeStringList(row.PrimaryLocations));
         command.Parameters.AddWithValue("$secondaryLocationsJson", SerializeStringList(row.SecondaryLocations));
         command.Parameters.AddWithValue("$excludedLocationsJson", SerializeStringList(row.ExcludedLocations));
@@ -2683,6 +3095,7 @@ public sealed partial class RPThemeService : IRPThemeService
     private static async Task EnsureSupplementalTablesAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {
         await MigrateLegacyMatrixTablesToGlobalAsync(connection, cancellationToken);
+        await MigrateFinishingMoveMatrixToV2Async(connection, cancellationToken);
 
         await using var command = connection.CreateCommand();
         command.CommandText = """
@@ -2690,7 +3103,7 @@ public sealed partial class RPThemeService : IRPThemeService
                 Id TEXT PRIMARY KEY,
                 DesireBand TEXT NOT NULL,
                 SelfRespectBand TEXT NOT NULL,
-                DominanceBand TEXT NOT NULL,
+                OtherManDominanceBand TEXT NOT NULL,
                 PrimaryLocationsJson TEXT NOT NULL DEFAULT '[]',
                 SecondaryLocationsJson TEXT NOT NULL DEFAULT '[]',
                 ExcludedLocationsJson TEXT NOT NULL DEFAULT '[]',
@@ -2702,7 +3115,7 @@ public sealed partial class RPThemeService : IRPThemeService
                 IsEnabled INTEGER NOT NULL DEFAULT 1,
                 CreatedUtc TEXT NOT NULL,
                 UpdatedUtc TEXT NOT NULL,
-                UNIQUE (DesireBand, SelfRespectBand, DominanceBand)
+                UNIQUE (DesireBand, SelfRespectBand, OtherManDominanceBand)
             );
 
             CREATE INDEX IF NOT EXISTS IX_RPFinishingMoveMatrixRows_Sort
@@ -2756,8 +3169,142 @@ public sealed partial class RPThemeService : IRPThemeService
 
             CREATE INDEX IF NOT EXISTS IX_RPThemeNarrativeGateRules_Theme_Sort
                 ON RPThemeNarrativeGateRules (ThemeId, SortOrder, Id);
+
+            CREATE TABLE IF NOT EXISTS RPFinishLocations (
+                Id TEXT PRIMARY KEY,
+                Name TEXT NOT NULL,
+                Description TEXT NOT NULL DEFAULT '',
+                Category TEXT NOT NULL DEFAULT '',
+                EligibleDesireBands TEXT NOT NULL DEFAULT '',
+                EligibleSelfRespectBands TEXT NOT NULL DEFAULT '',
+                EligibleOtherManDominanceBands TEXT NOT NULL DEFAULT '',
+                SortOrder INTEGER NOT NULL DEFAULT 0,
+                IsEnabled INTEGER NOT NULL DEFAULT 1,
+                CreatedUtc TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS IX_RPFinishLocations_Sort
+                ON RPFinishLocations (SortOrder, Id);
+
+            CREATE TABLE IF NOT EXISTS RPFinishFacialTypes (
+                Id TEXT PRIMARY KEY,
+                Name TEXT NOT NULL,
+                Description TEXT NOT NULL DEFAULT '',
+                PhysicalCues TEXT NOT NULL DEFAULT '',
+                EligibleDesireBands TEXT NOT NULL DEFAULT '',
+                EligibleSelfRespectBands TEXT NOT NULL DEFAULT '',
+                EligibleOtherManDominanceBands TEXT NOT NULL DEFAULT '',
+                SortOrder INTEGER NOT NULL DEFAULT 0,
+                IsEnabled INTEGER NOT NULL DEFAULT 1,
+                CreatedUtc TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS IX_RPFinishFacialTypes_Sort
+                ON RPFinishFacialTypes (SortOrder, Id);
+
+            CREATE TABLE IF NOT EXISTS RPFinishReceptivityLevels (
+                Id TEXT PRIMARY KEY,
+                Name TEXT NOT NULL,
+                Description TEXT NOT NULL DEFAULT '',
+                PhysicalCues TEXT NOT NULL DEFAULT '',
+                NarrativeCue TEXT NOT NULL DEFAULT '',
+                EligibleDesireBands TEXT NOT NULL DEFAULT '',
+                EligibleSelfRespectBands TEXT NOT NULL DEFAULT '',
+                SortOrder INTEGER NOT NULL DEFAULT 0,
+                IsEnabled INTEGER NOT NULL DEFAULT 1,
+                CreatedUtc TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS IX_RPFinishReceptivityLevels_Sort
+                ON RPFinishReceptivityLevels (SortOrder, Id);
+
+            CREATE TABLE IF NOT EXISTS RPFinishHisControlLevels (
+                Id TEXT PRIMARY KEY,
+                Name TEXT NOT NULL,
+                Description TEXT NOT NULL DEFAULT '',
+                ExampleDialogue TEXT NOT NULL DEFAULT '',
+                EligibleOtherManDominanceBands TEXT NOT NULL DEFAULT '',
+                SortOrder INTEGER NOT NULL DEFAULT 0,
+                IsEnabled INTEGER NOT NULL DEFAULT 1,
+                CreatedUtc TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS IX_RPFinishHisControlLevels_Sort
+                ON RPFinishHisControlLevels (SortOrder, Id);
+
+            CREATE TABLE IF NOT EXISTS RPFinishTransitionActions (
+                Id TEXT PRIMARY KEY,
+                Name TEXT NOT NULL,
+                Description TEXT NOT NULL DEFAULT '',
+                TransitionText TEXT NOT NULL DEFAULT '',
+                EligibleDesireBands TEXT NOT NULL DEFAULT '',
+                EligibleSelfRespectBands TEXT NOT NULL DEFAULT '',
+                EligibleOtherManDominanceBands TEXT NOT NULL DEFAULT '',
+                SortOrder INTEGER NOT NULL DEFAULT 0,
+                IsEnabled INTEGER NOT NULL DEFAULT 1,
+                CreatedUtc TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS IX_RPFinishTransitionActions_Sort
+                ON RPFinishTransitionActions (SortOrder, Id);
             """;
         await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task MigrateFinishingMoveMatrixToV2Async(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        var needsMigration = await TableHasColumnAsync(connection, "RPFinishingMoveMatrixRows", "DominanceBand", cancellationToken);
+        if (!needsMigration)
+        {
+            return;
+        }
+
+        await using var tx = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        await using var cmd = connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = """
+            CREATE TABLE IF NOT EXISTS RPFinishingMoveMatrixRows_Archived_v2 (
+                Id TEXT NOT NULL,
+                DesireBand TEXT NOT NULL,
+                SelfRespectBand TEXT NOT NULL,
+                DominanceBand TEXT NOT NULL,
+                PrimaryLocationsJson TEXT NOT NULL DEFAULT '[]',
+                SecondaryLocationsJson TEXT NOT NULL DEFAULT '[]',
+                ExcludedLocationsJson TEXT NOT NULL DEFAULT '[]',
+                WifeReceptivity TEXT NOT NULL DEFAULT '',
+                WifeBehaviorModifier TEXT NOT NULL DEFAULT '',
+                OtherManBehaviorModifier TEXT NOT NULL DEFAULT '',
+                TransitionInstruction TEXT NOT NULL DEFAULT '',
+                SortOrder INTEGER NOT NULL DEFAULT 0,
+                IsEnabled INTEGER NOT NULL DEFAULT 1,
+                CreatedUtc TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL,
+                ArchivedUtc TEXT NOT NULL
+            );
+
+            INSERT INTO RPFinishingMoveMatrixRows_Archived_v2 (
+                Id, DesireBand, SelfRespectBand, DominanceBand,
+                PrimaryLocationsJson, SecondaryLocationsJson, ExcludedLocationsJson,
+                WifeReceptivity, WifeBehaviorModifier, OtherManBehaviorModifier,
+                TransitionInstruction, SortOrder, IsEnabled, CreatedUtc, UpdatedUtc, ArchivedUtc)
+            SELECT
+                Id, DesireBand, SelfRespectBand, DominanceBand,
+                COALESCE(PrimaryLocationsJson, '[]'), COALESCE(SecondaryLocationsJson, '[]'), COALESCE(ExcludedLocationsJson, '[]'),
+                COALESCE(WifeReceptivity, ''), COALESCE(WifeBehaviorModifier, ''), COALESCE(OtherManBehaviorModifier, ''),
+                COALESCE(TransitionInstruction, ''), SortOrder, IsEnabled, CreatedUtc, UpdatedUtc, $archivedUtc
+            FROM RPFinishingMoveMatrixRows;
+
+            DROP TABLE RPFinishingMoveMatrixRows;
+            DROP INDEX IF EXISTS IX_RPFinishingMoveMatrixRows_Sort;
+            """;
+        cmd.Parameters.AddWithValue("$archivedUtc", DateTime.UtcNow.ToString("O"));
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+        await tx.CommitAsync(cancellationToken);
     }
 
     private static async Task MigrateLegacyMatrixTablesToGlobalAsync(SqliteConnection connection, CancellationToken cancellationToken)

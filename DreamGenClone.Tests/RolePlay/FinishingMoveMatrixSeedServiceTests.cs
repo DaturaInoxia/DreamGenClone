@@ -27,8 +27,8 @@ public sealed class FinishingMoveMatrixSeedServiceTests : IDisposable
         var rows = await rpThemeService.ListFinishingMoveMatrixRowsAsync();
         Assert.Equal(27, rows.Count);
 
-        Assert.Contains(rows, r => r.DesireBand == "75-100" && r.SelfRespectBand == "60-100" && r.DominanceBand == "0-29");
-        Assert.Contains(rows, r => r.DesireBand == "0-49" && r.SelfRespectBand == "0-29" && r.DominanceBand == "60-100");
+        Assert.Contains(rows, r => r.DesireBand == "60-100" && r.SelfRespectBand == "60-100" && r.OtherManDominanceBand == "0-29");
+        Assert.Contains(rows, r => r.DesireBand == "0-29" && r.SelfRespectBand == "0-29" && r.OtherManDominanceBand == "60-100");
     }
 
     [Fact]

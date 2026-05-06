@@ -166,9 +166,9 @@ public sealed class RPFinishingMoveMatrixRow
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public string ProfileId { get; set; } = string.Empty;
-    public string DesireBand { get; set; } = "50-74";
+    public string DesireBand { get; set; } = "30-59";
     public string SelfRespectBand { get; set; } = "30-59";
-    public string DominanceBand { get; set; } = "30-59";
+    public string OtherManDominanceBand { get; set; } = "30-59";
     public List<string> PrimaryLocations { get; set; } = [];
     public List<string> SecondaryLocations { get; set; } = [];
     public List<string> ExcludedLocations { get; set; } = [];
@@ -196,6 +196,79 @@ public sealed class RPSteerPositionMatrixRow
     public string WifeBehaviorModifier { get; set; } = string.Empty;
     public string OtherManBehaviorModifier { get; set; } = string.Empty;
     public string TransitionInstruction { get; set; } = string.Empty;
+    public int SortOrder { get; set; }
+    public bool IsEnabled { get; set; } = true;
+    public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
+    public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;
+}
+
+public sealed class RPFinishLocation
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string Name { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+    public string Category { get; set; } = string.Empty;
+    public string EligibleDesireBands { get; set; } = string.Empty;
+    public string EligibleSelfRespectBands { get; set; } = string.Empty;
+    public string EligibleOtherManDominanceBands { get; set; } = string.Empty;
+    public int SortOrder { get; set; }
+    public bool IsEnabled { get; set; } = true;
+    public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
+    public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;
+}
+
+public sealed class RPFinishFacialType
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string Name { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+    public string PhysicalCues { get; set; } = string.Empty;
+    public string EligibleDesireBands { get; set; } = string.Empty;
+    public string EligibleSelfRespectBands { get; set; } = string.Empty;
+    public string EligibleOtherManDominanceBands { get; set; } = string.Empty;
+    public int SortOrder { get; set; }
+    public bool IsEnabled { get; set; } = true;
+    public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
+    public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;
+}
+
+public sealed class RPFinishReceptivityLevel
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string Name { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+    public string PhysicalCues { get; set; } = string.Empty;
+    public string NarrativeCue { get; set; } = string.Empty;
+    public string EligibleDesireBands { get; set; } = string.Empty;
+    public string EligibleSelfRespectBands { get; set; } = string.Empty;
+    public int SortOrder { get; set; }
+    public bool IsEnabled { get; set; } = true;
+    public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
+    public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;
+}
+
+public sealed class RPFinishHisControlLevel
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string Name { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+    public string ExampleDialogue { get; set; } = string.Empty;
+    public string EligibleOtherManDominanceBands { get; set; } = string.Empty;
+    public int SortOrder { get; set; }
+    public bool IsEnabled { get; set; } = true;
+    public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
+    public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;
+}
+
+public sealed class RPFinishTransitionAction
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string Name { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+    public string TransitionText { get; set; } = string.Empty;
+    public string EligibleDesireBands { get; set; } = string.Empty;
+    public string EligibleSelfRespectBands { get; set; } = string.Empty;
+    public string EligibleOtherManDominanceBands { get; set; } = string.Empty;
     public int SortOrder { get; set; }
     public bool IsEnabled { get; set; } = true;
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;

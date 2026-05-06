@@ -993,6 +993,27 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             }
         }
 
+        // Re-inject the most recent plain instruction (non-/steer) from history so it stays
+        // authoritative regardless of how far back it sits in the rolling context window.
+        if (intent != PromptIntent.Instruction)
+        {
+            var instrContextView = session.GetContextView();
+            var instrWindowSize = Math.Max(12, session.ContextWindowSize);
+            var recentInstruction = instrContextView
+                .TakeLast(instrWindowSize)
+                .LastOrDefault(x => string.Equals(x.ActorName, "Instruction", StringComparison.OrdinalIgnoreCase)
+                    && !string.IsNullOrWhiteSpace(x.Content)
+                    && !x.Content.TrimStart().StartsWith("/steer", StringComparison.OrdinalIgnoreCase)
+                    && !x.Content.TrimStart().StartsWith("/timeskip", StringComparison.OrdinalIgnoreCase)
+                    && !x.Content.TrimStart().StartsWith("/endclimax", StringComparison.OrdinalIgnoreCase)
+                    && !x.Content.TrimStart().StartsWith("/completeclimax", StringComparison.OrdinalIgnoreCase));
+            if (recentInstruction is not null)
+            {
+                sb.AppendLine("Active Instruction (persistent — follow for this turn and continue until explicitly overridden):");
+                sb.AppendLine(recentInstruction.Content.Trim());
+            }
+        }
+
         // Place the per-turn prompt text immediately before the final writing instruction
         // so it carries maximum authority (LLMs weight instructions near the end of long prompts).
         if (!string.IsNullOrWhiteSpace(promptText))
