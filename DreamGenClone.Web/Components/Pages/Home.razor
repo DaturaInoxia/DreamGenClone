@@ -1,7 +1,122 @@
 ﻿@page "/"
+@rendermode InteractiveServer
+@using DreamGenClone.Web.Application.Sessions
+@using DreamGenClone.Application.Processing
 
-<PageTitle>Home</PageTitle>
+@inject ISessionService SessionService
+@inject IModelProcessingQueue Queue
+@inject NavigationManager Navigation
 
-<h1>Hello, world!</h1>
+<PageTitle>Dashboard</PageTitle>
 
-Welcome to your new app.
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="mb-0">Dashboard</h1>
+            <p class="text-muted mb-0">Quick access to your sessions and system status.</p>
+        </div>
+        <div class="d-flex gap-2 flex-wrap">
+            <button class="btn btn-primary" @onclick='() => Navigation.NavigateTo("roleplay/create")'>+ New Role-Play</button>
+            <button class="btn btn-outline-primary" @onclick='() => Navigation.NavigateTo("story")'>+ New Story</button>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-12 col-lg-6">
+            <div class="card h-100">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <strong>Recent Role-Play Sessions</strong>
+                    <a href="roleplay/sessions" class="btn btn-sm btn-outline-primary">View All</a>
+                </div>
+                <div class="list-group list-group-flush">
+                    @if (_rpSessions.Count == 0)
+                    {
+                        <div class="list-group-item text-muted fst-italic">No role-play sessions yet.</div>
+                    }
+                    else
+                    {
+                        @foreach (var session in _rpSessions)
+                        {
+                            <div class="list-group-item d-flex justify-content-between align-items-center gap-2">
+                                <div class="overflow-hidden">
+                                    <div class="fw-semibold text-truncate">@session.Title</div>
+                                    <small class="text-muted">@session.LastUpdatedUtc.ToLocalTime().ToString("g") &middot; @session.Status &middot; @session.InteractionCount interactions</small>
+                                </div>
+                                <a href="roleplay/workspace/@session.Id" class="btn btn-sm btn-outline-success flex-shrink-0">Resume</a>
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12 col-lg-6">
+            <div class="card h-100">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <strong>Recent Story Sessions</strong>
+                    <a href="story" class="btn btn-sm btn-outline-primary">View All</a>
+                </div>
+                <div class="list-group list-group-flush">
+                    @if (_storySessions.Count == 0)
+                    {
+                        <div class="list-group-item text-muted fst-italic">No story sessions yet.</div>
+                    }
+                    else
+                    {
+                        @foreach (var session in _storySessions)
+                        {
+                            <div class="list-group-item">
+                                <div class="fw-semibold text-truncate">@session.Title</div>
+                                <small class="text-muted">@session.LastUpdatedUtc.ToLocalTime().ToString("g") &middot; @session.InteractionCount interactions</small>
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header"><strong>System Status</strong></div>
+                <div class="card-body">
+                    <div class="d-flex flex-wrap gap-4">
+                        @{
+                            var allTasks = Queue.GetAllTasks();
+                            var pending = allTasks.Count(t => t.Status == ModelProcessingStatus.Queued || t.Status == ModelProcessingStatus.Processing);
+                            var failed = allTasks.Count(t => t.Status == ModelProcessingStatus.Failed);
+                        }
+                        <div>
+                            <div class="text-muted small mb-1">Processing Queue</div>
+                            <div class="d-flex align-items-center gap-2">
+                                <span class="badge @(pending > 0 ? "bg-warning text-dark" : "bg-success")">@pending pending</span>
+                                @if (failed > 0)
+                                {
+                                    <span class="badge bg-danger">@failed failed</span>
+                                }
+                                <a href="processing-queue" class="btn btn-sm btn-link p-0 text-decoration-none">Details &rsaquo;</a>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="text-muted small mb-1">Model Manager</div>
+                            <a href="model-manager" class="btn btn-sm btn-outline-secondary">Check Status &rsaquo;</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<SessionListItem> _rpSessions = [];
+    private List<SessionListItem> _storySessions = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        var rp = await SessionService.GetSessionsByTypeAsync("roleplay");
+        _rpSessions = rp.OrderByDescending(s => s.LastUpdatedUtc).Take(5).ToList();
+
+        var story = await SessionService.GetSessionsByTypeAsync("story");
+        _storySessions = story.OrderByDescending(s => s.LastUpdatedUtc).Take(5).ToList();
+    }
+}

@@ -10,6 +10,16 @@ public enum RPThemeTier
     HardDealBreaker = 5
 }
 
+/// <summary>
+/// A per-session theme selection with an explicit tier, used when the user overrides the default
+/// scenario theme profile on session create.
+/// </summary>
+public sealed class SessionThemeSelection
+{
+    public string ThemeId { get; set; } = string.Empty;
+    public RPThemeTier Tier { get; set; } = RPThemeTier.NiceToHave;
+}
+
 public enum RPThemeGuidancePointType
 {
     Emphasis = 0,

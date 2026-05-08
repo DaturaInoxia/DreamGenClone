@@ -97,6 +97,7 @@ window.rolePlayWorkspace = {
         };
 
         const onPointerDown = function (event) {
+            if (shell.classList.contains('panel-collapsed')) return;
             startX = event.clientX;
             const styleWidth = parseInt(getComputedStyle(shell).getPropertyValue('--rw-settings-width'), 10);
             startWidth = Number.isNaN(styleWidth) ? initialWidth : styleWidth;
@@ -113,6 +114,11 @@ window.rolePlayWorkspace = {
             document.removeEventListener('pointerup', onPointerUp);
             shell.classList.remove('is-resizing');
         };
+
+        // Restore collapse state from previous session
+        if (localStorage.getItem('rw-panel-collapsed') === '1') {
+            shell.classList.add('panel-collapsed');
+        }
     },
 
     disposePanelResize: function (handleSelector) {
@@ -121,6 +127,14 @@ window.rolePlayWorkspace = {
             handle.__rwResizeDispose();
             handle.__rwResizeDispose = null;
         }
+    },
+
+    toggleSettingsPanel: function (event) {
+        event.stopPropagation();
+        const shell = document.querySelector('.rw-shell');
+        if (!shell) return;
+        const collapsed = shell.classList.toggle('panel-collapsed');
+        localStorage.setItem('rw-panel-collapsed', collapsed ? '1' : '0');
     },
 
     openDebugWindow: function (url) {

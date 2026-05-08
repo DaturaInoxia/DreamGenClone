@@ -87,8 +87,8 @@ public sealed class RPFinishLocationSeedServiceTests : IDisposable
 
     private async Task<RPThemeService> CreateServiceAsync()
     {
-        var opts = Options.Create(new SqliteConfiguration { DatabasePath = _databasePath });
-        var persistence = new SqlitePersistence(opts, NullLogger<SqlitePersistence>.Instance);
+        var opts = Options.Create(new PersistenceOptions { ConnectionString = $"Data Source={_databasePath}" });
+        var persistence = new SqlitePersistence(opts, Options.Create(new LmStudioOptions()), Options.Create(new StoryAnalysisOptions()), Options.Create(new ScenarioAdaptationOptions()), NullLogger<SqlitePersistence>.Instance);
         await persistence.InitializeAsync();
         return new RPThemeService(opts, NullLogger<RPThemeService>.Instance);
     }

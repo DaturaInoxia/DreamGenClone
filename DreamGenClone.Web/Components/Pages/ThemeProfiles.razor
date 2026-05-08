@@ -54,15 +54,6 @@
             <button type="button" class="nav-link @GetTabClass("style")" @onclick='() => _activeTab = "style"'>Writing Style</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button type="button" class="nav-link @GetTabClass("catalog")" @onclick='() => _activeTab = "catalog"'>Theme Catalog</button>
-        </li>
-        <li class="nav-item" role="presentation">
-            <button type="button" class="nav-link @GetTabClass("definitions")" @onclick='() => _activeTab = "definitions"'>Theme Definitions</button>
-        </li>
-        <li class="nav-item" role="presentation">
-            <button type="button" class="nav-link @GetTabClass("scenario-definitions")" @onclick='() => _activeTab = "scenario-definitions"'>Scenario Definitions</button>
-        </li>
-        <li class="nav-item" role="presentation">
             <button type="button" class="nav-link @GetTabClass("base-stats")" @onclick='() => _activeTab = "base-stats"'>Character State</button>
         </li>
         <li class="nav-item" role="presentation">
@@ -97,6 +88,12 @@
         </li>
         <li class="nav-item" role="presentation">
             <button type="button" class="nav-link @GetTabClass("beat-sheet")" @onclick='() => _activeTab = "beat-sheet"'>Beat Sheet</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button type="button" class="nav-link @GetTabClass("templates")" @onclick='() => _activeTab = "templates"'>Templates</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button type="button" class="nav-link @GetTabClass("stat-keywords")" @onclick='() => _activeTab = "stat-keywords"'>Stat Keywords</button>
         </li>
     </ul>
 
@@ -2926,6 +2923,14 @@
             </div>
         </div>
     }
+    else if (_activeTab == "templates")
+    {
+        <TemplatesPanel />
+    }
+    else if (_activeTab == "stat-keywords")
+    {
+        <StatKeywordCategoriesPanel />
+    }
 </div>
 
 @code {
@@ -2957,7 +2962,9 @@
         "flow-guide",
         "perspective",
         "selection-engine",
-        "beat-sheet"
+        "beat-sheet",
+        "templates",
+        "stat-keywords"
     ];
 
     private List<ThemeProfile> _profiles = [];

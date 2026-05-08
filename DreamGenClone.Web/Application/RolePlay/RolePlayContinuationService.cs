@@ -10,11 +10,13 @@ using DreamGenClone.Application.StoryAnalysis.Models;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Domain.StoryAnalysis;
 using DreamGenClone.Domain.ModelManager;
+using DreamGenClone.Infrastructure.Configuration;
 using DreamGenClone.Infrastructure.Logging;
 using DreamGenClone.Web.Application.Models;
 using DreamGenClone.Web.Application.Scenarios;
 using DreamGenClone.Web.Domain.RolePlay;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace DreamGenClone.Web.Application.RolePlay;
 
@@ -43,6 +45,8 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
     private readonly IRPThemeService? _rpThemeService;
     private readonly IRolePlayDiagnosticsService? _diagnosticsService;
     private readonly IClimaxBeatRepository? _climaxBeatRepository;
+    private readonly IHusbandAwarenessProfileService? _husbandAwarenessProfileService;
+    private readonly bool _enableLocationServices;
     private readonly ILogger<RolePlayContinuationService> _logger;
 
     public RolePlayContinuationService(
@@ -59,7 +63,9 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         ILogger<RolePlayContinuationService> logger,
         IRolePlayDiagnosticsService? diagnosticsService = null,
         IRPThemeService? rpThemeService = null,
-        IClimaxBeatRepository? climaxBeatRepository = null)
+        IClimaxBeatRepository? climaxBeatRepository = null,
+        IHusbandAwarenessProfileService? husbandAwarenessProfileService = null,
+        IOptions<RolePlayDecisionOptions>? rolePlayDecisionOptions = null)
     {
         _completionClient = completionClient;
         _modelResolver = modelResolver;
@@ -74,6 +80,8 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         _rpThemeService = rpThemeService;
         _diagnosticsService = diagnosticsService;
         _climaxBeatRepository = climaxBeatRepository;
+        _husbandAwarenessProfileService = husbandAwarenessProfileService;
+        _enableLocationServices = rolePlayDecisionOptions?.Value.EnableLocationServices ?? true;
         _logger = logger;
     }
 
@@ -344,6 +352,22 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         string promptText,
         CancellationToken cancellationToken)
     {
+        // Resolve husband awareness frame early — must appear at top of prompt so the model
+        // sees it before the ~50K of interaction history that would otherwise bury it.
+        var earlyAwarenessFrame = string.Empty;
+        if (_husbandAwarenessProfileService is not null
+            && !string.IsNullOrWhiteSpace(session.AdaptiveState.HusbandAwarenessProfileId))
+        {
+            var awarenessProfile = await _husbandAwarenessProfileService.GetAsync(
+                session.AdaptiveState.HusbandAwarenessProfileId, cancellationToken);
+            if (awarenessProfile is not null)
+            {
+                earlyAwarenessFrame = string.IsNullOrWhiteSpace(awarenessProfile.Notes)
+                    ? string.Empty
+                    : awarenessProfile.Notes.Trim();
+            }
+        }
+
         var sb = new StringBuilder();
         sb.AppendLine("You are continuing an interactive role-play scene.");
         sb.AppendLine($"Behavior mode: {session.BehaviorMode}");
@@ -357,6 +381,20 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         else if (session.PersonaName != "You")
         {
             sb.AppendLine($"POV Persona: {session.PersonaName}");
+        }
+
+        // Inject partner behavior constraint at the top of the prompt — before all scenario
+        // and interaction history — so the model cannot miss it regardless of context length.
+        if (!string.IsNullOrWhiteSpace(earlyAwarenessFrame))
+        {
+            sb.AppendLine($"HARD CONSTRAINT — Partner/Husband Behavior (applies to every line of output; overrides all other instructions): {earlyAwarenessFrame}");
+        }
+
+        // Inject scene location lock at the top — before scenario and interaction history —
+        // so the model cannot teleport characters to a new location without a written transition.
+        if (_enableLocationServices && !string.IsNullOrWhiteSpace(session.AdaptiveState.CurrentSceneLocation))
+        {
+            sb.AppendLine($"HARD CONSTRAINT — Scene Location: The current scene is at \"{session.AdaptiveState.CurrentSceneLocation}\". Do not move any character to a different location without writing an explicit transition in the narration. Do not jump to a new place between responses.");
         }
 
         string scenarioStyle = string.Empty;
@@ -395,6 +433,11 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                 sb.AppendLine($"- Description: {scenario.Description}");
                 sb.AppendLine($"- Plot: {scenario.Plot.Description}");
                 sb.AppendLine($"- Setting: {scenario.Setting.WorldDescription}");
+                if (!string.IsNullOrWhiteSpace(scenario.Setting.TimeFrame))
+                {
+                    sb.AppendLine($"- Time Frame: {scenario.Setting.TimeFrame.Trim()}");
+                    sb.AppendLine("- Time Span Reminder: This entire story takes place within the time frame above. Scenes may skip forward in time; a new response does not have to be the immediate continuation of the last moment.");
+                }
                 scenarioStyle = string.Join(" / ", new[]
                 {
                     scenario.Narrative.ProseStyle,
@@ -588,8 +631,10 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             sb.AppendLine($"[{interaction.InteractionType}] {interaction.ActorName}: {interaction.Content}");
         }
 
-        if (!string.IsNullOrWhiteSpace(session.AdaptiveState.CurrentSceneLocation)
+        if (_enableLocationServices
+            && (!string.IsNullOrWhiteSpace(session.AdaptiveState.CurrentSceneLocation)
             || session.AdaptiveState.CharacterLocations.Count > 0)
+           )
         {
             sb.AppendLine("Scene Continuity Anchor:");
             sb.AppendLine($"- Current Scene Location: {session.AdaptiveState.CurrentSceneLocation ?? "(unknown)"}");
@@ -768,7 +813,8 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                 activeTheme,
                 steerDirective,
                 session.UseThemeAIGuidanceNotesInPrompt,
-                session.MaxThemeAIGuidanceNotes);
+                session.MaxThemeAIGuidanceNotes,
+                _enableLocationServices);
         }
 
         var timeSkipLabel = ResolveTimeSkipDirective(session, promptText, intent);
@@ -905,6 +951,8 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         // NPC       = 3rd person external (dialogue + observable behavior only)
         var personaName = string.IsNullOrWhiteSpace(session.PersonaName) ? "You" : session.PersonaName;
         var (effectiveStyleLabel, effectiveStyleReason) = RolePlayStyleResolver.ResolveEffectiveStyle(session, baseIntensityLevel, adaptiveIntensityLevel);
+        // Capture the real resolved scale before Narrative forces it to Atmospheric — used for Scene Presence Contract threshold check.
+        var scenePresenceScale = RolePlayStyleResolver.ParseBoundScale(effectiveStyleLabel);
         if (intent == PromptIntent.Narrative)
         {
             effectiveStyleLabel = IntensityLadder.GetLabel(IntensityLevel.Intro);
@@ -940,6 +988,22 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         sb.AppendLine("- Do not de-escalate below the resolved intensity level unless safety constraints require it.");
         sb.AppendLine($"Manual Intensity Pin: {(session.IsIntensityManuallyPinned ? "ON (resolved follows selected)" : "OFF (adaptive mode)")}");
         AppendEscalationGuidance(sb, session, actorName, currentPhase, intent);
+
+        // Scene Presence Contract — fires at Emotional+ in all non-BuildUp phases.
+        // Uses scenePresenceScale (pre-Narrative-override) so Narrative also receives this contract
+        // even though its effectiveStyleLabel is forced to Atmospheric.
+        // PURPOSE: intimate scenes (any level — kissing, touching, sexual) must be written in full;
+        // the model must NOT fade to black or use time-skip transitions past them.
+        var presenceCheckScale = scenePresenceScale ?? resolvedScale;
+        if (presenceCheckScale.HasValue && presenceCheckScale.Value >= (int)IntensityLevel.Emotional && currentPhase != "BuildUp" && intent != PromptIntent.Instruction)
+        {
+            sb.AppendLine("Scene Presence Contract:");
+            sb.AppendLine("- Any intimate physical encounter — kissing, touching, caressing, or sexual activity — occurring in the current moment must be described in full in this response. Do not fade to black. Do not summarize what happened with a single sentence.");
+            sb.AppendLine("- Do not write time-skip transitions that bypass an intimate scene in progress: e.g. 'the door closed behind her', 'an hour later', 'when it was over'. Stay present inside the encounter.");
+            sb.AppendLine("- ONE RESPONSE = ONE SCENE MOMENT. Do not write the intimate encounter AND the return-to-public-space (e.g. returning to the husband, re-entering the room, the couple scene after) within the same response. Write through the encounter and stop. The return belongs in a subsequent turn.");
+            sb.AppendLine("- The Resolved Intensity controls HOW explicitly you write the encounter (vocabulary, anatomical detail), not WHETHER you write it.");
+            sb.AppendLine("- At lower intensity levels: use evocative, sensory, emotionally resonant language — describe physical contact, sensation, and reactions without graphic anatomy.");
+        }
 
         if (resolvedScale.HasValue && resolvedScale.Value >= (int)IntensityLevel.Explicit && currentPhase != "BuildUp" && intent != PromptIntent.Instruction)
         {
@@ -1004,6 +1068,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                 .LastOrDefault(x => string.Equals(x.ActorName, "Instruction", StringComparison.OrdinalIgnoreCase)
                     && !string.IsNullOrWhiteSpace(x.Content)
                     && !x.Content.TrimStart().StartsWith("/steer", StringComparison.OrdinalIgnoreCase)
+                    && !x.Content.TrimStart().StartsWith("/nextphase", StringComparison.OrdinalIgnoreCase)
                     && !x.Content.TrimStart().StartsWith("/timeskip", StringComparison.OrdinalIgnoreCase)
                     && !x.Content.TrimStart().StartsWith("/endclimax", StringComparison.OrdinalIgnoreCase)
                     && !x.Content.TrimStart().StartsWith("/completeclimax", StringComparison.OrdinalIgnoreCase));
@@ -1030,6 +1095,14 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             sb.AppendLine(promptText.Trim());
         }
 
+        // Re-inject the partner behavior constraint immediately before the writing directive.
+        // The constraint was already appended ~12K chars earlier; repeating it here ensures it
+        // is the most recent instruction the model reads before generating any character or narrative output.
+        if (!string.IsNullOrWhiteSpace(guidanceContext.HusbandAwarenessFrame))
+        {
+            sb.AppendLine($"HARD CONSTRAINT — enforce in this response: {guidanceContext.HusbandAwarenessFrame}");
+        }
+
         if (intent == PromptIntent.Narrative)
         {
             if (string.Equals(currentPhase, "Climax", StringComparison.OrdinalIgnoreCase))
@@ -1039,6 +1112,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                     "Describe the physical moment, setting, character positions, sensations, and atmosphere in explicit detail. " +
                     "All participants have already described this same moment from their own perspectives — your role is to close the turn with a rich, omniscient account of what is happening right now. " +
                     "Do not advance the scene beyond what the characters have already established this turn. " +
+                    "HARD CONSTRAINT: Do not write departure scenes, farewells, or any narrative framing that concludes the story's time frame (e.g. 'the truck drove away', 'the weekend was over', 'she headed home'). The Climax phase has just begun — sustain the scene and hold the story within the encounter's moment. " +
                     $"Use vivid sensory details and match the established tone ({styleHint}). Write at least 300 words.");
             }
             else
@@ -1124,14 +1198,15 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         RPTheme? activeTheme,
         string steerDirective,
         bool includeThemeNotes,
-        int maxThemeNotes)
+        int maxThemeNotes,
+        bool enableLocationServices)
     {
         sb.AppendLine("Steer Flow Guidance:");
         sb.AppendLine($"- Requested steer direction: {steerDirective}");
         sb.AppendLine($"- Current narrative phase: {currentPhase}");
 
         var location = session.AdaptiveState.CurrentSceneLocation;
-        if (!string.IsNullOrWhiteSpace(location))
+        if (enableLocationServices && !string.IsNullOrWhiteSpace(location))
         {
             sb.AppendLine($"- Keep this steer plausible for the current surroundings at '{location}'.");
             sb.AppendLine("- If the steer implies changing location, add an explicit transition beat before characters arrive in a new place.");

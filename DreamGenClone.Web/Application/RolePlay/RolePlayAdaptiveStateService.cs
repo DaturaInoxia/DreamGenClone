@@ -781,6 +781,23 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
 
     private async Task<IReadOnlyList<ThemeCatalogEntry>> LoadRuntimeCatalogEntriesAsync(RolePlaySession session, CancellationToken cancellationToken)
     {
+        // Per-session theme selections take precedence over everything else.
+        // Only the explicitly selected themes are seeded into the tracker.
+        if (_rpThemeService is not null && session.SessionThemeSelections.Count > 0)
+        {
+            var selectedIds = session.SessionThemeSelections
+                .Select(x => x.ThemeId)
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            var selectedThemes = await _rpThemeService.ListThemesAsync(includeDisabled: false, cancellationToken: cancellationToken);
+            return selectedThemes
+                .Where(t => selectedIds.Contains(t.Id))
+                .Select(MapRpThemeToCatalogEntry)
+                .ToList();
+        }
+
         if (_rpThemeService is not null && !string.IsNullOrWhiteSpace(session.SelectedRPThemeProfileId))
         {
             var rpThemes = await _rpThemeService.ListThemesByProfileAsync(session.SelectedRPThemeProfileId, includeDisabled: false, cancellationToken);
@@ -1255,7 +1272,45 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
 
         // --- T030: Resolve ThemeProfile preferences and apply ChoiceSignal ---
         var blockedCount = 0;
-        if (_rpThemeService is not null && !string.IsNullOrWhiteSpace(session.SelectedRPThemeProfileId))
+        if (session.SessionThemeSelections.Count > 0)
+        {
+            // Per-session selections: apply tier signals from each selection directly.
+            // The tracker already contains only the selected themes (set by LoadRuntimeCatalogEntriesAsync),
+            // so we iterate selections and apply the stored tier to the matching tracker item.
+            foreach (var selection in session.SessionThemeSelections)
+            {
+                if (!state.ThemeTracker.Themes.TryGetValue(selection.ThemeId, out var trackerItem))
+                {
+                    continue;
+                }
+
+                var choiceSignal = selection.Tier switch
+                {
+                    DreamGenClone.Domain.RolePlay.RPThemeTier.MustHave => 15,
+                    DreamGenClone.Domain.RolePlay.RPThemeTier.StronglyPrefer => 8,
+                    DreamGenClone.Domain.RolePlay.RPThemeTier.NiceToHave => 3,
+                    DreamGenClone.Domain.RolePlay.RPThemeTier.Discouraged => -5,
+                    _ => 0
+                };
+
+                trackerItem.Breakdown.ChoiceSignal = choiceSignal;
+                trackerItem.Score = Math.Clamp(trackerItem.Score + choiceSignal, 0, 100);
+
+                if (selection.Tier == DreamGenClone.Domain.RolePlay.RPThemeTier.MustHave)
+                {
+                    trackerItem.Score = Math.Clamp(trackerItem.Score + 3, 0, 100);
+                }
+
+                trackerItem.Intensity = trackerItem.Score switch
+                {
+                    < 20 => "Minor",
+                    < 45 => "Moderate",
+                    < 70 => "Major",
+                    _ => "Central"
+                };
+            }
+        }
+        else if (_rpThemeService is not null && !string.IsNullOrWhiteSpace(session.SelectedRPThemeProfileId))
         {
             var assignments = await _rpThemeService.ListProfileAssignmentsAsync(session.SelectedRPThemeProfileId, cancellationToken);
             var themes = await _rpThemeService.ListThemesAsync(includeDisabled: false, cancellationToken: cancellationToken);

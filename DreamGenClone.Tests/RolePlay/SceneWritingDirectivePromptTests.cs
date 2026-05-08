@@ -242,4 +242,15 @@ public sealed class SceneWritingDirectivePromptTests
             g.Contains("next Continue turn", StringComparison.OrdinalIgnoreCase) ||
             g.Contains("next continue", StringComparison.OrdinalIgnoreCase));
     }
+
+    [Fact]
+    public void BuildFramingGuards_Climax_ContainsDepartureSceneBlock()
+    {
+        var guards = RolePlayAssistantPrompts.BuildFramingGuards("Climax", "scene-dominance");
+        // Climax must block departure/scenario-close narrative until /endclimax
+        Assert.Contains(guards, g =>
+            g.Contains("departure", StringComparison.OrdinalIgnoreCase) ||
+            g.Contains("drove away", StringComparison.OrdinalIgnoreCase) ||
+            g.Contains("weekend was over", StringComparison.OrdinalIgnoreCase));
+    }
 }

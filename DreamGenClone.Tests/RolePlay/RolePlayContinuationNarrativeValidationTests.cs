@@ -445,6 +445,26 @@ public sealed class RolePlayContinuationNarrativeValidationTests
 
         public Task TruncateRolePlayAndScenarioDataAsync(CancellationToken cancellationToken = default)
             => Task.CompletedTask;
+
+        public Task<RPFinishLocation> SaveFinishLocationAsync(RPFinishLocation entry, CancellationToken cancellationToken = default) => Task.FromResult(entry);
+        public Task<IReadOnlyList<RPFinishLocation>> ListFinishLocationsAsync(bool includeDisabled = false, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<RPFinishLocation>>([]);
+        public Task<bool> DeleteFinishLocationAsync(string entryId, CancellationToken cancellationToken = default) => Task.FromResult(false);
+
+        public Task<RPFinishFacialType> SaveFinishFacialTypeAsync(RPFinishFacialType entry, CancellationToken cancellationToken = default) => Task.FromResult(entry);
+        public Task<IReadOnlyList<RPFinishFacialType>> ListFinishFacialTypesAsync(bool includeDisabled = false, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<RPFinishFacialType>>([]);
+        public Task<bool> DeleteFinishFacialTypeAsync(string entryId, CancellationToken cancellationToken = default) => Task.FromResult(false);
+
+        public Task<RPFinishReceptivityLevel> SaveFinishReceptivityLevelAsync(RPFinishReceptivityLevel entry, CancellationToken cancellationToken = default) => Task.FromResult(entry);
+        public Task<IReadOnlyList<RPFinishReceptivityLevel>> ListFinishReceptivityLevelsAsync(bool includeDisabled = false, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<RPFinishReceptivityLevel>>([]);
+        public Task<bool> DeleteFinishReceptivityLevelAsync(string entryId, CancellationToken cancellationToken = default) => Task.FromResult(false);
+
+        public Task<RPFinishHisControlLevel> SaveFinishHisControlLevelAsync(RPFinishHisControlLevel entry, CancellationToken cancellationToken = default) => Task.FromResult(entry);
+        public Task<IReadOnlyList<RPFinishHisControlLevel>> ListFinishHisControlLevelsAsync(bool includeDisabled = false, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<RPFinishHisControlLevel>>([]);
+        public Task<bool> DeleteFinishHisControlLevelAsync(string entryId, CancellationToken cancellationToken = default) => Task.FromResult(false);
+
+        public Task<RPFinishTransitionAction> SaveFinishTransitionActionAsync(RPFinishTransitionAction entry, CancellationToken cancellationToken = default) => Task.FromResult(entry);
+        public Task<IReadOnlyList<RPFinishTransitionAction>> ListFinishTransitionActionsAsync(bool includeDisabled = false, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<RPFinishTransitionAction>>([]);
+        public Task<bool> DeleteFinishTransitionActionAsync(string entryId, CancellationToken cancellationToken = default) => Task.FromResult(false);
     }
 
     private sealed class RecordingDebugEventSink : IRolePlayDebugEventSink

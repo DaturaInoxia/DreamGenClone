@@ -3,147 +3,696 @@
 
 @using DreamGenClone.Application.Templates
 @using DreamGenClone.Application.StoryAnalysis
+@using DreamGenClone.Application.RolePlay
 @using DreamGenClone.Domain.Templates
+@using DreamGenClone.Domain.StoryAnalysis
 @using DreamGenClone.Web.Application.RolePlay
 @using DreamGenClone.Web.Application.Scenarios
-@using DreamGenClone.Web.Domain.Scenarios
 
 @inject IRolePlayEngineService RolePlayEngine
 @inject IScenarioService ScenarioService
 @inject ITemplateService TemplateService
+@inject IRPThemeService RPThemeService
+@inject IBaseStatProfileService BaseStatProfileService
+@inject IHusbandAwarenessProfileService HusbandAwarenessProfileService
 @inject NavigationManager Navigation
 @inject ILogger<RolePlayCreate> Logger
 
-<PageTitle>Role-Play Create Session</PageTitle>
+<PageTitle>Create Role-Play Session</PageTitle>
 
 <div class="container-fluid mt-4">
-    <h1>Role-Play Create Session</h1>
-    <p class="text-muted">Create a role-play session from this dedicated page.</p>
+    <h1>Create Role-Play Session</h1>
 
     @if (!string.IsNullOrWhiteSpace(_statusMessage))
     {
-        <div class="alert alert-info">@_statusMessage</div>
+        <div class="alert alert-danger">@_statusMessage</div>
     }
 
-    <div class="card">
-        <div class="card-header">Create Session</div>
-        <div class="card-body">
-            <div class="row g-2">
-                <div class="col-12 col-lg-5">
-                    <label class="form-label">Session Title</label>
-                    <input class="form-control" @bind="_newSessionTitle" />
-                </div>
-                <div class="col-12 col-lg-4">
-                    <label class="form-label">Scenario (optional)</label>
-                    <select class="form-select" @bind="_newSessionScenarioId">
-                        <option value="">(none)</option>
-                        @foreach (var scenario in _scenarios)
-                        {
-                            <option value="@scenario.Id">@scenario.Name</option>
-                        }
-                    </select>
-                </div>
-                <div class="col-12 col-lg-3">
-                    <label class="form-label">Persona (optional)</label>
-                    <select class="form-select" @bind="_newPersonaTemplateId">
-                        <option value="">(default - You)</option>
-                        @foreach (var persona in _personaTemplates)
-                        {
-                            <option value="@persona.Id">@persona.Name</option>
-                        }
-                    </select>
-                </div>
-                <div class="col-12 d-flex gap-2 mt-3">
-                    <button class="btn btn-primary" @onclick="CreateSessionAsync">Create Session</button>
-                    <button class="btn btn-outline-secondary" @onclick="GoToSavedSessions">Go To Saved Sessions</button>
+    <!-- Step indicator -->
+    <div class="d-flex align-items-center mb-4 gap-2 flex-wrap">
+        <span class="badge @(_currentStep == 1 ? "bg-primary" : _currentStep > 1 ? "bg-success" : "bg-secondary") fs-6 px-3 py-2">1 — Scenario</span>
+        <span class="text-muted">›</span>
+        <span class="badge @(_currentStep == 2 ? "bg-primary" : _currentStep > 2 ? "bg-success" : "bg-secondary") fs-6 px-3 py-2">2 — Themes</span>
+        <span class="text-muted">›</span>
+        <span class="badge @(_currentStep == 3 ? "bg-primary" : "bg-secondary") fs-6 px-3 py-2">3 — Persona &amp; Stats</span>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════ STEP 1 ══ -->
+    @if (_currentStep == 1)
+    {
+        <div class="card">
+            <div class="card-header"><h5 class="mb-0">Step 1 — Scenario</h5></div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-12 col-md-6">
+                        <label class="form-label">Session Title</label>
+                        <input class="form-control" @bind="_newSessionTitle" placeholder="Role-Play Session" />
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label">Scenario <span class="text-danger">*</span></label>
+                        <select class="form-select" @bind="_newSessionScenarioId">
+                            <option value="">(select a scenario)</option>
+                            @foreach (var s in _scenarios)
+                            {
+                                <option value="@s.Id">@s.Name</option>
+                            }
+                        </select>
+                        <div class="form-text">Required — drives the theme catalog and character defaults.</div>
+                    </div>
                 </div>
             </div>
         </div>
+    }
+
+    <!-- ═══════════════════════════════════════════════════ STEP 2 ══ -->
+    @if (_currentStep == 2)
+    {
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Step 2 — Themes</h5>
+                <button class="btn btn-sm btn-outline-secondary" @onclick="ResetThemeSelectionsToScenarioDefaultsAsync">Use Scenario Defaults</button>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-2">
+                    Check the themes to include. Scenario profile themes are pre-selected with their assigned tier.
+                    Themes you add from outside the profile default to <em>Nice to Have</em>.
+                    Unchecked themes are not seeded into the adaptive tracker.
+                </p>
+                @{
+                    var grouped = _allThemes
+                        .GroupBy(t => string.IsNullOrWhiteSpace(t.Category) ? "Uncategorized" : t.Category)
+                        .OrderBy(g => g.Key);
+                }
+                <div style="max-height: 520px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 4px; padding: 8px;">
+                    @foreach (var group in grouped)
+                    {
+                        <div class="mb-3">
+                            <div class="fw-semibold text-secondary small text-uppercase mb-1 border-bottom pb-1">@group.Key</div>
+                            @foreach (var theme in group.OrderBy(t => t.Label))
+                            {
+                                if (!_themeSelections.TryGetValue(theme.Id, out var sel))
+                                {
+                                    sel = new ThemeSelectionState { ThemeName = theme.Label, Category = theme.Category ?? string.Empty };
+                                    _themeSelections[theme.Id] = sel;
+                                }
+                                <div class="d-flex align-items-center gap-2 mb-1">
+                                    <input type="checkbox"
+                                           class="form-check-input mt-0"
+                                           checked="@sel.IsSelected"
+                                           @onchange="@(e => SetThemeSelected(theme.Id, theme.Label, (bool)(e.Value ?? false)))" />
+                                    <span style="min-width: 200px; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="@theme.Label">@theme.Label</span>
+                                    @if (sel.IsSelected)
+                                    {
+                                        <select class="form-select form-select-sm" style="max-width: 175px;"
+                                                value="@sel.Tier.ToString()"
+                                                @onchange="@(e => SetThemeTier(theme.Id, e.Value?.ToString()))">
+                                            @foreach (var opt in TierOptions)
+                                            {
+                                                <option value="@opt.Value">@opt.Label</option>
+                                            }
+                                        </select>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted small" style="min-width: 175px;">—</span>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+                <div class="mt-2 text-muted small">@(_themeSelections.Values.Count(x => x.IsSelected)) theme(s) selected.</div>
+            </div>
+        </div>
+    }
+
+    <!-- ═══════════════════════════════════════════════════ STEP 3 ══ -->
+    @if (_currentStep == 3)
+    {
+        <!-- Persona card -->
+        <div class="card mb-3">
+            <div class="card-header"><h5 class="mb-0">Persona</h5></div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-12 col-md-4">
+                        <label class="form-label">Persona Template (optional)</label>
+                        <select class="form-select" value="@_newPersonaTemplateId" @onchange="OnPersonaTemplateChanged">
+                            <option value="">(default — You)</option>
+                            @foreach (var p in _personaTemplates)
+                            {
+                                <option value="@p.Id">@p.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <label class="form-label">Name</label>
+                        <input class="form-control" @bind="_personaName" />
+                    </div>
+                    <div class="col-12 col-md-2">
+                        <label class="form-label">Gender</label>
+                        <select class="form-select" @bind="_personaGender">
+                            <option value="Unknown">Unknown</option>
+                            @foreach (var g in CharacterGenderCatalog.CharacterGenders)
+                            {
+                                <option value="@g">@g</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-12 col-md-2">
+                        <label class="form-label">Role</label>
+                        <select class="form-select" @bind="_personaRole">
+                            <option value="Unknown">Unknown</option>
+                            @foreach (var r in CharacterRoleCatalog.CharacterRoleOptions)
+                            {
+                                <option value="@r">@r</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">Description</label>
+                        <textarea class="form-control" rows="2" @bind="_personaDescription"></textarea>
+                    </div>
+                </div>
+
+                <!-- Persona starting stats -->
+                <div class="mt-3">
+                    <div class="small fw-semibold text-muted mb-1">Starting Stats</div>
+                    <div class="d-flex flex-wrap gap-2 mb-2">
+                        @foreach (var statName in AdaptiveStatCatalog.CanonicalStatNames)
+                        {
+                            <div class="input-group input-group-sm" style="width: 190px;">
+                                <span class="input-group-text" style="min-width: 110px;">@statName</span>
+                                <input type="number"
+                                       class="form-control"
+                                       min="0"
+                                       max="100"
+                                       value="@GetPersonaStat(statName)"
+                                       @onchange="@(e => SetPersonaStat(statName, e.Value?.ToString()))" />
+                            </div>
+                        }
+                    </div>
+                    <div class="input-group input-group-sm mb-1" style="max-width: 480px;">
+                        <select class="form-select" @bind="_personaStatProfileId">
+                            <option value="">(Select Stat Profile)</option>
+                            @foreach (var p in GetApplicableBaseStatProfiles(_personaGender, _personaRole))
+                            {
+                                <option value="@p.Id">@p.Name (@CharacterGenderCatalog.NormalizeForProfile(p.TargetGender) / @CharacterRoleCatalog.Normalize(p.TargetRole))</option>
+                            }
+                        </select>
+                        <button class="btn btn-outline-primary" type="button" @onclick="ApplyPersonaStatProfile">Apply</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Character stat overrides -->
+        @foreach (var cs in _characterEditStates)
+        {
+            <div class="card mb-2">
+                <div class="card-header d-flex justify-content-between align-items-center py-2">
+                    <span>
+                        @cs.CharacterName
+                        <span class="text-muted small ms-1">(@cs.Gender / @cs.Role)</span>
+                    </span>
+                    <button class="btn btn-sm btn-link py-0" @onclick="@(() => cs.IsExpanded = !cs.IsExpanded)">
+                        @(cs.IsExpanded ? "Collapse" : "Expand")
+                    </button>
+                </div>
+                @if (cs.IsExpanded)
+                {
+                    <div class="card-body">
+                        <div class="d-flex flex-wrap gap-2 mb-2">
+                            @foreach (var statName in AdaptiveStatCatalog.CanonicalStatNames)
+                            {
+                                <div class="input-group input-group-sm" style="width: 190px;">
+                                    <span class="input-group-text" style="min-width: 110px;">@statName</span>
+                                    <input type="number"
+                                           class="form-control"
+                                           min="0"
+                                           max="100"
+                                           value="@cs.Stats.GetValueOrDefault(statName, AdaptiveStatCatalog.DefaultValue)"
+                                           @onchange="@(e => SetCharacterStat(cs, statName, e.Value?.ToString()))" />
+                                </div>
+                            }
+                        </div>
+                        <div class="input-group input-group-sm" style="max-width: 480px;">
+                            <select class="form-select" value="@cs.SelectedStatProfileId"
+                                    @onchange="@(e => cs.SelectedStatProfileId = e.Value?.ToString() ?? string.Empty)">
+                                <option value="">(Select Stat Profile)</option>
+                                @foreach (var p in GetApplicableBaseStatProfiles(cs.Gender, cs.Role))
+                                {
+                                    <option value="@p.Id">@p.Name (@CharacterGenderCatalog.NormalizeForProfile(p.TargetGender) / @CharacterRoleCatalog.Normalize(p.TargetRole))</option>
+                                }
+                            </select>
+                            <button class="btn btn-outline-primary" type="button" @onclick="@(() => ApplyCharacterStatProfile(cs))">Apply</button>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+
+        <!-- Awareness profile -->
+        @if (_awarenessProfiles.Count > 0)
+        {
+            <div class="card mb-3">
+                <div class="card-header"><h5 class="mb-0">Awareness Profile</h5></div>
+                <div class="card-body">
+                    <label class="form-label">Husband Awareness Profile (optional)</label>
+                    <select class="form-select" style="max-width: 420px;" @bind="_awarenessProfileId">
+                        <option value="">(none)</option>
+                        @foreach (var ap in _awarenessProfiles)
+                        {
+                            <option value="@ap.Id">@ap.Name</option>
+                        }
+                    </select>
+                </div>
+            </div>
+        }
+    }
+
+    <!-- Navigation buttons -->
+    <div class="d-flex gap-2 mt-3">
+        @if (_currentStep > 1)
+        {
+            <button class="btn btn-outline-secondary" @onclick="GoBack">Back</button>
+        }
+        @if (_currentStep < 3)
+        {
+            <button class="btn btn-primary" @onclick="GoNextAsync" disabled="@(!CanGoNext)">Next</button>
+        }
+        else
+        {
+            <button class="btn btn-success" @onclick="CreateSessionAsync" disabled="@_isCreating">
+                @(_isCreating ? "Creating…" : "Create Session")
+            </button>
+        }
+        <button class="btn btn-outline-secondary" @onclick="GoToSavedSessions">Cancel</button>
     </div>
 </div>
 
 @code {
-    private readonly List<Scenario> _scenarios = [];
-    private readonly List<TemplateDefinition> _personaTemplates = [];
+    // ── Helper types ───────────────────────────────────────────────
 
-    private string _newSessionTitle = "Role-Play Session";
-    private string _newSessionScenarioId = string.Empty;
-    private string _newPersonaTemplateId = string.Empty;
-    private string _statusMessage = string.Empty;
-
-    protected override async Task OnInitializedAsync()
+    private sealed class ThemeSelectionState
     {
-        await ReloadScenariosAsync();
-        await ReloadPersonaTemplatesAsync();
+        public bool IsSelected { get; set; }
+        public RPThemeTier Tier { get; set; } = RPThemeTier.NiceToHave;
+        public string ThemeName { get; set; } = string.Empty;
+        public string Category { get; set; } = string.Empty;
     }
 
-    private async Task ReloadScenariosAsync()
+    private sealed class CharacterEditState
+    {
+        public string CharacterId { get; set; } = string.Empty;
+        public string CharacterName { get; set; } = string.Empty;
+        public string Gender { get; set; } = "Unknown";
+        public string Role { get; set; } = "Unknown";
+        public Dictionary<string, int> Stats { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+        public string SelectedStatProfileId { get; set; } = string.Empty;
+        public bool IsExpanded { get; set; } = true;
+    }
+
+    private static readonly (string Label, string Value)[] TierOptions =
+    [
+        ("Must Have",        nameof(RPThemeTier.MustHave)),
+        ("Strongly Prefer",  nameof(RPThemeTier.StronglyPrefer)),
+        ("Nice to Have",     nameof(RPThemeTier.NiceToHave)),
+        ("Neutral",          nameof(RPThemeTier.Neutral)),
+        ("Discouraged",      nameof(RPThemeTier.Discouraged)),
+    ];
+
+    // ── Wizard state ───────────────────────────────────────────────
+
+    private int _currentStep = 1;
+    private bool _isCreating;
+    private string _statusMessage = string.Empty;
+
+    // Step 1
+    private string _newSessionTitle = "Role-Play Session";
+    private string _newSessionScenarioId = string.Empty;
+    private readonly List<Scenario> _scenarios = [];
+
+    // Step 2
+    private Scenario? _selectedScenario;
+    private readonly List<RPTheme> _allThemes = [];
+    private readonly Dictionary<string, ThemeSelectionState> _themeSelections = new(StringComparer.OrdinalIgnoreCase);
+
+    // Step 3
+    private string _newPersonaTemplateId = string.Empty;
+    private string _personaName = "You";
+    private string _personaDescription = string.Empty;
+    private string _personaGender = CharacterGenderCatalog.Unknown;
+    private string _personaRole = CharacterRoleCatalog.Unknown;
+    private string _personaRelationTargetId = string.Empty;
+    private readonly Dictionary<string, int> _personaStats = new(StringComparer.OrdinalIgnoreCase);
+    private string _personaStatProfileId = string.Empty;
+    private readonly List<CharacterEditState> _characterEditStates = [];
+    private readonly List<TemplateDefinition> _personaTemplates = [];
+    private readonly List<BaseStatProfile> _baseStatProfiles = [];
+    private readonly List<HusbandAwarenessProfile> _awarenessProfiles = [];
+    private string _awarenessProfileId = string.Empty;
+
+    private bool CanGoNext => _currentStep == 1
+        ? !string.IsNullOrWhiteSpace(_newSessionScenarioId)
+        : true;
+
+    // ── Lifecycle ──────────────────────────────────────────────────
+
+    protected override async Task OnInitializedAsync()
     {
         _scenarios.Clear();
         _scenarios.AddRange(await ScenarioService.GetAllScenariosAsync());
     }
 
-    private async Task ReloadPersonaTemplatesAsync()
+    // ── Navigation ─────────────────────────────────────────────────
+
+    private void GoBack()
+    {
+        _statusMessage = string.Empty;
+        _currentStep--;
+    }
+
+    private async Task GoNextAsync()
+    {
+        _statusMessage = string.Empty;
+        if (_currentStep == 1)
+        {
+            await LoadStep2DataAsync();
+        }
+        else if (_currentStep == 2)
+        {
+            await LoadStep3DataAsync();
+        }
+        _currentStep++;
+    }
+
+    // ── Step 2 loading ─────────────────────────────────────────────
+
+    private async Task LoadStep2DataAsync()
+    {
+        _selectedScenario = await ScenarioService.GetScenarioAsync(_newSessionScenarioId);
+
+        _allThemes.Clear();
+        _allThemes.AddRange(await RPThemeService.ListThemesAsync(includeDisabled: false));
+
+        _themeSelections.Clear();
+        foreach (var t in _allThemes)
+        {
+            _themeSelections[t.Id] = new ThemeSelectionState
+            {
+                ThemeName = t.Label,
+                Category = t.Category ?? string.Empty,
+            };
+        }
+
+        await ApplyScenarioProfilePreselectAsync();
+    }
+
+    private async Task ApplyScenarioProfilePreselectAsync()
+    {
+        if (_selectedScenario is null || string.IsNullOrWhiteSpace(_selectedScenario.DefaultRPThemeProfileId))
+        {
+            return;
+        }
+
+        var assignments = await RPThemeService.ListProfileAssignmentsAsync(_selectedScenario.DefaultRPThemeProfileId);
+        foreach (var a in assignments.Where(x => x.IsEnabled))
+        {
+            if (_themeSelections.TryGetValue(a.ThemeId, out var sel))
+            {
+                sel.IsSelected = true;
+                sel.Tier = a.Tier;
+            }
+        }
+    }
+
+    private async Task ResetThemeSelectionsToScenarioDefaultsAsync()
+    {
+        foreach (var sel in _themeSelections.Values)
+        {
+            sel.IsSelected = false;
+            sel.Tier = RPThemeTier.NiceToHave;
+        }
+        await ApplyScenarioProfilePreselectAsync();
+    }
+
+    private void SetThemeSelected(string themeId, string themeName, bool isSelected)
+    {
+        if (!_themeSelections.TryGetValue(themeId, out var sel))
+        {
+            sel = new ThemeSelectionState { ThemeName = themeName };
+            _themeSelections[themeId] = sel;
+        }
+        sel.IsSelected = isSelected;
+    }
+
+    private void SetThemeTier(string themeId, string? tierStr)
+    {
+        if (!_themeSelections.TryGetValue(themeId, out var sel))
+        {
+            return;
+        }
+        if (Enum.TryParse<RPThemeTier>(tierStr, out var tier))
+        {
+            sel.Tier = tier;
+        }
+    }
+
+    // ── Step 3 loading ─────────────────────────────────────────────
+
+    private async Task LoadStep3DataAsync()
     {
         _personaTemplates.Clear();
-        var all = await TemplateService.GetAllAsync(TemplateType.Persona);
-        _personaTemplates.AddRange(all);
+        _personaTemplates.AddRange(await TemplateService.GetAllAsync(TemplateType.Persona));
+
+        _baseStatProfiles.Clear();
+        _baseStatProfiles.AddRange(await BaseStatProfileService.ListAsync());
+
+        _awarenessProfiles.Clear();
+        _awarenessProfiles.AddRange(await HusbandAwarenessProfileService.ListAsync());
+
+        // Initialize persona stats with defaults if not already set
+        foreach (var statName in AdaptiveStatCatalog.CanonicalStatNames)
+        {
+            _personaStats.TryAdd(statName, AdaptiveStatCatalog.DefaultValue);
+        }
+
+        _characterEditStates.Clear();
+        if (_selectedScenario is null)
+        {
+            return;
+        }
+
+        // Resolve scenario base stats (mirrors CreateSessionAsync logic, client-side)
+        var resolvedBaseStats = AdaptiveStatCatalog.NormalizePartial(_selectedScenario.ResolvedBaseStats);
+        if (!string.IsNullOrWhiteSpace(_selectedScenario.BaseStatProfileId))
+        {
+            var baseStatProfile = await BaseStatProfileService.GetAsync(_selectedScenario.BaseStatProfileId);
+            if (baseStatProfile is not null)
+            {
+                resolvedBaseStats = AdaptiveStatCatalog.NormalizeComplete(baseStatProfile.DefaultStats);
+            }
+        }
+
+        foreach (var character in _selectedScenario.Characters.Where(c => !string.IsNullOrWhiteSpace(c.Name)))
+        {
+            var mergedStats = new Dictionary<string, int>(resolvedBaseStats, StringComparer.OrdinalIgnoreCase);
+            var charOverrides = AdaptiveStatCatalog.NormalizePartial(character.BaseStats);
+            foreach (var (k, v) in charOverrides)
+            {
+                mergedStats[k] = v;
+            }
+            // Ensure all canonical stats present
+            foreach (var statName in AdaptiveStatCatalog.CanonicalStatNames)
+            {
+                mergedStats.TryAdd(statName, AdaptiveStatCatalog.DefaultValue);
+            }
+
+            _characterEditStates.Add(new CharacterEditState
+            {
+                CharacterId = character.Id,
+                CharacterName = character.Name!.Trim(),
+                Gender = character.Gender,
+                Role = character.Role,
+                Stats = mergedStats,
+            });
+        }
     }
+
+    // ── Persona helpers ────────────────────────────────────────────
+
+    private void OnPersonaTemplateChanged(ChangeEventArgs e)
+    {
+        _newPersonaTemplateId = e.Value?.ToString() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(_newPersonaTemplateId))
+        {
+            _personaName = "You";
+            _personaDescription = string.Empty;
+            _personaGender = CharacterGenderCatalog.Unknown;
+            _personaRole = CharacterRoleCatalog.Unknown;
+            return;
+        }
+
+        var persona = _personaTemplates.FirstOrDefault(p => p.Id.ToString() == _newPersonaTemplateId);
+        if (persona is null)
+        {
+            return;
+        }
+
+        _personaName = persona.Name;
+        _personaDescription = persona.Content ?? string.Empty;
+        _personaGender = CharacterGenderCatalog.NormalizeForCharacter(persona.Gender);
+        _personaRole = CharacterRoleCatalog.Normalize(persona.Role);
+    }
+
+    private int GetPersonaStat(string statName) =>
+        _personaStats.TryGetValue(statName, out var v) ? v : AdaptiveStatCatalog.DefaultValue;
+
+    private void SetPersonaStat(string statName, string? raw)
+    {
+        if (int.TryParse(raw, out var v))
+        {
+            _personaStats[statName] = Math.Clamp(v, 0, 100);
+        }
+    }
+
+    private void ApplyPersonaStatProfile()
+    {
+        if (string.IsNullOrWhiteSpace(_personaStatProfileId))
+        {
+            return;
+        }
+
+        var profile = _baseStatProfiles.FirstOrDefault(p =>
+            string.Equals(p.Id, _personaStatProfileId, StringComparison.OrdinalIgnoreCase)
+            && CharacterGenderCatalog.IsProfileApplicableToCharacter(p.TargetGender, _personaGender)
+            && CharacterRoleCatalog.IsProfileApplicableToCharacter(p.TargetRole, _personaRole));
+
+        if (profile is null)
+        {
+            return;
+        }
+
+        var normalized = AdaptiveStatCatalog.NormalizeComplete(profile.DefaultStats);
+        foreach (var (k, v) in normalized)
+        {
+            _personaStats[k] = v;
+        }
+
+        _personaGender = CharacterGenderCatalog.NormalizeForCharacter(profile.TargetGender);
+        _personaRole = CharacterRoleCatalog.Normalize(profile.TargetRole);
+    }
+
+    // ── Character stat helpers ─────────────────────────────────────
+
+    private static void SetCharacterStat(CharacterEditState cs, string statName, string? raw)
+    {
+        if (int.TryParse(raw, out var v))
+        {
+            cs.Stats[statName] = Math.Clamp(v, 0, 100);
+        }
+    }
+
+    private void ApplyCharacterStatProfile(CharacterEditState cs)
+    {
+        if (string.IsNullOrWhiteSpace(cs.SelectedStatProfileId))
+        {
+            return;
+        }
+
+        var profile = _baseStatProfiles.FirstOrDefault(p =>
+            string.Equals(p.Id, cs.SelectedStatProfileId, StringComparison.OrdinalIgnoreCase)
+            && CharacterGenderCatalog.IsProfileApplicableToCharacter(p.TargetGender, cs.Gender)
+            && CharacterRoleCatalog.IsProfileApplicableToCharacter(p.TargetRole, cs.Role));
+
+        if (profile is null)
+        {
+            return;
+        }
+
+        var normalized = AdaptiveStatCatalog.NormalizeComplete(profile.DefaultStats);
+        foreach (var (k, v) in normalized)
+        {
+            cs.Stats[k] = v;
+        }
+
+        cs.Gender = CharacterGenderCatalog.NormalizeForCharacter(profile.TargetGender);
+        cs.Role = CharacterRoleCatalog.Normalize(profile.TargetRole);
+    }
+
+    private IReadOnlyList<BaseStatProfile> GetApplicableBaseStatProfiles(string gender, string role)
+    {
+        return _baseStatProfiles
+            .Where(p =>
+                CharacterGenderCatalog.IsProfileApplicableToCharacter(p.TargetGender, gender)
+                && CharacterRoleCatalog.IsProfileApplicableToCharacter(p.TargetRole, role))
+            .ToList();
+    }
+
+    // ── Create session ─────────────────────────────────────────────
 
     private async Task CreateSessionAsync()
     {
+        _statusMessage = string.Empty;
+
         if (string.IsNullOrWhiteSpace(_newSessionTitle))
         {
             _statusMessage = "Session title is required.";
             return;
         }
 
+        if (string.IsNullOrWhiteSpace(_newSessionScenarioId))
+        {
+            _statusMessage = "Please select a scenario in Step 1.";
+            return;
+        }
+
+        _isCreating = true;
         try
         {
-            var scenarioId = string.IsNullOrWhiteSpace(_newSessionScenarioId) ? null : _newSessionScenarioId;
+            var themeSelections = _themeSelections.Values.Any(x => x.IsSelected)
+                ? _themeSelections
+                    .Where(kvp => kvp.Value.IsSelected)
+                    .Select(kvp => new SessionThemeSelection { ThemeId = kvp.Key, Tier = kvp.Value.Tier })
+                    .ToList()
+                : (IReadOnlyList<SessionThemeSelection>)[];
 
-            string personaName = "You";
-            string personaDescription = string.Empty;
-            string? personaTemplateId = null;
-            string personaGender = CharacterGenderCatalog.Unknown;
-            string personaRole = CharacterRoleCatalog.Unknown;
-            string? personaRelationTargetId = null;
+            var charStatOverrides = _characterEditStates
+                .ToDictionary(
+                    cs => cs.CharacterId,
+                    cs => new Dictionary<string, int>(cs.Stats, StringComparer.OrdinalIgnoreCase),
+                    StringComparer.OrdinalIgnoreCase);
 
-            if (!string.IsNullOrWhiteSpace(_newPersonaTemplateId))
+            var request = new CreateRolePlaySessionRequest
             {
-                var persona = _personaTemplates.FirstOrDefault(p => p.Id.ToString() == _newPersonaTemplateId);
-                if (persona is not null)
-                {
-                    personaName = persona.Name;
-                    personaDescription = persona.Content ?? string.Empty;
-                    personaTemplateId = _newPersonaTemplateId;
-                    personaGender = CharacterGenderCatalog.NormalizeForCharacter(persona.Gender);
-                    personaRole = CharacterRoleCatalog.Normalize(persona.Role);
-                }
-            }
+                Title = _newSessionTitle,
+                ScenarioId = _newSessionScenarioId,
+                PersonaName = _personaName,
+                PersonaDescription = _personaDescription,
+                PersonaTemplateId = string.IsNullOrWhiteSpace(_newPersonaTemplateId) ? null : _newPersonaTemplateId,
+                PersonaGender = _personaGender,
+                PersonaRole = _personaRole,
+                PersonaRelationTargetId = string.IsNullOrWhiteSpace(_personaRelationTargetId) ? null : _personaRelationTargetId,
+                ThemeSelections = themeSelections,
+                CharacterStatOverrides = charStatOverrides,
+                PersonaStatOverrides = new Dictionary<string, int>(_personaStats, StringComparer.OrdinalIgnoreCase),
+                AwarenessProfileId = string.IsNullOrWhiteSpace(_awarenessProfileId) ? null : _awarenessProfileId,
+            };
 
-            var created = await RolePlayEngine.CreateSessionAsync(
-                _newSessionTitle,
-                scenarioId,
-                personaName,
-                personaDescription,
-                personaTemplateId,
-                personaGender,
-                personaRole,
-                personaRelationTargetId);
-
-            Logger.LogInformation("Created role-play session {SessionId} from create page", created.Id);
+            var created = await RolePlayEngine.CreateSessionAsync(request);
+            Logger.LogInformation("Created role-play session {SessionId} from wizard", created.Id);
             Navigation.NavigateTo(RolePlayRoutes.Sessions);
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Failed to create role-play session from create page");
+            Logger.LogError(ex, "Failed to create role-play session from wizard");
             _statusMessage = "Could not create session. Please try again.";
+        }
+        finally
+        {
+            _isCreating = false;
         }
     }
 
-    private void GoToSavedSessions()
-    {
-        Navigation.NavigateTo(RolePlayRoutes.Sessions);
-    }
+    private void GoToSavedSessions() => Navigation.NavigateTo(RolePlayRoutes.Sessions);
 }

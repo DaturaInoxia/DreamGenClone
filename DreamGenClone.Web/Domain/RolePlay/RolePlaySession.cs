@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using DreamGenClone.Domain.RolePlay;
 
 namespace DreamGenClone.Web.Domain.RolePlay;
 
@@ -95,6 +96,16 @@ public sealed class RolePlaySession
     public string? SelectedRPThemeProfileId { get; set; }
 
     /// <summary>
+    /// Per-session theme selections set on session create.
+    /// When non-empty, these selections override <see cref="SelectedRPThemeProfileId"/> and the adaptive seed
+    /// initializes the tracker exclusively from this list using the stored tier for each theme.
+    /// </summary>
+    public List<SessionThemeSelection> SessionThemeSelections { get; set; } = [];
+
+    /// <summary>Selected Husband Awareness Profile for this session (engine wire-up deferred).</summary>
+    public string? SelectedAwarenessProfileId { get; set; }
+
+    /// <summary>
     /// <summary>Legacy alias — maps old SelectedRankingProfileId → SelectedThemeProfileId during deserialization.</summary>
     [JsonInclude]
     [JsonPropertyName("SelectedRankingProfileId")]
@@ -160,12 +171,12 @@ public sealed class RolePlaySession
     /// <summary>
     /// Soft influence weight for structured RP theme AI guidance notes (0-100).
     /// </summary>
-    public int ThemeAIGuidanceInfluencePercent { get; set; } = 35;
+    public int ThemeAIGuidanceInfluencePercent { get; set; } = 100;
 
     /// <summary>
     /// Upper bound on how many structured RP theme AI guidance notes are injected into the prompt.
     /// </summary>
-    public int MaxThemeAIGuidanceNotes { get; set; } = 6;
+    public int MaxThemeAIGuidanceNotes { get; set; } = 30;
 
     /// <summary>Decision points already applied in this session.</summary>
     public List<string> AppliedDecisionPointIds { get; set; } = [];

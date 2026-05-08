@@ -153,6 +153,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     private readonly bool _suppressNarrativeAfterPhaseChange;
     private readonly bool _enablePhaseChangeDecisionPrompts;
     private readonly bool _enableSceneLocationDecisionPrompts;
+    private readonly bool _enableLocationServices;
     private readonly bool _enableDecisionPrompts;
     private readonly IClimaxBeatRepository? _climaxBeatRepository;
 
@@ -217,11 +218,12 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         _suppressNarrativeAfterPhaseChange = rolePlayDecisionOptions?.Value.SuppressNarrativeAfterPhaseChange ?? false;
         _enablePhaseChangeDecisionPrompts = rolePlayDecisionOptions?.Value.EnablePhaseChangeDecisionPrompts ?? false;
         _enableSceneLocationDecisionPrompts = rolePlayDecisionOptions?.Value.EnableSceneLocationDecisionPrompts ?? false;
+        _enableLocationServices = rolePlayDecisionOptions?.Value.EnableLocationServices ?? true;
         _enableDecisionPrompts = rolePlayDecisionOptions?.Value.EnableDecisionPrompts ?? false;
         _climaxBeatRepository = climaxBeatRepository;
     }
 
-    public async Task<RolePlaySession> CreateSessionAsync(
+    public Task<RolePlaySession> CreateSessionAsync(
         string title,
         string? scenarioId = null,
         string personaName = "You",
@@ -232,22 +234,48 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         string? personaRelationTargetId = null,
         CancellationToken cancellationToken = default)
     {
+        return CreateSessionAsync(new CreateRolePlaySessionRequest
+        {
+            Title = title,
+            ScenarioId = scenarioId,
+            PersonaName = personaName,
+            PersonaDescription = personaDescription,
+            PersonaTemplateId = personaTemplateId,
+            PersonaGender = personaGender,
+            PersonaRole = personaRole,
+            PersonaRelationTargetId = personaRelationTargetId,
+        }, cancellationToken);
+    }
+
+    public async Task<RolePlaySession> CreateSessionAsync(
+        CreateRolePlaySessionRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
         var session = new RolePlaySession
         {
-            Title = string.IsNullOrWhiteSpace(title) ? "Untitled Role-Play" : title.Trim(),
-            ScenarioId = scenarioId,
-            PersonaName = string.IsNullOrWhiteSpace(personaName) ? "You" : personaName.Trim(),
-            PersonaDescription = personaDescription ?? string.Empty,
-            PersonaTemplateId = personaTemplateId,
-            PersonaGender = CharacterGenderCatalog.NormalizeForCharacter(personaGender),
-            PersonaRole = CharacterRoleCatalog.Normalize(personaRole),
-            PersonaRelationTargetId = CharacterRelationCatalog.NormalizeTargetId(personaRelationTargetId),
+            Title = string.IsNullOrWhiteSpace(request.Title) ? "Untitled Role-Play" : request.Title.Trim(),
+            ScenarioId = request.ScenarioId,
+            PersonaName = string.IsNullOrWhiteSpace(request.PersonaName) ? "You" : request.PersonaName.Trim(),
+            PersonaDescription = request.PersonaDescription ?? string.Empty,
+            PersonaTemplateId = request.PersonaTemplateId,
+            PersonaGender = CharacterGenderCatalog.NormalizeForCharacter(request.PersonaGender),
+            PersonaRole = CharacterRoleCatalog.Normalize(request.PersonaRole),
+            PersonaRelationTargetId = CharacterRelationCatalog.NormalizeTargetId(request.PersonaRelationTargetId),
             PersonaPerspectiveMode = CharacterPerspectiveMode.FirstPersonInternalMonologue,
+            SelectedAwarenessProfileId = string.IsNullOrWhiteSpace(request.AwarenessProfileId) ? null : request.AwarenessProfileId,
         };
 
-        if (!string.IsNullOrWhiteSpace(scenarioId))
+        // Propagate awareness profile to adaptive state so the prompt pipeline can inject it immediately.
+        if (!string.IsNullOrWhiteSpace(request.AwarenessProfileId))
         {
-            var scenario = await _scenarioService.GetScenarioAsync(scenarioId);
+            session.AdaptiveState.HusbandAwarenessProfileId = request.AwarenessProfileId;
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.ScenarioId))
+        {
+            var scenario = await _scenarioService.GetScenarioAsync(request.ScenarioId);
             if (scenario is not null)
             {
                 if (string.IsNullOrWhiteSpace(session.PersonaRelationTargetId))
@@ -273,12 +301,24 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
                 session.PersonaPerspectiveMode = scenario.DefaultPersonaPerspectiveMode;
                 session.SelectedThemeProfileId = scenario.DefaultThemeProfileId;
-                session.SelectedRPThemeProfileId = scenario.DefaultRPThemeProfileId;
                 session.SelectedIntensityProfileId = scenario.DefaultIntensityProfileId;
                 session.AdaptiveIntensityProfileId = scenario.DefaultIntensityProfileId;
                 session.SelectedSteeringProfileId = scenario.DefaultSteeringProfileId;
                 session.IntensityFloorOverride = scenario.DefaultIntensityFloor;
                 session.IntensityCeilingOverride = scenario.DefaultIntensityCeiling;
+
+                // Per-session theme selections override the scenario's default RP theme profile.
+                // Set BEFORE SeedFromScenarioAsync so the tracker is seeded from selections exclusively.
+                if (request.ThemeSelections.Count > 0)
+                {
+                    session.SessionThemeSelections = request.ThemeSelections.ToList();
+                    // SelectedRPThemeProfileId intentionally left null — SeedFromScenarioAsync uses
+                    // the SessionThemeSelections branch when selections are present.
+                }
+                else
+                {
+                    session.SelectedRPThemeProfileId = scenario.DefaultRPThemeProfileId;
+                }
 
                 var resolvedBaseStats = AdaptiveStatCatalog.NormalizePartial(scenario.ResolvedBaseStats);
                 if (!string.IsNullOrWhiteSpace(scenario.BaseStatProfileId))
@@ -315,6 +355,16 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                         mergedStats[statName] = statValue;
                     }
 
+                    // Apply wizard-provided starting stat overrides for this character.
+                    if (request.CharacterStatOverrides.TryGetValue(character.Id, out var wizardStatOverrides))
+                    {
+                        var normalizedWizardOverrides = AdaptiveStatCatalog.NormalizePartial(wizardStatOverrides);
+                        foreach (var (statName, statValue) in normalizedWizardOverrides)
+                        {
+                            mergedStats[statName] = statValue;
+                        }
+                    }
+
                     if (mergedStats.Count == 0)
                     {
                         continue;
@@ -332,6 +382,18 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         }
 
         await SeedPersonaStatsFromTemplateAsync(session, cancellationToken);
+
+        // Apply wizard-provided persona stat overrides after template seeding.
+        if (request.PersonaStatOverrides.Count > 0
+            && session.AdaptiveState.CharacterStats.TryGetValue(session.PersonaName, out var personaBlock))
+        {
+            var normalizedPersonaOverrides = AdaptiveStatCatalog.NormalizePartial(request.PersonaStatOverrides);
+            foreach (var (statName, statValue) in normalizedPersonaOverrides)
+            {
+                personaBlock.Stats[statName] = statValue;
+            }
+        }
+
         EnsurePersonaCharacterState(session);
         Sessions[session.Id] = session;
         _autoSaveCoordinator.QueueRolePlaySessionSave(session, "roleplay-session-created");
@@ -1578,6 +1640,17 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             }
         }
 
+        if (sceneCharacterNames.Count == 0)
+        {
+            foreach (var perspective in session.CharacterPerspectives)
+            {
+                if (!string.IsNullOrWhiteSpace(perspective.CharacterName))
+                {
+                    sceneCharacterNames.Add(perspective.CharacterName.Trim());
+                }
+            }
+        }
+
         var personaName = string.IsNullOrWhiteSpace(session.PersonaName) ? "You" : session.PersonaName.Trim();
         sceneCharacterNames = sceneCharacterNames
             .Where(name => !string.Equals(name, personaName, StringComparison.OrdinalIgnoreCase))
@@ -1603,7 +1676,9 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             .Select(i => i.ActorName?.Trim())
             .ToList();
 
-        var currentSceneLocation = session.AdaptiveState.CurrentSceneLocation;
+        var currentSceneLocation = _enableLocationServices
+            ? session.AdaptiveState.CurrentSceneLocation
+            : null;
         var ordered = sceneCharacterNames
             .Select((name, scenarioOrder) => new
             {
@@ -1969,6 +2044,10 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     {
         var previousV2State = await _stateRepository.LoadAdaptiveStateAsync(session.Id, cancellationToken);
         var v2State = HydrateV2State(session, previousV2State);
+        if (!_enableLocationServices)
+        {
+            ClearLocationState(v2State);
+        }
         NormalizePhaseOverrideLock(v2State);
         var climaxCompletionRequested = explicitClimaxCompletionRequested || IsClimaxCompletionRequested(session);
 
@@ -2316,7 +2395,9 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             : trigger;
 
         var directQuestionSignal = TryDetectDirectQuestionSignal(session, v2State);
-        var sceneLocationSignal = await DetectSceneLocationSignalAsync(session, v2State, cancellationToken);
+        var sceneLocationSignal = _enableLocationServices
+            ? await DetectSceneLocationSignalAsync(session, v2State, cancellationToken)
+            : SceneLocationSignal.None;
 
         if (sceneLocationSignal.Changed)
         {
@@ -4318,7 +4399,12 @@ Requirements:
         {
             foreach (var snapshot in state.CharacterSnapshots)
             {
-                UpsertTrueLocation(state, snapshot.CharacterId, latestLocation, sourceIsHidden: false);
+                var existing = state.CharacterLocations.FirstOrDefault(x =>
+                    string.Equals(x.CharacterId, snapshot.CharacterId, StringComparison.OrdinalIgnoreCase));
+                if (existing is null || string.IsNullOrWhiteSpace(existing.TrueLocation))
+                {
+                    UpsertTrueLocation(state, snapshot.CharacterId, latestLocation, sourceIsHidden: false);
+                }
             }
         }
         else if (!string.IsNullOrWhiteSpace(actorId))
@@ -4345,6 +4431,13 @@ Requirements:
         }
 
         return new SceneLocationSignal(true, previousLocation, latestLocation);
+    }
+
+    private static void ClearLocationState(DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state)
+    {
+        state.CurrentSceneLocation = null;
+        state.CharacterLocations = [];
+        state.CharacterLocationPerceptions = [];
     }
 
     private static void EnsureCharacterLocationRows(DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state)
@@ -4807,13 +4900,19 @@ Requirements:
     {
         EnsurePersonaCharacterState(session);
 
-        var snapshots = session.AdaptiveState.CharacterStats.Select(x =>
-        {
-            var characterId = string.IsNullOrWhiteSpace(x.Value.CharacterId) ? x.Key : x.Value.CharacterId;
-            var snapshot = CharacterStatProfileV2Accessor.CreateFromStats(characterId, x.Value.Stats);
-            snapshot.SnapshotUtc = DateTime.UtcNow;
-            return snapshot;
-        }).ToList();
+        // Prefer name-keyed entries over ID-keyed duplicates when both point to the same CharacterId.
+        var snapshots = session.AdaptiveState.CharacterStats
+            .OrderBy(x => Guid.TryParse(x.Key, out _) ? 1 : 0)
+            .Select(x =>
+            {
+                var characterId = string.IsNullOrWhiteSpace(x.Value.CharacterId) ? x.Key : x.Value.CharacterId;
+                var snapshot = CharacterStatProfileV2Accessor.CreateFromStats(characterId, x.Value.Stats);
+                snapshot.SnapshotUtc = DateTime.UtcNow;
+                return snapshot;
+            })
+            .GroupBy(x => x.CharacterId, StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.First())
+            .ToList();
 
         return new DreamGenClone.Domain.RolePlay.AdaptiveScenarioState
         {
@@ -4979,7 +5078,68 @@ Requirements:
             .ThenBy(x => x.Theme.ThemeId, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        if (_rpThemeService is not null && !string.IsNullOrWhiteSpace(session.SelectedRPThemeProfileId))
+        // Per-session theme selections: build candidates using tracker score (no repeat penalty)
+        // as NarrativeEvidenceScore and tier-based priority as PreferencePriorityScore.
+        // Repeat penalties must NOT apply here — the user explicitly chose to play these themes
+        // and penalties would prevent second arcs from ever reaching the commit gate.
+        if (_rpThemeService is not null && session.SessionThemeSelections.Count > 0)
+        {
+            var selectionThemes = await _rpThemeService.ListThemesAsync(includeDisabled: false, cancellationToken: cancellationToken);
+            var selectionThemesById = selectionThemes.ToDictionary(x => x.Id, StringComparer.OrdinalIgnoreCase);
+            var selectionRoleBindings = await BuildRoleCharacterBindingsAsync(session, cancellationToken);
+
+            var selectionCandidates = session.SessionThemeSelections
+                .Where(x => !string.IsNullOrWhiteSpace(x.ThemeId))
+                .Select((selection, index) =>
+                {
+                    if (!selectionThemesById.TryGetValue(selection.ThemeId, out var theme))
+                    {
+                        return null;
+                    }
+
+                    var preferencePriority = selection.Tier switch
+                    {
+                        DreamGenClone.Domain.RolePlay.RPThemeTier.MustHave => 1m,
+                        DreamGenClone.Domain.RolePlay.RPThemeTier.StronglyPrefer => 0.8m,
+                        DreamGenClone.Domain.RolePlay.RPThemeTier.NiceToHave => 0.6m,
+                        DreamGenClone.Domain.RolePlay.RPThemeTier.Neutral => 0.5m,
+                        DreamGenClone.Domain.RolePlay.RPThemeTier.Discouraged => 0.2m,
+                        _ => 0.5m
+                    };
+
+                    // NarrativeEvidenceScore uses the current tracker score (no penalty).
+                    // This reflects how strongly the narrative has been building toward this theme,
+                    // which grows organically through interaction. On repeat arcs the tracker score
+                    // continues to reflect active narrative evidence rather than being penalized.
+                    var trackerScore = session.AdaptiveState.ThemeTracker.Themes.TryGetValue(
+                        selection.ThemeId, out var trackerItem)
+                        ? NormalizeThemeScore(trackerItem.Score)
+                        : preferencePriority;
+
+                    var fitRulesJson = RPThemeFitRulesConverter.BuildScenarioFitRulesJson(theme, selectionRoleBindings);
+
+                    return new ScenarioDefinition(
+                        theme.Id,
+                        theme.Label,
+                        Priority: Math.Max(1, 5 - index),
+                        NarrativeEvidenceScore: trackerScore,
+                        PreferencePriorityScore: preferencePriority,
+                        ScenarioFitRulesJson: fitRulesJson,
+                        ScenarioFitRuleSource: "session-selection");
+                })
+                .Where(x => x is not null)
+                .Select(x => x!)
+                .ToList();
+
+            if (selectionCandidates.Count > 0)
+            {
+                return selectionCandidates;
+            }
+        }
+
+        if (_rpThemeService is not null
+            && session.SessionThemeSelections.Count == 0
+            && !string.IsNullOrWhiteSpace(session.SelectedRPThemeProfileId))
         {
             var assignments = await _rpThemeService.ListProfileAssignmentsAsync(session.SelectedRPThemeProfileId, cancellationToken);
             var themes = await _rpThemeService.ListThemesAsync(includeDisabled: false, cancellationToken: cancellationToken);

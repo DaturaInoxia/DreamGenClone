@@ -124,6 +124,7 @@ public static class RolePlayAssistantPrompts
             guards.Add("Write with explicit positional and sensory detail; name body parts and movements specifically.");
             guards.Add("Narrative urgency (time pressure, risk of interruption) must increase writing intensity, not truncate scene length.");
             guards.Add("By default, do not write male characters reaching orgasm, ejaculating, or concluding the encounter. Male completion is gated by /endclimax — sustain the scene until that command arrives. Exception: if the active steer or instruction explicitly directs a male character to orgasm or climax, follow that direction.");
+            guards.Add("Do not write departure scenes, farewells, scenario-close transitions (e.g. 'the truck drove away', 'the weekend was over', 'she headed home'), or any narrative framing that concludes the story's time frame. The Climax phase continues until /endclimax is received — hold the story within the encounter's moment.");
         }
 
         return guards;

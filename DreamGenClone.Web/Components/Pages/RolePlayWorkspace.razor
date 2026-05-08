@@ -317,7 +317,11 @@
                 sessionUpdated = true;
             }
 
-            if (string.IsNullOrWhiteSpace(_session.SelectedRPThemeProfileId))
+            // Only back-fill SelectedRPThemeProfileId from the scenario when the session has no
+            // per-session theme selections. When SessionThemeSelections is non-empty, null is the
+            // correct value — back-filling would cause BuildScenarioCandidatesAsync to pull from the
+            // profile and let themes outside the selection become active.
+            if (_session.SessionThemeSelections.Count == 0 && string.IsNullOrWhiteSpace(_session.SelectedRPThemeProfileId))
             {
                 if (!string.IsNullOrWhiteSpace(_loadedScenario.DefaultRPThemeProfileId))
                 {
@@ -7299,9 +7303,11 @@
                                     <div class="rw-modal-header">Interaction Info</div>
                                     <div class="rw-modal-body">
                                         <div class="rw-info-grid">
+                                            <div class="rw-info-row"><span class="rw-info-label">ID</span><span class="rw-info-value rw-info-value-mono">@infoInteraction.Id</span></div>
                                             <div class="rw-info-row"><span class="rw-info-label">Actor</span><span class="rw-info-value">@infoInteraction.ActorName</span></div>
                                             <div class="rw-info-row"><span class="rw-info-label">Type</span><span class="rw-info-value">@infoInteraction.InteractionType</span></div>
                                             <div class="rw-info-row"><span class="rw-info-label">Created</span><span class="rw-info-value">@infoInteraction.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss")</span></div>
+                                            <div class="rw-info-row"><span class="rw-info-label">Word Count</span><span class="rw-info-value">@(string.IsNullOrWhiteSpace(infoInteraction.Content) ? 0 : infoInteraction.Content.Trim().Split((char[])null!, StringSplitOptions.RemoveEmptyEntries).Length)</span></div>
                                             @if (infoInteraction.ParentInteractionId is not null)
                                             {
                                                 <div class="rw-info-row"><span class="rw-info-label">Alternative #</span><span class="rw-info-value">@infoInteraction.AlternativeIndex</span></div>
@@ -7874,6 +7880,7 @@
 
     
     <div class="rw-panel-resize-handle" @onclick:stopPropagation title="Resize settings panel"></div>
+    <button class="rw-panel-toggle-btn" onclick="rolePlayWorkspace.toggleSettingsPanel(event)" title="Toggle settings panel"></button>
     <div class="rw-settings-panel" @onclick:stopPropagation>
 
         <div class="rw-settings-tabs">
