@@ -22,6 +22,8 @@ Auto-generated from all feature plans. Last updated: 2026-03-17
 - C# / .NET 9 / Blazor Server + Microsoft.Data.Sqlite 9.x, Serilog.AspNetCore 9.x, System.Text.Json, ASP.NET Core DI/logging abstractions (001-roleplay-v2-unification)
 - SQLite for persisted feature data; JSON payload fields for complex nested structures in existing persistence patterns (001-roleplay-v2-unification)
 - SQLite via raw ADO.NET (`SqlitePersistence.cs`) — single file, no ORM (006-explicit-scene-writing)
+- C# 13 / .NET 9 + Microsoft.Data.Sqlite, Blazor Server, Serilog (007-finishing-move-catalog)
+- SQLite (project default; no exception) (007-finishing-move-catalog)
 
 - C# / .NET 9 (`net9.0`) + ASP.NET Core Blazor Server, `Microsoft.Data.Sqlite`, `Microsoft.Extensions.*`, Serilog (`Serilog.AspNetCore`, `Serilog.Settings.Configuration`, sinks/enrichers) (001-roleplay-session-screens)
 
@@ -42,9 +44,9 @@ tests/
 C# / .NET 9 (`net9.0`): Follow standard conventions
 
 ## Recent Changes
+- 007-finishing-move-catalog: Added C# 13 / .NET 9 + Microsoft.Data.Sqlite, Blazor Server, Serilog
 - 006-explicit-scene-writing: Added C# / .NET 9 / Blazor Server + Microsoft.Data.Sqlite, Serilog, System.Text.Json
 - 001-roleplay-v2-unification: Added C# / .NET 9 / Blazor Server + Microsoft.Data.Sqlite 9.x, Serilog.AspNetCore 9.x, System.Text.Json, ASP.NET Core DI/logging abstractions
-- 002-adaptive-scenario-redesign2: Added C# / .NET 9 (net9.0) + Microsoft.Data.Sqlite 9.0.0, Microsoft.Extensions.Logging.Abstractions 9.0.0, Serilog.AspNetCore 9.0.0, Serilog.Settings.Configuration 9.0.0, Serilog.Sinks.Console 6.0.0, Serilog.Sinks.File 6.0.0
 
 
 <!-- MANUAL ADDITIONS START -->

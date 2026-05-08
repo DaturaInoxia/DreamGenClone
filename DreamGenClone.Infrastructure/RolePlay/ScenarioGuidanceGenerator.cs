@@ -38,12 +38,15 @@ public sealed class ScenarioGuidanceGenerator : IScenarioGuidanceGenerator
     {
         ArgumentNullException.ThrowIfNull(request);
 
+        var husbandAwarenessFrame = await BuildHusbandAwarenessInterpretationAsync(request, cancellationToken);
+
         var template = await ResolveTemplateAsync(request, cancellationToken);
         if (template is null)
         {
             return new ScenarioGuidanceOutput
             {
                 GuidanceText = BuildFallbackGuidance(request.CurrentPhase, request.ActiveScenarioId),
+                HusbandAwarenessFrame = husbandAwarenessFrame,
                 Source = "Fallback"
             };
         }
@@ -65,8 +68,6 @@ public sealed class ScenarioGuidanceGenerator : IScenarioGuidanceGenerator
         {
             guidanceText = $"{guidanceText} {willingnessInterpretation}";
         }
-
-        var husbandAwarenessFrame = await BuildHusbandAwarenessInterpretationAsync(request, cancellationToken);
 
         return new ScenarioGuidanceOutput
         {

@@ -16,6 +16,10 @@ public interface IRolePlayEngineService
         string? personaRelationTargetId = null,
         CancellationToken cancellationToken = default);
 
+    Task<RolePlaySession> CreateSessionAsync(
+        CreateRolePlaySessionRequest request,
+        CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<RolePlaySession>> GetSessionsAsync(CancellationToken cancellationToken = default);
 
     Task<RolePlaySession?> GetSessionAsync(string sessionId, CancellationToken cancellationToken = default);

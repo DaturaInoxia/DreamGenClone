@@ -145,6 +145,56 @@ public sealed class StoryAnalysisFacade
         CancellationToken cancellationToken = default)
         => _rpThemeService.ImportFinishingMoveMatrixRowsFromJsonAsync(json, replaceExisting, cancellationToken);
 
+    // Finish Locations catalog
+    public Task<RPFinishLocation> SaveFinishLocationAsync(RPFinishLocation entry, CancellationToken cancellationToken = default)
+        => _rpThemeService.SaveFinishLocationAsync(entry, cancellationToken);
+
+    public Task<IReadOnlyList<RPFinishLocation>> ListFinishLocationsAsync(bool includeDisabled = false, CancellationToken cancellationToken = default)
+        => _rpThemeService.ListFinishLocationsAsync(includeDisabled, cancellationToken);
+
+    public Task<bool> DeleteFinishLocationAsync(string entryId, CancellationToken cancellationToken = default)
+        => _rpThemeService.DeleteFinishLocationAsync(entryId, cancellationToken);
+
+    // Finish Facial Types catalog
+    public Task<RPFinishFacialType> SaveFinishFacialTypeAsync(RPFinishFacialType entry, CancellationToken cancellationToken = default)
+        => _rpThemeService.SaveFinishFacialTypeAsync(entry, cancellationToken);
+
+    public Task<IReadOnlyList<RPFinishFacialType>> ListFinishFacialTypesAsync(bool includeDisabled = false, CancellationToken cancellationToken = default)
+        => _rpThemeService.ListFinishFacialTypesAsync(includeDisabled, cancellationToken);
+
+    public Task<bool> DeleteFinishFacialTypeAsync(string entryId, CancellationToken cancellationToken = default)
+        => _rpThemeService.DeleteFinishFacialTypeAsync(entryId, cancellationToken);
+
+    // Finish Receptivity Levels catalog
+    public Task<RPFinishReceptivityLevel> SaveFinishReceptivityLevelAsync(RPFinishReceptivityLevel entry, CancellationToken cancellationToken = default)
+        => _rpThemeService.SaveFinishReceptivityLevelAsync(entry, cancellationToken);
+
+    public Task<IReadOnlyList<RPFinishReceptivityLevel>> ListFinishReceptivityLevelsAsync(bool includeDisabled = false, CancellationToken cancellationToken = default)
+        => _rpThemeService.ListFinishReceptivityLevelsAsync(includeDisabled, cancellationToken);
+
+    public Task<bool> DeleteFinishReceptivityLevelAsync(string entryId, CancellationToken cancellationToken = default)
+        => _rpThemeService.DeleteFinishReceptivityLevelAsync(entryId, cancellationToken);
+
+    // Finish His Control Levels catalog
+    public Task<RPFinishHisControlLevel> SaveFinishHisControlLevelAsync(RPFinishHisControlLevel entry, CancellationToken cancellationToken = default)
+        => _rpThemeService.SaveFinishHisControlLevelAsync(entry, cancellationToken);
+
+    public Task<IReadOnlyList<RPFinishHisControlLevel>> ListFinishHisControlLevelsAsync(bool includeDisabled = false, CancellationToken cancellationToken = default)
+        => _rpThemeService.ListFinishHisControlLevelsAsync(includeDisabled, cancellationToken);
+
+    public Task<bool> DeleteFinishHisControlLevelAsync(string entryId, CancellationToken cancellationToken = default)
+        => _rpThemeService.DeleteFinishHisControlLevelAsync(entryId, cancellationToken);
+
+    // Finish Transition Actions catalog
+    public Task<RPFinishTransitionAction> SaveFinishTransitionActionAsync(RPFinishTransitionAction entry, CancellationToken cancellationToken = default)
+        => _rpThemeService.SaveFinishTransitionActionAsync(entry, cancellationToken);
+
+    public Task<IReadOnlyList<RPFinishTransitionAction>> ListFinishTransitionActionsAsync(bool includeDisabled = false, CancellationToken cancellationToken = default)
+        => _rpThemeService.ListFinishTransitionActionsAsync(includeDisabled, cancellationToken);
+
+    public Task<bool> DeleteFinishTransitionActionAsync(string entryId, CancellationToken cancellationToken = default)
+        => _rpThemeService.DeleteFinishTransitionActionAsync(entryId, cancellationToken);
+
     // Steer Position Matrix Rows (global base table)
     public Task<IReadOnlyList<RPSteerPositionMatrixRow>> ListSteerPositionMatrixRowsAsync(CancellationToken cancellationToken = default)
         => _rpThemeService.ListSteerPositionMatrixRowsAsync(cancellationToken);

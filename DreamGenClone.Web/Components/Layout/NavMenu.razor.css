@@ -17,7 +17,8 @@
 
 .top-row {
     min-height: 3.5rem;
-    background-color: rgba(0,0,0,0.4);
+    background-color: #0d0d0d;
+    border-bottom: 1px solid #272727;
 }
 
 .navbar-brand {
@@ -97,6 +98,48 @@
     display: block;
 }
 
+/* Nav group headers */
+.nav-group-header {
+    display: flex;
+    align-items: center;
+    height: 2rem;
+    cursor: pointer;
+    color: rgba(255, 255, 255, 0.45);
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    user-select: none;
+    margin-top: 0.75rem;
+    padding-top: 0.25rem;
+}
+
+    .nav-group-header:hover {
+        color: rgba(255, 255, 255, 0.75);
+    }
+
+.nav-group-label {
+    flex: 1;
+}
+
+.nav-group-items {
+    display: none;
+}
+
+.nav-group.expanded .nav-group-items {
+    display: block;
+}
+
+.nav-group-chevron {
+    display: inline-block;
+    transition: transform 0.15s ease;
+    font-size: 0.7rem;
+}
+
+.nav-group.expanded .nav-group-chevron {
+    transform: rotate(90deg);
+}
+
 @media (min-width: 641px) {
     .navbar-toggler {
         display: none;
@@ -107,7 +150,7 @@
         display: block;
 
         /* Allow sidebar to scroll for tall menus */
-        height: calc(100vh - 3.5rem);
+        height: 100vh;
         overflow-y: auto;
     }
 }

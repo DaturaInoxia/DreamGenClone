@@ -399,16 +399,30 @@
                                 {
                                     <div class="card mb-2">
                                         <div class="card-body">
-                                            <div class="row">
-                                                <div class="col-md-8">
-                                                    <h6>@location.Name</h6>
-                                                    <p class="text-muted">@location.Description</p>
+                                            @if (EditingLocationIndex == index)
+                                            {
+                                                <div class="mb-2">
+                                                    <label class="form-label small">Name</label>
+                                                    <input type="text" class="form-control form-control-sm mb-2" @bind="location.Name" />
+                                                    <label class="form-label small">Description</label>
+                                                    <textarea class="form-control form-control-sm mb-2" rows="3" @bind="location.Description"></textarea>
+                                                    <button class="btn btn-sm btn-primary me-1" @onclick="@(() => EditingLocationIndex = -1)">Save</button>
+                                                    <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => EditingLocationIndex = -1)">Cancel</button>
                                                 </div>
-                                                <div class="col-md-4 text-end">
-                                                    <button class="btn btn-sm btn-outline-primary" @onclick="@(() => EditingLocationIndex = index)">Edit</button>
-                                                    <button class="btn btn-sm btn-outline-danger" @onclick="@(() => CurrentScenario.Locations.RemoveAt(index))">Delete</button>
+                                            }
+                                            else
+                                            {
+                                                <div class="row">
+                                                    <div class="col-md-8">
+                                                        <h6>@location.Name</h6>
+                                                        <p class="text-muted">@location.Description</p>
+                                                    </div>
+                                                    <div class="col-md-4 text-end">
+                                                        <button class="btn btn-sm btn-outline-primary" @onclick="@(() => EditingLocationIndex = index)">Edit</button>
+                                                        <button class="btn btn-sm btn-outline-danger" @onclick="@(() => CurrentScenario.Locations.RemoveAt(index))">Delete</button>
+                                                    </div>
                                                 </div>
-                                            </div>
+                                            }
                                         </div>
                                     </div>
                                 }
@@ -439,16 +453,30 @@
                                 {
                                     <div class="card mb-2">
                                         <div class="card-body">
-                                            <div class="row">
-                                                <div class="col-md-8">
-                                                    <h6>@obj.Name</h6>
-                                                    <p class="text-muted">@obj.Description</p>
+                                            @if (EditingObjectIndex == index)
+                                            {
+                                                <div class="mb-2">
+                                                    <label class="form-label small">Name</label>
+                                                    <input type="text" class="form-control form-control-sm mb-2" @bind="obj.Name" />
+                                                    <label class="form-label small">Description</label>
+                                                    <textarea class="form-control form-control-sm mb-2" rows="3" @bind="obj.Description"></textarea>
+                                                    <button class="btn btn-sm btn-primary me-1" @onclick="@(() => EditingObjectIndex = -1)">Save</button>
+                                                    <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => EditingObjectIndex = -1)">Cancel</button>
                                                 </div>
-                                                <div class="col-md-4 text-end">
-                                                    <button class="btn btn-sm btn-outline-primary" @onclick="@(() => EditingObjectIndex = index)">Edit</button>
-                                                    <button class="btn btn-sm btn-outline-danger" @onclick="@(() => CurrentScenario.Objects.RemoveAt(index))">Delete</button>
+                                            }
+                                            else
+                                            {
+                                                <div class="row">
+                                                    <div class="col-md-8">
+                                                        <h6>@obj.Name</h6>
+                                                        <p class="text-muted">@obj.Description</p>
+                                                    </div>
+                                                    <div class="col-md-4 text-end">
+                                                        <button class="btn btn-sm btn-outline-primary" @onclick="@(() => EditingObjectIndex = index)">Edit</button>
+                                                        <button class="btn btn-sm btn-outline-danger" @onclick="@(() => CurrentScenario.Objects.RemoveAt(index))">Delete</button>
+                                                    </div>
                                                 </div>
-                                            </div>
+                                            }
                                         </div>
                                     </div>
                                 }
@@ -1493,7 +1521,6 @@
             await ResolveScenarioBaseStatsAsync();
             RecalculateTokenCount();
             await ScenarioService.SaveScenarioAsync(CurrentScenario);
-            Navigation.NavigateTo("/scenarios");
         }
     }
 

@@ -24,9 +24,9 @@ public sealed class RPFinishingMoveMatrixServiceTests : IDisposable
 
         var created = await service.SaveFinishingMoveMatrixRowAsync(new RPFinishingMoveMatrixRow
         {
-            DesireBand = "75-100",
+            DesireBand = "60-100",
             SelfRespectBand = "0-29",
-            DominanceBand = "60-100",
+            OtherManDominanceBand = "60-100",
             PrimaryLocations = ["bedroom", "living room"],
             SecondaryLocations = ["balcony"],
             ExcludedLocations = ["bathroom"],
@@ -40,9 +40,9 @@ public sealed class RPFinishingMoveMatrixServiceTests : IDisposable
         var rows = await service.ListFinishingMoveMatrixRowsAsync();
         var row = Assert.Single(rows);
         Assert.Equal(created.Id, row.Id);
-        Assert.Equal("75-100", row.DesireBand);
+        Assert.Equal("60-100", row.DesireBand);
         Assert.Equal("0-29", row.SelfRespectBand);
-        Assert.Equal("60-100", row.DominanceBand);
+        Assert.Equal("60-100", row.OtherManDominanceBand);
         Assert.Contains("bedroom", row.PrimaryLocations);
         Assert.Contains("bathroom", row.ExcludedLocations);
 
@@ -58,9 +58,9 @@ public sealed class RPFinishingMoveMatrixServiceTests : IDisposable
 
         await service.SaveFinishingMoveMatrixRowAsync(new RPFinishingMoveMatrixRow
         {
-            DesireBand = "50-74",
+            DesireBand = "30-59",
             SelfRespectBand = "30-59",
-            DominanceBand = "30-59",
+            OtherManDominanceBand = "30-59",
             PrimaryLocations = ["kitchen"],
             SortOrder = 0,
             IsEnabled = true
@@ -72,7 +72,7 @@ public sealed class RPFinishingMoveMatrixServiceTests : IDisposable
             {
               "desireBand": "75-100",
               "selfRespectBand": "0-29",
-              "dominanceBand": "60-100",
+              "otherManDominanceBand": "60-100",
               "primaryLocations": ["bedroom"],
               "secondaryLocations": ["living room"],
               "excludedLocations": ["bathroom"],
@@ -106,10 +106,10 @@ public sealed class RPFinishingMoveMatrixServiceTests : IDisposable
         Assert.Equal(2, rows.Count);
         Assert.DoesNotContain(rows, r => r.DesireBand == "50-74");
 
-        var high = Assert.Single(rows, r => r.DominanceBand == "60-100");
+        var high = Assert.Single(rows, r => r.OtherManDominanceBand == "60-100");
         Assert.Contains("bedroom", high.PrimaryLocations);
 
-        var low = Assert.Single(rows, r => r.DominanceBand == "0-29");
+        var low = Assert.Single(rows, r => r.OtherManDominanceBand == "0-29");
         Assert.False(low.IsEnabled);
         Assert.Contains("bedroom", low.ExcludedLocations);
     }
@@ -131,9 +131,9 @@ public sealed class RPFinishingMoveMatrixServiceTests : IDisposable
 
         await service.SaveFinishingMoveMatrixRowAsync(new RPFinishingMoveMatrixRow
         {
-            DesireBand = "50-74",
+            DesireBand = "30-59",
             SelfRespectBand = "30-59",
-            DominanceBand = "Medium",
+            OtherManDominanceBand = "30-59",
             PrimaryLocations = ["living room"],
             SortOrder = 0,
             IsEnabled = true
@@ -163,9 +163,9 @@ public sealed class RPFinishingMoveMatrixServiceTests : IDisposable
         var freshService = CreateService();
         await freshService.SaveFinishingMoveMatrixRowAsync(new RPFinishingMoveMatrixRow
         {
-            DesireBand = "75-100",
+            DesireBand = "60-100",
             SelfRespectBand = "0-29",
-            DominanceBand = "High",
+            OtherManDominanceBand = "60-100",
             PrimaryLocations = ["bedroom"],
             SortOrder = 1,
             IsEnabled = true

@@ -8,113 +8,98 @@
 
 <div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
     <nav class="nav flex-column">
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
-                <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Home
-            </NavLink>
+
+        <div class="nav-group">
+            <div class="nav-group-header px-3" onclick="navGroupToggle(this); event.stopPropagation();">
+                <span class="nav-group-label">Play</span>
+                <span class="nav-group-chevron">&#x203a;</span>
+            </div>
+            <div class="nav-group-items">
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="roleplay/sessions">
+                        <span class="bi bi-people-nav-menu" aria-hidden="true"></span> Role-Play
+                    </NavLink>
+                </div>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="sessions">
+                        <span class="bi bi-archive-nav-menu" aria-hidden="true"></span> All Sessions
+                    </NavLink>
+                </div>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="story">
+                        <span class="bi bi-journal-text-nav-menu" aria-hidden="true"></span> Story Mode
+                    </NavLink>
+                </div>
+            </div>
         </div>
 
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="counter">
-                <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> Counter
-            </NavLink>
+        <div class="nav-group">
+            <div class="nav-group-header px-3" onclick="navGroupToggle(this); event.stopPropagation();">
+                <span class="nav-group-label">Content</span>
+                <span class="nav-group-chevron">&#x203a;</span>
+            </div>
+            <div class="nav-group-items">
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="scenarios">
+                        <span class="bi bi-book-nav-menu" aria-hidden="true"></span> Scenarios
+                    </NavLink>
+                </div>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="storycollections">
+                        <span class="bi bi-collection-nav-menu" aria-hidden="true"></span> Story Collections
+                    </NavLink>
+                </div>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="storyparser">
+                        <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Story Parser
+                    </NavLink>
+                </div>
+            </div>
         </div>
 
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="weather">
-                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Weather
-            </NavLink>
+        <div class="nav-group">
+            <div class="nav-group-header px-3" onclick="navGroupToggle(this); event.stopPropagation();">
+                <span class="nav-group-label">Configuration</span>
+                <span class="nav-group-chevron">&#x203a;</span>
+            </div>
+            <div class="nav-group-items">
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="profiles">
+                        <span class="bi bi-sliders-nav-menu" aria-hidden="true"></span> Profiles
+                    </NavLink>
+                </div>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="rp-themes">
+                        <span class="bi bi-diagram-3-nav-menu" aria-hidden="true"></span> RP Themes
+                    </NavLink>
+                </div>
+            </div>
         </div>
 
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="templates">
-                <span class="bi bi-card-text-nav-menu" aria-hidden="true"></span> Templates
-            </NavLink>
+        <div class="nav-group">
+            <div class="nav-group-header px-3" onclick="navGroupToggle(this); event.stopPropagation();">
+                <span class="nav-group-label">System</span>
+                <span class="nav-group-chevron">&#x203a;</span>
+            </div>
+            <div class="nav-group-items">
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="model-manager">
+                        <span class="bi bi-hdd-network-nav-menu" aria-hidden="true"></span> Model Manager
+                    </NavLink>
+                </div>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="processing-queue">
+                        <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Processing Queue
+                    </NavLink>
+                </div>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="administration">
+                        <span class="bi bi-tools-nav-menu" aria-hidden="true"></span> Administration
+                    </NavLink>
+                </div>
+            </div>
         </div>
 
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="scenarios">
-                <span class="bi bi-book-nav-menu" aria-hidden="true"></span> Scenarios
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="story">
-                <span class="bi bi-journal-text-nav-menu" aria-hidden="true"></span> Story Mode
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="storyparser">
-                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> StoryParser
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="processing-queue">
-                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Processing Queue
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="storycollections">
-                <span class="bi bi-collection-nav-menu" aria-hidden="true"></span> Story Collections
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="profiles">
-                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Profiles
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="stat-keyword-categories">
-                <span class="bi bi-sliders-nav-menu" aria-hidden="true"></span> Stat Keyword Categories
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="rp-themes">
-                <span class="bi bi-diagram-3-nav-menu" aria-hidden="true"></span> RP Themes
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="roleplay">
-                <span class="bi bi-people-nav-menu" aria-hidden="true"></span> Role-Play Mode
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="roleplay/create">
-                <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> Role-Play Create
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="roleplay/sessions">
-                <span class="bi bi-archive-nav-menu" aria-hidden="true"></span> Role-Play Sessions
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="sessions">
-                <span class="bi bi-archive-nav-menu" aria-hidden="true"></span> Sessions
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="model-manager">
-                <span class="bi bi-hdd-network-nav-menu" aria-hidden="true"></span> Model Manager
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="administration">
-                <span class="bi bi-tools-nav-menu" aria-hidden="true"></span> Administration
-            </NavLink>
-        </div>
     </nav>
 </div>
 
