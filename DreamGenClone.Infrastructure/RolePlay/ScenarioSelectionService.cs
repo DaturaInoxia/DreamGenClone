@@ -41,25 +41,28 @@ public sealed class ScenarioSelectionService : IScenarioSelectionService
     public async Task<IReadOnlyList<ScenarioCandidateEvaluation>> EvaluateCandidatesAsync(
         AdaptiveScenarioState state,
         IReadOnlyList<ScenarioDefinition> candidates,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IReadOnlySet<string>? blockedScenarioIds = null)
     {
         if (_engineSettingsRepository is null)
             throw new InvalidOperationException(
                 "ScenarioEngineSettingsRepository is not available. " +
                 "Engine settings are required for candidate evaluation; ensure IScenarioEngineSettingsRepository is registered in DI.");
 
+        var filteredCandidates = ApplyBlockedScenarioFilter(state.SessionId, candidates, blockedScenarioIds);
+
         var engineSettings = await _engineSettingsRepository.LoadAsync(cancellationToken);
 
         var tier = ScenarioEligibilityService.ResolveWillingnessTier(state, engineSettings);
         var stageBEligible = !string.Equals(tier, "Blocked", StringComparison.Ordinal);
         var evaluationId = Guid.NewGuid().ToString("N");
-        var fitResults = await ResolveFitResultsAsync(state, candidates, cancellationToken);
+        var fitResults = await ResolveFitResultsAsync(state, filteredCandidates, cancellationToken);
 
         var charWeight = Clamp01((decimal)(engineSettings.CandidateCharacterAlignmentWeight));
         var narWeight = Clamp01((decimal)(engineSettings.CandidateNarrativeEvidenceWeight));
         var prefWeight = Clamp01((decimal)(engineSettings.CandidatePreferencePriorityWeight));
 
-        var evaluations = candidates
+        var evaluations = filteredCandidates
             .Select(candidate =>
             {
                 var fallbackFit = ScenarioEligibilityService.ComputeFitScore(state, candidate, engineSettings);
@@ -120,6 +123,39 @@ public sealed class ScenarioSelectionService : IScenarioSelectionService
             .ToList();
 
         return evaluations;
+    }
+
+    private IReadOnlyList<ScenarioDefinition> ApplyBlockedScenarioFilter(
+        string sessionId,
+        IReadOnlyList<ScenarioDefinition> candidates,
+        IReadOnlySet<string>? blockedScenarioIds)
+    {
+        if (blockedScenarioIds is null || blockedScenarioIds.Count == 0)
+        {
+            return candidates;
+        }
+
+        var filtered = candidates
+            .Where(x => !blockedScenarioIds.Contains(x.ScenarioId))
+            .ToList();
+
+        if (filtered.Count == 0)
+        {
+            throw new InvalidOperationException(
+                $"RolePlayV2 candidate filtering failed for session '{sessionId}': all candidates were blocked by theme machine directives.");
+        }
+
+        var removedCount = candidates.Count - filtered.Count;
+        if (removedCount > 0)
+        {
+            _logger.LogInformation(
+                "RolePlayV2 candidate filtering applied: SessionId={SessionId} RemovedCount={RemovedCount} RemainingCount={RemainingCount}",
+                sessionId,
+                removedCount,
+                filtered.Count);
+        }
+
+        return filtered;
     }
 
     private async Task<IReadOnlyDictionary<string, ScenarioFitResult>> ResolveFitResultsAsync(

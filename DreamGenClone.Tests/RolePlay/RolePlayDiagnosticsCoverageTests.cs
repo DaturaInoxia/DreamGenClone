@@ -61,5 +61,8 @@ public sealed class RolePlayDiagnosticsCoverageTests
 
         public Task<IReadOnlyList<UnsupportedSessionError>> LoadUnsupportedSessionErrorsAsync(string sessionId, int take = 20, CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyList<UnsupportedSessionError>>([new UnsupportedSessionError { SessionId = sessionId, ErrorCode = "E" }]);
+
+        public Task<IReadOnlyList<ThemeMachineDiagnosticEvent>> LoadThemeMachineDiagnosticEventsAsync(string sessionId, int take = 100, CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<ThemeMachineDiagnosticEvent>>([]);
     }
 }

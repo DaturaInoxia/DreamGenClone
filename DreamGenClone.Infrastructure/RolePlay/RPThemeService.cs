@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using System.Text.Json;
+using System.Globalization;
 using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Application.StoryAnalysis;
 using DreamGenClone.Domain.RolePlay;
@@ -28,14 +29,19 @@ public sealed partial class RPThemeService : IRPThemeService
 
     private readonly string _connectionString;
     private readonly ILogger<RPThemeService> _logger;
+    private readonly IThemeMachineAuthorizationService? _themeMachineAuthorizationService;
     private bool? _rpThemesHasProfileIdColumn;
     private bool? _rpThemesHasNarrativeGateProfileIdColumn;
     private bool _supplementalTablesEnsured;
 
-    public RPThemeService(IOptions<PersistenceOptions> options, ILogger<RPThemeService> logger)
+    public RPThemeService(
+        IOptions<PersistenceOptions> options,
+        ILogger<RPThemeService> logger,
+        IThemeMachineAuthorizationService? themeMachineAuthorizationService = null)
     {
         _connectionString = options.Value.ConnectionString;
         _logger = logger;
+        _themeMachineAuthorizationService = themeMachineAuthorizationService;
     }
 
     public async Task<RPThemeProfile> SaveProfileAsync(RPThemeProfile profile, CancellationToken cancellationToken = default)
@@ -577,6 +583,405 @@ public sealed partial class RPThemeService : IRPThemeService
         command.CommandText = "DELETE FROM RPThemes WHERE Id = $id";
         command.Parameters.AddWithValue("$id", id);
         return await command.ExecuteNonQueryAsync(cancellationToken) > 0;
+    }
+
+    public async Task<RPThemeMachineDefinition> SaveMachineDefinitionAsync(RPThemeMachineDefinition definition, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+
+        var now = DateTime.UtcNow;
+        definition.DefinitionId = string.IsNullOrWhiteSpace(definition.DefinitionId) ? Guid.NewGuid().ToString("N") : definition.DefinitionId.Trim();
+        definition.ThemeId = (definition.ThemeId ?? string.Empty).Trim();
+        definition.MachineKey = (definition.MachineKey ?? string.Empty).Trim();
+        definition.Name = (definition.Name ?? string.Empty).Trim();
+        definition.Version = definition.Version <= 0
+            ? throw new ArgumentException("Machine definition version must be greater than zero.", nameof(definition))
+            : definition.Version;
+        definition.CreatedUtc = definition.CreatedUtc == default ? now : definition.CreatedUtc;
+        definition.UpdatedUtc = now;
+
+        if (string.IsNullOrWhiteSpace(definition.ThemeId))
+        {
+            throw new ArgumentException("ThemeId is required for machine definition persistence.", nameof(definition));
+        }
+
+        if (string.IsNullOrWhiteSpace(definition.MachineKey))
+        {
+            throw new ArgumentException("MachineKey is required for machine definition persistence.", nameof(definition));
+        }
+
+        if (string.IsNullOrWhiteSpace(definition.Name))
+        {
+            throw new ArgumentException("Machine definition name is required.", nameof(definition));
+        }
+
+        definition.States = NormalizeMachineStates(definition.DefinitionId, definition.States);
+        definition.Transitions = NormalizeMachineTransitions(definition.DefinitionId, definition.Transitions, now);
+
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await EnsureThemeMachineTablesAsync(connection, cancellationToken);
+
+        var definitionAlreadyExists = await MachineDefinitionExistsAsync(connection, definition.DefinitionId, cancellationToken);
+
+        if (!await ThemeExistsAsync(connection, definition.ThemeId, cancellationToken))
+        {
+            throw new InvalidOperationException($"Cannot save machine definition '{definition.DefinitionId}': theme '{definition.ThemeId}' does not exist.");
+        }
+
+        await using var tx = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = tx;
+            command.CommandText = """
+                INSERT INTO RPThemeMachineDefinitions (
+                    DefinitionId, ThemeId, MachineKey, Version, Name, IsActive, IsSeeded, CreatedUtc, UpdatedUtc)
+                VALUES (
+                    $definitionId, $themeId, $machineKey, $version, $name, $isActive, $isSeeded, $createdUtc, $updatedUtc)
+                ON CONFLICT(DefinitionId) DO UPDATE SET
+                    ThemeId = excluded.ThemeId,
+                    MachineKey = excluded.MachineKey,
+                    Version = excluded.Version,
+                    Name = excluded.Name,
+                    IsActive = excluded.IsActive,
+                    IsSeeded = excluded.IsSeeded,
+                    UpdatedUtc = excluded.UpdatedUtc;
+                """;
+            command.Parameters.AddWithValue("$definitionId", definition.DefinitionId);
+            command.Parameters.AddWithValue("$themeId", definition.ThemeId);
+            command.Parameters.AddWithValue("$machineKey", definition.MachineKey);
+            command.Parameters.AddWithValue("$version", definition.Version);
+            command.Parameters.AddWithValue("$name", definition.Name);
+            command.Parameters.AddWithValue("$isActive", definition.IsActive ? 1 : 0);
+            command.Parameters.AddWithValue("$isSeeded", definition.IsSeeded ? 1 : 0);
+            command.Parameters.AddWithValue("$createdUtc", definition.CreatedUtc.ToString("O"));
+            command.Parameters.AddWithValue("$updatedUtc", definition.UpdatedUtc.ToString("O"));
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await using (var deleteTransitions = connection.CreateCommand())
+        {
+            deleteTransitions.Transaction = tx;
+            deleteTransitions.CommandText = "DELETE FROM RPThemeMachineTransitions WHERE DefinitionId = $definitionId";
+            deleteTransitions.Parameters.AddWithValue("$definitionId", definition.DefinitionId);
+            await deleteTransitions.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await using (var deleteStates = connection.CreateCommand())
+        {
+            deleteStates.Transaction = tx;
+            deleteStates.CommandText = "DELETE FROM RPThemeMachineStates WHERE DefinitionId = $definitionId";
+            deleteStates.Parameters.AddWithValue("$definitionId", definition.DefinitionId);
+            await deleteStates.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        foreach (var state in definition.States)
+        {
+            await using var command = connection.CreateCommand();
+            command.Transaction = tx;
+            command.CommandText = """
+                INSERT INTO RPThemeMachineStates (
+                    StateId, DefinitionId, StateCode, Label, IsInitial, IsTerminal, SortOrder)
+                VALUES (
+                    $stateId, $definitionId, $stateCode, $label, $isInitial, $isTerminal, $sortOrder);
+                """;
+            command.Parameters.AddWithValue("$stateId", state.StateId);
+            command.Parameters.AddWithValue("$definitionId", state.DefinitionId);
+            command.Parameters.AddWithValue("$stateCode", state.StateCode);
+            command.Parameters.AddWithValue("$label", state.Label);
+            command.Parameters.AddWithValue("$isInitial", state.IsInitial ? 1 : 0);
+            command.Parameters.AddWithValue("$isTerminal", state.IsTerminal ? 1 : 0);
+            command.Parameters.AddWithValue("$sortOrder", state.SortOrder);
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        foreach (var transition in definition.Transitions)
+        {
+            await using var command = connection.CreateCommand();
+            command.Transaction = tx;
+            command.CommandText = """
+                INSERT INTO RPThemeMachineTransitions (
+                    TransitionId, DefinitionId, FromStateCode, ToStateCode, Priority, TriggerType,
+                    GateConfigJson, BlockReasonCode, IsEnabled, CreatedUtc, UpdatedUtc)
+                VALUES (
+                    $transitionId, $definitionId, $fromStateCode, $toStateCode, $priority, $triggerType,
+                    $gateConfigJson, $blockReasonCode, $isEnabled, $createdUtc, $updatedUtc);
+                """;
+            command.Parameters.AddWithValue("$transitionId", transition.TransitionId);
+            command.Parameters.AddWithValue("$definitionId", transition.DefinitionId);
+            command.Parameters.AddWithValue("$fromStateCode", transition.FromStateCode);
+            command.Parameters.AddWithValue("$toStateCode", transition.ToStateCode);
+            command.Parameters.AddWithValue("$priority", transition.Priority);
+            command.Parameters.AddWithValue("$triggerType", transition.TriggerType);
+            command.Parameters.AddWithValue("$gateConfigJson", transition.GateConfigJson);
+            command.Parameters.AddWithValue("$blockReasonCode", transition.BlockReasonCode);
+            command.Parameters.AddWithValue("$isEnabled", transition.IsEnabled ? 1 : 0);
+            command.Parameters.AddWithValue("$createdUtc", transition.CreatedUtc.ToString("O"));
+            command.Parameters.AddWithValue("$updatedUtc", transition.UpdatedUtc.ToString("O"));
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await tx.CommitAsync(cancellationToken);
+
+        _logger.LogInformation(
+            "Theme machine definition {Operation}: DefinitionId={DefinitionId} ThemeId={ThemeId} MachineKey={MachineKey} Version={Version} StateCount={StateCount} TransitionCount={TransitionCount}",
+            definitionAlreadyExists ? "updated" : "created",
+            definition.DefinitionId,
+            definition.ThemeId,
+            definition.MachineKey,
+            definition.Version,
+            definition.States.Count,
+            definition.Transitions.Count);
+
+        return await GetMachineDefinitionCoreAsync(connection, definition.DefinitionId, cancellationToken)
+            ?? throw new InvalidOperationException($"Saved machine definition '{definition.DefinitionId}' could not be reloaded.");
+    }
+
+    public async Task<IReadOnlyList<RPThemeMachineDefinition>> ListMachineDefinitionsAsync(string themeId, CancellationToken cancellationToken = default)
+    {
+        themeId = (themeId ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(themeId))
+        {
+            throw new ArgumentException("ThemeId is required to list machine definitions.", nameof(themeId));
+        }
+
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await EnsureThemeMachineTablesAsync(connection, cancellationToken);
+        return await ListMachineDefinitionsCoreAsync(connection, themeId, cancellationToken);
+    }
+
+    public async Task<RPThemeMachineDefinition?> GetMachineDefinitionAsync(string definitionId, CancellationToken cancellationToken = default)
+    {
+        definitionId = (definitionId ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(definitionId))
+        {
+            throw new ArgumentException("DefinitionId is required to get machine definition.", nameof(definitionId));
+        }
+
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await EnsureThemeMachineTablesAsync(connection, cancellationToken);
+        return await GetMachineDefinitionCoreAsync(connection, definitionId, cancellationToken);
+    }
+
+    public async Task ActivateMachineDefinitionAsync(string themeId, string machineKey, int version, string actorId, CancellationToken cancellationToken = default)
+    {
+        themeId = (themeId ?? string.Empty).Trim();
+        machineKey = (machineKey ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(themeId) || string.IsNullOrWhiteSpace(machineKey) || version <= 0)
+        {
+            throw new ArgumentException("ThemeId, machineKey, and version are required to activate a machine definition.");
+        }
+
+        await EnsureMachineMutationAuthorizedAsync($"theme:{themeId}", actorId, "activate", cancellationToken);
+
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await EnsureThemeMachineTablesAsync(connection, cancellationToken);
+
+        var definition = await GetMachineDefinitionByThemeKeyVersionAsync(connection, themeId, machineKey, version, cancellationToken)
+            ?? throw new InvalidOperationException($"Cannot activate machine definition: '{themeId}/{machineKey}/v{version}' does not exist.");
+
+        var validation = ValidateMachineDefinitionModel(definition);
+        if (!validation.IsValid)
+        {
+            throw new InvalidOperationException(
+                $"Cannot activate machine definition '{definition.DefinitionId}': {string.Join("; ", validation.Errors)}");
+        }
+
+        var now = DateTime.UtcNow;
+        await using var tx = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+
+        await using (var deactivateCommand = connection.CreateCommand())
+        {
+            deactivateCommand.Transaction = tx;
+            deactivateCommand.CommandText = """
+                UPDATE RPThemeMachineDefinitions
+                SET IsActive = 0,
+                    UpdatedUtc = $updatedUtc
+                WHERE ThemeId = $themeId
+                  AND MachineKey = $machineKey;
+                """;
+            deactivateCommand.Parameters.AddWithValue("$updatedUtc", now.ToString("O"));
+            deactivateCommand.Parameters.AddWithValue("$themeId", themeId);
+            deactivateCommand.Parameters.AddWithValue("$machineKey", machineKey);
+            await deactivateCommand.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await using (var activateCommand = connection.CreateCommand())
+        {
+            activateCommand.Transaction = tx;
+            activateCommand.CommandText = """
+                UPDATE RPThemeMachineDefinitions
+                SET IsActive = 1,
+                    UpdatedUtc = $updatedUtc
+                WHERE DefinitionId = $definitionId;
+                """;
+            activateCommand.Parameters.AddWithValue("$updatedUtc", now.ToString("O"));
+            activateCommand.Parameters.AddWithValue("$definitionId", definition.DefinitionId);
+            await activateCommand.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await tx.CommitAsync(cancellationToken);
+
+        _logger.LogInformation(
+            "Theme machine definition activated: ThemeId={ThemeId} MachineKey={MachineKey} Version={Version} DefinitionId={DefinitionId} ActorId={ActorId}",
+            themeId,
+            machineKey,
+            version,
+            definition.DefinitionId,
+            actorId);
+    }
+
+    public async Task<MachineDefinitionValidationResult> ValidateMachineDefinitionAsync(string definitionId, CancellationToken cancellationToken = default)
+    {
+        definitionId = (definitionId ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(definitionId))
+        {
+            throw new ArgumentException("DefinitionId is required to validate machine definition.", nameof(definitionId));
+        }
+
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await EnsureThemeMachineTablesAsync(connection, cancellationToken);
+        var definition = await GetMachineDefinitionCoreAsync(connection, definitionId, cancellationToken);
+        if (definition is null)
+        {
+            return new MachineDefinitionValidationResult
+            {
+                IsValid = false,
+                Errors = [$"Machine definition '{definitionId}' does not exist."]
+            };
+        }
+
+        return ValidateMachineDefinitionModel(definition);
+    }
+
+    public async Task MigrateSessionMachineVersionAsync(string sessionId, string themeId, string machineKey, int targetVersion, string actorId, CancellationToken cancellationToken = default)
+    {
+        sessionId = (sessionId ?? string.Empty).Trim();
+        themeId = (themeId ?? string.Empty).Trim();
+        machineKey = (machineKey ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(sessionId)
+            || string.IsNullOrWhiteSpace(themeId)
+            || string.IsNullOrWhiteSpace(machineKey)
+            || targetVersion <= 0)
+        {
+            throw new ArgumentException("SessionId, themeId, machineKey, and targetVersion are required for machine migration.");
+        }
+
+        await EnsureMachineMutationAuthorizedAsync(sessionId, actorId, "migrate", cancellationToken);
+
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await EnsureThemeMachineTablesAsync(connection, cancellationToken);
+        await EnsureAdaptiveThemeMachineSnapshotColumnAsync(connection, cancellationToken);
+        await EnsureThemeMachineDiagnosticsTableAsync(connection, cancellationToken);
+
+        var targetDefinition = await GetMachineDefinitionByThemeKeyVersionAsync(connection, themeId, machineKey, targetVersion, cancellationToken)
+            ?? throw new InvalidOperationException($"Cannot migrate session '{sessionId}': target machine definition '{themeId}/{machineKey}/v{targetVersion}' does not exist.");
+
+        var validation = ValidateMachineDefinitionModel(targetDefinition);
+        if (!validation.IsValid)
+        {
+            throw new InvalidOperationException(
+                $"Cannot migrate session '{sessionId}' to definition '{targetDefinition.DefinitionId}': {string.Join("; ", validation.Errors)}");
+        }
+
+        string? snapshotJson;
+        await using (var selectCommand = connection.CreateCommand())
+        {
+            selectCommand.CommandText = "SELECT ThemeMachineSnapshotJson FROM RolePlayV2AdaptiveStates WHERE SessionId = $sessionId";
+            selectCommand.Parameters.AddWithValue("$sessionId", sessionId);
+            var snapshotObj = await selectCommand.ExecuteScalarAsync(cancellationToken);
+            if (snapshotObj is null)
+            {
+                throw new InvalidOperationException($"Cannot migrate session '{sessionId}': adaptive state row is missing.");
+            }
+
+            snapshotJson = snapshotObj == DBNull.Value ? null : Convert.ToString(snapshotObj);
+        }
+
+        if (string.IsNullOrWhiteSpace(snapshotJson))
+        {
+            throw new InvalidOperationException($"Cannot migrate session '{sessionId}': machine snapshot payload is missing.");
+        }
+
+        var snapshot = DeserializeThemeMachineSnapshot(snapshotJson, sessionId);
+        if (!string.Equals(snapshot.ThemeId, themeId, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(snapshot.MachineKey, machineKey, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"Cannot migrate session '{sessionId}': snapshot scope '{snapshot.ThemeId}/{snapshot.MachineKey}' does not match requested '{themeId}/{machineKey}'.");
+        }
+
+        if (!targetDefinition.States.Any(x => string.Equals(x.StateCode, snapshot.CurrentStateCode, StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new InvalidOperationException(
+                $"Cannot migrate session '{sessionId}': current snapshot state '{snapshot.CurrentStateCode}' does not exist in target definition '{targetDefinition.DefinitionId}'.");
+        }
+
+        snapshot.DefinitionId = targetDefinition.DefinitionId;
+        snapshot.DefinitionVersion = targetDefinition.Version;
+        snapshot.LastTransitionReasonCode = "ThemeMachineVersionMigrated";
+        snapshot.LastEvaluatedUtc = DateTime.UtcNow;
+
+        var migratedSnapshotJson = JsonSerializer.Serialize(snapshot);
+
+        await using var tx = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+
+        await using (var updateSnapshotCommand = connection.CreateCommand())
+        {
+            updateSnapshotCommand.Transaction = tx;
+            updateSnapshotCommand.CommandText = """
+                UPDATE RolePlayV2AdaptiveStates
+                SET ThemeMachineSnapshotJson = $snapshotJson,
+                    UpdatedUtc = $updatedUtc
+                WHERE SessionId = $sessionId;
+                """;
+            updateSnapshotCommand.Parameters.AddWithValue("$snapshotJson", migratedSnapshotJson);
+            updateSnapshotCommand.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
+            updateSnapshotCommand.Parameters.AddWithValue("$sessionId", sessionId);
+            await updateSnapshotCommand.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await using (var diagnosticCommand = connection.CreateCommand())
+        {
+            diagnosticCommand.Transaction = tx;
+            diagnosticCommand.CommandText = """
+                INSERT INTO RolePlayV2ThemeMachineDiagnostics (
+                    EventId, SessionId, ThemeId, MachineKey, DefinitionVersion, EventType,
+                    FromStateCode, ToStateCode, TransitionId, ReasonCode, PayloadJson, OccurredUtc)
+                VALUES (
+                    $eventId, $sessionId, $themeId, $machineKey, $definitionVersion, $eventType,
+                    $fromStateCode, $toStateCode, $transitionId, $reasonCode, $payloadJson, $occurredUtc);
+                """;
+            diagnosticCommand.Parameters.AddWithValue("$eventId", Guid.NewGuid().ToString("N"));
+            diagnosticCommand.Parameters.AddWithValue("$sessionId", sessionId);
+            diagnosticCommand.Parameters.AddWithValue("$themeId", themeId);
+            diagnosticCommand.Parameters.AddWithValue("$machineKey", machineKey);
+            diagnosticCommand.Parameters.AddWithValue("$definitionVersion", targetDefinition.Version);
+            diagnosticCommand.Parameters.AddWithValue("$eventType", "migrate");
+            diagnosticCommand.Parameters.AddWithValue("$fromStateCode", snapshot.CurrentStateCode);
+            diagnosticCommand.Parameters.AddWithValue("$toStateCode", snapshot.CurrentStateCode);
+            diagnosticCommand.Parameters.AddWithValue("$transitionId", DBNull.Value);
+            diagnosticCommand.Parameters.AddWithValue("$reasonCode", "ThemeMachineVersionMigrated");
+            diagnosticCommand.Parameters.AddWithValue("$payloadJson", JsonSerializer.Serialize(new
+            {
+                targetDefinitionId = targetDefinition.DefinitionId,
+                targetVersion = targetDefinition.Version,
+                actorId
+            }));
+            diagnosticCommand.Parameters.AddWithValue("$occurredUtc", DateTime.UtcNow.ToString("O"));
+            await diagnosticCommand.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await tx.CommitAsync(cancellationToken);
+
+        _logger.LogInformation(
+            "Theme machine session migration completed: SessionId={SessionId} ThemeId={ThemeId} MachineKey={MachineKey} TargetVersion={TargetVersion} DefinitionId={DefinitionId} ActorId={ActorId}",
+            sessionId,
+            themeId,
+            machineKey,
+            targetVersion,
+            targetDefinition.DefinitionId,
+            actorId);
     }
 
     public async Task<RPThemeProfileThemeAssignment> SaveProfileAssignmentAsync(RPThemeProfileThemeAssignment assignment, CancellationToken cancellationToken = default)
@@ -3063,6 +3468,711 @@ public sealed partial class RPThemeService : IRPThemeService
         }
 
         return changed;
+    }
+
+    private static List<RPThemeMachineState> NormalizeMachineStates(
+        string definitionId,
+        IReadOnlyList<RPThemeMachineState>? states)
+    {
+        var normalized = new List<RPThemeMachineState>();
+        foreach (var state in states ?? [])
+        {
+            var stateCode = (state.StateCode ?? string.Empty).Trim();
+            var label = (state.Label ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(stateCode))
+            {
+                throw new ArgumentException("Machine state StateCode is required.", nameof(states));
+            }
+
+            if (string.IsNullOrWhiteSpace(label))
+            {
+                throw new ArgumentException($"Machine state '{stateCode}' label is required.", nameof(states));
+            }
+
+            normalized.Add(new RPThemeMachineState
+            {
+                StateId = string.IsNullOrWhiteSpace(state.StateId) ? Guid.NewGuid().ToString("N") : state.StateId.Trim(),
+                DefinitionId = definitionId,
+                StateCode = stateCode,
+                Label = label,
+                IsInitial = state.IsInitial,
+                IsTerminal = state.IsTerminal,
+                SortOrder = state.SortOrder
+            });
+        }
+
+        return normalized
+            .OrderBy(x => x.SortOrder)
+            .ThenBy(x => x.StateCode, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static List<RPThemeMachineTransition> NormalizeMachineTransitions(
+        string definitionId,
+        IReadOnlyList<RPThemeMachineTransition>? transitions,
+        DateTime now)
+    {
+        var normalized = new List<RPThemeMachineTransition>();
+        foreach (var transition in transitions ?? [])
+        {
+            var fromStateCode = (transition.FromStateCode ?? string.Empty).Trim();
+            var toStateCode = (transition.ToStateCode ?? string.Empty).Trim();
+            var triggerType = (transition.TriggerType ?? string.Empty).Trim();
+            var gateConfigJson = (transition.GateConfigJson ?? string.Empty).Trim();
+            var blockReasonCode = (transition.BlockReasonCode ?? string.Empty).Trim();
+
+            if (string.IsNullOrWhiteSpace(fromStateCode)
+                || string.IsNullOrWhiteSpace(toStateCode)
+                || string.IsNullOrWhiteSpace(triggerType)
+                || string.IsNullOrWhiteSpace(gateConfigJson)
+                || string.IsNullOrWhiteSpace(blockReasonCode))
+            {
+                throw new ArgumentException("Machine transitions require FromStateCode, ToStateCode, TriggerType, GateConfigJson, and BlockReasonCode.", nameof(transitions));
+            }
+
+            normalized.Add(new RPThemeMachineTransition
+            {
+                TransitionId = string.IsNullOrWhiteSpace(transition.TransitionId) ? Guid.NewGuid().ToString("N") : transition.TransitionId.Trim(),
+                DefinitionId = definitionId,
+                FromStateCode = fromStateCode,
+                ToStateCode = toStateCode,
+                Priority = transition.Priority,
+                TriggerType = triggerType,
+                GateConfigJson = gateConfigJson,
+                BlockReasonCode = blockReasonCode,
+                IsEnabled = transition.IsEnabled,
+                CreatedUtc = transition.CreatedUtc == default ? now : transition.CreatedUtc,
+                UpdatedUtc = now
+            });
+        }
+
+        return normalized
+            .OrderBy(x => x.Priority)
+            .ThenBy(x => x.FromStateCode, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(x => x.TransitionId, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private async Task<IReadOnlyList<RPThemeMachineDefinition>> ListMachineDefinitionsCoreAsync(
+        SqliteConnection connection,
+        string themeId,
+        CancellationToken cancellationToken)
+    {
+        var definitions = new List<RPThemeMachineDefinition>();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT DefinitionId, ThemeId, MachineKey, Version, Name, IsActive, IsSeeded, CreatedUtc, UpdatedUtc
+            FROM RPThemeMachineDefinitions
+            WHERE ThemeId = $themeId
+            ORDER BY MachineKey, Version DESC;
+            """;
+        command.Parameters.AddWithValue("$themeId", themeId);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var definition = new RPThemeMachineDefinition
+            {
+                DefinitionId = reader.GetString(0),
+                ThemeId = reader.GetString(1),
+                MachineKey = reader.GetString(2),
+                Version = reader.GetInt32(3),
+                Name = reader.GetString(4),
+                IsActive = reader.GetInt32(5) == 1,
+                IsSeeded = reader.GetInt32(6) == 1,
+                CreatedUtc = ParseRequiredUtcTimestamp(reader.GetString(7), "RPThemeMachineDefinitions.CreatedUtc"),
+                UpdatedUtc = ParseRequiredUtcTimestamp(reader.GetString(8), "RPThemeMachineDefinitions.UpdatedUtc")
+            };
+
+            definitions.Add(definition);
+        }
+
+        foreach (var definition in definitions)
+        {
+            definition.States = await LoadMachineStatesCoreAsync(connection, definition.DefinitionId, cancellationToken);
+            definition.Transitions = await LoadMachineTransitionsCoreAsync(connection, definition.DefinitionId, cancellationToken);
+        }
+
+        return definitions;
+    }
+
+    private async Task<RPThemeMachineDefinition?> GetMachineDefinitionCoreAsync(
+        SqliteConnection connection,
+        string definitionId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT DefinitionId, ThemeId, MachineKey, Version, Name, IsActive, IsSeeded, CreatedUtc, UpdatedUtc
+            FROM RPThemeMachineDefinitions
+            WHERE DefinitionId = $definitionId;
+            """;
+        command.Parameters.AddWithValue("$definitionId", definitionId);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        var definition = new RPThemeMachineDefinition
+        {
+            DefinitionId = reader.GetString(0),
+            ThemeId = reader.GetString(1),
+            MachineKey = reader.GetString(2),
+            Version = reader.GetInt32(3),
+            Name = reader.GetString(4),
+            IsActive = reader.GetInt32(5) == 1,
+            IsSeeded = reader.GetInt32(6) == 1,
+            CreatedUtc = ParseRequiredUtcTimestamp(reader.GetString(7), "RPThemeMachineDefinitions.CreatedUtc"),
+            UpdatedUtc = ParseRequiredUtcTimestamp(reader.GetString(8), "RPThemeMachineDefinitions.UpdatedUtc")
+        };
+
+        definition.States = await LoadMachineStatesCoreAsync(connection, definition.DefinitionId, cancellationToken);
+        definition.Transitions = await LoadMachineTransitionsCoreAsync(connection, definition.DefinitionId, cancellationToken);
+        return definition;
+    }
+
+    private async Task<RPThemeMachineDefinition?> GetMachineDefinitionByThemeKeyVersionAsync(
+        SqliteConnection connection,
+        string themeId,
+        string machineKey,
+        int version,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT DefinitionId
+            FROM RPThemeMachineDefinitions
+            WHERE ThemeId = $themeId
+              AND MachineKey = $machineKey
+              AND Version = $version
+            LIMIT 1;
+            """;
+        command.Parameters.AddWithValue("$themeId", themeId);
+        command.Parameters.AddWithValue("$machineKey", machineKey);
+        command.Parameters.AddWithValue("$version", version);
+
+        var definitionId = Convert.ToString(await command.ExecuteScalarAsync(cancellationToken));
+        return string.IsNullOrWhiteSpace(definitionId)
+            ? null
+            : await GetMachineDefinitionCoreAsync(connection, definitionId, cancellationToken);
+    }
+
+    private static async Task<List<RPThemeMachineState>> LoadMachineStatesCoreAsync(
+        SqliteConnection connection,
+        string definitionId,
+        CancellationToken cancellationToken)
+    {
+        var states = new List<RPThemeMachineState>();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT StateId, DefinitionId, StateCode, Label, IsInitial, IsTerminal, SortOrder
+            FROM RPThemeMachineStates
+            WHERE DefinitionId = $definitionId
+            ORDER BY SortOrder, StateCode, StateId;
+            """;
+        command.Parameters.AddWithValue("$definitionId", definitionId);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            states.Add(new RPThemeMachineState
+            {
+                StateId = reader.GetString(0),
+                DefinitionId = reader.GetString(1),
+                StateCode = reader.GetString(2),
+                Label = reader.GetString(3),
+                IsInitial = reader.GetInt32(4) == 1,
+                IsTerminal = reader.GetInt32(5) == 1,
+                SortOrder = reader.GetInt32(6)
+            });
+        }
+
+        return states;
+    }
+
+    private static async Task<List<RPThemeMachineTransition>> LoadMachineTransitionsCoreAsync(
+        SqliteConnection connection,
+        string definitionId,
+        CancellationToken cancellationToken)
+    {
+        var transitions = new List<RPThemeMachineTransition>();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT TransitionId, DefinitionId, FromStateCode, ToStateCode, Priority, TriggerType,
+                   GateConfigJson, BlockReasonCode, IsEnabled, CreatedUtc, UpdatedUtc
+            FROM RPThemeMachineTransitions
+            WHERE DefinitionId = $definitionId
+            ORDER BY Priority, FromStateCode, TransitionId;
+            """;
+        command.Parameters.AddWithValue("$definitionId", definitionId);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            transitions.Add(new RPThemeMachineTransition
+            {
+                TransitionId = reader.GetString(0),
+                DefinitionId = reader.GetString(1),
+                FromStateCode = reader.GetString(2),
+                ToStateCode = reader.GetString(3),
+                Priority = reader.GetInt32(4),
+                TriggerType = reader.GetString(5),
+                GateConfigJson = reader.GetString(6),
+                BlockReasonCode = reader.GetString(7),
+                IsEnabled = reader.GetInt32(8) == 1,
+                CreatedUtc = ParseRequiredUtcTimestamp(reader.GetString(9), "RPThemeMachineTransitions.CreatedUtc"),
+                UpdatedUtc = ParseRequiredUtcTimestamp(reader.GetString(10), "RPThemeMachineTransitions.UpdatedUtc")
+            });
+        }
+
+        return transitions;
+    }
+
+    private static DateTime ParseRequiredUtcTimestamp(string raw, string fieldName)
+    {
+        if (!DateTime.TryParse(raw, null, DateTimeStyles.RoundtripKind, out var parsed))
+        {
+            throw new InvalidOperationException($"Invalid timestamp '{raw}' in {fieldName}.");
+        }
+
+        return parsed.Kind == DateTimeKind.Utc ? parsed : parsed.ToUniversalTime();
+    }
+
+    private static MachineDefinitionValidationResult ValidateMachineDefinitionModel(RPThemeMachineDefinition definition)
+    {
+        var errors = new List<string>();
+        var warnings = new List<string>();
+
+        if (string.IsNullOrWhiteSpace(definition.ThemeId))
+        {
+            errors.Add("ThemeId is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(definition.MachineKey))
+        {
+            errors.Add("MachineKey is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(definition.Name))
+        {
+            errors.Add("Name is required.");
+        }
+
+        if (definition.Version <= 0)
+        {
+            errors.Add("Version must be greater than zero.");
+        }
+
+        if (definition.States.Count == 0)
+        {
+            errors.Add("At least one state is required.");
+        }
+
+        var initialStateCount = definition.States.Count(x => x.IsInitial);
+        if (initialStateCount != 1)
+        {
+            errors.Add($"Machine definition must have exactly one initial state. Found {initialStateCount}.");
+        }
+
+        var stateCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var state in definition.States)
+        {
+            var stateCode = (state.StateCode ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(stateCode))
+            {
+                errors.Add("State code is required.");
+                continue;
+            }
+
+            if (!stateCodes.Add(stateCode))
+            {
+                errors.Add($"Duplicate state code '{stateCode}'.");
+            }
+
+            if (string.IsNullOrWhiteSpace(state.Label))
+            {
+                errors.Add($"State '{stateCode}' label is required.");
+            }
+        }
+
+        if (definition.Transitions.Count == 0)
+        {
+            warnings.Add("No transitions are configured.");
+        }
+
+        var seenTransitionPriorities = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var transition in definition.Transitions)
+        {
+            var fromStateCode = (transition.FromStateCode ?? string.Empty).Trim();
+            var toStateCode = (transition.ToStateCode ?? string.Empty).Trim();
+            var triggerType = (transition.TriggerType ?? string.Empty).Trim();
+            var blockReasonCode = (transition.BlockReasonCode ?? string.Empty).Trim();
+
+            if (string.IsNullOrWhiteSpace(fromStateCode) || string.IsNullOrWhiteSpace(toStateCode))
+            {
+                errors.Add("Transition from/to state codes are required.");
+                continue;
+            }
+
+            if (!stateCodes.Contains(fromStateCode))
+            {
+                errors.Add($"Transition '{transition.TransitionId}' references unknown source state '{fromStateCode}'.");
+            }
+
+            if (!stateCodes.Contains(toStateCode))
+            {
+                errors.Add($"Transition '{transition.TransitionId}' references unknown target state '{toStateCode}'.");
+            }
+
+            if (string.IsNullOrWhiteSpace(triggerType))
+            {
+                errors.Add($"Transition '{transition.TransitionId}' trigger type is required.");
+            }
+
+            if (string.IsNullOrWhiteSpace(blockReasonCode))
+            {
+                errors.Add($"Transition '{transition.TransitionId}' block reason code is required.");
+            }
+
+            if (string.IsNullOrWhiteSpace(transition.GateConfigJson))
+            {
+                errors.Add($"Transition '{transition.TransitionId}' gate config JSON is required.");
+            }
+            else
+            {
+                JsonElement gateRoot;
+                try
+                {
+                    using var doc = JsonDocument.Parse(transition.GateConfigJson);
+                    gateRoot = doc.RootElement.Clone();
+                }
+                catch (JsonException)
+                {
+                    errors.Add($"Transition '{transition.TransitionId}' gate config JSON is invalid.");
+                    gateRoot = default;
+                }
+
+                if (gateRoot.ValueKind == JsonValueKind.Object
+                    && string.Equals(triggerType, "cooldown-eligibility", StringComparison.OrdinalIgnoreCase))
+                {
+                    ValidateCooldownEligibilityGateConfig(errors, transition.TransitionId, gateRoot);
+                }
+            }
+
+            var priorityKey = $"{fromStateCode}|{transition.Priority}";
+            if (!seenTransitionPriorities.Add(priorityKey))
+            {
+                errors.Add($"Duplicate transition priority '{transition.Priority}' for source state '{fromStateCode}'.");
+            }
+        }
+
+        return new MachineDefinitionValidationResult
+        {
+            IsValid = errors.Count == 0,
+            Errors = errors,
+            Warnings = warnings
+        };
+    }
+
+    private static void ValidateCooldownEligibilityGateConfig(
+        ICollection<string> errors,
+        string transitionId,
+        JsonElement gateConfig)
+    {
+        if (!gateConfig.TryGetProperty("minimumInteractions", out var minimumInteractionsProperty)
+            || minimumInteractionsProperty.ValueKind != JsonValueKind.Number
+            || !minimumInteractionsProperty.TryGetInt32(out var minimumInteractions)
+            || minimumInteractions < 0)
+        {
+            errors.Add($"Transition '{transitionId}' cooldown gate config must include integer minimumInteractions >= 0.");
+        }
+
+        if (!gateConfig.TryGetProperty("requireReturnBeatCompleted", out var requireReturnBeatCompletedProperty)
+            || (requireReturnBeatCompletedProperty.ValueKind != JsonValueKind.True
+                && requireReturnBeatCompletedProperty.ValueKind != JsonValueKind.False))
+        {
+            errors.Add($"Transition '{transitionId}' cooldown gate config must include boolean requireReturnBeatCompleted.");
+            return;
+        }
+
+        if (!requireReturnBeatCompletedProperty.GetBoolean())
+        {
+            return;
+        }
+
+        if (!gateConfig.TryGetProperty("returnBeatCompletionSignals", out var signalsProperty)
+            || signalsProperty.ValueKind != JsonValueKind.Array)
+        {
+            errors.Add($"Transition '{transitionId}' cooldown gate config must include string array returnBeatCompletionSignals when requireReturnBeatCompleted is true.");
+            return;
+        }
+
+        var signalCount = 0;
+        foreach (var element in signalsProperty.EnumerateArray())
+        {
+            if (element.ValueKind != JsonValueKind.String
+                || string.IsNullOrWhiteSpace(element.GetString()))
+            {
+                errors.Add($"Transition '{transitionId}' returnBeatCompletionSignals entries must be non-empty strings.");
+                return;
+            }
+
+            signalCount++;
+        }
+
+        if (signalCount == 0)
+        {
+            errors.Add($"Transition '{transitionId}' returnBeatCompletionSignals must include at least one entry when requireReturnBeatCompleted is true.");
+        }
+
+        var transgressorRoleName = ResolveRequiredReturnBeatRoleName(
+            errors,
+            transitionId,
+            gateConfig,
+            "returnBeatTransgressorRole");
+        var partnerRoleName = ResolveRequiredReturnBeatRoleName(
+            errors,
+            transitionId,
+            gateConfig,
+            "returnBeatPartnerRole");
+
+        if (!string.IsNullOrWhiteSpace(transgressorRoleName)
+            && !string.IsNullOrWhiteSpace(partnerRoleName)
+            && string.Equals(transgressorRoleName, partnerRoleName, StringComparison.OrdinalIgnoreCase))
+        {
+            errors.Add($"Transition '{transitionId}' returnBeatTransgressorRole and returnBeatPartnerRole must be different values.");
+        }
+    }
+
+    private static string ResolveRequiredReturnBeatRoleName(
+        ICollection<string> errors,
+        string transitionId,
+        JsonElement gateConfig,
+        string propertyName)
+    {
+        if (!gateConfig.TryGetProperty(propertyName, out var roleProperty)
+            || roleProperty.ValueKind != JsonValueKind.String)
+        {
+            errors.Add($"Transition '{transitionId}' cooldown gate config must include string {propertyName} when requireReturnBeatCompleted is true.");
+            return string.Empty;
+        }
+
+        var rawRoleName = roleProperty.GetString()?.Trim();
+        if (string.IsNullOrWhiteSpace(rawRoleName))
+        {
+            errors.Add($"Transition '{transitionId}' cooldown gate config {propertyName} must be a non-empty string.");
+            return string.Empty;
+        }
+
+        var normalizedRoleName = CharacterRoleCatalog.Normalize(rawRoleName);
+        if (string.Equals(normalizedRoleName, CharacterRoleCatalog.Unknown, StringComparison.OrdinalIgnoreCase))
+        {
+            errors.Add($"Transition '{transitionId}' cooldown gate config {propertyName} must not be Unknown.");
+            return string.Empty;
+        }
+
+        return normalizedRoleName;
+    }
+
+    private async Task EnsureMachineMutationAuthorizedAsync(
+        string sessionScope,
+        string actorId,
+        string operation,
+        CancellationToken cancellationToken)
+    {
+        actorId = (actorId ?? string.Empty).Trim();
+        operation = (operation ?? string.Empty).Trim();
+
+        if (string.IsNullOrWhiteSpace(actorId))
+        {
+            throw new InvalidOperationException("ActorId is required for machine mutation operations.");
+        }
+
+        if (string.IsNullOrWhiteSpace(operation))
+        {
+            throw new InvalidOperationException("Operation is required for machine mutation authorization.");
+        }
+
+        if (_themeMachineAuthorizationService is null)
+        {
+            throw new InvalidOperationException("Theme machine authorization service is required for machine mutation operations.");
+        }
+
+        var result = await _themeMachineAuthorizationService.AuthorizeMutationAsync(
+            new ThemeMachineAuthorizationRequest
+            {
+                SessionId = sessionScope,
+                ActorId = actorId,
+                ActorRole = ExtractActorRoleFromActorId(actorId),
+                Operation = operation
+            },
+            cancellationToken);
+
+        if (!result.Authorized)
+        {
+            throw new UnauthorizedAccessException(result.Reason);
+        }
+    }
+
+    private static string ExtractActorRoleFromActorId(string actorId)
+    {
+        var trimmed = actorId.Trim();
+        var separator = trimmed.IndexOf(':');
+        if (separator <= 0)
+        {
+            return trimmed;
+        }
+
+        return trimmed[..separator];
+    }
+
+    private static ThemeMachineSessionSnapshot DeserializeThemeMachineSnapshot(string payloadJson, string sessionId)
+    {
+        ThemeMachineSessionSnapshot? snapshot;
+        try
+        {
+            snapshot = JsonSerializer.Deserialize<ThemeMachineSessionSnapshot>(payloadJson);
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidOperationException($"Session '{sessionId}' machine snapshot JSON is invalid.", ex);
+        }
+
+        if (snapshot is null)
+        {
+            throw new InvalidOperationException($"Session '{sessionId}' machine snapshot JSON is null.");
+        }
+
+        if (string.IsNullOrWhiteSpace(snapshot.ThemeId)
+            || string.IsNullOrWhiteSpace(snapshot.MachineKey)
+            || string.IsNullOrWhiteSpace(snapshot.DefinitionId)
+            || snapshot.DefinitionVersion <= 0
+            || string.IsNullOrWhiteSpace(snapshot.CurrentStateCode)
+            || snapshot.TurnsInCurrentState < 0
+            || snapshot.LastEvaluatedUtc == default)
+        {
+            throw new InvalidOperationException($"Session '{sessionId}' machine snapshot JSON is missing required fields.");
+        }
+
+        return snapshot;
+    }
+
+    private static async Task<bool> ThemeExistsAsync(SqliteConnection connection, string themeId, CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM RPThemes WHERE Id = $themeId";
+        command.Parameters.AddWithValue("$themeId", themeId);
+        var count = Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken));
+        return count > 0;
+    }
+
+    private static async Task<bool> MachineDefinitionExistsAsync(SqliteConnection connection, string definitionId, CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM RPThemeMachineDefinitions WHERE DefinitionId = $definitionId";
+        command.Parameters.AddWithValue("$definitionId", definitionId);
+        var count = Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken));
+        return count > 0;
+    }
+
+    private static async Task EnsureThemeMachineTablesAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            CREATE TABLE IF NOT EXISTS RPThemeMachineDefinitions (
+                DefinitionId TEXT PRIMARY KEY,
+                ThemeId TEXT NOT NULL,
+                MachineKey TEXT NOT NULL,
+                Version INTEGER NOT NULL,
+                Name TEXT NOT NULL,
+                IsActive INTEGER NOT NULL DEFAULT 0,
+                IsSeeded INTEGER NOT NULL DEFAULT 0,
+                CreatedUtc TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL,
+                FOREIGN KEY (ThemeId) REFERENCES RPThemes(Id) ON DELETE CASCADE,
+                UNIQUE (ThemeId, MachineKey, Version)
+            );
+
+            CREATE INDEX IF NOT EXISTS IX_RPThemeMachineDefinitions_Theme_MachineKey_Version
+                ON RPThemeMachineDefinitions (ThemeId, MachineKey, Version DESC);
+
+            CREATE TABLE IF NOT EXISTS RPThemeMachineStates (
+                StateId TEXT PRIMARY KEY,
+                DefinitionId TEXT NOT NULL,
+                StateCode TEXT NOT NULL,
+                Label TEXT NOT NULL,
+                IsInitial INTEGER NOT NULL DEFAULT 0,
+                IsTerminal INTEGER NOT NULL DEFAULT 0,
+                SortOrder INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (DefinitionId) REFERENCES RPThemeMachineDefinitions(DefinitionId) ON DELETE CASCADE,
+                UNIQUE (DefinitionId, StateCode)
+            );
+
+            CREATE INDEX IF NOT EXISTS IX_RPThemeMachineStates_Definition_Sort
+                ON RPThemeMachineStates (DefinitionId, SortOrder, StateId);
+
+            CREATE TABLE IF NOT EXISTS RPThemeMachineTransitions (
+                TransitionId TEXT PRIMARY KEY,
+                DefinitionId TEXT NOT NULL,
+                FromStateCode TEXT NOT NULL,
+                ToStateCode TEXT NOT NULL,
+                Priority INTEGER NOT NULL,
+                TriggerType TEXT NOT NULL,
+                GateConfigJson TEXT NOT NULL,
+                BlockReasonCode TEXT NOT NULL,
+                IsEnabled INTEGER NOT NULL DEFAULT 1,
+                CreatedUtc TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL,
+                FOREIGN KEY (DefinitionId) REFERENCES RPThemeMachineDefinitions(DefinitionId) ON DELETE CASCADE,
+                UNIQUE (DefinitionId, FromStateCode, Priority)
+            );
+
+            CREATE INDEX IF NOT EXISTS IX_RPThemeMachineTransitions_Definition_FromState_Priority
+                ON RPThemeMachineTransitions (DefinitionId, FromStateCode, Priority);
+            """;
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task EnsureAdaptiveThemeMachineSnapshotColumnAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        await using var checkCommand = connection.CreateCommand();
+        checkCommand.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RolePlayV2AdaptiveStates') WHERE name='ThemeMachineSnapshotJson'";
+        var hasColumn = Convert.ToInt64(await checkCommand.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (hasColumn)
+        {
+            return;
+        }
+
+        await using var alterCommand = connection.CreateCommand();
+        alterCommand.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN ThemeMachineSnapshotJson TEXT NULL";
+        await alterCommand.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task EnsureThemeMachineDiagnosticsTableAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            CREATE TABLE IF NOT EXISTS RolePlayV2ThemeMachineDiagnostics (
+                EventId TEXT PRIMARY KEY,
+                SessionId TEXT NOT NULL,
+                ThemeId TEXT NOT NULL,
+                MachineKey TEXT NOT NULL,
+                DefinitionVersion INTEGER NOT NULL,
+                EventType TEXT NOT NULL,
+                FromStateCode TEXT NULL,
+                ToStateCode TEXT NULL,
+                TransitionId TEXT NULL,
+                ReasonCode TEXT NOT NULL,
+                PayloadJson TEXT NOT NULL,
+                OccurredUtc TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS IX_RolePlayV2ThemeMachineDiagnostics_Session_OccurredUtc
+                ON RolePlayV2ThemeMachineDiagnostics (SessionId, OccurredUtc DESC);
+            """;
+        await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private async Task<SqliteConnection> OpenConnectionAsync(CancellationToken cancellationToken)

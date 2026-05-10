@@ -24,6 +24,8 @@ Auto-generated from all feature plans. Last updated: 2026-03-17
 - SQLite via raw ADO.NET (`SqlitePersistence.cs`) — single file, no ORM (006-explicit-scene-writing)
 - C# 13 / .NET 9 + Microsoft.Data.Sqlite, Blazor Server, Serilog (007-finishing-move-catalog)
 - SQLite (project default; no exception) (007-finishing-move-catalog)
+- C# / .NET 9 / Blazor Server + Microsoft.Data.Sqlite, System.Text.Json, Serilog, ASP.NET Core DI/logging abstractions (007-theme-state-machine)
+- SQLite (existing persistence stack) with new theme-machine definition and diagnostic persistence; adaptive-state row remains the per-session runtime anchor (007-theme-state-machine)
 
 - C# / .NET 9 (`net9.0`) + ASP.NET Core Blazor Server, `Microsoft.Data.Sqlite`, `Microsoft.Extensions.*`, Serilog (`Serilog.AspNetCore`, `Serilog.Settings.Configuration`, sinks/enrichers) (001-roleplay-session-screens)
 
@@ -44,9 +46,9 @@ tests/
 C# / .NET 9 (`net9.0`): Follow standard conventions
 
 ## Recent Changes
+- 007-theme-state-machine: Added C# / .NET 9 / Blazor Server + Microsoft.Data.Sqlite, System.Text.Json, Serilog, ASP.NET Core DI/logging abstractions
 - 007-finishing-move-catalog: Added C# 13 / .NET 9 + Microsoft.Data.Sqlite, Blazor Server, Serilog
 - 006-explicit-scene-writing: Added C# / .NET 9 / Blazor Server + Microsoft.Data.Sqlite, Serilog, System.Text.Json
-- 001-roleplay-v2-unification: Added C# / .NET 9 / Blazor Server + Microsoft.Data.Sqlite 9.x, Serilog.AspNetCore 9.x, System.Text.Json, ASP.NET Core DI/logging abstractions
 
 
 <!-- MANUAL ADDITIONS START -->

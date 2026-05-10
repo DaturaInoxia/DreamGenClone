@@ -8663,8 +8663,23 @@
                                     <div class="rw-settings-info-row"><span>Latest Turn</span><span>@LatestTurnSummary</span></div>
                                     <div class="rw-settings-info-row"><span>Candidate Evaluations</span><span>@_v2Diagnostics.CandidateEvaluations.Count</span></div>
                                     <div class="rw-settings-info-row"><span>Transitions</span><span>@_v2Diagnostics.TransitionEvents.Count</span></div>
+                                    <div class="rw-settings-info-row"><span>Theme Machine Events</span><span>@_v2Diagnostics.ThemeMachineEvents.Count</span></div>
+                                    <div class="rw-settings-info-row"><span>Theme Machine State</span><span>@(_v2Diagnostics.AdaptiveState?.ThemeMachineSnapshot?.CurrentStateCode ?? "(none)")</span></div>
                                     <div class="rw-settings-info-row"><span>Decision Points</span><span>@_v2Diagnostics.DecisionPoints.Count</span></div>
                                     <div class="rw-settings-info-row"><span>Compatibility Errors</span><span>@_v2Diagnostics.CompatibilityErrors.Count</span></div>
+
+                                    @if (_v2Diagnostics.ThemeMachineEvents.Count > 0)
+                                    {
+                                        <div class="rw-settings-info-row rw-settings-info-row-block">
+                                            <span>Latest Theme Machine Events</span>
+                                            <span>
+                                                @foreach (var machineEvent in _v2Diagnostics.ThemeMachineEvents.Take(3))
+                                                {
+                                                    <div>@($"{machineEvent.EventType}: {machineEvent.ReasonCode} ({machineEvent.FromStateCode ?? "-"} -> {machineEvent.ToStateCode ?? "-"})")</div>
+                                                }
+                                            </span>
+                                        </div>
+                                    }
                                 }
                             </div>
                         }

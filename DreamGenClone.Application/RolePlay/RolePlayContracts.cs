@@ -149,6 +149,7 @@ public sealed class RolePlayV2DiagnosticsSnapshot
     public IReadOnlyList<RolePlayTurn> Turns { get; init; } = [];
     public IReadOnlyList<ScenarioCandidateEvaluation> CandidateEvaluations { get; init; } = [];
     public IReadOnlyList<NarrativePhaseTransitionEvent> TransitionEvents { get; init; } = [];
+    public IReadOnlyList<ThemeMachineDiagnosticEvent> ThemeMachineEvents { get; init; } = [];
     public IReadOnlyList<DecisionPoint> DecisionPoints { get; init; } = [];
     public IReadOnlyList<UnsupportedSessionError> CompatibilityErrors { get; init; } = [];
     public string CorrelationId { get; init; } = string.Empty;

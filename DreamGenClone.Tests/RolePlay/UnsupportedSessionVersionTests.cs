@@ -92,5 +92,11 @@ public sealed class UnsupportedSessionVersionTests
 
         public Task<IReadOnlyList<UnsupportedSessionError>> LoadUnsupportedSessionErrorsAsync(string sessionId, int take = 20, CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyList<UnsupportedSessionError>>(Errors);
+
+        public Task SaveThemeMachineDiagnosticEventsAsync(IReadOnlyList<ThemeMachineDiagnosticEvent> events, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task<IReadOnlyList<ThemeMachineDiagnosticEvent>> LoadThemeMachineDiagnosticEventsAsync(string sessionId, int take = 100, CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<ThemeMachineDiagnosticEvent>>([]);
     }
 }

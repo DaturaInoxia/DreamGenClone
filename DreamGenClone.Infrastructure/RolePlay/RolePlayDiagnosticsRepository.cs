@@ -29,4 +29,7 @@ public sealed class RolePlayDiagnosticsRepository : IRolePlayDiagnosticsReposito
 
     public Task<IReadOnlyList<UnsupportedSessionError>> LoadUnsupportedSessionErrorsAsync(string sessionId, int take = 20, CancellationToken cancellationToken = default)
         => _stateRepository.LoadUnsupportedSessionErrorsAsync(sessionId, take, cancellationToken);
+
+    public Task<IReadOnlyList<ThemeMachineDiagnosticEvent>> LoadThemeMachineDiagnosticEventsAsync(string sessionId, int take = 100, CancellationToken cancellationToken = default)
+        => _stateRepository.LoadThemeMachineDiagnosticEventsAsync(sessionId, take, cancellationToken);
 }

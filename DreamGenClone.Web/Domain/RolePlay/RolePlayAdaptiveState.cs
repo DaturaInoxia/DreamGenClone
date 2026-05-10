@@ -46,6 +46,8 @@ public sealed class RolePlayAdaptiveState
 
     public List<RolePlayCharacterLocationPerceptionState> CharacterLocationPerceptions { get; set; } = [];
 
+    public DreamGenClone.Domain.RolePlay.ThemeMachineSessionSnapshot? ThemeMachineSnapshot { get; set; }
+
     public List<ScenarioMetadata> ScenarioHistory { get; set; } = [];
 
     /// <summary>

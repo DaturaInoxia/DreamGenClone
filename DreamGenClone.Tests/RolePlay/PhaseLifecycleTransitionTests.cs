@@ -2,6 +2,7 @@ using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Infrastructure.Configuration;
 using DreamGenClone.Infrastructure.RolePlay;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -355,6 +356,144 @@ public sealed class PhaseLifecycleTransitionTests
         Assert.True(updated.Dominance > 10);
         Assert.True(updated.Loyalty > 10);
         Assert.True(updated.SelfRespect > 10);
+    }
+
+    [Fact]
+    public async Task ThemeMachineResolution_ThrowsWhenNoActiveDefinitionExists()
+    {
+        var dbPath = Path.Combine(Path.GetTempPath(), $"dreamgenclone-machine-resolution-{Guid.NewGuid():N}.db");
+
+        try
+        {
+            await using var connection = new SqliteConnection($"Data Source={dbPath}");
+            await connection.OpenAsync();
+            await EnsureThemeTableAsync(connection);
+            await EnsureMachineTablesAsync(connection);
+            await InsertThemeAsync(connection, "theme-1");
+            await InsertMachineDefinitionAsync(connection, "definition-1", "theme-1", "machine-a", version: 1, isActive: false);
+
+            var service = new ThemeMachineResolutionService(
+                Options.Create(new PersistenceOptions { ConnectionString = $"Data Source={dbPath}" }));
+
+            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                service.ResolveAsync("session-1", "theme-1", pinnedSnapshot: null));
+
+            Assert.Contains("no active machine definition", ex.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            if (File.Exists(dbPath))
+            {
+                try
+                {
+                    File.Delete(dbPath);
+                }
+                catch (IOException)
+                {
+                    // SQLite can hold the file handle briefly after disposal on Windows.
+                }
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ThemeMachineResolution_ThrowsWhenMultipleActiveDefinitionsExist()
+    {
+        var dbPath = Path.Combine(Path.GetTempPath(), $"dreamgenclone-machine-resolution-{Guid.NewGuid():N}.db");
+
+        try
+        {
+            await using var connection = new SqliteConnection($"Data Source={dbPath}");
+            await connection.OpenAsync();
+            await EnsureThemeTableAsync(connection);
+            await EnsureMachineTablesAsync(connection);
+            await InsertThemeAsync(connection, "theme-1");
+            await InsertMachineDefinitionAsync(connection, "definition-1", "theme-1", "machine-a", version: 1, isActive: true);
+            await InsertMachineDefinitionAsync(connection, "definition-2", "theme-1", "machine-a", version: 2, isActive: true);
+
+            var service = new ThemeMachineResolutionService(
+                Options.Create(new PersistenceOptions { ConnectionString = $"Data Source={dbPath}" }));
+
+            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                service.ResolveAsync("session-1", "theme-1", pinnedSnapshot: null));
+
+            Assert.Contains("multiple active machine definitions", ex.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            if (File.Exists(dbPath))
+            {
+                try
+                {
+                    File.Delete(dbPath);
+                }
+                catch (IOException)
+                {
+                    // SQLite can hold the file handle briefly after disposal on Windows.
+                }
+            }
+        }
+    }
+
+    private static async Task EnsureThemeTableAsync(SqliteConnection connection)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = "CREATE TABLE IF NOT EXISTS RPThemes (Id TEXT PRIMARY KEY);";
+        await command.ExecuteNonQueryAsync();
+    }
+
+    private static async Task EnsureMachineTablesAsync(SqliteConnection connection)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            CREATE TABLE IF NOT EXISTS RPThemeMachineDefinitions (
+                DefinitionId TEXT PRIMARY KEY,
+                ThemeId TEXT NOT NULL,
+                MachineKey TEXT NOT NULL,
+                Version INTEGER NOT NULL,
+                Name TEXT NOT NULL,
+                IsActive INTEGER NOT NULL DEFAULT 0,
+                IsSeeded INTEGER NOT NULL DEFAULT 0,
+                CreatedUtc TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL,
+                UNIQUE (ThemeId, MachineKey, Version)
+            );
+            """;
+        await command.ExecuteNonQueryAsync();
+    }
+
+    private static async Task InsertThemeAsync(SqliteConnection connection, string themeId)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = "INSERT INTO RPThemes (Id) VALUES ($id);";
+        command.Parameters.AddWithValue("$id", themeId);
+        await command.ExecuteNonQueryAsync();
+    }
+
+    private static async Task InsertMachineDefinitionAsync(
+        SqliteConnection connection,
+        string definitionId,
+        string themeId,
+        string machineKey,
+        int version,
+        bool isActive)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO RPThemeMachineDefinitions (
+                DefinitionId, ThemeId, MachineKey, Version, Name, IsActive, IsSeeded, CreatedUtc, UpdatedUtc)
+            VALUES (
+                $definitionId, $themeId, $machineKey, $version, $name, $isActive, 0, $createdUtc, $updatedUtc);
+            """;
+        command.Parameters.AddWithValue("$definitionId", definitionId);
+        command.Parameters.AddWithValue("$themeId", themeId);
+        command.Parameters.AddWithValue("$machineKey", machineKey);
+        command.Parameters.AddWithValue("$version", version);
+        command.Parameters.AddWithValue("$name", machineKey);
+        command.Parameters.AddWithValue("$isActive", isActive ? 1 : 0);
+        command.Parameters.AddWithValue("$createdUtc", DateTime.UtcNow.ToString("O"));
+        command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
+        await command.ExecuteNonQueryAsync();
     }
 
     private static AdaptiveScenarioState CreateState() => new()
