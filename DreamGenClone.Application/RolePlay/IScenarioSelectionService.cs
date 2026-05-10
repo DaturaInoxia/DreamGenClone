@@ -5,7 +5,8 @@ public interface IScenarioSelectionService
 	Task<IReadOnlyList<DreamGenClone.Domain.RolePlay.ScenarioCandidateEvaluation>> EvaluateCandidatesAsync(
 		DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state,
 		IReadOnlyList<ScenarioDefinition> candidates,
-		CancellationToken cancellationToken = default);
+		CancellationToken cancellationToken = default,
+		IReadOnlySet<string>? blockedScenarioIds = null);
 
 	Task<ScenarioCommitResult> TryCommitScenarioAsync(
 		DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state,

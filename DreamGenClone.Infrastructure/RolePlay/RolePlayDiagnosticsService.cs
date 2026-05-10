@@ -17,6 +17,7 @@ public sealed class RolePlayDiagnosticsService : IRolePlayDiagnosticsService
         var turns = await _repository.LoadTurnsAsync(sessionId, 200, cancellationToken);
         var candidates = await _repository.LoadCandidateEvaluationsAsync(sessionId, 100, cancellationToken);
         var transitions = await _repository.LoadTransitionEventsAsync(sessionId, 100, cancellationToken);
+        var machineEvents = await _repository.LoadThemeMachineDiagnosticEventsAsync(sessionId, 100, cancellationToken);
         var decisions = await _repository.LoadDecisionPointsAsync(sessionId, 100, cancellationToken);
         var errors = await _repository.LoadUnsupportedSessionErrorsAsync(sessionId, 20, cancellationToken);
 
@@ -27,6 +28,7 @@ public sealed class RolePlayDiagnosticsService : IRolePlayDiagnosticsService
             Turns = turns,
             CandidateEvaluations = candidates,
             TransitionEvents = transitions,
+            ThemeMachineEvents = machineEvents,
             DecisionPoints = decisions,
             CompatibilityErrors = errors,
             CorrelationId = correlationId ?? Guid.NewGuid().ToString("N")

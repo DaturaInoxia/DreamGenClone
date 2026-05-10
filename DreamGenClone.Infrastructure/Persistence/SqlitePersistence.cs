@@ -391,6 +391,57 @@ public sealed class SqlitePersistence : ISqlitePersistence
             CREATE INDEX IF NOT EXISTS IX_RPThemeNarrativeGateRules_Theme_Sort
                 ON RPThemeNarrativeGateRules (ThemeId, SortOrder, Id);
 
+            CREATE TABLE IF NOT EXISTS RPThemeMachineDefinitions (
+                DefinitionId TEXT PRIMARY KEY,
+                ThemeId TEXT NOT NULL,
+                MachineKey TEXT NOT NULL,
+                Version INTEGER NOT NULL,
+                Name TEXT NOT NULL,
+                IsActive INTEGER NOT NULL DEFAULT 0,
+                IsSeeded INTEGER NOT NULL DEFAULT 0,
+                CreatedUtc TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL,
+                FOREIGN KEY (ThemeId) REFERENCES RPThemes(Id) ON DELETE CASCADE,
+                UNIQUE (ThemeId, MachineKey, Version)
+            );
+
+            CREATE INDEX IF NOT EXISTS IX_RPThemeMachineDefinitions_Theme_MachineKey_Version
+                ON RPThemeMachineDefinitions (ThemeId, MachineKey, Version DESC);
+
+            CREATE TABLE IF NOT EXISTS RPThemeMachineStates (
+                StateId TEXT PRIMARY KEY,
+                DefinitionId TEXT NOT NULL,
+                StateCode TEXT NOT NULL,
+                Label TEXT NOT NULL,
+                IsInitial INTEGER NOT NULL DEFAULT 0,
+                IsTerminal INTEGER NOT NULL DEFAULT 0,
+                SortOrder INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (DefinitionId) REFERENCES RPThemeMachineDefinitions(DefinitionId) ON DELETE CASCADE,
+                UNIQUE (DefinitionId, StateCode)
+            );
+
+            CREATE INDEX IF NOT EXISTS IX_RPThemeMachineStates_Definition_Sort
+                ON RPThemeMachineStates (DefinitionId, SortOrder, StateId);
+
+            CREATE TABLE IF NOT EXISTS RPThemeMachineTransitions (
+                TransitionId TEXT PRIMARY KEY,
+                DefinitionId TEXT NOT NULL,
+                FromStateCode TEXT NOT NULL,
+                ToStateCode TEXT NOT NULL,
+                Priority INTEGER NOT NULL,
+                TriggerType TEXT NOT NULL,
+                GateConfigJson TEXT NOT NULL,
+                BlockReasonCode TEXT NOT NULL,
+                IsEnabled INTEGER NOT NULL DEFAULT 1,
+                CreatedUtc TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL,
+                FOREIGN KEY (DefinitionId) REFERENCES RPThemeMachineDefinitions(DefinitionId) ON DELETE CASCADE,
+                UNIQUE (DefinitionId, FromStateCode, Priority)
+            );
+
+            CREATE INDEX IF NOT EXISTS IX_RPThemeMachineTransitions_Definition_FromState_Priority
+                ON RPThemeMachineTransitions (DefinitionId, FromStateCode, Priority);
+
             CREATE TABLE IF NOT EXISTS RPThemeProfileThemeAssignments (
                 Id TEXT PRIMARY KEY,
                 ProfileId TEXT NOT NULL,
@@ -622,6 +673,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 CharacterLocationsJson TEXT NOT NULL DEFAULT '[]',
                 CharacterLocationPerceptionsJson TEXT NOT NULL DEFAULT '[]',
                 CharacterSnapshotsJson TEXT NOT NULL,
+                ThemeMachineSnapshotJson TEXT NULL,
                 UpdatedUtc TEXT NOT NULL
             );
 
@@ -750,6 +802,24 @@ public sealed class SqlitePersistence : ISqlitePersistence
             );
             CREATE INDEX IF NOT EXISTS IX_RolePlayV2UnsupportedErrors_Session_EmittedUtc
                 ON RolePlayV2UnsupportedSessionErrors (SessionId, EmittedUtc DESC);
+
+            CREATE TABLE IF NOT EXISTS RolePlayV2ThemeMachineDiagnostics (
+                EventId TEXT PRIMARY KEY,
+                SessionId TEXT NOT NULL,
+                ThemeId TEXT NOT NULL,
+                MachineKey TEXT NOT NULL,
+                DefinitionVersion INTEGER NOT NULL,
+                EventType TEXT NOT NULL,
+                FromStateCode TEXT NULL,
+                ToStateCode TEXT NULL,
+                TransitionId TEXT NULL,
+                ReasonCode TEXT NOT NULL,
+                PayloadJson TEXT NOT NULL,
+                OccurredUtc TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS IX_RolePlayV2ThemeMachineDiagnostics_Session_OccurredUtc
+                ON RolePlayV2ThemeMachineDiagnostics (SessionId, OccurredUtc DESC);
 
             CREATE TABLE IF NOT EXISTS ClimaxBeatEntries (
                 BeatCode TEXT PRIMARY KEY,
@@ -1318,6 +1388,17 @@ public sealed class SqlitePersistence : ISqlitePersistence
             alterCharacterLocationPerceptionsJson.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN CharacterLocationPerceptionsJson TEXT NOT NULL DEFAULT '[]'";
             await alterCharacterLocationPerceptionsJson.ExecuteNonQueryAsync(cancellationToken);
             _logger.LogInformation("Migrated RolePlayV2AdaptiveStates table: added CharacterLocationPerceptionsJson column");
+        }
+
+        var checkThemeMachineSnapshotJsonColumn = connection.CreateCommand();
+        checkThemeMachineSnapshotJsonColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RolePlayV2AdaptiveStates') WHERE name='ThemeMachineSnapshotJson'";
+        var hasThemeMachineSnapshotJsonColumn = Convert.ToInt64(await checkThemeMachineSnapshotJsonColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasThemeMachineSnapshotJsonColumn)
+        {
+            var alterThemeMachineSnapshotJson = connection.CreateCommand();
+            alterThemeMachineSnapshotJson.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN ThemeMachineSnapshotJson TEXT NULL";
+            await alterThemeMachineSnapshotJson.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated RolePlayV2AdaptiveStates table: added ThemeMachineSnapshotJson column");
         }
 
         // Migrate: handle RankingProfiles -> ThemeProfiles safely.

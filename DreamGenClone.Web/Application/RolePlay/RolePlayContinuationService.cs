@@ -759,6 +759,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
 
         var framingGuards = RolePlayAssistantPrompts.BuildFramingGuards(currentPhase, activeScenarioId);
         RolePlayAssistantPrompts.AppendScenarioGuidance(sb, guidanceContext, framingGuards);
+        RolePlayAssistantPrompts.AppendThemeMachineGuidance(sb, session.AdaptiveState.ThemeMachineSnapshot);
 
         RPTheme? activeTheme = null;
 

@@ -133,6 +133,91 @@ public sealed class RolePlaySessionLifecycleTests
     }
 
     [Fact]
+    public async Task ThemeMachineLifecycle_CooldownGate_BlocksUntilBothConditionsAreMet()
+    {
+        var evaluator = new ThemeMachineEvaluator(NullLogger<ThemeMachineEvaluator>.Instance);
+        var transition = new RPThemeMachineTransition
+        {
+            TransitionId = "cooldown-next-eligible",
+            FromStateCode = "ReintegrationCooldown",
+            ToStateCode = "NextDisappearanceEligible",
+            Priority = 10,
+            TriggerType = "cooldown-eligibility",
+            GateConfigJson = "{\"minimumInteractions\":4,\"requireReturnBeatCompleted\":true,\"returnBeatCompletionSignals\":[\"returned\"],\"returnBeatTransgressorRole\":\"Wife\",\"returnBeatPartnerRole\":\"Husband\"}",
+            BlockReasonCode = "ReintegrationCooldownGateBlocked",
+            IsEnabled = true
+        };
+
+        var result = await evaluator.EvaluateAsync(
+            new AdaptiveScenarioState { SessionId = "session-1" },
+            new ThemeMachineEvaluationContext
+            {
+                SessionId = "session-1",
+                ActiveScenarioId = "theme-1",
+                ThemeId = "theme-1",
+                Snapshot = new ThemeMachineSessionSnapshot
+                {
+                    MachineKey = "infidelity-brief-disappearance",
+                    ThemeId = "theme-1",
+                    DefinitionId = "definition-1",
+                    DefinitionVersion = 1,
+                    CurrentStateCode = "ReintegrationCooldown",
+                    TurnsInCurrentState = 3,
+                    ReturnBeatCompleted = false,
+                    LastEvaluatedUtc = DateTime.UtcNow
+                },
+                Transitions = [transition]
+            });
+
+        Assert.False(result.TransitionApplied);
+        Assert.Equal("ReintegrationCooldown", result.UpdatedSnapshot.CurrentStateCode);
+        Assert.Contains("ReintegrationCooldownGateBlocked", result.Directive.ReasonCodes);
+        Assert.True(result.Directive.BlockDisappearanceCandidates);
+    }
+
+    [Fact]
+    public async Task ThemeMachineLifecycle_CooldownGate_TransitionsWhenBothConditionsAreMet()
+    {
+        var evaluator = new ThemeMachineEvaluator(NullLogger<ThemeMachineEvaluator>.Instance);
+        var transition = new RPThemeMachineTransition
+        {
+            TransitionId = "cooldown-next-eligible",
+            FromStateCode = "ReintegrationCooldown",
+            ToStateCode = "NextDisappearanceEligible",
+            Priority = 10,
+            TriggerType = "cooldown-eligibility",
+            GateConfigJson = "{\"minimumInteractions\":4,\"requireReturnBeatCompleted\":true,\"returnBeatCompletionSignals\":[\"returned\"],\"returnBeatTransgressorRole\":\"Wife\",\"returnBeatPartnerRole\":\"Husband\"}",
+            BlockReasonCode = "ReintegrationCooldownGateBlocked",
+            IsEnabled = true
+        };
+
+        var result = await evaluator.EvaluateAsync(
+            new AdaptiveScenarioState { SessionId = "session-1" },
+            new ThemeMachineEvaluationContext
+            {
+                SessionId = "session-1",
+                ActiveScenarioId = "theme-1",
+                ThemeId = "theme-1",
+                Snapshot = new ThemeMachineSessionSnapshot
+                {
+                    MachineKey = "infidelity-brief-disappearance",
+                    ThemeId = "theme-1",
+                    DefinitionId = "definition-1",
+                    DefinitionVersion = 1,
+                    CurrentStateCode = "ReintegrationCooldown",
+                    TurnsInCurrentState = 4,
+                    ReturnBeatCompleted = true,
+                    LastEvaluatedUtc = DateTime.UtcNow
+                },
+                Transitions = [transition]
+            });
+
+        Assert.True(result.TransitionApplied);
+        Assert.Equal("NextDisappearanceEligible", result.UpdatedSnapshot.CurrentStateCode);
+        Assert.False(result.Directive.BlockDisappearanceCandidates);
+    }
+
+    [Fact]
     public async Task PendingDecisionPrompt_SkipsDeferredAndAppliedDecisionPoints()
     {
         var repository = new FakeRolePlayStateRepository();
@@ -1148,6 +1233,8 @@ public sealed class RolePlaySessionLifecycleTests
         public Task SaveFormulaVersionReferenceAsync(string sessionId, FormulaConfigVersion version, int cycleIndex, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task SaveUnsupportedSessionErrorAsync(UnsupportedSessionError error, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task<IReadOnlyList<UnsupportedSessionError>> LoadUnsupportedSessionErrorsAsync(string sessionId, int take = 20, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<UnsupportedSessionError>>([]);
+        public Task SaveThemeMachineDiagnosticEventsAsync(IReadOnlyList<ThemeMachineDiagnosticEvent> events, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task<IReadOnlyList<ThemeMachineDiagnosticEvent>> LoadThemeMachineDiagnosticEventsAsync(string sessionId, int take = 100, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ThemeMachineDiagnosticEvent>>([]);
 
         private static AdaptiveScenarioState CloneState(AdaptiveScenarioState state)
         {

@@ -172,25 +172,60 @@
                                     <th>Category</th>
                                     <th>Weight</th>
                                     <th>Enabled</th>
+                                    <th>Machine Status</th>
+                                    <th>Version Control</th>
                                     <th style="width: 160px;">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 @if (_themes.Count == 0)
                                 {
-                                    <tr><td colspan="6" class="text-muted">No themes found.</td></tr>
+                                    <tr><td colspan="8" class="text-muted">No themes found.</td></tr>
                                 }
                                 else
                                 {
                                     @foreach (var theme in _themes.OrderBy(x => x.Label, StringComparer.OrdinalIgnoreCase))
                                     {
                                         var isExpanded = _expandedThemeIds.Contains(theme.Id);
+                                        var themeMachineDefinitions = GetThemeMachineDefinitions(theme.Id);
+                                        var pendingActivation = _pendingMachineActivations.TryGetValue(theme.Id, out var selectedActivation)
+                                            ? selectedActivation
+                                            : string.Empty;
                                         <tr>
                                             <td>@theme.Id</td>
                                             <td>@theme.Label</td>
                                             <td>@theme.Category</td>
                                             <td>@theme.Weight</td>
                                             <td>@(theme.IsEnabled ? "Yes" : "No")</td>
+                                            <td>
+                                                <div>@GetThemeMachineStatus(theme.Id)</div>
+                                                <div class="small text-muted">@GetThemeMachineVersionSummary(theme.Id)</div>
+                                            </td>
+                                            <td>
+                                                @if (themeMachineDefinitions.Count == 0)
+                                                {
+                                                    <span class="text-muted">No machine versions</span>
+                                                }
+                                                else
+                                                {
+                                                    <div class="d-flex gap-1 align-items-center">
+                                                        <select class="form-select form-select-sm"
+                                                                value="@pendingActivation"
+                                                                @onchange="args => OnThemeMachineSelectionChanged(theme.Id, args)">
+                                                            @foreach (var definition in themeMachineDefinitions)
+                                                            {
+                                                                var optionValue = BuildMachineActivationOption(definition);
+                                                                <option value="@optionValue">@definition.MachineKey v@definition.Version @(definition.IsActive ? "(active)" : string.Empty)</option>
+                                                            }
+                                                        </select>
+                                                        <button class="btn btn-sm btn-outline-success"
+                                                                @onclick="() => ActivateThemeMachineAsync(theme.Id)"
+                                                                disabled="@_isBusy">
+                                                            Activate
+                                                        </button>
+                                                    </div>
+                                                }
+                                            </td>
                                             <td>
                                                 <div class="d-flex gap-1">
                                                     <button class="btn btn-sm btn-outline-secondary" @onclick="() => ToggleThemeDetailsAsync(theme.Id)">@(isExpanded ? "Hide Raw" : "View Raw")</button>
@@ -202,7 +237,7 @@
                                         @if (isExpanded)
                                         {
                                             <tr>
-                                                <td colspan="6" class="bg-light">
+                                                <td colspan="8" class="bg-light">
                                                     <div class="p-2 small">
                                                         <div class="fw-semibold mb-1">Source Markdown (Raw)</div>
                                                         @if (_themeSourceMarkdownById.TryGetValue(theme.Id, out var sourceMarkdown) && !string.IsNullOrWhiteSpace(sourceMarkdown))
@@ -328,6 +363,8 @@
     private readonly HashSet<string> _expandedThemeIds = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _themeSourceMarkdownById = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<RPThemeImportResult> _lastImportResults = [];
+    private readonly Dictionary<string, List<RPThemeMachineDefinition>> _machineDefinitionsByThemeId = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> _pendingMachineActivations = new(StringComparer.OrdinalIgnoreCase);
 
     private string? _selectedProfileId;
     private RPThemeProfile? _selectedProfile;
@@ -348,6 +385,7 @@
     private string _status = string.Empty;
     private string _error = string.Empty;
     private string _activeTab = "profiles";
+    private string _machineActorId = "Admin:RPThemes";
 
     private void ShowProfilesTab() => _activeTab = "profiles";
 
@@ -372,6 +410,7 @@
 
         _themes.Clear();
         _themes.AddRange(await RPThemeService.ListThemesAsync(includeDisabled: true));
+        await LoadThemeMachineSummariesAsync();
 
         if (string.IsNullOrWhiteSpace(_selectedProfileId) && _profiles.Count > 0)
         {
@@ -409,6 +448,108 @@
         }
 
         EnsurePendingTierDefaults();
+    }
+
+    private async Task LoadThemeMachineSummariesAsync()
+    {
+        _machineDefinitionsByThemeId.Clear();
+        _pendingMachineActivations.Clear();
+
+        foreach (var theme in _themes)
+        {
+            var definitions = (await RPThemeService.ListMachineDefinitionsAsync(theme.Id))
+                .OrderBy(x => x.MachineKey, StringComparer.OrdinalIgnoreCase)
+                .ThenByDescending(x => x.Version)
+                .ThenBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            _machineDefinitionsByThemeId[theme.Id] = definitions;
+
+            var selectedDefinition = definitions.FirstOrDefault(x => x.IsActive) ?? definitions.FirstOrDefault();
+            if (selectedDefinition is not null)
+            {
+                _pendingMachineActivations[theme.Id] = BuildMachineActivationOption(selectedDefinition);
+            }
+        }
+    }
+
+    private IReadOnlyList<RPThemeMachineDefinition> GetThemeMachineDefinitions(string themeId)
+        => _machineDefinitionsByThemeId.TryGetValue(themeId, out var definitions)
+            ? definitions
+            : [];
+
+    private string GetThemeMachineStatus(string themeId)
+    {
+        var definitions = GetThemeMachineDefinitions(themeId);
+        if (definitions.Count == 0)
+        {
+            return "Not configured";
+        }
+
+        var active = definitions.FirstOrDefault(x => x.IsActive);
+        if (active is null)
+        {
+            return "Configured (no active version)";
+        }
+
+        return $"Active: {active.MachineKey} v{active.Version}";
+    }
+
+    private string GetThemeMachineVersionSummary(string themeId)
+    {
+        var definitions = GetThemeMachineDefinitions(themeId);
+        if (definitions.Count == 0)
+        {
+            return "0 definitions";
+        }
+
+        var machineCount = definitions
+            .Select(x => x.MachineKey)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Count();
+
+        return $"{definitions.Count} versions across {machineCount} machine key(s)";
+    }
+
+    private static string BuildMachineActivationOption(RPThemeMachineDefinition definition)
+        => $"{definition.MachineKey}|{definition.Version}";
+
+    private static bool TryParseMachineActivationOption(string raw, out string machineKey, out int version)
+    {
+        machineKey = string.Empty;
+        version = 0;
+
+        var parts = (raw ?? string.Empty).Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Length != 2 || !int.TryParse(parts[1], out var parsedVersion) || parsedVersion <= 0)
+        {
+            return false;
+        }
+
+        machineKey = parts[0];
+        version = parsedVersion;
+        return !string.IsNullOrWhiteSpace(machineKey);
+    }
+
+    private void OnThemeMachineSelectionChanged(string themeId, ChangeEventArgs args)
+    {
+        var selected = args.Value?.ToString() ?? string.Empty;
+        _pendingMachineActivations[themeId] = selected;
+    }
+
+    private async Task ActivateThemeMachineAsync(string themeId)
+    {
+        await RunBusyAsync(async () =>
+        {
+            if (!_pendingMachineActivations.TryGetValue(themeId, out var selected)
+                || !TryParseMachineActivationOption(selected, out var machineKey, out var version))
+            {
+                throw new InvalidOperationException("Select a machine version to activate.");
+            }
+
+            await RPThemeService.ActivateMachineDefinitionAsync(themeId, machineKey, version, _machineActorId);
+            _status = $"Activated machine '{machineKey}' version {version} for theme '{themeId}'.";
+            await ReloadAllAsync();
+        });
     }
 
     private void ViewDetails(string themeId)

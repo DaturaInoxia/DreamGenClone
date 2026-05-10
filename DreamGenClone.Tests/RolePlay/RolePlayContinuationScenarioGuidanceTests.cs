@@ -131,4 +131,50 @@ public sealed class RolePlayContinuationScenarioGuidanceTests
         Assert.Equal(RPThemeAIGuidanceSection.InteractionDynamics, notes[0].Section);
         Assert.DoesNotContain(notes, x => x.Section == RPThemeAIGuidanceSection.FitFormula);
     }
+
+    [Fact]
+    public void AppendThemeMachineGuidance_ReturnBeatRequired_AddsHardConstraints()
+    {
+        var builder = new StringBuilder();
+
+        RolePlayAssistantPrompts.AppendThemeMachineGuidance(
+            builder,
+            new ThemeMachineSessionSnapshot
+            {
+                MachineKey = "infidelity-brief-disappearance",
+                ThemeId = "theme-1",
+                DefinitionId = "definition-1",
+                DefinitionVersion = 1,
+                CurrentStateCode = "ReturnBeatRequired"
+            });
+
+        var text = builder.ToString();
+        Assert.Contains("Theme Machine Continuity", text, StringComparison.Ordinal);
+        Assert.Contains("Current State: ReturnBeatRequired", text, StringComparison.Ordinal);
+        Assert.Contains("Return beat is required", text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void AppendThemeMachineGuidance_ReintegrationCooldown_IncludesCooldownSignals()
+    {
+        var builder = new StringBuilder();
+
+        RolePlayAssistantPrompts.AppendThemeMachineGuidance(
+            builder,
+            new ThemeMachineSessionSnapshot
+            {
+                MachineKey = "infidelity-brief-disappearance",
+                ThemeId = "theme-1",
+                DefinitionId = "definition-1",
+                DefinitionVersion = 1,
+                CurrentStateCode = "ReintegrationCooldown",
+                TurnsInCurrentState = 3,
+                ReturnBeatCompleted = false
+            });
+
+        var text = builder.ToString();
+        Assert.Contains("Current State: ReintegrationCooldown", text, StringComparison.Ordinal);
+        Assert.Contains("Cooldown interactions in current state: 3", text, StringComparison.Ordinal);
+        Assert.Contains("Return beat completed: no", text, StringComparison.Ordinal);
+    }
 }

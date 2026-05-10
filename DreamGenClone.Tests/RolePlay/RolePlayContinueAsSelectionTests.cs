@@ -1,6 +1,12 @@
 using DreamGenClone.Web.Domain.RolePlay;
 using DreamGenClone.Web.Application.Scenarios;
 using DreamGenClone.Web.Domain.Scenarios;
+using DreamGenClone.Application.RolePlay;
+using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Infrastructure.Configuration;
+using DreamGenClone.Infrastructure.RolePlay;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Xunit;
 
 namespace DreamGenClone.Tests.RolePlay;
@@ -72,6 +78,86 @@ public sealed class RolePlayContinueAsSelectionTests
         Assert.NotEmpty(result.ParticipantOutputs);
         Assert.Equal(InteractionType.Npc, result.ParticipantOutputs[0].InteractionType);
         Assert.DoesNotContain(result.ParticipantOutputs, x => x.InteractionType == InteractionType.User);
+    }
+
+    [Fact]
+    public async Task EvaluateCandidatesAsync_WhenMachineBlocksCandidates_OnlyUnblockedScenariosRemain()
+    {
+        var service = CreateScenarioSelectionService();
+        var state = new AdaptiveScenarioState
+        {
+            SessionId = "session-1",
+            ActiveScenarioId = "scenario-a"
+        };
+        var candidates = new List<ScenarioDefinition>
+        {
+            new("scenario-a", "Scenario A", 10),
+            new("scenario-b", "Scenario B", 9)
+        };
+
+        var evaluations = await service.EvaluateCandidatesAsync(
+            state,
+            candidates,
+            blockedScenarioIds: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "scenario-b" });
+
+        Assert.Single(evaluations);
+        Assert.Equal("scenario-a", evaluations[0].ScenarioId);
+    }
+
+    [Fact]
+    public async Task EvaluateCandidatesAsync_WhenAllCandidatesBlocked_ThrowsExplicitly()
+    {
+        var service = CreateScenarioSelectionService();
+        var state = new AdaptiveScenarioState
+        {
+            SessionId = "session-1",
+            ActiveScenarioId = "scenario-a"
+        };
+        var candidates = new List<ScenarioDefinition>
+        {
+            new("scenario-a", "Scenario A", 10)
+        };
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.EvaluateCandidatesAsync(
+                state,
+                candidates,
+                blockedScenarioIds: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "scenario-a" }));
+
+        Assert.Contains("all candidates were blocked", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static ScenarioSelectionService CreateScenarioSelectionService()
+    {
+        var options = Options.Create(new StoryAnalysisOptions
+        {
+            BuildUpSelectionCandidateGateStrategy = "dominant-role"
+        });
+
+        return new ScenarioSelectionService(
+            NullLogger<ScenarioSelectionService>.Instance,
+            themeCatalogService: null,
+            characterStateScenarioMapper: null,
+            narrativeGateProfileService: null,
+            rpThemeService: null,
+            engineSettingsRepository: new StubScenarioEngineSettingsRepository(new ScenarioEngineSettings()),
+            options: options);
+    }
+
+    private sealed class StubScenarioEngineSettingsRepository : IScenarioEngineSettingsRepository
+    {
+        private readonly ScenarioEngineSettings _settings;
+
+        public StubScenarioEngineSettingsRepository(ScenarioEngineSettings settings)
+        {
+            _settings = settings;
+        }
+
+        public Task<ScenarioEngineSettings> LoadAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(_settings);
+
+        public Task SaveAsync(ScenarioEngineSettings settings, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
     }
 
     private sealed class SingleScenarioService(Scenario scenario) : IScenarioService

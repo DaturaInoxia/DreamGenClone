@@ -68,6 +68,48 @@ public sealed class RPTheme
     public List<RPThemeFitRule> FitRules { get; set; } = [];
     public List<RPThemeAIGuidanceNote> AIGenerationNotes { get; set; } = [];
     public List<NarrativeGateRule> NarrativeGateRules { get; set; } = [];
+    public List<RPThemeMachineDefinition> MachineDefinitions { get; set; } = [];
+}
+
+public sealed class RPThemeMachineDefinition
+{
+    public string DefinitionId { get; set; } = Guid.NewGuid().ToString("N");
+    public string ThemeId { get; set; } = string.Empty;
+    public string MachineKey { get; set; } = string.Empty;
+    public int Version { get; set; } = 1;
+    public string Name { get; set; } = string.Empty;
+    public bool IsActive { get; set; }
+    public bool IsSeeded { get; set; }
+    public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
+    public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;
+    public List<RPThemeMachineState> States { get; set; } = [];
+    public List<RPThemeMachineTransition> Transitions { get; set; } = [];
+}
+
+public sealed class RPThemeMachineState
+{
+    public string StateId { get; set; } = Guid.NewGuid().ToString("N");
+    public string DefinitionId { get; set; } = string.Empty;
+    public string StateCode { get; set; } = string.Empty;
+    public string Label { get; set; } = string.Empty;
+    public bool IsInitial { get; set; }
+    public bool IsTerminal { get; set; }
+    public int SortOrder { get; set; }
+}
+
+public sealed class RPThemeMachineTransition
+{
+    public string TransitionId { get; set; } = Guid.NewGuid().ToString("N");
+    public string DefinitionId { get; set; } = string.Empty;
+    public string FromStateCode { get; set; } = string.Empty;
+    public string ToStateCode { get; set; } = string.Empty;
+    public int Priority { get; set; }
+    public string TriggerType { get; set; } = string.Empty;
+    public string GateConfigJson { get; set; } = "{}";
+    public string BlockReasonCode { get; set; } = string.Empty;
+    public bool IsEnabled { get; set; } = true;
+    public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
+    public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;
 }
 
 public sealed class RPThemeRelationship

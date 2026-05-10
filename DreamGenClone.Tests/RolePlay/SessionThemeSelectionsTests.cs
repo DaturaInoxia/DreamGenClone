@@ -555,6 +555,24 @@ public sealed class SessionThemeSelectionsTests
         public Task<bool> DeleteThemeAsync(string id, CancellationToken cancellationToken = default)
             => Task.FromResult(false);
 
+        public Task<RPThemeMachineDefinition> SaveMachineDefinitionAsync(RPThemeMachineDefinition definition, CancellationToken cancellationToken = default)
+            => Task.FromResult(definition);
+
+        public Task<IReadOnlyList<RPThemeMachineDefinition>> ListMachineDefinitionsAsync(string themeId, CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<RPThemeMachineDefinition>>([]);
+
+        public Task<RPThemeMachineDefinition?> GetMachineDefinitionAsync(string definitionId, CancellationToken cancellationToken = default)
+            => Task.FromResult<RPThemeMachineDefinition?>(null);
+
+        public Task ActivateMachineDefinitionAsync(string themeId, string machineKey, int version, string actorId, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task<MachineDefinitionValidationResult> ValidateMachineDefinitionAsync(string definitionId, CancellationToken cancellationToken = default)
+            => Task.FromResult(new MachineDefinitionValidationResult { IsValid = true });
+
+        public Task MigrateSessionMachineVersionAsync(string sessionId, string themeId, string machineKey, int targetVersion, string actorId, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
         public Task<RPThemeProfileThemeAssignment> SaveProfileAssignmentAsync(RPThemeProfileThemeAssignment assignment, CancellationToken cancellationToken = default)
             => Task.FromResult(assignment);
 

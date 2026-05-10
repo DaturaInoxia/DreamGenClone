@@ -1,5 +1,6 @@
 using CoreAutoSaveCoordinator = DreamGenClone.Application.Sessions.IAutoSaveCoordinator;
 using DreamGenClone.Application.Abstractions;
+using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Web.Application.RolePlay;
 using DreamGenClone.Web.Application.Scenarios;
 using DreamGenClone.Web.Application.Sessions;
@@ -18,7 +19,8 @@ internal static class RolePlayTestFactory
         IRolePlayContinuationService? continuationService = null,
         IRolePlayIdentityOptionsService? identityOptionsService = null,
         IScenarioService? scenarioService = null,
-        IBaseStatProfileService? baseStatProfileService = null)
+        IBaseStatProfileService? baseStatProfileService = null,
+        IRolePlayStateRepository? stateRepository = null)
     {
         var sessionService = new FakeSessionService();
         var coreAutoSave = new FakeCoreAutoSaveCoordinator();
@@ -38,7 +40,8 @@ internal static class RolePlayTestFactory
             baseStatProfileService ?? new FakeBaseStatProfileService(),
             autoSave,
             new NullRolePlayDebugEventSink(),
-            NullLogger<RolePlayEngineService>.Instance);
+                NullLogger<RolePlayEngineService>.Instance,
+                stateRepository: stateRepository);
     }
 
     internal sealed class FakeContinuationService : IRolePlayContinuationService

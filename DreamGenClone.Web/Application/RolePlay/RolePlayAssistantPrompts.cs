@@ -172,6 +172,39 @@ public static class RolePlayAssistantPrompts
         promptBuilder.AppendLine(closingNote);
     }
 
+    public static void AppendThemeMachineGuidance(
+        StringBuilder promptBuilder,
+        ThemeMachineSessionSnapshot? snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(promptBuilder);
+
+        if (snapshot is null || string.IsNullOrWhiteSpace(snapshot.CurrentStateCode))
+        {
+            return;
+        }
+
+        promptBuilder.AppendLine("Theme Machine Continuity:");
+        promptBuilder.AppendLine($"- Machine Key: {snapshot.MachineKey}");
+        promptBuilder.AppendLine($"- Definition: {snapshot.DefinitionId} v{snapshot.DefinitionVersion}");
+        promptBuilder.AppendLine($"- Current State: {snapshot.CurrentStateCode}");
+
+        if (string.Equals(snapshot.CurrentStateCode, "ReturnBeatRequired", StringComparison.OrdinalIgnoreCase))
+        {
+            promptBuilder.AppendLine("- HARD CONSTRAINT: Return beat is required before any new disappearance beat can be introduced.");
+            promptBuilder.AppendLine("- HARD CONSTRAINT: Keep narrative focus on return/repair continuity and avoid initiating a fresh disappearance arc.");
+        }
+        else if (string.Equals(snapshot.CurrentStateCode, "ReintegrationCooldown", StringComparison.OrdinalIgnoreCase))
+        {
+            promptBuilder.AppendLine("- HARD CONSTRAINT: Reintegration cooldown is active; keep disappearance beats blocked until cooldown obligations are met.");
+            promptBuilder.AppendLine($"- Cooldown interactions in current state: {snapshot.TurnsInCurrentState}");
+            promptBuilder.AppendLine($"- Return beat completed: {(snapshot.ReturnBeatCompleted ? "yes" : "no")}");
+        }
+        else if (string.Equals(snapshot.CurrentStateCode, "NextDisappearanceEligible", StringComparison.OrdinalIgnoreCase))
+        {
+            promptBuilder.AppendLine("- Continuity note: Next disappearance eligibility has been reached; maintain consistency with established machine progression.");
+        }
+    }
+
     private static IReadOnlyDictionary<RPThemeAIGuidanceSection, int> BuildSectionWeightsForPhase(string phase)
     {
         var defaultWeights = new Dictionary<RPThemeAIGuidanceSection, int>

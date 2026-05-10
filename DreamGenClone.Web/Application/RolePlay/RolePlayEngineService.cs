@@ -141,6 +141,8 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     private readonly IModelResolutionService? _modelResolutionService;
     private readonly IThemePreferenceService? _themePreferenceService;
     private readonly IRPThemeService? _rpThemeService;
+    private readonly IThemeMachineResolutionService? _themeMachineResolutionService;
+    private readonly IThemeMachineEvaluator? _themeMachineEvaluator;
     private readonly ITemplateService? _templateService;
     private readonly RolePlayPromptComposer _promptComposer;
     private readonly RolePlaySessionCompatibilityService? _compatibilityService;
@@ -179,6 +181,8 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         IModelResolutionService? modelResolutionService = null,
         IThemePreferenceService? themePreferenceService = null,
         IRPThemeService? rpThemeService = null,
+        IThemeMachineResolutionService? themeMachineResolutionService = null,
+        IThemeMachineEvaluator? themeMachineEvaluator = null,
         RolePlayPromptComposer? promptComposer = null,
         RolePlaySessionCompatibilityService? compatibilityService = null,
         IOptions<StoryAnalysisOptions>? storyAnalysisOptions = null,
@@ -206,6 +210,8 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         _modelResolutionService = modelResolutionService;
         _themePreferenceService = themePreferenceService;
         _rpThemeService = rpThemeService;
+        _themeMachineResolutionService = themeMachineResolutionService;
+        _themeMachineEvaluator = themeMachineEvaluator;
         _promptComposer = promptComposer ?? new RolePlayPromptComposer();
         _compatibilityService = compatibilityService;
         _templateService = templateService;
@@ -2099,15 +2105,182 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             }, cancellationToken);
         }
 
+        if (!string.IsNullOrWhiteSpace(v2State.ActiveScenarioId))
+        {
+            try
+            {
+                await EnsureThemeMachineResolutionGuardAsync(session, v2State, cancellationToken);
+            }
+            catch (InvalidOperationException ex)
+            {
+                await PersistThemeMachineFailureDiagnosticAsync(
+                    session,
+                    v2State,
+                    "ThemeMachineResolutionFailure",
+                    ex.Message,
+                    cancellationToken);
+                _logger.LogError(
+                    ex,
+                    "RolePlayV2 machine resolution failed before candidate evaluation: SessionId={SessionId} ScenarioId={ScenarioId}",
+                    session.Id,
+                    v2State.ActiveScenarioId);
+                throw;
+            }
+        }
+
+        ReturnBeatAutoDetectionResult returnBeatAutoDetectionResult;
+        try
+        {
+            returnBeatAutoDetectionResult = await TryApplyAutomaticReturnBeatCompletionAsync(session, v2State, cancellationToken);
+        }
+        catch (InvalidOperationException ex)
+        {
+            await PersistThemeMachineFailureDiagnosticAsync(
+                session,
+                v2State,
+                "ReturnBeatAutoDetectionFailure",
+                ex.Message,
+                cancellationToken);
+            _logger.LogError(
+                ex,
+                "RolePlayV2 return-beat auto-detection failed: SessionId={SessionId} ScenarioId={ScenarioId}",
+                session.Id,
+                v2State.ActiveScenarioId ?? string.Empty);
+            throw;
+        }
+
+        if (returnBeatAutoDetectionResult.Applied
+            && v2State.ThemeMachineSnapshot is not null
+            && !string.IsNullOrWhiteSpace(v2State.ActiveScenarioId))
+        {
+            await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+            {
+                SessionId = session.Id,
+                EventKind = "ReturnBeatAutoDetected",
+                Severity = "Info",
+                Summary = "Return-beat completion auto-detected from narrative signal",
+                MetadataJson = JsonSerializer.Serialize(new
+                {
+                    signal = returnBeatAutoDetectionResult.MatchedSignal,
+                    sourceInteractionId = returnBeatAutoDetectionResult.SourceInteractionId,
+                    configuredSignalCount = returnBeatAutoDetectionResult.ConfiguredSignalCount,
+                    state = v2State.ThemeMachineSnapshot.CurrentStateCode
+                })
+            }, cancellationToken);
+
+            await _stateRepository.SaveThemeMachineDiagnosticEventsAsync(
+            [
+                new ThemeMachineDiagnosticEvent
+                {
+                    SessionId = session.Id,
+                    ThemeId = v2State.ActiveScenarioId,
+                    MachineKey = v2State.ThemeMachineSnapshot.MachineKey,
+                    DefinitionVersion = v2State.ThemeMachineSnapshot.DefinitionVersion,
+                    EventType = "signal",
+                    FromStateCode = v2State.ThemeMachineSnapshot.CurrentStateCode,
+                    ToStateCode = v2State.ThemeMachineSnapshot.CurrentStateCode,
+                    TransitionId = null,
+                    ReasonCode = "ReturnBeatCompletionAutoDetected",
+                    PayloadJson = JsonSerializer.Serialize(new
+                    {
+                        signal = returnBeatAutoDetectionResult.MatchedSignal,
+                        sourceInteractionId = returnBeatAutoDetectionResult.SourceInteractionId,
+                        state = v2State.ThemeMachineSnapshot.CurrentStateCode,
+                        definitionId = v2State.ThemeMachineSnapshot.DefinitionId
+                    }),
+                    OccurredUtc = DateTime.UtcNow
+                }
+            ],
+            cancellationToken);
+
+            _logger.LogInformation(
+                "RolePlayV2 return-beat completion auto-detected: SessionId={SessionId} ScenarioId={ScenarioId} State={State} InteractionId={InteractionId}",
+                session.Id,
+                v2State.ActiveScenarioId,
+                v2State.ThemeMachineSnapshot.CurrentStateCode,
+                returnBeatAutoDetectionResult.SourceInteractionId ?? string.Empty);
+        }
+
+        var returnBeatCompletionRequested = IsReturnBeatCompletionRequested(session);
+        if (returnBeatCompletionRequested)
+        {
+            var requestedAtState = v2State.ThemeMachineSnapshot?.CurrentStateCode;
+            var returnBeatApplied = TryApplyExplicitReturnBeatCompletion(v2State);
+
+            await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+            {
+                SessionId = session.Id,
+                EventKind = "ReturnBeatCommandProcessed",
+                Severity = returnBeatApplied ? "Info" : "Warning",
+                Summary = returnBeatApplied
+                    ? "Return-beat completion command applied"
+                    : "Return-beat completion command ignored",
+                MetadataJson = JsonSerializer.Serialize(new
+                {
+                    command = "/returnbeat",
+                    applied = returnBeatApplied,
+                    requestedAtState,
+                    currentState = v2State.ThemeMachineSnapshot?.CurrentStateCode,
+                    alreadyCompleted = v2State.ThemeMachineSnapshot?.ReturnBeatCompleted ?? false
+                })
+            }, cancellationToken);
+
+            if (returnBeatApplied
+                && v2State.ThemeMachineSnapshot is not null
+                && !string.IsNullOrWhiteSpace(v2State.ActiveScenarioId))
+            {
+                await _stateRepository.SaveThemeMachineDiagnosticEventsAsync(
+                [
+                    new ThemeMachineDiagnosticEvent
+                    {
+                        SessionId = session.Id,
+                        ThemeId = v2State.ActiveScenarioId,
+                        MachineKey = v2State.ThemeMachineSnapshot.MachineKey,
+                        DefinitionVersion = v2State.ThemeMachineSnapshot.DefinitionVersion,
+                        EventType = "signal",
+                        FromStateCode = v2State.ThemeMachineSnapshot.CurrentStateCode,
+                        ToStateCode = v2State.ThemeMachineSnapshot.CurrentStateCode,
+                        TransitionId = null,
+                        ReasonCode = "ReturnBeatCompletionRecorded",
+                        PayloadJson = JsonSerializer.Serialize(new
+                        {
+                            command = "/returnbeat",
+                            state = v2State.ThemeMachineSnapshot.CurrentStateCode,
+                            definitionId = v2State.ThemeMachineSnapshot.DefinitionId
+                        }),
+                        OccurredUtc = DateTime.UtcNow
+                    }
+                ],
+                cancellationToken);
+
+                _logger.LogInformation(
+                    "RolePlayV2 return-beat completion recorded: SessionId={SessionId} ScenarioId={ScenarioId} State={State}",
+                    session.Id,
+                    v2State.ActiveScenarioId,
+                    v2State.ThemeMachineSnapshot.CurrentStateCode);
+            }
+            else
+            {
+                _logger.LogWarning(
+                    "RolePlayV2 return-beat command ignored: SessionId={SessionId} ScenarioId={ScenarioId} State={State}",
+                    session.Id,
+                    v2State.ActiveScenarioId ?? string.Empty,
+                    requestedAtState ?? "(none)");
+            }
+        }
+
+        var preSelectionDirective = BuildDirectiveFromSnapshot(session.Id, v2State.ThemeMachineSnapshot);
+
         var candidates = await BuildScenarioCandidatesAsync(session, cancellationToken);
         var (linkedNarrativeGateProfileId, linkedNarrativeGateRules) = await ResolveThemeNarrativeGateConfigAsync(session, v2State, cancellationToken);
         v2State.SelectedNarrativeGateProfileId = linkedNarrativeGateProfileId;
+        var blockedScenarioIds = ResolveBlockedScenarioIdsFromDirective(session.Id, v2State, preSelectionDirective, candidates);
 
         var manualOverrideLockActive = IsManualThemeOverrideLockActive(session);
 
         var evaluations = manualOverrideLockActive
             ? Array.Empty<DreamGenClone.Domain.RolePlay.ScenarioCandidateEvaluation>()
-            : await _scenarioSelectionService.EvaluateCandidatesAsync(v2State, candidates, cancellationToken);
+            : await _scenarioSelectionService.EvaluateCandidatesAsync(v2State, candidates, cancellationToken, blockedScenarioIds);
         await _stateRepository.SaveCandidateEvaluationsAsync(evaluations, cancellationToken);
 
         var inResetPhase = v2State.CurrentPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.Reset;
@@ -2241,6 +2414,27 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                     inferredScenarioId,
                     commitResult.Reason);
             }
+        }
+
+        try
+        {
+            await EnsureThemeMachineResolutionGuardAsync(session, v2State, cancellationToken);
+            _ = await EvaluateThemeMachineAsync(session, v2State, cancellationToken);
+        }
+        catch (InvalidOperationException ex)
+        {
+            await PersistThemeMachineFailureDiagnosticAsync(
+                session,
+                v2State,
+                "ThemeMachineEvaluationFailure",
+                ex.Message,
+                cancellationToken);
+            _logger.LogError(
+                ex,
+                "RolePlayV2 machine evaluation failed: SessionId={SessionId} ScenarioId={ScenarioId}",
+                session.Id,
+                v2State.ActiveScenarioId);
+            throw;
         }
 
         var activeScenarioEvaluation = evaluations.FirstOrDefault(x =>
@@ -2735,6 +2929,9 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             .ToList();
         mapped.CurrentBeatCode = previousState.CurrentBeatCode;
         mapped.TurnsInCurrentBeat = previousState.TurnsInCurrentBeat;
+        mapped.ThemeMachineSnapshot = previousState.ThemeMachineSnapshot is null
+            ? null
+            : CloneThemeMachineSnapshot(previousState.ThemeMachineSnapshot);
         return mapped;
     }
 
@@ -2782,6 +2979,9 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         session.AdaptiveState.InteractionsInApproaching = snapshot.CurrentPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.Approaching
             ? interactionCount
             : 0;
+        session.AdaptiveState.ThemeMachineSnapshot = snapshot.ThemeMachineSnapshot is null
+            ? null
+            : CloneThemeMachineSnapshot(snapshot.ThemeMachineSnapshot);
     }
 
     private static void SyncSessionAdaptiveStateFromV2(
@@ -2809,6 +3009,9 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         session.AdaptiveState.SelectedNarrativeGateProfileId = v2State.SelectedNarrativeGateProfileId;
         session.AdaptiveState.CurrentSceneLocation = v2State.CurrentSceneLocation;
         session.AdaptiveState.CurrentBeatCode = v2State.CurrentBeatCode;
+        session.AdaptiveState.ThemeMachineSnapshot = v2State.ThemeMachineSnapshot is null
+            ? null
+            : CloneThemeMachineSnapshot(v2State.ThemeMachineSnapshot);
         session.AdaptiveState.CharacterLocations = v2State.CharacterLocations
             .Select(x => new RolePlayCharacterLocationState
             {
@@ -2968,6 +3171,779 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         return ContainsClimaxCompletionCommand(latest.Content);
     }
 
+    private static bool IsReturnBeatCompletionRequested(RolePlaySession session)
+    {
+        var latest = session.Interactions
+            .Where(x => x.ParentInteractionId is null)
+            .OrderByDescending(x => x.CreatedAt)
+            .FirstOrDefault();
+        if (latest is null || string.IsNullOrWhiteSpace(latest.Content))
+        {
+            return false;
+        }
+
+        if (latest.InteractionType != InteractionType.System
+            || !string.Equals(latest.ActorName, "Instruction", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return ContainsReturnBeatCompletionCommand(latest.Content);
+    }
+
+    private async Task<ReturnBeatAutoDetectionResult> TryApplyAutomaticReturnBeatCompletionAsync(
+        RolePlaySession session,
+        DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state,
+        CancellationToken cancellationToken)
+    {
+        if (state.ThemeMachineSnapshot is null
+            || string.IsNullOrWhiteSpace(state.ThemeMachineSnapshot.CurrentStateCode)
+            || state.ThemeMachineSnapshot.ReturnBeatCompleted
+            || !IsReturnBeatCompletionEligibleState(state.ThemeMachineSnapshot.CurrentStateCode))
+        {
+            return ReturnBeatAutoDetectionResult.NotEvaluated;
+        }
+
+        if (string.IsNullOrWhiteSpace(state.ActiveScenarioId))
+        {
+            throw new InvalidOperationException(
+                $"RolePlayV2 return-beat auto-detection failed for session '{session.Id}': active scenario id is missing.");
+        }
+
+        if (_themeMachineResolutionService is null)
+        {
+            throw new InvalidOperationException(
+                $"RolePlayV2 return-beat auto-detection failed for session '{session.Id}': theme machine resolution service is required.");
+        }
+
+        var resolvedDefinition = await _themeMachineResolutionService.ResolveAsync(
+            session.Id,
+            state.ActiveScenarioId,
+            state.ThemeMachineSnapshot,
+            cancellationToken)
+            ?? throw new InvalidOperationException(
+                $"RolePlayV2 return-beat auto-detection failed for session '{session.Id}': no machine definition resolved for active scenario '{state.ActiveScenarioId}'.");
+
+        var detectionConfig = ResolveReturnBeatDetectionConfig(
+            session.Id,
+            state.ThemeMachineSnapshot.CurrentStateCode,
+            resolvedDefinition.Transitions);
+
+        var (transgressorRoleActorTargets, partnerRoleActorTargets) = await ResolveReturnBeatRoleActorTargetsAsync(
+            session,
+            state,
+            detectionConfig.TransgressorRoleName,
+            detectionConfig.PartnerRoleName,
+            cancellationToken);
+
+        var (applied, matchedSignal, sourceInteractionId) = TryApplyConfiguredReturnBeatCompletion(
+            session,
+            state,
+            detectionConfig.CompletionSignals,
+            transgressorRoleActorTargets,
+            partnerRoleActorTargets);
+
+        return new ReturnBeatAutoDetectionResult(
+            Evaluated: true,
+            Applied: applied,
+            ConfiguredSignalCount: detectionConfig.CompletionSignals.Count,
+            MatchedSignal: matchedSignal,
+            SourceInteractionId: sourceInteractionId);
+    }
+
+    private static ReturnBeatDetectionConfig ResolveReturnBeatDetectionConfig(
+        string sessionId,
+        string currentStateCode,
+        IReadOnlyList<RPThemeMachineTransition> transitions)
+    {
+        var cooldownTransitions = transitions
+            .Where(x => x.IsEnabled
+                && string.Equals(x.FromStateCode, "ReintegrationCooldown", StringComparison.OrdinalIgnoreCase)
+                && string.Equals((x.TriggerType ?? string.Empty).Trim(), "cooldown-eligibility", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (cooldownTransitions.Count == 0)
+        {
+            throw new InvalidOperationException(
+                $"RolePlayV2 return-beat auto-detection failed for session '{sessionId}': missing enabled cooldown-eligibility transition from ReintegrationCooldown.");
+        }
+
+        var signals = new List<string>();
+        string? transgressorRoleName = null;
+        string? partnerRoleName = null;
+        var configuredRolePairs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var requiresReturnBeatCompletion = false;
+
+        foreach (var transition in cooldownTransitions)
+        {
+            if (string.IsNullOrWhiteSpace(transition.GateConfigJson))
+            {
+                throw new InvalidOperationException(
+                    $"RolePlayV2 return-beat auto-detection failed for session '{sessionId}': transition '{transition.TransitionId}' is missing required GateConfigJson.");
+            }
+
+            JsonElement root;
+            try
+            {
+                using var doc = JsonDocument.Parse(transition.GateConfigJson);
+                root = doc.RootElement.Clone();
+            }
+            catch (JsonException ex)
+            {
+                throw new InvalidOperationException(
+                    $"RolePlayV2 return-beat auto-detection failed for session '{sessionId}': transition '{transition.TransitionId}' has invalid GateConfigJson.",
+                    ex);
+            }
+
+            if (!root.TryGetProperty("requireReturnBeatCompleted", out var requireReturnBeatCompletedProperty)
+                || (requireReturnBeatCompletedProperty.ValueKind != JsonValueKind.True
+                    && requireReturnBeatCompletedProperty.ValueKind != JsonValueKind.False))
+            {
+                throw new InvalidOperationException(
+                    $"RolePlayV2 return-beat auto-detection failed for session '{sessionId}': cooldown transition '{transition.TransitionId}' is missing required boolean requireReturnBeatCompleted.");
+            }
+
+            var requireReturnBeatCompleted = requireReturnBeatCompletedProperty.GetBoolean();
+            if (!requireReturnBeatCompleted)
+            {
+                continue;
+            }
+
+            requiresReturnBeatCompletion = true;
+
+            if (!root.TryGetProperty("returnBeatCompletionSignals", out var signalArray)
+                || signalArray.ValueKind != JsonValueKind.Array)
+            {
+                throw new InvalidOperationException(
+                    $"RolePlayV2 return-beat auto-detection failed for session '{sessionId}': cooldown transition '{transition.TransitionId}' is missing required string array returnBeatCompletionSignals.");
+            }
+
+            var transitionSignals = new List<string>();
+            foreach (var element in signalArray.EnumerateArray())
+            {
+                if (element.ValueKind != JsonValueKind.String)
+                {
+                    throw new InvalidOperationException(
+                        $"RolePlayV2 return-beat auto-detection failed for session '{sessionId}': cooldown transition '{transition.TransitionId}' has non-string returnBeatCompletionSignals entries.");
+                }
+
+                var signal = element.GetString()?.Trim();
+                if (string.IsNullOrWhiteSpace(signal))
+                {
+                    throw new InvalidOperationException(
+                        $"RolePlayV2 return-beat auto-detection failed for session '{sessionId}': cooldown transition '{transition.TransitionId}' has blank returnBeatCompletionSignals entries.");
+                }
+
+                transitionSignals.Add(signal);
+            }
+
+            if (transitionSignals.Count == 0)
+            {
+                throw new InvalidOperationException(
+                    $"RolePlayV2 return-beat auto-detection failed for session '{sessionId}': cooldown transition '{transition.TransitionId}' requires at least one returnBeatCompletionSignals entry.");
+            }
+
+            var transitionTransgressorRole = ResolveRequiredReturnBeatRoleName(
+                sessionId,
+                transition.TransitionId,
+                root,
+                "returnBeatTransgressorRole");
+            var transitionPartnerRole = ResolveRequiredReturnBeatRoleName(
+                sessionId,
+                transition.TransitionId,
+                root,
+                "returnBeatPartnerRole");
+
+            if (string.Equals(transitionTransgressorRole, transitionPartnerRole, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    $"RolePlayV2 return-beat auto-detection failed for session '{sessionId}': cooldown transition '{transition.TransitionId}' must configure distinct returnBeatTransgressorRole and returnBeatPartnerRole values.");
+            }
+
+            configuredRolePairs.Add($"{transitionTransgressorRole}|{transitionPartnerRole}");
+            transgressorRoleName ??= transitionTransgressorRole;
+            partnerRoleName ??= transitionPartnerRole;
+
+            signals.AddRange(transitionSignals);
+        }
+
+        if (!requiresReturnBeatCompletion)
+        {
+            throw new InvalidOperationException(
+                $"RolePlayV2 return-beat auto-detection failed for session '{sessionId}': no enabled cooldown transition in ReintegrationCooldown requires return-beat completion while current state is '{currentStateCode}'.");
+        }
+
+        var distinctSignals = signals
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (distinctSignals.Count == 0)
+        {
+            throw new InvalidOperationException(
+                $"RolePlayV2 return-beat auto-detection failed for session '{sessionId}': no usable returnBeatCompletionSignals were configured.");
+        }
+
+        if (configuredRolePairs.Count == 0
+            || string.IsNullOrWhiteSpace(transgressorRoleName)
+            || string.IsNullOrWhiteSpace(partnerRoleName))
+        {
+            throw new InvalidOperationException(
+                $"RolePlayV2 return-beat auto-detection failed for session '{sessionId}': missing required return-beat role pair configuration.");
+        }
+
+        if (configuredRolePairs.Count > 1)
+        {
+            throw new InvalidOperationException(
+                $"RolePlayV2 return-beat auto-detection failed for session '{sessionId}': cooldown transitions define conflicting return-beat role pairs.");
+        }
+
+        return new ReturnBeatDetectionConfig(
+            CompletionSignals: distinctSignals,
+            TransgressorRoleName: transgressorRoleName,
+            PartnerRoleName: partnerRoleName);
+    }
+
+    private static string ResolveRequiredReturnBeatRoleName(
+        string sessionId,
+        string transitionId,
+        JsonElement gateConfig,
+        string propertyName)
+    {
+        if (!gateConfig.TryGetProperty(propertyName, out var roleProperty)
+            || roleProperty.ValueKind != JsonValueKind.String)
+        {
+            throw new InvalidOperationException(
+                $"RolePlayV2 return-beat auto-detection failed for session '{sessionId}': cooldown transition '{transitionId}' is missing required string {propertyName}.");
+        }
+
+        var rawRoleName = roleProperty.GetString()?.Trim();
+        if (string.IsNullOrWhiteSpace(rawRoleName))
+        {
+            throw new InvalidOperationException(
+                $"RolePlayV2 return-beat auto-detection failed for session '{sessionId}': cooldown transition '{transitionId}' has blank {propertyName}.");
+        }
+
+        var normalizedRoleName = CharacterRoleCatalog.Normalize(rawRoleName);
+        if (string.Equals(normalizedRoleName, CharacterRoleCatalog.Unknown, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"RolePlayV2 return-beat auto-detection failed for session '{sessionId}': cooldown transition '{transitionId}' has invalid {propertyName}='{rawRoleName}'.");
+        }
+
+        return normalizedRoleName;
+    }
+
+    private static IReadOnlyList<string> ResolveReturnBeatCompletionSignals(
+        string sessionId,
+        string currentStateCode,
+        IReadOnlyList<RPThemeMachineTransition> transitions)
+    {
+        return ResolveReturnBeatDetectionConfig(sessionId, currentStateCode, transitions).CompletionSignals;
+    }
+
+    private readonly record struct ReturnBeatDetectionConfig(
+        IReadOnlyList<string> CompletionSignals,
+        string TransgressorRoleName,
+        string PartnerRoleName);
+
+    private static (bool Applied, string? MatchedSignal, string? SourceInteractionId) TryApplyConfiguredReturnBeatCompletion(
+        RolePlaySession session,
+        DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state,
+        IReadOnlyList<string> completionSignals,
+        IReadOnlySet<string> transgressorRoleActorTargets,
+        IReadOnlySet<string> partnerRoleActorTargets)
+    {
+        if (completionSignals.Count == 0)
+        {
+            throw new InvalidOperationException("Return beat completion signals are required for auto-detection.");
+        }
+
+        if (transgressorRoleActorTargets.Count == 0)
+        {
+            throw new InvalidOperationException("Return beat auto-detection requires at least one transgressor role actor target.");
+        }
+
+        if (partnerRoleActorTargets.Count == 0)
+        {
+            throw new InvalidOperationException("Return beat auto-detection requires at least one partner role actor target.");
+        }
+
+        var recentNarrative = GetRecentNarrativeInteractionsForReturnBeatDetection(session);
+        if (recentNarrative.Count == 0)
+        {
+            return (false, null, null);
+        }
+
+        if (TryDetectDirectTransgressorPartnerDialogue(
+                session,
+                state,
+                recentNarrative,
+                transgressorRoleActorTargets,
+                partnerRoleActorTargets,
+                out var directDialogueInteractionId))
+        {
+            var applied = TryApplyExplicitReturnBeatCompletion(state);
+            return (applied, "transgressor-partner-direct-dialogue", directDialogueInteractionId);
+        }
+
+        var sameScene = AreTransgressorAndPartnerInSameScene(state, transgressorRoleActorTargets, partnerRoleActorTargets);
+        var inImmediateVicinity = IsTransgressorInImmediateVicinityOfPartner(state, transgressorRoleActorTargets, partnerRoleActorTargets);
+        if (!sameScene && !inImmediateVicinity)
+        {
+            return (false, null, null);
+        }
+
+        if (!TryDetectPartnerAcknowledgement(
+                session,
+                state,
+                recentNarrative,
+                completionSignals,
+                transgressorRoleActorTargets,
+                partnerRoleActorTargets,
+                out var acknowledgementSignal,
+                out var acknowledgementInteractionId))
+        {
+            return (false, null, null);
+        }
+
+        var acknowledgedApplied = TryApplyExplicitReturnBeatCompletion(state);
+        return (acknowledgedApplied, acknowledgementSignal, acknowledgementInteractionId);
+    }
+
+    private async Task<(IReadOnlySet<string> TransgressorRoleActorTargets, IReadOnlySet<string> PartnerRoleActorTargets)> ResolveReturnBeatRoleActorTargetsAsync(
+        RolePlaySession session,
+        DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state,
+        string transgressorRoleName,
+        string partnerRoleName,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var normalizedTransgressorRole = CharacterRoleCatalog.Normalize(transgressorRoleName);
+        var normalizedPartnerRole = CharacterRoleCatalog.Normalize(partnerRoleName);
+        if (string.Equals(normalizedTransgressorRole, CharacterRoleCatalog.Unknown, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"RolePlayV2 return-beat auto-detection failed for session '{session.Id}': transgressor role is invalid.");
+        }
+
+        if (string.Equals(normalizedPartnerRole, CharacterRoleCatalog.Unknown, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"RolePlayV2 return-beat auto-detection failed for session '{session.Id}': partner role is invalid.");
+        }
+
+        if (string.Equals(normalizedTransgressorRole, normalizedPartnerRole, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"RolePlayV2 return-beat auto-detection failed for session '{session.Id}': transgressor and partner roles must be different.");
+        }
+
+        if (string.IsNullOrWhiteSpace(state.ActiveScenarioId))
+        {
+            throw new InvalidOperationException(
+                $"RolePlayV2 return-beat auto-detection failed for session '{session.Id}': active scenario id is required to resolve return-beat role actors.");
+        }
+
+        var activeScenarioId = state.ActiveScenarioId.Trim();
+        var candidateEvaluations = await _stateRepository.LoadCandidateEvaluationsAsync(session.Id, 50, cancellationToken);
+        var (transgressorActorId, partnerActorId) = ResolveReturnBeatRoleBindingsFromEvaluations(
+            session.Id,
+            activeScenarioId,
+            normalizedTransgressorRole,
+            normalizedPartnerRole,
+            candidateEvaluations);
+
+        var transgressorTargets = BuildReturnBeatActorTargetsForBoundActorId(session, state, transgressorActorId, normalizedTransgressorRole);
+        var partnerTargets = BuildReturnBeatActorTargetsForBoundActorId(session, state, partnerActorId, normalizedPartnerRole);
+
+        return (transgressorTargets, partnerTargets);
+    }
+
+    private static (string TransgressorActorId, string PartnerActorId) ResolveReturnBeatRoleBindingsFromEvaluations(
+        string sessionId,
+        string activeScenarioId,
+        string transgressorRoleName,
+        string partnerRoleName,
+        IReadOnlyList<ScenarioCandidateEvaluation> candidateEvaluations)
+    {
+        if (candidateEvaluations.Count == 0)
+        {
+            throw new InvalidOperationException(
+                $"RolePlayV2 return-beat auto-detection failed for session '{sessionId}': no candidate evaluations are available to resolve role bindings for active scenario '{activeScenarioId}'.");
+        }
+
+        var latestScenarioEvaluation = candidateEvaluations
+            .Where(x => !string.IsNullOrWhiteSpace(x.ScenarioId)
+                && string.Equals(x.ScenarioId.Trim(), activeScenarioId, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(x => x.EvaluatedUtc)
+            .FirstOrDefault();
+
+        if (latestScenarioEvaluation is null)
+        {
+            throw new InvalidOperationException(
+                $"RolePlayV2 return-beat auto-detection failed for session '{sessionId}': no candidate evaluation for active scenario '{activeScenarioId}' is available to resolve role bindings.");
+        }
+
+        if (string.IsNullOrWhiteSpace(latestScenarioEvaluation.DetailsJson))
+        {
+            throw new InvalidOperationException(
+                $"RolePlayV2 return-beat auto-detection failed for session '{sessionId}': candidate evaluation '{latestScenarioEvaluation.EvaluationId}' has empty DetailsJson role binding payload.");
+        }
+
+        JsonElement detailsRoot;
+        try
+        {
+            using var detailsDocument = JsonDocument.Parse(latestScenarioEvaluation.DetailsJson);
+            detailsRoot = detailsDocument.RootElement.Clone();
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidOperationException(
+                $"RolePlayV2 return-beat auto-detection failed for session '{sessionId}': candidate evaluation '{latestScenarioEvaluation.EvaluationId}' has invalid DetailsJson role binding payload.",
+                ex);
+        }
+
+        if (!TryGetPropertyIgnoreCase(detailsRoot, "fitResult", out var fitResult)
+            || fitResult.ValueKind != JsonValueKind.Object)
+        {
+            throw new InvalidOperationException(
+                $"RolePlayV2 return-beat auto-detection failed for session '{sessionId}': candidate evaluation '{latestScenarioEvaluation.EvaluationId}' is missing fitResult role binding payload.");
+        }
+
+        if (!TryGetPropertyIgnoreCase(fitResult, "roleCharacterBindings", out var roleCharacterBindings)
+            || roleCharacterBindings.ValueKind != JsonValueKind.Object)
+        {
+            throw new InvalidOperationException(
+                $"RolePlayV2 return-beat auto-detection failed for session '{sessionId}': candidate evaluation '{latestScenarioEvaluation.EvaluationId}' is missing fitResult.roleCharacterBindings payload.");
+        }
+
+        var transgressorActorId = ResolveRequiredRoleCharacterBinding(
+            sessionId,
+            latestScenarioEvaluation.EvaluationId,
+            roleCharacterBindings,
+            transgressorRoleName);
+        var partnerActorId = ResolveRequiredRoleCharacterBinding(
+            sessionId,
+            latestScenarioEvaluation.EvaluationId,
+            roleCharacterBindings,
+            partnerRoleName);
+
+        if (string.Equals(transgressorActorId, partnerActorId, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"RolePlayV2 return-beat auto-detection failed for session '{sessionId}': candidate evaluation '{latestScenarioEvaluation.EvaluationId}' resolved identical actor binding '{transgressorActorId}' for roles '{transgressorRoleName}' and '{partnerRoleName}'.");
+        }
+
+        return (transgressorActorId, partnerActorId);
+    }
+
+    private static string ResolveRequiredRoleCharacterBinding(
+        string sessionId,
+        string evaluationId,
+        JsonElement roleCharacterBindings,
+        string roleName)
+    {
+        foreach (var binding in roleCharacterBindings.EnumerateObject())
+        {
+            if (!string.Equals(binding.Name, roleName, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (binding.Value.ValueKind != JsonValueKind.String)
+            {
+                throw new InvalidOperationException(
+                    $"RolePlayV2 return-beat auto-detection failed for session '{sessionId}': candidate evaluation '{evaluationId}' roleCharacterBindings['{roleName}'] must be a string.");
+            }
+
+            var rawActorId = binding.Value.GetString()?.Trim();
+            if (string.IsNullOrWhiteSpace(rawActorId))
+            {
+                throw new InvalidOperationException(
+                    $"RolePlayV2 return-beat auto-detection failed for session '{sessionId}': candidate evaluation '{evaluationId}' roleCharacterBindings['{roleName}'] must be non-empty.");
+            }
+
+            return rawActorId;
+        }
+
+        throw new InvalidOperationException(
+            $"RolePlayV2 return-beat auto-detection failed for session '{sessionId}': candidate evaluation '{evaluationId}' has no roleCharacterBindings entry for role '{roleName}'.");
+    }
+
+    private static HashSet<string> BuildReturnBeatActorTargetsForBoundActorId(
+        RolePlaySession session,
+        DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state,
+        string boundActorId,
+        string roleName)
+    {
+        var normalizedBoundActorId = (boundActorId ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(normalizedBoundActorId))
+        {
+            throw new InvalidOperationException(
+                $"Return beat auto-detection failed to resolve a non-empty actor binding for role '{roleName}'.");
+        }
+
+        var targets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        AddReturnBeatActorTarget(targets, normalizedBoundActorId);
+
+        foreach (var perspective in session.CharacterPerspectives)
+        {
+            var perspectiveCharacterId = (perspective.CharacterId ?? string.Empty).Trim();
+            var perspectiveCharacterName = (perspective.CharacterName ?? string.Empty).Trim();
+            if (!string.Equals(perspectiveCharacterId, normalizedBoundActorId, StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(perspectiveCharacterName, normalizedBoundActorId, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            AddReturnBeatActorTarget(targets, perspective.CharacterId);
+            AddReturnBeatActorTarget(targets, perspective.CharacterName);
+        }
+
+        foreach (var snapshot in state.CharacterSnapshots)
+        {
+            if (string.Equals((snapshot.CharacterId ?? string.Empty).Trim(), normalizedBoundActorId, StringComparison.OrdinalIgnoreCase)
+                || IsReturnBeatActorTarget(targets, snapshot.CharacterId))
+            {
+                AddReturnBeatActorTarget(targets, snapshot.CharacterId);
+            }
+        }
+
+        foreach (var entry in session.AdaptiveState.CharacterStats)
+        {
+            var characterKey = (entry.Key ?? string.Empty).Trim();
+            var blockCharacterId = (entry.Value?.CharacterId ?? string.Empty).Trim();
+            if (!string.Equals(characterKey, normalizedBoundActorId, StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(blockCharacterId, normalizedBoundActorId, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            AddReturnBeatActorTarget(targets, characterKey);
+            AddReturnBeatActorTarget(targets, blockCharacterId);
+        }
+
+        if (string.Equals((session.PersonaName ?? string.Empty).Trim(), normalizedBoundActorId, StringComparison.OrdinalIgnoreCase))
+        {
+            AddReturnBeatActorTarget(targets, session.PersonaName);
+        }
+
+        if (targets.Count == 0)
+        {
+            throw new InvalidOperationException(
+                $"Return beat auto-detection requires non-empty actor targets for role '{roleName}'.");
+        }
+
+        return targets;
+    }
+
+    private static IReadOnlyList<RolePlayInteraction> GetRecentNarrativeInteractionsForReturnBeatDetection(
+        RolePlaySession session,
+        int take = 12)
+    {
+        return session.Interactions
+            .Where(x => x.ParentInteractionId is null
+                && !x.IsExcluded
+                && !x.IsHidden
+                && x.InteractionType is InteractionType.Npc or InteractionType.Custom or InteractionType.User
+                && !string.IsNullOrWhiteSpace(x.Content))
+            .OrderBy(x => x.CreatedAt)
+            .TakeLast(Math.Max(1, take))
+            .ToList();
+    }
+
+    private static bool TryDetectDirectTransgressorPartnerDialogue(
+        RolePlaySession session,
+        DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state,
+        IReadOnlyList<RolePlayInteraction> orderedInteractions,
+        IReadOnlySet<string> transgressorRoleActorTargets,
+        IReadOnlySet<string> partnerRoleActorTargets,
+        out string? sourceInteractionId)
+    {
+        sourceInteractionId = null;
+
+        for (var i = 1; i < orderedInteractions.Count; i++)
+        {
+            var previous = orderedInteractions[i - 1];
+            var current = orderedInteractions[i];
+
+            var previousIsTransgressor = IsInteractionFromRoleActor(session, state, previous, transgressorRoleActorTargets);
+            var previousIsPartner = IsInteractionFromRoleActor(session, state, previous, partnerRoleActorTargets);
+            var currentIsTransgressor = IsInteractionFromRoleActor(session, state, current, transgressorRoleActorTargets);
+            var currentIsPartner = IsInteractionFromRoleActor(session, state, current, partnerRoleActorTargets);
+
+            if ((previousIsTransgressor && currentIsPartner) || (previousIsPartner && currentIsTransgressor))
+            {
+                sourceInteractionId = current.Id;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool TryDetectPartnerAcknowledgement(
+        RolePlaySession session,
+        DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state,
+        IReadOnlyList<RolePlayInteraction> orderedInteractions,
+        IReadOnlyList<string> completionSignals,
+        IReadOnlySet<string> transgressorRoleActorTargets,
+        IReadOnlySet<string> partnerRoleActorTargets,
+        out string? acknowledgementSignal,
+        out string? acknowledgementInteractionId)
+    {
+        acknowledgementSignal = null;
+        acknowledgementInteractionId = null;
+
+        for (var i = 1; i < orderedInteractions.Count; i++)
+        {
+            var previous = orderedInteractions[i - 1];
+            var current = orderedInteractions[i];
+
+            var previousIsTransgressor = IsInteractionFromRoleActor(session, state, previous, transgressorRoleActorTargets);
+            var currentIsPartner = IsInteractionFromRoleActor(session, state, current, partnerRoleActorTargets);
+
+            if (previousIsTransgressor && currentIsPartner)
+            {
+                acknowledgementSignal = "partner-acknowledged-return";
+                acknowledgementInteractionId = current.Id;
+                return true;
+            }
+        }
+
+        for (var i = orderedInteractions.Count - 1; i >= 0; i--)
+        {
+            var interaction = orderedInteractions[i];
+            if (!IsInteractionFromRoleActor(session, state, interaction, partnerRoleActorTargets))
+            {
+                continue;
+            }
+
+            var configuredSignal = FindFirstConfiguredReturnBeatSignal(interaction.Content, completionSignals);
+            if (string.IsNullOrWhiteSpace(configuredSignal))
+            {
+                continue;
+            }
+
+            acknowledgementSignal = configuredSignal;
+            acknowledgementInteractionId = interaction.Id;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsInteractionFromRoleActor(
+        RolePlaySession session,
+        DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state,
+        RolePlayInteraction interaction,
+        IReadOnlySet<string> roleActorTargets)
+    {
+        if (IsReturnBeatActorTarget(roleActorTargets, interaction.ActorName))
+        {
+            return true;
+        }
+
+        var resolvedActorId = ResolveDecisionActorId(state, session, interaction.ActorName);
+        return IsReturnBeatActorTarget(roleActorTargets, resolvedActorId);
+    }
+
+    private static bool AreTransgressorAndPartnerInSameScene(
+        DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state,
+        IReadOnlySet<string> transgressorRoleActorTargets,
+        IReadOnlySet<string> partnerRoleActorTargets)
+    {
+        var transgressorLocations = ResolveRoleActorLocations(state, transgressorRoleActorTargets);
+        var partnerLocations = ResolveRoleActorLocations(state, partnerRoleActorTargets);
+
+        if (transgressorLocations.Count == 0 || partnerLocations.Count == 0)
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(state.CurrentSceneLocation))
+        {
+            var currentScene = state.CurrentSceneLocation.Trim();
+            return transgressorLocations.Contains(currentScene)
+                && partnerLocations.Contains(currentScene);
+        }
+
+        return transgressorLocations.Overlaps(partnerLocations);
+    }
+
+    private static bool IsTransgressorInImmediateVicinityOfPartner(
+        DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state,
+        IReadOnlySet<string> transgressorRoleActorTargets,
+        IReadOnlySet<string> partnerRoleActorTargets)
+    {
+        return state.CharacterLocationPerceptions.Any(perception =>
+            IsReturnBeatActorTarget(partnerRoleActorTargets, perception.ObserverCharacterId)
+            && IsReturnBeatActorTarget(transgressorRoleActorTargets, perception.TargetCharacterId)
+            && (perception.IsInProximity || perception.HasLineOfSight));
+    }
+
+    private static HashSet<string> ResolveRoleActorLocations(
+        DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state,
+        IReadOnlySet<string> roleActorTargets)
+    {
+        var locations = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var location in state.CharacterLocations)
+        {
+            if (!IsReturnBeatActorTarget(roleActorTargets, location.CharacterId)
+                || string.IsNullOrWhiteSpace(location.TrueLocation))
+            {
+                continue;
+            }
+
+            locations.Add(location.TrueLocation.Trim());
+        }
+
+        return locations;
+    }
+
+    private static bool IsReturnBeatActorTarget(IReadOnlySet<string> targets, string? candidate)
+    {
+        if (string.IsNullOrWhiteSpace(candidate))
+        {
+            return false;
+        }
+
+        return targets.Contains(candidate.Trim());
+    }
+
+    private static void AddReturnBeatActorTarget(ISet<string> targets, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return;
+        }
+
+        targets.Add(value.Trim());
+    }
+
+    private static string? FindFirstConfiguredReturnBeatSignal(string? content, IReadOnlyList<string> completionSignals)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            return null;
+        }
+
+        foreach (var configuredSignal in completionSignals)
+        {
+            if (string.IsNullOrWhiteSpace(configuredSignal))
+            {
+                continue;
+            }
+
+            if (content.Contains(configuredSignal, StringComparison.OrdinalIgnoreCase))
+            {
+                return configuredSignal;
+            }
+        }
+
+        return null;
+    }
+
     private static bool ContainsClimaxCompletionCommand(string? content)
     {
         if (string.IsNullOrWhiteSpace(content))
@@ -2979,6 +3955,72 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             || content.Contains("/endclimax", StringComparison.OrdinalIgnoreCase)
             || content.Contains("/end-climax", StringComparison.OrdinalIgnoreCase)
             || Regex.IsMatch(content, @"\b(complete|end)\s+climax\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    }
+
+    private static bool ContainsReturnBeatCompletionCommand(string? content)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            return false;
+        }
+
+        var tokens = content
+            .Split([' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        return tokens.Any(token =>
+            string.Equals(token, "/returnbeat", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(token, "/return-beat", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(token, "/returnbeatcomplete", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(token, "/return-beat-complete", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(token, "/returnbeatdone", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(token, "/return-beat-done", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool TryApplyExplicitReturnBeatCompletion(DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state)
+    {
+        if (state.ThemeMachineSnapshot is null || string.IsNullOrWhiteSpace(state.ThemeMachineSnapshot.CurrentStateCode))
+        {
+            return false;
+        }
+
+        if (!IsReturnBeatCompletionEligibleState(state.ThemeMachineSnapshot.CurrentStateCode))
+        {
+            return false;
+        }
+
+        if (state.ThemeMachineSnapshot.ReturnBeatCompleted)
+        {
+            return false;
+        }
+
+        state.ThemeMachineSnapshot.ReturnBeatCompleted = true;
+        return true;
+    }
+
+    private static bool IsReturnBeatCompletionEligibleState(string? currentStateCode)
+    {
+        if (string.IsNullOrWhiteSpace(currentStateCode))
+        {
+            return false;
+        }
+
+        return string.Equals(currentStateCode, "ReturnBeatRequired", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(currentStateCode, "ReintegrationCooldown", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private readonly record struct ReturnBeatAutoDetectionResult(
+        bool Evaluated,
+        bool Applied,
+        int ConfiguredSignalCount,
+        string? MatchedSignal,
+        string? SourceInteractionId)
+    {
+        public static ReturnBeatAutoDetectionResult NotEvaluated { get; } = new(
+            Evaluated: false,
+            Applied: false,
+            ConfiguredSignalCount: 0,
+            MatchedSignal: null,
+            SourceInteractionId: null);
     }
 
     private static DreamGenClone.Domain.RolePlay.NarrativePhase? ResolveManualPhaseAdvanceTarget(
@@ -4958,9 +6000,29 @@ Requirements:
                     KnowledgeSource = x.KnowledgeSource ?? string.Empty,
                     UpdatedUtc = x.UpdatedUtc
                 })
-                .ToList()
+                .ToList(),
+            ThemeMachineSnapshot = session.AdaptiveState.ThemeMachineSnapshot is null
+                ? null
+                : CloneThemeMachineSnapshot(session.AdaptiveState.ThemeMachineSnapshot)
         };
     }
+
+    private static DreamGenClone.Domain.RolePlay.ThemeMachineSessionSnapshot CloneThemeMachineSnapshot(
+        DreamGenClone.Domain.RolePlay.ThemeMachineSessionSnapshot source)
+        => new()
+        {
+            MachineKey = source.MachineKey,
+            ThemeId = source.ThemeId,
+            DefinitionId = source.DefinitionId,
+            DefinitionVersion = source.DefinitionVersion,
+            CurrentStateCode = source.CurrentStateCode,
+            TurnsInCurrentState = source.TurnsInCurrentState,
+            ReturnBeatCompleted = source.ReturnBeatCompleted,
+            LastTransitionId = source.LastTransitionId,
+            LastTransitionUtc = source.LastTransitionUtc,
+            LastTransitionReasonCode = source.LastTransitionReasonCode,
+            LastEvaluatedUtc = source.LastEvaluatedUtc
+        };
 
     private async Task SeedPersonaStatsFromTemplateAsync(RolePlaySession session, CancellationToken cancellationToken)
     {
@@ -5273,6 +6335,317 @@ Requirements:
         }
 
         return (theme.NarrativeGateProfileId.Trim(), []);
+    }
+
+    private async Task EnsureThemeMachineResolutionGuardAsync(
+        RolePlaySession session,
+        DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(state.ActiveScenarioId))
+        {
+            state.ThemeMachineSnapshot = null;
+            return;
+        }
+
+        if (state.ThemeMachineSnapshot is not null
+            && !string.Equals(state.ThemeMachineSnapshot.ThemeId, state.ActiveScenarioId, StringComparison.OrdinalIgnoreCase))
+        {
+            state.ThemeMachineSnapshot = null;
+        }
+
+        if (_rpThemeService is null)
+        {
+            if (state.ThemeMachineSnapshot is null)
+            {
+                return;
+            }
+
+            throw new InvalidOperationException(
+                "RP theme service is required to resolve an existing theme machine snapshot.");
+        }
+
+        var machineDefinitions = await _rpThemeService.ListMachineDefinitionsAsync(state.ActiveScenarioId, cancellationToken);
+        if (machineDefinitions.Count == 0)
+        {
+            state.ThemeMachineSnapshot = null;
+            return;
+        }
+
+        if (_themeMachineResolutionService is null)
+        {
+            throw new InvalidOperationException(
+                "Theme machine resolution service is required for role-play machine guard integration.");
+        }
+
+        var resolvedDefinition = await _themeMachineResolutionService.ResolveAsync(
+            session.Id,
+            state.ActiveScenarioId,
+            state.ThemeMachineSnapshot,
+            cancellationToken);
+
+        if (resolvedDefinition is null)
+        {
+            state.ThemeMachineSnapshot = null;
+            return;
+        }
+
+        if (state.ThemeMachineSnapshot is null)
+        {
+            var initialState = resolvedDefinition.States.SingleOrDefault(x => x.IsInitial)
+                ?? throw new InvalidOperationException(
+                    $"Theme machine resolution failed for session '{session.Id}': definition '{resolvedDefinition.DefinitionId}' has no initial state.");
+
+            state.ThemeMachineSnapshot = new DreamGenClone.Domain.RolePlay.ThemeMachineSessionSnapshot
+            {
+                MachineKey = resolvedDefinition.MachineKey,
+                ThemeId = resolvedDefinition.ThemeId,
+                DefinitionId = resolvedDefinition.DefinitionId,
+                DefinitionVersion = resolvedDefinition.Version,
+                CurrentStateCode = initialState.StateCode,
+                TurnsInCurrentState = 0,
+                ReturnBeatCompleted = false,
+                LastTransitionId = null,
+                LastTransitionUtc = null,
+                LastTransitionReasonCode = null,
+                LastEvaluatedUtc = DateTime.UtcNow
+            };
+
+            await _stateRepository.SaveThemeMachineDiagnosticEventsAsync(
+            [
+                new DreamGenClone.Domain.RolePlay.ThemeMachineDiagnosticEvent
+                {
+                    SessionId = session.Id,
+                    ThemeId = resolvedDefinition.ThemeId,
+                    MachineKey = resolvedDefinition.MachineKey,
+                    DefinitionVersion = resolvedDefinition.Version,
+                    EventType = "init",
+                    FromStateCode = null,
+                    ToStateCode = initialState.StateCode,
+                    TransitionId = null,
+                    ReasonCode = "ThemeMachineInitialized",
+                    PayloadJson = JsonSerializer.Serialize(new
+                    {
+                        definitionId = resolvedDefinition.DefinitionId,
+                        stateCode = initialState.StateCode
+                    }),
+                    OccurredUtc = DateTime.UtcNow
+                }
+            ],
+            cancellationToken);
+
+            _logger.LogInformation(
+                "RolePlayV2 machine initialized: SessionId={SessionId} ThemeId={ThemeId} MachineKey={MachineKey} DefinitionId={DefinitionId} Version={Version} InitialState={InitialState}",
+                session.Id,
+                resolvedDefinition.ThemeId,
+                resolvedDefinition.MachineKey,
+                resolvedDefinition.DefinitionId,
+                resolvedDefinition.Version,
+                initialState.StateCode);
+
+            return;
+        }
+
+        if (!resolvedDefinition.States.Any(x =>
+                string.Equals(x.StateCode, state.ThemeMachineSnapshot.CurrentStateCode, StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new InvalidOperationException(
+                $"Theme machine resolution failed for session '{session.Id}': snapshot state '{state.ThemeMachineSnapshot.CurrentStateCode}' does not exist in definition '{resolvedDefinition.DefinitionId}'.");
+        }
+    }
+
+    private static ThemeMachineDirective? BuildDirectiveFromSnapshot(
+        string sessionId,
+        DreamGenClone.Domain.RolePlay.ThemeMachineSessionSnapshot? snapshot)
+    {
+        if (snapshot is null || string.IsNullOrWhiteSpace(snapshot.CurrentStateCode))
+        {
+            return null;
+        }
+
+        var requiredNarrativeBeats = new List<string>();
+        var promptHardConstraints = new List<string>();
+        var reasonCodes = new List<string>();
+        var blockDisappearanceCandidates = false;
+
+        if (string.Equals(snapshot.CurrentStateCode, "ReturnBeatRequired", StringComparison.OrdinalIgnoreCase))
+        {
+            blockDisappearanceCandidates = true;
+            requiredNarrativeBeats.Add("ReturnBeatRequired");
+            promptHardConstraints.Add("Do not introduce a new disappearance beat until the return beat is completed.");
+            reasonCodes.Add("ReturnBeatRequired");
+        }
+        else if (string.Equals(snapshot.CurrentStateCode, "ReintegrationCooldown", StringComparison.OrdinalIgnoreCase))
+        {
+            blockDisappearanceCandidates = true;
+            requiredNarrativeBeats.Add("ReintegrationCooldown");
+            promptHardConstraints.Add("Maintain reintegration continuity until cooldown gates pass.");
+            reasonCodes.Add("ReintegrationCooldown");
+        }
+
+        return new ThemeMachineDirective
+        {
+            SessionId = sessionId,
+            CurrentStateCode = snapshot.CurrentStateCode,
+            BlockDisappearanceCandidates = blockDisappearanceCandidates,
+            RequiredNarrativeBeats = requiredNarrativeBeats,
+            PromptHardConstraints = promptHardConstraints,
+            ReasonCodes = reasonCodes
+        };
+    }
+
+    private IReadOnlySet<string>? ResolveBlockedScenarioIdsFromDirective(
+        string sessionId,
+        DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state,
+        ThemeMachineDirective? directive,
+        IReadOnlyList<ScenarioDefinition> candidates)
+    {
+        if (directive is null || !directive.BlockDisappearanceCandidates)
+        {
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(state.ActiveScenarioId))
+        {
+            throw new InvalidOperationException(
+                $"Theme machine directive enforcement failed for session '{sessionId}': active scenario id is missing while candidate blocking is required.");
+        }
+
+        var activeScenarioId = state.ActiveScenarioId.Trim();
+        if (!candidates.Any(x => string.Equals(x.ScenarioId, activeScenarioId, StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new InvalidOperationException(
+                $"Theme machine directive enforcement failed for session '{sessionId}': active scenario '{activeScenarioId}' is not present in the candidate set.");
+        }
+
+        var blocked = candidates
+            .Where(x => !string.Equals(x.ScenarioId, activeScenarioId, StringComparison.OrdinalIgnoreCase))
+            .Select(x => x.ScenarioId)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        if (blocked.Count > 0)
+        {
+            _logger.LogInformation(
+                "RolePlayV2 machine directive blocked non-active candidates: SessionId={SessionId} ActiveScenarioId={ActiveScenarioId} BlockedCount={BlockedCount}",
+                sessionId,
+                activeScenarioId,
+                blocked.Count);
+        }
+
+        return blocked;
+    }
+
+    private async Task<ThemeMachineDirective?> EvaluateThemeMachineAsync(
+        RolePlaySession session,
+        DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(state.ActiveScenarioId) || state.ThemeMachineSnapshot is null)
+        {
+            return null;
+        }
+
+        if (_themeMachineResolutionService is null)
+        {
+            throw new InvalidOperationException("Theme machine resolution service is required for role-play machine evaluation.");
+        }
+
+        if (_themeMachineEvaluator is null)
+        {
+            throw new InvalidOperationException("Theme machine evaluator is required for role-play machine evaluation.");
+        }
+
+        var resolvedDefinition = await _themeMachineResolutionService.ResolveAsync(
+            session.Id,
+            state.ActiveScenarioId,
+            state.ThemeMachineSnapshot,
+            cancellationToken)
+            ?? throw new InvalidOperationException(
+                $"Theme machine evaluation failed for session '{session.Id}': no machine definition resolved for active scenario '{state.ActiveScenarioId}'.");
+
+        var evaluation = await _themeMachineEvaluator.EvaluateAsync(
+            state,
+            new ThemeMachineEvaluationContext
+            {
+                SessionId = session.Id,
+                ActiveScenarioId = state.ActiveScenarioId,
+                ThemeId = resolvedDefinition.ThemeId,
+                Snapshot = CloneThemeMachineSnapshot(state.ThemeMachineSnapshot),
+                Transitions = resolvedDefinition.Transitions,
+                GateInputs = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["turnsInCurrentState"] = state.ThemeMachineSnapshot.TurnsInCurrentState,
+                    ["returnBeatCompleted"] = state.ThemeMachineSnapshot.ReturnBeatCompleted,
+                    ["interactionCountInPhase"] = state.InteractionCountInPhase
+                }
+            },
+            cancellationToken);
+
+        state.ThemeMachineSnapshot = CloneThemeMachineSnapshot(evaluation.UpdatedSnapshot);
+
+        if (evaluation.Diagnostics.Count > 0)
+        {
+            await _stateRepository.SaveThemeMachineDiagnosticEventsAsync(evaluation.Diagnostics, cancellationToken);
+        }
+
+        if (evaluation.TransitionApplied)
+        {
+            _logger.LogInformation(
+                "RolePlayV2 machine evaluation applied transition: SessionId={SessionId} ScenarioId={ScenarioId} TransitionId={TransitionId} CurrentState={CurrentState}",
+                session.Id,
+                state.ActiveScenarioId,
+                evaluation.AppliedTransitionId,
+                evaluation.UpdatedSnapshot.CurrentStateCode);
+        }
+        else if (evaluation.Directive.ReasonCodes.Count > 0)
+        {
+            _logger.LogInformation(
+                "RolePlayV2 machine evaluation produced directive reasons: SessionId={SessionId} ScenarioId={ScenarioId} State={State} Reasons={Reasons}",
+                session.Id,
+                state.ActiveScenarioId,
+                evaluation.UpdatedSnapshot.CurrentStateCode,
+                string.Join(",", evaluation.Directive.ReasonCodes));
+        }
+
+        return evaluation.Directive;
+    }
+
+    private async Task PersistThemeMachineFailureDiagnosticAsync(
+        RolePlaySession session,
+        DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state,
+        string reasonCode,
+        string message,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(state.ActiveScenarioId))
+        {
+            return;
+        }
+
+        await _stateRepository.SaveThemeMachineDiagnosticEventsAsync(
+        [
+            new ThemeMachineDiagnosticEvent
+            {
+                SessionId = session.Id,
+                ThemeId = state.ActiveScenarioId,
+                MachineKey = state.ThemeMachineSnapshot?.MachineKey ?? "unresolved",
+                DefinitionVersion = state.ThemeMachineSnapshot?.DefinitionVersion ?? 0,
+                EventType = "failure",
+                FromStateCode = state.ThemeMachineSnapshot?.CurrentStateCode,
+                ToStateCode = state.ThemeMachineSnapshot?.CurrentStateCode,
+                TransitionId = null,
+                ReasonCode = reasonCode,
+                PayloadJson = JsonSerializer.Serialize(new
+                {
+                    error = message,
+                    currentState = state.ThemeMachineSnapshot?.CurrentStateCode,
+                    definitionId = state.ThemeMachineSnapshot?.DefinitionId
+                }),
+                OccurredUtc = DateTime.UtcNow
+            }
+        ],
+        cancellationToken);
     }
 
     private async Task<IReadOnlyDictionary<string, string>> BuildRoleCharacterBindingsAsync(
@@ -5623,7 +6996,8 @@ Requirements:
         public Task<IReadOnlyList<DreamGenClone.Domain.RolePlay.ScenarioCandidateEvaluation>> EvaluateCandidatesAsync(
             DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state,
             IReadOnlyList<ScenarioDefinition> candidates,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            IReadOnlySet<string>? blockedScenarioIds = null)
             => Task.FromResult<IReadOnlyList<DreamGenClone.Domain.RolePlay.ScenarioCandidateEvaluation>>([]);
 
         public Task<ScenarioCommitResult> TryCommitScenarioAsync(
@@ -5704,5 +7078,7 @@ Requirements:
         public Task SaveFormulaVersionReferenceAsync(string sessionId, DreamGenClone.Domain.RolePlay.FormulaConfigVersion version, int cycleIndex, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task SaveUnsupportedSessionErrorAsync(DreamGenClone.Domain.RolePlay.UnsupportedSessionError error, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task<IReadOnlyList<DreamGenClone.Domain.RolePlay.UnsupportedSessionError>> LoadUnsupportedSessionErrorsAsync(string sessionId, int take = 20, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<DreamGenClone.Domain.RolePlay.UnsupportedSessionError>>([]);
+        public Task SaveThemeMachineDiagnosticEventsAsync(IReadOnlyList<DreamGenClone.Domain.RolePlay.ThemeMachineDiagnosticEvent> events, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task<IReadOnlyList<DreamGenClone.Domain.RolePlay.ThemeMachineDiagnosticEvent>> LoadThemeMachineDiagnosticEventsAsync(string sessionId, int take = 100, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<DreamGenClone.Domain.RolePlay.ThemeMachineDiagnosticEvent>>([]);
     }
 }

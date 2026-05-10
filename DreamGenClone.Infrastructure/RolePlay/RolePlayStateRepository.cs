@@ -220,7 +220,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 SelectedWillingnessProfileId, SelectedNarrativeGateProfileId, HusbandAwarenessProfileId,
                 PhaseOverrideFloor, PhaseOverrideScenarioId, PhaseOverrideCycleIndex, PhaseOverrideSource, PhaseOverrideAppliedUtc,
                 CurrentSceneLocation,
-                CharacterLocationsJson, CharacterLocationPerceptionsJson, CharacterSnapshotsJson,
+                CharacterLocationsJson, CharacterLocationPerceptionsJson, CharacterSnapshotsJson, ThemeMachineSnapshotJson,
                 CurrentBeatCode, TurnsInCurrentBeat, UpdatedUtc)
             VALUES (
                 $sessionId, $activeScenarioId, $currentPhase, $interactionCountInPhase, $consecutiveLeadCount,
@@ -228,7 +228,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 $selectedWillingnessProfileId, $selectedNarrativeGateProfileId, $husbandAwarenessProfileId,
                 $phaseOverrideFloor, $phaseOverrideScenarioId, $phaseOverrideCycleIndex, $phaseOverrideSource, $phaseOverrideAppliedUtc,
                 $currentSceneLocation,
-                $characterLocationsJson, $characterLocationPerceptionsJson, $characterSnapshotsJson,
+                $characterLocationsJson, $characterLocationPerceptionsJson, $characterSnapshotsJson, $themeMachineSnapshotJson,
                 $currentBeatCode, $turnsInCurrentBeat, $updatedUtc)
             ON CONFLICT(SessionId) DO UPDATE SET
                 ActiveScenarioId = excluded.ActiveScenarioId,
@@ -251,6 +251,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 CharacterLocationsJson = excluded.CharacterLocationsJson,
                 CharacterLocationPerceptionsJson = excluded.CharacterLocationPerceptionsJson,
                 CharacterSnapshotsJson = excluded.CharacterSnapshotsJson,
+                ThemeMachineSnapshotJson = excluded.ThemeMachineSnapshotJson,
                 CurrentBeatCode = excluded.CurrentBeatCode,
                 TurnsInCurrentBeat = excluded.TurnsInCurrentBeat,
                 UpdatedUtc = excluded.UpdatedUtc;
@@ -277,6 +278,11 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
         command.Parameters.AddWithValue("$characterLocationsJson", JsonSerializer.Serialize(state.CharacterLocations));
         command.Parameters.AddWithValue("$characterLocationPerceptionsJson", JsonSerializer.Serialize(state.CharacterLocationPerceptions));
         command.Parameters.AddWithValue("$characterSnapshotsJson", JsonSerializer.Serialize(state.CharacterSnapshots));
+        command.Parameters.AddWithValue(
+            "$themeMachineSnapshotJson",
+            state.ThemeMachineSnapshot is null
+                ? (object)DBNull.Value
+                : JsonSerializer.Serialize(state.ThemeMachineSnapshot));
         command.Parameters.AddWithValue("$currentBeatCode", (object?)state.CurrentBeatCode ?? DBNull.Value);
         command.Parameters.AddWithValue("$turnsInCurrentBeat", state.TurnsInCurrentBeat);
         command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
@@ -293,8 +299,8 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                  LastEvaluationUtc, CycleIndex, ActiveFormulaVersion, ActiveVariantId,
                                 SelectedWillingnessProfileId, SelectedNarrativeGateProfileId, HusbandAwarenessProfileId,
                                 PhaseOverrideFloor, PhaseOverrideScenarioId, PhaseOverrideCycleIndex, PhaseOverrideSource, PhaseOverrideAppliedUtc,
-                                CurrentSceneLocation, CharacterLocationsJson, CharacterLocationPerceptionsJson, CharacterSnapshotsJson,
-                                CurrentBeatCode, TurnsInCurrentBeat
+                              CurrentSceneLocation, CharacterLocationsJson, CharacterLocationPerceptionsJson, CharacterSnapshotsJson,
+                              ThemeMachineSnapshotJson, CurrentBeatCode, TurnsInCurrentBeat
             FROM RolePlayV2AdaptiveStates
             WHERE SessionId = $sessionId;
             """;
@@ -337,9 +343,70 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 ? []
                 : (JsonSerializer.Deserialize<List<CharacterLocationPerceptionState>>(reader.GetString(19)) ?? []),
             CharacterSnapshots = JsonSerializer.Deserialize<List<CharacterStatProfileV2>>(reader.GetString(20)) ?? [],
-            CurrentBeatCode = reader.IsDBNull(21) ? null : reader.GetString(21),
-            TurnsInCurrentBeat = reader.IsDBNull(22) ? 0 : reader.GetInt32(22)
+            ThemeMachineSnapshot = reader.IsDBNull(21)
+                ? null
+                : DeserializeThemeMachineSnapshot(reader.GetString(21), reader.GetString(0)),
+            CurrentBeatCode = reader.IsDBNull(22) ? null : reader.GetString(22),
+            TurnsInCurrentBeat = reader.IsDBNull(23) ? 0 : reader.GetInt32(23)
         };
+    }
+
+    private static ThemeMachineSessionSnapshot DeserializeThemeMachineSnapshot(string payloadJson, string sessionId)
+    {
+        ThemeMachineSessionSnapshot? snapshot;
+        try
+        {
+            snapshot = JsonSerializer.Deserialize<ThemeMachineSessionSnapshot>(payloadJson);
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidOperationException(
+                $"RolePlayV2AdaptiveStates row for session '{sessionId}' has invalid ThemeMachineSnapshotJson payload.",
+                ex);
+        }
+
+        if (snapshot is null)
+        {
+            throw new InvalidOperationException(
+                $"RolePlayV2AdaptiveStates row for session '{sessionId}' has null ThemeMachineSnapshotJson payload.");
+        }
+
+        if (string.IsNullOrWhiteSpace(snapshot.MachineKey))
+        {
+            throw new InvalidOperationException($"RolePlayV2AdaptiveStates row for session '{sessionId}' has ThemeMachineSnapshotJson with missing MachineKey.");
+        }
+
+        if (string.IsNullOrWhiteSpace(snapshot.ThemeId))
+        {
+            throw new InvalidOperationException($"RolePlayV2AdaptiveStates row for session '{sessionId}' has ThemeMachineSnapshotJson with missing ThemeId.");
+        }
+
+        if (string.IsNullOrWhiteSpace(snapshot.DefinitionId))
+        {
+            throw new InvalidOperationException($"RolePlayV2AdaptiveStates row for session '{sessionId}' has ThemeMachineSnapshotJson with missing DefinitionId.");
+        }
+
+        if (snapshot.DefinitionVersion <= 0)
+        {
+            throw new InvalidOperationException($"RolePlayV2AdaptiveStates row for session '{sessionId}' has ThemeMachineSnapshotJson with non-positive DefinitionVersion.");
+        }
+
+        if (string.IsNullOrWhiteSpace(snapshot.CurrentStateCode))
+        {
+            throw new InvalidOperationException($"RolePlayV2AdaptiveStates row for session '{sessionId}' has ThemeMachineSnapshotJson with missing CurrentStateCode.");
+        }
+
+        if (snapshot.TurnsInCurrentState < 0)
+        {
+            throw new InvalidOperationException($"RolePlayV2AdaptiveStates row for session '{sessionId}' has ThemeMachineSnapshotJson with negative TurnsInCurrentState.");
+        }
+
+        if (snapshot.LastEvaluatedUtc == default)
+        {
+            throw new InvalidOperationException($"RolePlayV2AdaptiveStates row for session '{sessionId}' has ThemeMachineSnapshotJson with missing LastEvaluatedUtc.");
+        }
+
+        return snapshot;
     }
 
     private static NarrativePhase ParseNarrativePhase(string value, string sessionId)
@@ -423,6 +490,13 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
             await using var addCharacterLocationPerceptions = connection.CreateCommand();
             addCharacterLocationPerceptions.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN CharacterLocationPerceptionsJson TEXT NOT NULL DEFAULT '[]'";
             await addCharacterLocationPerceptions.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        if (!await HasColumnAsync(connection, "RolePlayV2AdaptiveStates", "ThemeMachineSnapshotJson", cancellationToken))
+        {
+            await using var addThemeMachineSnapshot = connection.CreateCommand();
+            addThemeMachineSnapshot.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN ThemeMachineSnapshotJson TEXT NULL";
+            await addThemeMachineSnapshot.ExecuteNonQueryAsync(cancellationToken);
         }
 
         if (!await HasColumnAsync(connection, "RolePlayV2AdaptiveStates", "CurrentBeatCode", cancellationToken))
@@ -576,7 +650,6 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
             });
         }
 
-        events.Reverse();
         return events;
     }
 
@@ -826,6 +899,110 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
         return errors;
     }
 
+    public async Task SaveThemeMachineDiagnosticEventsAsync(IReadOnlyList<ThemeMachineDiagnosticEvent> events, CancellationToken cancellationToken = default)
+    {
+        if (events is null || events.Count == 0)
+        {
+            return;
+        }
+
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await EnsureThemeMachineDiagnosticsSchemaAsync(connection, cancellationToken);
+        await using var tx = await connection.BeginTransactionAsync(cancellationToken);
+
+        foreach (var machineEvent in events)
+        {
+            await using var command = connection.CreateCommand();
+            command.Transaction = (SqliteTransaction)tx;
+            command.CommandText = """
+                INSERT INTO RolePlayV2ThemeMachineDiagnostics (
+                    EventId, SessionId, ThemeId, MachineKey, DefinitionVersion, EventType,
+                    FromStateCode, ToStateCode, TransitionId, ReasonCode, PayloadJson, OccurredUtc)
+                VALUES (
+                    $eventId, $sessionId, $themeId, $machineKey, $definitionVersion, $eventType,
+                    $fromStateCode, $toStateCode, $transitionId, $reasonCode, $payloadJson, $occurredUtc)
+                ON CONFLICT(EventId) DO UPDATE SET
+                    SessionId = excluded.SessionId,
+                    ThemeId = excluded.ThemeId,
+                    MachineKey = excluded.MachineKey,
+                    DefinitionVersion = excluded.DefinitionVersion,
+                    EventType = excluded.EventType,
+                    FromStateCode = excluded.FromStateCode,
+                    ToStateCode = excluded.ToStateCode,
+                    TransitionId = excluded.TransitionId,
+                    ReasonCode = excluded.ReasonCode,
+                    PayloadJson = excluded.PayloadJson,
+                    OccurredUtc = excluded.OccurredUtc;
+                """;
+            command.Parameters.AddWithValue("$eventId", machineEvent.EventId);
+            command.Parameters.AddWithValue("$sessionId", machineEvent.SessionId);
+            command.Parameters.AddWithValue("$themeId", machineEvent.ThemeId);
+            command.Parameters.AddWithValue("$machineKey", machineEvent.MachineKey);
+            command.Parameters.AddWithValue("$definitionVersion", machineEvent.DefinitionVersion);
+            command.Parameters.AddWithValue("$eventType", machineEvent.EventType);
+            command.Parameters.AddWithValue("$fromStateCode", (object?)machineEvent.FromStateCode ?? DBNull.Value);
+            command.Parameters.AddWithValue("$toStateCode", (object?)machineEvent.ToStateCode ?? DBNull.Value);
+            command.Parameters.AddWithValue("$transitionId", (object?)machineEvent.TransitionId ?? DBNull.Value);
+            command.Parameters.AddWithValue("$reasonCode", machineEvent.ReasonCode);
+            command.Parameters.AddWithValue("$payloadJson", machineEvent.PayloadJson);
+            command.Parameters.AddWithValue("$occurredUtc", machineEvent.OccurredUtc.ToString("O"));
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await tx.CommitAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<ThemeMachineDiagnosticEvent>> LoadThemeMachineDiagnosticEventsAsync(string sessionId, int take = 100, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            throw new InvalidOperationException("Session id is required to load theme machine diagnostics.");
+        }
+
+        var events = new List<ThemeMachineDiagnosticEvent>();
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await EnsureThemeMachineDiagnosticsSchemaAsync(connection, cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT EventId, SessionId, ThemeId, MachineKey, DefinitionVersion, EventType,
+                   FromStateCode, ToStateCode, TransitionId, ReasonCode, PayloadJson, OccurredUtc
+            FROM RolePlayV2ThemeMachineDiagnostics
+            WHERE SessionId = $sessionId
+            ORDER BY OccurredUtc DESC
+            LIMIT $take;
+            """;
+        command.Parameters.AddWithValue("$sessionId", sessionId);
+        command.Parameters.AddWithValue("$take", Math.Clamp(take, 1, 500));
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var occurredUtcRaw = reader.GetString(11);
+            if (!DateTime.TryParse(occurredUtcRaw, null, DateTimeStyles.RoundtripKind, out var occurredUtc))
+            {
+                throw new InvalidOperationException($"Invalid machine diagnostics timestamp '{occurredUtcRaw}' for event '{reader.GetString(0)}'.");
+            }
+
+            events.Add(new ThemeMachineDiagnosticEvent
+            {
+                EventId = reader.GetString(0),
+                SessionId = reader.GetString(1),
+                ThemeId = reader.GetString(2),
+                MachineKey = reader.GetString(3),
+                DefinitionVersion = reader.GetInt32(4),
+                EventType = reader.GetString(5),
+                FromStateCode = reader.IsDBNull(6) ? null : reader.GetString(6),
+                ToStateCode = reader.IsDBNull(7) ? null : reader.GetString(7),
+                TransitionId = reader.IsDBNull(8) ? null : reader.GetString(8),
+                ReasonCode = reader.GetString(9),
+                PayloadJson = reader.GetString(10),
+                OccurredUtc = occurredUtc
+            });
+        }
+
+        return events;
+    }
+
     private async Task<IReadOnlyList<ScenarioCandidateEvaluation>> LoadCandidateEvaluationsCoreAsync(string sessionId, int take, CancellationToken cancellationToken)
     {
         var evaluations = new List<ScenarioCandidateEvaluation>();
@@ -875,5 +1052,30 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
         var connection = new SqliteConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
         return connection;
+    }
+
+    private static async Task EnsureThemeMachineDiagnosticsSchemaAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            CREATE TABLE IF NOT EXISTS RolePlayV2ThemeMachineDiagnostics (
+                EventId TEXT PRIMARY KEY,
+                SessionId TEXT NOT NULL,
+                ThemeId TEXT NOT NULL,
+                MachineKey TEXT NOT NULL,
+                DefinitionVersion INTEGER NOT NULL,
+                EventType TEXT NOT NULL,
+                FromStateCode TEXT NULL,
+                ToStateCode TEXT NULL,
+                TransitionId TEXT NULL,
+                ReasonCode TEXT NOT NULL,
+                PayloadJson TEXT NOT NULL,
+                OccurredUtc TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS IX_RolePlayV2ThemeMachineDiagnostics_Session_OccurredUtc
+                ON RolePlayV2ThemeMachineDiagnostics (SessionId, OccurredUtc DESC);
+            """;
+        await command.ExecuteNonQueryAsync(cancellationToken);
     }
 }

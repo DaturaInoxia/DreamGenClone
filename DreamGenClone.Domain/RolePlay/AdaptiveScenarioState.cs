@@ -23,6 +23,7 @@ public sealed class AdaptiveScenarioState
     public List<CharacterLocationState> CharacterLocations { get; set; } = [];
     public List<CharacterLocationPerceptionState> CharacterLocationPerceptions { get; set; } = [];
     public List<CharacterStatProfileV2> CharacterSnapshots { get; set; } = [];
+    public ThemeMachineSessionSnapshot? ThemeMachineSnapshot { get; set; }
 
     /// <summary>
     /// BeatCode of the current sub-beat cursor during Climax phase, e.g. "1a", "8g".
