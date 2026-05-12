@@ -144,5 +144,69 @@ window.rolePlayWorkspace = {
 
         const features = 'popup=yes,width=1600,height=960,resizable=yes,scrollbars=yes';
         window.open(url, 'RolePlayDebugWindow', features);
+    },
+
+    // ── Read Cursor ──────────────────────────────────────────────────────────
+
+    _readCursorObserver: null,
+    _readCursorDotNetRef: null,
+
+    scrollToCursor: function () {
+        const el = document.getElementById('rw-read-cursor');
+        if (el) { el.scrollIntoView({ behavior: 'instant', block: 'start' }); }
+    },
+
+    initReadCursorObserver: function (dotNetRef, totalCount, cursorIndex) {
+        // Tear down previous observer.
+        if (this._readCursorObserver) {
+            this._readCursorObserver.disconnect();
+            this._readCursorObserver = null;
+        }
+        this._readCursorDotNetRef = dotNetRef;
+
+        const story = document.querySelector('.rw-story');
+        if (!story || totalCount === 0) { return; }
+
+        // Start the high-watermark at the current C# cursor position so we never
+        // call back with an index the Blazor side has already passed.
+        const highWaterRef = { value: typeof cursorIndex === 'number' ? cursorIndex : -1 };
+
+        const observer = new IntersectionObserver(function (entries) {
+            let advanced = false;
+            entries.forEach(function (entry) {
+                if (!entry.isIntersecting) {
+                    // Only advance when the element has scrolled upward past the container top.
+                    const storyRect = story.getBoundingClientRect();
+                    const entryRect = entry.boundingClientRect;
+                    if (entryRect.bottom < storyRect.top) {
+                        const idx = parseInt(entry.target.dataset.interactionIndex, 10);
+                        if (!isNaN(idx) && idx > highWaterRef.value) {
+                            highWaterRef.value = idx;
+                            advanced = true;
+                        }
+                    }
+                }
+            });
+            if (advanced && dotNetRef && typeof dotNetRef.invokeMethodAsync === 'function') {
+                dotNetRef.invokeMethodAsync('AdvanceReadCursor', highWaterRef.value);
+            }
+        }, {
+            root: story,
+            threshold: 0
+        });
+
+        document.querySelectorAll('.rw-interaction[data-interaction-index]').forEach(function (el) {
+            observer.observe(el);
+        });
+
+        this._readCursorObserver = observer;
+    },
+
+    disposeReadCursorObserver: function () {
+        if (this._readCursorObserver) {
+            this._readCursorObserver.disconnect();
+            this._readCursorObserver = null;
+        }
+        this._readCursorDotNetRef = null;
     }
 };

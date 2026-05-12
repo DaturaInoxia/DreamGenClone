@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using System.Diagnostics;
 using System.Text.RegularExpressions;
+using System.Globalization;
 using DreamGenClone.Application.Abstractions;
 using DreamGenClone.Application.ModelManager;
 using DreamGenClone.Application.RolePlay;
@@ -46,6 +47,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
     private readonly IRolePlayDiagnosticsService? _diagnosticsService;
     private readonly IClimaxBeatRepository? _climaxBeatRepository;
     private readonly IHusbandAwarenessProfileService? _husbandAwarenessProfileService;
+    private readonly INarrativeGateProfileService? _narrativeGateProfileService;
     private readonly bool _enableLocationServices;
     private readonly ILogger<RolePlayContinuationService> _logger;
 
@@ -65,7 +67,8 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         IRPThemeService? rpThemeService = null,
         IClimaxBeatRepository? climaxBeatRepository = null,
         IHusbandAwarenessProfileService? husbandAwarenessProfileService = null,
-        IOptions<RolePlayDecisionOptions>? rolePlayDecisionOptions = null)
+        IOptions<RolePlayDecisionOptions>? rolePlayDecisionOptions = null,
+        INarrativeGateProfileService? narrativeGateProfileService = null)
     {
         _completionClient = completionClient;
         _modelResolver = modelResolver;
@@ -82,6 +85,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         _climaxBeatRepository = climaxBeatRepository;
         _husbandAwarenessProfileService = husbandAwarenessProfileService;
         _enableLocationServices = rolePlayDecisionOptions?.Value.EnableLocationServices ?? true;
+        _narrativeGateProfileService = narrativeGateProfileService;
         _logger = logger;
     }
 
@@ -728,6 +732,20 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             .Take(6)
             .ToList();
 
+        RPTheme? activeTheme = null;
+        if (_rpThemeService is not null
+            && !string.IsNullOrWhiteSpace(activeScenarioId))
+        {
+            try
+            {
+                activeTheme = await _rpThemeService.GetThemeAsync(activeScenarioId, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Unable to load RP theme for active scenario/theme {ThemeId} in session {SessionId}.", activeScenarioId, session.Id);
+            }
+        }
+
         var guidanceContext = await _scenarioGuidanceContextFactory.CreateAsync(
             new ScenarioGuidanceInput(
                 SessionId: session.Id,
@@ -757,24 +775,12 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                 SuppressedScenarioIds: suppressedScenarioIds),
             cancellationToken);
 
-        var framingGuards = RolePlayAssistantPrompts.BuildFramingGuards(currentPhase, activeScenarioId);
+        var framingGuards = RolePlayAssistantPrompts.BuildFramingGuards(currentPhase, activeScenarioId, activeTheme);
         RolePlayAssistantPrompts.AppendScenarioGuidance(sb, guidanceContext, framingGuards);
         RolePlayAssistantPrompts.AppendThemeMachineGuidance(sb, session.AdaptiveState.ThemeMachineSnapshot);
 
-        RPTheme? activeTheme = null;
-
-        if (_rpThemeService is not null
-            && !string.IsNullOrWhiteSpace(activeScenarioId))
+        if (activeTheme is not null)
         {
-            try
-            {
-                activeTheme = await _rpThemeService.GetThemeAsync(activeScenarioId, cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Unable to load RP theme AI guidance notes for active scenario/theme {ThemeId} in session {SessionId}.", activeScenarioId, session.Id);
-            }
-
             AppendActiveThemeContract(sb, activeTheme, currentPhase);
 
             if (session.UseThemeAIGuidanceNotesInPrompt)
@@ -785,22 +791,6 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                     currentPhase,
                     session.ThemeAIGuidanceInfluencePercent,
                     session.MaxThemeAIGuidanceNotes);
-            }
-        }
-
-        // Steer guidance should still be phase/theme grounded whenever we have an active scenario
-        // that maps to an RP theme, even if the RP theme subsystem flag is disabled.
-        if (activeTheme is null
-            && _rpThemeService is not null
-            && !string.IsNullOrWhiteSpace(activeScenarioId))
-        {
-            try
-            {
-                activeTheme = await _rpThemeService.GetThemeAsync(activeScenarioId, cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Unable to load RP theme for steer grounding {ThemeId} in session {SessionId}.", activeScenarioId, session.Id);
             }
         }
 
@@ -988,7 +978,10 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         sb.AppendLine("- Phase Guidance specifies WHAT scene actions and beats must occur; the intensity contract specifies HOW they are written.");
         sb.AppendLine("- Do not de-escalate below the resolved intensity level unless safety constraints require it.");
         sb.AppendLine($"Manual Intensity Pin: {(session.IsIntensityManuallyPinned ? "ON (resolved follows selected)" : "OFF (adaptive mode)")}");
-        AppendEscalationGuidance(sb, session, actorName, currentPhase, intent);
+        var maleClimaxGate = await ResolveMaleClimaxGateAsync(session, activeTheme, cancellationToken);
+        var allowsWithinTimeframeTimeShift = RolePlayAssistantPrompts.AllowsWithinTimeframeTimeShift(activeTheme, currentPhase);
+        AppendEscalationGuidance(sb, session, actorName, currentPhase, intent, allowsWithinTimeframeTimeShift);
+        AppendMaleClimaxGateGuidance(sb, currentPhase, intent, maleClimaxGate);
 
         // Scene Presence Contract — fires at Emotional+ in all non-BuildUp phases.
         // Uses scenePresenceScale (pre-Narrative-override) so Narrative also receives this contract
@@ -1001,6 +994,11 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             sb.AppendLine("Scene Presence Contract:");
             sb.AppendLine("- Any intimate physical encounter — kissing, touching, caressing, or sexual activity — occurring in the current moment must be described in full in this response. Do not fade to black. Do not summarize what happened with a single sentence.");
             sb.AppendLine("- Do not write time-skip transitions that bypass an intimate scene in progress: e.g. 'the door closed behind her', 'an hour later', 'when it was over'. Stay present inside the encounter.");
+            if (allowsWithinTimeframeTimeShift)
+            {
+                sb.AppendLine("- Theme Temporal Progression: Responses may skip forward within the time frame (e.g., 'an hour later,' 'after the meal') — a new response does not have to be the immediate next moment.");
+                sb.AppendLine("- Use time-shifts only at natural pauses between beats. Do not skip over an intimate act that is actively in progress.");
+            }
             sb.AppendLine("- ONE RESPONSE = ONE SCENE MOMENT. Do not write the intimate encounter AND the return-to-public-space (e.g. returning to the husband, re-entering the room, the couple scene after) within the same response. Write through the encounter and stop. The return belongs in a subsequent turn.");
             sb.AppendLine("- The Resolved Intensity controls HOW explicitly you write the encounter (vocabulary, anatomical detail), not WHETHER you write it.");
             sb.AppendLine("- At lower intensity levels: use evocative, sensory, emotionally resonant language — describe physical contact, sensation, and reactions without graphic anatomy.");
@@ -1389,7 +1387,8 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         RolePlaySession session,
         string actorName,
         string phase,
-        PromptIntent intent)
+        PromptIntent intent,
+        bool allowsWithinTimeframeTimeShift)
     {
         if (intent == PromptIntent.Instruction)
         {
@@ -1407,6 +1406,21 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         var tension = ResolveStat(actorStats, "Tension", session.AdaptiveState.CharacterStats.Values.Average(x => ResolveStat(x.Stats, "Tension", 50)));
 
         var isLatePhase = phase is "Approaching" or "Climax";
+
+        // Committed-phase escalation: push beyond vanilla flirtation when stats support it.
+        if (phase == "Committed")
+        {
+            sb.AppendLine("Committed Phase Escalation:");
+            if (desire >= 55 || tension >= 50)
+            {
+                sb.AppendLine("- Progress beyond initial flirtation — write concrete physical contact, not just suggestive glances or verbal tension.");
+            }
+            if (restraint <= 60 || desire >= 65)
+            {
+                sb.AppendLine("- The Committed phase should show clear physical escalation: touching that lingers, deliberate body contact, concealed intimacy. Do not remain at hand-holding or light touching if the scene has already established mutual interest.");
+            }
+        }
+
         if (!isLatePhase)
         {
             return;
@@ -1433,8 +1447,16 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             sb.AppendLine("- Write explicit physical description — name body parts, movements, and sensations specifically.");
             sb.AppendLine("- Urgency and narrative pressure should appear in character energy, dialogue, and pacing — not in abbreviating the scene.");
             sb.AppendLine("- If in-narrative time pressure exists, use it to raise intensity of description, not to rush to conclusion.");
-            sb.AppendLine("- Do not imply or skip ahead to a post-scene state; remain in the physical moment.");
-            sb.AppendLine("- By default, do not write male characters reaching orgasm or ejaculating. The scene always continues until /endclimax — unless the active steer or instruction explicitly directs male climax or orgasm.");
+            if (allowsWithinTimeframeTimeShift)
+            {
+                sb.AppendLine("- You may time-shift to a later moment within the same narrative timeframe at natural beat boundaries to avoid repetition.");
+                sb.AppendLine("- Do not skip ahead over an intimate act that is actively in progress.");
+            }
+            else
+            {
+                sb.AppendLine("- Do not imply or skip ahead to a post-scene state; remain in the physical moment.");
+            }
+            sb.AppendLine("- Male orgasm/ejaculation must follow the configured Climax->Reset InteractionsSinceCommitment gate for this session. /endclimax controls explicit phase completion.");
             sb.AppendLine("- Write at least 350 words this turn. Fill the length with explicit physical and sensory detail specific to the current act and position.");
         }
     }
@@ -1466,12 +1488,183 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             - Narrative urgency is expressed through action intensity, breathless dialogue, and emotional tone. It does NOT abbreviate the writing or skip stages.
             - Even a hurried encounter spans multiple full beats. The characters may be rushed; the prose remains detailed.
             Male Climax Gate:
-            - By default, male characters do not orgasm or ejaculate until the user submits the command /endclimax. Until that command appears, the scene always continues.
-            - Exception: if the active steer or instruction explicitly directs a male character to orgasm or climax, follow that direction and write it.
-            - If no explicit direction is given and a male character appears to have climaxed, the scene does not end — sustain or continue the physical encounter.
+            - Male orgasm/ejaculation is controlled by the configured Climax->Reset InteractionsSinceCommitment narrative gate.
+            - If that gate is blocked, do not write male orgasm/ejaculation.
+            - If that gate is passed, male orgasm/ejaculation is allowed when continuity supports it. /endclimax still controls explicit phase completion.
             Continuity Awareness:
             - Use direct, explicit language appropriate to the resolved intensity level.
             """;
+    }
+
+    private sealed record MaleClimaxGateEvaluation(
+        bool IsConfigured,
+        bool IsPassed,
+        decimal ActualInteractions,
+        string Comparator,
+        decimal Threshold,
+        string Source,
+        string Diagnostic);
+
+    private async Task<MaleClimaxGateEvaluation> ResolveMaleClimaxGateAsync(
+        RolePlaySession session,
+        RPTheme? activeTheme,
+        CancellationToken cancellationToken)
+    {
+        var actualInteractions = Math.Max(0, session.AdaptiveState.InteractionsSinceCommitment);
+        var actual = (decimal)actualInteractions;
+
+        if (activeTheme is not null && activeTheme.NarrativeGateRules.Count > 0)
+        {
+            return EvaluateMaleClimaxGateRules(
+                activeTheme.NarrativeGateRules,
+                actual,
+                $"theme-local:{activeTheme.Id}");
+        }
+
+        var profileId = !string.IsNullOrWhiteSpace(session.AdaptiveState.SelectedNarrativeGateProfileId)
+            ? session.AdaptiveState.SelectedNarrativeGateProfileId.Trim()
+            : !string.IsNullOrWhiteSpace(activeTheme?.NarrativeGateProfileId)
+                ? activeTheme.NarrativeGateProfileId.Trim()
+                : null;
+
+        if (string.IsNullOrWhiteSpace(profileId))
+        {
+            var diagnostic = "Missing Climax->Reset InteractionsSinceCommitment narrative gate configuration (no selected profile and no theme-local rules).";
+            _logger.LogWarning("{Diagnostic} SessionId={SessionId}", diagnostic, session.Id);
+            return new MaleClimaxGateEvaluation(false, false, actual, string.Empty, 0m, "none", diagnostic);
+        }
+
+        if (_narrativeGateProfileService is null)
+        {
+            var diagnostic = $"Narrative gate profile service unavailable for configured profile '{profileId}'.";
+            _logger.LogWarning("{Diagnostic} SessionId={SessionId}", diagnostic, session.Id);
+            return new MaleClimaxGateEvaluation(false, false, actual, string.Empty, 0m, "service-missing", diagnostic);
+        }
+
+        var profile = await _narrativeGateProfileService.GetAsync(profileId, cancellationToken);
+        if (profile is null)
+        {
+            var diagnostic = $"Configured narrative gate profile '{profileId}' not found.";
+            _logger.LogWarning("{Diagnostic} SessionId={SessionId}", diagnostic, session.Id);
+            return new MaleClimaxGateEvaluation(false, false, actual, string.Empty, 0m, $"profile:{profileId}", diagnostic);
+        }
+
+        return EvaluateMaleClimaxGateRules(profile.Rules, actual, $"profile:{profile.Id}");
+    }
+
+    private static MaleClimaxGateEvaluation EvaluateMaleClimaxGateRules(
+        IReadOnlyList<NarrativeGateRule> rules,
+        decimal actualInteractions,
+        string source)
+    {
+        var matchingRules = rules
+            .Where(rule => string.Equals(rule.FromPhase, "Climax", StringComparison.OrdinalIgnoreCase)
+                && string.Equals(rule.ToPhase, "Reset", StringComparison.OrdinalIgnoreCase)
+                && string.Equals(rule.MetricKey, NarrativeGateMetricKeys.InteractionsSinceCommitment, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(rule => rule.SortOrder)
+            .ToList();
+
+        if (matchingRules.Count == 0)
+        {
+            return new MaleClimaxGateEvaluation(
+                IsConfigured: false,
+                IsPassed: false,
+                ActualInteractions: actualInteractions,
+                Comparator: string.Empty,
+                Threshold: 0m,
+                Source: source,
+                Diagnostic: "Configured gate rules do not define Climax->Reset InteractionsSinceCommitment.");
+        }
+
+        foreach (var rule in matchingRules)
+        {
+            if (!TryCompareNarrativeGate(actualInteractions, rule.Comparator, rule.Threshold, out var passed))
+            {
+                return new MaleClimaxGateEvaluation(
+                    IsConfigured: false,
+                    IsPassed: false,
+                    ActualInteractions: actualInteractions,
+                    Comparator: rule.Comparator,
+                    Threshold: rule.Threshold,
+                    Source: source,
+                    Diagnostic: $"Unsupported comparator '{rule.Comparator}' for Climax->Reset InteractionsSinceCommitment gate.");
+            }
+
+            if (!passed)
+            {
+                return new MaleClimaxGateEvaluation(
+                    IsConfigured: true,
+                    IsPassed: false,
+                    ActualInteractions: actualInteractions,
+                    Comparator: rule.Comparator,
+                    Threshold: rule.Threshold,
+                    Source: source,
+                    Diagnostic: "Blocked");
+            }
+        }
+
+        var summaryRule = matchingRules[^1];
+        return new MaleClimaxGateEvaluation(
+            IsConfigured: true,
+            IsPassed: true,
+            ActualInteractions: actualInteractions,
+            Comparator: summaryRule.Comparator,
+            Threshold: summaryRule.Threshold,
+            Source: source,
+            Diagnostic: "Passed");
+    }
+
+    private static bool TryCompareNarrativeGate(decimal actual, string comparator, decimal threshold, out bool passed)
+    {
+        passed = comparator.Trim() switch
+        {
+            NarrativeGateComparators.GreaterThanOrEqual => actual >= threshold,
+            NarrativeGateComparators.GreaterThan => actual > threshold,
+            NarrativeGateComparators.LessThanOrEqual => actual <= threshold,
+            NarrativeGateComparators.LessThan => actual < threshold,
+            NarrativeGateComparators.Equal => actual == threshold,
+            _ => false
+        };
+
+        return comparator.Trim() is NarrativeGateComparators.GreaterThanOrEqual
+            or NarrativeGateComparators.GreaterThan
+            or NarrativeGateComparators.LessThanOrEqual
+            or NarrativeGateComparators.LessThan
+            or NarrativeGateComparators.Equal;
+    }
+
+    private static void AppendMaleClimaxGateGuidance(
+        StringBuilder sb,
+        string phase,
+        PromptIntent intent,
+        MaleClimaxGateEvaluation gate)
+    {
+        if (intent == PromptIntent.Instruction
+            || !string.Equals(phase, "Climax", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        sb.AppendLine("Male Climax Gate (Climax->Reset InteractionsSinceCommitment):");
+
+        if (!gate.IsConfigured)
+        {
+            sb.AppendLine($"- Configuration required: {gate.Diagnostic}");
+            sb.AppendLine("- Do not write male orgasm or ejaculation until this gate is configured and passed.");
+            return;
+        }
+
+        var actual = gate.ActualInteractions.ToString("0.##", CultureInfo.InvariantCulture);
+        var threshold = gate.Threshold.ToString("0.##", CultureInfo.InvariantCulture);
+        if (gate.IsPassed)
+        {
+            sb.AppendLine($"- Gate status: PASSED (actual={actual}, rule: {gate.Comparator} {threshold}, source={gate.Source}).");
+            sb.AppendLine("- Male orgasm/ejaculation is allowed when continuity supports it. /endclimax still controls explicit phase completion.");
+            return;
+        }
+
+        sb.AppendLine($"- Gate status: BLOCKED (actual={actual}, rule: {gate.Comparator} {threshold}, source={gate.Source}).");
+        sb.AppendLine("- Do not write male orgasm or ejaculation yet.");
     }
 
     private static Dictionary<string, int>? ResolvePromptActorStats(RolePlaySession session, string actorName)

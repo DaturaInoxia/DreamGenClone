@@ -93,6 +93,15 @@ public sealed class CharacterStatBlock
 
     public Dictionary<string, int> Stats { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Stat values captured at the moment this character's stats were first seeded (session start)
+    /// or when the user explicitly applies a new stat profile via the Scenario tab Apply button.
+    /// Used as the reference point for the "Base" column in the Adaptive panel and as the
+    /// per-character decay target for the Reset phase algorithm.
+    /// Empty for sessions created before B-021; callers fall back to scenario BaseStats in that case.
+    /// </summary>
+    public Dictionary<string, int> BaselineStats { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
     public Dictionary<string, int> LastStatDeltas { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     public DateTime? LastStatDeltaUpdatedUtc { get; set; }

@@ -179,6 +179,7 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
     public Task<AdaptiveScenarioState> ExecuteResetAsync(
         AdaptiveScenarioState state,
         ResetReason reason,
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, int>>? perCharacterBaselineOverrides = null,
         CancellationToken cancellationToken = default)
     {
         var nextCycleIndex = state.CycleIndex + 1;
@@ -195,10 +196,19 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
             CycleIndex = nextCycleIndex,
             ActiveFormulaVersion = state.ActiveFormulaVersion,
             CharacterSnapshots = state.CharacterSnapshots
-                .Select(snapshot => ApplySemiResetDecay(
-                    snapshot,
-                    _resetStatBaselines,
-                    statPull))
+                .Select(snapshot =>
+                {
+                    var characterBaselines = perCharacterBaselineOverrides is not null
+                        && !string.IsNullOrWhiteSpace(snapshot.CharacterId)
+                        && perCharacterBaselineOverrides.TryGetValue(snapshot.CharacterId, out var overrides)
+                        ? overrides
+                        : null;
+                    return ApplySemiResetDecay(
+                        snapshot,
+                        _resetStatBaselines,
+                        statPull,
+                        characterBaselines);
+                })
                 .ToList()
         };
 
@@ -216,12 +226,22 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
     private static CharacterStatProfileV2 ApplySemiResetDecay(
         CharacterStatProfileV2 snapshot,
         IReadOnlyDictionary<string, int> baselines,
-        decimal statPull)
+        decimal statPull,
+        IReadOnlyDictionary<string, int>? characterBaselineOverride = null)
     {
         int ResolveBaseline(string statName)
-            => baselines.TryGetValue(statName, out var configured)
+        {
+            // Per-character baseline (from session start or last Apply) takes priority.
+            if (characterBaselineOverride is not null
+                && characterBaselineOverride.TryGetValue(statName, out var perCharacter))
+            {
+                return Math.Clamp(perCharacter, 0, 100);
+            }
+
+            return baselines.TryGetValue(statName, out var configured)
                 ? Math.Clamp(configured, 0, 100)
                 : 50;
+        }
 
         return new CharacterStatProfileV2
         {

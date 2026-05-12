@@ -1,7 +1,9 @@
 using DreamGenClone.Domain.StoryAnalysis;
+using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Application.StoryAnalysis.Models;
 using DreamGenClone.Infrastructure.StoryAnalysis;
 using DreamGenClone.Web.Application.RolePlay;
+using RpNarrativePhase = DreamGenClone.Domain.RolePlay.NarrativePhase;
 
 namespace DreamGenClone.Tests.RolePlay;
 
@@ -56,6 +58,131 @@ public sealed class SceneWritingDirectivePromptTests
     {
         var guards = RolePlayAssistantPrompts.BuildFramingGuards("Climax", null);
         Assert.Empty(guards);
+    }
+
+    [Fact]
+    public void BuildFramingGuards_Climax_PublicFacade_UsesQuickFinishMode()
+    {
+        var theme = new RPTheme
+        {
+            Id = "infidelity-public-facade",
+            PhaseGuidance =
+            [
+                new RPThemePhaseGuidance { Phase = RpNarrativePhase.Climax, GuidanceText = "[ClimaxMode:quick-finish]" }
+            ]
+        };
+
+        var guards = RolePlayAssistantPrompts.BuildFramingGuards("Climax", "infidelity-public-facade", theme);
+        Assert.Contains(guards, g => g.Contains("QUICK-FINISH CLIMAX MODE", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(guards, g => g.Contains("quick-release", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(guards, g => g.Contains("brief sneak-off", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void BuildFramingGuards_Climax_PublicFacade_DoesNotRequireEndClimaxGate()
+    {
+        var theme = new RPTheme
+        {
+            Id = "infidelity-public-facade",
+            PhaseGuidance =
+            [
+                new RPThemePhaseGuidance { Phase = RpNarrativePhase.Climax, GuidanceText = "[ClimaxMode:quick-finish]" }
+            ]
+        };
+
+        var guards = RolePlayAssistantPrompts.BuildFramingGuards("Climax", "infidelity-public-facade", theme);
+        Assert.DoesNotContain(guards, g => g.Contains("/endclimax", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void BuildFramingGuards_Climax_PublicFacade_DoesNotForceBeatProgression()
+    {
+        var theme = new RPTheme
+        {
+            Id = "infidelity-public-facade",
+            PhaseGuidance =
+            [
+                new RPThemePhaseGuidance { Phase = RpNarrativePhase.Climax, GuidanceText = "[ClimaxMode:quick-finish]" }
+            ]
+        };
+
+        var guards = RolePlayAssistantPrompts.BuildFramingGuards("Climax", "infidelity-public-facade", theme);
+        Assert.DoesNotContain(guards, g => g.Contains("Every turn must advance the scene to a new beat", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void BuildFramingGuards_Climax_PublicFacade_AllowsMultipleTurnsWithExplicitDetail()
+    {
+        var theme = new RPTheme
+        {
+            Id = "infidelity-public-facade",
+            PhaseGuidance =
+            [
+                new RPThemePhaseGuidance { Phase = RpNarrativePhase.Climax, GuidanceText = "[ClimaxMode:quick-finish]" }
+            ]
+        };
+
+        var guards = RolePlayAssistantPrompts.BuildFramingGuards("Climax", "infidelity-public-facade", theme);
+        Assert.Contains(guards, g => g.Contains("multiple turns/interactions", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(guards, g => g.Contains("not by shortening the scene", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(guards, g => g.Contains("explicit detail", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void BuildFramingGuards_Climax_PublicFacade_RequiresPlausibleConcealment()
+    {
+        var theme = new RPTheme
+        {
+            Id = "infidelity-public-facade",
+            PhaseGuidance =
+            [
+                new RPThemePhaseGuidance { Phase = RpNarrativePhase.Climax, GuidanceText = "[ClimaxMode:quick-finish]" }
+            ]
+        };
+
+        var guards = RolePlayAssistantPrompts.BuildFramingGuards("Climax", "infidelity-public-facade", theme);
+        Assert.Contains(guards, g => g.Contains("plausibly hidden", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(guards, g => g.Contains("Do not write overtly visible acts", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void AllowsWithinTimeframeTimeShift_True_WhenThemeContainsExplicitPhrase()
+    {
+        var theme = new RPTheme
+        {
+            Id = "infidelity-public-facade",
+            PhaseGuidance =
+            [
+                new RPThemePhaseGuidance
+                {
+                    Phase = RpNarrativePhase.Climax,
+                    GuidanceText = "Responses may skip forward within the time frame (e.g., 'an hour later,' 'after the meal') — a new response does not have to be the immediate next moment."
+                }
+            ]
+        };
+
+        var allowed = RolePlayAssistantPrompts.AllowsWithinTimeframeTimeShift(theme, "Climax");
+        Assert.True(allowed);
+    }
+
+    [Fact]
+    public void AllowsWithinTimeframeTimeShift_True_WhenThemeContainsMarker()
+    {
+        var theme = new RPTheme
+        {
+            Id = "infidelity-public-facade",
+            PhaseGuidance =
+            [
+                new RPThemePhaseGuidance
+                {
+                    Phase = RpNarrativePhase.Climax,
+                    GuidanceText = "[TimeShift:within-timeframe]"
+                }
+            ]
+        };
+
+        var allowed = RolePlayAssistantPrompts.AllowsWithinTimeframeTimeShift(theme, "Climax");
+        Assert.True(allowed);
     }
 
     // --- Intensity descriptions (T005) ---
@@ -188,6 +315,14 @@ public sealed class SceneWritingDirectivePromptTests
     {
         var guards = RolePlayAssistantPrompts.BuildFramingGuards("Climax", "scene-dominance");
         Assert.Contains(guards, g => g.Contains("/endclimax", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void BuildFramingGuards_Climax_UsesNarrativeGateForMaleOrgasm()
+    {
+        var guards = RolePlayAssistantPrompts.BuildFramingGuards("Climax", "scene-dominance");
+        Assert.Contains(guards, g => g.Contains("InteractionsSinceCommitment", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(guards, g => g.Contains("Male completion is gated by /endclimax", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]

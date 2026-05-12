@@ -123,6 +123,7 @@ article:has(.rw-shell) {
     flex-direction: column;
     gap: 14px;
     scroll-behavior: smooth;
+    overflow-anchor: none;
 }
 
 .rw-loading,
@@ -131,6 +132,33 @@ article:has(.rw-shell) {
     text-align: center;
     margin-top: 48px;
     font-size: 14px;
+}
+
+/* ─── INTERACTION ITEMS ─── */
+.rw-read-cursor {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 2px 0;
+    pointer-events: none;
+    user-select: none;
+}
+
+.rw-read-cursor::before,
+.rw-read-cursor::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: #5080c0;
+    opacity: 0.45;
+}
+
+.rw-read-cursor-label {
+    font-size: 0.68rem;
+    letter-spacing: 0.08em;
+    color: #5080c0;
+    opacity: 0.75;
+    white-space: nowrap;
 }
 
 /* ─── INTERACTION ITEMS ─── */
@@ -1099,7 +1127,7 @@ article:has(.rw-shell) {
 .rw-stat-grid-header,
 .rw-stat-grid-row {
     display: grid;
-    grid-template-columns: minmax(80px, 1.3fr) minmax(48px, 0.7fr) minmax(48px, 0.7fr) minmax(52px, 0.75fr);
+    grid-template-columns: minmax(80px, 1.3fr) minmax(48px, 0.7fr) minmax(48px, 0.7fr) minmax(52px, 0.75fr) minmax(52px, 0.75fr);
     gap: 0;
 }
 
@@ -1141,8 +1169,23 @@ article:has(.rw-shell) {
 
 .rw-stat-col-baseline,
 .rw-stat-col-current,
-.rw-stat-col-delta {
+.rw-stat-col-fit,
+.rw-stat-col-gate {
     text-align: right;
+}
+
+.rw-stat-fit-ok {
+    color: #7acb93;
+}
+
+.rw-stat-fit-fail {
+    color: #d68f8f;
+    font-weight: 600;
+}
+
+.rw-stat-gate-fail {
+    color: #e8a44a;
+    font-weight: 600;
 }
 
 .rw-stat-current-higher {

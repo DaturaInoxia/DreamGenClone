@@ -401,6 +401,18 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         }
 
         EnsurePersonaCharacterState(session);
+
+        // Seal session-start baseline for all character stat blocks.
+        // This snapshot is the reference for the "Base" column in the Adaptive panel
+        // and the per-character decay target for the Reset phase algorithm.
+        foreach (var block in session.AdaptiveState.CharacterStats.Values)
+        {
+            if (block.BaselineStats.Count == 0)
+            {
+                block.BaselineStats = new Dictionary<string, int>(block.Stats, StringComparer.OrdinalIgnoreCase);
+            }
+        }
+
         Sessions[session.Id] = session;
         _autoSaveCoordinator.QueueRolePlaySessionSave(session, "roleplay-session-created");
         await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
@@ -1863,7 +1875,8 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             session.AdaptiveState.CharacterStats[character.Name.Trim()] = new CharacterStatBlock
             {
                 CharacterId = character.Id,
-                Stats = mergedStats
+                Stats = mergedStats,
+                BaselineStats = new Dictionary<string, int>(mergedStats, StringComparer.OrdinalIgnoreCase)
             };
         }
 
@@ -2563,7 +2576,16 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                         session.AdaptiveState.CompletedScenarios,
                         scenarioHistory.Count);
                 }
-                v2State = await _scenarioLifecycleService.ExecuteResetAsync(v2State, ResetReason.Completion, cancellationToken);
+                v2State = await _scenarioLifecycleService.ExecuteResetAsync(
+                    v2State,
+                    ResetReason.Completion,
+                    session.AdaptiveState.CharacterStats.Values
+                        .Where(b => !string.IsNullOrWhiteSpace(b.CharacterId) && b.BaselineStats.Count > 0)
+                        .ToDictionary(
+                            b => b.CharacterId,
+                            b => (IReadOnlyDictionary<string, int>)b.BaselineStats,
+                            StringComparer.OrdinalIgnoreCase),
+                    cancellationToken);
                 ApplyThemeSemiReset(session.AdaptiveState.ThemeTracker, completedScenarioId);
             }
         }
@@ -7018,6 +7040,7 @@ Requirements:
         public Task<DreamGenClone.Domain.RolePlay.AdaptiveScenarioState> ExecuteResetAsync(
             DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state,
             ResetReason reason,
+            IReadOnlyDictionary<string, IReadOnlyDictionary<string, int>>? perCharacterBaselineOverrides = null,
             CancellationToken cancellationToken = default)
             => Task.FromResult(state);
     }

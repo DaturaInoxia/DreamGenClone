@@ -31,6 +31,25 @@ public static class RolePlayAssistantPrompts
             .Any(x => x.GuidanceText.Contains("[BeatStyle:episodic]", StringComparison.OrdinalIgnoreCase));
     }
 
+    public static bool IsQuickFinishClimaxMode(RPTheme? activeTheme, string phase)
+    {
+        if (activeTheme is null) return false;
+        return activeTheme.PhaseGuidance
+            .Where(x => string.Equals(x.Phase.ToString(), phase, StringComparison.OrdinalIgnoreCase))
+            .Any(x => x.GuidanceText.Contains("[ClimaxMode:quick-finish]", StringComparison.OrdinalIgnoreCase));
+    }
+
+    public static bool AllowsWithinTimeframeTimeShift(RPTheme? activeTheme, string phase)
+    {
+        if (activeTheme is null) return false;
+        return activeTheme.PhaseGuidance
+            .Where(x => string.Equals(x.Phase.ToString(), phase, StringComparison.OrdinalIgnoreCase))
+            .Any(x =>
+                x.GuidanceText.Contains("[TimeShift:within-timeframe]", StringComparison.OrdinalIgnoreCase)
+                || x.GuidanceText.Contains("Responses may skip forward within the time frame", StringComparison.OrdinalIgnoreCase)
+                || x.GuidanceText.Contains("a new response does not have to be the immediate next moment", StringComparison.OrdinalIgnoreCase));
+    }
+
     public static IReadOnlyList<RPThemeAIGuidanceNote> GetPhaseRelevantThemeAIGuidanceNotes(
         RPTheme? activeTheme,
         string phase,
@@ -96,6 +115,9 @@ public static class RolePlayAssistantPrompts
     }
 
     public static IReadOnlyList<string> BuildFramingGuards(string phase, string? activeScenarioId)
+        => BuildFramingGuards(phase, activeScenarioId, activeTheme: null);
+
+    public static IReadOnlyList<string> BuildFramingGuards(string phase, string? activeScenarioId, RPTheme? activeTheme)
     {
         var guards = new List<string>();
 
@@ -118,13 +140,30 @@ public static class RolePlayAssistantPrompts
 
         if (phase == "Climax")
         {
+            var isQuickFinishClimax = IsQuickFinishClimaxMode(activeTheme, phase);
+
             guards.Add("Deliver high-intensity culmination consistent with established relational dynamics.");
-            guards.Add("Every turn must advance the scene to a new beat. Do not repeat the same physical act, position, or sensation that was the focus of the immediately preceding turn.");
-            guards.Add("Within each stage of physical intimacy, vary position, tempo, who is the focus, and specific sensations each turn. Same stage is fine — same description is forbidden.");
             guards.Add("Write with explicit positional and sensory detail; name body parts and movements specifically.");
             guards.Add("Narrative urgency (time pressure, risk of interruption) must increase writing intensity, not truncate scene length.");
-            guards.Add("By default, do not write male characters reaching orgasm, ejaculating, or concluding the encounter. Male completion is gated by /endclimax — sustain the scene until that command arrives. Exception: if the active steer or instruction explicitly directs a male character to orgasm or climax, follow that direction.");
-            guards.Add("Do not write departure scenes, farewells, scenario-close transitions (e.g. 'the truck drove away', 'the weekend was over', 'she headed home'), or any narrative framing that concludes the story's time frame. The Climax phase continues until /endclimax is received — hold the story within the encounter's moment.");
+
+            if (isQuickFinishClimax)
+            {
+                guards.Add("QUICK-FINISH CLIMAX MODE: Resolve the finale as urgent, frantic, and quick-release focused without reducing explicit detail.");
+                guards.Add("Urgency is conveyed through tone, pacing pressure, and interruption risk — not by shortening the scene into vague or minimal content.");
+                guards.Add("The encounter may span multiple turns/interactions with rich explicit detail before completion, but keep one primary position/focal act rather than running a full beat-sheet tour.");
+                guards.Add("All explicit contact must remain plausibly hidden from the husband and nearby guests in the moment; maintain believable concealment and deniability.");
+                guards.Add("Do not write overtly visible acts in open view (for example obvious neck-kissing, openly exposed groping, or other unmistakable public signals) when husband/bystanders are in direct line of sight.");
+                guards.Add("Choose one completion position (oral or penetrative sex) for the encounter, sustain it with explicit sensory detail, then return immediately to social composure.");
+                guards.Add("If close-proximity oral/penetrative completion is plausible, keep it nearby. Otherwise, a brief sneak-off to a secluded spot is allowed for rapid release, followed by immediate return.");
+                guards.Add("Do not force beat/sub-beat progression or multi-position variation in this finale.");
+            }
+            else
+            {
+                guards.Add("Every turn must advance the scene to a new beat. Do not repeat the same physical act, position, or sensation that was the focus of the immediately preceding turn.");
+                guards.Add("Within each stage of physical intimacy, vary position, tempo, who is the focus, and specific sensations each turn. Same stage is fine — same description is forbidden.");
+                guards.Add("Male orgasm/ejaculation is controlled by the configured Climax->Reset InteractionsSinceCommitment narrative gate: blocked gate means no male orgasm; passed gate allows male orgasm when continuity supports it. /endclimax still controls explicit phase completion.");
+                guards.Add("Do not write departure scenes, farewells, scenario-close transitions (e.g. 'the truck drove away', 'the weekend was over', 'she headed home'), or any narrative framing that concludes the story's time frame. The Climax phase continues until /endclimax is received — hold the story within the encounter's moment.");
+            }
         }
 
         return guards;

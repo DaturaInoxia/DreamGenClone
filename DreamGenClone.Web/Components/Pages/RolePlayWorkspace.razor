@@ -78,6 +78,8 @@
     private bool _resizeInitialized;
     private int _lastRenderedInteractionCount = -1;
     private bool _shouldFollowStoryUpdates = true;
+    private int _readCursorInteractionIndex = -1;
+    private int _preGenerateInteractionCount = 0;
     private bool _scenarioDirty;
     private bool _sessionStatsDirty;
     private string? _personaProfileSelection;
@@ -203,6 +205,12 @@
             }
 
             _lastRenderedInteractionCount = interactionCount;
+
+            if (_dotNetRef is not null && _session is not null)
+            {
+                var displayCount = GetDisplayInteractions().Count;
+                await JS.InvokeVoidAsync("rolePlayWorkspace.initReadCursorObserver", _dotNetRef, displayCount, _readCursorInteractionIndex);
+            }
         }
     }
 
@@ -228,6 +236,10 @@
             Navigation.NavigateTo(RolePlayRoutes.Sessions);
             return;
         }
+
+        // Reset read cursor on session load — starts fully read (cursor hidden).
+        _readCursorInteractionIndex = -1;
+        _lastRenderedInteractionCount = -1;
 
         _defaultNarrativeGateProfile = await StoryAnalysisFacade.GetDefaultNarrativeGateProfileAsync();
         _selectedNarrativeGateProfile = string.IsNullOrWhiteSpace(_session.AdaptiveState.SelectedNarrativeGateProfileId)
@@ -3145,6 +3157,9 @@
             }
             foreach (var (statName, value) in character.BaseStats)
                 liveBlock.Stats[statName] = value;
+            // Per user requirement: Apply resets the baseline too — the new profile becomes
+            // the reference point for Base column display and Reset-phase decay target.
+            liveBlock.BaselineStats = new Dictionary<string, int>(character.BaseStats, StringComparer.OrdinalIgnoreCase);
             liveBlock.UpdatedUtc = DateTime.UtcNow;
         }
 
@@ -3294,31 +3309,6 @@
         return FormatSignedDelta(delta);
     }
 
-    private static string GetLastCharacterStatDeltaClass(int delta)
-    {
-        if (delta > 0)
-        {
-            return "rw-stat-cell rw-stat-current-higher";
-        }
-
-        if (delta < 0)
-        {
-            return "rw-stat-cell rw-stat-current-lower";
-        }
-
-        return "rw-stat-cell rw-stat-current-neutral";
-    }
-
-    private static int GetLastCharacterStatDelta(CharacterStatBlock statBlock, string statName)
-    {
-        if (statBlock.LastStatDeltas is null)
-        {
-            return 0;
-        }
-
-        return statBlock.LastStatDeltas.TryGetValue(statName, out var value) ? value : 0;
-    }
-
     private static string FormatSignedDelta(int delta)
     {
         if (delta == 0)
@@ -3328,6 +3318,130 @@
 
         return delta > 0 ? $"+{delta}" : delta.ToString(CultureInfo.InvariantCulture);
     }
+
+    private sealed record StatIndicator(string Label, string CssClass, string Tooltip);
+
+    private StatIndicator GetFitRuleIndicator(string actorName, string statName, int currentValue)
+    {
+        var empty = new StatIndicator(string.Empty, "rw-stat-cell", string.Empty);
+
+        if (_activeRpTheme?.FitRules is not { Count: > 0 })
+        {
+            return empty;
+        }
+
+        var characterRole = ResolveCharacterRole(actorName);
+        if (string.IsNullOrWhiteSpace(characterRole))
+        {
+            return empty;
+        }
+
+        // Collect all clauses for this stat across rules whose RoleName matches the character's role exactly.
+        // No "Any" fallback — show nothing if the role doesn't match.
+        var matchingClauses = _activeRpTheme.FitRules
+            .Where(r => string.Equals(r.RoleName, characterRole, StringComparison.OrdinalIgnoreCase))
+            .SelectMany(r => r.Clauses)
+            .Where(c => string.Equals(c.StatName, statName, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (matchingClauses.Count == 0)
+        {
+            return empty;
+        }
+
+        var failingClause = matchingClauses
+            .FirstOrDefault(c => !EvaluateComparator(currentValue, c.Comparator, (int)Math.Round(c.Threshold)));
+
+        if (failingClause is null)
+        {
+            var tooltip = string.Join(", ", matchingClauses.Select(c =>
+                $"{statName} {c.Comparator} {c.Threshold:0}"));
+            return new StatIndicator("✓", "rw-stat-cell rw-stat-fit-ok", $"Fit: {tooltip}");
+        }
+        else
+        {
+            var threshold = (int)Math.Round(failingClause.Threshold);
+            var gap = ComputeGap(currentValue, failingClause.Comparator, threshold);
+            var gapStr = FormatSignedDelta(gap);
+            return new StatIndicator(
+                gapStr,
+                "rw-stat-cell rw-stat-fit-fail",
+                $"Fit: need {statName} {failingClause.Comparator} {threshold} (gap {gapStr})");
+        }
+    }
+
+    private StatIndicator GetGateBlockIndicator(string statName, int currentValue)
+    {
+        var empty = new StatIndicator(string.Empty, "rw-stat-cell", string.Empty);
+
+        // Map canonical stat name to its NarrativeGateMetricKey equivalent.
+        var metricKey = statName switch
+        {
+            "Desire" => DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageDesire,
+            "Restraint" => DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageRestraint,
+            "Tension" => DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageTension,
+            "Connection" => DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageConnection,
+            "Dominance" => DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageDominance,
+            "Loyalty" => DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageLoyalty,
+            "SelfRespect" => DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageSelfRespect,
+            _ => null
+        };
+
+        if (metricKey is null || _session is null)
+        {
+            return empty;
+        }
+
+        var currentPhase = _session.AdaptiveState.CurrentNarrativePhase.ToString();
+        var profile = _resolvedEffectiveNarrativeGateProfile;
+        if (profile?.Rules is not { Count: > 0 })
+        {
+            return empty;
+        }
+
+        var rule = profile.Rules.FirstOrDefault(r =>
+            string.Equals(r.FromPhase, currentPhase, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(r.MetricKey, metricKey, StringComparison.OrdinalIgnoreCase));
+
+        if (rule is null)
+        {
+            return empty;
+        }
+
+        var threshold = (int)Math.Round((double)rule.Threshold);
+        if (EvaluateComparator(currentValue, rule.Comparator, threshold))
+        {
+            return empty;
+        }
+        else
+        {
+            var gap = ComputeGap(currentValue, rule.Comparator, threshold);
+            var gapStr = $"-{gap}";
+            return new StatIndicator(
+                gapStr,
+                "rw-stat-cell rw-stat-gate-fail",
+                $"Gate ({rule.FromPhase}→{rule.ToPhase}): need {statName} {rule.Comparator} {threshold} ({gapStr})");
+        }
+    }
+
+    private static bool EvaluateComparator(int value, string comparator, int threshold)
+        => comparator switch
+        {
+            ">=" => value >= threshold,
+            ">" => value > threshold,
+            "<=" => value <= threshold,
+            "<" => value < threshold,
+            "==" => value == threshold,
+            _ => false
+        };
+
+    private static int ComputeGap(int value, string comparator, int threshold)
+        => comparator switch
+        {
+            ">=" or ">" => threshold - value,   // positive = how much still needed
+            "<=" or "<" => value - threshold,   // positive = how much over the max
+            _ => 0
+        };
 
     private string ResolveCharacterGender(string actorName)
     {
@@ -3640,6 +3754,17 @@
 
     private IReadOnlyDictionary<string, int> ResolveCharacterReferenceStats(string actorName)
     {
+        // Prefer the session-persisted baseline (set at session-start or when the user clicks Apply).
+        // This is the accurate "where stats began" value, which may differ from the scenario's
+        // current BaseStats after the user has applied a different profile mid-session.
+        if (_session is not null
+            && _session.AdaptiveState.CharacterStats.TryGetValue(actorName, out var block)
+            && block.BaselineStats.Count > 0)
+        {
+            return block.BaselineStats;
+        }
+
+        // Backward compat: old sessions without BaselineStats fall back to scenario BaseStats.
         if (_loadedScenario is not null)
         {
             var scenarioCharacter = _loadedScenario.Characters.FirstOrDefault(x =>
@@ -3976,6 +4101,7 @@
             var awaitsModelResponse = _selectedIntent != PromptIntent.Instruction;
             if (awaitsModelResponse)
             {
+                _preGenerateInteractionCount = GetDisplayInteractions().Count;
                 _shouldFollowStoryUpdates = true;
                 _isAwaitingModelResponse = true;
                 _pendingResponseLabel = BuildPromptPendingResponseLabel();
@@ -3985,6 +4111,10 @@
                 await InvokeAsync(StateHasChanged);
                 await Task.Yield();
                 _shouldFollowStoryUpdates = await IsStoryNearBottomAsync();
+                if (!_shouldFollowStoryUpdates)
+                {
+                    _readCursorInteractionIndex = _preGenerateInteractionCount - 1;
+                }
             }
 
             var submission = new UnifiedPromptSubmission
@@ -6045,6 +6175,7 @@
         _isSubmitting = true;
         _statusMessage = string.Empty;
         CloseAllPopups();
+        _preGenerateInteractionCount = GetDisplayInteractions().Count;
         _shouldFollowStoryUpdates = true;
         _isAwaitingModelResponse = true;
         _pendingResponseLabel = BuildContinuePendingResponseLabel(request);
@@ -6054,6 +6185,10 @@
         await InvokeAsync(StateHasChanged);
         await Task.Yield();
         _shouldFollowStoryUpdates = await IsStoryNearBottomAsync();
+        if (!_shouldFollowStoryUpdates)
+        {
+            _readCursorInteractionIndex = _preGenerateInteractionCount - 1;
+        }
 
         try
         {
@@ -6500,6 +6635,21 @@
     }
 
     [JSInvokable]
+    public void AdvanceReadCursor(int newIndex)
+    {
+        if (newIndex > _readCursorInteractionIndex)
+        {
+            _readCursorInteractionIndex = newIndex;
+            StateHasChanged();
+        }
+    }
+
+    private void SetReadCursor(int index)
+    {
+        _readCursorInteractionIndex = index;
+    }
+
+    [JSInvokable]
     public Task OnSettingsPanelResized(int width)
     {
         var oldWidth = _workspaceSettings.SettingsPanelWidth;
@@ -6528,6 +6678,7 @@
             try
             {
                 await JS.InvokeVoidAsync("rolePlayWorkspace.disposePanelResize", ".rw-panel-resize-handle");
+                await JS.InvokeVoidAsync("rolePlayWorkspace.disposeReadCursorObserver");
             }
             catch (Microsoft.JSInterop.JSDisconnectedException)
             {
@@ -7017,10 +7168,13 @@
                 }
                 else
                 {
-                    @foreach (var interaction in GetDisplayInteractions())
+                    var _displayInteractions = GetDisplayInteractions();
+                    @for (int _i = 0; _i < _displayInteractions.Count; _i++)
                     {
+                        var interaction = _displayInteractions[_i];
+                        var _cursorIdx = _i;
                         var interactionId = interaction.Id;
-                        <div class="rw-interaction rw-type-@interaction.InteractionType.ToString().ToLower()">
+                        <div class="rw-interaction rw-type-@interaction.InteractionType.ToString().ToLower()" data-interaction-index="@_cursorIdx" @onclick="@(() => SetReadCursor(_cursorIdx))">
                             <div class="rw-actor-badge">@GetInitial(interaction.ActorName)</div>
                             <div class="rw-interaction-body">
                                 <div class="rw-actor-name">
@@ -7112,6 +7266,10 @@
                                 }
                             </div>
                         </div>
+                        @if (_cursorIdx == _readCursorInteractionIndex)
+                        {
+                            <div class="rw-read-cursor" id="rw-read-cursor"><span class="rw-read-cursor-label">— new —</span></div>
+                        }
                     }
 
                     @if (_deleteConfirmInteractionId is not null)
@@ -8603,18 +8761,21 @@
                                                             <span class="rw-stat-cell rw-stat-col-name" role="columnheader">Stat</span>
                                                             <span class="rw-stat-cell rw-stat-col-baseline" role="columnheader">Base</span>
                                                             <span class="rw-stat-cell rw-stat-col-current" role="columnheader">Curr</span>
-                                                            <span class="rw-stat-cell rw-stat-col-delta" role="columnheader">dLast</span>
+                                                            <span class="rw-stat-cell rw-stat-col-fit" role="columnheader">Fit</span>
+                                                            <span class="rw-stat-cell rw-stat-col-gate" role="columnheader">Gate</span>
                                                         </div>
                                                         @foreach (var statName in AdaptiveStatCatalog.CanonicalStatNames)
                                                         {
                                                             var baselineValue = GetCharacterBaselineStatValue(actorStats.Key, statName);
                                                             var currentValue = GetCharacterStatValue(actorStats.Value, statName);
-                                                            var lastDeltaValue = GetLastCharacterStatDelta(actorStats.Value, statName);
+                                                            var fitIndicator = GetFitRuleIndicator(actorStats.Key, statName, currentValue);
+                                                            var gateIndicator = GetGateBlockIndicator(statName, currentValue);
                                                             <div class="rw-stat-grid-row" role="row">
                                                                 <span class="rw-stat-cell rw-stat-col-name" role="cell">@statName</span>
                                                                 <span class="rw-stat-cell rw-stat-col-baseline" role="cell">@baselineValue</span>
                                                                 <span class="@GetCharacterStatDeltaClass(currentValue, baselineValue) rw-stat-col-current" role="cell">@currentValue</span>
-                                                                <span class="@GetLastCharacterStatDeltaClass(lastDeltaValue) rw-stat-col-delta" role="cell">@FormatSignedDelta(lastDeltaValue)</span>
+                                                                <span class="@fitIndicator.CssClass rw-stat-col-fit" title="@fitIndicator.Tooltip" role="cell">@fitIndicator.Label</span>
+                                                                <span class="@gateIndicator.CssClass rw-stat-col-gate" title="@gateIndicator.Tooltip" role="cell">@gateIndicator.Label</span>
                                                             </div>
                                                         }
                                                     </div>

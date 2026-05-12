@@ -11,10 +11,10 @@
 
 ## Description
 
-A scenario where infidelity occurs while the partner is physically present—either nearby or within conversational range—but unaware of the transgression. The transgression may happen in adjacent spaces (briefly separated at a party) OR concealed in plain sight (under a table, behind a counter, or otherwise hidden from the waist down). After the encounter, the transgressor maintains a composed demeanor, engages normally with their partner and others, and projects a facade of normalcy while carrying the secret.
+A scenario where infidelity occurs while the partner is physically present—either nearby or within conversational range—but unaware of the transgression. The transgression happens either in an adjacent space with the partner still nearby, or concealed in plain sight (under a table, behind a counter, or otherwise hidden from the waist down). After the encounter, the transgressor maintains a composed demeanor, engages normally with their partner and others, and projects a facade of normalcy while carrying the secret.
 
 **Key Variations:**
-- **Nearby/Separated:** Brief encounters in adjacent rooms or spaces during social events
+- **Adjacent Space:** Encounters in nearby rooms or spaces during social events, with the partner still within earshot
 - **Concealed in Plain Sight:** Transgressive acts occurring literally within conversational range but hidden from view (e.g., under table, behind counter, below waist invisible while upper body remains socially engaged)
 
 ---
@@ -24,8 +24,8 @@ A scenario where infidelity occurs while the partner is physically present—eit
 **Context/Setting:**
 - party, gathering, social, guests, celebration, event, crowded, people, together
 
-**Proximity Elements (Nearby/Separated):**
-- nearby, close by, in the next room, downstairs, upstairs, around, mingling, talking, conversation, slipped away
+**Proximity Elements (Adjacent Space):**
+- nearby, close by, in the next room, downstairs, upstairs, around, mingling, talking, conversation, stepped out, adjacent
 
 **Concealed in Plain Sight Elements:**
 - under the table, below the table, beneath, hidden, out of sight, out of view, behind the counter, blocked, obstructed, lap, thigh, legs, waist down, upper body, above the waist
@@ -103,39 +103,47 @@ Fit Score = (Wife Tension × 0.25) +
 ### Build-Up Phase
 
 **Character Action Suggestions:**
-- Frequent glances or prolonged looks toward the other party
-- Suggestive dialogue that carries plausible deniability
-- Physical positioning that enables either brief separation OR concealed proximity
+- Deliberate physical proximity: sitting close enough to touch, standing behind him at the bar, brushing past in a doorway
+- Suggestive positioning: crossing legs toward him, leaning in to speak, touching his arm while laughing at his jokes
+- Testing the husband's attention: making eye contact with the other man while talking to the husband, touching the other man's thigh under the table, whispering something suggestive when the husband turns away
+- Escalating from glances to contact: from eye contact → brief touches → sustained touches → touching that lingers when the husband isn't looking
 - Choosing seating or standing positions that create opportunities for hidden contact
-- Casual references to needing privacy, or casual conversation that provides cover
 
 **Atmosphere:**
 - Social, convivial setting with ambient noise and multiple people
 - Undercurrent of tension visible only to transgressor
-- Opportunities for either separation OR concealed contact woven into social flow
+- Opportunities for concealed contact or adjacent-space encounters woven into social flow
 
 ### Committed Phase
 
 **Narrative Focus:**
-- Planning and executing encounters in either adjacent spaces or concealed locations
-- Managing logistics of hidden proximity or brief disappearances
-- Building anticipation of risk and thrill
-- Emphasizing the public vs. private dichotomy
-- Developing the narrative tension of the specific variant (separated vs. in plain sight)
+- Exhibitionist display directed at the other man while husband is nearby but cannot see: bending over to present ass, bending forward to allow view down top, removing underwear/bra and repeating the same displays, flashing breasts/ass/pussy, spreading legs to display pussy, touching herself while maintaining eye contact with the other man
+- The thrill comes from the husband's proximity — he could turn and see at any moment but doesn't
+- Each display should escalate: from bending → removing underwear → flashing → touching herself
+- Managing logistics of concealed proximity — encounters happen within the social setting, not by leaving it
+- Emphasizing the public vs. private dichotomy — the encounter stays in the social environment
+- Developing the narrative tension of the in-plain-sight or adjacent-space variant
+
+**Physical Escalation Across Turns (Committed Phase):**
+1. Sustained touches (hand on thigh, arm around waist) while husband is present
+2. Concealed touches (under table, behind counter) while husband is nearby
+3. Exhibitionist display (bending over, flashing) directed at other man
+4. Active concealed contact (hand on cock, fingers between legs) under cover of furniture/clothing
+- Each turn should advance at least one step from the previous; do not repeat the same level of contact
 
 **Character Development:**
-- Transgressor's internal tension and calculation of risk
-- The other party's awareness of the proximity/concealment constraints
-- Partner's obliviousness and normal social engagement
+- Transgressor: Calculating what she can get away with, testing how much she can display before the husband notices, the arousal of performing for the other man while her partner is oblivious
+- Other Party: The visual recipient, signaling appreciation, encouraging bolder displays
+- Partner: Engaged in conversation or activity, facing away, oblivious to what's happening behind/beside him
 
 ### Approaching Phase
 
 **Heightened Elements:**
-- Increased proximity to partner while carrying secret
-- More frequent or daring encounters (either in shared space or with shorter separation intervals)
-- Heightened physical reactions (pulse, nervousness) masking behind social composure
+- Escalated exhibitionism: from display to active invitation — playing with her pussy while looking at the other man, positioning herself so he can see her touch herself, removing clothing items and "forgetting" to replace them
+- Physical contact under concealment: hand on his cock under the table, his hand between her legs under the tablecloth, grinding against him while standing at the bar with the husband getting drinks
+- The husband's proximity becomes the accelerant, not the deterrent — each act is riskier because he's closer
 - Near-miss moments that nearly reveal the secret
-- For "in plain sight" variant: managing physical responses during direct conversation
+- Managing physical responses during direct conversation — the husband may be talking to her while the other man's hand is between her legs
 
 **Dialogue Patterns:**
 - Casually conversational with partner while carrying tension
@@ -146,9 +154,17 @@ Fit Score = (Wife Tension × 0.25) +
 ### Climax Phase
 
 **Scenario-Specific Context:**
-- The encounter itself is framed by the thrill of extreme proximity or concealment
-- For separated variant: brief, high-intensity encounters with return to social space
-- For in-plain-sight variant: the encounter occurs during normal social interaction, with the transgressor maintaining visible composure
+- [ClimaxMode:quick-finish] The finale resolves as urgent, frantic, and quick-release focused
+- Urgency is conveyed through breathless tone, risk pressure, and compressed in-world timing — not by stripping explicit scene detail
+- The encounter itself is framed by the thrill of extreme proximity or concealment within the social setting
+- The encounter occurs during normal social interaction, with the transgressor maintaining visible composure — or in an adjacent space with the partner still nearby
+- The encounter may span multiple interactions/turns with rich explicit detail before completion, while staying in one primary position/focal act
+- Responses may skip forward within the time frame (e.g., "an hour later," "after the meal") — a new response does not have to be the immediate next moment
+- Use time-shifts only at natural pauses between beats; do not skip over an intimate act that is actively in progress
+- All explicit contact must remain plausibly hidden from the partner and nearby guests in the moment; maintain believable deniability
+- Do not use overtly visible public signals (such as obvious neck-kissing or clearly visible sexual touching) when husband/bystanders are in direct line of sight
+- If close-proximity completion is plausible, keep it nearby; otherwise a brief sneak-off to a secluded spot is allowed only for rapid release, followed by immediate return
+- The climax should commit to one completion position (oral or penetrative sex), sustain explicit sensory detail, and avoid multi-position wandering
 - After the encounter, focus on maintaining composure and continuing normal social engagement
 - The return to partner or resumption of normal conversation is a key moment
 
@@ -184,13 +200,14 @@ Fit Score = (Wife Tension × 0.25) +
 - Do not remove the social setting - proximity to others remains relevant
 - Do not eliminate the facade - the ability to act normal (and speak normally) is core to the scenario
 - Do not make the transgression obvious through body language, facial expressions, or voice (except internally narrated)
+- Do not shift the encounter into an extended private retreat — this is not the infidelity-brief-disappearance pattern. A brief secluded quick-release is allowed only when close-proximity completion is not plausible, and must be followed by immediate return to social composure
 
 **Interaction Dynamics:**
 - The transgressor's dialogue with partner should remain casually normal despite internal tension or physical activity
-- For in-plain-sight variant: speech patterns, vocal tone, and facial expressions should appear entirely normal despite hidden activity
+- Speech patterns, vocal tone, and facial expressions should appear entirely normal despite hidden activity
 - Non-verbal cues (subtle tension control, controlled breathing, stillness above the waist) may indicate effort to maintain facade
 - The other party should be aware of the risk and may find it thrilling; their behavior may need to remain subtle
-- Encounters may be brief and opportunistic, OR extended for the in-plain-sight variant depending on opportunity
+- Encounters may be brief and opportunistic, or extended depending on opportunity and concealment
 
 **Scenario Variant Selection:**
 The system should naturally flow toward whichever variant makes narrative sense based on:
