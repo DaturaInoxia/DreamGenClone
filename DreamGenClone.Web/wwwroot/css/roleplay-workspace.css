@@ -96,6 +96,32 @@ article:has(.rw-shell) {
     text-overflow: ellipsis;
 }
 
+.rw-session-title-editable {
+    cursor: text;
+}
+
+.rw-session-title-editable:hover {
+    text-decoration: underline dotted #555;
+}
+
+.rw-session-title-input {
+    font-size: 15px;
+    font-weight: 600;
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid #555;
+    color: inherit;
+    outline: none;
+    padding: 0 2px;
+    min-width: 120px;
+    max-width: 360px;
+    white-space: nowrap;
+}
+
+.rw-session-title-input:focus {
+    border-bottom-color: #91d6e4;
+}
+
 .rw-session-meta {
     font-size: 12px;
     color: #666;
@@ -1186,6 +1212,72 @@ article:has(.rw-shell) {
 .rw-stat-gate-fail {
     color: #e8a44a;
     font-weight: 600;
+}
+
+/* Scenario fit score block in character stats section */
+.rw-fit-score-block {
+    background: #1e2230;
+    border: 1px solid #3a3f55;
+    border-radius: 6px;
+    padding: 8px 12px;
+    margin-bottom: 12px;
+    font-size: 0.82rem;
+}
+
+.rw-fit-score-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.rw-fit-score-pass {
+    color: #7acb93;
+}
+
+.rw-fit-score-fail {
+    color: #d68f8f;
+}
+
+.rw-fit-score-rationale {
+    color: #a8aab8;
+    font-size: 0.78rem;
+    margin-bottom: 6px;
+    font-style: italic;
+}
+
+.rw-fit-char-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: baseline;
+    padding: 3px 0;
+    border-top: 1px solid #2e3347;
+}
+
+.rw-fit-char-name {
+    color: #c8c9d4;
+    font-weight: 500;
+    min-width: 120px;
+}
+
+.rw-fit-char-clauses {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+
+.rw-fit-clause-gap {
+    background: #2a1e1e;
+    border: 1px solid #6b2e2e;
+    border-radius: 3px;
+    padding: 1px 5px;
+    color: #d68f8f;
+    font-weight: 600;
+    cursor: default;
+    font-size: 0.80rem;
 }
 
 .rw-stat-current-higher {

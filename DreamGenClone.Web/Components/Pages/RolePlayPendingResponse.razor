@@ -1,0 +1,38 @@
+@* Streaming pending-response display.
+   Owns its own state so the parent RolePlayWorkspace component does NOT re-render
+   while text streams in. Without this isolation, the ~7800-line parent re-renders
+   on every chunk-throttle interval, saturating the Blazor circuit dispatcher and
+   blocking all other UI events on the page. *@
+
+<div class="rw-interaction rw-interaction-pending" aria-live="polite" aria-busy="true">
+    <div class="rw-actor-badge rw-pending-badge">
+        <span class="rw-spinner rw-spinner-pending"></span>
+    </div>
+    <div class="rw-interaction-body">
+        <div class="rw-actor-name">Generating</div>
+        <div class="rw-pending-response-text">@(string.IsNullOrWhiteSpace(_text) ? Label : _text)</div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public string Label { get; set; } = string.Empty;
+
+    private string _text = string.Empty;
+
+    /// <summary>
+    /// Update the streaming text and trigger a render of THIS component only.
+    /// Called by the parent's chunk callback. Fire-and-forget render keeps the
+    /// HTTP streaming loop unblocked.
+    /// </summary>
+    public void SetText(string text)
+    {
+        _text = text ?? string.Empty;
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>Reset text between streaming sessions.</summary>
+    public void Clear()
+    {
+        _text = string.Empty;
+    }
+}

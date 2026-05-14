@@ -3,8 +3,16 @@
         <div>
             <div class="fw-semibold">@Title</div>
             <small class="text-muted">Status: @StatusLabel</small>
+            @if (!string.IsNullOrEmpty(ScenarioName))
+            {
+                <small class="text-muted d-block">Scenario: @ScenarioName</small>
+            }
+            @if (!string.IsNullOrEmpty(ThemeSummary))
+            {
+                <small class="text-muted d-block">@ThemeSummary</small>
+            }
         </div>
-        <small class="text-muted">@LastUpdatedLabel</small>
+        <small class="text-muted flex-shrink-0 ms-2">@LastUpdatedLabel</small>
     </div>
     <div class="d-flex justify-content-between align-items-center">
         <span class="badge text-bg-secondary">Interactions: @InteractionCount</span>
@@ -30,6 +38,12 @@
 
     [Parameter]
     public string PrimaryActionLabel { get; set; } = "Continue";
+
+    [Parameter]
+    public string ScenarioName { get; set; } = string.Empty;
+
+    [Parameter]
+    public string ThemeSummary { get; set; } = string.Empty;
 
     [Parameter]
     public EventCallback OnPrimaryAction { get; set; }

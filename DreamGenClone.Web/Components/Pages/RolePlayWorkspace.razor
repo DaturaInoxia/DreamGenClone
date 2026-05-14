@@ -77,9 +77,7 @@
     private DotNetObjectReference<RolePlayWorkspace>? _dotNetRef;
     private bool _resizeInitialized;
     private int _lastRenderedInteractionCount = -1;
-    private bool _shouldFollowStoryUpdates = true;
     private int _readCursorInteractionIndex = -1;
-    private int _preGenerateInteractionCount = 0;
     private bool _scenarioDirty;
     private bool _sessionStatsDirty;
     private string? _personaProfileSelection;
@@ -173,6 +171,50 @@
     private string _decisionPromptError = string.Empty;
     private string? _adaptiveThemeOverrideSelection;
     private string _adaptiveThemeOverrideStatus = string.Empty;
+    private Dictionary<string, string> _sessionThemeLabels = new(StringComparer.OrdinalIgnoreCase);
+    private bool _editingTitle;
+    private string _editingTitleText = string.Empty;
+
+    private string SessionThemeSummary
+    {
+        get
+        {
+            if (_session is null || _session.SessionThemeSelections.Count == 0) return string.Empty;
+            const int maxLabels = 3;
+            var labels = _session.SessionThemeSelections
+                .Select(s => _sessionThemeLabels.GetValueOrDefault(s.ThemeId, string.Empty))
+                .Where(l => !string.IsNullOrEmpty(l))
+                .ToList();
+            if (labels.Count == 0) return $"{_session.SessionThemeSelections.Count} themes";
+            var shown = labels.Take(maxLabels).ToList();
+            var extra = labels.Count - shown.Count;
+            var summary = string.Join(", ", shown);
+            return extra > 0 ? $"Themes: {summary} (+{extra} more)" : $"Themes: {summary}";
+        }
+    }
+
+    private void StartTitleEdit()
+    {
+        if (_session is null) return;
+        _editingTitleText = _session.Title;
+        _editingTitle = true;
+    }
+
+    private async Task CommitTitleEditAsync()
+    {
+        if (!_editingTitle) return;
+        _editingTitle = false;
+        if (_session is null || string.IsNullOrWhiteSpace(_editingTitleText)) return;
+        if (string.Equals(_editingTitleText, _session.Title, StringComparison.Ordinal)) return;
+        _session.Title = _editingTitleText;
+        await RolePlayEngine.SaveSessionAsync(_session);
+    }
+
+    private async Task OnTitleKeyDownAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await CommitTitleEditAsync();
+        else if (e.Key == "Escape") _editingTitle = false;
+    }
 
     protected override async Task OnParametersSetAsync()
     {
@@ -199,7 +241,8 @@
         var interactionCount = _session?.Interactions.Count ?? 0;
         if (interactionCount != _lastRenderedInteractionCount)
         {
-            if (_shouldFollowStoryUpdates)
+            // Only scroll to bottom on the very first render after session load.
+            if (_lastRenderedInteractionCount == -1)
             {
                 await JS.InvokeVoidAsync("rolePlayWorkspace.scrollStoryToBottom");
             }
@@ -209,7 +252,14 @@
             if (_dotNetRef is not null && _session is not null)
             {
                 var displayCount = GetDisplayInteractions().Count;
-                await JS.InvokeVoidAsync("rolePlayWorkspace.initReadCursorObserver", _dotNetRef, displayCount, _readCursorInteractionIndex);
+                try
+                {
+                    await JS.InvokeVoidAsync("rolePlayWorkspace.initReadCursorObserver", _dotNetRef, displayCount, _readCursorInteractionIndex);
+                }
+                catch (JSException ex)
+                {
+                    Logger.LogWarning(ex, "initReadCursorObserver JS call failed — browser may have stale JS cache. Hard-refresh the page to resolve.");
+                }
             }
         }
     }
@@ -237,9 +287,11 @@
             return;
         }
 
-        // Reset read cursor on session load — starts fully read (cursor hidden).
-        _readCursorInteractionIndex = -1;
-        _lastRenderedInteractionCount = -1;
+        // Note: do NOT reset _readCursorInteractionIndex / _lastRenderedInteractionCount here.
+        // LoadSessionAsync is invoked after Send/Continue and many other in-session actions to
+        // refresh data. Resetting those sentinels would re-trigger the "first render after load"
+        // scroll-to-bottom on every action, defeating B-010 (Read Position Indicator). The field
+        // initializers (-1) already give the correct behavior on the genuine initial load.
 
         _defaultNarrativeGateProfile = await StoryAnalysisFacade.GetDefaultNarrativeGateProfileAsync();
         _selectedNarrativeGateProfile = string.IsNullOrWhiteSpace(_session.AdaptiveState.SelectedNarrativeGateProfileId)
@@ -317,6 +369,16 @@
         if (!string.IsNullOrWhiteSpace(_session.ScenarioId) && _loadedScenario?.Id != _session.ScenarioId)
         {
             _loadedScenario = await ScenarioService.GetScenarioAsync(_session.ScenarioId);
+        }
+
+        // Build theme label map for header display
+        if (_session.SessionThemeSelections.Count > 0 && _sessionThemeLabels.Count == 0)
+        {
+            var allThemes = await RPThemeService.ListThemesAsync();
+            var sessionThemeIds = _session.SessionThemeSelections.Select(s => s.ThemeId).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            _sessionThemeLabels = allThemes
+                .Where(t => sessionThemeIds.Contains(t.Id))
+                .ToDictionary(t => t.Id, t => t.Label, StringComparer.OrdinalIgnoreCase);
         }
 
         // Backfill adaptive profile/style fields for sessions that were created before defaults were copied.
@@ -3370,9 +3432,12 @@
         }
     }
 
-    private StatIndicator GetGateBlockIndicator(string statName, int currentValue)
+    private StatIndicator GetGateBlockIndicator(string actorName, string statName, int currentValue)
     {
         var empty = new StatIndicator(string.Empty, "rw-stat-cell", string.Empty);
+
+        if (_session is null)
+            return empty;
 
         // Map canonical stat name to its NarrativeGateMetricKey equivalent.
         var metricKey = statName switch
@@ -3387,41 +3452,80 @@
             _ => null
         };
 
-        if (metricKey is null || _session is null)
-        {
-            return empty;
-        }
-
         var currentPhase = _session.AdaptiveState.CurrentNarrativePhase.ToString();
         var profile = _resolvedEffectiveNarrativeGateProfile;
-        if (profile?.Rules is not { Count: > 0 })
+
+        // Primary: per-stat average NarrativeGateProfile rule.
+        if (metricKey is not null && profile?.Rules is { Count: > 0 })
         {
-            return empty;
+            var rule = profile.Rules.FirstOrDefault(r =>
+                string.Equals(r.FromPhase, currentPhase, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(r.MetricKey, metricKey, StringComparison.OrdinalIgnoreCase));
+
+            if (rule is not null)
+            {
+                var threshold = (int)Math.Round((double)rule.Threshold);
+                if (!EvaluateComparator(currentValue, rule.Comparator, threshold))
+                {
+                    var gap = ComputeGap(currentValue, rule.Comparator, threshold);
+                    var gapStr = FormatSignedDelta(gap);
+                    return new StatIndicator(
+                        gapStr,
+                        "rw-stat-cell rw-stat-gate-fail",
+                        $"Gate ({rule.FromPhase}→{rule.ToPhase}): need {statName} {rule.Comparator} {threshold} ({gapStr})");
+                }
+                // Rule exists and is passing — show nothing.
+                return empty;
+            }
         }
 
-        var rule = profile.Rules.FirstOrDefault(r =>
-            string.Equals(r.FromPhase, currentPhase, StringComparison.OrdinalIgnoreCase)
-            && string.Equals(r.MetricKey, metricKey, StringComparison.OrdinalIgnoreCase));
+        // Fallback: when the gate is ActiveScenarioScore-based, the fit clauses drive that score.
+        // Show the failing fit clause gap for this stat so the Gate column is populated.
+        var scoreGateRule = _resolvedBuildUpCommittedRules
+            .FirstOrDefault(r =>
+                string.Equals(r.MetricKey,
+                    DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.ActiveScenarioScore,
+                    StringComparison.OrdinalIgnoreCase)
+                && string.Equals(r.FromPhase, currentPhase, StringComparison.OrdinalIgnoreCase));
 
-        if (rule is null)
-        {
+        if (scoreGateRule is null || _activeRpTheme?.FitRules is not { Count: > 0 })
             return empty;
-        }
 
-        var threshold = (int)Math.Round((double)rule.Threshold);
-        if (EvaluateComparator(currentValue, rule.Comparator, threshold))
+        var characterRole = ResolveCharacterRole(actorName);
+        var exactFitRules = _activeRpTheme.FitRules
+            .Where(r => string.Equals(r.RoleName, characterRole, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        List<RPThemeFitRuleClause> fitClauses;
+        if (exactFitRules.Count > 0)
         {
-            return empty;
+            fitClauses = exactFitRules.SelectMany(r => r.Clauses).ToList();
         }
         else
         {
-            var gap = ComputeGap(currentValue, rule.Comparator, threshold);
-            var gapStr = $"-{gap}";
-            return new StatIndicator(
-                gapStr,
-                "rw-stat-cell rw-stat-gate-fail",
-                $"Gate ({rule.FromPhase}→{rule.ToPhase}): need {statName} {rule.Comparator} {threshold} ({gapStr})");
+            var bestRule = _activeRpTheme.FitRules
+                .OrderByDescending(r =>
+                    r.Clauses.Count(c =>
+                        _session.AdaptiveState.CharacterStats.TryGetValue(actorName, out var sb)
+                        && sb.Stats.TryGetValue(c.StatName, out var sv)
+                        && EvaluateComparator(sv, c.Comparator, (int)Math.Round(c.Threshold))))
+                .FirstOrDefault();
+            fitClauses = bestRule?.Clauses.ToList() ?? [];
         }
+
+        var failingFitClause = fitClauses
+            .Where(c => string.Equals(c.StatName, statName, StringComparison.OrdinalIgnoreCase))
+            .FirstOrDefault(c => !EvaluateComparator(currentValue, c.Comparator, (int)Math.Round(c.Threshold)));
+
+        if (failingFitClause is null)
+            return empty;
+
+        var fitThreshold = (int)Math.Round(failingFitClause.Threshold);
+        var fitGap = ComputeGap(currentValue, failingFitClause.Comparator, fitThreshold);
+        var fitGapStr = FormatSignedDelta(fitGap);
+        return new StatIndicator(
+            fitGapStr,
+            "rw-stat-cell rw-stat-gate-fail",
+            $"Gate (score): {statName} {failingFitClause.Comparator} {fitThreshold} needed for fit score ({fitGapStr})");
     }
 
     private static bool EvaluateComparator(int value, string comparator, int threshold)
@@ -3436,12 +3540,84 @@
         };
 
     private static int ComputeGap(int value, string comparator, int threshold)
-        => comparator switch
+        // Positive means "need to increase", negative means "need to decrease".
+        // threshold - value gives the signed direction in all cases.
+        => threshold - value;
+
+    // Returns the display name for a CharacterStats key (which may be a UUID or a plain name).
+    private string ResolveCharacterDisplayName(string actorKey)
+    {
+        if (_session is not null
+            && !string.IsNullOrWhiteSpace(_session.PersonaName)
+            && string.Equals(_session.PersonaName.Trim(), actorKey, StringComparison.OrdinalIgnoreCase))
         {
-            ">=" or ">" => threshold - value,   // positive = how much still needed
-            "<=" or "<" => value - threshold,   // positive = how much over the max
-            _ => 0
-        };
+            return _session.PersonaName.Trim();
+        }
+
+        if (_loadedScenario is not null)
+        {
+            var match = _loadedScenario.Characters.FirstOrDefault(x =>
+                (!string.IsNullOrWhiteSpace(x.Id) && string.Equals(x.Id.Trim(), actorKey, StringComparison.OrdinalIgnoreCase))
+                || (!string.IsNullOrWhiteSpace(x.Name) && string.Equals(x.Name.Trim(), actorKey, StringComparison.OrdinalIgnoreCase)));
+            if (match is not null && !string.IsNullOrWhiteSpace(match.Name))
+                return match.Name.Trim();
+        }
+
+        return actorKey;
+    }
+
+    private sealed record FitClauseGap(string StatName, string Comparator, int Threshold, int CurrentValue, int Gap);
+
+    // Returns per-character failing fit clause gaps for the active theme.
+    // Returns null when no theme/fit rules are configured.
+    private IReadOnlyList<(string ActorKey, string DisplayName, IReadOnlyList<FitClauseGap> FailingClauses)>?
+        GetCharacterFitClauseGaps()
+    {
+        if (_activeRpTheme?.FitRules is not { Count: > 0 } || _session is null)
+            return null;
+
+        var results = new List<(string, string, IReadOnlyList<FitClauseGap>)>();
+
+        foreach (var (actorKey, statBlock) in _session.AdaptiveState.CharacterStats)
+        {
+            // Determine which fit rule to use for this character (same logic as GetFitRuleIndicator).
+            var characterRole = ResolveCharacterRole(actorKey);
+            var exactRules = _activeRpTheme.FitRules
+                .Where(r => string.Equals(r.RoleName, characterRole, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            List<RPThemeFitRuleClause> ruleClauses;
+            if (exactRules.Count > 0)
+            {
+                ruleClauses = exactRules.SelectMany(r => r.Clauses).ToList();
+            }
+            else
+            {
+                // Pick best-matching rule when RoleName is not a canonical role.
+                var bestRule = _activeRpTheme.FitRules
+                    .OrderByDescending(r =>
+                        r.Clauses.Count(c =>
+                            statBlock.Stats.TryGetValue(c.StatName, out var sv)
+                            && EvaluateComparator(sv, c.Comparator, (int)Math.Round(c.Threshold))))
+                    .FirstOrDefault();
+                ruleClauses = bestRule?.Clauses.ToList() ?? [];
+            }
+
+            var failing = new List<FitClauseGap>();
+            foreach (var clause in ruleClauses)
+            {
+                if (!statBlock.Stats.TryGetValue(clause.StatName, out var val))
+                    val = AdaptiveStatCatalog.DefaultValue;
+                var threshold = (int)Math.Round(clause.Threshold);
+                if (!EvaluateComparator(val, clause.Comparator, threshold))
+                    failing.Add(new FitClauseGap(clause.StatName, clause.Comparator, threshold, val, ComputeGap(val, clause.Comparator, threshold)));
+            }
+
+            results.Add((actorKey, ResolveCharacterDisplayName(actorKey), failing));
+        }
+
+        return results;
+    }
 
     private string ResolveCharacterGender(string actorName)
     {
@@ -4101,8 +4277,6 @@
             var awaitsModelResponse = _selectedIntent != PromptIntent.Instruction;
             if (awaitsModelResponse)
             {
-                _preGenerateInteractionCount = GetDisplayInteractions().Count;
-                _shouldFollowStoryUpdates = true;
                 _isAwaitingModelResponse = true;
                 _pendingResponseLabel = BuildPromptPendingResponseLabel();
                 _pendingResponseText = string.Empty;
@@ -4110,11 +4284,6 @@
                 _lastPendingResponseRenderAt = DateTime.MinValue;
                 await InvokeAsync(StateHasChanged);
                 await Task.Yield();
-                _shouldFollowStoryUpdates = await IsStoryNearBottomAsync();
-                if (!_shouldFollowStoryUpdates)
-                {
-                    _readCursorInteractionIndex = _preGenerateInteractionCount - 1;
-                }
             }
 
             var submission = new UnifiedPromptSubmission
@@ -6175,8 +6344,6 @@
         _isSubmitting = true;
         _statusMessage = string.Empty;
         CloseAllPopups();
-        _preGenerateInteractionCount = GetDisplayInteractions().Count;
-        _shouldFollowStoryUpdates = true;
         _isAwaitingModelResponse = true;
         _pendingResponseLabel = BuildContinuePendingResponseLabel(request);
         _pendingResponseText = string.Empty;
@@ -6184,11 +6351,6 @@
         _lastPendingResponseRenderAt = DateTime.MinValue;
         await InvokeAsync(StateHasChanged);
         await Task.Yield();
-        _shouldFollowStoryUpdates = await IsStoryNearBottomAsync();
-        if (!_shouldFollowStoryUpdates)
-        {
-            _readCursorInteractionIndex = _preGenerateInteractionCount - 1;
-        }
 
         try
         {
@@ -6590,18 +6752,6 @@
         }
     }
 
-    private async Task<bool> IsStoryNearBottomAsync()
-    {
-        try
-        {
-            return await JS.InvokeAsync<bool>("rolePlayWorkspace.isStoryNearBottom", 120);
-        }
-        catch
-        {
-            return true;
-        }
-    }
-
     private Task OnRolePlayResponseChunkAsync(string chunk)
     {
         if (string.IsNullOrEmpty(chunk) || _isDisposed)
@@ -6678,17 +6828,18 @@
             try
             {
                 await JS.InvokeVoidAsync("rolePlayWorkspace.disposePanelResize", ".rw-panel-resize-handle");
-                await JS.InvokeVoidAsync("rolePlayWorkspace.disposeReadCursorObserver");
             }
-            catch (Microsoft.JSInterop.JSDisconnectedException)
+            catch (Exception)
             {
             }
-            catch (TaskCanceledException)
-            {
-            }
-            catch (OperationCanceledException)
-            {
-            }
+        }
+
+        try
+        {
+            await JS.InvokeVoidAsync("rolePlayWorkspace.disposeReadCursorObserver");
+        }
+        catch (Exception)
+        {
         }
 
         _dotNetRef?.Dispose();
@@ -7141,7 +7292,19 @@
                 <button class="rw-back-btn" @onclick="GoToSavedSessions" @onclick:stopPropagation>←</button>
                 @if (_session is not null)
                 {
-                    <span class="rw-session-title">@_session.Title</span>
+                    @if (_editingTitle)
+                    {
+                        <input class="rw-session-title-input"
+                               value="@_editingTitleText"
+                               @oninput="e => _editingTitleText = e.Value?.ToString() ?? string.Empty"
+                               @onblur="CommitTitleEditAsync"
+                               @onkeydown="OnTitleKeyDownAsync"
+                               @onclick:stopPropagation />
+                    }
+                    else
+                    {
+                        <span class="rw-session-title rw-session-title-editable" @onclick="StartTitleEdit" @onclick:stopPropagation title="Click to edit title">@_session.Title</span>
+                    }
                     <span class="rw-session-meta">@_session.Interactions.Count interactions · @TotalTurns turns · @_session.BehaviorMode</span>
                 }
             </div>
@@ -8742,6 +8905,69 @@
                                 }
                                 else
                                 {
+                                    var fitClauseGaps = GetCharacterFitClauseGaps();
+                                    var topEligible = _v2Diagnostics?.CandidateEvaluations
+                                        .Where(x => x.StageBEligible)
+                                        .OrderByDescending(x => x.FitScore)
+                                        .ThenByDescending(x => x.Confidence)
+                                        .FirstOrDefault();
+                                    var topCandidateEval = topEligible
+                                        ?? _v2Diagnostics?.CandidateEvaluations
+                                            .OrderByDescending(x => x.FitScore)
+                                            .ThenByDescending(x => x.Confidence)
+                                            .FirstOrDefault();
+                                    var activeFitScore = topCandidateEval is not null
+                                        ? (topCandidateEval.UnpenalizedFitScore != 0m ? topCandidateEval.UnpenalizedFitScore : topCandidateEval.FitScore)
+                                        : (decimal?)null;
+                                    var buildUpScoreRule = _resolvedBuildUpCommittedRules
+                                        .FirstOrDefault(r => string.Equals(r.MetricKey,
+                                            DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.ActiveScenarioScore,
+                                            StringComparison.OrdinalIgnoreCase));
+                                    var showFitBlock = fitClauseGaps is not null
+                                        && _session.AdaptiveState.CurrentNarrativePhase == DreamGenClone.Domain.StoryAnalysis.NarrativePhase.BuildUp;
+                                    var scoreLabel = activeFitScore.HasValue ? $"{activeFitScore:0.0}" : "n/a";
+                                    var scoreRequired = buildUpScoreRule is not null ? $"{buildUpScoreRule.Threshold:0}" : "?";
+                                    var scorePass = buildUpScoreRule is not null && activeFitScore.HasValue
+                                        && activeFitScore.Value >= buildUpScoreRule.Threshold;
+
+                                    if (showFitBlock && fitClauseGaps is not null)
+                                    {
+                                        <div class="rw-fit-score-block">
+                                            <div class="rw-fit-score-header">
+                                                <span>Scenario Fit Score</span>
+                                                <span class="@(scorePass ? "rw-fit-score-pass" : "rw-fit-score-fail")">
+                                                    @scoreLabel / @scoreRequired required (BuildUp gate)
+                                                    @if (!scorePass && activeFitScore.HasValue && buildUpScoreRule is not null)
+                                                    {
+                                                        var scoreGap = buildUpScoreRule.Threshold - activeFitScore.Value;
+                                                        <span> — need +@scoreGap.ToString("0.0")</span>
+                                                    }
+                                                </span>
+                                            </div>
+                                            @if (topCandidateEval?.Rationale is { Length: > 0 } rationale)
+                                            {
+                                                <div class="rw-fit-score-rationale">@rationale</div>
+                                            }
+                                            @foreach (var (actorKey, displayName, failingClauses) in fitClauseGaps)
+                                            {
+                                                @if (failingClauses.Count > 0)
+                                                {
+                                                    <div class="rw-fit-char-row">
+                                                        <span class="rw-fit-char-name">@displayName — failing clauses:</span>
+                                                        <span class="rw-fit-char-clauses">
+                                                            @foreach (var fc in failingClauses)
+                                                            {
+                                                                var gapStr = fc.Gap > 0 ? $"+{fc.Gap}" : fc.Gap.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                                                                <span class="rw-fit-clause-gap" title="@fc.StatName @fc.Comparator @fc.Threshold (current @fc.CurrentValue)">
+                                                                    @fc.StatName @gapStr
+                                                                </span>
+                                                            }
+                                                        </span>
+                                                    </div>
+                                                }
+                                            }
+                                        </div>
+                                    }
                                     @foreach (var actorStats in _session.AdaptiveState.CharacterStats.OrderBy(x => x.Key))
                                     {
                                         var alignment = GetCharacterProfileAlignment(actorStats.Key, actorStats.Value);
@@ -8769,7 +8995,7 @@
                                                             var baselineValue = GetCharacterBaselineStatValue(actorStats.Key, statName);
                                                             var currentValue = GetCharacterStatValue(actorStats.Value, statName);
                                                             var fitIndicator = GetFitRuleIndicator(actorStats.Key, statName, currentValue);
-                                                            var gateIndicator = GetGateBlockIndicator(statName, currentValue);
+                                                            var gateIndicator = GetGateBlockIndicator(actorStats.Key, statName, currentValue);
                                                             <div class="rw-stat-grid-row" role="row">
                                                                 <span class="rw-stat-cell rw-stat-col-name" role="cell">@statName</span>
                                                                 <span class="rw-stat-cell rw-stat-col-baseline" role="cell">@baselineValue</span>

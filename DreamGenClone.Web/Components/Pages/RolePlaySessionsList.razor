@@ -4,8 +4,12 @@
 @using DreamGenClone.Web.Application.RolePlay
 @using DreamGenClone.Web.Domain.RolePlay
 @using DreamGenClone.Components.Shared
+@using DreamGenClone.Web.Application.Scenarios
+@using DreamGenClone.Application.RolePlay
 
 @inject IRolePlayEngineService RolePlayEngine
+@inject IScenarioService ScenarioService
+@inject IRPThemeService RPThemeService
 @inject NavigationManager Navigation
 @inject ILogger<RolePlaySessionsList> Logger
 
@@ -41,6 +45,8 @@
                     InteractionCount="@session.Interactions.Count"
                     LastUpdatedLabel='@session.ModifiedAt.ToLocalTime().ToString("g")'
                     PrimaryActionLabel='@(session.Status == RolePlaySessionStatus.NotStarted ? "Start" : "Continue")'
+                    ScenarioName="@GetScenarioName(session)"
+                    ThemeSummary="@GetThemeSummary(session)"
                     OnPrimaryAction="@(() => OpenSessionAsync(session))"
                     OnDeleteAction="@(() => AskDelete(session))" />
 
@@ -65,6 +71,8 @@
     private readonly List<RolePlaySession> _sessions = [];
     private string _statusMessage = string.Empty;
     private string? _pendingDeleteSessionId;
+    private Dictionary<string, string> _scenarioNames = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, string> _themeLabels = new(StringComparer.OrdinalIgnoreCase);
 
     protected override async Task OnInitializedAsync()
     {
@@ -73,9 +81,35 @@
 
     private async Task ReloadAsync()
     {
+        var sessionsTask = RolePlayEngine.GetSessionsAsync();
+        var scenariosTask = ScenarioService.GetAllScenariosAsync();
+        var themesTask = RPThemeService.ListThemesAsync();
+        await Task.WhenAll(sessionsTask, scenariosTask, themesTask);
         _sessions.Clear();
-        _sessions.AddRange(await RolePlayEngine.GetSessionsAsync());
+        _sessions.AddRange(sessionsTask.Result);
+        _scenarioNames = scenariosTask.Result.ToDictionary(s => s.Id, s => s.Name, StringComparer.OrdinalIgnoreCase);
+        _themeLabels = themesTask.Result.ToDictionary(t => t.Id, t => t.Label ?? string.Empty, StringComparer.OrdinalIgnoreCase);
         _statusMessage = string.Empty;
+    }
+
+    private string GetScenarioName(RolePlaySession session) =>
+        string.IsNullOrEmpty(session.ScenarioId)
+            ? string.Empty
+            : _scenarioNames.GetValueOrDefault(session.ScenarioId, string.Empty);
+
+    private string GetThemeSummary(RolePlaySession session)
+    {
+        if (session.SessionThemeSelections.Count == 0) return string.Empty;
+        const int maxLabels = 3;
+        var labels = session.SessionThemeSelections
+            .Select(s => _themeLabels.GetValueOrDefault(s.ThemeId, string.Empty))
+            .Where(l => !string.IsNullOrEmpty(l))
+            .ToList();
+        if (labels.Count == 0) return $"{session.SessionThemeSelections.Count} themes";
+        var shown = labels.Take(maxLabels).ToList();
+        var extra = labels.Count - shown.Count;
+        var summary = string.Join(", ", shown);
+        return extra > 0 ? $"Themes: {summary} (+{extra} more)" : $"Themes: {summary}";
     }
 
     private async Task OpenSessionAsync(RolePlaySession session)
