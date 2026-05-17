@@ -12,17 +12,19 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
 {
     private static readonly decimal[] DefaultResetDesirePullSchedule =
     [
-        0.8333m,
-        0.5833m,
         0.3333m,
+        0.2500m,
         0.2000m,
-        0.1667m
+        0.1500m,
+        0.1000m
     ];
 
     private readonly ILogger<ScenarioLifecycleService> _logger;
     private readonly INarrativeGateProfileService? _gateProfileService;
     private readonly IReadOnlyDictionary<string, int> _resetStatBaselines;
     private readonly IReadOnlyList<decimal> _resetStatPullSchedule;
+    private readonly decimal _resetDecayReductionPerCycle;
+    private readonly decimal _resetDecayReductionCap;
 
     public ScenarioLifecycleService(
         ILogger<ScenarioLifecycleService> logger,
@@ -79,6 +81,9 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
         _resetStatPullSchedule = configuredPullSchedule is { Length: > 0 }
             ? configuredPullSchedule
             : DefaultResetDesirePullSchedule;
+
+        _resetDecayReductionPerCycle = (decimal)Math.Clamp(storyAnalysisOptions?.Value.ResetDecayReductionPerCycle ?? 0d, 0d, 1d);
+        _resetDecayReductionCap = (decimal)Math.Clamp(storyAnalysisOptions?.Value.ResetDecayReductionCap ?? 0d, 0d, 1d);
     }
 
     public async Task<PhaseTransitionResult> EvaluateTransitionAsync(
@@ -185,10 +190,19 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
         var nextCycleIndex = state.CycleIndex + 1;
         var statPull = ResolveResetBaselinePull(nextCycleIndex, _resetStatPullSchedule);
 
+        // Scale the pull down based on how many cycles have already been completed.
+        // Each completed cycle reduces the pull by _resetDecayReductionPerCycle (up to _resetDecayReductionCap),
+        // so characters retain progressively more of their earned stat gains in later arcs.
+        if (_resetDecayReductionPerCycle > 0m && _resetDecayReductionCap > 0m && state.CycleIndex > 0)
+        {
+            var reductionFraction = Math.Min(_resetDecayReductionCap, state.CycleIndex * _resetDecayReductionPerCycle);
+            statPull = statPull * (1m - reductionFraction);
+        }
+
         var resetState = new AdaptiveScenarioState
         {
             SessionId = state.SessionId,
-            ActiveScenarioId = null,
+            ActiveScenarioId = state.ActiveScenarioId,
             CurrentPhase = NarrativePhase.Reset,
             InteractionCountInPhase = 0,
             ConsecutiveLeadCount = 0,

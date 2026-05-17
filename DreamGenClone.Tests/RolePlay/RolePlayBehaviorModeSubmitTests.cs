@@ -140,6 +140,21 @@ public sealed class RolePlayBehaviorModeSubmitTests
         {
             return Task.FromResult(new ContinueAsResult { Success = true });
         }
+
+        public Task<RolePlayInteraction> ContinueNarrativeAsync(
+            RolePlaySession session,
+            string actorName,
+            string promptText,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new RolePlayInteraction
+            {
+                InteractionType = InteractionType.System,
+                ActorName = actorName,
+                Content = promptText,
+                GeneratedByCommand = "Narrative"
+            });
+        }
     }
 
     private sealed class FakeIdentityOptionsService : IRolePlayIdentityOptionsService

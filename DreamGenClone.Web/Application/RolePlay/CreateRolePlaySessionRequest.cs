@@ -48,4 +48,7 @@ public sealed class CreateRolePlaySessionRequest
 
     /// <summary>Optional Husband Awareness Profile to associate with this session.</summary>
     public string? AwarenessProfileId { get; init; }
+
+    /// <summary>Optional physical appearance data for the POV persona.</summary>
+    public DreamGenClone.Domain.Templates.PhysicalAttributes? PersonaPhysicalAttributes { get; init; }
 }

@@ -218,9 +218,7 @@ public sealed class RPFinishingMoveMatrixRow
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public string ProfileId { get; set; } = string.Empty;
-    public string DesireBand { get; set; } = "30-59";
-    public string SelfRespectBand { get; set; } = "30-59";
-    public string OtherManDominanceBand { get; set; } = "30-59";
+    public string EscalationTier { get; set; } = "Low";
     public List<string> PrimaryLocations { get; set; } = [];
     public List<string> SecondaryLocations { get; set; } = [];
     public List<string> ExcludedLocations { get; set; } = [];
@@ -254,15 +252,29 @@ public sealed class RPSteerPositionMatrixRow
     public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;
 }
 
+public sealed class RPPosition
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string Name { get; set; } = string.Empty;
+    /// <summary>1–2 sentence summary shown to the AI when generating steer option choices.</summary>
+    public string ShortDescription { get; set; } = string.Empty;
+    /// <summary>Full paragraph injected into the continuation prompt after a position is selected.</summary>
+    public string DetailedDescription { get; set; } = string.Empty;
+    /// <summary>Escalation tier: "Low", "Medium", or "High". Controls availability based on derived stat level.</summary>
+    public string EscalationTier { get; set; } = "Low";
+    public int SortOrder { get; set; }
+    public bool IsEnabled { get; set; } = true;
+    public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
+    public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;
+}
+
 public sealed class RPFinishLocation
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public string Name { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
     public string Category { get; set; } = string.Empty;
-    public string EligibleDesireBands { get; set; } = string.Empty;
-    public string EligibleSelfRespectBands { get; set; } = string.Empty;
-    public string EligibleOtherManDominanceBands { get; set; } = string.Empty;
+    public string EscalationTier { get; set; } = "Low";
     public int SortOrder { get; set; }
     public bool IsEnabled { get; set; } = true;
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
@@ -275,9 +287,7 @@ public sealed class RPFinishFacialType
     public string Name { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
     public string PhysicalCues { get; set; } = string.Empty;
-    public string EligibleDesireBands { get; set; } = string.Empty;
-    public string EligibleSelfRespectBands { get; set; } = string.Empty;
-    public string EligibleOtherManDominanceBands { get; set; } = string.Empty;
+    public string EscalationTier { get; set; } = "Low";
     public int SortOrder { get; set; }
     public bool IsEnabled { get; set; } = true;
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
@@ -291,8 +301,7 @@ public sealed class RPFinishReceptivityLevel
     public string Description { get; set; } = string.Empty;
     public string PhysicalCues { get; set; } = string.Empty;
     public string NarrativeCue { get; set; } = string.Empty;
-    public string EligibleDesireBands { get; set; } = string.Empty;
-    public string EligibleSelfRespectBands { get; set; } = string.Empty;
+    public string EscalationTier { get; set; } = "Low";
     public int SortOrder { get; set; }
     public bool IsEnabled { get; set; } = true;
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
@@ -305,7 +314,7 @@ public sealed class RPFinishHisControlLevel
     public string Name { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
     public string ExampleDialogue { get; set; } = string.Empty;
-    public string EligibleOtherManDominanceBands { get; set; } = string.Empty;
+    public string EscalationTier { get; set; } = "Low";
     public int SortOrder { get; set; }
     public bool IsEnabled { get; set; } = true;
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
@@ -318,9 +327,7 @@ public sealed class RPFinishTransitionAction
     public string Name { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
     public string TransitionText { get; set; } = string.Empty;
-    public string EligibleDesireBands { get; set; } = string.Empty;
-    public string EligibleSelfRespectBands { get; set; } = string.Empty;
-    public string EligibleOtherManDominanceBands { get; set; } = string.Empty;
+    public string EscalationTier { get; set; } = "Low";
     public int SortOrder { get; set; }
     public bool IsEnabled { get; set; } = true;
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;

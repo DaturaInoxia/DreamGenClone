@@ -68,6 +68,7 @@ public sealed class RolePlayAssistantService : IRolePlayAssistantService
         double? assistantTemperature = null,
         double? assistantTopP = null,
         int? assistantMaxTokens = null,
+        AppFunction appFunction = AppFunction.RolePlayAssistant,
         CancellationToken cancellationToken = default)
     {
         var sessionId = context.SessionId;
@@ -120,7 +121,7 @@ public sealed class RolePlayAssistantService : IRolePlayAssistantService
             var systemPrompt = SelectSystemPrompt(queryMode);
 
             var resolved = await _modelResolver.ResolveAsync(
-                AppFunction.RolePlayAssistant,
+                appFunction,
                 sessionModelId: assistantModelId,
                 sessionTemperature: assistantTemperature,
                 sessionTopP: assistantTopP,
@@ -219,6 +220,7 @@ public sealed class RolePlayAssistantService : IRolePlayAssistantService
         double? assistantTemperature = null,
         double? assistantTopP = null,
         int? assistantMaxTokens = null,
+        AppFunction appFunction = AppFunction.RolePlayAssistant,
         CancellationToken cancellationToken = default)
     {
         var sessionId = context.SessionId;
@@ -241,7 +243,7 @@ public sealed class RolePlayAssistantService : IRolePlayAssistantService
         _logger.LogInformation("Role-play assistant streaming request initiated for session {SessionId}", sessionId);
 
         var resolved = await _modelResolver.ResolveAsync(
-            AppFunction.RolePlayAssistant,
+            appFunction,
             sessionModelId: assistantModelId,
             sessionTemperature: assistantTemperature,
             sessionTopP: assistantTopP,

@@ -41,6 +41,9 @@ public sealed class RolePlaySession
     /// </summary>
     public string? PersonaRelationTargetId { get; set; }
 
+    /// <summary>Optional physical appearance data for the POV persona in this session.</summary>
+    public DreamGenClone.Domain.Templates.PhysicalAttributes? PersonaPhysicalAttributes { get; set; }
+
     public List<RolePlayInteraction> Interactions { get; set; } = [];
 
     /// <summary>Active perspective modes for scenario characters in this session.</summary>

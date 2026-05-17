@@ -95,10 +95,13 @@
     private bool _finishPopupOpen;
     private bool _finishOptionsLoading;
     private bool _finishOptionSubmitting;
-    private List<string> _finishOptions = [];
+    private List<List<string>> _finishOptionPages = [];
+    private int _finishPageIndex;
+    private int _finishGenerationIndex;
     private string _selectedFinishOption = string.Empty;
     private string _finishOptionError = string.Empty;
     private bool _finishUseGuidedFlow;
+    private bool _finishEndClimax = true;
     private CancellationTokenSource? _finishOptionsGenerationCts;
     private bool _nextPhasePopupOpen;
     private bool _nextPhaseOptionsLoading;
@@ -109,10 +112,12 @@
     private bool _steerPopupOpen;
     private bool _steerOptionsLoading;
     private bool _steerOptionSubmitting;
-    private List<string> _steerOptions = [];
+    private List<List<string>> _steerOptionPages = [];
+    private int _steerPageIndex;
     private string _selectedSteerOption = string.Empty;
     private string _steerOptionError = string.Empty;
     private bool _steerUseGuidedFlow;
+    private int _steerGenerationIndex;
     private bool _timeSkipPopupOpen;
     private bool _timeSkipSubmitting;
     private string _timeSkipCustomText = string.Empty;
@@ -152,6 +157,11 @@
     private readonly StringBuilder _pendingResponseBuilder = new();
     private DateTime _lastPendingResponseRenderAt = DateTime.MinValue;
     private static readonly TimeSpan PendingResponseRenderInterval = TimeSpan.FromMilliseconds(300);
+    // Child component reference: isolates streaming chunk renders to a tiny sub-tree so that the
+    // ~8000-line workspace component does NOT re-render on every chunk. Re-rendering the entire
+    // workspace per chunk was saturating the Blazor circuit dispatcher and locking the UI thread
+    // (the adaptive panel could not be navigated while a continuation was generating).
+    private RolePlayPendingResponse? _pendingResponseComponent;
     private RolePlayV2DiagnosticsSnapshot? _v2Diagnostics;
     private DreamGenClone.Domain.RolePlay.NarrativeGateProfile? _defaultNarrativeGateProfile;
     private DreamGenClone.Domain.RolePlay.NarrativeGateProfile? _selectedNarrativeGateProfile;
@@ -4137,10 +4147,12 @@
         && _session.AdaptiveState.CurrentNarrativePhase != DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Reset;
 
     private bool IsFinishUiLocked => _isSubmitting || _finishOptionSubmitting;
+    private List<string> CurrentFinishPage => _finishOptionPages.Count > 0 ? _finishOptionPages[_finishPageIndex] : [];
 
     private bool IsNextPhaseUiLocked => _isSubmitting || _nextPhaseOptionsLoading || _nextPhaseOptionSubmitting;
 
     private bool IsSteerUiLocked => _isSubmitting || _steerOptionsLoading || _steerOptionSubmitting;
+    private List<string> CurrentSteerPage => _steerOptionPages.Count > 0 ? _steerOptionPages[_steerPageIndex] : [];
 
     private bool IsTimeSkipUiLocked => _isSubmitting || _timeSkipSubmitting;
 
@@ -4383,7 +4395,7 @@
             "Opening Finish popup: SessionId={SessionId} FlowMode={FlowMode} CachedOptions={CachedOptions}",
             _session.Id,
             _finishUseGuidedFlow ? "FinishingMove" : "Finish",
-            _finishOptions.Count);
+            _finishOptionPages.Count);
 
         _finishPopupOpen = true;
         _continueCustomPopupOpen = false;
@@ -4392,7 +4404,9 @@
         _nextPhasePopupOpen = false;
         _steerPopupOpen = false;
         _finishOptionError = string.Empty;
-        // Preserve _finishOptions, _selectedFinishOption, _finishUseGuidedFlow from last open.
+        _finishPageIndex = _finishOptionPages.Count > 0 ? _finishOptionPages.Count - 1 : 0;
+        _finishGenerationIndex = _finishOptionPages.Count;
+        // Preserve _finishOptionPages, _selectedFinishOption, _finishUseGuidedFlow from last open.
 
         return Task.CompletedTask;
     }
@@ -4490,10 +4504,11 @@
             var response = await RolePlayAssistant.GenerateSuggestionAsync(
                 context,
                 prompt,
-                assistantModelId: string.IsNullOrWhiteSpace(_session.AssistantModelId) ? null : _session.AssistantModelId,
-                assistantTemperature: _session.AssistantTemperature,
-                assistantTopP: _session.AssistantTopP,
-                assistantMaxTokens: _session.AssistantMaxTokens);
+                assistantModelId: string.IsNullOrWhiteSpace(_session.SessionModelId) ? null : _session.SessionModelId,
+                assistantTemperature: _session.SessionTemperature,
+                assistantTopP: _session.SessionTopP,
+                assistantMaxTokens: _session.SessionMaxTokens,
+                appFunction: AppFunction.RolePlayGeneration);
 
             _nextPhaseOptions = ParseFinishOptions(response).ToList();
             if (_nextPhaseOptions.Count == 0)
@@ -4653,7 +4668,9 @@
         _finishPopupOpen = false;
         _nextPhasePopupOpen = false;
         _steerOptionError = string.Empty;
-        // Preserve _steerOptions, _selectedSteerOption, _steerUseGuidedFlow from last session.
+        _steerPageIndex = _steerOptionPages.Count > 0 ? _steerOptionPages.Count - 1 : 0;
+        _steerGenerationIndex = _steerOptionPages.Count;
+        // Preserve _steerOptionPages, _selectedSteerOption, _steerUseGuidedFlow from last session.
 
         return Task.CompletedTask;
     }
@@ -4682,7 +4699,9 @@
         }
 
         _finishUseGuidedFlow = useGuided;
-        _finishOptions.Clear();
+        _finishOptionPages.Clear();
+        _finishPageIndex = 0;
+        _finishGenerationIndex = 0;
         _selectedFinishOption = string.Empty;
         _finishOptionError = string.Empty;
 
@@ -4697,9 +4716,11 @@
         }
 
         _steerUseGuidedFlow = useGuided;
-        _steerOptions.Clear();
+        _steerOptionPages.Clear();
+        _steerPageIndex = 0;
         _selectedSteerOption = string.Empty;
         _steerOptionError = string.Empty;
+        _steerGenerationIndex = 0;
 
         return Task.CompletedTask;
     }
@@ -4713,6 +4734,7 @@
 
         _steerOptionsLoading = true;
         _steerOptionError = string.Empty;
+        _steerGenerationIndex++;
         try
         {
             var context = BuildAssistantContext();
@@ -4721,19 +4743,22 @@
             var response = await RolePlayAssistant.GenerateSuggestionAsync(
                 context,
                 prompt,
-                assistantModelId: string.IsNullOrWhiteSpace(_session.AssistantModelId) ? null : _session.AssistantModelId,
-                assistantTemperature: _session.AssistantTemperature,
-                assistantTopP: _session.AssistantTopP,
-                assistantMaxTokens: _session.AssistantMaxTokens);
+                assistantModelId: string.IsNullOrWhiteSpace(_session.SessionModelId) ? null : _session.SessionModelId,
+                assistantTemperature: _session.SessionTemperature,
+                assistantTopP: _session.SessionTopP,
+                assistantMaxTokens: _session.SessionMaxTokens,
+                appFunction: AppFunction.RolePlayGeneration);
 
-            _steerOptions = ParseFinishOptions(response).ToList();
-            if (_steerOptions.Count == 0)
+            var newPage = ParseFinishOptions(response).ToList();
+            if (newPage.Count == 0)
             {
                 _steerOptionError = "Could not generate steering options. Try again.";
                 return;
             }
 
-            _selectedSteerOption = _steerOptions[0];
+            _steerOptionPages.Add(newPage);
+            _steerPageIndex = _steerOptionPages.Count - 1;
+            _selectedSteerOption = newPage[0];
         }
         catch (Exception ex)
         {
@@ -4755,10 +4780,26 @@
 
         var phase = _session.AdaptiveState.CurrentNarrativePhase.ToString();
         var sb = new StringBuilder();
-        sb.AppendLine($"Generate exactly 4 distinct steering directives for the current scene in phase {phase}.");
-        sb.AppendLine("Each option must stay in the same phase (do not advance phase). One sentence per option, concrete, actionable, and non-meta.");
-        sb.AppendLine("The options must be meaningfully different in direction (for example pacing, emotional pressure, conflict focus, intimacy calibration, or mystery emphasis). ");
-        sb.AppendLine("Ground every option in current scene continuity and character plausibility.");
+
+        if (_steerUseGuidedFlow)
+        {
+            sb.AppendLine($"Generate exactly 4 distinct sexual position options (phase: {phase}).");
+            sb.AppendLine("Each option describes a specific sexual position, physical act, or body arrangement for the CHARACTERS ACTIVELY HAVING SEX in this scene — NOT the observer or POV narrator character.");
+            sb.AppendLine("Focus on the physically active couple: who is on top, entry angle, body orientation, grip, pace, depth. One sentence per option, concrete.");
+            sb.AppendLine("Provide at least one option that maintains or varies the current position, and at least one that transitions to a clearly different position with an explicit movement beat.");
+        }
+        else
+        {
+            sb.AppendLine($"Generate exactly 4 distinct steering directives for the current scene in phase {phase}.");
+            sb.AppendLine("Each option must stay in the same phase (do not advance phase). One sentence per option, concrete, actionable, and non-meta.");
+            sb.AppendLine("The options must be meaningfully different in direction (for example pacing, emotional pressure, conflict focus, intimacy calibration, or mystery emphasis).");
+            sb.AppendLine("Ground every option in current scene continuity and character plausibility.");
+        }
+
+        if (_steerGenerationIndex > 1)
+        {
+            sb.AppendLine($"Generate option set #{_steerGenerationIndex}: produce options that are clearly different from any previously generated sets.");
+        }
 
         await AppendThemeReferenceContextAsync(sb, phase);
         if (_steerUseGuidedFlow)
@@ -4766,11 +4807,8 @@
             var positionInstruction = BuildSteerPositionInstructionSnippet();
             if (!string.IsNullOrWhiteSpace(positionInstruction))
             {
-                sb.AppendLine($"Position instruction to enforce in each option: {positionInstruction}");
+                sb.AppendLine($"Position context from recent interactions: {positionInstruction}");
             }
-
-            sb.AppendLine("Position mode requirement: each option must include explicit body positioning and orientation language, not only emotional direction.");
-            sb.AppendLine("Provide at least one option that maintains current positioning and at least one that transitions to a new position with a clear movement beat.");
             await AppendSteerPositionMatrixContextAsync(sb);
         }
         else
@@ -4816,6 +4854,11 @@
         sb.AppendLine("Each option must be one sentence, actionable, and suitable as the immediate beat to close out the climax trajectory.");
         sb.AppendLine("Keep options concise, grounded in continuity, and non-meta.");
 
+        if (_finishGenerationIndex > 1)
+        {
+            sb.AppendLine($"Generate option set #{_finishGenerationIndex}: produce options that are clearly different from any previously generated sets.");
+        }
+
         await AppendThemeReferenceContextAsync(sb, phase);
         if (_finishUseGuidedFlow)
         {
@@ -4833,75 +4876,45 @@
 
     private async Task AppendFinishingMoveMatrixContextAsync(StringBuilder sb)
     {
-        if (_session is null)
-        {
-            return;
-        }
-
+        if (_session is null) return;
         try
         {
-            var enabledRows = (await RPThemeService.ListFinishingMoveMatrixRowsAsync())
-                .Where(x => x.IsEnabled)
-                .OrderBy(x => x.SortOrder)
-                .ToList();
-
-            if (enabledRows.Count == 0)
-            {
-                return;
-            }
-
             var state = _session.AdaptiveState;
             var desire = GetAverageAdaptiveStat(state, "Desire");
-            var selfRespect = GetAverageAdaptiveStat(state, "SelfRespect");
             var dominance = GetAverageAdaptiveStat(state, "Dominance");
-            var otherManDominance = GetAverageAdaptiveStatOrFallback(
-                state,
-                dominance,
-                "OtherManDominance",
-                "OtherManDom",
-                "RivalDominance",
-                "BullDominance");
+            var otherManDominance = GetAverageAdaptiveStatOrFallback(state, dominance, "OtherManDominance", "OtherManDom", "RivalDominance", "BullDominance");
 
-            var matchedRows = enabledRows
-                .Where(x => MatchesFinishingMoveRow(x, desire, selfRespect, otherManDominance))
-                .Take(6)
-                .ToList();
+            var tier = (otherManDominance >= 70 || desire >= 70) ? "High"
+                     : (otherManDominance >= 40 || desire >= 40) ? "Medium"
+                     : "Low";
 
-            var selectedRows = matchedRows.Count > 0
-                ? matchedRows
-                : enabledRows.Take(6).ToList();
+            static int TierRank(string? t) => (t ?? "Low") switch { "High" => 3, "Medium" => 2, _ => 1 };
+            var currentRank = TierRank(tier);
 
-            var selectionReason = matchedRows.Count > 0
-                ? $"Matched {matchedRows.Count} row(s)"
-                : "No exact band match; using top rows by sort order";
+            var allRows = (await RPThemeService.ListFinishingMoveMatrixRowsAsync())
+                .Where(r => r.IsEnabled && TierRank(r.EscalationTier) <= currentRank)
+                .OrderBy(r => r.SortOrder).ToList();
 
-            sb.AppendLine("Finishing move matrix rows (global base table):");
-            sb.AppendLine($"Current stats for band match: desire={desire:0.0}, selfRespect={selfRespect:0.0}, otherManDominance={otherManDominance:0.0}. {selectionReason}.");
-
-            foreach (var row in selectedRows)
+            if (allRows.Count > 0)
             {
-                var primary = row.PrimaryLocations.Count > 0 ? string.Join(", ", row.PrimaryLocations) : "none";
-                var secondary = row.SecondaryLocations.Count > 0 ? string.Join(", ", row.SecondaryLocations) : "none";
-                var excluded = row.ExcludedLocations.Count > 0 ? string.Join(", ", row.ExcludedLocations) : "none";
-
-                sb.AppendLine($"- desire={row.DesireBand}; selfRespect={row.SelfRespectBand}; otherManDominance={row.OtherManDominanceBand}; primary={primary}; secondary={secondary}; excluded={excluded}; wifeReceptivity={row.WifeReceptivity}; wifeBehavior={row.WifeBehaviorModifier}; otherManBehavior={row.OtherManBehaviorModifier}; transition={row.TransitionInstruction}");
+                sb.AppendLine($"Finishing move matrix rows (tier: {tier}):");
+                foreach (var row in allRows.Take(6))
+                {
+                    var primary = row.PrimaryLocations.Count > 0 ? string.Join(", ", row.PrimaryLocations) : "none";
+                    var secondary = row.SecondaryLocations.Count > 0 ? string.Join(", ", row.SecondaryLocations) : "none";
+                    var excluded = row.ExcludedLocations.Count > 0 ? string.Join(", ", row.ExcludedLocations) : "none";
+                    sb.AppendLine($"- tier={row.EscalationTier}; primary={primary}; secondary={secondary}; excluded={excluded}; wifeReceptivity={row.WifeReceptivity}; wifeBehavior={row.WifeBehaviorModifier}; otherManBehavior={row.OtherManBehaviorModifier}; transition={row.TransitionInstruction}");
+                }
+                sb.AppendLine("Prefer options that follow one matrix row closely and stay consistent with excluded locations. Wife receptivity describes how she receives the finish: Begging = she actively wants it on her; Enthusiastic/Eager = she welcomes it; Accepting = she is okay with it; Tolerating = she endures without enthusiasm; Reluctant = she dislikes it but complies; CumDodging = she tries to avoid or dodge; Enduring = she has no choice and takes it.");
             }
 
-            sb.AppendLine("Prefer options that follow one matrix row closely and stay consistent with excluded locations. Wife receptivity describes how she receives the finish: Begging = she actively wants it on her; Enthusiastic/Eager = she welcomes it; Accepting = she is okay with it; Tolerating = she endures without enthusiasm; Reluctant = she dislikes it but complies; CumDodging = she tries to avoid or dodge; Enduring = she has no choice and takes it.");
-
-            // ── Catalog sections ────────────────────────────────────────────────
             var eligibleLocations = (await RPThemeService.ListFinishLocationsAsync())
-                .Where(loc => MatchesBandEligibility(loc.EligibleDesireBands, desire)
-                           && MatchesBandEligibility(loc.EligibleSelfRespectBands, selfRespect)
-                           && MatchesBandEligibility(loc.EligibleOtherManDominanceBands, otherManDominance))
-                .OrderBy(loc => loc.SortOrder)
-                .ToList();
-
-            Logger.LogDebug("Finishing move catalog eligible counts: locations={Locations}.", eligibleLocations.Count);
+                .Where(loc => TierRank(loc.EscalationTier) <= currentRank)
+                .OrderBy(loc => loc.SortOrder).ToList();
 
             if (eligibleLocations.Count > 0)
             {
-                sb.AppendLine("Finishing Move – Locations (eligible by current stats):");
+                sb.AppendLine("Finishing Move – Locations (eligible by current escalation tier):");
                 foreach (var loc in eligibleLocations)
                     sb.AppendLine($"- [{loc.Category}] {loc.Name}: {loc.Description}");
             }
@@ -4912,13 +4925,8 @@
             if (hasFacialLocation)
             {
                 var eligibleFacialTypes = (await RPThemeService.ListFinishFacialTypesAsync())
-                    .Where(ft => MatchesBandEligibility(ft.EligibleDesireBands, desire)
-                              && MatchesBandEligibility(ft.EligibleSelfRespectBands, selfRespect)
-                              && MatchesBandEligibility(ft.EligibleOtherManDominanceBands, otherManDominance))
-                    .OrderBy(ft => ft.SortOrder)
-                    .ToList();
-
-                Logger.LogDebug("Finishing move catalog eligible counts: facialTypes={FacialTypes}.", eligibleFacialTypes.Count);
+                    .Where(ft => TierRank(ft.EscalationTier) <= currentRank)
+                    .OrderBy(ft => ft.SortOrder).ToList();
 
                 if (eligibleFacialTypes.Count > 0)
                 {
@@ -4929,12 +4937,8 @@
             }
 
             var eligibleReceptivity = (await RPThemeService.ListFinishReceptivityLevelsAsync())
-                .Where(r => MatchesBandEligibility(r.EligibleDesireBands, desire)
-                         && MatchesBandEligibility(r.EligibleSelfRespectBands, selfRespect))
-                .OrderBy(r => r.SortOrder)
-                .ToList();
-
-            Logger.LogDebug("Finishing move catalog eligible counts: receptivity={Receptivity}.", eligibleReceptivity.Count);
+                .Where(r => TierRank(r.EscalationTier) <= currentRank)
+                .OrderBy(r => r.SortOrder).ToList();
 
             if (eligibleReceptivity.Count > 0)
             {
@@ -4944,11 +4948,8 @@
             }
 
             var eligibleHisControl = (await RPThemeService.ListFinishHisControlLevelsAsync())
-                .Where(hc => MatchesBandEligibility(hc.EligibleOtherManDominanceBands, otherManDominance))
-                .OrderBy(hc => hc.SortOrder)
-                .ToList();
-
-            Logger.LogDebug("Finishing move catalog eligible counts: hisControl={HisControl}.", eligibleHisControl.Count);
+                .Where(hc => TierRank(hc.EscalationTier) <= currentRank)
+                .OrderBy(hc => hc.SortOrder).ToList();
 
             if (eligibleHisControl.Count > 0)
             {
@@ -4958,13 +4959,8 @@
             }
 
             var eligibleTransitions = (await RPThemeService.ListFinishTransitionActionsAsync())
-                .Where(t => MatchesBandEligibility(t.EligibleDesireBands, desire)
-                         && MatchesBandEligibility(t.EligibleSelfRespectBands, selfRespect)
-                         && MatchesBandEligibility(t.EligibleOtherManDominanceBands, otherManDominance))
-                .OrderBy(t => t.SortOrder)
-                .ToList();
-
-            Logger.LogDebug("Finishing move catalog eligible counts: transitions={Transitions}.", eligibleTransitions.Count);
+                .Where(t => TierRank(t.EscalationTier) <= currentRank)
+                .OrderBy(t => t.SortOrder).ToList();
 
             if (eligibleTransitions.Count > 0)
             {
@@ -4978,11 +4974,6 @@
             Logger.LogDebug(ex, "Unable to load finishing move matrix rows for session {SessionId}.", _session.Id);
         }
     }
-
-    private static bool MatchesFinishingMoveRow(RPFinishingMoveMatrixRow row, double desire, double selfRespect, double otherManDominance)
-        => MatchesNumericBand(row.DesireBand, desire)
-           && MatchesNumericBand(row.SelfRespectBand, selfRespect)
-           && MatchesNumericBand(row.OtherManDominanceBand, otherManDominance);
 
     private async Task AppendSteerPositionMatrixContextAsync(StringBuilder sb)
     {
@@ -5678,7 +5669,8 @@
             };
 
             await RolePlayEngine.SubmitPromptAsync(submission, onChunk: null);
-            _steerOptions.Clear();
+            _steerOptionPages.Clear();
+            _steerPageIndex = 0;
             _selectedSteerOption = string.Empty;
             await LoadSessionAsync();
         }
@@ -5734,6 +5726,7 @@
 
         _finishOptionsLoading = true;
         _finishOptionError = string.Empty;
+        _finishGenerationIndex++;
         try
         {
             var contextBuildStopwatch = Stopwatch.StartNew();
@@ -5777,10 +5770,11 @@
             var response = await RolePlayAssistant.GenerateSuggestionAsync(
                 context,
                 prompt,
-                assistantModelId: string.IsNullOrWhiteSpace(_session.AssistantModelId) ? null : _session.AssistantModelId,
-                assistantTemperature: _session.AssistantTemperature,
-                assistantTopP: _session.AssistantTopP,
-                assistantMaxTokens: _session.AssistantMaxTokens,
+                assistantModelId: string.IsNullOrWhiteSpace(_session.SessionModelId) ? null : _session.SessionModelId,
+                assistantTemperature: _session.SessionTemperature,
+                assistantTopP: _session.SessionTopP,
+                assistantMaxTokens: _session.SessionMaxTokens,
+                appFunction: AppFunction.RolePlayGeneration,
                 cancellationToken: cancellationToken);
             assistantCallStopwatch.Stop();
 
@@ -5793,7 +5787,7 @@
 
             var parseStopwatch = Stopwatch.StartNew();
 
-            _finishOptions = ParseFinishOptions(response).ToList();
+            var newPage = ParseFinishOptions(response).ToList();
             parseStopwatch.Stop();
 
             await WriteFinishDebugEventAsync(
@@ -5807,11 +5801,11 @@
                     flowMode = _finishUseGuidedFlow ? "FinishingMove" : "Finish",
                     responseLength = response.Length,
                     responsePreview = BuildLogPreview(response, 500),
-                    parsedOptionCount = _finishOptions.Count,
-                    options = _finishOptions
+                    parsedOptionCount = newPage.Count,
+                    options = newPage
                 });
 
-            if (_finishOptions.Count == 0)
+            if (newPage.Count == 0)
             {
                 Logger.LogWarning(
                     "Finish option generation returned no options: SessionId={SessionId} CorrelationId={CorrelationId} FlowMode={FlowMode} AssistantCallMs={AssistantCallMs} ParseMs={ParseMs} ResponseLength={ResponseLength}",
@@ -5821,8 +5815,10 @@
                     assistantCallStopwatch.ElapsedMilliseconds,
                     parseStopwatch.ElapsedMilliseconds,
                     response.Length);
-                _finishOptions = BuildFallbackFinishOptions().ToList();
-                _selectedFinishOption = _finishOptions[0];
+                newPage = BuildFallbackFinishOptions().ToList();
+                _finishOptionPages.Add(newPage);
+                _finishPageIndex = _finishOptionPages.Count - 1;
+                _selectedFinishOption = newPage[0];
                 _finishOptionError = "Model returned no options. Using local fallback options.";
                 usedFallback = true;
                 outcome = "EmptyModelOutputFallback";
@@ -5836,7 +5832,7 @@
                     metadata: new
                     {
                         flowMode = _finishUseGuidedFlow ? "FinishingMove" : "Finish",
-                        fallbackOptions = _finishOptions
+                        fallbackOptions = newPage
                     });
                 return;
             }
@@ -5846,12 +5842,14 @@
                 _session.Id,
                 finishGenerationCorrelationId,
                 _finishUseGuidedFlow ? "FinishingMove" : "Finish",
-                _finishOptions.Count,
+                newPage.Count,
                 assistantCallStopwatch.ElapsedMilliseconds,
                 parseStopwatch.ElapsedMilliseconds,
-                BuildLogPreview(_finishOptions[0], 180));
+                BuildLogPreview(newPage[0], 180));
 
-            _selectedFinishOption = _finishOptions[0];
+            _finishOptionPages.Add(newPage);
+            _finishPageIndex = _finishOptionPages.Count - 1;
+            _selectedFinishOption = newPage[0];
         }
         catch (OperationCanceledException ex)
         {
@@ -5888,8 +5886,10 @@
         }
         catch (Exception ex)
         {
-            _finishOptions = BuildFallbackFinishOptions().ToList();
-            _selectedFinishOption = _finishOptions[0];
+            var fallbackPage = BuildFallbackFinishOptions().ToList();
+            _finishOptionPages.Add(fallbackPage);
+            _finishPageIndex = _finishOptionPages.Count - 1;
+            _selectedFinishOption = fallbackPage[0];
             _finishOptionError = "Finish option generation failed. Using local fallback options.";
             usedFallback = true;
             outcome = "ExceptionFallback";
@@ -5914,7 +5914,7 @@
                     timeoutSeconds = configuredTimeoutSeconds,
                     exceptionType = ex.GetType().Name,
                     exceptionMessage = ex.Message,
-                    fallbackOptions = _finishOptions
+                    fallbackOptions = fallbackPage
                 });
         }
         finally
@@ -5932,7 +5932,7 @@
                     flowMode = _finishUseGuidedFlow ? "FinishingMove" : "Finish",
                     outcome,
                     usedFallback,
-                    optionCount = _finishOptions.Count,
+                    optionCount = CurrentFinishPage.Count,
                     selectedOption = _selectedFinishOption
                 });
 
@@ -5943,7 +5943,7 @@
                 outcome,
                 usedFallback,
                 totalStopwatch.ElapsedMilliseconds,
-                _finishOptions.Count);
+                CurrentFinishPage.Count);
 
             _finishOptionsLoading = false;
             _finishOptionsGenerationCts?.Dispose();
@@ -5979,7 +5979,7 @@
                 {
                     reason,
                     popupOpen = _finishPopupOpen,
-                    hasOptions = _finishOptions.Count > 0
+                    hasOptions = _finishOptionPages.Count > 0
                 });
         }
     }
@@ -6058,10 +6058,15 @@
 
         try
         {
+            var directive = _selectedFinishOption.Trim();
+            var promptText = _finishEndClimax
+                ? $"/completeclimax {directive}"
+                : (_finishUseGuidedFlow ? directive : BuildThirdPersonWriteInstruction(directive));
+
             var submission = new UnifiedPromptSubmission
             {
                 SessionId = _session.Id,
-                PromptText = $"/completeclimax {_selectedFinishOption.Trim()}",
+                PromptText = promptText,
                 Intent = PromptIntent.Instruction,
                 SelectedIdentityId = string.Empty,
                 SelectedIdentityType = IdentityOptionSource.Persona,
@@ -6072,7 +6077,9 @@
 
             await RolePlayEngine.SubmitPromptAsync(submission, onChunk: null);
 
-            _finishOptions.Clear();
+            _finishOptionPages.Clear();
+            _finishPageIndex = 0;
+            _finishGenerationIndex = 0;
             _selectedFinishOption = string.Empty;
             await LoadSessionAsync();
         }
@@ -6091,6 +6098,25 @@
             _isSubmitting = false;
             _finishOptionSubmitting = false;
         }
+    }
+
+    private string BuildThirdPersonWriteInstruction(string directive)
+    {
+        var names = new List<string>();
+        if (_session is not null)
+        {
+            if (!string.IsNullOrWhiteSpace(_session.PersonaName)
+                && !string.Equals(_session.PersonaName, "You", StringComparison.OrdinalIgnoreCase))
+            {
+                names.Add(_session.PersonaName);
+            }
+            names.AddRange(
+                _session.CharacterPerspectives
+                    .Where(x => !string.IsNullOrWhiteSpace(x.CharacterName))
+                    .Select(x => x.CharacterName));
+        }
+        var nameHint = names.Count > 0 ? $" ({string.Join(", ", names)})" : string.Empty;
+        return $"[Write as third-person narrative{nameHint}] {directive}";
     }
 
     private static IReadOnlyList<string> ParseFinishOptions(string raw)
@@ -6769,7 +6795,14 @@
 
         _lastPendingResponseRenderAt = now;
         _pendingResponseText = _pendingResponseBuilder.ToString();
-        return InvokeAsync(StateHasChanged);
+
+        // Route the streaming text update to the isolated child component. The child schedules
+        // its own render via fire-and-forget InvokeAsync(StateHasChanged), so the workspace
+        // component (and the adaptive panel inside it) is NOT re-rendered per chunk. This keeps
+        // the Blazor circuit dispatcher free to process other UI events (panel navigation,
+        // scrolling, button clicks) while the continuation is generating.
+        _pendingResponseComponent?.SetText(_pendingResponseText);
+        return Task.CompletedTask;
     }
 
     private void GoToSavedSessions() => Navigation.NavigateTo(RolePlayRoutes.Sessions);
@@ -7672,15 +7705,7 @@
 
                     @if (ShowPendingResponseIndicator)
                     {
-                        <div class="rw-interaction rw-interaction-pending" aria-live="polite" aria-busy="true">
-                            <div class="rw-actor-badge rw-pending-badge">
-                                <span class="rw-spinner rw-spinner-pending"></span>
-                            </div>
-                            <div class="rw-interaction-body">
-                                <div class="rw-actor-name">Generating</div>
-                                <div class="rw-pending-response-text">@(string.IsNullOrWhiteSpace(_pendingResponseText) ? _pendingResponseLabel : _pendingResponseText)</div>
-                            </div>
-                        </div>
+                        <RolePlayPendingResponse @ref="_pendingResponseComponent" Label="@_pendingResponseLabel" />
                     }
                 }
             </div>
@@ -7986,13 +8011,21 @@
                             {
                                 <div class="rw-finish-loading">Generating ending options...</div>
                             }
-                            else if (_finishOptions.Count == 0)
+                            else if (_finishOptionPages.Count == 0)
                             {
                                 <div class="rw-finish-loading">No options yet.</div>
                             }
                             else
                             {
-                                @foreach (var option in _finishOptions)
+                                @if (_finishOptionPages.Count > 1)
+                                {
+                                    <div class="rw-steer-pager">
+                                        <button class="rw-steer-pager-btn" disabled="@(_finishPageIndex == 0 || _finishOptionSubmitting || _finishOptionsLoading)" @onclick="@(() => { _finishPageIndex--; _selectedFinishOption = CurrentFinishPage[0]; })">&#x2039;</button>
+                                        <span class="rw-steer-pager-label">Set @(_finishPageIndex + 1) / @_finishOptionPages.Count</span>
+                                        <button class="rw-steer-pager-btn" disabled="@(_finishPageIndex == _finishOptionPages.Count - 1 || _finishOptionSubmitting || _finishOptionsLoading)" @onclick="@(() => { _finishPageIndex++; _selectedFinishOption = CurrentFinishPage[0]; })">&#x203a;</button>
+                                    </div>
+                                }
+                                @foreach (var option in CurrentFinishPage)
                                 {
                                         <button type="button"
                                             class="rw-popup-item @(string.Equals(_selectedFinishOption, option, StringComparison.Ordinal) ? "is-selected" : string.Empty)"
@@ -8013,6 +8046,12 @@
                         {
                             <div class="rw-finish-error">@_finishOptionError</div>
                         }
+                        <div class="rw-popup-toggle-row">
+                            <label class="rw-popup-toggle-label">
+                                <input type="checkbox" @bind="_finishEndClimax" disabled="@_finishOptionSubmitting" />
+                                End Climax (transition to Reset)
+                            </label>
+                        </div>
                         <div class="rw-popup-actions rw-finish-popup-actions">
                                 <button type="button"
                                     class="rw-popup-action-btn"
@@ -8021,11 +8060,11 @@
                                 <button type="button"
                                     class="rw-popup-action-btn"
                                     disabled="@(_finishOptionSubmitting || _finishOptionsLoading)"
-                                    @onclick="GenerateFinishOptionsAsync">@(_finishOptions.Count == 0 ? "Generate" : "Regenerate")</button>
+                                    @onclick="GenerateFinishOptionsAsync">@(_finishOptionPages.Count == 0 ? "Generate" : "Regenerate")</button>
                                 <button type="button"
                                     class="rw-popup-action-btn is-primary"
                                     disabled="@(_finishOptionSubmitting || _finishOptionsLoading || string.IsNullOrWhiteSpace(_selectedFinishOption))"
-                                    @onclick="ApplyFinishOptionAsync">Finish Scene</button>
+                                    @onclick="ApplyFinishOptionAsync">@(_finishEndClimax ? "Finish Scene" : "Write Move")</button>
                         </div>
                     </div>
                 }
@@ -8100,13 +8139,21 @@
                             {
                                 <div class="rw-finish-loading">Generating steering options...</div>
                             }
-                            else if (_steerOptions.Count == 0)
+                            else if (_steerOptionPages.Count == 0)
                             {
                                 <div class="rw-finish-loading">No options yet.</div>
                             }
                             else
                             {
-                                @foreach (var option in _steerOptions)
+                                @if (_steerOptionPages.Count > 1)
+                                {
+                                    <div class="rw-steer-pager">
+                                        <button class="rw-steer-pager-btn" disabled="@(_steerPageIndex == 0 || _steerOptionSubmitting || _steerOptionsLoading)" @onclick="@(() => { _steerPageIndex--; _selectedSteerOption = CurrentSteerPage[0]; })">‹</button>
+                                        <span class="rw-steer-pager-label">Set @(_steerPageIndex + 1) / @_steerOptionPages.Count</span>
+                                        <button class="rw-steer-pager-btn" disabled="@(_steerPageIndex == _steerOptionPages.Count - 1 || _steerOptionSubmitting || _steerOptionsLoading)" @onclick="@(() => { _steerPageIndex++; _selectedSteerOption = CurrentSteerPage[0]; })">›</button>
+                                    </div>
+                                }
+                                @foreach (var option in CurrentSteerPage)
                                 {
                                     <button class="rw-popup-item @(string.Equals(_selectedSteerOption, option, StringComparison.Ordinal) ? "is-selected" : string.Empty)"
                                             disabled="@_steerOptionSubmitting"
@@ -8132,7 +8179,7 @@
                                     @onclick="CloseSteerPopup">Cancel</button>
                             <button class="rw-popup-action-btn"
                                     disabled="@(_steerOptionSubmitting || _steerOptionsLoading)"
-                                    @onclick="GenerateSteerOptionsAsync">@(_steerOptions.Count == 0 ? "Generate" : "Regenerate")</button>
+                                    @onclick="GenerateSteerOptionsAsync">@(_steerOptionPages.Count == 0 ? "Generate" : "Regenerate")</button>
                             <button class="rw-popup-action-btn is-primary"
                                     disabled="@(_steerOptionSubmitting || _steerOptionsLoading || string.IsNullOrWhiteSpace(_selectedSteerOption))"
                                     @onclick="ApplySteerOptionAsync">Apply Steer</button>

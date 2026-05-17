@@ -156,6 +156,7 @@ public sealed class TemplateService : ITemplateService
             template.Role = CharacterRoleCatalog.Normalize(characterPayload.Role);
             template.RelationTargetTemplateId = CharacterRelationCatalog.NormalizeTargetId(characterPayload.RelationTargetTemplateId);
             template.BaseStats = AdaptiveStatCatalog.NormalizeComplete(characterPayload.BaseStats);
+            template.PhysicalAttributes = characterPayload.PhysicalAttributes;
             return template;
         }
 
@@ -179,7 +180,8 @@ public sealed class TemplateService : ITemplateService
             Gender = CharacterGenderCatalog.NormalizeForCharacter(template.Gender),
             Role = CharacterRoleCatalog.Normalize(template.Role),
             RelationTargetTemplateId = CharacterRelationCatalog.NormalizeTargetId(template.RelationTargetTemplateId),
-            BaseStats = AdaptiveStatCatalog.NormalizeComplete(template.BaseStats)
+            BaseStats = AdaptiveStatCatalog.NormalizeComplete(template.BaseStats),
+            PhysicalAttributes = template.PhysicalAttributes
         };
 
         return JsonSerializer.Serialize(payload, JsonOptions);
@@ -254,7 +256,11 @@ public sealed class TemplateService : ITemplateService
                 Gender = gender,
                 Role = role,
                 RelationTargetTemplateId = relationTargetTemplateId,
-                BaseStats = stats
+                BaseStats = stats,
+                PhysicalAttributes = doc.RootElement.TryGetProperty("physicalAttributes", out var physAttrsNode)
+                    && physAttrsNode.ValueKind == JsonValueKind.Object
+                    ? JsonSerializer.Deserialize<PhysicalAttributes>(physAttrsNode.GetRawText(), JsonOptions)
+                    : null
             };
 
             return true;
@@ -276,5 +282,7 @@ public sealed class TemplateService : ITemplateService
         public string? RelationTargetTemplateId { get; set; }
 
         public Dictionary<string, int> BaseStats { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public PhysicalAttributes? PhysicalAttributes { get; set; }
     }
 }

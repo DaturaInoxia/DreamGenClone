@@ -35,4 +35,6 @@ public class Character
     /// Default role-play perspective mode for this character when a session is created.
     /// </summary>
     public CharacterPerspectiveMode PerspectiveMode { get; set; } = CharacterPerspectiveMode.ThirdPersonExternalOnly;
+
+    public DreamGenClone.Domain.Templates.PhysicalAttributes? PhysicalAttributes { get; set; }
 }

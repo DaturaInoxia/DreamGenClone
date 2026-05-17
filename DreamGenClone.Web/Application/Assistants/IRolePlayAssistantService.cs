@@ -1,3 +1,5 @@
+using DreamGenClone.Domain.ModelManager;
+
 namespace DreamGenClone.Web.Application.Assistants;
 
 /// <summary>
@@ -71,6 +73,7 @@ public interface IRolePlayAssistantService
 
     /// <summary>
     /// Generates a context-aware role-play suggestion using rich session state and optional model override.
+    /// Pass <paramref name="appFunction"/> to resolve using a different function's model (e.g. RolePlayGeneration for steer/finish).
     /// </summary>
     Task<string> GenerateSuggestionAsync(
         RolePlayAssistantContext context,
@@ -79,6 +82,7 @@ public interface IRolePlayAssistantService
         double? assistantTemperature = null,
         double? assistantTopP = null,
         int? assistantMaxTokens = null,
+        AppFunction appFunction = AppFunction.RolePlayAssistant,
         CancellationToken cancellationToken = default);
 
     Task<string> GenerateSuggestionStreamingAsync(
@@ -89,6 +93,7 @@ public interface IRolePlayAssistantService
         double? assistantTemperature = null,
         double? assistantTopP = null,
         int? assistantMaxTokens = null,
+        AppFunction appFunction = AppFunction.RolePlayAssistant,
         CancellationToken cancellationToken = default);
 
     /// <summary>

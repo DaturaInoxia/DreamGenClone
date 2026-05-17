@@ -20,7 +20,8 @@ internal static class RolePlayTestFactory
         IRolePlayIdentityOptionsService? identityOptionsService = null,
         IScenarioService? scenarioService = null,
         IBaseStatProfileService? baseStatProfileService = null,
-        IRolePlayStateRepository? stateRepository = null)
+        IRolePlayStateRepository? stateRepository = null,
+        IRPThemeService? rpThemeService = null)
     {
         var sessionService = new FakeSessionService();
         var coreAutoSave = new FakeCoreAutoSaveCoordinator();
@@ -41,7 +42,8 @@ internal static class RolePlayTestFactory
             autoSave,
             new NullRolePlayDebugEventSink(),
                 NullLogger<RolePlayEngineService>.Instance,
-                stateRepository: stateRepository);
+                stateRepository: stateRepository,
+                rpThemeService: rpThemeService);
     }
 
     internal sealed class FakeContinuationService : IRolePlayContinuationService
@@ -105,6 +107,21 @@ internal static class RolePlayTestFactory
             }
 
             return Task.FromResult(result);
+        }
+
+        public Task<RolePlayInteraction> ContinueNarrativeAsync(
+            RolePlaySession session,
+            string actorName,
+            string promptText,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new RolePlayInteraction
+            {
+                InteractionType = InteractionType.System,
+                ActorName = actorName,
+                Content = promptText,
+                GeneratedByCommand = "Narrative"
+            });
         }
     }
 

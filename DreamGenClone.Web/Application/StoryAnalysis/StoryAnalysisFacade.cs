@@ -195,6 +195,16 @@ public sealed class StoryAnalysisFacade
     public Task<bool> DeleteFinishTransitionActionAsync(string entryId, CancellationToken cancellationToken = default)
         => _rpThemeService.DeleteFinishTransitionActionAsync(entryId, cancellationToken);
 
+    // Position Catalog
+    public Task<RPPosition> SavePositionAsync(RPPosition entry, CancellationToken cancellationToken = default)
+        => _rpThemeService.SavePositionAsync(entry, cancellationToken);
+
+    public Task<IReadOnlyList<RPPosition>> ListPositionsAsync(bool includeDisabled = false, CancellationToken cancellationToken = default)
+        => _rpThemeService.ListPositionsAsync(includeDisabled, cancellationToken);
+
+    public Task<bool> DeletePositionAsync(string entryId, CancellationToken cancellationToken = default)
+        => _rpThemeService.DeletePositionAsync(entryId, cancellationToken);
+
     // Steer Position Matrix Rows (global base table)
     public Task<IReadOnlyList<RPSteerPositionMatrixRow>> ListSteerPositionMatrixRowsAsync(CancellationToken cancellationToken = default)
         => _rpThemeService.ListSteerPositionMatrixRowsAsync(cancellationToken);

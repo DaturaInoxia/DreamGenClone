@@ -9,7 +9,8 @@ public sealed record ScenarioDefinition(
     decimal NarrativeEvidenceScore = 0m,
     decimal PreferencePriorityScore = 0m,
     string? ScenarioFitRulesJson = null,
-    string? ScenarioFitRuleSource = null);
+    string? ScenarioFitRuleSource = null,
+    decimal FitScoreMultiplier = 1m);
 
 public sealed class ScenarioGuidanceRequest
 {

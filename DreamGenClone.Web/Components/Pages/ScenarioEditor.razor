@@ -363,6 +363,12 @@
                                                             </div>
                                                         }
                                                     </div>
+                                                    <div class="mt-3">
+                                                        <PhysicalAttributesEditor
+                                                            Attributes="@character.PhysicalAttributes"
+                                                            AttributesChanged="@(attrs => character.PhysicalAttributes = attrs)"
+                                                            Gender="@character.Gender" />
+                                                    </div>
                                                 </div>
                                                 <div class="col-md-4 text-end">
                                                     <button class="btn btn-sm btn-outline-primary" @onclick="@(() => EditingCharacterIndex = index)">Edit</button>
@@ -1312,10 +1318,10 @@
 
     private void AddCharacter(string name, string? templateId, string? description)
     {
-        AddCharacter(name, templateId, description, CharacterGenderCatalog.Unknown, CharacterRoleCatalog.Unknown, null);
+        AddCharacter(name, templateId, description, CharacterGenderCatalog.Unknown, CharacterRoleCatalog.Unknown, null, null);
     }
 
-    private Character AddCharacter(string name, string? templateId, string? description, string? gender, string? role, IReadOnlyDictionary<string, int>? baseStats)
+    private Character AddCharacter(string name, string? templateId, string? description, string? gender, string? role, IReadOnlyDictionary<string, int>? baseStats, DreamGenClone.Domain.Templates.PhysicalAttributes? physicalAttributes)
     {
         var character = new Character
         {
@@ -1326,17 +1332,54 @@
             Gender = CharacterGenderCatalog.NormalizeForCharacter(gender),
             BaseStats = baseStats is null
                 ? AdaptiveStatCatalog.CreateDefaultStatMap()
-                : AdaptiveStatCatalog.NormalizeComplete(baseStats)
+                : AdaptiveStatCatalog.NormalizeComplete(baseStats),
+            PhysicalAttributes = physicalAttributes is not null ? ClonePhysicalAttributes(physicalAttributes) : null
         };
         
         CurrentScenario?.Characters.Add(character);
         EnsureBaseStats(character);
         return character;
     }
+
+    private static DreamGenClone.Domain.Templates.PhysicalAttributes ClonePhysicalAttributes(DreamGenClone.Domain.Templates.PhysicalAttributes src) => new()
+    {
+        Age = src.Age,
+        Height = src.Height,
+        Weight = src.Weight,
+        Ethnicity = src.Ethnicity,
+        HairColour = src.HairColour,
+        HairStyle = src.HairStyle,
+        EyeColour = src.EyeColour,
+        SkinTone = src.SkinTone,
+        SkinTexture = src.SkinTexture,
+        BodyType = src.BodyType,
+        BustSize = src.BustSize,
+        WaistSize = src.WaistSize,
+        HipSize = src.HipSize,
+        ClothingStyle = src.ClothingStyle,
+        DistinguishingMarks = src.DistinguishingMarks,
+        Piercings = src.Piercings,
+        Tattoos = src.Tattoos,
+        AttractivenessRating = src.AttractivenessRating,
+        Scent = src.Scent,
+        SexualSkill = src.SexualSkill,
+        SexualDrive = src.SexualDrive,
+        SexualConfidence = src.SexualConfidence,
+        OralSkill = src.OralSkill,
+        EndowmentLength = src.EndowmentLength,
+        EndowmentGirth = src.EndowmentGirth,
+        Stamina = src.Stamina,
+        Recovery = src.Recovery,
+        EjaculationIntensity = src.EjaculationIntensity,
+        VaginalTightness = src.VaginalTightness,
+        Sensitivity = src.Sensitivity,
+        Lubrication = src.Lubrication,
+        OrgasmicCapacity = src.OrgasmicCapacity,
+    };
     
     private async Task OnCharacterCreated(DreamGenClone.Components.Scenarios.ScenarioEntityPicker.EntityCreatedArgs args)
     {
-        var character = AddCharacter(args.Name, args.TemplateId, args.Description, args.Gender, args.Role, args.BaseStats);
+        var character = AddCharacter(args.Name, args.TemplateId, args.Description, args.Gender, args.Role, args.BaseStats, args.PhysicalAttributes);
         await ApplyTemplateRelationDefaultsAsync(character);
     }
 

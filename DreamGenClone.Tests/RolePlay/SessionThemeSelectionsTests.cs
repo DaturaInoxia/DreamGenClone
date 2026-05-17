@@ -555,24 +555,6 @@ public sealed class SessionThemeSelectionsTests
         public Task<bool> DeleteThemeAsync(string id, CancellationToken cancellationToken = default)
             => Task.FromResult(false);
 
-        public Task<RPThemeMachineDefinition> SaveMachineDefinitionAsync(RPThemeMachineDefinition definition, CancellationToken cancellationToken = default)
-            => Task.FromResult(definition);
-
-        public Task<IReadOnlyList<RPThemeMachineDefinition>> ListMachineDefinitionsAsync(string themeId, CancellationToken cancellationToken = default)
-            => Task.FromResult<IReadOnlyList<RPThemeMachineDefinition>>([]);
-
-        public Task<RPThemeMachineDefinition?> GetMachineDefinitionAsync(string definitionId, CancellationToken cancellationToken = default)
-            => Task.FromResult<RPThemeMachineDefinition?>(null);
-
-        public Task ActivateMachineDefinitionAsync(string themeId, string machineKey, int version, string actorId, CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
-
-        public Task<MachineDefinitionValidationResult> ValidateMachineDefinitionAsync(string definitionId, CancellationToken cancellationToken = default)
-            => Task.FromResult(new MachineDefinitionValidationResult { IsValid = true });
-
-        public Task MigrateSessionMachineVersionAsync(string sessionId, string themeId, string machineKey, int targetVersion, string actorId, CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
-
         public Task<RPThemeProfileThemeAssignment> SaveProfileAssignmentAsync(RPThemeProfileThemeAssignment assignment, CancellationToken cancellationToken = default)
             => Task.FromResult(assignment);
 
@@ -612,6 +594,11 @@ public sealed class SessionThemeSelectionsTests
         public Task TruncateRolePlayAndScenarioDataAsync(CancellationToken cancellationToken = default)
             => Task.CompletedTask;
 
+        public Task<RPPosition> SavePositionAsync(RPPosition entry, CancellationToken cancellationToken = default) => Task.FromResult(entry);
+        public Task<IReadOnlyList<RPPosition>> ListPositionsAsync(bool includeDisabled = false, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<RPPosition>>([]);
+        public Task<IReadOnlyList<RPPosition>> ListPositionsAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<RPPosition>>([]);
+        public Task<bool> DeletePositionAsync(string entryId, CancellationToken cancellationToken = default) => Task.FromResult(false);
+
         public Task<RPFinishLocation> SaveFinishLocationAsync(RPFinishLocation entry, CancellationToken cancellationToken = default) => Task.FromResult(entry);
         public Task<IReadOnlyList<RPFinishLocation>> ListFinishLocationsAsync(bool includeDisabled = false, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<RPFinishLocation>>([]);
         public Task<bool> DeleteFinishLocationAsync(string entryId, CancellationToken cancellationToken = default) => Task.FromResult(false);
@@ -631,6 +618,13 @@ public sealed class SessionThemeSelectionsTests
         public Task<RPFinishTransitionAction> SaveFinishTransitionActionAsync(RPFinishTransitionAction entry, CancellationToken cancellationToken = default) => Task.FromResult(entry);
         public Task<IReadOnlyList<RPFinishTransitionAction>> ListFinishTransitionActionsAsync(bool includeDisabled = false, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<RPFinishTransitionAction>>([]);
         public Task<bool> DeleteFinishTransitionActionAsync(string entryId, CancellationToken cancellationToken = default) => Task.FromResult(false);
+
+        public Task<RPThemeMachineDefinition> SaveMachineDefinitionAsync(RPThemeMachineDefinition definition, CancellationToken cancellationToken = default) => Task.FromResult(definition);
+        public Task<IReadOnlyList<RPThemeMachineDefinition>> ListMachineDefinitionsAsync(string themeId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<RPThemeMachineDefinition>>([]);
+        public Task<RPThemeMachineDefinition?> GetMachineDefinitionAsync(string definitionId, CancellationToken cancellationToken = default) => Task.FromResult<RPThemeMachineDefinition?>(null);
+        public Task ActivateMachineDefinitionAsync(string themeId, string machineKey, int version, string actorId, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task<MachineDefinitionValidationResult> ValidateMachineDefinitionAsync(string definitionId, CancellationToken cancellationToken = default) => Task.FromResult(new MachineDefinitionValidationResult());
+        public Task MigrateSessionMachineVersionAsync(string sessionId, string themeId, string machineKey, int targetVersion, string actorId, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 
     private sealed class StubScenarioService : IScenarioService

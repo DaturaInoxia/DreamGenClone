@@ -110,6 +110,14 @@
                         </div>
                     }
                 </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Physical Appearance</label>
+                    <PhysicalAttributesEditor
+                        Attributes="@_editModel.PhysicalAttributes"
+                        AttributesChanged="@(attrs => { _editModel.PhysicalAttributes = attrs; })"
+                        Gender="@_editModel.Gender" />
+                </div>
             }
 
             <TemplateImageEditor TemplateId="@_editModel.Id" OnImageStored="OnImageStoredAsync" />
@@ -311,6 +319,7 @@
         _editModel.RelationTargetTemplateId = CharacterRelationCatalog.NormalizeTargetId(template.RelationTargetTemplateId);
         _editModel.BaseStats = AdaptiveStatCatalog.NormalizeComplete(template.BaseStats);
         _editModel.ImagePath = template.ImagePath;
+        _editModel.PhysicalAttributes = template.PhysicalAttributes is not null ? ClonePhysicalAttributes(template.PhysicalAttributes) : null;
         _selectedTemplate = template;
         _templateCharacterSelectedProfileId = null;
     }
@@ -412,6 +421,42 @@
         _editModel.Gender = CharacterGenderCatalog.NormalizeForCharacter(profile.TargetGender);
         _editModel.Role = CharacterRoleCatalog.Normalize(profile.TargetRole);
     }
+
+    private static DreamGenClone.Domain.Templates.PhysicalAttributes ClonePhysicalAttributes(DreamGenClone.Domain.Templates.PhysicalAttributes src) => new()
+    {
+        Age = src.Age,
+        Height = src.Height,
+        Weight = src.Weight,
+        Ethnicity = src.Ethnicity,
+        HairColour = src.HairColour,
+        HairStyle = src.HairStyle,
+        EyeColour = src.EyeColour,
+        SkinTone = src.SkinTone,
+        SkinTexture = src.SkinTexture,
+        BodyType = src.BodyType,
+        BustSize = src.BustSize,
+        WaistSize = src.WaistSize,
+        HipSize = src.HipSize,
+        ClothingStyle = src.ClothingStyle,
+        DistinguishingMarks = src.DistinguishingMarks,
+        Piercings = src.Piercings,
+        Tattoos = src.Tattoos,
+        AttractivenessRating = src.AttractivenessRating,
+        Scent = src.Scent,
+        SexualSkill = src.SexualSkill,
+        SexualDrive = src.SexualDrive,
+        SexualConfidence = src.SexualConfidence,
+        OralSkill = src.OralSkill,
+        EndowmentLength = src.EndowmentLength,
+        EndowmentGirth = src.EndowmentGirth,
+        Stamina = src.Stamina,
+        Recovery = src.Recovery,
+        EjaculationIntensity = src.EjaculationIntensity,
+        VaginalTightness = src.VaginalTightness,
+        Sensitivity = src.Sensitivity,
+        Lubrication = src.Lubrication,
+        OrgasmicCapacity = src.OrgasmicCapacity,
+    };
 }
 
 <style>

@@ -20,5 +20,7 @@ public sealed class TemplateDefinition
 
     public string? ImagePath { get; set; }
 
+    public PhysicalAttributes? PhysicalAttributes { get; set; }
+
     public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;
 }

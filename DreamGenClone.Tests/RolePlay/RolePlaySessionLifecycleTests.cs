@@ -988,6 +988,125 @@ public sealed class RolePlaySessionLifecycleTests
         Assert.True(older.PreferencePriorityScore > recent.PreferencePriorityScore);
     }
 
+    [Fact]
+    public async Task BuildScenarioCandidates_SessionThemeSelections_MostRecentCompletedThemeGetsImmediatePenalty()
+    {
+        // When a session uses explicit theme selections, the most-recently-completed theme must
+        // receive penalized input scores (cumulative + recent) and a reduced FitScoreMultiplier
+        // so it yields to other selected themes even when CharacterAlignment would dominate.
+        var themeA = new DreamGenClone.Domain.RolePlay.RPTheme { Id = "theme-a", Label = "Theme A", IsEnabled = true };
+        var themeB = new DreamGenClone.Domain.RolePlay.RPTheme { Id = "theme-b", Label = "Theme B", IsEnabled = true };
+        var stubThemeService = new StubListOnlyRpThemeService([themeA, themeB]);
+
+        var service = RolePlayTestFactory.CreateEngineService(rpThemeService: stubThemeService);
+
+        var session = new RolePlaySession
+        {
+            SessionThemeSelections =
+            [
+                new SessionThemeSelection { ThemeId = themeA.Id, Tier = DreamGenClone.Domain.RolePlay.RPThemeTier.MustHave },
+                new SessionThemeSelection { ThemeId = themeB.Id, Tier = DreamGenClone.Domain.RolePlay.RPThemeTier.MustHave }
+            ],
+            AdaptiveState = new RolePlayAdaptiveState
+            {
+                ThemeTracker = new ThemeTrackerState
+                {
+                    Themes = new Dictionary<string, ThemeTrackerItem>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        [themeA.Id] = new ThemeTrackerItem { ThemeId = themeA.Id, Score = 90 },
+                        [themeB.Id] = new ThemeTrackerItem { ThemeId = themeB.Id, Score = 90 }
+                    }
+                },
+                // theme-a was just completed — it is the most recent entry
+                ScenarioHistory = [new ScenarioMetadata { ScenarioId = themeA.Id }]
+            }
+        };
+
+        var method = typeof(RolePlayEngineService).GetMethod(
+            "BuildScenarioCandidatesAsync",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+
+        var invokeResult = method!.Invoke(service, [session, CancellationToken.None]);
+        Assert.IsType<Task<List<ScenarioDefinition>>>(invokeResult);
+        var candidates = await (Task<List<ScenarioDefinition>>)invokeResult!;
+
+        Assert.NotEmpty(candidates);
+        var candidateA = Assert.Single(candidates.Where(x => x.ScenarioId == themeA.Id));
+        var candidateB = Assert.Single(candidates.Where(x => x.ScenarioId == themeB.Id));
+
+        // theme-a (just completed) must be penalized; theme-b (never played) must score higher
+        Assert.True(candidateB.NarrativeEvidenceScore > candidateA.NarrativeEvidenceScore,
+            $"Expected theme-b NarrativeEvidence ({candidateB.NarrativeEvidenceScore}) > theme-a ({candidateA.NarrativeEvidenceScore})");
+        Assert.True(candidateB.PreferencePriorityScore > candidateA.PreferencePriorityScore,
+            $"Expected theme-b PreferencePriority ({candidateB.PreferencePriorityScore}) > theme-a ({candidateA.PreferencePriorityScore})");
+
+        // theme-a must carry a reduced FitScoreMultiplier (in recentCompletedIds); theme-b must be unpenalized
+        Assert.True(candidateA.FitScoreMultiplier < 1m,
+            $"Expected theme-a FitScoreMultiplier < 1 (got {candidateA.FitScoreMultiplier})");
+        Assert.Equal(1m, candidateB.FitScoreMultiplier);
+    }
+
+    private sealed class StubListOnlyRpThemeService : IRPThemeService
+    {
+        private readonly IReadOnlyList<DreamGenClone.Domain.RolePlay.RPTheme> _themes;
+        public StubListOnlyRpThemeService(IReadOnlyList<DreamGenClone.Domain.RolePlay.RPTheme> themes) => _themes = themes;
+
+        public Task<IReadOnlyList<DreamGenClone.Domain.RolePlay.RPTheme>> ListThemesAsync(bool includeDisabled = false, CancellationToken cancellationToken = default)
+            => Task.FromResult(_themes);
+
+        public Task<IReadOnlyList<DreamGenClone.Domain.RolePlay.RPThemeProfileThemeAssignment>> ListProfileAssignmentsAsync(string profileId, CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<DreamGenClone.Domain.RolePlay.RPThemeProfileThemeAssignment>>([]);
+
+        public Task<DreamGenClone.Domain.RolePlay.RPTheme> SaveThemeAsync(DreamGenClone.Domain.RolePlay.RPTheme theme, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<DreamGenClone.Domain.RolePlay.RPTheme> CloneThemeAsync(string sourceThemeId, string newThemeId, string newThemeLabel, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<IReadOnlyList<DreamGenClone.Domain.RolePlay.RPTheme>> ListThemesByProfileAsync(string profileId, bool includeDisabled = false, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<DreamGenClone.Domain.RolePlay.RPTheme?> GetThemeAsync(string id, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<bool> DeleteThemeAsync(string id, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<DreamGenClone.Domain.RolePlay.RPThemeProfile> SaveProfileAsync(DreamGenClone.Domain.RolePlay.RPThemeProfile profile, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<IReadOnlyList<DreamGenClone.Domain.RolePlay.RPThemeProfile>> ListProfilesAsync(CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<DreamGenClone.Domain.RolePlay.RPThemeProfile?> GetProfileAsync(string id, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<bool> DeleteProfileAsync(string id, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<DreamGenClone.Domain.RolePlay.RPThemeMachineDefinition> SaveMachineDefinitionAsync(DreamGenClone.Domain.RolePlay.RPThemeMachineDefinition definition, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<IReadOnlyList<DreamGenClone.Domain.RolePlay.RPThemeMachineDefinition>> ListMachineDefinitionsAsync(string themeId, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<DreamGenClone.Domain.RolePlay.RPThemeMachineDefinition?> GetMachineDefinitionAsync(string definitionId, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task ActivateMachineDefinitionAsync(string themeId, string machineKey, int version, string actorId, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<DreamGenClone.Domain.RolePlay.MachineDefinitionValidationResult> ValidateMachineDefinitionAsync(string definitionId, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task MigrateSessionMachineVersionAsync(string sessionId, string themeId, string machineKey, int targetVersion, string actorId, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<DreamGenClone.Domain.RolePlay.RPThemeProfileThemeAssignment> SaveProfileAssignmentAsync(DreamGenClone.Domain.RolePlay.RPThemeProfileThemeAssignment assignment, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<bool> DeleteProfileAssignmentAsync(string assignmentId, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<DreamGenClone.Domain.RolePlay.RPFinishingMoveMatrixRow> SaveFinishingMoveMatrixRowAsync(DreamGenClone.Domain.RolePlay.RPFinishingMoveMatrixRow row, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<IReadOnlyList<DreamGenClone.Domain.RolePlay.RPFinishingMoveMatrixRow>> ListFinishingMoveMatrixRowsAsync(CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<bool> DeleteFinishingMoveMatrixRowAsync(string rowId, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<int> ImportFinishingMoveMatrixRowsFromJsonAsync(string json, bool replaceExisting = false, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<DreamGenClone.Domain.RolePlay.RPSteerPositionMatrixRow> SaveSteerPositionMatrixRowAsync(DreamGenClone.Domain.RolePlay.RPSteerPositionMatrixRow row, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<IReadOnlyList<DreamGenClone.Domain.RolePlay.RPSteerPositionMatrixRow>> ListSteerPositionMatrixRowsAsync(CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<bool> DeleteSteerPositionMatrixRowAsync(string rowId, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<int> ImportSteerPositionMatrixRowsFromJsonAsync(string json, bool replaceExisting = false, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<IReadOnlyList<RPThemeImportResult>> ImportFromMarkdownAsync(IReadOnlyList<RPThemeImportFile> files, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<IReadOnlyList<RPThemeImportResult>> SyncFromMarkdownDirectoryAsync(string directoryPath, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task TruncateRolePlayAndScenarioDataAsync(CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<DreamGenClone.Domain.RolePlay.RPFinishLocation> SaveFinishLocationAsync(DreamGenClone.Domain.RolePlay.RPFinishLocation entry, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<IReadOnlyList<DreamGenClone.Domain.RolePlay.RPFinishLocation>> ListFinishLocationsAsync(bool includeDisabled = false, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<bool> DeleteFinishLocationAsync(string entryId, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<DreamGenClone.Domain.RolePlay.RPFinishFacialType> SaveFinishFacialTypeAsync(DreamGenClone.Domain.RolePlay.RPFinishFacialType entry, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<IReadOnlyList<DreamGenClone.Domain.RolePlay.RPFinishFacialType>> ListFinishFacialTypesAsync(bool includeDisabled = false, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<bool> DeleteFinishFacialTypeAsync(string entryId, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<DreamGenClone.Domain.RolePlay.RPFinishReceptivityLevel> SaveFinishReceptivityLevelAsync(DreamGenClone.Domain.RolePlay.RPFinishReceptivityLevel entry, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<IReadOnlyList<DreamGenClone.Domain.RolePlay.RPFinishReceptivityLevel>> ListFinishReceptivityLevelsAsync(bool includeDisabled = false, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<bool> DeleteFinishReceptivityLevelAsync(string entryId, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<DreamGenClone.Domain.RolePlay.RPFinishHisControlLevel> SaveFinishHisControlLevelAsync(DreamGenClone.Domain.RolePlay.RPFinishHisControlLevel entry, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<IReadOnlyList<DreamGenClone.Domain.RolePlay.RPFinishHisControlLevel>> ListFinishHisControlLevelsAsync(bool includeDisabled = false, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<bool> DeleteFinishHisControlLevelAsync(string entryId, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<DreamGenClone.Domain.RolePlay.RPFinishTransitionAction> SaveFinishTransitionActionAsync(DreamGenClone.Domain.RolePlay.RPFinishTransitionAction entry, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<IReadOnlyList<DreamGenClone.Domain.RolePlay.RPFinishTransitionAction>> ListFinishTransitionActionsAsync(bool includeDisabled = false, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<bool> DeleteFinishTransitionActionAsync(string entryId, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<DreamGenClone.Domain.RolePlay.RPPosition> SavePositionAsync(DreamGenClone.Domain.RolePlay.RPPosition entry, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<IReadOnlyList<DreamGenClone.Domain.RolePlay.RPPosition>> ListPositionsAsync(bool includeDisabled = false, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<IReadOnlyList<DreamGenClone.Domain.RolePlay.RPPosition>> ListPositionsAsync(CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<bool> DeletePositionAsync(string entryId, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+    }
+
     private static (RolePlayEngineService Service, FakeSessionService SessionService) CreateService(
         IRolePlayStateRepository? v2StateRepository = null,
         bool suppressNarrativeAfterDecision = false)
@@ -1053,6 +1172,21 @@ public sealed class RolePlaySessionLifecycleTests
             CancellationToken cancellationToken = default)
         {
             return Task.FromResult(new ContinueAsResult { Success = true });
+        }
+
+        public Task<RolePlayInteraction> ContinueNarrativeAsync(
+            RolePlaySession session,
+            string actorName,
+            string promptText,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new RolePlayInteraction
+            {
+                InteractionType = InteractionType.System,
+                ActorName = actorName,
+                Content = promptText,
+                GeneratedByCommand = "Narrative"
+            });
         }
     }
 

@@ -270,6 +270,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             PersonaRelationTargetId = CharacterRelationCatalog.NormalizeTargetId(request.PersonaRelationTargetId),
             PersonaPerspectiveMode = CharacterPerspectiveMode.FirstPersonInternalMonologue,
             SelectedAwarenessProfileId = string.IsNullOrWhiteSpace(request.AwarenessProfileId) ? null : request.AwarenessProfileId,
+            PersonaPhysicalAttributes = request.PersonaPhysicalAttributes,
         };
 
         // Propagate awareness profile to adaptive state so the prompt pipeline can inject it immediately.
@@ -704,6 +705,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         }
 
         await ValidateSessionCompatibilityOrThrowAsync(session, cancellationToken);
+        await SeedPersonaStatsFromTemplateAsync(session, cancellationToken);
 
         var promptText = string.IsNullOrWhiteSpace(instruction)
             ? "Continue the scene naturally."
@@ -1076,6 +1078,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             ?? throw new InvalidOperationException($"Role-play session '{request.SessionId}' not found.");
 
         await ValidateSessionCompatibilityOrThrowAsync(session, cancellationToken);
+        await SeedPersonaStatsFromTemplateAsync(session, cancellationToken);
 
         if (!_commandValidator.ValidateContinueRequest(request, session.BehaviorMode, out var validationError))
         {
@@ -6055,18 +6058,31 @@ Requirements:
             return;
         }
 
+        var personaName = string.IsNullOrWhiteSpace(session.PersonaName) ? "You" : session.PersonaName.Trim();
+
+        // Skip re-seeding if the persona block was already correctly seeded — indicated by
+        // a non-empty BaselineStats. BaselineStats is populated only during correct seeding;
+        // blocks created via EnsurePersonaCharacterState (when template had no BaseStats at
+        // session creation) have empty BaselineStats and will be re-seeded here on each load
+        // until a properly-seeded block replaces them.
+        if (session.AdaptiveState.CharacterStats.TryGetValue(personaName, out var existingBlock)
+            && existingBlock.BaselineStats.Count > 0)
+        {
+            return;
+        }
+
         var personaTemplate = await _templateService.GetByIdAsync(personaTemplateGuid, cancellationToken);
         if (personaTemplate is null || personaTemplate.BaseStats.Count == 0)
         {
             return;
         }
 
-        var personaName = string.IsNullOrWhiteSpace(session.PersonaName) ? "You" : session.PersonaName.Trim();
         var normalizedStats = AdaptiveStatCatalog.NormalizeComplete(personaTemplate.BaseStats);
         session.AdaptiveState.CharacterStats[personaName] = new CharacterStatBlock
         {
             CharacterId = personaName,
             Stats = normalizedStats,
+            BaselineStats = new Dictionary<string, int>(normalizedStats, StringComparer.OrdinalIgnoreCase),
             UpdatedUtc = DateTime.UtcNow
         };
 
