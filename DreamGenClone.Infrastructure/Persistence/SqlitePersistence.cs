@@ -460,6 +460,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 DesireBand TEXT NOT NULL,
                 SelfRespectBand TEXT NOT NULL,
                 DominanceBand TEXT NOT NULL,
+                EscalationTier TEXT NOT NULL DEFAULT 'Low',
                 PrimaryLocationsJson TEXT NOT NULL DEFAULT '[]',
                 SecondaryLocationsJson TEXT NOT NULL DEFAULT '[]',
                 ExcludedLocationsJson TEXT NOT NULL DEFAULT '[]',
@@ -476,6 +477,22 @@ public sealed class SqlitePersistence : ISqlitePersistence
 
             CREATE INDEX IF NOT EXISTS IX_RPFinishingMoveMatrixRows_Sort
                 ON RPFinishingMoveMatrixRows (SortOrder, Id);
+
+            CREATE TABLE IF NOT EXISTS RPPositions (
+                Id TEXT PRIMARY KEY,
+                Name TEXT NOT NULL,
+                ShortDescription TEXT NOT NULL DEFAULT '',
+                DetailedDescription TEXT NOT NULL DEFAULT '',
+                EscalationTier TEXT NOT NULL DEFAULT 'Low',
+                SortOrder INTEGER NOT NULL DEFAULT 0,
+                IsEnabled INTEGER NOT NULL DEFAULT 1,
+                CreatedUtc TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL,
+                UNIQUE (Name)
+            );
+
+            CREATE INDEX IF NOT EXISTS IX_RPPositions_Sort
+                ON RPPositions (SortOrder, Id);
 
             CREATE TABLE IF NOT EXISTS RPSteerPositionMatrixRows (
                 Id TEXT PRIMARY KEY,
@@ -991,6 +1008,30 @@ public sealed class SqlitePersistence : ISqlitePersistence
             alterFinishingMoveWifeReceptivity.CommandText = "ALTER TABLE RPFinishingMoveMatrixRows ADD COLUMN WifeReceptivity TEXT NOT NULL DEFAULT ''";
             await alterFinishingMoveWifeReceptivity.ExecuteNonQueryAsync(cancellationToken);
             _logger.LogInformation("Migrated RPFinishingMoveMatrixRows table: added WifeReceptivity column");
+        }
+
+        // Always ensure RPFinishingMoveMatrixRows has EscalationTier column.
+        var ensureFinishingMoveEscalationTierColumn = connection.CreateCommand();
+        ensureFinishingMoveEscalationTierColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RPFinishingMoveMatrixRows') WHERE name='EscalationTier'";
+        var hasFinishingMoveEscalationTierColumn = Convert.ToInt64(await ensureFinishingMoveEscalationTierColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasFinishingMoveEscalationTierColumn)
+        {
+            var alterFinishingMoveEscalationTier = connection.CreateCommand();
+            alterFinishingMoveEscalationTier.CommandText = "ALTER TABLE RPFinishingMoveMatrixRows ADD COLUMN EscalationTier TEXT NOT NULL DEFAULT 'Low'";
+            await alterFinishingMoveEscalationTier.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated RPFinishingMoveMatrixRows table: added EscalationTier column");
+        }
+
+        // Always ensure RPPositions has EscalationTier column.
+        var ensurePositionEscalationTierColumn = connection.CreateCommand();
+        ensurePositionEscalationTierColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RPPositions') WHERE name='EscalationTier'";
+        var hasPositionEscalationTierColumn = Convert.ToInt64(await ensurePositionEscalationTierColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasPositionEscalationTierColumn)
+        {
+            var alterPositionEscalationTier = connection.CreateCommand();
+            alterPositionEscalationTier.CommandText = "ALTER TABLE RPPositions ADD COLUMN EscalationTier TEXT NOT NULL DEFAULT 'Low'";
+            await alterPositionEscalationTier.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated RPPositions table: added EscalationTier column");
         }
 
         var shouldRunLegacyMigrations = await ShouldRunLegacyMigrationsAsync(connection, cancellationToken);

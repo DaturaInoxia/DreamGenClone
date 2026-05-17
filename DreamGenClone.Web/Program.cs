@@ -97,6 +97,7 @@ builder.Services.AddScoped<IScenarioGuidanceGenerator, ScenarioGuidanceGenerator
 builder.Services.AddScoped<ScenarioGuidanceTemplateSeedService>();
 builder.Services.AddScoped<FinishingMoveMatrixSeedService>();
 builder.Services.AddScoped<SteerPositionMatrixSeedService>();
+    builder.Services.AddScoped<RPPositionSeedService>();
 builder.Services.AddScoped<RPFinishLocationSeedService>();
 builder.Services.AddScoped<RPFinishFacialTypeSeedService>();
 builder.Services.AddScoped<RPFinishReceptivityLevelSeedService>();
@@ -191,6 +192,9 @@ using (var scope = app.Services.CreateScope())
 
     var finishingMoveMatrixSeedService = scope.ServiceProvider.GetRequiredService<FinishingMoveMatrixSeedService>();
     await finishingMoveMatrixSeedService.SeedDefaultsAsync();
+
+    var rpPositionSeedService = scope.ServiceProvider.GetRequiredService<RPPositionSeedService>();
+    await rpPositionSeedService.SeedDefaultsAsync();
 
     var steerPositionMatrixSeedService = scope.ServiceProvider.GetRequiredService<SteerPositionMatrixSeedService>();
     await steerPositionMatrixSeedService.SeedDefaultsAsync();

@@ -6,64 +6,47 @@ namespace DreamGenClone.Infrastructure.RolePlay;
 
 public sealed class RPFinishReceptivityLevelSeedService
 {
-    private sealed record SeedEntry(
-        string Name,
-        string Description,
-        string PhysicalCues,
-        string NarrativeCue,
-        string EligibleDesire = "",
-        string EligibleSelfRespect = "");
+    private sealed record SeedEntry(string Name, string PhysicalCues, string NarrativeCue, string EscalationTier);
 
-    // Exactly 8 canonical entries, SortOrder 0–7
     private static readonly SeedEntry[] Seeds =
     [
-        new("Begging",
-            "She is actively begging for it; desire overrides all restraint.",
-            "Hips rocking forward, hands pulling him close, voice pleading.",
-            "She begs him not to stop, her voice barely coherent.",
-            "60-100", "0-29,30-59"),
-
-        new("Enthusiastic",
-            "Fully willing and energetically engaged; equal or greater initiative.",
-            "Body arched toward him, moaning freely, eyes bright.",
-            "Her enthusiasm matches or exceeds his own.",
-            "60-100", "30-59,60-100"),
-
-        new("Eager",
-            "Willing and ready; leaning into the moment without reservation.",
-            "Soft gasps, body relaxed and open, small encouraging sounds.",
-            "She is ready and clearly wants this.",
-            "30-59,60-100", "30-59,60-100"),
-
-        new("Accepting",
-            "Comfortable and consenting; no resistance, moderate engagement.",
-            "Steady breathing, relaxed posture, neutral or soft expression.",
-            "She accepts what is happening without protest.",
-            "30-59,60-100", "30-59,60-100"),
-
-        new("Tolerating",
-            "Compliant but not engaged; enduring rather than enjoying.",
-            "Quiet, still, eyes averted or half-closed, minimal movement.",
-            "She endures without complaint, though her engagement is absent.",
-            "0-29,30-59", "0-29,30-59"),
-
-        new("Reluctant",
-            "Some visible resistance or hesitation; she complies but shows reluctance.",
-            "Slight flinch or tensing, hands braced, soft protest sounds.",
-            "She hesitates but does not stop him.",
-            "0-29", "30-59,60-100"),
-
+        // Low
         new("CumDodging",
-            "Actively tries to avoid the finish or reposition; high self-respect low desire.",
-            "Turning away, shoulders raised, small recoil at the moment.",
-            "She instinctively angles away, though she doesn't refuse outright.",
-            "0-29", "60-100"),
+            "She squirms, turns away, tries to move from the target.",
+            "Her body reacts as if to avoid the finish.",
+            "Low"),
+        new("Reluctant",
+            "She stiffens slightly, minimal body movement.",
+            "She tolerates but does not embrace the finish.",
+            "Low"),
 
+        // Medium
+        new("Accepting",
+            "Still and compliant without resistance.",
+            "She takes the finish without complaint.",
+            "Medium"),
+        new("Tolerating",
+            "Minor tension in jaw or shoulders, eyes may close.",
+            "She holds herself for him even if not enthusiastic.",
+            "Medium"),
+        new("Eager",
+            "Leans slightly toward him, mouth slightly open.",
+            "She wants to please him and shows mild anticipation.",
+            "Medium"),
+
+        // High
+        new("Enthusiastic",
+            "Leans in, open posture, eyes wide or smiling.",
+            "She actively wants it and makes that clear.",
+            "High"),
+        new("Begging",
+            "Strained forward, pleading expression, gasping.",
+            "She begs him to finish on or in her.",
+            "High"),
         new("Enduring",
-            "Passive endurance; no agency, no engagement, full submission.",
-            "Eyes closed, body limp or rigid, no vocal response.",
-            "She has no say and does not expect one.",
-            "0-29,30-59", "0-29"),
+            "Rigid or limp, jaw tight or slack, eyes fixed.",
+            "She has no say; she takes whatever he chooses.",
+            "High"),
     ];
 
     private readonly IRPThemeService _rpThemeService;
@@ -78,28 +61,45 @@ public sealed class RPFinishReceptivityLevelSeedService
     public async Task SeedDefaultsAsync(CancellationToken cancellationToken = default)
     {
         var existing = await _rpThemeService.ListFinishReceptivityLevelsAsync(includeDisabled: true, cancellationToken: cancellationToken);
+
         if (existing.Count > 0)
         {
-            _logger.LogInformation("Finish receptivity level seed skipped: {Count} entries already present.", existing.Count);
+            await UpdateExistingTiersAsync(existing, cancellationToken);
             return;
         }
 
-        for (var i = 0; i < Seeds.Length; i++)
+        var sortOrder = 0;
+        foreach (var seed in Seeds)
         {
-            var seed = Seeds[i];
             await _rpThemeService.SaveFinishReceptivityLevelAsync(new RPFinishReceptivityLevel
             {
                 Name = seed.Name,
-                Description = seed.Description,
                 PhysicalCues = seed.PhysicalCues,
                 NarrativeCue = seed.NarrativeCue,
-                EligibleDesireBands = seed.EligibleDesire,
-                EligibleSelfRespectBands = seed.EligibleSelfRespect,
-                SortOrder = i,
+                EscalationTier = seed.EscalationTier,
+                SortOrder = sortOrder++,
                 IsEnabled = true
             }, cancellationToken);
         }
 
         _logger.LogInformation("Seeded {Count} finish receptivity level entries.", Seeds.Length);
+    }
+
+    private async Task UpdateExistingTiersAsync(
+        IReadOnlyList<RPFinishReceptivityLevel> existing,
+        CancellationToken cancellationToken)
+    {
+        var tierByName = Seeds.ToDictionary(e => e.Name, e => e.EscalationTier, StringComparer.OrdinalIgnoreCase);
+        var updated = 0;
+        foreach (var r in existing)
+        {
+            if (!tierByName.TryGetValue(r.Name, out var correctTier)) continue;
+            if (string.Equals(r.EscalationTier, correctTier, StringComparison.OrdinalIgnoreCase)) continue;
+            r.EscalationTier = correctTier;
+            await _rpThemeService.SaveFinishReceptivityLevelAsync(r, cancellationToken);
+            updated++;
+        }
+        if (updated > 0)
+            _logger.LogInformation("Updated EscalationTier on {Count} finish receptivity level(s).", updated);
     }
 }

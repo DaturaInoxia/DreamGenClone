@@ -407,10 +407,10 @@ public sealed class CompletionClient : ICompletionClient
             Content = JsonContent.Create(payload)
         };
 
-        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
-            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             var statusCode = (int)response.StatusCode;
             var errorMessage = statusCode switch
             {
@@ -427,14 +427,26 @@ public sealed class CompletionClient : ICompletionClient
         var sb = new StringBuilder();
         string? finishReason = null;
 
-        await using (var stream = await response.Content.ReadAsStreamAsync(cancellationToken))
+        // IMPORTANT (UI responsiveness):
+        //   1. Do NOT use `reader.EndOfStream` in the loop condition. That property performs a
+        //      synchronous, blocking read on the underlying network stream whenever the buffer
+        //      is empty. When this method is awaited from the Blazor renderer's synchronization
+        //      context, those blocking reads run on the UI dispatcher thread and freeze the UI
+        //      between SSE chunks (very visible on slow models).
+        //   2. ConfigureAwait(false) on every await keeps continuations on the thread-pool
+        //      instead of bouncing back to the renderer dispatcher, so other UI events
+        //      (e.g. adaptive-panel clicks/scroll) can be processed while the stream is active.
+        //   3. `await onChunk(...).ConfigureAwait(false)` ensures the chunk callback's
+        //      completion does not drag us back onto the renderer dispatcher either; the
+        //      callback itself is responsible for marshalling any UI updates via InvokeAsync.
+        await using (var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false))
         using (var reader = new StreamReader(stream))
         {
-            while (!reader.EndOfStream)
+            string? line;
+            while ((line = await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false)) is not null)
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                var line = await reader.ReadLineAsync();
                 if (string.IsNullOrWhiteSpace(line))
                 {
                     continue;
@@ -472,7 +484,7 @@ public sealed class CompletionClient : ICompletionClient
                 }
 
                 sb.Append(chunkText);
-                await onChunk(chunkText);
+                await onChunk(chunkText).ConfigureAwait(false);
             }
         }
 
@@ -480,10 +492,10 @@ public sealed class CompletionClient : ICompletionClient
         if (string.IsNullOrWhiteSpace(content))
         {
             // Provider likely ignored stream=true and returned non-SSE JSON.
-            content = await SendCompletionAsync(messages, resolved, cancellationToken);
+            content = await SendCompletionAsync(messages, resolved, cancellationToken).ConfigureAwait(false);
             if (!string.IsNullOrWhiteSpace(content))
             {
-                await onChunk(content);
+                await onChunk(content).ConfigureAwait(false);
             }
             finishReason = null;
         }
@@ -495,7 +507,7 @@ public sealed class CompletionClient : ICompletionClient
                 messages,
                 resolved,
                 content,
-                cancellationToken);
+                cancellationToken).ConfigureAwait(false);
             var continuation = continuationResult.Content;
 
             if (continuation.Length > content.Length)
@@ -503,7 +515,7 @@ public sealed class CompletionClient : ICompletionClient
                 var delta = continuation[content.Length..];
                 if (!string.IsNullOrWhiteSpace(delta))
                 {
-                    await onChunk(delta);
+                    await onChunk(delta).ConfigureAwait(false);
                 }
             }
 

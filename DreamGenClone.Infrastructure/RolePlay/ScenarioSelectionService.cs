@@ -81,9 +81,15 @@ public sealed class ScenarioSelectionService : IScenarioSelectionService
 
                 var weightedScore = decimal.Round(weightedScore01 * 100m, 3, MidpointRounding.AwayFromZero);
                 var gateFailPenaltyMultiplier = Clamp01((decimal)_options.GateFailScorePenaltyMultiplier);
-                var score = gate.Passed
+                var fitScoreMultiplier = candidate.FitScoreMultiplier > 0m
+                    ? Math.Min(candidate.FitScoreMultiplier, 1m)
+                    : 1m;
+                var gateAdjustedScore = gate.Passed
                     ? weightedScore
                     : decimal.Round(weightedScore * gateFailPenaltyMultiplier, 3, MidpointRounding.AwayFromZero);
+                var score = fitScoreMultiplier < 1m
+                    ? decimal.Round(gateAdjustedScore * fitScoreMultiplier, 3, MidpointRounding.AwayFromZero)
+                    : gateAdjustedScore;
 
                 var confidence = Math.Clamp((double)score / 100d, 0d, 1d);
                 var evaluation = new ScenarioCandidateEvaluation
@@ -102,7 +108,9 @@ public sealed class ScenarioSelectionService : IScenarioSelectionService
                     TieBreakKey = $"{candidate.Priority:D3}:{candidate.ScenarioId}",
                     Rationale = gate.Passed
                         ? BuildRationale(score, characterAlignmentScore, narrativeEvidenceScore, preferencePriorityScore, fit, gate.Reason)
-                        : $"{gate.Reason} Penalized weighted score from {weightedScore:0.###} to {score:0.###} (multiplier={gateFailPenaltyMultiplier:0.###}).",
+                            + (fitScoreMultiplier < 1m ? $" FitScore further penalized by recentCompletion multiplier={fitScoreMultiplier:0.###} from {gateAdjustedScore:0.###} to {score:0.###}." : string.Empty)
+                        : $"{gate.Reason} Penalized weighted score from {weightedScore:0.###} to {gateAdjustedScore:0.###} (gateMultiplier={gateFailPenaltyMultiplier:0.###})"
+                            + (fitScoreMultiplier < 1m ? $", then recentCompletion multiplier={fitScoreMultiplier:0.###} from {gateAdjustedScore:0.###} to {score:0.###}." : "."),
                     DetailsJson = BuildDetailsJson(candidate, fit, gate),
                     EvaluatedUtc = DateTime.UtcNow
                 };

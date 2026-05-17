@@ -1,0 +1,812 @@
+﻿@using DreamGenClone.Domain.Templates
+
+<div class="physical-attributes-editor">
+
+    @* ── Group: General ── *@
+    <div class="pa-group-header">General</div>
+    <div class="row g-2 mb-2">
+        <div class="col-md-3">
+            <label class="form-label small">Age</label>
+            <input type="text" class="form-control form-control-sm"
+                   value="@Attributes?.Age"
+                   @onchange="@(e => SetField(a => a.Age = e.Value?.ToString()))" />
+        </div>
+        <div class="col-md-3">
+            <label class="form-label small">Height</label>
+            <input type="text" class="form-control form-control-sm"
+                   value="@Attributes?.Height"
+                   @onchange="@(e => SetField(a => a.Height = e.Value?.ToString()))" />
+        </div>
+        <div class="col-md-3">
+            <label class="form-label small">Weight</label>
+            <input type="text" class="form-control form-control-sm"
+                   value="@Attributes?.Weight"
+                   @onchange="@(e => SetField(a => a.Weight = e.Value?.ToString()))" />
+        </div>
+        <div class="col-md-3">
+            <label class="form-label small">Ethnicity</label>
+            <select class="form-select form-select-sm"
+                    value="@GetSelectValue(Attributes?.Ethnicity, PhysicalAttributesCatalog.Ethnicities)"
+                    @onchange="@(e => OnPresetChanged(e, PhysicalAttributesCatalog.Ethnicities, a => a.Ethnicity = e.Value?.ToString(), v => _ethnicityCustom = v))">
+                <option value="">(none)</option>
+                @foreach (var opt in PhysicalAttributesCatalog.Ethnicities)
+                {
+                    <option value="@opt">@opt</option>
+                }
+                <option value="__custom__">(Custom...)</option>
+            </select>
+            @if (IsCustom(Attributes?.Ethnicity, PhysicalAttributesCatalog.Ethnicities))
+            {
+                <input type="text" class="form-control form-control-sm mt-1"
+                       value="@Attributes?.Ethnicity"
+                       @onchange="@(e => SetField(a => a.Ethnicity = e.Value?.ToString()))" />
+            }
+        </div>
+    </div>
+
+    @* ── Group: Appearance ── *@
+    <div class="pa-group-header">Appearance</div>
+    <div class="row g-2 mb-2">
+        <div class="col-md-4">
+            <label class="form-label small">Hair Colour</label>
+            <select class="form-select form-select-sm"
+                    value="@GetSelectValue(Attributes?.HairColour, PhysicalAttributesCatalog.HairColours)"
+                    @onchange="@(e => OnPresetChanged(e, PhysicalAttributesCatalog.HairColours, a => a.HairColour = e.Value?.ToString(), v => _hairColourCustom = v))">
+                <option value="">(none)</option>
+                @foreach (var opt in PhysicalAttributesCatalog.HairColours)
+                {
+                    <option value="@opt">@opt</option>
+                }
+                <option value="__custom__">(Custom...)</option>
+            </select>
+            @if (IsCustom(Attributes?.HairColour, PhysicalAttributesCatalog.HairColours))
+            {
+                <input type="text" class="form-control form-control-sm mt-1"
+                       value="@Attributes?.HairColour"
+                       @onchange="@(e => SetField(a => a.HairColour = e.Value?.ToString()))" />
+            }
+        </div>
+        <div class="col-md-4">
+            <label class="form-label small">Hair Style</label>
+            <select class="form-select form-select-sm"
+                    value="@GetSelectValue(Attributes?.HairStyle, PhysicalAttributesCatalog.HairStyles)"
+                    @onchange="@(e => OnPresetChanged(e, PhysicalAttributesCatalog.HairStyles, a => a.HairStyle = e.Value?.ToString(), v => _hairStyleCustom = v))">
+                <option value="">(none)</option>
+                @foreach (var opt in PhysicalAttributesCatalog.HairStyles)
+                {
+                    <option value="@opt">@opt</option>
+                }
+                <option value="__custom__">(Custom...)</option>
+            </select>
+            @if (IsCustom(Attributes?.HairStyle, PhysicalAttributesCatalog.HairStyles))
+            {
+                <input type="text" class="form-control form-control-sm mt-1"
+                       value="@Attributes?.HairStyle"
+                       @onchange="@(e => SetField(a => a.HairStyle = e.Value?.ToString()))" />
+            }
+        </div>
+        <div class="col-md-4">
+            <label class="form-label small">Eye Colour</label>
+            <select class="form-select form-select-sm"
+                    value="@GetSelectValue(Attributes?.EyeColour, PhysicalAttributesCatalog.EyeColours)"
+                    @onchange="@(e => OnPresetChanged(e, PhysicalAttributesCatalog.EyeColours, a => a.EyeColour = e.Value?.ToString(), v => _eyeColourCustom = v))">
+                <option value="">(none)</option>
+                @foreach (var opt in PhysicalAttributesCatalog.EyeColours)
+                {
+                    <option value="@opt">@opt</option>
+                }
+                <option value="__custom__">(Custom...)</option>
+            </select>
+            @if (IsCustom(Attributes?.EyeColour, PhysicalAttributesCatalog.EyeColours))
+            {
+                <input type="text" class="form-control form-control-sm mt-1"
+                       value="@Attributes?.EyeColour"
+                       @onchange="@(e => SetField(a => a.EyeColour = e.Value?.ToString()))" />
+            }
+        </div>
+    </div>
+    <div class="row g-2 mb-2">
+        <div class="col-md-4">
+            <label class="form-label small">Skin Tone</label>
+            <select class="form-select form-select-sm"
+                    value="@GetSelectValue(Attributes?.SkinTone, PhysicalAttributesCatalog.SkinTones)"
+                    @onchange="@(e => OnPresetChanged(e, PhysicalAttributesCatalog.SkinTones, a => a.SkinTone = e.Value?.ToString(), v => _skinToneCustom = v))">
+                <option value="">(none)</option>
+                @foreach (var opt in PhysicalAttributesCatalog.SkinTones)
+                {
+                    <option value="@opt">@opt</option>
+                }
+                <option value="__custom__">(Custom...)</option>
+            </select>
+            @if (IsCustom(Attributes?.SkinTone, PhysicalAttributesCatalog.SkinTones))
+            {
+                <input type="text" class="form-control form-control-sm mt-1"
+                       value="@Attributes?.SkinTone"
+                       @onchange="@(e => SetField(a => a.SkinTone = e.Value?.ToString()))" />
+            }
+        </div>
+        <div class="col-md-4">
+            <label class="form-label small">Skin Texture</label>
+            <select class="form-select form-select-sm"
+                    value="@GetSelectValue(Attributes?.SkinTexture, PhysicalAttributesCatalog.SkinTextures)"
+                    @onchange="@(e => OnPresetChanged(e, PhysicalAttributesCatalog.SkinTextures, a => a.SkinTexture = e.Value?.ToString(), v => _skinTextureCustom = v))">
+                <option value="">(none)</option>
+                @foreach (var opt in PhysicalAttributesCatalog.SkinTextures)
+                {
+                    <option value="@opt">@opt</option>
+                }
+                <option value="__custom__">(Custom...)</option>
+            </select>
+            @if (IsCustom(Attributes?.SkinTexture, PhysicalAttributesCatalog.SkinTextures))
+            {
+                <input type="text" class="form-control form-control-sm mt-1"
+                       value="@Attributes?.SkinTexture"
+                       @onchange="@(e => SetField(a => a.SkinTexture = e.Value?.ToString()))" />
+            }
+        </div>
+        <div class="col-md-4">
+            <label class="form-label small">Body Type</label>
+            <select class="form-select form-select-sm"
+                    value="@GetSelectValue(Attributes?.BodyType, PhysicalAttributesCatalog.BodyTypes)"
+                    @onchange="@(e => OnPresetChanged(e, PhysicalAttributesCatalog.BodyTypes, a => a.BodyType = e.Value?.ToString(), v => _bodyTypeCustom = v))">
+                <option value="">(none)</option>
+                @foreach (var opt in PhysicalAttributesCatalog.BodyTypes)
+                {
+                    <option value="@opt">@opt</option>
+                }
+                <option value="__custom__">(Custom...)</option>
+            </select>
+            @if (IsCustom(Attributes?.BodyType, PhysicalAttributesCatalog.BodyTypes))
+            {
+                <input type="text" class="form-control form-control-sm mt-1"
+                       value="@Attributes?.BodyType"
+                       @onchange="@(e => SetField(a => a.BodyType = e.Value?.ToString()))" />
+            }
+        </div>
+    </div>
+
+    @* ── Group: Body Measurements (female / mixed) ── *@
+    @if (!string.Equals(Gender, "Male", StringComparison.OrdinalIgnoreCase))
+    {
+        <div class="pa-group-header">Body Measurements</div>
+        <div class="row g-2 mb-2">
+            <div class="col-md-4">
+                <label class="form-label small">Bust</label>
+                <select class="form-select form-select-sm"
+                        value="@GetSelectValue(Attributes?.BustSize, PhysicalAttributesCatalog.BustSizes)"
+                        @onchange="@(e => OnPresetChanged(e, PhysicalAttributesCatalog.BustSizes, a => a.BustSize = e.Value?.ToString(), v => _bustCustom = v))">
+                    <option value="">(none)</option>
+                    @foreach (var opt in PhysicalAttributesCatalog.BustSizes)
+                    {
+                        <option value="@opt">@opt</option>
+                    }
+                    <option value="__custom__">(Custom...)</option>
+                </select>
+                @if (IsCustom(Attributes?.BustSize, PhysicalAttributesCatalog.BustSizes))
+                {
+                    <input type="text" class="form-control form-control-sm mt-1"
+                           value="@Attributes?.BustSize"
+                           @onchange="@(e => SetField(a => a.BustSize = e.Value?.ToString()))" />
+                }
+            </div>
+            <div class="col-md-4">
+                <label class="form-label small">Waist</label>
+                <select class="form-select form-select-sm"
+                        value="@GetSelectValue(Attributes?.WaistSize, PhysicalAttributesCatalog.WaistSizes)"
+                        @onchange="@(e => OnPresetChanged(e, PhysicalAttributesCatalog.WaistSizes, a => a.WaistSize = e.Value?.ToString(), v => _waistCustom = v))">
+                    <option value="">(none)</option>
+                    @foreach (var opt in PhysicalAttributesCatalog.WaistSizes)
+                    {
+                        <option value="@opt">@opt</option>
+                    }
+                    <option value="__custom__">(Custom...)</option>
+                </select>
+                @if (IsCustom(Attributes?.WaistSize, PhysicalAttributesCatalog.WaistSizes))
+                {
+                    <input type="text" class="form-control form-control-sm mt-1"
+                           value="@Attributes?.WaistSize"
+                           @onchange="@(e => SetField(a => a.WaistSize = e.Value?.ToString()))" />
+                }
+            </div>
+            <div class="col-md-4">
+                <label class="form-label small">Hips</label>
+                <select class="form-select form-select-sm"
+                        value="@GetSelectValue(Attributes?.HipSize, PhysicalAttributesCatalog.HipSizes)"
+                        @onchange="@(e => OnPresetChanged(e, PhysicalAttributesCatalog.HipSizes, a => a.HipSize = e.Value?.ToString(), v => _hipCustom = v))">
+                    <option value="">(none)</option>
+                    @foreach (var opt in PhysicalAttributesCatalog.HipSizes)
+                    {
+                        <option value="@opt">@opt</option>
+                    }
+                    <option value="__custom__">(Custom...)</option>
+                </select>
+                @if (IsCustom(Attributes?.HipSize, PhysicalAttributesCatalog.HipSizes))
+                {
+                    <input type="text" class="form-control form-control-sm mt-1"
+                           value="@Attributes?.HipSize"
+                           @onchange="@(e => SetField(a => a.HipSize = e.Value?.ToString()))" />
+                }
+            </div>
+        </div>
+    }
+
+    @* ── Group: Style and Misc ── *@
+    <div class="pa-group-header">Style &amp; Misc</div>
+    <div class="row g-2 mb-2">
+        <div class="col-md-4">
+            <label class="form-label small">Clothing Style</label>
+            <input type="text" class="form-control form-control-sm"
+                   value="@Attributes?.ClothingStyle"
+                   @onchange="@(e => SetField(a => a.ClothingStyle = e.Value?.ToString()))" />
+        </div>
+        <div class="col-md-4">
+            <label class="form-label small">Piercings</label>
+            <input type="text" class="form-control form-control-sm"
+                   value="@Attributes?.Piercings"
+                   @onchange="@(e => SetField(a => a.Piercings = e.Value?.ToString()))" />
+        </div>
+        <div class="col-md-4">
+            <label class="form-label small">Tattoos</label>
+            <input type="text" class="form-control form-control-sm"
+                   value="@Attributes?.Tattoos"
+                   @onchange="@(e => SetField(a => a.Tattoos = e.Value?.ToString()))" />
+        </div>
+    </div>
+    <div class="row g-2 mb-2">
+        <div class="col-md-6">
+            <label class="form-label small">Distinguishing Marks</label>
+            <input type="text" class="form-control form-control-sm"
+                   value="@Attributes?.DistinguishingMarks"
+                   @onchange="@(e => SetField(a => a.DistinguishingMarks = e.Value?.ToString()))" />
+        </div>
+        <div class="col-md-3">
+            <label class="form-label small">Attractiveness (1-10)</label>
+            <input type="number" class="form-control form-control-sm" min="1" max="10"
+                   value="@Attributes?.AttractivenessRating"
+                   @onchange="@(e => SetField(a => a.AttractivenessRating = TryParseInt(e.Value?.ToString())))" />
+        </div>
+    </div>
+
+    @* ── Group: Intimate General ── *@
+    <div class="pa-group-header">Intimate — General</div>
+    <div class="row g-2 mb-2">
+        <div class="col-md-6">
+            <label class="form-label small">Scent</label>
+            <select class="form-select form-select-sm"
+                    value="@GetSelectValue(Attributes?.Scent, PhysicalAttributesCatalog.ScentOptions)"
+                    @onchange="@(e => OnPresetChanged(e, PhysicalAttributesCatalog.ScentOptions, a => a.Scent = e.Value?.ToString(), v => _scentCustom = v))">
+                <option value="">(none)</option>
+                @foreach (var opt in PhysicalAttributesCatalog.ScentOptions)
+                {
+                    <option value="@opt">@opt</option>
+                }
+                <option value="__custom__">(Custom...)</option>
+            </select>
+            @if (IsCustom(Attributes?.Scent, PhysicalAttributesCatalog.ScentOptions))
+            {
+                <input type="text" class="form-control form-control-sm mt-1"
+                       value="@Attributes?.Scent"
+                       @onchange="@(e => SetField(a => a.Scent = e.Value?.ToString()))" />
+            }
+        </div>
+        <div class="col-md-6">
+            <label class="form-label small">Sexual Confidence</label>
+            <select class="form-select form-select-sm"
+                    value="@GetSelectValue(Attributes?.SexualConfidence, PhysicalAttributesCatalog.SexualConfidenceOptions)"
+                    @onchange="@(e => OnPresetChanged(e, PhysicalAttributesCatalog.SexualConfidenceOptions, a => a.SexualConfidence = e.Value?.ToString(), v => _sexualConfidenceCustom = v))">
+                <option value="">(none)</option>
+                @foreach (var opt in PhysicalAttributesCatalog.SexualConfidenceOptions)
+                {
+                    <option value="@opt">@opt</option>
+                }
+                <option value="__custom__">(Custom...)</option>
+            </select>
+            @if (IsCustom(Attributes?.SexualConfidence, PhysicalAttributesCatalog.SexualConfidenceOptions))
+            {
+                <input type="text" class="form-control form-control-sm mt-1"
+                       value="@Attributes?.SexualConfidence"
+                       @onchange="@(e => SetField(a => a.SexualConfidence = e.Value?.ToString()))" />
+            }
+        </div>
+    </div>
+    <div class="row g-2 mb-2">
+        <div class="col-md-4">
+            <label class="form-label small">Sexual Skill</label>
+            <select class="form-select form-select-sm"
+                    value="@GetSelectValue(Attributes?.SexualSkill, PhysicalAttributesCatalog.SexualSkillOptions)"
+                    @onchange="@(e => OnPresetChanged(e, PhysicalAttributesCatalog.SexualSkillOptions, a => a.SexualSkill = e.Value?.ToString(), v => _sexualSkillCustom = v))">
+                <option value="">(none)</option>
+                @foreach (var opt in PhysicalAttributesCatalog.SexualSkillOptions)
+                {
+                    <option value="@opt">@opt</option>
+                }
+                <option value="__custom__">(Custom...)</option>
+            </select>
+            @if (IsCustom(Attributes?.SexualSkill, PhysicalAttributesCatalog.SexualSkillOptions))
+            {
+                <input type="text" class="form-control form-control-sm mt-1"
+                       value="@Attributes?.SexualSkill"
+                       @onchange="@(e => SetField(a => a.SexualSkill = e.Value?.ToString()))" />
+            }
+        </div>
+        <div class="col-md-4">
+            <label class="form-label small">Sexual Drive</label>
+            <select class="form-select form-select-sm"
+                    value="@GetSelectValue(Attributes?.SexualDrive, PhysicalAttributesCatalog.SexualDriveOptions)"
+                    @onchange="@(e => OnPresetChanged(e, PhysicalAttributesCatalog.SexualDriveOptions, a => a.SexualDrive = e.Value?.ToString(), v => _sexualDriveCustom = v))">
+                <option value="">(none)</option>
+                @foreach (var opt in PhysicalAttributesCatalog.SexualDriveOptions)
+                {
+                    <option value="@opt">@opt</option>
+                }
+                <option value="__custom__">(Custom...)</option>
+            </select>
+            @if (IsCustom(Attributes?.SexualDrive, PhysicalAttributesCatalog.SexualDriveOptions))
+            {
+                <input type="text" class="form-control form-control-sm mt-1"
+                       value="@Attributes?.SexualDrive"
+                       @onchange="@(e => SetField(a => a.SexualDrive = e.Value?.ToString()))" />
+            }
+        </div>
+        <div class="col-md-4">
+            <label class="form-label small">Oral Skill</label>
+            <select class="form-select form-select-sm"
+                    value="@GetSelectValue(Attributes?.OralSkill, PhysicalAttributesCatalog.OralSkillOptions)"
+                    @onchange="@(e => OnPresetChanged(e, PhysicalAttributesCatalog.OralSkillOptions, a => a.OralSkill = e.Value?.ToString(), v => _oralSkillCustom = v))">
+                <option value="">(none)</option>
+                @foreach (var opt in PhysicalAttributesCatalog.OralSkillOptions)
+                {
+                    <option value="@opt">@opt</option>
+                }
+                <option value="__custom__">(Custom...)</option>
+            </select>
+            @if (IsCustom(Attributes?.OralSkill, PhysicalAttributesCatalog.OralSkillOptions))
+            {
+                <input type="text" class="form-control form-control-sm mt-1"
+                       value="@Attributes?.OralSkill"
+                       @onchange="@(e => SetField(a => a.OralSkill = e.Value?.ToString()))" />
+            }
+        </div>
+    </div>
+
+    @* ── Group: Intimate Male ── *@
+    @if (!string.Equals(Gender, "Female", StringComparison.OrdinalIgnoreCase))
+    {
+        <div class="pa-group-header">Intimate — Male</div>
+        <div class="row g-2 mb-2">
+            <div class="col-md-6">
+                <label class="form-label small">Endowment Length</label>
+                <select class="form-select form-select-sm"
+                        value="@GetSelectValue(Attributes?.EndowmentLength, PhysicalAttributesCatalog.EndowmentLengths)"
+                        @onchange="@(e => OnPresetChanged(e, PhysicalAttributesCatalog.EndowmentLengths, a => a.EndowmentLength = e.Value?.ToString(), v => _endowmentLengthCustom = v))">
+                    <option value="">(none)</option>
+                    @foreach (var opt in PhysicalAttributesCatalog.EndowmentLengths)
+                    {
+                        <option value="@opt">@opt</option>
+                    }
+                    <option value="__custom__">(Custom...)</option>
+                </select>
+                @if (IsCustom(Attributes?.EndowmentLength, PhysicalAttributesCatalog.EndowmentLengths))
+                {
+                    <input type="text" class="form-control form-control-sm mt-1"
+                           value="@Attributes?.EndowmentLength"
+                           @onchange="@(e => SetField(a => a.EndowmentLength = e.Value?.ToString()))" />
+                }
+            </div>
+            <div class="col-md-6">
+                <label class="form-label small">Endowment Girth</label>
+                <select class="form-select form-select-sm"
+                        value="@GetSelectValue(Attributes?.EndowmentGirth, PhysicalAttributesCatalog.EndowmentGirths)"
+                        @onchange="@(e => OnPresetChanged(e, PhysicalAttributesCatalog.EndowmentGirths, a => a.EndowmentGirth = e.Value?.ToString(), v => _endowmentGirthCustom = v))">
+                    <option value="">(none)</option>
+                    @foreach (var opt in PhysicalAttributesCatalog.EndowmentGirths)
+                    {
+                        <option value="@opt">@opt</option>
+                    }
+                    <option value="__custom__">(Custom...)</option>
+                </select>
+                @if (IsCustom(Attributes?.EndowmentGirth, PhysicalAttributesCatalog.EndowmentGirths))
+                {
+                    <input type="text" class="form-control form-control-sm mt-1"
+                           value="@Attributes?.EndowmentGirth"
+                           @onchange="@(e => SetField(a => a.EndowmentGirth = e.Value?.ToString()))" />
+                }
+            </div>
+        </div>
+        @if (!string.IsNullOrEmpty(Attributes?.EndowmentLength) || !string.IsNullOrEmpty(Attributes?.EndowmentGirth))
+        {
+            <div class="pa-endowment-preview mb-2">
+                <span class="text-muted small">Prompt description: </span>
+                <em class="small">@BuildEndowmentDescription(Attributes?.EndowmentLength, Attributes?.EndowmentGirth)</em>
+            </div>
+        }
+        <div class="row g-2 mb-2">
+            <div class="col-md-4">
+                <label class="form-label small">Stamina</label>
+                <select class="form-select form-select-sm"
+                        value="@GetSelectValue(Attributes?.Stamina, PhysicalAttributesCatalog.StaminaOptions)"
+                        @onchange="@(e => OnPresetChanged(e, PhysicalAttributesCatalog.StaminaOptions, a => a.Stamina = e.Value?.ToString(), v => _staminaCustom = v))">
+                    <option value="">(none)</option>
+                    @foreach (var opt in PhysicalAttributesCatalog.StaminaOptions)
+                    {
+                        <option value="@opt">@opt</option>
+                    }
+                    <option value="__custom__">(Custom...)</option>
+                </select>
+                @if (IsCustom(Attributes?.Stamina, PhysicalAttributesCatalog.StaminaOptions))
+                {
+                    <input type="text" class="form-control form-control-sm mt-1"
+                           value="@Attributes?.Stamina"
+                           @onchange="@(e => SetField(a => a.Stamina = e.Value?.ToString()))" />
+                }
+            </div>
+            <div class="col-md-4">
+                <label class="form-label small">Recovery</label>
+                <select class="form-select form-select-sm"
+                        value="@GetSelectValue(Attributes?.Recovery, PhysicalAttributesCatalog.RecoveryOptions)"
+                        @onchange="@(e => OnPresetChanged(e, PhysicalAttributesCatalog.RecoveryOptions, a => a.Recovery = e.Value?.ToString(), v => _recoveryCustom = v))">
+                    <option value="">(none)</option>
+                    @foreach (var opt in PhysicalAttributesCatalog.RecoveryOptions)
+                    {
+                        <option value="@opt">@opt</option>
+                    }
+                    <option value="__custom__">(Custom...)</option>
+                </select>
+                @if (IsCustom(Attributes?.Recovery, PhysicalAttributesCatalog.RecoveryOptions))
+                {
+                    <input type="text" class="form-control form-control-sm mt-1"
+                           value="@Attributes?.Recovery"
+                           @onchange="@(e => SetField(a => a.Recovery = e.Value?.ToString()))" />
+                }
+            </div>
+            <div class="col-md-4">
+                <label class="form-label small">Ejaculation Intensity</label>
+                <select class="form-select form-select-sm"
+                        value="@GetSelectValue(Attributes?.EjaculationIntensity, PhysicalAttributesCatalog.EjaculationIntensityOptions)"
+                        @onchange="@(e => OnPresetChanged(e, PhysicalAttributesCatalog.EjaculationIntensityOptions, a => a.EjaculationIntensity = e.Value?.ToString(), v => _ejaculationCustom = v))">
+                    <option value="">(none)</option>
+                    @foreach (var opt in PhysicalAttributesCatalog.EjaculationIntensityOptions)
+                    {
+                        <option value="@opt">@opt</option>
+                    }
+                    <option value="__custom__">(Custom...)</option>
+                </select>
+                @if (IsCustom(Attributes?.EjaculationIntensity, PhysicalAttributesCatalog.EjaculationIntensityOptions))
+                {
+                    <input type="text" class="form-control form-control-sm mt-1"
+                           value="@Attributes?.EjaculationIntensity"
+                           @onchange="@(e => SetField(a => a.EjaculationIntensity = e.Value?.ToString()))" />
+                }
+            </div>
+        </div>
+    }
+
+    @* ── Group: Intimate Female ── *@
+    @if (!string.Equals(Gender, "Male", StringComparison.OrdinalIgnoreCase))
+    {
+        <div class="pa-group-header">Intimate — Female</div>
+        <div class="row g-2 mb-2">
+            <div class="col-md-6">
+                <label class="form-label small">Vaginal Tightness</label>
+                <select class="form-select form-select-sm"
+                        value="@GetSelectValue(Attributes?.VaginalTightness, PhysicalAttributesCatalog.VaginalTightnessOptions)"
+                        @onchange="@(e => OnPresetChanged(e, PhysicalAttributesCatalog.VaginalTightnessOptions, a => a.VaginalTightness = e.Value?.ToString(), v => _vaginalTightnessCustom = v))">
+                    <option value="">(none)</option>
+                    @foreach (var opt in PhysicalAttributesCatalog.VaginalTightnessOptions)
+                    {
+                        <option value="@opt">@opt</option>
+                    }
+                    <option value="__custom__">(Custom...)</option>
+                </select>
+                @if (IsCustom(Attributes?.VaginalTightness, PhysicalAttributesCatalog.VaginalTightnessOptions))
+                {
+                    <input type="text" class="form-control form-control-sm mt-1"
+                           value="@Attributes?.VaginalTightness"
+                           @onchange="@(e => SetField(a => a.VaginalTightness = e.Value?.ToString()))" />
+                }
+            </div>
+            <div class="col-md-6">
+                <label class="form-label small">Sensitivity</label>
+                <select class="form-select form-select-sm"
+                        value="@GetSelectValue(Attributes?.Sensitivity, PhysicalAttributesCatalog.SensitivityOptions)"
+                        @onchange="@(e => OnPresetChanged(e, PhysicalAttributesCatalog.SensitivityOptions, a => a.Sensitivity = e.Value?.ToString(), v => _sensitivityCustom = v))">
+                    <option value="">(none)</option>
+                    @foreach (var opt in PhysicalAttributesCatalog.SensitivityOptions)
+                    {
+                        <option value="@opt">@opt</option>
+                    }
+                    <option value="__custom__">(Custom...)</option>
+                </select>
+                @if (IsCustom(Attributes?.Sensitivity, PhysicalAttributesCatalog.SensitivityOptions))
+                {
+                    <input type="text" class="form-control form-control-sm mt-1"
+                           value="@Attributes?.Sensitivity"
+                           @onchange="@(e => SetField(a => a.Sensitivity = e.Value?.ToString()))" />
+                }
+            </div>
+        </div>
+        <div class="row g-2 mb-2">
+            <div class="col-md-6">
+                <label class="form-label small">Natural Lubrication</label>
+                <select class="form-select form-select-sm"
+                        value="@GetSelectValue(Attributes?.Lubrication, PhysicalAttributesCatalog.LubricationOptions)"
+                        @onchange="@(e => OnPresetChanged(e, PhysicalAttributesCatalog.LubricationOptions, a => a.Lubrication = e.Value?.ToString(), v => _lubricationCustom = v))">
+                    <option value="">(none)</option>
+                    @foreach (var opt in PhysicalAttributesCatalog.LubricationOptions)
+                    {
+                        <option value="@opt">@opt</option>
+                    }
+                    <option value="__custom__">(Custom...)</option>
+                </select>
+                @if (IsCustom(Attributes?.Lubrication, PhysicalAttributesCatalog.LubricationOptions))
+                {
+                    <input type="text" class="form-control form-control-sm mt-1"
+                           value="@Attributes?.Lubrication"
+                           @onchange="@(e => SetField(a => a.Lubrication = e.Value?.ToString()))" />
+                }
+            </div>
+            <div class="col-md-6">
+                <label class="form-label small">Orgasmic Capacity</label>
+                <select class="form-select form-select-sm"
+                        value="@GetSelectValue(Attributes?.OrgasmicCapacity, PhysicalAttributesCatalog.OrgasmicCapacityOptions)"
+                        @onchange="@(e => OnPresetChanged(e, PhysicalAttributesCatalog.OrgasmicCapacityOptions, a => a.OrgasmicCapacity = e.Value?.ToString(), v => _orgasmicCapacityCustom = v))">
+                    <option value="">(none)</option>
+                    @foreach (var opt in PhysicalAttributesCatalog.OrgasmicCapacityOptions)
+                    {
+                        <option value="@opt">@opt</option>
+                    }
+                    <option value="__custom__">(Custom...)</option>
+                </select>
+                @if (IsCustom(Attributes?.OrgasmicCapacity, PhysicalAttributesCatalog.OrgasmicCapacityOptions))
+                {
+                    <input type="text" class="form-control form-control-sm mt-1"
+                           value="@Attributes?.OrgasmicCapacity"
+                           @onchange="@(e => SetField(a => a.OrgasmicCapacity = e.Value?.ToString()))" />
+                }
+            </div>
+        </div>
+    }
+
+</div>
+
+@code {
+    [Parameter] public PhysicalAttributes? Attributes { get; set; }
+    [Parameter] public EventCallback<PhysicalAttributes> AttributesChanged { get; set; }
+    [Parameter] public string? Gender { get; set; }
+
+    private string? _hairColourCustom;
+    private string? _hairStyleCustom;
+    private string? _eyeColourCustom;
+    private string? _skinToneCustom;
+    private string? _skinTextureCustom;
+    private string? _bodyTypeCustom;
+    private string? _ethnicityCustom;
+    private string? _bustCustom;
+    private string? _waistCustom;
+    private string? _hipCustom;
+    private string? _scentCustom;
+    private string? _sexualConfidenceCustom;
+    private string? _sexualSkillCustom;
+    private string? _sexualDriveCustom;
+    private string? _oralSkillCustom;
+    private string? _endowmentLengthCustom;
+    private string? _endowmentGirthCustom;
+    private string? _staminaCustom;
+    private string? _recoveryCustom;
+    private string? _ejaculationCustom;
+    private string? _vaginalTightnessCustom;
+    private string? _sensitivityCustom;
+    private string? _lubricationCustom;
+    private string? _orgasmicCapacityCustom;
+
+    private async Task SetField(Action<PhysicalAttributes> setter)
+    {
+        var copy = Attributes is null ? new PhysicalAttributes() : ShallowCopy(Attributes);
+        setter(copy);
+        await AttributesChanged.InvokeAsync(copy);
+    }
+
+    private async Task OnPresetChanged(
+        ChangeEventArgs e,
+        IReadOnlyList<string> catalog,
+        Action<PhysicalAttributes> setter,
+        Action<string?> storeCustom)
+    {
+        var val = e.Value?.ToString();
+        if (val == "__custom__")
+        {
+            storeCustom(null);
+            return;
+        }
+        storeCustom(null);
+        var copy = Attributes is null ? new PhysicalAttributes() : ShallowCopy(Attributes);
+        setter(copy);
+        await AttributesChanged.InvokeAsync(copy);
+    }
+
+    private static string GetSelectValue(string? value, IReadOnlyList<string> catalog)
+    {
+        if (string.IsNullOrEmpty(value)) return string.Empty;
+        return catalog.Contains(value) ? value : "__custom__";
+    }
+
+    private static bool IsCustom(string? value, IReadOnlyList<string> catalog)
+        => !string.IsNullOrEmpty(value) && !catalog.Contains(value);
+
+    private static string BuildEndowmentDescription(string? length, string? girth)
+    {
+        var hasLength = !string.IsNullOrWhiteSpace(length);
+        var hasGirth  = !string.IsNullOrWhiteSpace(girth);
+        if (!hasLength && !hasGirth) return string.Empty;
+
+        var lTier = hasLength ? GetLengthTier(length!) : 4;
+        var gTier = hasGirth  ? GetGirthTier(girth!)   : 4;
+        var lAdj  = hasLength ? GetLengthAdj(length!)   : string.Empty;
+        var gAdj  = hasGirth  ? GetGirthAdj(girth!)     : string.Empty;
+
+        string basePart;
+        if (!string.IsNullOrEmpty(lAdj) && !string.IsNullOrEmpty(gAdj))
+        {
+            var article = StartsWithVowelSound(lAdj) ? "an" : "a";
+            basePart = $"{article} {lAdj}, {gAdj} cock";
+        }
+        else if (!string.IsNullOrEmpty(lAdj))
+        {
+            var article = StartsWithVowelSound(lAdj) ? "an" : "a";
+            basePart = $"{article} {lAdj} cock";
+        }
+        else
+        {
+            var article = StartsWithVowelSound(gAdj) ? "an" : "a";
+            basePart = $"{article} {gAdj} cock";
+        }
+
+        var note = BuildEndowmentNote(lTier, gTier, hasLength, hasGirth);
+        return string.IsNullOrEmpty(note) ? basePart : $"{basePart} — {note}";
+    }
+
+    private static string BuildEndowmentNote(int lTier, int gTier, bool hasLength, bool hasGirth)
+    {
+        if (!hasLength || !hasGirth) return string.Empty;
+        if (lTier == 0 && gTier == 0)
+            return "visually dominant and impressively heavy; would feel overwhelming, intensely stretching, and deeply penetrating";
+        if (lTier <= 1 && gTier <= 1)
+            return "visually impressive and noticeably heavy; would feel deeply penetrating and intensely stretching";
+        if (lTier <= 2 && gTier <= 2)
+            return "well above average in every dimension; would feel noticeably filling and deeply penetrating";
+        if (lTier <= 3 && gTier <= 3)
+            return "above average in every dimension; noticeably filling";
+        if (lTier == 4 && gTier == 4)
+            return string.Empty;
+        if (lTier >= 6 && gTier >= 5)
+            return "small and unimposing; minimal stretching or depth";
+        if (lTier >= 5 && gTier >= 5)
+            return "below average in size; modest sensation";
+        if (lTier <= 1 && gTier >= 5)
+            return "very long but narrow; penetrates deeply with minimal stretching";
+        if (lTier <= 2 && gTier >= 5)
+            return "long but slender; noticeable depth with limited stretch";
+        if (lTier <= 2 && gTier == 4)
+            return "noticeably long; penetrates deeply without intense stretch";
+        if (lTier >= 6 && gTier <= 1)
+            return "very short but extremely wide; intensely stretching with almost no depth";
+        if (lTier >= 5 && gTier <= 2)
+            return "short but thick; intensely stretching despite limited depth";
+        if (lTier == 4 && gTier <= 2)
+            return "average length but very thick; noticeably stretching";
+        return string.Empty;
+    }
+
+    private static int GetLengthTier(string s) => s.Trim() switch
+    {
+        "Exceptionally long"    => 0,
+        "Very long"             => 1,
+        "Long"                  => 2,
+        "Above average length"  => 3,
+        "Average length"        => 4,
+        "Below average length"  => 5,
+        "Short"                 => 6,
+        "Very short"            => 7,
+        _                       => 4
+    };
+
+    private static int GetGirthTier(string s) => s.Trim() switch
+    {
+        "Extremely thick"     => 0,
+        "Very thick"          => 1,
+        "Thick"               => 2,
+        "Above average girth" => 3,
+        "Average girth"       => 4,
+        "Slender"             => 5,
+        "Very slender"        => 6,
+        _                     => 4
+    };
+
+    private static string GetLengthAdj(string s) => s.Trim() switch
+    {
+        "Exceptionally long"    => "exceptionally long",
+        "Very long"             => "very long",
+        "Long"                  => "long",
+        "Above average length"  => "above-average length",
+        "Average length"        => "average length",
+        "Below average length"  => "below-average length",
+        "Short"                 => "short",
+        "Very short"            => "very short",
+        _                       => s.Trim().ToLowerInvariant()
+    };
+
+    private static string GetGirthAdj(string s) => s.Trim() switch
+    {
+        "Extremely thick"     => "extremely thick",
+        "Very thick"          => "very thick",
+        "Thick"               => "thick",
+        "Above average girth" => "above-average girth",
+        "Average girth"       => "average girth",
+        "Slender"             => "slender",
+        "Very slender"        => "very slender",
+        _                     => s.Trim().ToLowerInvariant()
+    };
+
+    private static bool StartsWithVowelSound(string s) =>
+        s.Length > 0 && s[0] is 'a' or 'e' or 'i' or 'o' or 'u' or 'A' or 'E' or 'I' or 'O' or 'U';
+
+    private static PhysicalAttributes ShallowCopy(PhysicalAttributes src) => new()
+    {
+        Age = src.Age,
+        Height = src.Height,
+        Weight = src.Weight,
+        Ethnicity = src.Ethnicity,
+        HairColour = src.HairColour,
+        HairStyle = src.HairStyle,
+        EyeColour = src.EyeColour,
+        SkinTone = src.SkinTone,
+        SkinTexture = src.SkinTexture,
+        BodyType = src.BodyType,
+        BustSize = src.BustSize,
+        WaistSize = src.WaistSize,
+        HipSize = src.HipSize,
+        ClothingStyle = src.ClothingStyle,
+        DistinguishingMarks = src.DistinguishingMarks,
+        Piercings = src.Piercings,
+        Tattoos = src.Tattoos,
+        AttractivenessRating = src.AttractivenessRating,
+        Scent = src.Scent,
+        SexualSkill = src.SexualSkill,
+        SexualDrive = src.SexualDrive,
+        SexualConfidence = src.SexualConfidence,
+        OralSkill = src.OralSkill,
+        EndowmentLength = src.EndowmentLength,
+        EndowmentGirth = src.EndowmentGirth,
+        Stamina = src.Stamina,
+        Recovery = src.Recovery,
+        EjaculationIntensity = src.EjaculationIntensity,
+        VaginalTightness = src.VaginalTightness,
+        Sensitivity = src.Sensitivity,
+        Lubrication = src.Lubrication,
+        OrgasmicCapacity = src.OrgasmicCapacity,
+    };
+
+    private static int? TryParseInt(string? value)
+    {
+        if (int.TryParse(value, out var n)) return n;
+        return null;
+    }
+}
+
+<style>
+    .pa-group-header {
+        font-size: 0.72rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--bs-secondary, #6c757d);
+        border-bottom: 1px solid var(--bs-border-color, #dee2e6);
+        margin: 0.75rem 0 0.4rem 0;
+        padding-bottom: 2px;
+    }
+    .pa-endowment-preview {
+        background: var(--bs-secondary-bg, #f8f9fa);
+        border-radius: 4px;
+        padding: 4px 8px;
+    }
+</style>

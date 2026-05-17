@@ -38,7 +38,7 @@
             <span class="badge bg-info-subtle text-info-emphasis border">Roles: @_roleDefinitions.Count</span>
             <span class="badge bg-secondary-subtle text-secondary-emphasis border">Background Characters: @_backgroundCharacterProfiles.Count</span>
             <span class="badge bg-danger-subtle text-danger-emphasis border">Finishing Move Rows: @_finishingMoveRows.Count</span>
-            <span class="badge bg-dark-subtle text-dark-emphasis border">Steer Position Rows: @_steerPositionRows.Count</span>
+            <span class="badge bg-dark-subtle text-dark-emphasis border">Positions: @_positions.Count</span>
             <span class="badge bg-light text-dark border">Perspective Modes: @CharacterPerspectiveModes.All.Count</span>
         </div>
     </div>
@@ -357,9 +357,7 @@
                                 <table class="table table-sm align-middle">
                                     <thead>
                                         <tr>
-                                            <th>Desire</th>
-                                            <th>Self Respect</th>
-                                            <th>Other Man Dominance</th>
+                                            <th>Tier</th>
                                             <th>Primary</th>
                                             <th>Secondary</th>
                                             <th>Excluded</th>
@@ -381,9 +379,7 @@
                                             @foreach (var row in _finishingMoveRows)
                                             {
                                                 <tr>
-                                                    <td>@row.DesireBand</td>
-                                                    <td>@row.SelfRespectBand</td>
-                                                    <td>@row.OtherManDominanceBand</td>
+                                                    <td>@row.EscalationTier</td>
                                                     <td class="small text-muted">@string.Join(", ", row.PrimaryLocations)</td>
                                                     <td class="small text-muted">@string.Join(", ", row.SecondaryLocations)</td>
                                                     <td class="small text-muted">@string.Join(", ", row.ExcludedLocations)</td>
@@ -405,16 +401,12 @@
                                 <h6 class="mb-3">@(_editingFinishingMoveRowId is null ? "Add Matrix Row" : "Edit Matrix Row")</h6>
                                 <div class="row g-2">
                                     <div class="col-md-2">
-                                        <label class="form-label">Desire Band</label>
-                                        <input class="form-control form-control-sm" @bind="_finishingMoveFormDesireBand" />
-                                    </div>
-                                    <div class="col-md-2">
-                                        <label class="form-label">Self Respect</label>
-                                        <input class="form-control form-control-sm" @bind="_finishingMoveFormSelfRespectBand" />
-                                    </div>
-                                    <div class="col-md-2">
-                                        <label class="form-label">Other Man Dominance</label>
-                                        <input class="form-control form-control-sm" @bind="_finishingMoveFormDominanceBand" />
+                                        <label class="form-label">Tier</label>
+                                        <select class="form-select form-select-sm" @bind="_finishingMoveFormEscalationTier">
+                                            <option value="Low">Low</option>
+                                            <option value="Medium">Medium</option>
+                                            <option value="High">High</option>
+                                        </select>
                                     </div>
                                     <div class="col-md-2">
                                         <label class="form-label">Sort</label>
@@ -521,9 +513,7 @@
                                     <tr>
                                         <th>Name</th>
                                         <th>Category</th>
-                                        <th>Eligible Desire</th>
-                                        <th>Eligible Self Respect</th>
-                                        <th>Eligible OtherManDom</th>
+                                        <th>Tier</th>
                                         <th>Sort</th>
                                         <th>Enabled</th>
                                         <th>Actions</th>
@@ -532,16 +522,14 @@
                                 <tbody>
                                     @if (_finishLocations.Count == 0)
                                     {
-                                        <tr><td colspan="8" class="text-muted">No location entries yet.</td></tr>
+                                        <tr><td colspan="6" class="text-muted">No location entries yet.</td></tr>
                                     }
                                     @foreach (var entry in _finishLocations)
                                     {
                                         <tr class="@(entry.IsEnabled ? "" : "text-muted opacity-50")">
                                             <td>@entry.Name</td>
                                             <td>@entry.Category</td>
-                                            <td>@(string.IsNullOrWhiteSpace(entry.EligibleDesireBands) ? "(any)" : entry.EligibleDesireBands)</td>
-                                            <td>@(string.IsNullOrWhiteSpace(entry.EligibleSelfRespectBands) ? "(any)" : entry.EligibleSelfRespectBands)</td>
-                                            <td>@(string.IsNullOrWhiteSpace(entry.EligibleOtherManDominanceBands) ? "(any)" : entry.EligibleOtherManDominanceBands)</td>
+                                            <td>@entry.EscalationTier</td>
                                             <td>@entry.SortOrder</td>
                                             <td>@(entry.IsEnabled ? "Yes" : "No")</td>
                                             <td>
@@ -571,16 +559,12 @@
                                     </select>
                                 </div>
                                 <div class="col-md-2">
-                                    <label class="form-label">Eligible Desire</label>
-                                    <input class="form-control form-control-sm" placeholder="(any)" @bind="_finishLocationFormEligibleDesireBands" />
-                                </div>
-                                <div class="col-md-2">
-                                    <label class="form-label">Eligible Self Respect</label>
-                                    <input class="form-control form-control-sm" placeholder="(any)" @bind="_finishLocationFormEligibleSelfRespectBands" />
-                                </div>
-                                <div class="col-md-2">
-                                    <label class="form-label">Eligible OtherManDom</label>
-                                    <input class="form-control form-control-sm" placeholder="(any)" @bind="_finishLocationFormEligibleOtherManDominanceBands" />
+                                    <label class="form-label">Escalation Tier</label>
+                                    <select class="form-select form-select-sm" @bind="_finishLocationFormEscalationTier">
+                                        <option value="Low">Low</option>
+                                        <option value="Medium">Medium</option>
+                                        <option value="High">High</option>
+                                    </select>
                                 </div>
                             </div>
                             <div class="row g-2 mb-2">
@@ -634,9 +618,7 @@
                                     <tr>
                                         <th>Name</th>
                                         <th>Physical Cues</th>
-                                        <th>Eligible Desire</th>
-                                        <th>Eligible Self Respect</th>
-                                        <th>Eligible OtherManDom</th>
+                                        <th>Tier</th>
                                         <th>Sort</th>
                                         <th>Enabled</th>
                                         <th>Actions</th>
@@ -645,16 +627,14 @@
                                 <tbody>
                                     @if (_finishFacialTypes.Count == 0)
                                     {
-                                        <tr><td colspan="8" class="text-muted">No facial type entries yet.</td></tr>
+                                        <tr><td colspan="6" class="text-muted">No facial type entries yet.</td></tr>
                                     }
                                     @foreach (var entry in _finishFacialTypes)
                                     {
                                         <tr class="@(entry.IsEnabled ? "" : "text-muted opacity-50")">
                                             <td>@entry.Name</td>
                                             <td>@entry.PhysicalCues</td>
-                                            <td>@(string.IsNullOrWhiteSpace(entry.EligibleDesireBands) ? "(any)" : entry.EligibleDesireBands)</td>
-                                            <td>@(string.IsNullOrWhiteSpace(entry.EligibleSelfRespectBands) ? "(any)" : entry.EligibleSelfRespectBands)</td>
-                                            <td>@(string.IsNullOrWhiteSpace(entry.EligibleOtherManDominanceBands) ? "(any)" : entry.EligibleOtherManDominanceBands)</td>
+                                            <td>@entry.EscalationTier</td>
                                             <td>@entry.SortOrder</td>
                                             <td>@(entry.IsEnabled ? "Yes" : "No")</td>
                                             <td>
@@ -678,16 +658,12 @@
                                     <input class="form-control form-control-sm" @bind="_finishFacialTypeFormPhysicalCues" />
                                 </div>
                                 <div class="col-md-2">
-                                    <label class="form-label">Eligible Desire</label>
-                                    <input class="form-control form-control-sm" placeholder="(any)" @bind="_finishFacialTypeFormEligibleDesireBands" />
-                                </div>
-                                <div class="col-md-2">
-                                    <label class="form-label">Eligible Self Respect</label>
-                                    <input class="form-control form-control-sm" placeholder="(any)" @bind="_finishFacialTypeFormEligibleSelfRespectBands" />
-                                </div>
-                                <div class="col-md-2">
-                                    <label class="form-label">Eligible OtherManDom</label>
-                                    <input class="form-control form-control-sm" placeholder="(any)" @bind="_finishFacialTypeFormEligibleOtherManDominanceBands" />
+                                    <label class="form-label">Escalation Tier</label>
+                                    <select class="form-select form-select-sm" @bind="_finishFacialTypeFormEscalationTier">
+                                        <option value="Low">Low</option>
+                                        <option value="Medium">Medium</option>
+                                        <option value="High">High</option>
+                                    </select>
                                 </div>
                             </div>
                             <div class="row g-2 mb-2">
@@ -742,8 +718,7 @@
                                         <th>Name</th>
                                         <th>Physical Cues</th>
                                         <th>Narrative Cue</th>
-                                        <th>Eligible Desire</th>
-                                        <th>Eligible Self Respect</th>
+                                        <th>Tier</th>
                                         <th>Sort</th>
                                         <th>Enabled</th>
                                         <th>Actions</th>
@@ -752,7 +727,7 @@
                                 <tbody>
                                     @if (_finishReceptivityLevels.Count == 0)
                                     {
-                                        <tr><td colspan="8" class="text-muted">No receptivity level entries yet.</td></tr>
+                                        <tr><td colspan="7" class="text-muted">No receptivity level entries yet.</td></tr>
                                     }
                                     @foreach (var entry in _finishReceptivityLevels)
                                     {
@@ -760,8 +735,7 @@
                                             <td>@entry.Name</td>
                                             <td>@entry.PhysicalCues</td>
                                             <td>@entry.NarrativeCue</td>
-                                            <td>@(string.IsNullOrWhiteSpace(entry.EligibleDesireBands) ? "(any)" : entry.EligibleDesireBands)</td>
-                                            <td>@(string.IsNullOrWhiteSpace(entry.EligibleSelfRespectBands) ? "(any)" : entry.EligibleSelfRespectBands)</td>
+                                            <td>@entry.EscalationTier</td>
                                             <td>@entry.SortOrder</td>
                                             <td>@(entry.IsEnabled ? "Yes" : "No")</td>
                                             <td>
@@ -791,12 +765,12 @@
                             </div>
                             <div class="row g-2 mb-2">
                                 <div class="col-md-3">
-                                    <label class="form-label">Eligible Desire</label>
-                                    <input class="form-control form-control-sm" placeholder="(any)" @bind="_finishReceptivityFormEligibleDesireBands" />
-                                </div>
-                                <div class="col-md-3">
-                                    <label class="form-label">Eligible Self Respect</label>
-                                    <input class="form-control form-control-sm" placeholder="(any)" @bind="_finishReceptivityFormEligibleSelfRespectBands" />
+                                    <label class="form-label">Escalation Tier</label>
+                                    <select class="form-select form-select-sm" @bind="_finishReceptivityFormEscalationTier">
+                                        <option value="Low">Low</option>
+                                        <option value="Medium">Medium</option>
+                                        <option value="High">High</option>
+                                    </select>
                                 </div>
                                 <div class="col-md-2">
                                     <label class="form-label">Sort Order</label>
@@ -844,7 +818,7 @@
                                     <tr>
                                         <th>Name</th>
                                         <th>Example Dialogue</th>
-                                        <th>Eligible OtherManDom</th>
+                                        <th>Tier</th>
                                         <th>Sort</th>
                                         <th>Enabled</th>
                                         <th>Actions</th>
@@ -860,7 +834,7 @@
                                         <tr class="@(entry.IsEnabled ? "" : "text-muted opacity-50")">
                                             <td>@entry.Name</td>
                                             <td>@entry.ExampleDialogue</td>
-                                            <td>@(string.IsNullOrWhiteSpace(entry.EligibleOtherManDominanceBands) ? "(any)" : entry.EligibleOtherManDominanceBands)</td>
+                                            <td>@entry.EscalationTier</td>
                                             <td>@entry.SortOrder</td>
                                             <td>@(entry.IsEnabled ? "Yes" : "No")</td>
                                             <td>
@@ -884,8 +858,12 @@
                                     <input class="form-control form-control-sm" @bind="_finishHisControlFormExampleDialogue" />
                                 </div>
                                 <div class="col-md-3">
-                                    <label class="form-label">Eligible OtherManDom</label>
-                                    <input class="form-control form-control-sm" placeholder="(any)" @bind="_finishHisControlFormEligibleOtherManDominanceBands" />
+                                    <label class="form-label">Escalation Tier</label>
+                                    <select class="form-select form-select-sm" @bind="_finishHisControlFormEscalationTier">
+                                        <option value="Low">Low</option>
+                                        <option value="Medium">Medium</option>
+                                        <option value="High">High</option>
+                                    </select>
                                 </div>
                             </div>
                             <div class="row g-2 mb-2">
@@ -939,9 +917,7 @@
                                     <tr>
                                         <th>Name</th>
                                         <th>Transition Text</th>
-                                        <th>Eligible Desire</th>
-                                        <th>Eligible Self Respect</th>
-                                        <th>Eligible OtherManDom</th>
+                                        <th>Tier</th>
                                         <th>Sort</th>
                                         <th>Enabled</th>
                                         <th>Actions</th>
@@ -950,16 +926,14 @@
                                 <tbody>
                                     @if (_finishTransitionActions.Count == 0)
                                     {
-                                        <tr><td colspan="8" class="text-muted">No transition action entries yet.</td></tr>
+                                        <tr><td colspan="6" class="text-muted">No transition action entries yet.</td></tr>
                                     }
                                     @foreach (var entry in _finishTransitionActions)
                                     {
                                         <tr class="@(entry.IsEnabled ? "" : "text-muted opacity-50")">
                                             <td>@entry.Name</td>
                                             <td>@entry.TransitionText</td>
-                                            <td>@(string.IsNullOrWhiteSpace(entry.EligibleDesireBands) ? "(any)" : entry.EligibleDesireBands)</td>
-                                            <td>@(string.IsNullOrWhiteSpace(entry.EligibleSelfRespectBands) ? "(any)" : entry.EligibleSelfRespectBands)</td>
-                                            <td>@(string.IsNullOrWhiteSpace(entry.EligibleOtherManDominanceBands) ? "(any)" : entry.EligibleOtherManDominanceBands)</td>
+                                            <td>@entry.EscalationTier</td>
                                             <td>@entry.SortOrder</td>
                                             <td>@(entry.IsEnabled ? "Yes" : "No")</td>
                                             <td>
@@ -983,16 +957,12 @@
                                     <input class="form-control form-control-sm" @bind="_finishTransitionFormTransitionText" />
                                 </div>
                                 <div class="col-md-2">
-                                    <label class="form-label">Eligible Desire</label>
-                                    <input class="form-control form-control-sm" placeholder="(any)" @bind="_finishTransitionFormEligibleDesireBands" />
-                                </div>
-                                <div class="col-md-2">
-                                    <label class="form-label">Eligible Self Respect</label>
-                                    <input class="form-control form-control-sm" placeholder="(any)" @bind="_finishTransitionFormEligibleSelfRespectBands" />
-                                </div>
-                                <div class="col-md-2">
-                                    <label class="form-label">Eligible OtherManDom</label>
-                                    <input class="form-control form-control-sm" placeholder="(any)" @bind="_finishTransitionFormEligibleOtherManDominanceBands" />
+                                    <label class="form-label">Escalation Tier</label>
+                                    <select class="form-select form-select-sm" @bind="_finishTransitionFormEscalationTier">
+                                        <option value="Low">Low</option>
+                                        <option value="Medium">Medium</option>
+                                        <option value="High">High</option>
+                                    </select>
                                 </div>
                             </div>
                             <div class="row g-2 mb-2">
@@ -1028,159 +998,130 @@
     {
         <div class="row g-4">
             <div class="col-12">
-                <div class="card">
+
+                @* Position Catalog *@
+                <div class="card mb-4">
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <div>
-                            <strong>Steer Position Matrix</strong>
-                            <small class="text-muted d-block">Global base table used by RP runtime steer-position option behavior.</small>
+                            <strong>Position Catalog</strong>
+                            <small class="text-muted d-block">Master list of positions used to steer narrative action. Matrix rows reference positions from this catalog.</small>
                         </div>
-                        <button class="btn btn-sm btn-outline-secondary" @onclick="LoadSteerPositionRowsAsync" disabled="@_isBusy">Refresh</button>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="LoadPositionsAsync" disabled="@_isBusy">Refresh</button>
                     </div>
                     <div class="card-body">
-                        <div class="alert alert-info">
-                            Editing the global base matrix. Changes here apply to all RP sessions.
-                        </div>
-
-                        @if (!string.IsNullOrWhiteSpace(_steerPositionStatus))
+                        @if (!string.IsNullOrWhiteSpace(_positionStatus))
                         {
-                            <div class="alert alert-success">@_steerPositionStatus</div>
+                            <div class="alert alert-success">@_positionStatus</div>
                         }
-
-                        @if (!string.IsNullOrWhiteSpace(_steerPositionError))
+                        @if (!string.IsNullOrWhiteSpace(_positionError))
                         {
-                            <div class="alert alert-danger">@_steerPositionError</div>
+                            <div class="alert alert-danger">@_positionError</div>
                         }
-
-                            <div class="table-responsive">
-                                <table class="table table-sm align-middle">
-                                    <thead>
-                                        <tr>
-                                            <th>Desire</th>
-                                            <th>Self Respect</th>
-                                            <th>Wife Dom</th>
-                                            <th>Other Man Dom</th>
-                                            <th>Primary</th>
-                                            <th>Secondary</th>
-                                            <th>Excluded</th>
-                                            <th>Sort</th>
-                                            <th>Enabled</th>
-                                            <th>Actions</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        @if (_steerPositionRows.Count == 0)
+                        <div class="table-responsive">
+                            <table class="table table-sm align-middle">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Tier</th>
+                                        <th>Short Description</th>
+                                        <th>Detailed Description</th>
+                                        <th>Sort</th>
+                                        <th>Enabled</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @if (_positions.Count == 0)
+                                    {
+                                        <tr><td colspan="7" class="text-muted">No positions yet.</td></tr>
+                                    }
+                                    else
+                                    {
+                                        @foreach (var pos in _positions)
                                         {
                                             <tr>
-                                                <td colspan="10" class="text-muted">No steer position base rows yet.</td>
+                                                <td><strong>@pos.Name</strong></td>
+                                                <td>
+                                                    <span class="badge @(pos.EscalationTier == "High" ? "bg-danger" : pos.EscalationTier == "Medium" ? "bg-warning text-dark" : "bg-secondary")">@pos.EscalationTier</span>
+                                                </td>
+                                                <td class="small text-muted">@Truncate(pos.ShortDescription, 80)</td>
+                                                <td class="small text-muted">@Truncate(pos.DetailedDescription, 100)</td>
+                                                <td>@pos.SortOrder</td>
+                                                <td>@(pos.IsEnabled ? "Yes" : "No")</td>
+                                                <td>
+                                                    <button class="btn btn-sm btn-outline-primary me-1" @onclick="() => StartEditPosition(pos)" disabled="@_isBusy">Edit</button>
+                                                    <button class="btn btn-sm btn-outline-danger" @onclick="() => DeletePositionEntryAsync(pos.Id)" disabled="@_isBusy">Delete</button>
+                                                </td>
                                             </tr>
                                         }
-                                        else
-                                        {
-                                            @foreach (var row in _steerPositionRows)
-                                            {
-                                                <tr>
-                                                    <td>@row.DesireBand</td>
-                                                    <td>@row.SelfRespectBand</td>
-                                                    <td>@row.WifeDominanceBand</td>
-                                                    <td>@row.OtherManDominanceBand</td>
-                                                    <td class="small text-muted">@string.Join(", ", row.PrimaryPositions)</td>
-                                                    <td class="small text-muted">@string.Join(", ", row.SecondaryPositions)</td>
-                                                    <td class="small text-muted">@string.Join(", ", row.ExcludedPositions)</td>
-                                                    <td>@row.SortOrder</td>
-                                                    <td>@(row.IsEnabled ? "Yes" : "No")</td>
-                                                    <td>
-                                                        <button class="btn btn-sm btn-outline-primary me-1" @onclick="() => StartEditSteerPositionRow(row)" disabled="@_isBusy">Edit</button>
-                                                        <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteSteerPositionRowAsync(row.Id)" disabled="@_isBusy">Delete</button>
-                                                    </td>
-                                                </tr>
-                                            }
-                                        }
-                                    </tbody>
-                                </table>
-                            </div>
-
-                            <div class="border rounded p-3 mt-3 bg-light-subtle">
-                                <h6 class="mb-3">@(_editingSteerPositionRowId is null ? "Add Matrix Row" : "Edit Matrix Row")</h6>
-                                <div class="row g-2">
-                                    <div class="col-md-2">
-                                        <label class="form-label">Desire Band</label>
-                                        <input class="form-control form-control-sm" @bind="_steerPositionFormDesireBand" />
-                                    </div>
-                                    <div class="col-md-2">
-                                        <label class="form-label">Self Respect</label>
-                                        <input class="form-control form-control-sm" @bind="_steerPositionFormSelfRespectBand" />
-                                    </div>
-                                    <div class="col-md-2">
-                                        <label class="form-label">Wife Dominance</label>
-                                        <input class="form-control form-control-sm" @bind="_steerPositionFormWifeDominanceBand" />
-                                    </div>
-                                    <div class="col-md-2">
-                                        <label class="form-label">Other Man Dominance</label>
-                                        <input class="form-control form-control-sm" @bind="_steerPositionFormOtherManDominanceBand" />
-                                    </div>
-                                    <div class="col-md-2">
-                                        <label class="form-label">Sort</label>
-                                        <input class="form-control form-control-sm" type="number" @bind="_steerPositionFormSortOrder" />
-                                    </div>
-                                    <div class="col-md-2">
-                                        <label class="form-label">Enabled</label>
-                                        <select class="form-select form-select-sm" @bind="_steerPositionFormEnabled">
-                                            <option value="true">Yes</option>
-                                            <option value="false">No</option>
-                                        </select>
-                                    </div>
-                                </div>
-                                <div class="row g-2 mt-1">
-                                    <div class="col-md-4">
-                                        <label class="form-label">Primary Positions (comma separated)</label>
-                                        <input class="form-control form-control-sm" @bind="_steerPositionFormPrimaryPositions" />
-                                    </div>
-                                    <div class="col-md-4">
-                                        <label class="form-label">Secondary Positions (comma separated)</label>
-                                        <input class="form-control form-control-sm" @bind="_steerPositionFormSecondaryPositions" />
-                                    </div>
-                                    <div class="col-md-4">
-                                        <label class="form-label">Excluded Positions (comma separated)</label>
-                                        <input class="form-control form-control-sm" @bind="_steerPositionFormExcludedPositions" />
-                                    </div>
-                                </div>
-                                <div class="row g-2 mt-1">
-                                    <div class="col-md-6">
-                                        <label class="form-label">Wife Behavior Modifier</label>
-                                        <textarea class="form-control form-control-sm" rows="2" @bind="_steerPositionFormWifeBehaviorModifier"></textarea>
-                                    </div>
-                                    <div class="col-md-6">
-                                        <label class="form-label">Other Man Behavior Modifier</label>
-                                        <textarea class="form-control form-control-sm" rows="2" @bind="_steerPositionFormOtherManBehaviorModifier"></textarea>
-                                    </div>
-                                </div>
-                                <div class="row g-2 mt-1">
-                                    <div class="col-md-10">
-                                        <label class="form-label">Transition Instruction</label>
-                                        <input class="form-control form-control-sm" @bind="_steerPositionFormTransitionInstruction" />
-                                    </div>
-                                    <div class="col-md-2 d-flex align-items-end">
-                                        <button class="btn btn-sm btn-primary w-100" @onclick="SaveSteerPositionRowAsync" disabled="@_isBusy">@(_editingSteerPositionRowId is null ? "Add Row" : "Save")</button>
-                                    </div>
-                                </div>
-                                @if (_editingSteerPositionRowId is not null)
-                                {
-                                    <div class="mt-2 d-flex justify-content-end">
-                                        <button class="btn btn-sm btn-outline-secondary" @onclick="CancelEditSteerPositionRow" disabled="@_isBusy">Cancel Edit</button>
-                                    </div>
-                                }
-                            </div>
-
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
                         <div class="border rounded p-3 mt-3 bg-light-subtle">
-                            <h6 class="mb-3">Import JSON</h6>
-                            <textarea class="form-control form-control-sm" rows="8" @bind="_steerPositionImportJson" placeholder='Paste rows JSON here (array or {"rows": [...]})'></textarea>
-                            <div class="form-check mt-2">
-                                <input id="steerPositionReplace" type="checkbox" class="form-check-input" @bind="_steerPositionReplaceExisting" />
-                                <label class="form-check-label" for="steerPositionReplace">Replace existing base rows</label>
+                            <h6 class="mb-3">@(_editingPositionId is null ? "Add Position" : "Edit Position")</h6>
+                            <div class="row g-2">
+                                <div class="col-md-3">
+                                    <label class="form-label">Name</label>
+                                    <input class="form-control form-control-sm" @bind="_positionFormName" />
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label">Escalation Tier <small class="text-muted">(<abbr title="Low: available always. Medium: desire≥40 or OtherManDom≥40. High: desire≥70 or OtherManDom≥70.">?</abbr>)</small></label>
+                                    <select class="form-select form-select-sm" @bind="_positionFormEscalationTier">
+                                        <option value="Low">Low</option>
+                                        <option value="Medium">Medium</option>
+                                        <option value="High">High</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-1">
+                                    <label class="form-label">Sort</label>
+                                    <input class="form-control form-control-sm" type="number" @bind="_positionFormSortOrder" />
+                                </div>
+                                <div class="col-md-1">
+                                    <label class="form-label">Enabled</label>
+                                    <select class="form-select form-select-sm" @bind="_positionFormEnabled">
+                                        <option value="true">Yes</option>
+                                        <option value="false">No</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-5">
+                                    <label class="form-label">Short Description <small class="text-muted">(shown to AI for option selection)</small></label>
+                                    <input class="form-control form-control-sm" @bind="_positionFormShortDescription" />
+                                </div>
                             </div>
-                            <div class="mt-2 d-flex justify-content-end">
-                                <button class="btn btn-sm btn-outline-primary" @onclick="ImportSteerPositionJsonAsync" disabled="@_isBusy">Import</button>
+                            <div class="row g-2 mt-1">
+                                <div class="col-12">
+                                    <label class="form-label">Detailed Description <small class="text-muted">(injected into continuation prompt after position is selected)</small></label>
+                                    <textarea class="form-control form-control-sm" rows="3" @bind="_positionFormDetailedDescription"></textarea>
+                                </div>
                             </div>
+                            <div class="row g-2 mt-2">
+                                <div class="col-12 d-flex justify-content-between align-items-center">
+                                    <div>
+                                        @if (_editingPositionId is not null)
+                                        {
+                                            <button class="btn btn-sm btn-outline-secondary me-2" @onclick="CancelEditPosition" disabled="@_isBusy">Cancel</button>
+                                        }
+                                    </div>
+                                    <button class="btn btn-sm btn-primary" @onclick="SavePositionEntryAsync" disabled="@_isBusy">@(_editingPositionId is null ? "Add Position" : "Save")</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                @* Steer Position Matrix — replaced by EscalationTier on each position *@
+                <div class="card">
+                    <div class="card-header">
+                        <strong>Steer Position Matrix</strong>
+                        <small class="text-muted d-block">Legacy — the matrix is no longer used. Position availability is now controlled by the Escalation Tier on each catalog entry above.</small>
+                    </div>
+                    <div class="card-body">
+                        <div class="alert alert-warning mb-0">
+                            The stat-band matrix has been replaced. Position availability is now driven by the
+                            <strong>Escalation Tier</strong> set on each entry in the Position Catalog above.
+                            The runtime derives a tier from session stats (desire ≥ 70 or OtherManDom ≥ 70 → High;
+                            either ≥ 40 → Medium; else Low) and makes all positions at or below that tier available.
                         </div>
                     </div>
                 </div>
@@ -3015,9 +2956,7 @@
     private string? _finishingMoveError;
     private string? _finishingMoveStatus;
     private string? _editingFinishingMoveRowId;
-    private string _finishingMoveFormDesireBand = "50-74";
-    private string _finishingMoveFormSelfRespectBand = "30-59";
-    private string _finishingMoveFormDominanceBand = "30-59";
+    private string _finishingMoveFormEscalationTier = "Low";
     private string _finishingMoveFormPrimaryLocations = string.Empty;
     private string _finishingMoveFormSecondaryLocations = string.Empty;
     private string _finishingMoveFormExcludedLocations = string.Empty;
@@ -3038,9 +2977,7 @@
     private string _finishLocationFormName = string.Empty;
     private string _finishLocationFormCategory = "Internal";
     private string _finishLocationFormDescription = string.Empty;
-    private string _finishLocationFormEligibleDesireBands = string.Empty;
-    private string _finishLocationFormEligibleSelfRespectBands = string.Empty;
-    private string _finishLocationFormEligibleOtherManDominanceBands = string.Empty;
+    private string _finishLocationFormEscalationTier = "Low";
     private int _finishLocationFormSortOrder;
     private bool _finishLocationFormEnabled = true;
 
@@ -3052,9 +2989,7 @@
     private string _finishFacialTypeFormName = string.Empty;
     private string _finishFacialTypeFormDescription = string.Empty;
     private string _finishFacialTypeFormPhysicalCues = string.Empty;
-    private string _finishFacialTypeFormEligibleDesireBands = string.Empty;
-    private string _finishFacialTypeFormEligibleSelfRespectBands = string.Empty;
-    private string _finishFacialTypeFormEligibleOtherManDominanceBands = string.Empty;
+    private string _finishFacialTypeFormEscalationTier = "Low";
     private int _finishFacialTypeFormSortOrder;
     private bool _finishFacialTypeFormEnabled = true;
 
@@ -3067,8 +3002,7 @@
     private string _finishReceptivityFormDescription = string.Empty;
     private string _finishReceptivityFormPhysicalCues = string.Empty;
     private string _finishReceptivityFormNarrativeCue = string.Empty;
-    private string _finishReceptivityFormEligibleDesireBands = string.Empty;
-    private string _finishReceptivityFormEligibleSelfRespectBands = string.Empty;
+    private string _finishReceptivityFormEscalationTier = "Low";
     private int _finishReceptivityFormSortOrder;
     private bool _finishReceptivityFormEnabled = true;
 
@@ -3080,7 +3014,7 @@
     private string _finishHisControlFormName = string.Empty;
     private string _finishHisControlFormDescription = string.Empty;
     private string _finishHisControlFormExampleDialogue = string.Empty;
-    private string _finishHisControlFormEligibleOtherManDominanceBands = string.Empty;
+    private string _finishHisControlFormEscalationTier = "Low";
     private int _finishHisControlFormSortOrder;
     private bool _finishHisControlFormEnabled = true;
 
@@ -3092,9 +3026,7 @@
     private string _finishTransitionFormName = string.Empty;
     private string _finishTransitionFormDescription = string.Empty;
     private string _finishTransitionFormTransitionText = string.Empty;
-    private string _finishTransitionFormEligibleDesireBands = string.Empty;
-    private string _finishTransitionFormEligibleSelfRespectBands = string.Empty;
-    private string _finishTransitionFormEligibleOtherManDominanceBands = string.Empty;
+    private string _finishTransitionFormEscalationTier = "Low";
     private int _finishTransitionFormSortOrder;
     private bool _finishTransitionFormEnabled = true;
 
@@ -3106,9 +3038,9 @@
     private string _steerPositionFormSelfRespectBand = "30-59";
     private string _steerPositionFormWifeDominanceBand = "Medium";
     private string _steerPositionFormOtherManDominanceBand = "Medium";
-    private string _steerPositionFormPrimaryPositions = string.Empty;
-    private string _steerPositionFormSecondaryPositions = string.Empty;
-    private string _steerPositionFormExcludedPositions = string.Empty;
+    private HashSet<string> _steerPositionFormPrimaryIds = [];
+    private HashSet<string> _steerPositionFormSecondaryIds = [];
+    private HashSet<string> _steerPositionFormExcludedIds = [];
     private string _steerPositionFormWifeBehaviorModifier = string.Empty;
     private string _steerPositionFormOtherManBehaviorModifier = string.Empty;
     private string _steerPositionFormTransitionInstruction = string.Empty;
@@ -3116,6 +3048,17 @@
     private bool _steerPositionFormEnabled = true;
     private string _steerPositionImportJson = string.Empty;
     private bool _steerPositionReplaceExisting = true;
+
+    private List<RPPosition> _positions = [];
+    private string? _editingPositionId;
+    private string _positionFormName = string.Empty;
+    private string _positionFormShortDescription = string.Empty;
+    private string _positionFormDetailedDescription = string.Empty;
+    private int _positionFormSortOrder;
+    private bool _positionFormEnabled = true;
+    private string _positionFormEscalationTier = "Low";
+    private string? _positionError;
+    private string? _positionStatus;
 
     private List<IntensityProfile> _intensityProfiles = [];
     private string? _selectedToneId;
@@ -3874,9 +3817,7 @@
     private void StartEditFinishingMoveRow(RPFinishingMoveMatrixRow row)
     {
         _editingFinishingMoveRowId = row.Id;
-        _finishingMoveFormDesireBand = row.DesireBand;
-        _finishingMoveFormSelfRespectBand = row.SelfRespectBand;
-        _finishingMoveFormDominanceBand = row.OtherManDominanceBand;
+        _finishingMoveFormEscalationTier = row.EscalationTier ?? "Low";
         _finishingMoveFormPrimaryLocations = string.Join(", ", row.PrimaryLocations);
         _finishingMoveFormSecondaryLocations = string.Join(", ", row.SecondaryLocations);
         _finishingMoveFormExcludedLocations = string.Join(", ", row.ExcludedLocations);
@@ -3893,9 +3834,7 @@
     private void CancelEditFinishingMoveRow()
     {
         _editingFinishingMoveRowId = null;
-        _finishingMoveFormDesireBand = "50-74";
-        _finishingMoveFormSelfRespectBand = "30-59";
-        _finishingMoveFormDominanceBand = "30-59";
+        _finishingMoveFormEscalationTier = "Low";
         _finishingMoveFormPrimaryLocations = string.Empty;
         _finishingMoveFormSecondaryLocations = string.Empty;
         _finishingMoveFormExcludedLocations = string.Empty;
@@ -3917,9 +3856,7 @@
             await Facade.SaveFinishingMoveMatrixRowAsync(new RPFinishingMoveMatrixRow
             {
                 Id = _editingFinishingMoveRowId ?? Guid.NewGuid().ToString("N"),
-                DesireBand = _finishingMoveFormDesireBand,
-                SelfRespectBand = _finishingMoveFormSelfRespectBand,
-                OtherManDominanceBand = _finishingMoveFormDominanceBand,
+                EscalationTier = _finishingMoveFormEscalationTier,
                 PrimaryLocations = ParseCsv(_finishingMoveFormPrimaryLocations),
                 SecondaryLocations = ParseCsv(_finishingMoveFormSecondaryLocations),
                 ExcludedLocations = ParseCsv(_finishingMoveFormExcludedLocations),
@@ -4020,9 +3957,7 @@
         _finishLocationFormName = entry.Name;
         _finishLocationFormCategory = entry.Category;
         _finishLocationFormDescription = entry.Description ?? string.Empty;
-        _finishLocationFormEligibleDesireBands = entry.EligibleDesireBands ?? string.Empty;
-        _finishLocationFormEligibleSelfRespectBands = entry.EligibleSelfRespectBands ?? string.Empty;
-        _finishLocationFormEligibleOtherManDominanceBands = entry.EligibleOtherManDominanceBands ?? string.Empty;
+        _finishLocationFormEscalationTier = entry.EscalationTier ?? "Low";
         _finishLocationFormSortOrder = entry.SortOrder;
         _finishLocationFormEnabled = entry.IsEnabled;
     }
@@ -4033,9 +3968,7 @@
         _finishLocationFormName = string.Empty;
         _finishLocationFormCategory = "Internal";
         _finishLocationFormDescription = string.Empty;
-        _finishLocationFormEligibleDesireBands = string.Empty;
-        _finishLocationFormEligibleSelfRespectBands = string.Empty;
-        _finishLocationFormEligibleOtherManDominanceBands = string.Empty;
+        _finishLocationFormEscalationTier = "Low";
         _finishLocationFormSortOrder = _finishLocations.Count;
         _finishLocationFormEnabled = true;
     }
@@ -4053,9 +3986,7 @@
                 Name = _finishLocationFormName,
                 Category = _finishLocationFormCategory,
                 Description = _finishLocationFormDescription,
-                EligibleDesireBands = _finishLocationFormEligibleDesireBands,
-                EligibleSelfRespectBands = _finishLocationFormEligibleSelfRespectBands,
-                EligibleOtherManDominanceBands = _finishLocationFormEligibleOtherManDominanceBands,
+                EscalationTier = _finishLocationFormEscalationTier,
                 SortOrder = _finishLocationFormSortOrder,
                 IsEnabled = _finishLocationFormEnabled
             };
@@ -4110,9 +4041,7 @@
         _finishFacialTypeFormName = entry.Name;
         _finishFacialTypeFormDescription = entry.Description ?? string.Empty;
         _finishFacialTypeFormPhysicalCues = entry.PhysicalCues ?? string.Empty;
-        _finishFacialTypeFormEligibleDesireBands = entry.EligibleDesireBands ?? string.Empty;
-        _finishFacialTypeFormEligibleSelfRespectBands = entry.EligibleSelfRespectBands ?? string.Empty;
-        _finishFacialTypeFormEligibleOtherManDominanceBands = entry.EligibleOtherManDominanceBands ?? string.Empty;
+        _finishFacialTypeFormEscalationTier = entry.EscalationTier ?? "Low";
         _finishFacialTypeFormSortOrder = entry.SortOrder;
         _finishFacialTypeFormEnabled = entry.IsEnabled;
     }
@@ -4123,9 +4052,7 @@
         _finishFacialTypeFormName = string.Empty;
         _finishFacialTypeFormDescription = string.Empty;
         _finishFacialTypeFormPhysicalCues = string.Empty;
-        _finishFacialTypeFormEligibleDesireBands = string.Empty;
-        _finishFacialTypeFormEligibleSelfRespectBands = string.Empty;
-        _finishFacialTypeFormEligibleOtherManDominanceBands = string.Empty;
+        _finishFacialTypeFormEscalationTier = "Low";
         _finishFacialTypeFormSortOrder = _finishFacialTypes.Count;
         _finishFacialTypeFormEnabled = true;
     }
@@ -4143,9 +4070,7 @@
                 Name = _finishFacialTypeFormName,
                 Description = _finishFacialTypeFormDescription,
                 PhysicalCues = _finishFacialTypeFormPhysicalCues,
-                EligibleDesireBands = _finishFacialTypeFormEligibleDesireBands,
-                EligibleSelfRespectBands = _finishFacialTypeFormEligibleSelfRespectBands,
-                EligibleOtherManDominanceBands = _finishFacialTypeFormEligibleOtherManDominanceBands,
+                EscalationTier = _finishFacialTypeFormEscalationTier,
                 SortOrder = _finishFacialTypeFormSortOrder,
                 IsEnabled = _finishFacialTypeFormEnabled
             };
@@ -4201,8 +4126,7 @@
         _finishReceptivityFormDescription = entry.Description ?? string.Empty;
         _finishReceptivityFormPhysicalCues = entry.PhysicalCues ?? string.Empty;
         _finishReceptivityFormNarrativeCue = entry.NarrativeCue ?? string.Empty;
-        _finishReceptivityFormEligibleDesireBands = entry.EligibleDesireBands ?? string.Empty;
-        _finishReceptivityFormEligibleSelfRespectBands = entry.EligibleSelfRespectBands ?? string.Empty;
+        _finishReceptivityFormEscalationTier = entry.EscalationTier ?? "Low";
         _finishReceptivityFormSortOrder = entry.SortOrder;
         _finishReceptivityFormEnabled = entry.IsEnabled;
     }
@@ -4214,8 +4138,7 @@
         _finishReceptivityFormDescription = string.Empty;
         _finishReceptivityFormPhysicalCues = string.Empty;
         _finishReceptivityFormNarrativeCue = string.Empty;
-        _finishReceptivityFormEligibleDesireBands = string.Empty;
-        _finishReceptivityFormEligibleSelfRespectBands = string.Empty;
+        _finishReceptivityFormEscalationTier = "Low";
         _finishReceptivityFormSortOrder = _finishReceptivityLevels.Count;
         _finishReceptivityFormEnabled = true;
     }
@@ -4234,8 +4157,7 @@
                 Description = _finishReceptivityFormDescription,
                 PhysicalCues = _finishReceptivityFormPhysicalCues,
                 NarrativeCue = _finishReceptivityFormNarrativeCue,
-                EligibleDesireBands = _finishReceptivityFormEligibleDesireBands,
-                EligibleSelfRespectBands = _finishReceptivityFormEligibleSelfRespectBands,
+                EscalationTier = _finishReceptivityFormEscalationTier,
                 SortOrder = _finishReceptivityFormSortOrder,
                 IsEnabled = _finishReceptivityFormEnabled
             };
@@ -4290,7 +4212,7 @@
         _finishHisControlFormName = entry.Name;
         _finishHisControlFormDescription = entry.Description ?? string.Empty;
         _finishHisControlFormExampleDialogue = entry.ExampleDialogue ?? string.Empty;
-        _finishHisControlFormEligibleOtherManDominanceBands = entry.EligibleOtherManDominanceBands ?? string.Empty;
+        _finishHisControlFormEscalationTier = entry.EscalationTier ?? "Low";
         _finishHisControlFormSortOrder = entry.SortOrder;
         _finishHisControlFormEnabled = entry.IsEnabled;
     }
@@ -4301,7 +4223,7 @@
         _finishHisControlFormName = string.Empty;
         _finishHisControlFormDescription = string.Empty;
         _finishHisControlFormExampleDialogue = string.Empty;
-        _finishHisControlFormEligibleOtherManDominanceBands = string.Empty;
+        _finishHisControlFormEscalationTier = "Low";
         _finishHisControlFormSortOrder = _finishHisControlLevels.Count;
         _finishHisControlFormEnabled = true;
     }
@@ -4319,7 +4241,7 @@
                 Name = _finishHisControlFormName,
                 Description = _finishHisControlFormDescription,
                 ExampleDialogue = _finishHisControlFormExampleDialogue,
-                EligibleOtherManDominanceBands = _finishHisControlFormEligibleOtherManDominanceBands,
+                EscalationTier = _finishHisControlFormEscalationTier,
                 SortOrder = _finishHisControlFormSortOrder,
                 IsEnabled = _finishHisControlFormEnabled
             };
@@ -4374,9 +4296,7 @@
         _finishTransitionFormName = entry.Name;
         _finishTransitionFormDescription = entry.Description ?? string.Empty;
         _finishTransitionFormTransitionText = entry.TransitionText ?? string.Empty;
-        _finishTransitionFormEligibleDesireBands = entry.EligibleDesireBands ?? string.Empty;
-        _finishTransitionFormEligibleSelfRespectBands = entry.EligibleSelfRespectBands ?? string.Empty;
-        _finishTransitionFormEligibleOtherManDominanceBands = entry.EligibleOtherManDominanceBands ?? string.Empty;
+        _finishTransitionFormEscalationTier = entry.EscalationTier ?? "Low";
         _finishTransitionFormSortOrder = entry.SortOrder;
         _finishTransitionFormEnabled = entry.IsEnabled;
     }
@@ -4387,9 +4307,7 @@
         _finishTransitionFormName = string.Empty;
         _finishTransitionFormDescription = string.Empty;
         _finishTransitionFormTransitionText = string.Empty;
-        _finishTransitionFormEligibleDesireBands = string.Empty;
-        _finishTransitionFormEligibleSelfRespectBands = string.Empty;
-        _finishTransitionFormEligibleOtherManDominanceBands = string.Empty;
+        _finishTransitionFormEscalationTier = "Low";
         _finishTransitionFormSortOrder = _finishTransitionActions.Count;
         _finishTransitionFormEnabled = true;
     }
@@ -4407,9 +4325,7 @@
                 Name = _finishTransitionFormName,
                 Description = _finishTransitionFormDescription,
                 TransitionText = _finishTransitionFormTransitionText,
-                EligibleDesireBands = _finishTransitionFormEligibleDesireBands,
-                EligibleSelfRespectBands = _finishTransitionFormEligibleSelfRespectBands,
-                EligibleOtherManDominanceBands = _finishTransitionFormEligibleOtherManDominanceBands,
+                EscalationTier = _finishTransitionFormEscalationTier,
                 SortOrder = _finishTransitionFormSortOrder,
                 IsEnabled = _finishTransitionFormEnabled
             };
@@ -4454,6 +4370,12 @@
 
     private async Task LoadSteerPositionRowsAsync()    {
         _steerPositionRows = (await Facade.ListSteerPositionMatrixRowsAsync()).ToList();
+        await LoadPositionsAsync();
+    }
+
+    private async Task LoadPositionsAsync()
+    {
+        _positions = (await Facade.ListPositionsAsync(includeDisabled: true)).ToList();
     }
 
     private void StartEditSteerPositionRow(RPSteerPositionMatrixRow row)
@@ -4463,9 +4385,9 @@
         _steerPositionFormSelfRespectBand = row.SelfRespectBand;
         _steerPositionFormWifeDominanceBand = row.WifeDominanceBand;
         _steerPositionFormOtherManDominanceBand = row.OtherManDominanceBand;
-        _steerPositionFormPrimaryPositions = string.Join(", ", row.PrimaryPositions);
-        _steerPositionFormSecondaryPositions = string.Join(", ", row.SecondaryPositions);
-        _steerPositionFormExcludedPositions = string.Join(", ", row.ExcludedPositions);
+        _steerPositionFormPrimaryIds = row.PrimaryPositions.ToHashSet();
+        _steerPositionFormSecondaryIds = row.SecondaryPositions.ToHashSet();
+        _steerPositionFormExcludedIds = row.ExcludedPositions.ToHashSet();
         _steerPositionFormWifeBehaviorModifier = row.WifeBehaviorModifier;
         _steerPositionFormOtherManBehaviorModifier = row.OtherManBehaviorModifier;
         _steerPositionFormTransitionInstruction = row.TransitionInstruction;
@@ -4482,15 +4404,42 @@
         _steerPositionFormSelfRespectBand = "30-59";
         _steerPositionFormWifeDominanceBand = "Medium";
         _steerPositionFormOtherManDominanceBand = "Medium";
-        _steerPositionFormPrimaryPositions = string.Empty;
-        _steerPositionFormSecondaryPositions = string.Empty;
-        _steerPositionFormExcludedPositions = string.Empty;
+        _steerPositionFormPrimaryIds = [];
+        _steerPositionFormSecondaryIds = [];
+        _steerPositionFormExcludedIds = [];
         _steerPositionFormWifeBehaviorModifier = string.Empty;
         _steerPositionFormOtherManBehaviorModifier = string.Empty;
         _steerPositionFormTransitionInstruction = string.Empty;
         _steerPositionFormSortOrder = 0;
         _steerPositionFormEnabled = true;
     }
+
+    private void TogglePositionPrimary(string id)
+    {
+        if (!_steerPositionFormPrimaryIds.Remove(id))
+            _steerPositionFormPrimaryIds.Add(id);
+    }
+
+    private void TogglePositionSecondary(string id)
+    {
+        if (!_steerPositionFormSecondaryIds.Remove(id))
+            _steerPositionFormSecondaryIds.Add(id);
+    }
+
+    private void TogglePositionExcluded(string id)
+    {
+        if (!_steerPositionFormExcludedIds.Remove(id))
+            _steerPositionFormExcludedIds.Add(id);
+    }
+
+    private string GetPositionName(string id)
+    {
+        var pos = _positions.FirstOrDefault(p => p.Id == id);
+        return pos?.Name ?? id;
+    }
+
+    private string GetPositionNames(List<string> ids)
+        => ids.Count == 0 ? "—" : string.Join(", ", ids.Select(GetPositionName));
 
     private async Task SaveSteerPositionRowAsync()
     {
@@ -4506,9 +4455,9 @@
                 SelfRespectBand = _steerPositionFormSelfRespectBand,
                 WifeDominanceBand = _steerPositionFormWifeDominanceBand,
                 OtherManDominanceBand = _steerPositionFormOtherManDominanceBand,
-                PrimaryPositions = ParseCsv(_steerPositionFormPrimaryPositions),
-                SecondaryPositions = ParseCsv(_steerPositionFormSecondaryPositions),
-                ExcludedPositions = ParseCsv(_steerPositionFormExcludedPositions),
+                PrimaryPositions = _steerPositionFormPrimaryIds.ToList(),
+                SecondaryPositions = _steerPositionFormSecondaryIds.ToList(),
+                ExcludedPositions = _steerPositionFormExcludedIds.ToList(),
                 WifeBehaviorModifier = _steerPositionFormWifeBehaviorModifier,
                 OtherManBehaviorModifier = _steerPositionFormOtherManBehaviorModifier,
                 TransitionInstruction = _steerPositionFormTransitionInstruction,
@@ -4605,6 +4554,93 @@
             .Select(x => x.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
+    }
+
+    // ── Position Catalog ──────────────────────────────────────────────────────
+
+    private void StartEditPosition(RPPosition pos)
+    {
+        _editingPositionId = pos.Id;
+        _positionFormName = pos.Name;
+        _positionFormShortDescription = pos.ShortDescription;
+        _positionFormDetailedDescription = pos.DetailedDescription;
+        _positionFormEscalationTier = pos.EscalationTier;
+        _positionFormSortOrder = pos.SortOrder;
+        _positionFormEnabled = pos.IsEnabled;
+        _positionError = null;
+        _positionStatus = null;
+    }
+
+    private void CancelEditPosition()
+    {
+        _editingPositionId = null;
+        _positionFormName = string.Empty;
+        _positionFormShortDescription = string.Empty;
+        _positionFormDetailedDescription = string.Empty;
+        _positionFormEscalationTier = "Low";
+        _positionFormSortOrder = 0;
+        _positionFormEnabled = true;
+        _positionError = null;
+    }
+
+    private async Task SavePositionEntryAsync()
+    {
+        _positionError = null;
+        _positionStatus = null;
+        if (string.IsNullOrWhiteSpace(_positionFormName))
+        {
+            _positionError = "Name is required.";
+            return;
+        }
+
+        _isBusy = true;
+        try
+        {
+            await Facade.SavePositionAsync(new RPPosition
+            {
+                Id = _editingPositionId ?? Guid.NewGuid().ToString("N"),
+                Name = _positionFormName.Trim(),
+                ShortDescription = _positionFormShortDescription,
+                DetailedDescription = _positionFormDetailedDescription,
+                EscalationTier = _positionFormEscalationTier,
+                SortOrder = _positionFormSortOrder,
+                IsEnabled = _positionFormEnabled
+            });
+            await LoadPositionsAsync();
+            var wasEditing = _editingPositionId is not null;
+            CancelEditPosition();
+            _positionFormSortOrder = _positions.Count;
+            _positionStatus = wasEditing ? "Position updated." : "Position added.";
+        }
+        catch (Exception ex)
+        {
+            _positionError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task DeletePositionEntryAsync(string id)
+    {
+        _positionError = null;
+        _positionStatus = null;
+        _isBusy = true;
+        try
+        {
+            await Facade.DeletePositionAsync(id);
+            await LoadPositionsAsync();
+            _positionStatus = "Position deleted.";
+        }
+        catch (Exception ex)
+        {
+            _positionError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
     }
 
     private void StartCreateIntensity()

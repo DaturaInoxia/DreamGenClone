@@ -126,6 +126,7 @@
         public string Role { get; set; } = CharacterRoleCatalog.Unknown;
         public string Gender { get; set; } = CharacterGenderCatalog.Unknown;
         public Dictionary<string, int> BaseStats { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+        public DreamGenClone.Domain.Templates.PhysicalAttributes? PhysicalAttributes { get; set; }
     }
     
     protected override async Task OnInitializedAsync()
@@ -211,7 +212,8 @@
             Description = SelectedTemplate.Content,
             Role = CharacterRoleCatalog.Normalize(SelectedTemplate.Role),
             Gender = CharacterGenderCatalog.NormalizeForCharacter(SelectedTemplate.Gender),
-            BaseStats = AdaptiveStatCatalog.NormalizeComplete(SelectedTemplate.BaseStats)
+            BaseStats = AdaptiveStatCatalog.NormalizeComplete(SelectedTemplate.BaseStats),
+            PhysicalAttributes = SelectedTemplate.PhysicalAttributes
         };
         
         await OnEntityCreated.InvokeAsync(args);

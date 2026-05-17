@@ -26,6 +26,12 @@ Auto-generated from all feature plans. Last updated: 2026-03-17
 - SQLite (project default; no exception) (007-finishing-move-catalog)
 - C# / .NET 9 / Blazor Server + Microsoft.Data.Sqlite, System.Text.Json, Serilog, ASP.NET Core DI/logging abstractions (007-theme-state-machine)
 - SQLite (existing persistence stack) with new theme-machine definition and diagnostic persistence; adaptive-state row remains the per-session runtime anchor (007-theme-state-machine)
+- [e.g., Python 3.11, Swift 5.9, Rust 1.75 or NEEDS CLARIFICATION] + [e.g., FastAPI, UIKit, LLVM or NEEDS CLARIFICATION] (001-physical-attributes)
+- [if applicable, default SQLite unless explicitly overridden in spec; e.g., SQLite, session storage, local storage, PostgreSQL] (001-physical-attributes)
+- C# 13 / .NET 9 + Blazor Server (InteractiveServer render mode), Serilog, System.Text.Json (001-physical-attributes)
+- SQLite — existing `Templates.PayloadJson` and `Sessions.PayloadJson` columns; no new schema (001-physical-attributes)
+- C# 13 / .NET 9 + ASP.NET Core Blazor, Entity Framework Core (SQLite), Serilog, xUnit (024-narrative-prompt-fix)
+- SQLite (unchanged — no schema changes for this feature) (024-narrative-prompt-fix)
 
 - C# / .NET 9 (`net9.0`) + ASP.NET Core Blazor Server, `Microsoft.Data.Sqlite`, `Microsoft.Extensions.*`, Serilog (`Serilog.AspNetCore`, `Serilog.Settings.Configuration`, sinks/enrichers) (001-roleplay-session-screens)
 
@@ -46,9 +52,9 @@ tests/
 C# / .NET 9 (`net9.0`): Follow standard conventions
 
 ## Recent Changes
-- 007-theme-state-machine: Added C# / .NET 9 / Blazor Server + Microsoft.Data.Sqlite, System.Text.Json, Serilog, ASP.NET Core DI/logging abstractions
-- 007-finishing-move-catalog: Added C# 13 / .NET 9 + Microsoft.Data.Sqlite, Blazor Server, Serilog
-- 006-explicit-scene-writing: Added C# / .NET 9 / Blazor Server + Microsoft.Data.Sqlite, Serilog, System.Text.Json
+- 024-narrative-prompt-fix: Added C# 13 / .NET 9 + ASP.NET Core Blazor, Entity Framework Core (SQLite), Serilog, xUnit
+- 024-narrative-prompt-fix: Added [e.g., Python 3.11, Swift 5.9, Rust 1.75 or NEEDS CLARIFICATION] + [e.g., FastAPI, UIKit, LLVM or NEEDS CLARIFICATION]
+- 001-physical-attributes: Added C# 13 / .NET 9 + Blazor Server (InteractiveServer render mode), Serilog, System.Text.Json
 
 
 <!-- MANUAL ADDITIONS START -->

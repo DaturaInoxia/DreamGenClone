@@ -20,4 +20,10 @@ public interface IRolePlayContinuationService
         string? customActorName,
         string promptText,
         CancellationToken cancellationToken = default);
+
+    Task<RolePlayInteraction> ContinueNarrativeAsync(
+        RolePlaySession session,
+        string actorName,
+        string promptText,
+        CancellationToken cancellationToken = default);
 }

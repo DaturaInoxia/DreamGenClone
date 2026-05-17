@@ -152,6 +152,21 @@ public sealed class PersonaInteractionSelectionTests
         {
             throw new NotImplementedException();
         }
+
+        public Task<RolePlayInteraction> ContinueNarrativeAsync(
+            RolePlaySession session,
+            string actorName,
+            string promptText,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new RolePlayInteraction
+            {
+                InteractionType = InteractionType.System,
+                ActorName = actorName,
+                Content = promptText,
+                GeneratedByCommand = "Narrative"
+            });
+        }
     }
 
     private sealed class SingleScenarioService : DreamGenClone.Web.Application.Scenarios.IScenarioService

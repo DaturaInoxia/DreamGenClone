@@ -172,6 +172,12 @@
                         <label class="form-label">Description</label>
                         <textarea class="form-control" rows="2" @bind="_personaDescription"></textarea>
                     </div>
+                    <div class="col-12 mt-2">
+                        <PhysicalAttributesEditor
+                            Attributes="@_personaPhysicalAttributes"
+                            AttributesChanged="@(attrs => _personaPhysicalAttributes = attrs)"
+                            Gender="@_personaGender" />
+                    </div>
                 </div>
 
                 <!-- Persona starting stats -->
@@ -351,6 +357,7 @@
     private string _personaGender = CharacterGenderCatalog.Unknown;
     private string _personaRole = CharacterRoleCatalog.Unknown;
     private string _personaRelationTargetId = string.Empty;
+    private DreamGenClone.Domain.Templates.PhysicalAttributes? _personaPhysicalAttributes;
     private readonly Dictionary<string, int> _personaStats = new(StringComparer.OrdinalIgnoreCase);
     private string _personaStatProfileId = string.Empty;
     private readonly List<CharacterEditState> _characterEditStates = [];
@@ -537,6 +544,7 @@
             _personaDescription = string.Empty;
             _personaGender = CharacterGenderCatalog.Unknown;
             _personaRole = CharacterRoleCatalog.Unknown;
+            _personaPhysicalAttributes = null;
             return;
         }
 
@@ -550,7 +558,46 @@
         _personaDescription = persona.Content ?? string.Empty;
         _personaGender = CharacterGenderCatalog.NormalizeForCharacter(persona.Gender);
         _personaRole = CharacterRoleCatalog.Normalize(persona.Role);
+        _personaPhysicalAttributes = persona.PhysicalAttributes is not null
+            ? ClonePhysicalAttributes(persona.PhysicalAttributes)
+            : null;
     }
+
+    private static DreamGenClone.Domain.Templates.PhysicalAttributes ClonePhysicalAttributes(DreamGenClone.Domain.Templates.PhysicalAttributes src) => new()
+    {
+        Age = src.Age,
+        Height = src.Height,
+        Weight = src.Weight,
+        Ethnicity = src.Ethnicity,
+        HairColour = src.HairColour,
+        HairStyle = src.HairStyle,
+        EyeColour = src.EyeColour,
+        SkinTone = src.SkinTone,
+        SkinTexture = src.SkinTexture,
+        BodyType = src.BodyType,
+        BustSize = src.BustSize,
+        WaistSize = src.WaistSize,
+        HipSize = src.HipSize,
+        ClothingStyle = src.ClothingStyle,
+        DistinguishingMarks = src.DistinguishingMarks,
+        Piercings = src.Piercings,
+        Tattoos = src.Tattoos,
+        AttractivenessRating = src.AttractivenessRating,
+        Scent = src.Scent,
+        SexualSkill = src.SexualSkill,
+        SexualDrive = src.SexualDrive,
+        SexualConfidence = src.SexualConfidence,
+        OralSkill = src.OralSkill,
+        EndowmentLength = src.EndowmentLength,
+        EndowmentGirth = src.EndowmentGirth,
+        Stamina = src.Stamina,
+        Recovery = src.Recovery,
+        EjaculationIntensity = src.EjaculationIntensity,
+        VaginalTightness = src.VaginalTightness,
+        Sensitivity = src.Sensitivity,
+        Lubrication = src.Lubrication,
+        OrgasmicCapacity = src.OrgasmicCapacity,
+    };
 
     private int GetPersonaStat(string statName) =>
         _personaStats.TryGetValue(statName, out var v) ? v : AdaptiveStatCatalog.DefaultValue;
@@ -684,6 +731,7 @@
                 CharacterStatOverrides = charStatOverrides,
                 PersonaStatOverrides = new Dictionary<string, int>(_personaStats, StringComparer.OrdinalIgnoreCase),
                 AwarenessProfileId = string.IsNullOrWhiteSpace(_awarenessProfileId) ? null : _awarenessProfileId,
+                PersonaPhysicalAttributes = _personaPhysicalAttributes,
             };
 
             var created = await RolePlayEngine.CreateSessionAsync(request);

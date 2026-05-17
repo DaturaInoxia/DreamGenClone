@@ -44,8 +44,8 @@ public sealed class RolePlayContinuationNarrativeValidationTests
         Assert.Single(completion.Prompts);
 
         var prompt = completion.Prompts[0];
-        Assert.Contains("Keep this section focused on scene description and transitions", prompt, StringComparison.Ordinal);
-        Assert.Contains("Do NOT write extended dialogue exchanges in Narrative", prompt, StringComparison.Ordinal);
+        Assert.Contains("Your priority is the physical scene and environment", prompt, StringComparison.Ordinal);
+        Assert.Contains("Include zero quoted speech", prompt, StringComparison.Ordinal);
         Assert.DoesNotContain("Prefer externally observable actions, dialogue", prompt, StringComparison.Ordinal);
     }
 
@@ -154,6 +154,400 @@ public sealed class RolePlayContinuationNarrativeValidationTests
         var prompt = completion.Prompts[0];
         Assert.Contains("Theme AI Guidance (soft hints, influence=55%):", prompt, StringComparison.Ordinal);
         Assert.Contains("Escalate excuse complexity over time.", prompt, StringComparison.Ordinal);
+    }
+
+    // ── T003: NarrativeLocationLabel (tested via prompt output) ─────────────
+
+    [Fact]
+    public async Task NarrativeLocationLabel_EmDash_StripsSubtitle()
+    {
+        var completion = new QueueCompletionClient(["Scene text."]);
+        var service = CreateService(completion, out _);
+        var session = new RolePlaySession
+        {
+            Id = "loc1",
+            PersonaName = "Becky",
+            AdaptiveState = new Web.Domain.RolePlay.RolePlayAdaptiveState
+            {
+                CurrentSceneLocation = "Hotel Room \u2014 Private Suite"
+            }
+        };
+
+        await service.ContinueBatchAsync(session, actors: [], includeNarrative: true, customActorName: null, promptText: "Continue");
+
+        var prompt = completion.Prompts[0];
+        Assert.Contains("Hotel Room", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("Private Suite", prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task NarrativeLocationLabel_Colon_StripsSubtitle()
+    {
+        var completion = new QueueCompletionClient(["Scene text."]);
+        var service = CreateService(completion, out _);
+        var session = new RolePlaySession
+        {
+            Id = "loc2",
+            PersonaName = "Becky",
+            AdaptiveState = new Web.Domain.RolePlay.RolePlayAdaptiveState
+            {
+                CurrentSceneLocation = "The Library : Special Collection"
+            }
+        };
+
+        await service.ContinueBatchAsync(session, actors: [], includeNarrative: true, customActorName: null, promptText: "Continue");
+
+        var prompt = completion.Prompts[0];
+        Assert.Contains("The Library", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("Special Collection", prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task NarrativeLocationLabel_PlainName_Unchanged()
+    {
+        var completion = new QueueCompletionClient(["Scene text."]);
+        var service = CreateService(completion, out _);
+        var session = new RolePlaySession
+        {
+            Id = "loc3",
+            PersonaName = "Becky",
+            AdaptiveState = new Web.Domain.RolePlay.RolePlayAdaptiveState
+            {
+                CurrentSceneLocation = "The Garden"
+            }
+        };
+
+        await service.ContinueBatchAsync(session, actors: [], includeNarrative: true, customActorName: null, promptText: "Continue");
+
+        var prompt = completion.Prompts[0];
+        Assert.Contains("The Garden", prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task NarrativeLocationLabel_NullLocation_NoLocationConstraintInPrompt()
+    {
+        var completion = new QueueCompletionClient(["Scene text."]);
+        var service = CreateService(completion, out _);
+        var session = new RolePlaySession
+        {
+            Id = "loc4",
+            PersonaName = "Becky",
+            AdaptiveState = new Web.Domain.RolePlay.RolePlayAdaptiveState
+            {
+                CurrentSceneLocation = null
+            }
+        };
+
+        await service.ContinueBatchAsync(session, actors: [], includeNarrative: true, customActorName: null, promptText: "Continue");
+
+        var prompt = completion.Prompts[0];
+        Assert.DoesNotContain("HARD CONSTRAINT \u2014 Scene Location", prompt, StringComparison.Ordinal);
+    }
+
+    // ── T009: Phase 3 — Prompt construction tests ───────────────────────────
+
+    [Fact]
+    public async Task NarrativePrompt_NonClimax_ContainsSceneDescriptionCategories()
+    {
+        var completion = new QueueCompletionClient(["Scene text."]);
+        var service = CreateService(completion, out _);
+        var session = new RolePlaySession
+        {
+            Id = "np1",
+            PersonaName = "Becky",
+            AdaptiveState = new Web.Domain.RolePlay.RolePlayAdaptiveState
+            {
+                CurrentNarrativePhase = DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Committed
+            }
+        };
+
+        await service.ContinueBatchAsync(session, actors: [], includeNarrative: true, customActorName: null, promptText: "Continue");
+
+        var prompt = completion.Prompts[0];
+        Assert.Contains("spatial layout", prompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("where characters are", prompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Include zero quoted speech", prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task NarrativePrompt_Climax_ContainsPhysicalDetailCategories()
+    {
+        var completion = new QueueCompletionClient(["Scene text with explicit content."]);
+        var service = CreateService(completion, out _);
+        var session = new RolePlaySession
+        {
+            Id = "np2",
+            PersonaName = "Becky",
+            AdaptiveState = new Web.Domain.RolePlay.RolePlayAdaptiveState
+            {
+                CurrentNarrativePhase = DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Climax
+            }
+        };
+
+        await service.ContinueBatchAsync(session, actors: [], includeNarrative: true, customActorName: null, promptText: "Continue");
+
+        var prompt = completion.Prompts[0];
+        Assert.Contains("physical contact", prompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("body part positions", prompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Include zero quoted speech. Do not write any dialogue in this passage.", prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task NarrativePrompt_LocationSubtitleStripped()
+    {
+        var completion = new QueueCompletionClient(["Scene text."]);
+        var service = CreateService(completion, out _);
+        var session = new RolePlaySession
+        {
+            Id = "np3",
+            PersonaName = "Becky",
+            AdaptiveState = new Web.Domain.RolePlay.RolePlayAdaptiveState
+            {
+                CurrentSceneLocation = "Trailer \u2014 Shared Space"
+            }
+        };
+
+        await service.ContinueBatchAsync(session, actors: [], includeNarrative: true, customActorName: null, promptText: "Continue");
+
+        var prompt = completion.Prompts[0];
+        Assert.Contains("Trailer", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("Shared Space", prompt, StringComparison.Ordinal);
+    }
+
+    // ── T014: Phase 4 — Validation logic tests ──────────────────────────────
+
+    [Fact]
+    public async Task NarrativeValidation_FirstPersonInQuote_DoesNotTriggerRetry()
+    {
+        // "I wasn't ready" is inside quotes — narrator body has no first-person pronoun.
+        // Surrounding prose is long enough to keep quoted-text ratio below the 20% threshold.
+        var completion = new QueueCompletionClient([
+            "The room was quiet and still as the afternoon light shifted through the curtains, casting long shadows across the polished floor. " +
+            "\"I wasn't ready,\" she said quietly, turning away from the window toward the far wall."
+        ]);
+
+        var service = CreateService(completion, out var debugSink);
+        var session = new RolePlaySession { Id = "v1", PersonaName = "Becky" };
+
+        var result = await service.ContinueBatchAsync(session, actors: [], includeNarrative: true, customActorName: null, promptText: "Continue");
+
+        Assert.NotNull(result.NarrativeOutput);
+        Assert.Equal(1, completion.Prompts.Count); // no retry
+        var validationEvents = debugSink.Records.Where(x => string.Equals(x.EventKind, "NarrativeValidation", StringComparison.Ordinal)).ToList();
+        Assert.Single(validationEvents);
+        Assert.All(validationEvents, e => Assert.Equal("Info", e.Severity));
+    }
+
+    [Fact]
+    public async Task NarrativeValidation_FirstPersonInNarratorBody_TriggersRetry()
+    {
+        var safeOutput = "The hallway stretched ahead, still and quiet.";
+        var completion = new QueueCompletionClient([
+            "I moved through the hallway with careful steps.",
+            safeOutput
+        ]);
+
+        var service = CreateService(completion, out var debugSink);
+        var session = new RolePlaySession { Id = "v2", PersonaName = "Becky" };
+
+        var result = await service.ContinueBatchAsync(session, actors: [], includeNarrative: true, customActorName: null, promptText: "Continue");
+
+        Assert.True(completion.Prompts.Count >= 2);
+        var warnings = debugSink.Records.Where(x => string.Equals(x.EventKind, "NarrativeValidation", StringComparison.Ordinal) && string.Equals(x.Severity, "Warning", StringComparison.Ordinal)).ToList();
+        Assert.NotEmpty(warnings);
+    }
+
+    [Fact]
+    public async Task NarrativeValidation_Interiority_TriggersRetry()
+    {
+        var safeOutput = "The room settled into a tense quiet.";
+        var completion = new QueueCompletionClient([
+            "She thought about the previous night and wondered what it meant.",
+            safeOutput
+        ]);
+
+        var service = CreateService(completion, out var debugSink);
+        var session = new RolePlaySession { Id = "v3", PersonaName = "Becky" };
+
+        var result = await service.ContinueBatchAsync(session, actors: [], includeNarrative: true, customActorName: null, promptText: "Continue");
+
+        Assert.True(completion.Prompts.Count >= 2);
+        var warnings = debugSink.Records.Where(x => string.Equals(x.EventKind, "NarrativeValidation", StringComparison.Ordinal) && string.Equals(x.Severity, "Warning", StringComparison.Ordinal)).ToList();
+        Assert.NotEmpty(warnings);
+    }
+
+    [Fact]
+    public async Task NarrativeValidation_ClimaxMode_SingleQuote_TriggersRetry()
+    {
+        // climaxMode = true → threshold=1, so even one quoted block triggers retry
+        var safeOutput = "The encounter continued at its raw, physical pace.";
+        var completion = new QueueCompletionClient([
+            "The room fell quiet. \"Stay,\" she breathed. The moment held.",
+            safeOutput
+        ]);
+
+        var service = CreateService(completion, out var debugSink);
+        var session = new RolePlaySession
+        {
+            Id = "v4",
+            PersonaName = "Becky",
+            AdaptiveState = new Web.Domain.RolePlay.RolePlayAdaptiveState
+            {
+                CurrentNarrativePhase = DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Climax
+            }
+        };
+
+        var result = await service.ContinueBatchAsync(session, actors: [], includeNarrative: true, customActorName: null, promptText: "Continue");
+
+        Assert.True(completion.Prompts.Count >= 2, "Expected retry when single quote appears in Climax mode");
+    }
+
+    [Fact]
+    public async Task NarrativeValidation_NonClimaxMode_SingleQuote_NoRetry()
+    {
+        // climaxMode = false → threshold=2, so one quoted block does NOT trigger retry
+        var completion = new QueueCompletionClient([
+            "The room fell quiet. \"Stay,\" she breathed. The moment held."
+        ]);
+
+        var service = CreateService(completion, out _);
+        var session = new RolePlaySession
+        {
+            Id = "v5",
+            PersonaName = "Becky",
+            AdaptiveState = new Web.Domain.RolePlay.RolePlayAdaptiveState
+            {
+                CurrentNarrativePhase = DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Committed
+            }
+        };
+
+        await service.ContinueBatchAsync(session, actors: [], includeNarrative: true, customActorName: null, promptText: "Continue");
+
+        Assert.Equal(1, completion.Prompts.Count);
+    }
+
+    // ── T017: Phase 5 — Correction prompt tests ─────────────────────────────
+
+    [Fact]
+    public async Task CorrectionPrompt_QuotedBlockOnly_ContainsQuoteClause_NotFirstPersonClause()
+    {
+        // 3 quoted blocks → correction includes quoted-block clause but NOT first-person clause
+        var safeOutput = "The corridor stretched toward the exit, empty.";
+        var completion = new QueueCompletionClient([
+            "\"Hello,\" she said. \"How are you?\" he asked. \"Fine,\" she replied.",
+            safeOutput
+        ]);
+
+        var service = CreateService(completion, out _);
+        var session = new RolePlaySession { Id = "cp1", PersonaName = "Becky" };
+        await service.ContinueBatchAsync(session, actors: [], includeNarrative: true, customActorName: null, promptText: "Continue");
+
+        Assert.True(completion.Prompts.Count >= 2);
+        var correctionPrompt = completion.Prompts[1];
+        Assert.Contains("quoted blocks", correctionPrompt, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("first-person pronoun", correctionPrompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CorrectionPrompt_FirstPersonOnly_ContainsFirstPersonClause_NotQuoteClause()
+    {
+        // Only one first-person pronoun in narrator body, no quoted blocks → first-person clause, no quote clause
+        var safeOutput = "The hallway stretched ahead.";
+        var completion = new QueueCompletionClient([
+            "I watched the scene unfold from the doorway.",
+            safeOutput
+        ]);
+
+        var service = CreateService(completion, out _);
+        var session = new RolePlaySession { Id = "cp2", PersonaName = "Becky" };
+        await service.ContinueBatchAsync(session, actors: [], includeNarrative: true, customActorName: null, promptText: "Continue");
+
+        Assert.True(completion.Prompts.Count >= 2);
+        var correctionPrompt = completion.Prompts[1];
+        Assert.Contains("first-person pronoun", correctionPrompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("quoted blocks", correctionPrompt, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task CorrectionPrompt_Interiority_ContainsInteriorityClause()
+    {
+        var safeOutput = "The room was still.";
+        var completion = new QueueCompletionClient([
+            "She wondered what the evening had meant for their future.",
+            safeOutput
+        ]);
+
+        var service = CreateService(completion, out _);
+        var session = new RolePlaySession { Id = "cp3", PersonaName = "Becky" };
+        await service.ContinueBatchAsync(session, actors: [], includeNarrative: true, customActorName: null, promptText: "Continue");
+
+        Assert.True(completion.Prompts.Count >= 2);
+        var correctionPrompt = completion.Prompts[1];
+        Assert.Contains("inner-thought phrases", correctionPrompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CorrectionPrompt_AlwaysEndsWithPhysicalSceneClause()
+    {
+        // Any violation type produces a correction prompt that ends with the physical-scene close
+        var safeOutput = "The room was quiet.";
+        var completion = new QueueCompletionClient([
+            "I moved across the floor carefully.",
+            safeOutput
+        ]);
+
+        var service = CreateService(completion, out _);
+        var session = new RolePlaySession { Id = "cp4", PersonaName = "Becky" };
+        await service.ContinueBatchAsync(session, actors: [], includeNarrative: true, customActorName: null, promptText: "Continue");
+
+        Assert.True(completion.Prompts.Count >= 2);
+        var correctionPrompt = completion.Prompts[1];
+        Assert.Contains("Rewrite focusing on physical scene", correctionPrompt, StringComparison.Ordinal);
+    }
+
+    // ── T022: Phase 6 — ContinueNarrativeAsync tests ────────────────────────
+
+    [Fact]
+    public async Task ContinueNarrativeAsync_ValidOutput_ReturnsInteractionWithNarrativeValidationEvent()
+    {
+        var completion = new QueueCompletionClient([
+            "Rain tapped on the glass as the room settled."
+        ]);
+
+        var service = CreateService(completion, out var debugSink);
+        var session = new RolePlaySession { Id = "cna1", PersonaName = "Becky" };
+
+        var interaction = await service.ContinueNarrativeAsync(session, "Narrative", "Continue the scene");
+
+        Assert.Equal("Narrative", interaction.ActorName);
+        Assert.Equal("Narrative", interaction.GeneratedByCommand);
+        Assert.Equal(DreamGenClone.Web.Domain.RolePlay.InteractionType.System, interaction.InteractionType);
+
+        var validationEvents = debugSink.Records
+            .Where(x => string.Equals(x.EventKind, "NarrativeValidation", StringComparison.Ordinal))
+            .ToList();
+        Assert.NotEmpty(validationEvents);
+    }
+
+    [Fact]
+    public async Task ContinueNarrativeAsync_ViolatingOutput_RetriesAndEmitsWarning()
+    {
+        var completion = new QueueCompletionClient([
+            "\"Hello,\" she said. \"How are you?\" he asked. \"Just fine,\" she replied with a sigh.",
+            "The room settled into quiet after the exchange."
+        ]);
+
+        var service = CreateService(completion, out var debugSink);
+        var session = new RolePlaySession { Id = "cna2", PersonaName = "Becky" };
+
+        await service.ContinueNarrativeAsync(session, "Narrative", "Continue the scene");
+
+        Assert.True(completion.Prompts.Count >= 2);
+        var warnings = debugSink.Records
+            .Where(x => string.Equals(x.EventKind, "NarrativeValidation", StringComparison.Ordinal)
+                     && string.Equals(x.Severity, "Warning", StringComparison.Ordinal))
+            .ToList();
+        Assert.NotEmpty(warnings);
     }
 
     private static RolePlayContinuationService CreateService(
@@ -463,6 +857,11 @@ public sealed class RolePlayContinuationNarrativeValidationTests
 
         public Task TruncateRolePlayAndScenarioDataAsync(CancellationToken cancellationToken = default)
             => Task.CompletedTask;
+
+        public Task<RPPosition> SavePositionAsync(RPPosition entry, CancellationToken cancellationToken = default) => Task.FromResult(entry);
+        public Task<IReadOnlyList<RPPosition>> ListPositionsAsync(bool includeDisabled = false, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<RPPosition>>([]);
+        public Task<IReadOnlyList<RPPosition>> ListPositionsAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<RPPosition>>([]);
+        public Task<bool> DeletePositionAsync(string entryId, CancellationToken cancellationToken = default) => Task.FromResult(false);
 
         public Task<RPFinishLocation> SaveFinishLocationAsync(RPFinishLocation entry, CancellationToken cancellationToken = default) => Task.FromResult(entry);
         public Task<IReadOnlyList<RPFinishLocation>> ListFinishLocationsAsync(bool includeDisabled = false, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<RPFinishLocation>>([]);

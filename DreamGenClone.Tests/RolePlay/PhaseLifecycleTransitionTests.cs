@@ -359,6 +359,78 @@ public sealed class PhaseLifecycleTransitionTests
     }
 
     [Fact]
+    public async Task ExecuteReset_ResetDecayReductionPerCycle_ReducesPullForLaterCycles()
+    {
+        // After multiple completed cycles, the stat pull should be proportionally smaller,
+        // preserving more of the earned stat gains.
+        var options = Options.Create(new StoryAnalysisOptions
+        {
+            ResetStatBaselinePullSchedule = [0.30, 0.25, 0.20, 0.15, 0.10],
+            ResetDecayReductionPerCycle = 0.10,
+            ResetDecayReductionCap = 0.60
+        });
+        var service = new ScenarioLifecycleService(NullLogger<ScenarioLifecycleService>.Instance, storyAnalysisOptions: options);
+
+        // First cycle (CycleIndex=0): no reduction applied — CycleIndex > 0 check fails
+        // statPull = schedule[0] = 0.30; MoveTowardBaseline(90, 50, 0.30) → delta=-40 → adj=-12 → 78
+        var firstCycleState = new AdaptiveScenarioState
+        {
+            SessionId = "reset-reduction-first",
+            CurrentPhase = NarrativePhase.Reset,
+            CycleIndex = 0,
+            CharacterSnapshots =
+            [
+                new CharacterStatProfileV2
+                {
+                    CharacterId = "char-a",
+                    Desire = 90,
+                    Restraint = 50,
+                    Tension = 50,
+                    Connection = 50,
+                    Dominance = 50,
+                    Loyalty = 50,
+                    SelfRespect = 50
+                }
+            ]
+        };
+
+        // Fourth cycle (CycleIndex=3): reductionFraction = min(0.60, 3*0.10) = 0.30
+        // statPull = schedule[3] = 0.15; scaled pull = 0.15 * 0.70 = 0.105
+        // MoveTowardBaseline(90, 50, 0.105) → delta=-40 → adj=round(-4.2)=-4 → 86
+        var laterCycleState = new AdaptiveScenarioState
+        {
+            SessionId = "reset-reduction-later",
+            CurrentPhase = NarrativePhase.Reset,
+            CycleIndex = 3,
+            CharacterSnapshots =
+            [
+                new CharacterStatProfileV2
+                {
+                    CharacterId = "char-a",
+                    Desire = 90,
+                    Restraint = 50,
+                    Tension = 50,
+                    Connection = 50,
+                    Dominance = 50,
+                    Loyalty = 50,
+                    SelfRespect = 50
+                }
+            ]
+        };
+
+        var firstReset = await service.ExecuteResetAsync(firstCycleState, ResetReason.Completion);
+        var laterReset = await service.ExecuteResetAsync(laterCycleState, ResetReason.Completion);
+
+        var firstChar = firstReset.CharacterSnapshots[0];
+        var laterChar = laterReset.CharacterSnapshots[0];
+
+        Assert.Equal(78, firstChar.Desire);
+        Assert.Equal(86, laterChar.Desire);
+        Assert.True(laterChar.Desire > firstChar.Desire,
+            $"Later cycles should retain more stat gains: later={laterChar.Desire} should > first={firstChar.Desire}");
+    }
+
+    [Fact]
     public async Task ThemeMachineResolution_ThrowsWhenNoActiveDefinitionExists()
     {
         var dbPath = Path.Combine(Path.GetTempPath(), $"dreamgenclone-machine-resolution-{Guid.NewGuid():N}.db");

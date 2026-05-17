@@ -6,41 +6,31 @@ namespace DreamGenClone.Infrastructure.RolePlay;
 
 public sealed class RPFinishLocationSeedService
 {
-    private sealed record SeedEntry(
-        string Name,
-        string Category,
-        string Description,
-        string EligibleDesire = "",
-        string EligibleSelfRespect = "",
-        string EligibleOtherManDom = "");
+    private sealed record SeedEntry(string Name, string Category, string Description, string EscalationTier);
 
     private static readonly SeedEntry[] Seeds =
     [
-        // Internal
-        new("Creampie", "Internal", "Finishes inside her vagina.", "", "", ""),
-        new("In Ass", "Internal", "Finishes inside her rectum.", "0-29,30-59", "0-29", "30-59,60-100"),
-        new("In Mouth Swallow", "Internal", "She swallows the finish.", "", "", ""),
+        // Low — gentle, common, universally available
+        new("Creampie",          "Internal",   "Finishes inside her vagina.",                        "Low"),
+        new("On Pussy",          "External",   "Finishes on her vulva or outer area.",               "Low"),
+        new("On Stomach",        "External",   "Finishes on her stomach or abdomen.",                "Low"),
+        new("On Back",           "External",   "Finishes on her back.",                              "Low"),
+        new("On Tits",           "External",   "Finishes on her chest or breasts.",                  "Low"),
+        new("On Thighs",         "OnBody",     "Finishes on her inner thighs.",                      "Low"),
+        new("Pull-out",          "Withdrawal", "Pulls out and finishes externally without a specific target.", "Low"),
 
-        // External – body
-        new("On Tits", "External", "Finishes on her chest or breasts.", "", "", ""),
-        new("On Stomach", "External", "Finishes on her stomach or abdomen.", "", "", ""),
-        new("On Back", "External", "Finishes on her back.", "", "", ""),
-        new("On Ass", "External", "Finishes on her buttocks.", "", "", ""),
-        new("On Pussy", "External", "Finishes on her vulva or outer area.", "", "", ""),
-        new("Pearl Necklace", "External", "Finishes across her collarbone/neck.", "30-59,60-100", "", ""),
+        // Medium — moderate intensity, he leads
+        new("Pearl Necklace",    "External",   "Finishes across her collarbone/neck.",               "Medium"),
+        new("On Ass",            "External",   "Finishes on her buttocks.",                          "Medium"),
+        new("On Face",           "Facial",     "Finishes across her face (non-specific eye/mouth state).", "Medium"),
+        new("Facial Eyes Closed","Facial",     "Facial finish while her eyes are closed.",           "Medium"),
+        new("In Mouth No Swallow","Facial",    "Finishes in her mouth; she holds but does not swallow.", "Medium"),
+        new("In Mouth Swallow",  "Internal",   "She swallows the finish.",                           "Medium"),
 
-        // Facial
-        new("Facial Open Mouth", "Facial", "Facial finish while her mouth is open.", "30-59,60-100", "", ""),
-        new("Facial Eyes Closed", "Facial", "Facial finish while her eyes are closed.", "0-29,30-59", "", ""),
-        new("On Face", "Facial", "Finishes across her face (non-specific eye/mouth state).", "", "", ""),
-        new("In Mouth No Swallow", "Facial", "Finishes in her mouth; she holds but does not swallow.", "0-29,30-59", "0-29,30-59", ""),
-
-        // OnBody
-        new("On Thighs", "OnBody", "Finishes on her inner thighs.", "", "", ""),
-        new("On Feet", "OnBody", "Finishes on her feet (fetish variant).", "30-59,60-100", "", "60-100"),
-
-        // Withdrawal
-        new("Pull-out", "Withdrawal", "Pulls out and finishes externally without a specific target.", "", "60-100", "0-29"),
+        // High — intense/dominant
+        new("Facial Open Mouth", "Facial",     "Facial finish while her mouth is open.",             "High"),
+        new("In Ass",            "Internal",   "Finishes inside her rectum.",                        "High"),
+        new("On Feet",           "OnBody",     "Finishes on her feet (fetish variant).",             "High"),
     ];
 
     private readonly IRPThemeService _rpThemeService;
@@ -55,9 +45,10 @@ public sealed class RPFinishLocationSeedService
     public async Task SeedDefaultsAsync(CancellationToken cancellationToken = default)
     {
         var existing = await _rpThemeService.ListFinishLocationsAsync(includeDisabled: true, cancellationToken: cancellationToken);
+
         if (existing.Count > 0)
         {
-            _logger.LogInformation("Finish location seed skipped: {Count} entries already present.", existing.Count);
+            await UpdateExistingTiersAsync(existing, cancellationToken);
             return;
         }
 
@@ -69,14 +60,30 @@ public sealed class RPFinishLocationSeedService
                 Name = seed.Name,
                 Category = seed.Category,
                 Description = seed.Description,
-                EligibleDesireBands = seed.EligibleDesire,
-                EligibleSelfRespectBands = seed.EligibleSelfRespect,
-                EligibleOtherManDominanceBands = seed.EligibleOtherManDom,
+                EscalationTier = seed.EscalationTier,
                 SortOrder = sortOrder++,
                 IsEnabled = true
             }, cancellationToken);
         }
 
         _logger.LogInformation("Seeded {Count} finish location entries.", Seeds.Length);
+    }
+
+    private async Task UpdateExistingTiersAsync(
+        IReadOnlyList<RPFinishLocation> existing,
+        CancellationToken cancellationToken)
+    {
+        var tierByName = Seeds.ToDictionary(e => e.Name, e => e.EscalationTier, StringComparer.OrdinalIgnoreCase);
+        var updated = 0;
+        foreach (var loc in existing)
+        {
+            if (!tierByName.TryGetValue(loc.Name, out var correctTier)) continue;
+            if (string.Equals(loc.EscalationTier, correctTier, StringComparison.OrdinalIgnoreCase)) continue;
+            loc.EscalationTier = correctTier;
+            await _rpThemeService.SaveFinishLocationAsync(loc, cancellationToken);
+            updated++;
+        }
+        if (updated > 0)
+            _logger.LogInformation("Updated EscalationTier on {Count} finish location(s).", updated);
     }
 }

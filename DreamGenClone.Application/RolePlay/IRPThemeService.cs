@@ -66,6 +66,12 @@ public interface IRPThemeService
 
     Task TruncateRolePlayAndScenarioDataAsync(CancellationToken cancellationToken = default);
 
+    // Position Catalog
+    Task<RPPosition> SavePositionAsync(RPPosition entry, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<RPPosition>> ListPositionsAsync(bool includeDisabled = false, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<RPPosition>> ListPositionsAsync(CancellationToken cancellationToken = default);
+    Task<bool> DeletePositionAsync(string entryId, CancellationToken cancellationToken = default);
+
     // Finishing Move Catalog
     Task<RPFinishLocation> SaveFinishLocationAsync(RPFinishLocation entry, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<RPFinishLocation>> ListFinishLocationsAsync(bool includeDisabled = false, CancellationToken cancellationToken = default);

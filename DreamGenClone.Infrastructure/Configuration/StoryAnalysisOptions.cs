@@ -72,7 +72,7 @@ public sealed class StoryAnalysisOptions
     public double BuildUpSelectionDominantRoleMinScore { get; set; } = 0.85;
 
     // Multiplier applied to weighted score when candidate gate fails.
-    public double GateFailScorePenaltyMultiplier { get; set; } = 0.35;
+    public double GateFailScorePenaltyMultiplier { get; set; } = 0.70;
 
     // Per-completion penalty applied to scenario candidate evidence/priority to reduce repeated picks.
     public double CompletedScenarioRepeatPenaltyPerRun { get; set; } = 0.20;
@@ -88,10 +88,12 @@ public sealed class StoryAnalysisOptions
 
     // Per-cycle reduction in reset pull toward baseline for elevated stats.
     // Example: 0.10 means each completed cycle reduces reset pull by 10%.
-    public double ResetDecayReductionPerCycle { get; set; } = 0.10;
+    // Default 0 means no reduction (feature must be explicitly enabled via configuration).
+    public double ResetDecayReductionPerCycle { get; set; } = 0.0;
 
     // Maximum total reset pull reduction from cycle scaling.
-    public double ResetDecayReductionCap { get; set; } = 0.60;
+    // Default 0 means no cap (required to be explicitly configured alongside ResetDecayReductionPerCycle).
+    public double ResetDecayReductionCap { get; set; } = 0.0;
 
     // Baseline targets used when semi-resetting adaptive stats.
     // Keys: Desire, Restraint, Tension, Connection, Dominance, Loyalty, SelfRespect.

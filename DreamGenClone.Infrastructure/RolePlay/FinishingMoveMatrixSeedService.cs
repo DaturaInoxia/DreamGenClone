@@ -6,53 +6,39 @@ namespace DreamGenClone.Infrastructure.RolePlay;
 
 public sealed class FinishingMoveMatrixSeedService
 {
+    // Three canonical rows — one per EscalationTier.
+    private sealed record SeedRow(
+        string Tier,
+        string PrimaryLocationsCsv,
+        string SecondaryLocationsCsv,
+        string WifeBehaviorModifier,
+        string Receptivity,
+        string OtherManBehaviorModifier);
+
     private static readonly SeedRow[] SeedRows =
     [
-        // Desire 60-100, SelfRespect 60-100
-        new("60-100", "60-100", "0-29", "Creampie,On Pussy,On Stomach", "On Tits,On Back", "Enthusiastic, she asks", "Enthusiastic"),
-        new("60-100", "60-100", "30-59", "Creampie,In Mouth,On Pussy", "Facial Open Mouth,On Tits,On Back", "Enthusiastic, mutual", "Enthusiastic"),
-        new("60-100", "60-100", "60-100", "Facial Open Mouth,In Mouth,On Face", "Creampie,In Ass,On Ass", "He commands, she's eager", "Eager"),
-
-        // Desire 60-100, SelfRespect 30-59
-        new("60-100", "30-59", "0-29", "In Mouth,On Tits,On Pussy", "Facial Open Mouth,On Stomach,On Back", "Willing, eager", "Eager"),
-        new("60-100", "30-59", "30-59", "Facial Open Mouth,In Mouth,On Face", "Creampie,Pearl Necklace,On Pussy", "She begs for it", "Begging"),
-        new("60-100", "30-59", "60-100", "Facial Open Mouth,On Ass,In Mouth,In Ass", "Creampie,On Tits,On Back", "Aggressive, she wants it", "Begging"),
-
-        // Desire 60-100, SelfRespect 0-29
-        new("60-100", "0-29", "0-29", "Facial Eyes Closed,In Mouth,On Face", "On Ass,Creampie,On Back", "Submissive, desperate", "Accepting"),
-        new("60-100", "0-29", "30-59", "Facial Open Mouth,On Ass,In Mouth,In Ass", "Creampie,On Tits,On Back", "Begging, degrading", "Begging"),
-        new("60-100", "0-29", "60-100", "Facial Open Mouth,On Ass,In Mouth,Creampie,In Ass", "", "He commands, she has no say", "Enduring"),
-
-        // Desire 30-59, SelfRespect 60-100
-        new("30-59", "60-100", "0-29", "On Stomach,Creampie,On Pussy", "On Tits,On Back", "Willing but reserved", "Accepting"),
-        new("30-59", "60-100", "30-59", "In Mouth,On Stomach,On Pussy", "Creampie,On Back", "Comfortable", "Accepting"),
-        new("30-59", "60-100", "60-100", "In Mouth,On Tits,On Face", "Creampie,On Pussy", "He directs, she agrees", "Accepting"),
-
-        // Desire 30-59, SelfRespect 30-59
-        new("30-59", "30-59", "0-29", "In Mouth,On Stomach,On Tits", "Facial Eyes Closed,On Back", "Cooperative", "Accepting"),
-        new("30-59", "30-59", "30-59", "Facial Eyes Closed,In Mouth,On Tits", "On Stomach,On Back,On Pussy", "Accepting", "Tolerating"),
-        new("30-59", "30-59", "60-100", "Facial Eyes Closed,In Mouth,On Tits,On Face", "Creampie,On Pussy", "He decides", "Tolerating"),
-
-        // Desire 30-59, SelfRespect 0-29
-        new("30-59", "0-29", "0-29", "Facial Eyes Closed,In Mouth,On Face", "On Ass,On Stomach,On Back", "Resigned", "Tolerating"),
-        new("30-59", "0-29", "30-59", "Facial Eyes Closed,On Ass,In Mouth,In Ass", "Creampie,On Back", "Submissive", "Tolerating"),
-        new("30-59", "0-29", "60-100", "Facial Eyes Closed,On Ass,In Mouth,In Ass", "", "Completely commanded", "Enduring"),
-
-        // Desire 0-29, SelfRespect 60-100
-        new("0-29", "60-100", "0-29", "On Stomach,Pull-out,On Back", "On Tits", "Reluctant, prefers control", "CumDodging"),
-        new("0-29", "60-100", "30-59", "On Stomach,On Tits,On Back", "In Mouth,On Pussy", "Hesitant", "Reluctant"),
-        new("0-29", "60-100", "60-100", "On Tits,On Stomach,On Back", "In Mouth,On Face", "Uncomfortable", "CumDodging"),
-
-        // Desire 0-29, SelfRespect 30-59
-        new("0-29", "30-59", "0-29", "On Tits,On Stomach,On Back", "In Mouth,On Pussy", "Willing to please", "Reluctant"),
-        new("0-29", "30-59", "30-59", "In Mouth,On Tits,On Stomach", "On Back,On Pussy", "Accommodating", "Tolerating"),
-        new("0-29", "30-59", "60-100", "In Mouth,Facial Eyes Closed,On Face", "On Tits,On Stomach,On Back", "Pushed", "Tolerating"),
-
-        // Desire 0-29, SelfRespect 0-29
-        new("0-29", "0-29", "0-29", "In Mouth,Facial Eyes Closed,On Face", "On Ass,On Tits,On Back", "Broken, no resistance", "Enduring"),
-        new("0-29", "0-29", "30-59", "Facial Eyes Closed,On Ass,In Mouth,In Ass", "Creampie,On Back", "No agency", "Enduring"),
-        new("0-29", "0-29", "60-100", "Facial Eyes Closed,On Ass,In Mouth,Creampie,In Ass", "", "Fully controlled", "Enduring")
+        new("Low",
+            "Creampie,On Pussy,On Stomach",
+            "On Tits,On Back",
+            "Enthusiastic, she welcomes the finish.",
+            "Enthusiastic",
+            "Asks and follows her cue where possible."),
+        new("Medium",
+            "In Mouth,Facial Open Mouth,On Tits,On Face",
+            "Creampie,On Ass,On Back",
+            "Willing and cooperative.",
+            "Accepting",
+            "Leads decisively while reading her response."),
+        new("High",
+            "Facial Open Mouth,In Mouth,In Ass,On Face",
+            "Creampie,On Ass",
+            "He commands, she has no say.",
+            "Enduring",
+            "Commands and controls the finish without asking."),
     ];
+
+    // Stable IDs for the three canonical rows so ON CONFLICT(Id) can upsert safely.
+    private static string RowId(string tier) => $"seed-finish-matrix-{tier.ToLowerInvariant()}";
 
     private readonly IRPThemeService _rpThemeService;
     private readonly ILogger<FinishingMoveMatrixSeedService> _logger;
@@ -79,39 +65,79 @@ public sealed class FinishingMoveMatrixSeedService
         }
 
         var existing = await _rpThemeService.ListFinishingMoveMatrixRowsAsync(cancellationToken);
+
         if (existing.Count > 0)
         {
-            _logger.LogInformation("Finishing move matrix seed skipped: {Count} base rows already present.", existing.Count);
-            return;
+            if (existing.Count > 3)
+            {
+                // Legacy 27-row install: band-based rows cannot be updated in-place because multiple
+                // rows share the same derived tier, which would violate the UNIQUE constraint when
+                // SaveFinishingMoveMatrixRowAsync sets all three band columns to the tier name.
+                // Clear all legacy rows and fall through to the fresh 3-row seed below.
+                foreach (var r in existing)
+                    await _rpThemeService.DeleteFinishingMoveMatrixRowAsync(r.Id, cancellationToken);
+                _logger.LogInformation("Cleared {Count} legacy band-based finishing move rows; reseeding with tier-based canonical rows.", existing.Count);
+            }
+            else
+            {
+                // Already in the 3-row tier format — update EscalationTier if any row drifted.
+                await UpdateExistingTiersAsync(existing, cancellationToken);
+                return;
+            }
         }
 
+        // Fresh install: seed three canonical tier rows.
         var sortOrder = 0;
         foreach (var seed in SeedRows)
         {
             await _rpThemeService.SaveFinishingMoveMatrixRowAsync(new RPFinishingMoveMatrixRow
             {
-                DesireBand = seed.DesireBand,
-                SelfRespectBand = seed.SelfRespectBand,
-                OtherManDominanceBand = seed.OtherManDominanceBand,
+                Id = RowId(seed.Tier),
+                EscalationTier = seed.Tier,
                 PrimaryLocations = ParseCsv(seed.PrimaryLocationsCsv),
                 SecondaryLocations = ParseCsv(seed.SecondaryLocationsCsv),
                 ExcludedLocations = [],
                 WifeReceptivity = seed.Receptivity,
-                WifeBehaviorModifier = seed.Behavior,
-                OtherManBehaviorModifier = seed.OtherManDominanceBand switch
-                {
-                    "0-29" => "Asks and follows her cue where possible.",
-                    "30-59" => "Leads decisively while reading her response.",
-                    _ => "Commands and controls the finish without asking."
-                },
+                WifeBehaviorModifier = seed.WifeBehaviorModifier,
+                OtherManBehaviorModifier = seed.OtherManBehaviorModifier,
                 TransitionInstruction = "If current positioning does not allow the finish location, include an explicit repositioning beat before the finish.",
                 SortOrder = sortOrder++,
                 IsEnabled = true
             }, cancellationToken);
         }
 
-        _logger.LogInformation("Seeded finishing move matrix defaults from v2 spec: {Count} base rows.", SeedRows.Length);
+        _logger.LogInformation("Seeded finishing move matrix defaults: {Count} tier-based rows.", SeedRows.Length);
     }
+
+    private async Task UpdateExistingTiersAsync(
+        IReadOnlyList<RPFinishingMoveMatrixRow> existing,
+        CancellationToken cancellationToken)
+    {
+        var updated = 0;
+        foreach (var row in existing)
+        {
+            var correctTier = DeriveRowTier(row.WifeBehaviorModifier);
+            if (string.Equals(row.EscalationTier, correctTier, StringComparison.OrdinalIgnoreCase)) continue;
+            row.EscalationTier = correctTier;
+            await _rpThemeService.SaveFinishingMoveMatrixRowAsync(row, cancellationToken);
+            updated++;
+        }
+        if (updated > 0)
+            _logger.LogInformation("Updated EscalationTier on {Count} finishing move matrix row(s).", updated);
+    }
+
+    private static string DeriveRowTier(string wifeBehaviorModifier) => wifeBehaviorModifier switch
+    {
+        "Enthusiastic, she asks" or "Enthusiastic, mutual" or "Willing, eager" or
+        "Willing but reserved" or "Comfortable" or "He directs, she agrees" or
+        "Cooperative" or "Willing to please" or "Enthusiastic, she welcomes the finish." => "Low",
+
+        "He commands, she's eager" or "Accepting" or "He decides" or
+        "Reluctant, prefers control" or "Hesitant" or "Uncomfortable" or
+        "Accommodating" or "Willing and cooperative." => "Medium",
+
+        _ => "High"
+    };
 
     private static List<string> ParseCsv(string csv)
         => string.IsNullOrWhiteSpace(csv)
@@ -120,13 +146,4 @@ public sealed class FinishingMoveMatrixSeedService
                 .Select(x => x.Trim())
                 .Where(x => !string.IsNullOrWhiteSpace(x))
                 .ToList();
-
-    private sealed record SeedRow(
-        string DesireBand,
-        string SelfRespectBand,
-        string OtherManDominanceBand,
-        string PrimaryLocationsCsv,
-        string SecondaryLocationsCsv,
-        string Behavior,
-        string Receptivity);
 }

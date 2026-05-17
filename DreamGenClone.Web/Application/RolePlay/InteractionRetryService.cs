@@ -357,6 +357,11 @@ public sealed class InteractionRetryService : IInteractionRetryService
                             ? "(no description)"
                             : character.Description.Trim();
                         sb.AppendLine($"  {character.Name!.Trim()}{roleText}{relationSuffix}: {description}");
+                        var charAppearance = PhysicalAttributesFormatter.FormatBlock(character.PhysicalAttributes);
+                        if (!string.IsNullOrEmpty(charAppearance))
+                        {
+                            sb.AppendLine($"    {charAppearance}");
+                        }
                     }
                 }
 
