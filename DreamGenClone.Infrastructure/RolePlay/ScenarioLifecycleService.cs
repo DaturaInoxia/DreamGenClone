@@ -185,6 +185,7 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
         AdaptiveScenarioState state,
         ResetReason reason,
         IReadOnlyDictionary<string, IReadOnlyDictionary<string, int>>? perCharacterBaselineOverrides = null,
+        IReadOnlyDictionary<string, decimal>? statDecayScaleOverrides = null,
         CancellationToken cancellationToken = default)
     {
         var nextCycleIndex = state.CycleIndex + 1;
@@ -221,7 +222,8 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
                         snapshot,
                         _resetStatBaselines,
                         statPull,
-                        characterBaselines);
+                        characterBaselines,
+                        statDecayScaleOverrides);
                 })
                 .ToList()
         };
@@ -241,7 +243,8 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
         CharacterStatProfileV2 snapshot,
         IReadOnlyDictionary<string, int> baselines,
         decimal statPull,
-        IReadOnlyDictionary<string, int>? characterBaselineOverride = null)
+        IReadOnlyDictionary<string, int>? characterBaselineOverride = null,
+        IReadOnlyDictionary<string, decimal>? statDecayScaleOverrides = null)
     {
         int ResolveBaseline(string statName)
         {
@@ -257,16 +260,26 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
                 : 50;
         }
 
+        decimal EffectivePull(string statName)
+        {
+            if (statDecayScaleOverrides is not null
+                && statDecayScaleOverrides.TryGetValue(statName, out var scale))
+            {
+                return statPull * Math.Clamp(scale, 0m, 1m);
+            }
+            return statPull;
+        }
+
         return new CharacterStatProfileV2
         {
             CharacterId = snapshot.CharacterId,
-            Desire = MoveTowardBaseline(snapshot.Desire, ResolveBaseline("Desire"), statPull),
-            Restraint = MoveTowardBaseline(snapshot.Restraint, ResolveBaseline("Restraint"), statPull),
-            Tension = MoveTowardBaseline(snapshot.Tension, ResolveBaseline("Tension"), statPull),
-            Connection = MoveTowardBaseline(snapshot.Connection, ResolveBaseline("Connection"), statPull),
-            Dominance = MoveTowardBaseline(snapshot.Dominance, ResolveBaseline("Dominance"), statPull),
-            Loyalty = MoveTowardBaseline(snapshot.Loyalty, ResolveBaseline("Loyalty"), statPull),
-            SelfRespect = MoveTowardBaseline(snapshot.SelfRespect, ResolveBaseline("SelfRespect"), statPull),
+            Desire = MoveTowardBaseline(snapshot.Desire, ResolveBaseline("Desire"), EffectivePull("Desire")),
+            Restraint = MoveTowardBaseline(snapshot.Restraint, ResolveBaseline("Restraint"), EffectivePull("Restraint")),
+            Tension = MoveTowardBaseline(snapshot.Tension, ResolveBaseline("Tension"), EffectivePull("Tension")),
+            Connection = MoveTowardBaseline(snapshot.Connection, ResolveBaseline("Connection"), EffectivePull("Connection")),
+            Dominance = MoveTowardBaseline(snapshot.Dominance, ResolveBaseline("Dominance"), EffectivePull("Dominance")),
+            Loyalty = MoveTowardBaseline(snapshot.Loyalty, ResolveBaseline("Loyalty"), EffectivePull("Loyalty")),
+            SelfRespect = MoveTowardBaseline(snapshot.SelfRespect, ResolveBaseline("SelfRespect"), EffectivePull("SelfRespect")),
             SnapshotUtc = DateTime.UtcNow
         };
     }

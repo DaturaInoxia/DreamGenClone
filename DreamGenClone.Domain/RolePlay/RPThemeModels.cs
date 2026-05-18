@@ -63,6 +63,7 @@ public sealed class RPTheme
 
     public List<RPThemeKeyword> Keywords { get; set; } = [];
     public List<RPThemeStatAffinity> StatAffinities { get; set; } = [];
+    public List<RPThemeStatDecayOverride> StatDecayOverrides { get; set; } = [];
     public List<RPThemePhaseGuidance> PhaseGuidance { get; set; } = [];
     public List<RPThemeGuidancePoint> GuidancePoints { get; set; } = [];
     public List<RPThemeFitRule> FitRules { get; set; } = [];
@@ -146,6 +147,22 @@ public sealed class RPThemeStatAffinity
     public string StatName { get; set; } = string.Empty;
     public int Value { get; set; }
     public string Rationale { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Per-stat decay scale applied during the Reset phase for this theme.
+/// DecayScale 0.0 = permanent (stat does not move toward baseline).
+/// DecayScale 1.0 = full global recovery (default when no override exists).
+/// Values between 0 and 1 produce partial recovery.
+/// </summary>
+public sealed class RPThemeStatDecayOverride
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string ThemeId { get; set; } = string.Empty;
+    public string StatName { get; set; } = string.Empty;
+    /// <summary>0.0 = permanent, 1.0 = full recovery. Clamped to [0, 1] on apply.</summary>
+    public decimal DecayScale { get; set; } = 1.0m;
+    public string Description { get; set; } = string.Empty;
 }
 
 public sealed class RPThemeFitRule

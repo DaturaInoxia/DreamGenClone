@@ -418,6 +418,16 @@ public sealed partial class RPThemeService : IRPThemeService
                     Comparator = rule.Comparator,
                     Threshold = rule.Threshold
                 })
+                .ToList(),
+            StatDecayOverrides = sourceTheme.StatDecayOverrides
+                .Select(o => new RPThemeStatDecayOverride
+                {
+                    Id = Guid.NewGuid().ToString("N"),
+                    ThemeId = newThemeId,
+                    StatName = o.StatName,
+                    DecayScale = o.DecayScale,
+                    Description = o.Description
+                })
                 .ToList()
         };
 
@@ -455,6 +465,7 @@ public sealed partial class RPThemeService : IRPThemeService
             theme.ParentThemeId = await LoadParentThemeIdAsync(connection, theme.Id, cancellationToken);
             theme.Keywords = await LoadThemeKeywordsAsync(connection, theme.Id, cancellationToken);
             theme.StatAffinities = await LoadThemeStatAffinitiesAsync(connection, theme.Id, cancellationToken);
+            theme.StatDecayOverrides = await LoadThemeStatDecayOverridesAsync(connection, theme.Id, cancellationToken);
             theme.PhaseGuidance = await LoadThemePhaseGuidanceAsync(connection, theme.Id, _logger, cancellationToken);
             theme.GuidancePoints = await LoadThemeGuidancePointsAsync(connection, theme.Id, _logger, cancellationToken);
             theme.FitRules = await LoadThemeFitRulesAsync(connection, theme.Id, cancellationToken);
@@ -511,6 +522,7 @@ public sealed partial class RPThemeService : IRPThemeService
             theme.ParentThemeId = await LoadParentThemeIdAsync(connection, theme.Id, cancellationToken);
             theme.Keywords = await LoadThemeKeywordsAsync(connection, theme.Id, cancellationToken);
             theme.StatAffinities = await LoadThemeStatAffinitiesAsync(connection, theme.Id, cancellationToken);
+            theme.StatDecayOverrides = await LoadThemeStatDecayOverridesAsync(connection, theme.Id, cancellationToken);
             theme.PhaseGuidance = await LoadThemePhaseGuidanceAsync(connection, theme.Id, _logger, cancellationToken);
             theme.GuidancePoints = await LoadThemeGuidancePointsAsync(connection, theme.Id, _logger, cancellationToken);
             theme.FitRules = await LoadThemeFitRulesAsync(connection, theme.Id, cancellationToken);
@@ -552,6 +564,7 @@ public sealed partial class RPThemeService : IRPThemeService
         theme.ParentThemeId = await LoadParentThemeIdAsync(connection, theme.Id, cancellationToken);
         theme.Keywords = await LoadThemeKeywordsAsync(connection, theme.Id, cancellationToken);
         theme.StatAffinities = await LoadThemeStatAffinitiesAsync(connection, theme.Id, cancellationToken);
+        theme.StatDecayOverrides = await LoadThemeStatDecayOverridesAsync(connection, theme.Id, cancellationToken);
         theme.PhaseGuidance = await LoadThemePhaseGuidanceAsync(connection, theme.Id, _logger, cancellationToken);
         theme.GuidancePoints = await LoadThemeGuidancePointsAsync(connection, theme.Id, _logger, cancellationToken);
         theme.FitRules = await LoadThemeFitRulesAsync(connection, theme.Id, cancellationToken);
@@ -2234,6 +2247,7 @@ public sealed partial class RPThemeService : IRPThemeService
         {
             "DELETE FROM RPThemeKeywords WHERE ThemeId = $themeId",
             "DELETE FROM RPThemeStatAffinities WHERE ThemeId = $themeId",
+            "DELETE FROM RPThemeStatDecayOverrides WHERE ThemeId = $themeId",
             "DELETE FROM RPThemePhaseGuidance WHERE ThemeId = $themeId",
             "DELETE FROM RPThemeGuidancePoints WHERE ThemeId = $themeId",
             "DELETE FROM RPThemeAIGuidanceNotes WHERE ThemeId = $themeId",
@@ -2359,6 +2373,19 @@ public sealed partial class RPThemeService : IRPThemeService
             cmd.Parameters.AddWithValue("$metricKey", rule.Rule.MetricKey);
             cmd.Parameters.AddWithValue("$comparator", rule.Rule.Comparator);
             cmd.Parameters.AddWithValue("$threshold", rule.Rule.Threshold);
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        foreach (var decayOverride in theme.StatDecayOverrides)
+        {
+            await using var cmd = connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = "INSERT INTO RPThemeStatDecayOverrides (Id, ThemeId, StatName, DecayScale, Description) VALUES ($id, $themeId, $statName, $decayScale, $description)";
+            cmd.Parameters.AddWithValue("$id", string.IsNullOrWhiteSpace(decayOverride.Id) ? Guid.NewGuid().ToString("N") : decayOverride.Id);
+            cmd.Parameters.AddWithValue("$themeId", theme.Id);
+            cmd.Parameters.AddWithValue("$statName", decayOverride.StatName);
+            cmd.Parameters.AddWithValue("$decayScale", (double)Math.Clamp(decayOverride.DecayScale, 0m, 1m));
+            cmd.Parameters.AddWithValue("$description", decayOverride.Description ?? string.Empty);
             await cmd.ExecuteNonQueryAsync(cancellationToken);
         }
     }
@@ -3405,6 +3432,29 @@ public sealed partial class RPThemeService : IRPThemeService
         return NormalizeNarrativeGateRules(list);
     }
 
+    private static async Task<List<RPThemeStatDecayOverride>> LoadThemeStatDecayOverridesAsync(SqliteConnection connection, string themeId, CancellationToken cancellationToken)
+    {
+        var list = new List<RPThemeStatDecayOverride>();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT Id, StatName, DecayScale, Description FROM RPThemeStatDecayOverrides WHERE ThemeId = $themeId ORDER BY StatName";
+        command.Parameters.AddWithValue("$themeId", themeId);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            list.Add(new RPThemeStatDecayOverride
+            {
+                Id = reader.GetString(0),
+                ThemeId = themeId,
+                StatName = reader.GetString(1),
+                DecayScale = Math.Clamp(Convert.ToDecimal(reader.GetValue(2)), 0m, 1m),
+                Description = reader.IsDBNull(3) ? string.Empty : reader.GetString(3)
+            });
+        }
+
+        return list;
+    }
+
     private async Task EnsureThemeNarrativeGateRulesPersistedAsync(SqliteConnection connection, RPTheme theme, CancellationToken cancellationToken)
     {
         if (theme.NarrativeGateRules.Count > 0)
@@ -4365,6 +4415,18 @@ public sealed partial class RPThemeService : IRPThemeService
 
             CREATE INDEX IF NOT EXISTS IX_RPThemeNarrativeGateRules_Theme_Sort
                 ON RPThemeNarrativeGateRules (ThemeId, SortOrder, Id);
+
+            CREATE TABLE IF NOT EXISTS RPThemeStatDecayOverrides (
+                Id TEXT PRIMARY KEY,
+                ThemeId TEXT NOT NULL,
+                StatName TEXT NOT NULL,
+                DecayScale REAL NOT NULL DEFAULT 1.0,
+                Description TEXT NOT NULL DEFAULT '',
+                FOREIGN KEY (ThemeId) REFERENCES RPThemes(Id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS IX_RPThemeStatDecayOverrides_Theme
+                ON RPThemeStatDecayOverrides (ThemeId);
 
             CREATE TABLE IF NOT EXISTS RPFinishLocations (
                 Id TEXT PRIMARY KEY,

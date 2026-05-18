@@ -840,6 +840,36 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                     currentPhase,
                     session.ThemeAIGuidanceInfluencePercent,
                     session.MaxThemeAIGuidanceNotes);
+
+                RPTheme? secondaryTheme = null;
+                var tracker = session.AdaptiveState.ThemeTracker;
+                if (_rpThemeService is not null
+                    && session.ThemeAIGuidanceInfluencePercent > 0
+                    && string.Equals(tracker.ThemeSelectionRule, "Top2Blend", StringComparison.OrdinalIgnoreCase)
+                    && !string.IsNullOrWhiteSpace(tracker.SecondaryThemeId)
+                    && !string.Equals(tracker.SecondaryThemeId, activeScenarioId, StringComparison.OrdinalIgnoreCase))
+                {
+                    try
+                    {
+                        secondaryTheme = await _rpThemeService.GetThemeAsync(tracker.SecondaryThemeId, cancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "Unable to load secondary RP theme AI guidance notes for theme {ThemeId} in session {SessionId}.", tracker.SecondaryThemeId, session.Id);
+                    }
+                }
+
+                if (secondaryTheme is not null)
+                {
+                    var secondaryInfluencePercent = Math.Max(1, session.ThemeAIGuidanceInfluencePercent / 2);
+                    var secondaryMaxNotes = Math.Max(1, session.MaxThemeAIGuidanceNotes / 2);
+                    RolePlayAssistantPrompts.AppendThemeAIGuidance(
+                        sb,
+                        secondaryTheme,
+                        currentPhase,
+                        secondaryInfluencePercent,
+                        secondaryMaxNotes);
+                }
             }
         }
 

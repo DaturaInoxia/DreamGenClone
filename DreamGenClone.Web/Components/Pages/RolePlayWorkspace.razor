@@ -8844,6 +8844,9 @@
                                     <div class="progress-bar @GetPhaseProgressBarClass()" style="width:@($"{phaseProgress.ProgressPercent}%")"></div>
                                 </div>
                                 <div class="rw-settings-info-row rw-settings-info-row-block"><span>What This Means</span><span>@phaseProgress.Details</span></div>
+                                <div class="rw-settings-info-row"><span>Theme Selection Rule</span><span>@_session.AdaptiveState.ThemeTracker.ThemeSelectionRule</span></div>
+                                <div class="rw-settings-info-row"><span>Primary Selection</span><span>@(string.IsNullOrWhiteSpace(_session.AdaptiveState.ThemeTracker.PrimaryThemeId) ? "(none)" : ResolveDecisionThemeLabel(_session.AdaptiveState.ThemeTracker.PrimaryThemeId))</span></div>
+                                <div class="rw-settings-info-row"><span>Secondary Selection</span><span>@(string.IsNullOrWhiteSpace(_session.AdaptiveState.ThemeTracker.SecondaryThemeId) ? "(none)" : ResolveDecisionThemeLabel(_session.AdaptiveState.ThemeTracker.SecondaryThemeId))</span></div>
                                 <div class="rw-settings-info-row"><span>Active Theme</span><span>@(string.IsNullOrWhiteSpace(_session.AdaptiveState.ActiveScenarioId) ? "(none)" : _session.AdaptiveState.ActiveScenarioId)</span></div>
 
                                 @{

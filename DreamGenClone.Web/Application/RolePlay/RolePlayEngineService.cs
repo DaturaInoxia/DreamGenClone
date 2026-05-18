@@ -2584,6 +2584,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                             b => b.CharacterId,
                             b => (IReadOnlyDictionary<string, int>)b.BaselineStats,
                             StringComparer.OrdinalIgnoreCase),
+                    await ResolveThemeStatDecayScaleOverridesAsync(completedScenarioId, cancellationToken),
                     cancellationToken);
                 ApplyThemeSemiReset(session.AdaptiveState.ThemeTracker, completedScenarioId);
             }
@@ -3150,6 +3151,29 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         }
 
         return characterId;
+    }
+
+    private async Task<IReadOnlyDictionary<string, decimal>?> ResolveThemeStatDecayScaleOverridesAsync(
+        string? themeId,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(themeId) || _rpThemeService is null)
+        {
+            return null;
+        }
+
+        var theme = await _rpThemeService.GetThemeAsync(themeId, cancellationToken);
+        if (theme is null || theme.StatDecayOverrides.Count == 0)
+        {
+            return null;
+        }
+
+        return theme.StatDecayOverrides
+            .Where(o => !string.IsNullOrWhiteSpace(o.StatName))
+            .ToDictionary(
+                o => o.StatName,
+                o => Math.Clamp(o.DecayScale, 0m, 1m),
+                StringComparer.OrdinalIgnoreCase);
     }
 
     private void ApplyThemeSemiReset(ThemeTrackerState tracker, string? completedScenarioId)
@@ -7053,6 +7077,7 @@ Requirements:
             DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state,
             ResetReason reason,
             IReadOnlyDictionary<string, IReadOnlyDictionary<string, int>>? perCharacterBaselineOverrides = null,
+            IReadOnlyDictionary<string, decimal>? statDecayScaleOverrides = null,
             CancellationToken cancellationToken = default)
             => Task.FromResult(state);
     }

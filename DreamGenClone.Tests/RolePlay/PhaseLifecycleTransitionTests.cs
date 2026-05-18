@@ -431,6 +431,81 @@ public sealed class PhaseLifecycleTransitionTests
     }
 
     [Fact]
+    public async Task StatDecayOverride_ScaleZero_StatFrozenAfterReset()
+    {
+        // Desire override = 0.0 → decay pull is multiplied by 0 → stat should not move at all.
+        var state = CreateState();
+        state.CurrentPhase = NarrativePhase.Reset;
+        state.CycleIndex = 0;
+        var snapshot = state.CharacterSnapshots[0]; // Desire = 80, baseline = 50 by default
+
+        var overrides = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Desire"] = 0.0m
+        };
+
+        var reset = await _service.ExecuteResetAsync(state, ResetReason.Completion, statDecayScaleOverrides: overrides);
+        var decayed = reset.CharacterSnapshots[0];
+
+        Assert.Equal(snapshot.Desire, decayed.Desire);
+    }
+
+    [Fact]
+    public async Task StatDecayOverride_ScaleHalf_StatMovesHalfwayToBaseline()
+    {
+        // At scale 1.0 Desire would fully decay to baseline.
+        // At scale 0.5 it should move approximately halfway.
+        // Use pull schedule = [1.0] and baselines = {Desire: 0} so the full-pull target is 0.
+        var opts = Options.Create(new StoryAnalysisOptions
+        {
+            ResetStatBaselinePullSchedule = [1.0],
+            ResetStatBaselines = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Desire"] = 0 }
+        });
+        var service = new ScenarioLifecycleService(NullLogger<ScenarioLifecycleService>.Instance, null, opts);
+
+        var state = new AdaptiveScenarioState
+        {
+            SessionId = "test",
+            CurrentPhase = NarrativePhase.Reset,
+            CycleIndex = 0,
+            ActiveFormulaVersion = "rpv2-default",
+            CharacterSnapshots = [new CharacterStatProfileV2 { CharacterId = "c", Desire = 100 }]
+        };
+
+        // Full pull (scale=1.0) → Desire should go to 0.
+        var fullReset = await service.ExecuteResetAsync(state, ResetReason.Completion);
+        Assert.Equal(0, fullReset.CharacterSnapshots[0].Desire);
+
+        // Half pull (scale=0.5) → Desire should move halfway: 100 * (1 - 0.5) = 50.
+        var halfOverrides = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase) { ["Desire"] = 0.5m };
+        var halfReset = await service.ExecuteResetAsync(state, ResetReason.Completion, statDecayScaleOverrides: halfOverrides);
+        Assert.Equal(50, halfReset.CharacterSnapshots[0].Desire);
+    }
+
+    [Fact]
+    public async Task StatDecayOverride_EmptyOverrides_NumericallyIdenticalToNoOverrides()
+    {
+        // Regression guard: passing an empty overrides dictionary must produce the same result as null.
+        var state = CreateState();
+        state.CurrentPhase = NarrativePhase.Reset;
+        state.CycleIndex = 0;
+
+        var withNull = await _service.ExecuteResetAsync(state, ResetReason.Completion, statDecayScaleOverrides: null);
+        var withEmpty = await _service.ExecuteResetAsync(state, ResetReason.Completion,
+            statDecayScaleOverrides: new Dictionary<string, decimal>());
+
+        var nullSnap = withNull.CharacterSnapshots[0];
+        var emptySnap = withEmpty.CharacterSnapshots[0];
+        Assert.Equal(nullSnap.Desire, emptySnap.Desire);
+        Assert.Equal(nullSnap.Restraint, emptySnap.Restraint);
+        Assert.Equal(nullSnap.Tension, emptySnap.Tension);
+        Assert.Equal(nullSnap.Connection, emptySnap.Connection);
+        Assert.Equal(nullSnap.Dominance, emptySnap.Dominance);
+        Assert.Equal(nullSnap.Loyalty, emptySnap.Loyalty);
+        Assert.Equal(nullSnap.SelfRespect, emptySnap.SelfRespect);
+    }
+
+    [Fact]
     public async Task ThemeMachineResolution_ThrowsWhenNoActiveDefinitionExists()
     {
         var dbPath = Path.Combine(Path.GetTempPath(), $"dreamgenclone-machine-resolution-{Guid.NewGuid():N}.db");

@@ -156,6 +156,136 @@ public sealed class RolePlayContinuationNarrativeValidationTests
         Assert.Contains("Escalate excuse complexity over time.", prompt, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task ContinueAsync_WhenTop2Blend_AppendsSecondaryThemeHintsAtReducedInfluence()
+    {
+        var completion = new QueueCompletionClient([
+            "Dean stepped closer and lowered his voice."
+        ]);
+
+        var primaryTheme = new RPTheme
+        {
+            Id = "infidelity-public-facade",
+            AIGenerationNotes =
+            [
+                new RPThemeAIGuidanceNote
+                {
+                    Section = RPThemeAIGuidanceSection.InteractionDynamics,
+                    Text = "Primary guidance note.",
+                    SortOrder = 0
+                }
+            ]
+        };
+
+        var secondaryTheme = new RPTheme
+        {
+            Id = "seduction",
+            AIGenerationNotes =
+            [
+                new RPThemeAIGuidanceNote
+                {
+                    Section = RPThemeAIGuidanceSection.InteractionDynamics,
+                    Text = "Secondary guidance note.",
+                    SortOrder = 0
+                }
+            ]
+        };
+
+        var rpThemeService = new StubRpThemeService(primaryTheme, secondaryTheme);
+
+        var service = CreateService(completion, out _, rpThemeService);
+        var session = new RolePlaySession
+        {
+            Id = "s4b",
+            PersonaName = "Becky",
+            UseThemeAIGuidanceNotesInPrompt = true,
+            ThemeAIGuidanceInfluencePercent = 55,
+            MaxThemeAIGuidanceNotes = 4,
+            AdaptiveState = new RolePlayAdaptiveState
+            {
+                ActiveScenarioId = "infidelity-public-facade",
+                CurrentNarrativePhase = DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Committed,
+                ThemeTracker = new ThemeTrackerState
+                {
+                    ThemeSelectionRule = "Top2Blend",
+                    PrimaryThemeId = "infidelity-public-facade",
+                    SecondaryThemeId = "seduction"
+                }
+            }
+        };
+
+        await service.ContinueAsync(
+            session,
+            ContinueAsActor.Npc,
+            customActorName: null,
+            intent: PromptIntent.Message,
+            promptText: "Continue naturally.");
+
+        Assert.Single(completion.Prompts);
+        var prompt = completion.Prompts[0];
+        Assert.Contains("Theme AI Guidance (strong guidance, influence=55%):", prompt, StringComparison.Ordinal);
+        Assert.Contains("Theme AI Guidance (soft hints, influence=27%):", prompt, StringComparison.Ordinal);
+        Assert.Contains("Primary guidance note.", prompt, StringComparison.Ordinal);
+        Assert.Contains("Secondary guidance note.", prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ContinueAsync_WhenTop2BlendMissingSecondaryTheme_DoesNotAppendSecondaryHints()
+    {
+        var completion = new QueueCompletionClient([
+            "Dean stepped closer and lowered his voice."
+        ]);
+
+        var rpThemeService = new StubRpThemeService(new RPTheme
+        {
+            Id = "infidelity-public-facade",
+            AIGenerationNotes =
+            [
+                new RPThemeAIGuidanceNote
+                {
+                    Section = RPThemeAIGuidanceSection.InteractionDynamics,
+                    Text = "Primary guidance note.",
+                    SortOrder = 0
+                }
+            ]
+        });
+
+        var service = CreateService(completion, out _, rpThemeService);
+        var session = new RolePlaySession
+        {
+            Id = "s4c",
+            PersonaName = "Becky",
+            UseThemeAIGuidanceNotesInPrompt = true,
+            ThemeAIGuidanceInfluencePercent = 55,
+            MaxThemeAIGuidanceNotes = 4,
+            AdaptiveState = new RolePlayAdaptiveState
+            {
+                ActiveScenarioId = "infidelity-public-facade",
+                CurrentNarrativePhase = DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Committed,
+                ThemeTracker = new ThemeTrackerState
+                {
+                    ThemeSelectionRule = "Top2Blend",
+                    PrimaryThemeId = "infidelity-public-facade",
+                    SecondaryThemeId = "missing-theme"
+                }
+            }
+        };
+
+        await service.ContinueAsync(
+            session,
+            ContinueAsActor.Npc,
+            customActorName: null,
+            intent: PromptIntent.Message,
+            promptText: "Continue naturally.");
+
+        Assert.Single(completion.Prompts);
+        var prompt = completion.Prompts[0];
+        Assert.Contains("Theme AI Guidance (strong guidance, influence=55%):", prompt, StringComparison.Ordinal);
+        Assert.Contains("Primary guidance note.", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("influence=27%", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("Secondary guidance note.", prompt, StringComparison.Ordinal);
+    }
+
     // ── T003: NarrativeLocationLabel (tested via prompt output) ─────────────
 
     [Fact]
@@ -753,11 +883,13 @@ public sealed class RolePlayContinuationNarrativeValidationTests
 
     private sealed class StubRpThemeService : IRPThemeService
     {
-        private readonly RPTheme _theme;
+        private readonly Dictionary<string, RPTheme> _themes;
 
-        public StubRpThemeService(RPTheme theme)
+        public StubRpThemeService(params RPTheme[] themes)
         {
-            _theme = theme;
+            _themes = themes
+                .Where(x => !string.IsNullOrWhiteSpace(x.Id))
+                .ToDictionary(x => x.Id, StringComparer.OrdinalIgnoreCase);
         }
 
         public Task<RPThemeProfile> SaveProfileAsync(RPThemeProfile profile, CancellationToken cancellationToken = default)
@@ -776,24 +908,27 @@ public sealed class RolePlayContinuationNarrativeValidationTests
             => Task.FromResult(theme);
 
         public Task<RPTheme> CloneThemeAsync(string sourceThemeId, string newThemeId, string newThemeLabel, CancellationToken cancellationToken = default)
-            => Task.FromResult(new RPTheme
+        {
+            var source = _themes.Values.First();
+            return Task.FromResult(new RPTheme
             {
                 Id = newThemeId,
                 Label = newThemeLabel,
-                Description = _theme.Description,
-                Category = _theme.Category,
-                Weight = _theme.Weight,
-                IsEnabled = _theme.IsEnabled
+                Description = source.Description,
+                Category = source.Category,
+                Weight = source.Weight,
+                IsEnabled = source.IsEnabled
             });
+        }
 
         public Task<IReadOnlyList<RPTheme>> ListThemesAsync(bool includeDisabled = false, CancellationToken cancellationToken = default)
-            => Task.FromResult<IReadOnlyList<RPTheme>>([_theme]);
+            => Task.FromResult<IReadOnlyList<RPTheme>>(_themes.Values.ToList());
 
         public Task<IReadOnlyList<RPTheme>> ListThemesByProfileAsync(string profileId, bool includeDisabled = false, CancellationToken cancellationToken = default)
-            => Task.FromResult<IReadOnlyList<RPTheme>>([_theme]);
+            => Task.FromResult<IReadOnlyList<RPTheme>>(_themes.Values.ToList());
 
         public Task<RPTheme?> GetThemeAsync(string id, CancellationToken cancellationToken = default)
-            => Task.FromResult(string.Equals(id, _theme.Id, StringComparison.OrdinalIgnoreCase) ? _theme : null);
+            => Task.FromResult(_themes.TryGetValue(id, out var theme) ? theme : null);
 
         public Task<bool> DeleteThemeAsync(string id, CancellationToken cancellationToken = default)
             => Task.FromResult(false);
