@@ -78,7 +78,20 @@ public sealed class RPFinishTransitionActionSeedServiceTests : IDisposable
 
     public void Dispose()
     {
-        if (File.Exists(_databasePath))
+        if (!File.Exists(_databasePath))
+        {
+            return;
+        }
+
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+
+        try
+        {
             File.Delete(_databasePath);
+        }
+        catch (IOException)
+        {
+            // Provider cleanup can hold a transient handle after test completion.
+        }
     }
 }

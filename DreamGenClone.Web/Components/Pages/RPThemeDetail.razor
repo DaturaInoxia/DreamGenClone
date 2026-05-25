@@ -444,6 +444,62 @@
 
         <details class="card mb-3">
             <summary class="card-header d-flex justify-content-between align-items-center">
+                <span>Successor Causality Links (@_theme.SuccessorThemeLinks.Count)</span>
+                <button type="button" class="btn btn-sm btn-outline-info" @onclick="@(() => ShowInfoForSection("Successor Causality Links"))">What is this?</button>
+            </summary>
+            <div class="card-body">
+                <p class="text-muted small mb-2">When this theme completes, each configured successor gets a score boost during semi-reset.</p>
+                <button type="button" class="btn btn-sm btn-outline-primary mb-2" @onclick="AddSuccessorLink">Add Successor</button>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead>
+                            <tr>
+                                <th>Successor Theme</th>
+                                <th style="width: 180px;">Score Boost</th>
+                                <th style="width: 140px;">Sort</th>
+                                <th style="width: 120px;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (_theme.SuccessorThemeLinks.Count == 0)
+                            {
+                                <tr><td colspan="4" class="text-muted">No successor links configured.</td></tr>
+                            }
+                            else
+                            {
+                                @for (var i = 0; i < _theme.SuccessorThemeLinks.Count; i++)
+                                {
+                                    var rowIndex = i;
+                                    <tr>
+                                        <td>
+                                            <select class="form-select form-select-sm" @bind="_theme.SuccessorThemeLinks[rowIndex].SuccessorThemeId">
+                                                <option value="">Select successor...</option>
+                                                @foreach (var option in _allThemes
+                                                    .Where(x => !string.Equals(x.Id, _theme.Id, StringComparison.OrdinalIgnoreCase))
+                                                    .OrderBy(x => x.Label, StringComparer.OrdinalIgnoreCase))
+                                                {
+                                                    <option value="@option.Id">@option.Label (@option.Id)</option>
+                                                }
+                                            </select>
+                                        </td>
+                                        <td>
+                                            <input class="form-control form-control-sm" type="number" min="1" max="100" step="1" @bind="_theme.SuccessorThemeLinks[rowIndex].ScoreBoost" />
+                                        </td>
+                                        <td>
+                                            <input class="form-control form-control-sm" type="number" min="1" @bind="_theme.SuccessorThemeLinks[rowIndex].SortOrder" />
+                                        </td>
+                                        <td><button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => RemoveSuccessorLink(rowIndex)">Remove</button></td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </details>
+
+        <details class="card mb-3">
+            <summary class="card-header d-flex justify-content-between align-items-center">
                 <span>Keywords (@_theme.Keywords.Count)</span>
                 <button type="button" class="btn btn-sm btn-outline-info" @onclick="@(() => ShowInfoForSection("Keywords"))">What is this?</button>
             </summary>
@@ -856,6 +912,146 @@
                 </div>
             </div>
         </details>
+
+        <details class="card mb-3">
+            <summary class="card-header d-flex justify-content-between align-items-center">
+                <span>Semantic Event Mappings (@_theme.SemanticEventMappings.Count)</span>
+                <button type="button" class="btn btn-sm btn-outline-info" @onclick="@(() => ShowInfoForSection("Semantic Event Mappings"))">What is this?</button>
+            </summary>
+            <div class="card-body">
+                <button type="button" class="btn btn-sm btn-outline-primary mb-2" @onclick="AddSemanticEventMapping">Add Semantic Mapping</button>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead>
+                            <tr>
+                                <th style="width: 170px;">Event Id</th>
+                                <th style="width: 130px;">Direction</th>
+                                <th style="width: 110px;">Delta</th>
+                                <th style="width: 120px;">Confidence Min</th>
+                                <th style="width: 120px;">Confidence Max</th>
+                                <th style="width: 170px;">Reason Code</th>
+                                <th style="width: 150px;">Attribution Key</th>
+                                <th style="width: 90px;">Sort</th>
+                                <th style="width: 120px;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (_theme.SemanticEventMappings.Count == 0)
+                            {
+                                <tr><td colspan="9" class="text-muted">No semantic mappings yet.</td></tr>
+                            }
+                            else
+                            {
+                                @for (var i = 0; i < _theme.SemanticEventMappings.Count; i++)
+                                {
+                                    var rowIndex = i;
+                                    <tr>
+                                        <td><input class="form-control form-control-sm" placeholder="example: lie_to_husband" list="semantic-event-id-suggestions" @bind="_theme.SemanticEventMappings[rowIndex].EventId" /></td>
+                                        <td>
+                                            <select class="form-select form-select-sm" @bind="_theme.SemanticEventMappings[rowIndex].Direction">
+                                                @foreach (var direction in _semanticMappingDirections)
+                                                {
+                                                    <option value="@direction">@direction</option>
+                                                }
+                                            </select>
+                                        </td>
+                                        <td><input class="form-control form-control-sm" type="number" step="0.01" @bind="_theme.SemanticEventMappings[rowIndex].Delta" /></td>
+                                        <td><input class="form-control form-control-sm" type="number" step="0.01" min="0" max="1" @bind="_theme.SemanticEventMappings[rowIndex].ConfidenceMin" /></td>
+                                        <td><input class="form-control form-control-sm" type="number" step="0.01" min="0" max="1" @bind="_theme.SemanticEventMappings[rowIndex].ConfidenceMax" /></td>
+                                        <td><input class="form-control form-control-sm" placeholder="example: semantic_intent_signal" list="semantic-reason-code-suggestions" @bind="_theme.SemanticEventMappings[rowIndex].ReasonCode" /></td>
+                                        <td><input class="form-control form-control-sm" @bind="_theme.SemanticEventMappings[rowIndex].AttributionKey" /></td>
+                                        <td><input class="form-control form-control-sm" type="number" @bind="_theme.SemanticEventMappings[rowIndex].SortOrder" /></td>
+                                        <td><button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => RemoveSemanticEventMapping(rowIndex)">Remove</button></td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                <datalist id="semantic-event-id-suggestions">
+                    @foreach (var suggestion in BuildSemanticEventIdSuggestions())
+                    {
+                        <option value="@suggestion"></option>
+                    }
+                </datalist>
+                <datalist id="semantic-reason-code-suggestions">
+                    @foreach (var suggestion in BuildSemanticReasonCodeSuggestions())
+                    {
+                        <option value="@suggestion"></option>
+                    }
+                </datalist>
+                <div class="form-text">
+                    Defaults for new rows: direction <code>increase</code>, delta <code>5.0</code>, confidence <code>0.00</code>-<code>1.00</code>, reason <code>semantic_intent_signal</code>, attribution <code>semantic</code>.
+                </div>
+            </div>
+        </details>
+
+        <details class="card mb-3">
+            <summary class="card-header d-flex justify-content-between align-items-center">
+                <span>Semantic Stat Mappings (@_theme.SemanticStatMappings.Count)</span>
+                <button type="button" class="btn btn-sm btn-outline-info" @onclick="@(() => ShowInfoForSection("Semantic Stat Mappings"))">What is this?</button>
+            </summary>
+            <div class="card-body">
+                <button type="button" class="btn btn-sm btn-outline-primary mb-2" @onclick="AddSemanticStatMapping">Add Semantic Stat Mapping</button>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead>
+                            <tr>
+                                <th style="width: 170px;">Event Id</th>
+                                <th style="width: 170px;">Target Stat</th>
+                                <th style="width: 130px;">Direction</th>
+                                <th style="width: 110px;">Delta</th>
+                                <th style="width: 120px;">Confidence Min</th>
+                                <th style="width: 120px;">Confidence Max</th>
+                                <th style="width: 170px;">Reason Code</th>
+                                <th style="width: 90px;">Sort</th>
+                                <th style="width: 120px;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (_theme.SemanticStatMappings.Count == 0)
+                            {
+                                <tr><td colspan="9" class="text-muted">No semantic stat mappings yet.</td></tr>
+                            }
+                            else
+                            {
+                                @for (var i = 0; i < _theme.SemanticStatMappings.Count; i++)
+                                {
+                                    var rowIndex = i;
+                                    <tr>
+                                        <td><input class="form-control form-control-sm" placeholder="example: lie_to_husband" list="semantic-event-id-suggestions" @bind="_theme.SemanticStatMappings[rowIndex].EventId" /></td>
+                                        <td><input class="form-control form-control-sm" placeholder="example: Desire" list="semantic-target-stat-suggestions" @bind="_theme.SemanticStatMappings[rowIndex].TargetStat" /></td>
+                                        <td>
+                                            <select class="form-select form-select-sm" @bind="_theme.SemanticStatMappings[rowIndex].Direction">
+                                                @foreach (var direction in _semanticMappingDirections)
+                                                {
+                                                    <option value="@direction">@direction</option>
+                                                }
+                                            </select>
+                                        </td>
+                                        <td><input class="form-control form-control-sm" type="number" step="0.01" @bind="_theme.SemanticStatMappings[rowIndex].Delta" /></td>
+                                        <td><input class="form-control form-control-sm" type="number" step="0.01" min="0" max="1" @bind="_theme.SemanticStatMappings[rowIndex].ConfidenceMin" /></td>
+                                        <td><input class="form-control form-control-sm" type="number" step="0.01" min="0" max="1" @bind="_theme.SemanticStatMappings[rowIndex].ConfidenceMax" /></td>
+                                        <td><input class="form-control form-control-sm" placeholder="example: semantic_intent_signal" list="semantic-reason-code-suggestions" @bind="_theme.SemanticStatMappings[rowIndex].ReasonCode" /></td>
+                                        <td><input class="form-control form-control-sm" type="number" @bind="_theme.SemanticStatMappings[rowIndex].SortOrder" /></td>
+                                        <td><button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => RemoveSemanticStatMapping(rowIndex)">Remove</button></td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                <datalist id="semantic-target-stat-suggestions">
+                    @foreach (var suggestion in BuildSemanticTargetStatSuggestions())
+                    {
+                        <option value="@suggestion"></option>
+                    }
+                </datalist>
+                <div class="form-text">
+                    Defaults for new rows: target stat <code>Desire</code>, direction <code>increase</code>, delta <code>2.0</code>, confidence <code>0.00</code>-<code>1.00</code>, reason <code>semantic_intent_signal</code>, attribution <code>semantic</code>.
+                </div>
+            </div>
+        </details>
     }
 </div>
 
@@ -890,7 +1086,7 @@
                 </div>
                 <div class="modal-body">
                     <div class="small text-muted mb-3">
-                        Creates a full clone of this theme, including metadata, keywords, stat affinities, phase guidance, guidance points, fit rules and clauses, AI guidance notes, and narrative gate values.
+                        Creates a full clone of this theme, including metadata, keywords, stat affinities, phase guidance, guidance points, fit rules and clauses, AI guidance notes, semantic mappings, and narrative gate values.
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Source Theme</label>
@@ -945,6 +1141,7 @@
     [Parameter] public string ThemeId { get; set; } = string.Empty;
 
     private RPTheme _theme = CreateEmptyTheme();
+    private List<RPTheme> _allThemes = [];
     private bool _isLoading;
     private bool _isBusy;
     private bool _isNew;
@@ -969,6 +1166,40 @@
         NarrativeGateComparators.LessThanOrEqual,
         NarrativeGateComparators.LessThan,
         NarrativeGateComparators.Equal
+    ];
+    private static readonly IReadOnlyList<string> _semanticMappingDirections =
+    [
+        "increase",
+        "decrease"
+    ];
+    private static readonly IReadOnlyList<string> _semanticEventIdSuggestions =
+    [
+        "lie_to_husband",
+        "betrayal",
+        "deception",
+        "submission",
+        "temptation",
+        "boundary_cross",
+        "intimacy_escalation",
+        "dominance_shift"
+    ];
+    private static readonly IReadOnlyList<string> _semanticReasonCodeSuggestions =
+    [
+        "semantic_intent_signal",
+        "semantic_betrayal",
+        "semantic_deception",
+        "semantic_submission",
+        "semantic_temptation",
+        "semantic_boundary_cross",
+        "semantic_intimacy_escalation",
+        "semantic_dominance_shift"
+    ];
+    private static readonly IReadOnlyList<string> _semanticTargetStatSuggestions =
+    [
+        "Desire",
+        "Restraint",
+        "Tension",
+        "Connection"
     ];
 
     private List<RPThemeMachineDefinition> _machineDefinitions = [];
@@ -1024,6 +1255,7 @@
         {
             await LoadAvailableRoleNamesAsync();
             await LoadNarrativeGateProfilesAsync();
+            _allThemes = (await RPThemeService.ListThemesAsync(includeDisabled: true)).ToList();
 
             _isNew = string.Equals(ThemeId, "new", StringComparison.OrdinalIgnoreCase);
             if (_isNew)
@@ -1237,7 +1469,10 @@
             "Fit Rules" => "Used by RP Engine candidate gating/scoring. Character Role and RoleWeight scope weighting to specific participants; clauses enforce stat-level constraints.",
             "Narrative Gate Values" => "Used by RP lifecycle transitions for RP Theme subsystem sessions. Values are stored on this theme as a detached copy and control phase transitions such as BuildUp->Committed, Committed->Approaching, Approaching->Climax, Climax->Reset, and Reset->BuildUp.",
             "Theme Machines" => "Defines deterministic state-machine continuity for this theme. Admin users can edit states/transitions, validate versions, activate one version, and migrate in-progress sessions explicitly.",
-            "AI Guidance Notes" => "Used by model prompt assembly. Notes are grouped into semantic sections to keep generation aligned with theme intent.",
+            "Successor Causality Links" => "Used by RP theme semi-reset. When this theme completes, each configured successor receives its configured score boost to carry narrative momentum across themes.",
+            "AI Guidance Notes" => "Used by model prompt assembly. Notes are grouped into semantic sections to keep generation aligned with theme intent. Use the HardConstraint section for non-negotiable guardrails that must be enforced in output.",
+            "Semantic Event Mappings" => "Used by RP semantic telemetry processing. Each row maps an event id to a theme stat delta envelope with explicit confidence bounds and attribution metadata.",
+            "Semantic Stat Mappings" => "Used by RP semantic telemetry processing. Each row maps an event id to a target character stat delta envelope with explicit confidence bounds and rationale metadata.",
             _ => "Information is available, but this section is currently not used by the RP Engine or model prompt path."
         };
     }
@@ -2038,6 +2273,112 @@
         _theme.AIGenerationNotes.RemoveAt(index);
     }
 
+    private void AddSemanticEventMapping()
+    {
+        _theme.SemanticEventMappings.Add(new RPSemanticEventMapping
+        {
+            ThemeId = _theme.Id,
+            EventId = string.Empty,
+            Direction = "increase",
+            Delta = 5m,
+            ConfidenceMin = 0m,
+            ConfidenceMax = 1m,
+            ReasonCode = "semantic_intent_signal",
+            AttributionKey = "semantic",
+            SortOrder = _theme.SemanticEventMappings.Count + 1
+        });
+    }
+
+    private IReadOnlyList<string> BuildSemanticEventIdSuggestions()
+    {
+        return _semanticEventIdSuggestions
+            .Concat(_theme.SemanticEventMappings
+                .Select(x => (x.EventId ?? string.Empty).Trim())
+                .Where(x => !string.IsNullOrWhiteSpace(x)))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private IReadOnlyList<string> BuildSemanticReasonCodeSuggestions()
+    {
+        return _semanticReasonCodeSuggestions
+            .Concat(_theme.SemanticEventMappings
+                .Select(x => (x.ReasonCode ?? string.Empty).Trim())
+                .Where(x => !string.IsNullOrWhiteSpace(x)))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private void RemoveSemanticEventMapping(int index)
+    {
+        if (index < 0 || index >= _theme.SemanticEventMappings.Count)
+        {
+            return;
+        }
+
+        _theme.SemanticEventMappings.RemoveAt(index);
+    }
+
+    private void AddSemanticStatMapping()
+    {
+        _theme.SemanticStatMappings.Add(new RPSemanticStatMapping
+        {
+            ThemeId = _theme.Id,
+            EventId = string.Empty,
+            TargetStat = "Desire",
+            Direction = "increase",
+            Delta = 2m,
+            ConfidenceMin = 0m,
+            ConfidenceMax = 1m,
+            ReasonCode = "semantic_intent_signal",
+            AttributionKey = "semantic",
+            SortOrder = _theme.SemanticStatMappings.Count + 1
+        });
+    }
+
+    private IReadOnlyList<string> BuildSemanticTargetStatSuggestions()
+    {
+        return _semanticTargetStatSuggestions
+            .Concat(_theme.SemanticStatMappings
+                .Select(x => (x.TargetStat ?? string.Empty).Trim())
+                .Where(x => !string.IsNullOrWhiteSpace(x)))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private void RemoveSemanticStatMapping(int index)
+    {
+        if (index < 0 || index >= _theme.SemanticStatMappings.Count)
+        {
+            return;
+        }
+
+        _theme.SemanticStatMappings.RemoveAt(index);
+    }
+
+    private void AddSuccessorLink()
+    {
+        _theme.SuccessorThemeLinks.Add(new RPThemeSuccessorLink
+        {
+            SourceThemeId = _theme.Id,
+            ScoreBoost = 15m,
+            SortOrder = _theme.SuccessorThemeLinks.Count + 1
+        });
+    }
+
+    private void RemoveSuccessorLink(int index)
+    {
+        if (index < 0 || index >= _theme.SuccessorThemeLinks.Count)
+        {
+            return;
+        }
+
+        _theme.SuccessorThemeLinks.RemoveAt(index);
+    }
+
     private void NormalizeTheme()
     {
         _theme.Id = (_theme.Id ?? string.Empty).Trim();
@@ -2158,6 +2499,53 @@
             })
             .ToList();
 
+        _theme.SemanticEventMappings = _theme.SemanticEventMappings
+            .Where(x => !string.IsNullOrWhiteSpace(x.EventId)
+                && !string.IsNullOrWhiteSpace(x.Direction)
+                && !string.IsNullOrWhiteSpace(x.ReasonCode))
+            .Select((x, index) => new RPSemanticEventMapping
+            {
+                Id = string.IsNullOrWhiteSpace(x.Id) ? Guid.NewGuid().ToString("N") : x.Id,
+                ThemeId = _theme.Id,
+                EventId = (x.EventId ?? string.Empty).Trim(),
+                Direction = (x.Direction ?? string.Empty).Trim(),
+                Delta = x.Delta,
+                ConfidenceMin = Math.Clamp(x.ConfidenceMin, 0m, 1m),
+                ConfidenceMax = Math.Clamp(x.ConfidenceMax, 0m, 1m),
+                ReasonCode = (x.ReasonCode ?? string.Empty).Trim(),
+                AttributionKey = (x.AttributionKey ?? string.Empty).Trim(),
+                SortOrder = x.SortOrder <= 0 ? index + 1 : x.SortOrder
+            })
+            .Where(x => x.ConfidenceMin <= x.ConfidenceMax)
+            .OrderBy(x => x.SortOrder)
+            .ToList();
+
+        _theme.SemanticStatMappings = _theme.SemanticStatMappings
+            .Where(x => !string.IsNullOrWhiteSpace(x.EventId)
+                && !string.IsNullOrWhiteSpace(x.TargetStat)
+                && !string.IsNullOrWhiteSpace(x.ReasonCode))
+            .Select((x, index) => new RPSemanticStatMapping
+            {
+                Id = string.IsNullOrWhiteSpace(x.Id) ? Guid.NewGuid().ToString("N") : x.Id,
+                ThemeId = _theme.Id,
+                EventId = (x.EventId ?? string.Empty).Trim(),
+                TargetStat = (x.TargetStat ?? string.Empty).Trim(),
+                Direction = string.IsNullOrWhiteSpace(x.Direction)
+                    ? "increase"
+                    : x.Direction.Trim(),
+                Delta = x.Delta,
+                ConfidenceMin = Math.Clamp(x.ConfidenceMin, 0m, 1m),
+                ConfidenceMax = Math.Clamp(x.ConfidenceMax, 0m, 1m),
+                ReasonCode = (x.ReasonCode ?? string.Empty).Trim(),
+                AttributionKey = string.IsNullOrWhiteSpace(x.AttributionKey)
+                    ? "semantic"
+                    : x.AttributionKey.Trim(),
+                SortOrder = x.SortOrder <= 0 ? index + 1 : x.SortOrder
+            })
+            .Where(x => x.ConfidenceMin <= x.ConfidenceMax)
+            .OrderBy(x => x.SortOrder)
+            .ToList();
+
         _theme.NarrativeGateRules = _theme.NarrativeGateRules
             .Where(rule => !string.IsNullOrWhiteSpace(rule.FromPhase)
                 && !string.IsNullOrWhiteSpace(rule.ToPhase)
@@ -2172,6 +2560,20 @@
                 Comparator = rule.Comparator.Trim(),
                 Threshold = rule.Threshold
             })
+            .ToList();
+
+        _theme.SuccessorThemeLinks = _theme.SuccessorThemeLinks
+            .Where(x => !string.IsNullOrWhiteSpace(x.SuccessorThemeId))
+            .Select((x, index) => new RPThemeSuccessorLink
+            {
+                SourceThemeId = _theme.Id,
+                SuccessorThemeId = (x.SuccessorThemeId ?? string.Empty).Trim(),
+                ScoreBoost = Math.Clamp(x.ScoreBoost, 1m, 100m),
+                SortOrder = index + 1
+            })
+            .Where(x => !string.Equals(x.SuccessorThemeId, _theme.Id, StringComparison.OrdinalIgnoreCase))
+            .GroupBy(x => x.SuccessorThemeId, StringComparer.OrdinalIgnoreCase)
+            .Select(x => x.First())
             .ToList();
 
         if (string.IsNullOrWhiteSpace(_theme.Id))
@@ -2208,7 +2610,10 @@
             GuidancePoints = [],
             FitRules = [],
             AIGenerationNotes = [],
-            NarrativeGateRules = []
+            SemanticEventMappings = [],
+            SemanticStatMappings = [],
+            NarrativeGateRules = [],
+            SuccessorThemeLinks = []
         };
     }
 

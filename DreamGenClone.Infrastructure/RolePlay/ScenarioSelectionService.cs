@@ -251,6 +251,9 @@ public sealed class ScenarioSelectionService : IScenarioSelectionService
         {
             scenarioId = candidate.ScenarioId,
             candidate.Priority,
+            finalizedNarrativeEvidenceScore = candidate.NarrativeEvidenceScore,
+            finalizedPreferencePriorityScore = candidate.PreferencePriorityScore,
+            finalizedEvidenceSnapshotSource = "adaptive-theme-tracker-semantic-plus-keyword",
             fitRuleSource,
             gate = new
             {
@@ -320,19 +323,33 @@ public sealed class ScenarioSelectionService : IScenarioSelectionService
         }
 
         var roleFailures = ParseRoleFailures(fit.Failures);
+        var minRoleScore = (double)_options.BuildUpSelectionDominantRoleMinScore;
 
-        var passingRoles = fit.CharacterRoleScores
+        var clauseClearRoles = fit.CharacterRoleScores
             .Where(x => !roleFailures.Contains(x.Key))
             .OrderByDescending(x => x.Value)
             .ToList();
 
-        if (passingRoles.Count > 0)
+        var qualifyingRoles = clauseClearRoles
+            .Where(x => x.Value >= minRoleScore)
+            .ToList();
+
+        if (qualifyingRoles.Count > 0)
         {
-            var top = passingRoles[0];
+            var top = qualifyingRoles[0];
             return new CandidateGateDecision(
                 true,
                 "dominant-role",
-                $"Dominant-role gate passed via role '{top.Key}' (no clause failures, score={top.Value:0.###}).");
+                $"Dominant-role gate passed via role '{top.Key}' (no clause failures, score={top.Value:0.###} >= minRoleScore={minRoleScore:0.###}).");
+        }
+
+        if (clauseClearRoles.Count > 0)
+        {
+            var topClear = clauseClearRoles[0];
+            return new CandidateGateDecision(
+                false,
+                "dominant-role",
+                $"Dominant-role gate failed for scenario '{scenarioId}': no role reached minRoleScore={minRoleScore:0.###} (best clause-clear role '{topClear.Key}' scored {topClear.Value:0.###}).");
         }
 
         var bestRole = fit.CharacterRoleScores

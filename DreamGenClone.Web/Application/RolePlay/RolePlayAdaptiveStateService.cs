@@ -1,13 +1,17 @@
-using DreamGenClone.Web.Domain.RolePlay;
+﻿using DreamGenClone.Web.Domain.RolePlay;
 using DreamGenClone.Web.Domain.Scenarios;
 using System.Text.Json;
 using DreamGenClone.Application.Abstractions;
 using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Application.StoryAnalysis;
 using DreamGenClone.Application.StoryAnalysis.Models;
+using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Domain.StoryAnalysis;
 using DreamGenClone.Infrastructure.Configuration;
 using Microsoft.Extensions.Options;
+using System.Globalization;
+using System.Text.RegularExpressions;
+using NarrativePhase = DreamGenClone.Domain.RolePlay.NarrativePhase;
 
 namespace DreamGenClone.Web.Application.RolePlay;
 
@@ -20,6 +24,10 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
     private const int DefaultPerInteractionTotalDeltaBudget = 10;
     private const double DefaultSuppressedEvidenceMultiplier = 0.20;
     private const double DefaultSuppressedEvidencePerTurnCap = 1.5;
+    private const double DefaultSemanticEvidencePerTurnCap = 25.0;
+    private static readonly Regex SemanticSignalRegex = new(
+        "\\[\\[semantic:(?<event>[a-zA-Z0-9._-]+):(?<confidence>-?[0-9]+(?:\\.[0-9]+)?)\\]\\]",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     private readonly IThemeCatalogService _themeCatalogService;
     private readonly IIntensityProfileService? _intensityProfileService;
@@ -40,6 +48,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
     private readonly int _themeAffinityCapReset;
     private readonly double _suppressedEvidenceMultiplier;
     private readonly double _suppressedEvidencePerTurnCap;
+    private readonly double _semanticEvidencePerTurnCap;
 
     public RolePlayAdaptiveStateService(
         IThemeCatalogService themeCatalogService)
@@ -56,6 +65,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         _themeAffinityCapReset = 0;
         _suppressedEvidenceMultiplier = DefaultSuppressedEvidenceMultiplier;
         _suppressedEvidencePerTurnCap = DefaultSuppressedEvidencePerTurnCap;
+        _semanticEvidencePerTurnCap = DefaultSemanticEvidencePerTurnCap;
     }
 
     public RolePlayAdaptiveStateService(
@@ -75,6 +85,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         _themeAffinityCapReset = 0;
         _suppressedEvidenceMultiplier = DefaultSuppressedEvidenceMultiplier;
         _suppressedEvidencePerTurnCap = DefaultSuppressedEvidencePerTurnCap;
+        _semanticEvidencePerTurnCap = DefaultSemanticEvidencePerTurnCap;
     }
 
     public RolePlayAdaptiveStateService(
@@ -96,6 +107,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         _themeAffinityCapReset = 0;
         _suppressedEvidenceMultiplier = DefaultSuppressedEvidenceMultiplier;
         _suppressedEvidencePerTurnCap = DefaultSuppressedEvidencePerTurnCap;
+        _semanticEvidencePerTurnCap = DefaultSemanticEvidencePerTurnCap;
     }
 
     public RolePlayAdaptiveStateService(
@@ -128,6 +140,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         _themeAffinityCapReset = Math.Max(0, storyAnalysisOptions?.Value.AdaptiveThemeAffinityCapReset ?? 0);
         _suppressedEvidenceMultiplier = Math.Clamp(storyAnalysisOptions?.Value.SuppressedEvidenceMultiplier ?? DefaultSuppressedEvidenceMultiplier, 0.0, 1.0);
         _suppressedEvidencePerTurnCap = Math.Max(0.0, storyAnalysisOptions?.Value.SuppressedEvidencePerTurnCap ?? DefaultSuppressedEvidencePerTurnCap);
+        _semanticEvidencePerTurnCap = Math.Max(0.0, storyAnalysisOptions?.Value.SemanticEvidencePerTurnCap ?? DefaultSemanticEvidencePerTurnCap);
     }
 
     public RolePlayAdaptiveStateService(
@@ -151,7 +164,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
     {
     }
 
-    public async Task<RolePlayAdaptiveState> UpdateFromInteractionAsync(
+    public async Task<AdaptiveScenarioState> UpdateFromInteractionAsync(
         RolePlaySession session,
         RolePlayInteraction interaction,
         CancellationToken cancellationToken = default)
@@ -162,29 +175,29 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         var catalogEntries = await LoadRuntimeCatalogEntriesAsync(session, cancellationToken);
         var groupedKeywordsByThemeId = await LoadRpThemeKeywordGroupsByThemeIdAsync(session, cancellationToken);
 
-        var state = session.AdaptiveState ?? new RolePlayAdaptiveState();
-        EnsureThemeCatalog(state.ThemeTracker, catalogEntries);
+        var state = session.AdaptiveState;
+        EnsureThemeCatalog(state, catalogEntries);
         RemoveNonCharacterStats(state);
         RemoveNonCanonicalStatEntries(state);
 
         var actorKey = string.IsNullOrWhiteSpace(interaction.ActorName) ? "Unknown" : interaction.ActorName.Trim();
         var trackCharacterStats = !IsNarrativeOrSystemInteraction(interaction, actorKey);
-        CharacterStatBlock? actorStats = null;
+        CharacterStatProfileV2? actorStats = null;
         Dictionary<string, int>? statsBefore = null;
         var statDeltaContributors = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
         var rawStatDeltasForEvent = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         if (trackCharacterStats)
         {
             actorStats = GetOrCreateCharacterStats(state, actorKey);
-            statsBefore = new Dictionary<string, int>(actorStats.Stats, StringComparer.OrdinalIgnoreCase);
+            statsBefore = CharacterStatProfileV2Accessor.GetAllStats(actorStats);
             actorStats.LastStatDeltas ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         }
 
-        var phaseAffinityCap = GetThemeAffinityPhaseCap(state.CurrentNarrativePhase);
+        var phaseAffinityCap = GetThemeAffinityPhaseCap(state.CurrentPhase);
         var themeAffinityCandidates = new List<ThemeAffinityCandidate>();
 
-        var primaryBefore = state.ThemeTracker.PrimaryThemeId;
-        var secondaryBefore = state.ThemeTracker.SecondaryThemeId;
+        var primaryBefore = state.PrimaryThemeId;
+        var secondaryBefore = state.SecondaryThemeId;
 
         var content = interaction.Content ?? string.Empty;
         var contentLower = content.ToLowerInvariant();
@@ -220,7 +233,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
                     ? normalizedStatName.ToLowerInvariant()
                     : category.Name.Trim().ToLowerInvariant().Replace(' ', '-');
 
-                ApplyTrackedDelta(actorStats.Stats, normalizedStatName, keywordDelta, $"keyword:{reasonKey}");
+                ApplyTrackedDelta(actorStats, normalizedStatName, keywordDelta, $"keyword:{reasonKey}");
             }
 
             actorStats.UpdatedUtc = DateTime.UtcNow;
@@ -235,7 +248,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
 
         foreach (var entry in catalogEntries)
         {
-            if (!state.ThemeTracker.Themes.TryGetValue(entry.Id, out var trackerItem))
+            if (!state.ThemeScores.TryGetValue(entry.Id, out var trackerItem))
             {
                 continue;
             }
@@ -265,7 +278,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
                             };
                             trackerItem.Breakdown.InteractionEvidenceSignal = Math.Clamp(trackerItem.Breakdown.InteractionEvidenceSignal + suppressedDelta, 0, 100);
 
-                            state.ThemeTracker.RecentEvidence.Add(new ThemeEvidenceEvent
+                            state.RecentEvidence.Add(new ThemeEvidenceRecord
                             {
                                 InteractionId = interaction.Id,
                                 ThemeId = entry.Id,
@@ -275,7 +288,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
                                 Rationale = BuildKeywordRationale(entry.Label, contentLower, entry.Keywords, suppressedGroupedKeywords)
                             });
 
-                            TrimEvidence(state.ThemeTracker);
+                            TrimEvidence(state);
                         }
                     }
                 }
@@ -308,7 +321,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             // T043: Collect theme-affinity candidates; apply by policy after ranking.
             if (actorStats is not null && entry.StatAffinities is { Count: > 0 } && phaseAffinityCap > 0)
             {
-                if (state.ThemeTracker.Themes.TryGetValue(entry.Id, out var item) && item.Score > 0)
+                if (state.ThemeScores.TryGetValue(entry.Id, out var item) && item.Score > 0)
                 {
                     var themeSignal = Score(contentLower, entry.Keywords, entry.Weight);
                     if (themeSignal > 0)
@@ -358,15 +371,25 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             {
                 foreach (var (statName, delta) in candidate.StatDeltas)
                 {
-                    ApplyTrackedDelta(actorStats.Stats, statName, delta, $"theme-affinity:{candidate.ThemeId}");
+                    ApplyTrackedDelta(actorStats, statName, delta, $"theme-affinity:{candidate.ThemeId}");
                 }
             }
         }
 
         ApplyInteractionDeltaPolicyCaps();
+        await ApplySemanticEvidenceAsync(session, interaction, state, inferredSignals: null, cancellationToken);
 
+        var gateMinTurns = state.SelectionMinimumTurns;
+        var gateTurnCount = state.ObservedTurnCount;
+        var gatePrimaryBefore = state.PrimaryThemeId;
         RecalculateSelectedThemes(state, interaction);
-        state.ThemeTracker.UpdatedUtc = DateTime.UtcNow;
+        _logger?.LogInformation(
+            "ThemeGate session={SessionId} interaction={InteractionId}: minTurns={MinTurns} observedTurns={ObservedTurns} primaryBefore={PrimaryBefore} primaryAfter={PrimaryAfter} rule={Rule}",
+            session.Id, interaction.Id,
+            gateMinTurns, gateTurnCount,
+            gatePrimaryBefore ?? "(none)", state.PrimaryThemeId ?? "(none)",
+            state.ThemeSelectionRule ?? "(none)");
+        state.ThemeTrackerUpdatedUtc = DateTime.UtcNow;
         RemoveNonCanonicalStatEntries(state);
 
         session.AdaptiveState = state;
@@ -380,7 +403,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
                 var statDeltaReasons = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
                 if (actorStats is not null && statsBefore is not null)
                 {
-                    foreach (var stat in actorStats.Stats)
+                    foreach (var stat in CharacterStatProfileV2Accessor.GetAllStats(actorStats))
                     {
                         var before = statsBefore.TryGetValue(stat.Key, out var existing) ? existing : 50;
                         if (before != stat.Value)
@@ -394,7 +417,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
                     }
                 }
 
-                var topThemes = state.ThemeTracker.Themes.Values
+                var topThemes = state.ThemeScores.Values
                     .OrderByDescending(x => x.Score)
                     .Take(5)
                     .Select(x => new { x.ThemeId, x.ThemeName, x.Score, x.Intensity })
@@ -412,15 +435,19 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
                     {
                         interactionId = interaction.Id,
                         actorKey,
+                        semanticStepSucceeded = state.SemanticStepSucceeded,
+                        semanticEvents = state.SemanticEvents,
+                        semanticDeltaBreakdowns = state.SemanticDeltaBreakdowns,
+                        semanticStatDeltaBreakdowns = state.SemanticStatDeltaBreakdowns,
                         rawStatDeltas = rawStatDeltasForEvent,
                         statDeltas,
                         statDeltaReasons,
                         primaryThemeBefore = primaryBefore,
                         secondaryThemeBefore = secondaryBefore,
-                        primaryThemeAfter = state.ThemeTracker.PrimaryThemeId,
-                        secondaryThemeAfter = state.ThemeTracker.SecondaryThemeId,
+                        primaryThemeAfter = state.PrimaryThemeId,
+                        secondaryThemeAfter = state.SecondaryThemeId,
                         topThemes,
-                        recentEvidence = state.ThemeTracker.RecentEvidence.TakeLast(8)
+                        recentEvidence = state.RecentEvidence.TakeLast(8)
                     })
                 }, cancellationToken);
             }
@@ -433,7 +460,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         return state;
 
         void ApplyTrackedDelta(
-            Dictionary<string, int> stats,
+            CharacterStatProfileV2 profile,
             string statName,
             int delta,
             string reason)
@@ -443,7 +470,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
                 return;
             }
 
-            ApplyDelta(stats, statName, delta);
+            CharacterStatProfileV2Accessor.ApplyDelta(profile, statName, delta);
 
             if (!statDeltaContributors.TryGetValue(statName, out var reasons))
             {
@@ -462,7 +489,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
                 return;
             }
 
-            var rawDeltas = BuildCurrentDeltas(actorStats.Stats, statsBefore);
+            var rawDeltas = BuildCurrentDeltas(CharacterStatProfileV2Accessor.GetAllStats(actorStats), statsBefore);
             if (rawDeltas.Count == 0)
             {
                 return;
@@ -524,7 +551,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             foreach (var (statName, finalDelta) in adjustedDeltas)
             {
                 var baseline = statsBefore.TryGetValue(statName, out var before) ? before : AdaptiveStatCatalog.DefaultValue;
-                actorStats.Stats[statName] = Math.Clamp(baseline + finalDelta, AdaptiveStatCatalog.MinValue, AdaptiveStatCatalog.MaxValue);
+                CharacterStatProfileV2Accessor.SetStat(actorStats, statName, Math.Clamp(baseline + finalDelta, AdaptiveStatCatalog.MinValue, AdaptiveStatCatalog.MaxValue));
             }
 
             var effectiveDeltas = adjustedDeltas
@@ -588,6 +615,471 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
 
             return actorTurnCount <= _earlyTurnInteractionThreshold;
         }
+    }
+
+    public async Task<AdaptiveScenarioState> ApplyInferredSemanticEvidenceAsync(
+        RolePlaySession session,
+        RolePlayInteraction interaction,
+        IReadOnlyList<IRolePlayAdaptiveStateService.InferredSemanticSignal> inferredSignals,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(interaction);
+        ArgumentNullException.ThrowIfNull(inferredSignals);
+
+        var state = session.AdaptiveState;
+        await ApplySemanticEvidenceAsync(session, interaction, state, inferredSignals, cancellationToken);
+
+        // Semantic evidence has updated theme scores; recompute primary/secondary selection
+        // here as well so the semantic-only path (RolePlayFeatureFlags:EnableAdaptiveStateUpdates=false)
+        // still promotes a theme once scores cross the gate. The Observing gate inside
+        // RecalculateSelectedThemes is still honoured.
+        var gateMinTurns = state.SelectionMinimumTurns;
+        var gateTurnCount = state.ObservedTurnCount;
+        var gatePrimaryBefore = state.PrimaryThemeId;
+        RecalculateSelectedThemes(state, interaction);
+        _logger?.LogInformation(
+            "ThemeGate (semantic) session={SessionId} interaction={InteractionId}: minTurns={MinTurns} observedTurns={ObservedTurns} primaryBefore={PrimaryBefore} primaryAfter={PrimaryAfter} rule={Rule}",
+            session.Id, interaction.Id,
+            gateMinTurns, gateTurnCount,
+            gatePrimaryBefore ?? "(none)", state.PrimaryThemeId ?? "(none)",
+            state.ThemeSelectionRule ?? "(none)");
+        state.ThemeTrackerUpdatedUtc = DateTime.UtcNow;
+
+        session.AdaptiveState = state;
+
+        if (_debugEventSink is not null)
+        {
+            try
+            {
+                var hasContribution = state.SemanticEvents.Count > 0
+                    || state.SemanticDeltaBreakdowns.Count > 0
+                    || state.SemanticStatDeltaBreakdowns.Count > 0;
+
+                await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+                {
+                    SessionId = session.Id,
+                    InteractionId = interaction.Id,
+                    EventKind = hasContribution ? "SemanticInferredEvidenceApplied" : "SemanticInferredEvidenceNoContribution",
+                    Severity = "Info",
+                    ActorName = interaction.ActorName,
+                    Summary = hasContribution
+                        ? $"Semantic inferred evidence applied: {inferredSignals.Count} signal(s), {state.SemanticDeltaBreakdowns.Count} theme delta(s), {state.SemanticStatDeltaBreakdowns.Count} stat delta(s)."
+                        : $"Semantic inferred evidence produced no contribution from {inferredSignals.Count} signal(s).",
+                    MetadataJson = JsonSerializer.Serialize(new
+                    {
+                        interactionId = interaction.Id,
+                        inferredSignalCount = inferredSignals.Count,
+                        inferredSignals = inferredSignals.Select(x => new
+                        {
+                            eventId = x.EventId,
+                            confidence = x.Confidence,
+                            actorName = x.ActorName,
+                            targetCharacterName = x.TargetCharacterName,
+                            evidenceSpan = x.EvidenceSpan
+                        }),
+                        semanticStepSucceeded = state.SemanticStepSucceeded,
+                        semanticEvents = state.SemanticEvents,
+                        semanticDeltaBreakdowns = state.SemanticDeltaBreakdowns,
+                        semanticStatDeltaBreakdowns = state.SemanticStatDeltaBreakdowns
+                    })
+                }, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "Failed to emit SemanticInferredEvidenceApplied debug event for session {SessionId}", session.Id);
+            }
+        }
+
+        return state;
+    }
+
+    private async Task ApplySemanticEvidenceAsync(
+        RolePlaySession session,
+        RolePlayInteraction interaction,
+        AdaptiveScenarioState state,
+        IReadOnlyList<IRolePlayAdaptiveStateService.InferredSemanticSignal>? inferredSignals,
+        CancellationToken cancellationToken)
+    {
+        _logger?.LogInformation(
+            "Semantic processing started: SessionId={SessionId}, InteractionId={InteractionId}",
+            session.Id,
+            interaction.Id);
+
+        state.SemanticStepSucceeded = true;
+        state.SemanticEvents.Clear();
+        state.SemanticDeltaBreakdowns.Clear();
+        state.SemanticStatDeltaBreakdowns.Clear();
+
+        var matches = SemanticSignalRegex.Matches(interaction.Content ?? string.Empty);
+        var inferredCount = inferredSignals?.Count ?? 0;
+        if (matches.Count == 0 && inferredCount == 0)
+        {
+            _logger?.LogInformation(
+                "Semantic processing no contribution: SessionId={SessionId}, InteractionId={InteractionId}, ReasonCode={ReasonCode}",
+                session.Id,
+                interaction.Id,
+                DreamGenClone.Domain.RolePlay.RPSemanticDiagnosticReasonCodes.SemanticNoContribution);
+
+            state.RecentEvidence.Add(new ThemeEvidenceRecord
+            {
+                InteractionId = interaction.Id,
+                ThemeId = "semantic",
+                SignalType = "semantic-diagnostic",
+                Delta = 0,
+                Confidence = 1.0,
+                Rationale = DreamGenClone.Domain.RolePlay.RPSemanticDiagnosticReasonCodes.SemanticNoContribution
+            });
+            TrimEvidence(state);
+            return;
+        }
+
+        if (_rpThemeService is null)
+        {
+            state.SemanticStepSucceeded = false;
+            throw new InvalidOperationException($"{DreamGenClone.Domain.RolePlay.RPSemanticDiagnosticReasonCodes.MissingSemanticConfiguration}: RP theme service unavailable for semantic mapping resolution.");
+        }
+
+        // Per product requirement:
+        //  * Semantic Event Mappings drive theme scoring; once a primary theme is committed
+        //    they are not needed anymore (the score race is over).
+        //  * Semantic Stat Mappings drive per-character stats and always run while the
+        //    session is live.
+        //  * SessionThemeSelections is authoritative for live sessions; SelectedRPThemeProfileId
+        //    is only a seed at session create time. Resolve mappings from SessionThemeSelections
+        //    when available. Missing configuration fails fast — no silent no-ops.
+        // The theme-score deltas (built from semantic event mappings) are gated below by
+        // ActiveScenarioId so they stop accumulating after primary commit; stat deltas always
+        // apply regardless of theme-commit status.
+
+        IReadOnlyDictionary<string, IReadOnlyList<DreamGenClone.Domain.RolePlay.RPSemanticEventMapping>> mappingsByEvent;
+        IReadOnlyDictionary<string, IReadOnlyList<DreamGenClone.Domain.RolePlay.RPSemanticStatMapping>> statMappingsByEvent;
+
+        var sessionThemeIds = (session.SessionThemeSelections ?? [])
+            .Select(x => x.ThemeId)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (sessionThemeIds.Count > 0)
+        {
+            mappingsByEvent = await _rpThemeService.ResolveSemanticEventMappingsByThemeIdsAsync(sessionThemeIds, cancellationToken);
+            statMappingsByEvent = await _rpThemeService.ResolveSemanticStatMappingsByThemeIdsAsync(sessionThemeIds, cancellationToken);
+        }
+        else if (!string.IsNullOrWhiteSpace(session.SelectedRPThemeProfileId))
+        {
+            mappingsByEvent = await _rpThemeService.ResolveSemanticEventMappingsByProfileAsync(session.SelectedRPThemeProfileId, cancellationToken);
+            statMappingsByEvent = await _rpThemeService.ResolveSemanticStatMappingsByProfileAsync(session.SelectedRPThemeProfileId, cancellationToken);
+        }
+        else
+        {
+            state.SemanticStepSucceeded = false;
+            throw new InvalidOperationException(
+                $"{DreamGenClone.Domain.RolePlay.RPSemanticDiagnosticReasonCodes.MissingSemanticConfiguration}: session '{session.Id}' has no SessionThemeSelections and no SelectedRPThemeProfileId; cannot resolve semantic mappings.");
+        }
+
+        var pending = new List<(string EventId, decimal Confidence, DreamGenClone.Domain.RolePlay.RPSemanticEventMapping Mapping, string TargetCharacterId)>();
+        var pendingStat = new List<(string EventId, decimal Confidence, DreamGenClone.Domain.RolePlay.RPSemanticStatMapping Mapping, string TargetCharacterId)>();
+        var priorInteraction = session.Interactions
+            .Where(x => !string.Equals(x.Id, interaction.Id, StringComparison.OrdinalIgnoreCase))
+            .LastOrDefault();
+        var priorEventIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (priorInteraction is not null)
+        {
+            var priorMatches = SemanticSignalRegex.Matches(priorInteraction.Content ?? string.Empty);
+            foreach (Match prior in priorMatches)
+            {
+                var priorEventId = prior.Groups["event"].Value;
+                if (!string.IsNullOrWhiteSpace(priorEventId))
+                {
+                    priorEventIds.Add(priorEventId);
+                }
+            }
+        }
+
+        var perThemeAppliedThisInteraction = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+        var perThemeSemanticCap = Math.Max(0m, decimal.Round((decimal)_semanticEvidencePerTurnCap, 4, MidpointRounding.AwayFromZero));
+
+        var defaultTargetCharacterId = string.IsNullOrWhiteSpace(interaction.ActorName)
+            ? "Unknown"
+            : interaction.ActorName.Trim();
+
+        foreach (Match match in matches)
+        {
+            var eventId = match.Groups["event"].Value;
+            var confidenceText = match.Groups["confidence"].Value;
+            if (!decimal.TryParse(confidenceText, NumberStyles.Number, CultureInfo.InvariantCulture, out var confidence))
+            {
+                state.SemanticStepSucceeded = false;
+                throw new InvalidOperationException($"{DreamGenClone.Domain.RolePlay.RPSemanticDiagnosticReasonCodes.SemanticPayloadInvalid}: invalid confidence '{confidenceText}' for event '{eventId}'.");
+            }
+
+            if (mappingsByEvent.TryGetValue(eventId, out var mappings)
+                && mappings.Count > 0)
+            {
+                foreach (var mapping in mappings)
+                {
+                    if (confidence < mapping.ConfidenceMin || confidence > mapping.ConfidenceMax)
+                    {
+                        state.SemanticStepSucceeded = false;
+                        throw new InvalidOperationException(
+                            $"{DreamGenClone.Domain.RolePlay.RPSemanticDiagnosticReasonCodes.ConfidenceOutOfRange}: confidence {confidence.ToString(CultureInfo.InvariantCulture)} for event '{eventId}' is outside configured range [{mapping.ConfidenceMin.ToString(CultureInfo.InvariantCulture)}, {mapping.ConfidenceMax.ToString(CultureInfo.InvariantCulture)}].");
+                    }
+
+                    pending.Add((eventId, confidence, mapping, defaultTargetCharacterId));
+                }
+            }
+
+            if (statMappingsByEvent.TryGetValue(eventId, out var statMappings) && statMappings.Count > 0)
+            {
+                foreach (var mapping in statMappings)
+                {
+                    if (confidence < mapping.ConfidenceMin || confidence > mapping.ConfidenceMax)
+                    {
+                        state.SemanticStepSucceeded = false;
+                        throw new InvalidOperationException(
+                            $"{DreamGenClone.Domain.RolePlay.RPSemanticDiagnosticReasonCodes.ConfidenceOutOfRange}: confidence {confidence.ToString(CultureInfo.InvariantCulture)} for event '{eventId}' is outside configured stat range [{mapping.ConfidenceMin.ToString(CultureInfo.InvariantCulture)}, {mapping.ConfidenceMax.ToString(CultureInfo.InvariantCulture)}].");
+                    }
+
+                    pendingStat.Add((eventId, confidence, mapping, defaultTargetCharacterId));
+                }
+            }
+        }
+
+        if (inferredSignals is not null)
+        {
+            foreach (var inferred in inferredSignals)
+            {
+                var eventId = inferred.EventId;
+                var confidence = inferred.Confidence;
+                var scopedTargetCharacterId = string.IsNullOrWhiteSpace(inferred.TargetCharacterName)
+                    ? (!string.IsNullOrWhiteSpace(inferred.ActorName) ? inferred.ActorName!.Trim() : defaultTargetCharacterId)
+                    : inferred.TargetCharacterName!.Trim();
+
+                if (mappingsByEvent.TryGetValue(eventId, out var mappings)
+                    && mappings.Count > 0)
+                {
+                    foreach (var mapping in mappings)
+                    {
+                        if (confidence < mapping.ConfidenceMin || confidence > mapping.ConfidenceMax)
+                        {
+                            state.SemanticStepSucceeded = false;
+                            throw new InvalidOperationException(
+                                $"{DreamGenClone.Domain.RolePlay.RPSemanticDiagnosticReasonCodes.ConfidenceOutOfRange}: confidence {confidence.ToString(CultureInfo.InvariantCulture)} for event '{eventId}' is outside configured range [{mapping.ConfidenceMin.ToString(CultureInfo.InvariantCulture)}, {mapping.ConfidenceMax.ToString(CultureInfo.InvariantCulture)}].");
+                        }
+
+                        pending.Add((eventId, confidence, mapping, scopedTargetCharacterId));
+                    }
+                }
+
+                if (statMappingsByEvent.TryGetValue(eventId, out var statMappings) && statMappings.Count > 0)
+                {
+                    foreach (var mapping in statMappings)
+                    {
+                        if (confidence < mapping.ConfidenceMin || confidence > mapping.ConfidenceMax)
+                        {
+                            state.SemanticStepSucceeded = false;
+                            throw new InvalidOperationException(
+                                $"{DreamGenClone.Domain.RolePlay.RPSemanticDiagnosticReasonCodes.ConfidenceOutOfRange}: confidence {confidence.ToString(CultureInfo.InvariantCulture)} for event '{eventId}' is outside configured stat range [{mapping.ConfidenceMin.ToString(CultureInfo.InvariantCulture)}, {mapping.ConfidenceMax.ToString(CultureInfo.InvariantCulture)}].");
+                        }
+
+                        pendingStat.Add((eventId, confidence, mapping, scopedTargetCharacterId));
+                    }
+                }
+            }
+        }
+
+        // Per product requirement:
+        //  * Semantic Event Mappings drive theme scoring; once a primary theme is committed
+        //    they are not needed anymore (the score race is over) — otherwise every theme
+        //    eventually pegs at the 100 cap as evidence keeps accumulating.
+        //  * Semantic Stat Mappings drive per-character stats and always run while the
+        //    session is live, independent of theme-commit status.
+        //  * SessionThemeSelections is authoritative for live sessions; SelectedRPThemeProfileId
+        //    is only a seed at session create time. Resolve mappings from SessionThemeSelections
+        //    when available. Missing configuration fails fast — no silent no-ops.
+        // "Committed" here means the narrative phase has actually advanced past BuildUp. During
+        // BuildUp an ActiveScenarioId may already be assigned (first-scenario selection) while the
+        // configured narrative gate is still being evaluated — the score race must remain open
+        // until the phase itself commits, otherwise theme scores freeze at 0 mid-BuildUp.
+        var primaryThemeCommitted = !string.IsNullOrWhiteSpace(session.AdaptiveState.ActiveScenarioId)
+            && session.AdaptiveState.CurrentPhase != NarrativePhase.BuildUp;
+        if (primaryThemeCommitted && pending.Count > 0)
+        {
+            _logger?.LogInformation(
+                "Semantic theme-delta pass skipped: primary theme already committed. SessionId={SessionId} ActiveScenarioId={ActiveScenarioId} Phase={Phase} SuppressedEvents={SuppressedEvents}",
+                session.Id,
+                session.AdaptiveState.ActiveScenarioId,
+                session.AdaptiveState.CurrentPhase,
+                pending.Count);
+            pending.Clear();
+        }
+
+        foreach (var item in pending)
+        {
+            if (!state.ThemeScores.TryGetValue(item.Mapping.ThemeId, out var trackerItem))
+            {
+                state.SemanticStepSucceeded = false;
+                throw new InvalidOperationException($"{DreamGenClone.Domain.RolePlay.RPSemanticDiagnosticReasonCodes.MissingSemanticConfiguration}: mapped theme '{item.Mapping.ThemeId}' is not active in tracker.");
+            }
+
+            var rawDelta = item.Mapping.Delta;
+            decimal appliedDelta = rawDelta;
+            decimal cappedDelta = 0m;
+            decimal suppressedDelta = 0m;
+            string? suppressionReasonCode = null;
+
+            if (priorEventIds.Contains(item.EventId))
+            {
+                appliedDelta = 0m;
+                suppressedDelta = rawDelta;
+                suppressionReasonCode = DreamGenClone.Domain.RolePlay.RPSemanticDiagnosticReasonCodes.SemanticSuppressedAdjacentCooldown;
+            }
+
+            if (suppressionReasonCode is null && trackerItem.Blocked)
+            {
+                appliedDelta = 0m;
+                suppressedDelta = rawDelta;
+                suppressionReasonCode = DreamGenClone.Domain.RolePlay.RPSemanticDiagnosticReasonCodes.SemanticSuppressedThemeBlocked;
+                trackerItem.Score = 0;
+                trackerItem.Breakdown.InteractionEvidenceSignal = 0;
+            }
+
+            if (suppressionReasonCode is null && perThemeSemanticCap > 0m)
+            {
+                perThemeAppliedThisInteraction.TryGetValue(item.Mapping.ThemeId, out var alreadyAppliedMagnitude);
+                var requestedMagnitude = Math.Abs(rawDelta);
+                var remainingMagnitude = Math.Max(0m, perThemeSemanticCap - alreadyAppliedMagnitude);
+
+                if (remainingMagnitude <= 0m)
+                {
+                    appliedDelta = 0m;
+                    cappedDelta = rawDelta;
+                    suppressionReasonCode = DreamGenClone.Domain.RolePlay.RPSemanticDiagnosticReasonCodes.SemanticCappedPerTurn;
+                }
+                else if (requestedMagnitude > remainingMagnitude)
+                {
+                    var sign = rawDelta < 0m ? -1m : 1m;
+                    appliedDelta = sign * remainingMagnitude;
+                    cappedDelta = rawDelta - appliedDelta;
+                    suppressionReasonCode = DreamGenClone.Domain.RolePlay.RPSemanticDiagnosticReasonCodes.SemanticCappedPerTurn;
+                }
+            }
+
+            if (appliedDelta != 0m)
+            {
+                trackerItem.Score = Math.Clamp(trackerItem.Score + (double)appliedDelta, 0, 100);
+                trackerItem.Breakdown.InteractionEvidenceSignal = Math.Clamp(trackerItem.Breakdown.InteractionEvidenceSignal + (double)appliedDelta, 0, 100);
+                perThemeAppliedThisInteraction.TryGetValue(item.Mapping.ThemeId, out var appliedMagnitude);
+                perThemeAppliedThisInteraction[item.Mapping.ThemeId] = appliedMagnitude + Math.Abs(appliedDelta);
+            }
+
+            state.SemanticEvents.Add(new SemanticEventRecord
+            {
+                InteractionId = interaction.Id,
+                EventId = item.EventId,
+                Confidence = item.Confidence,
+                MappingId = $"{item.Mapping.ThemeId}:{item.Mapping.ReasonCode}",
+                Direction = item.Mapping.Direction,
+                ThemeTargets = [item.Mapping.ThemeId],
+                ProcessedUtc = DateTime.UtcNow
+            });
+
+            state.SemanticDeltaBreakdowns.Add(new SemanticThemeDeltaBreakdown
+            {
+                InteractionId = interaction.Id,
+                ThemeId = item.Mapping.ThemeId,
+                SourceType = "semantic",
+                RawDelta = rawDelta,
+                AppliedDelta = appliedDelta,
+                CappedDelta = cappedDelta,
+                SuppressedDelta = suppressedDelta,
+                SuppressionReasonCode = suppressionReasonCode
+            });
+
+            state.RecentEvidence.Add(new ThemeEvidenceRecord
+            {
+                InteractionId = interaction.Id,
+                ThemeId = item.Mapping.ThemeId,
+                SignalType = "semantic-evidence",
+                Delta = (double)appliedDelta,
+                Confidence = (double)item.Confidence,
+                Rationale = item.Mapping.ReasonCode
+            });
+        }
+
+        var perCharacterStatAppliedMagnitude = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var item in pendingStat)
+        {
+            if (!state.ThemeScores.TryGetValue(item.Mapping.ThemeId, out var trackerItem))
+            {
+                state.SemanticStepSucceeded = false;
+                throw new InvalidOperationException($"{DreamGenClone.Domain.RolePlay.RPSemanticDiagnosticReasonCodes.MissingSemanticConfiguration}: mapped theme '{item.Mapping.ThemeId}' is not active in tracker.");
+            }
+
+            var rawDelta = item.Mapping.Delta;
+            decimal appliedDelta = rawDelta;
+            decimal cappedDelta = 0m;
+            decimal suppressedDelta = 0m;
+            string? suppressionReasonCode = null;
+
+            if (priorEventIds.Contains(item.EventId))
+            {
+                appliedDelta = 0m;
+                suppressedDelta = rawDelta;
+                suppressionReasonCode = DreamGenClone.Domain.RolePlay.RPSemanticDiagnosticReasonCodes.SemanticSuppressedAdjacentCooldown;
+            }
+
+            if (suppressionReasonCode is null && trackerItem.Blocked)
+            {
+                appliedDelta = 0m;
+                suppressedDelta = rawDelta;
+                suppressionReasonCode = DreamGenClone.Domain.RolePlay.RPSemanticDiagnosticReasonCodes.SemanticSuppressedThemeBlocked;
+            }
+
+            // Per-turn semantic stat cap removed: trust configured mapping Delta values.
+            // Stat range is still clamped by ApplyDelta to AdaptiveStatCatalog.MinValue/MaxValue.
+
+            if (appliedDelta != 0m)
+            {
+                var deltaInt = appliedDelta > 0m
+                    ? (int)Math.Floor(appliedDelta)
+                    : (int)Math.Ceiling(appliedDelta);
+                if (deltaInt != 0)
+                {
+                    var targetStats = GetOrCreateCharacterStats(state, item.TargetCharacterId);
+                    CharacterStatProfileV2Accessor.ApplyDelta(targetStats, item.Mapping.TargetStat, deltaInt);
+                }
+
+                var magnitudeKey = $"{item.Mapping.TargetStat}";
+                perCharacterStatAppliedMagnitude.TryGetValue(magnitudeKey, out var appliedMagnitude);
+                perCharacterStatAppliedMagnitude[magnitudeKey] = appliedMagnitude + Math.Abs(appliedDelta);
+            }
+
+            state.SemanticStatDeltaBreakdowns.Add(new SemanticStatDeltaRecord
+            {
+                InteractionId = interaction.Id,
+                CharacterId = item.TargetCharacterId,
+                StatName = item.Mapping.TargetStat,
+                SourceType = "semantic",
+                RawDelta = rawDelta,
+                AppliedDelta = appliedDelta,
+                CappedDelta = cappedDelta,
+                SuppressedDelta = suppressedDelta,
+                SuppressionReasonCode = suppressionReasonCode,
+                ReasonCode = item.Mapping.ReasonCode
+            });
+        }
+
+        TrimEvidence(state);
+
+        _logger?.LogInformation(
+            "Semantic processing completed: SessionId={SessionId}, InteractionId={InteractionId}, EventCount={EventCount}, BreakdownCount={BreakdownCount}",
+            session.Id,
+            interaction.Id,
+            state.SemanticEvents.Count,
+            state.SemanticDeltaBreakdowns.Count);
     }
 
     private async Task EvaluateAdaptiveIntensityTransitionAsync(
@@ -669,7 +1161,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             ? profiles.FirstOrDefault(x => string.Equals(x.Id, session.SelectedIntensityProfileId, StringComparison.OrdinalIgnoreCase))
             : null;
         var phaseBaselineSourceProfile = selectedProfile ?? currentProfile;
-        var phaseBaselineDelta = phaseBaselineSourceProfile.GetPhaseOffset(session.AdaptiveState.CurrentNarrativePhase);
+        var phaseBaselineDelta = phaseBaselineSourceProfile.GetPhaseOffset((DreamGenClone.Domain.StoryAnalysis.NarrativePhase)(int)session.AdaptiveState.CurrentPhase);
         var selectedScale = selectedProfile is not null
             ? (int)selectedProfile.Intensity
             : (int)currentProfile.Intensity;
@@ -682,7 +1174,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         var targetScale = flowBaselineScale + boundedStatDelta;
         targetScale = Math.Clamp(targetScale, 1, 5);
 
-        reasonCode += $"|phase={session.AdaptiveState.CurrentNarrativePhase}|phase-delta={phaseBaselineDelta}|stat-delta={boundedStatDelta}";
+        reasonCode += $"|phase={session.AdaptiveState.CurrentPhase}|phase-delta={phaseBaselineDelta}|stat-delta={boundedStatDelta}";
 
         if (floor.HasValue && targetScale < floor.Value)
         {
@@ -698,7 +1190,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
 
         // Keep adaptive escalation in Approaching below Hardcore.
         // Hardcore is reserved for Climax unless user manually pins intensity.
-        if (session.AdaptiveState.CurrentNarrativePhase == NarrativePhase.Approaching
+        if (session.AdaptiveState.CurrentPhase == NarrativePhase.Approaching
             && targetScale > (int)IntensityLevel.Explicit)
         {
             targetScale = (int)IntensityLevel.Explicit;
@@ -739,7 +1231,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         }
     }
 
-    private static double AverageCharacterStat(RolePlayAdaptiveState state, string statName)
+    private static double AverageCharacterStat(AdaptiveScenarioState state, string statName)
     {
         if (state.CharacterStats.Count == 0)
         {
@@ -747,7 +1239,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         }
 
         var values = state.CharacterStats.Values
-            .Select(x => x.Stats.TryGetValue(statName, out var value) ? value : AdaptiveStatCatalog.DefaultValue)
+            .Select(x => CharacterStatProfileV2Accessor.GetStatOrDefault(x, statName))
             .ToList();
 
         return values.Average();
@@ -755,20 +1247,20 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
 
     private static double Clamp01(double value) => Math.Clamp(Math.Round(value, 4), 0.0, 1.0);
 
-    private static void EnsureThemeCatalog(ThemeTrackerState tracker, IReadOnlyList<ThemeCatalogEntry> catalogEntries)
+    private static void EnsureThemeCatalog(AdaptiveScenarioState state, IReadOnlyList<ThemeCatalogEntry> catalogEntries)
     {
         var validIds = catalogEntries.Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var unknownIds = tracker.Themes.Keys.Where(x => !validIds.Contains(x)).ToList();
+        var unknownIds = state.ThemeScores.Keys.Where(x => !validIds.Contains(x)).ToList();
         foreach (var unknownId in unknownIds)
         {
-            tracker.Themes.Remove(unknownId);
+            state.ThemeScores.Remove(unknownId);
         }
 
         foreach (var entry in catalogEntries)
         {
-            if (!tracker.Themes.ContainsKey(entry.Id))
+            if (!state.ThemeScores.ContainsKey(entry.Id))
             {
-                tracker.Themes[entry.Id] = new ThemeTrackerItem
+                state.ThemeScores[entry.Id] = new ThemeScoreState
                 {
                     ThemeId = entry.Id,
                     ThemeName = entry.Label,
@@ -847,33 +1339,19 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         return RPThemeFitRulesConverter.BuildScenarioFitRulesJson(theme);
     }
 
-    private static CharacterStatBlock GetOrCreateCharacterStats(RolePlayAdaptiveState state, string actorKey)
+    private static CharacterStatProfileV2 GetOrCreateCharacterStats(AdaptiveScenarioState state, string actorKey)
     {
         if (state.CharacterStats.TryGetValue(actorKey, out var existing))
         {
-            EnsureDefaultStats(existing.Stats);
             return existing;
         }
 
-        var created = new CharacterStatBlock
-        {
-            CharacterId = actorKey
-        };
-        EnsureDefaultStats(created.Stats);
+        var created = CharacterStatProfileV2Accessor.CreateDefault(actorKey);
         state.CharacterStats[actorKey] = created;
         return created;
     }
 
-    private static void EnsureDefaultStats(Dictionary<string, int> stats)
-    {
-        foreach (var statName in AdaptiveStatCatalog.CanonicalStatNames)
-        {
-            if (!stats.ContainsKey(statName))
-            {
-                stats[statName] = AdaptiveStatCatalog.DefaultValue;
-            }
-        }
-    }
+    private static void EnsureDefaultStats(Dictionary<string, int> stats) { }
 
     private static int Score(string content, IReadOnlyList<string> keywords, int weight)
     {
@@ -1073,7 +1551,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
     }
 
     private static void UpdateTheme(
-        RolePlayAdaptiveState state,
+        AdaptiveScenarioState state,
         RolePlayInteraction interaction,
         string themeName,
         string themeId,
@@ -1093,7 +1571,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         // T042: Apply affinity multiplier
         var signal = rawSignal * affinityMultiplier;
 
-        var trackerItem = state.ThemeTracker.Themes[themeId];
+        var trackerItem = state.ThemeScores[themeId];
 
         trackerItem.Score = Math.Clamp(trackerItem.Score + signal, 0, 100);
         trackerItem.Intensity = trackerItem.Score switch
@@ -1106,7 +1584,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
 
         trackerItem.Breakdown.InteractionEvidenceSignal = Math.Clamp(trackerItem.Breakdown.InteractionEvidenceSignal + signal, 0, 100);
 
-        state.ThemeTracker.RecentEvidence.Add(new ThemeEvidenceEvent
+        state.RecentEvidence.Add(new ThemeEvidenceRecord
         {
             InteractionId = interaction.Id,
             ThemeId = themeId,
@@ -1116,64 +1594,101 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             Rationale = BuildKeywordRationale(themeName, contentLower, keywords, groupedKeywords)
         });
 
-        TrimEvidence(state.ThemeTracker);
+        TrimEvidence(state);
     }
 
-    private static void RecalculateSelectedThemes(RolePlayAdaptiveState state, RolePlayInteraction interaction)
+    private static void RecalculateSelectedThemes(AdaptiveScenarioState state, RolePlayInteraction interaction)
     {
-        var tracker = state.ThemeTracker;
-        var ordered = tracker.Themes.Values
+        // Decrement completion cooldowns before selection each interaction
+        foreach (var theme in state.ThemeScores.Values.Where(t => t.CompletionCooldownInteractions > 0))
+        {
+            theme.CompletionCooldownInteractions--;
+        }
+
+        // Turn count is incremented at user-turn boundaries (see RolePlayEngineService
+        // turn-start sites), not per interaction. Do not increment here.
+
+        var ordered = state.ThemeScores.Values
+            .Where(x => x.CompletionCooldownInteractions == 0)
             .OrderByDescending(x => x.Score)
             .ThenBy(x => x.ThemeId, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        if (string.Equals(tracker.ThemeSelectionRule, "ManualOverride", StringComparison.OrdinalIgnoreCase)
+        if (string.Equals(state.ThemeSelectionRule, "ManualOverride", StringComparison.OrdinalIgnoreCase)
             && !string.IsNullOrWhiteSpace(state.ActiveScenarioId)
-            && tracker.Themes.ContainsKey(state.ActiveScenarioId))
+            && state.ThemeScores.ContainsKey(state.ActiveScenarioId))
         {
-            tracker.PrimaryThemeId = state.ActiveScenarioId;
-            tracker.SecondaryThemeId = ordered
+            state.PrimaryThemeId = state.ActiveScenarioId;
+            state.SecondaryThemeId = ordered
                 .FirstOrDefault(x => !string.Equals(x.ThemeId, state.ActiveScenarioId, StringComparison.OrdinalIgnoreCase))
                 ?.ThemeId;
             return;
         }
 
-        var previousPrimary = tracker.PrimaryThemeId;
-        var previousSecondary = tracker.SecondaryThemeId;
+        // Active-scenario lock: once the engine (or any caller) has committed an ActiveScenarioId,
+        // the tracker's primary slot must follow it so prompt builders, style resolver, and the
+        // continuation service all see a consistent primary theme. Secondary is the highest-scoring
+        // non-primary theme so the secondary-theme guidance still flows into prompts.
+        if (!string.IsNullOrWhiteSpace(state.ActiveScenarioId)
+            && state.ThemeScores.ContainsKey(state.ActiveScenarioId))
+        {
+            state.PrimaryThemeId = state.ActiveScenarioId;
+            state.SecondaryThemeId = ordered
+                .FirstOrDefault(x => !string.Equals(x.ThemeId, state.ActiveScenarioId, StringComparison.OrdinalIgnoreCase))
+                ?.ThemeId;
+            state.ThemeSelectionRule = "ActiveScenarioLock";
+            return;
+        }
 
-        tracker.PrimaryThemeId = ordered.FirstOrDefault()?.ThemeId;
-        tracker.SecondaryThemeId = null;
-        tracker.ThemeSelectionRule = "Top1";
+        if (state.SelectionMinimumTurns > 0 && state.ObservedTurnCount <= state.SelectionMinimumTurns)
+        {
+            state.ThemeSelectionRule = "Observing";
+            // Clear any stale selection from a prior pass so downstream consumers (semantic
+            // theme-delta application, UI panel, prompt builders) see a consistent Observing
+            // state. Without this, a PrimaryThemeId left over from a previous Top1/Top2Blend
+            // recalculation would incorrectly short-circuit "theme already picked" gates while
+            // the score race is still open.
+            state.PrimaryThemeId = null;
+            state.SecondaryThemeId = null;
+            return;
+        }
+
+        var previousPrimary = state.PrimaryThemeId;
+        var previousSecondary = state.SecondaryThemeId;
+
+        state.PrimaryThemeId = ordered.FirstOrDefault()?.ThemeId;
+        state.SecondaryThemeId = null;
+        state.ThemeSelectionRule = "Top1";
 
         if (ordered.Count >= 2)
         {
-            tracker.SecondaryThemeId = ordered[1].ThemeId;
-            tracker.ThemeSelectionRule = "Top2Blend";
+            state.SecondaryThemeId = ordered[1].ThemeId;
+            state.ThemeSelectionRule = "Top2Blend";
         }
 
-        if (!string.Equals(previousPrimary, tracker.PrimaryThemeId, StringComparison.OrdinalIgnoreCase)
-            || !string.Equals(previousSecondary, tracker.SecondaryThemeId, StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(previousPrimary, state.PrimaryThemeId, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(previousSecondary, state.SecondaryThemeId, StringComparison.OrdinalIgnoreCase))
         {
-            var selectedThemes = new[] { tracker.PrimaryThemeId, tracker.SecondaryThemeId }
+            var selectedThemes = new[] { state.PrimaryThemeId, state.SecondaryThemeId }
                 .Where(x => !string.IsNullOrWhiteSpace(x));
-            tracker.RecentEvidence.Add(new ThemeEvidenceEvent
+            state.RecentEvidence.Add(new ThemeEvidenceRecord
             {
                 InteractionId = interaction.Id,
                 ThemeId = "theme-selection",
                 SignalType = "selection-rule",
                 Delta = 0,
                 Confidence = 0.8,
-                Rationale = $"Applied {tracker.ThemeSelectionRule}: {string.Join(", ", selectedThemes)}"
+                Rationale = $"Applied {state.ThemeSelectionRule}: {string.Join(", ", selectedThemes)}"
             });
-            TrimEvidence(tracker);
+            TrimEvidence(state);
         }
     }
 
-    private static void TrimEvidence(ThemeTrackerState tracker)
+    private static void TrimEvidence(AdaptiveScenarioState state)
     {
-        if (tracker.RecentEvidence.Count > 100)
+        if (state.RecentEvidence.Count > 100)
         {
-            tracker.RecentEvidence.RemoveRange(0, tracker.RecentEvidence.Count - 100);
+            state.RecentEvidence.RemoveRange(0, state.RecentEvidence.Count - 100);
         }
     }
 
@@ -1219,7 +1734,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             || string.Equals(actorKey, "Instruction", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static void RemoveNonCharacterStats(RolePlayAdaptiveState state)
+    private static void RemoveNonCharacterStats(AdaptiveScenarioState state)
     {
         var removals = state.CharacterStats.Keys
             .Where(x => string.Equals(x, "Narrative", StringComparison.OrdinalIgnoreCase)
@@ -1233,19 +1748,10 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         }
     }
 
-    private static void RemoveNonCanonicalStatEntries(RolePlayAdaptiveState state)
+    private static void RemoveNonCanonicalStatEntries(AdaptiveScenarioState state)
     {
-        foreach (var block in state.CharacterStats.Values)
-        {
-            var unsupported = block.Stats.Keys
-                .Where(x => !AdaptiveStatCatalog.CanonicalStatNames.Contains(x, StringComparer.OrdinalIgnoreCase))
-                .ToList();
-
-            foreach (var statName in unsupported)
-            {
-                block.Stats.Remove(statName);
-            }
-        }
+        // V2 CharacterStatProfileV2 uses fixed typed fields for each canonical stat;
+        // non-canonical stat entries cannot be added, so this is intentionally a no-op.
     }
 
     private static string? ResolveSupportedStatName(string statName)
@@ -1264,11 +1770,11 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(scenario);
 
-        var state = session.AdaptiveState ?? new RolePlayAdaptiveState();
+        var state = session.AdaptiveState;
 
         // --- T030: Initialize ThemeTracker from catalog entries ---
         var catalogEntries = await LoadRuntimeCatalogEntriesAsync(session, cancellationToken);
-        EnsureThemeCatalog(state.ThemeTracker, catalogEntries);
+        EnsureThemeCatalog(state, catalogEntries);
 
         // --- T030: Resolve ThemeProfile preferences and apply ChoiceSignal ---
         var blockedCount = 0;
@@ -1279,7 +1785,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             // so we iterate selections and apply the stored tier to the matching tracker item.
             foreach (var selection in session.SessionThemeSelections)
             {
-                if (!state.ThemeTracker.Themes.TryGetValue(selection.ThemeId, out var trackerItem))
+                if (!state.ThemeScores.TryGetValue(selection.ThemeId, out var trackerItem))
                 {
                     continue;
                 }
@@ -1323,7 +1829,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
                     continue;
                 }
 
-                var matchedTracker = state.ThemeTracker.Themes.Values.FirstOrDefault(x =>
+                var matchedTracker = state.ThemeScores.Values.FirstOrDefault(x =>
                     string.Equals(x.ThemeId, assignedTheme.Id, StringComparison.OrdinalIgnoreCase)
                     || string.Equals(x.ThemeName, assignedTheme.Label, StringComparison.OrdinalIgnoreCase));
 
@@ -1375,7 +1881,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
                 var matchedEntry = FindCatalogEntryByPreference(catalogEntries, pref);
                 if (matchedEntry is null) continue;
 
-                if (!state.ThemeTracker.Themes.TryGetValue(matchedEntry.Id, out var trackerItem)) continue;
+                if (!state.ThemeScores.TryGetValue(matchedEntry.Id, out var trackerItem)) continue;
 
                 if (pref.Tier == ThemeTier.HardDealBreaker)
                 {
@@ -1423,7 +1929,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
 
         foreach (var entry in catalogEntries)
         {
-            if (!state.ThemeTracker.Themes.TryGetValue(entry.Id, out var trackerItem)) continue;
+            if (!state.ThemeScores.TryGetValue(entry.Id, out var trackerItem)) continue;
             if (trackerItem.Blocked) continue;
 
             var scenarioPhaseSignal = ScoreScenarioKeywords(scenario, entry.Keywords, entry.Weight, styleProfile, entry.Id);
@@ -1453,11 +1959,8 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
                     {
                         continue;
                     }
-                    if (!charBlock.Stats.TryGetValue(normalized, out var current))
-                    {
-                        current = AdaptiveStatCatalog.DefaultValue;
-                    }
-                    charBlock.Stats[normalized] = Math.Clamp(current + bias, 0, 100);
+                    var current = CharacterStatProfileV2Accessor.GetStatOrDefault(charBlock, normalized);
+                    CharacterStatProfileV2Accessor.SetStat(charBlock, normalized, Math.Clamp(current + bias, 0, 100));
                 }
             }
         }
@@ -1466,7 +1969,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         foreach (var entry in catalogEntries)
         {
             if (entry.StatAffinities is not { Count: > 0 }) continue;
-            if (!state.ThemeTracker.Themes.TryGetValue(entry.Id, out var trackerItem)) continue;
+            if (!state.ThemeScores.TryGetValue(entry.Id, out var trackerItem)) continue;
             if (trackerItem.Blocked || trackerItem.Score <= 0) continue;
 
             foreach (var (actorKey, charBlock) in state.CharacterStats)
@@ -1478,21 +1981,51 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
                     {
                         continue;
                     }
-                    if (!charBlock.Stats.TryGetValue(normalized, out var current))
-                    {
-                        current = AdaptiveStatCatalog.DefaultValue;
-                    }
-                    charBlock.Stats[normalized] = Math.Clamp(current + affinityDelta, 0, 100);
+                    var current = CharacterStatProfileV2Accessor.GetStatOrDefault(charBlock, normalized);
+                    CharacterStatProfileV2Accessor.SetStat(charBlock, normalized, Math.Clamp(current + affinityDelta, 0, 100));
                 }
             }
         }
 
-        state.ThemeTracker.UpdatedUtc = DateTime.UtcNow;
+        // Compute theme selection minimum from profile settings.
+        // Resolve profile from session first, then fall through to scenario default.
+        state.ObservedTurnCount = 0;
+        var activeThemeCount = state.ThemeScores.Values.Count(t => !t.Blocked);
+        var resolvedProfileId = !string.IsNullOrWhiteSpace(session.SelectedRPThemeProfileId)
+            ? session.SelectedRPThemeProfileId
+            : scenario.DefaultRPThemeProfileId;
+        if (activeThemeCount > 1 && _rpThemeService is not null && !string.IsNullOrWhiteSpace(resolvedProfileId))
+        {
+            var themeProfile = await _rpThemeService.GetProfileAsync(resolvedProfileId, cancellationToken);
+            if (themeProfile is null)
+            {
+                throw new InvalidOperationException(
+                    $"RP theme profile '{resolvedProfileId}' not found; cannot compute theme selection minimum for session '{session.Id}'.");
+            }
+
+            state.SelectionMinimumTurns = (activeThemeCount - 1) * themeProfile.ThemeSelectionTurnsPerTheme;
+        }
+        else
+        {
+            state.SelectionMinimumTurns = 0;
+        }
+
+        // Set the initial selection rule based on whether the observer window is active.
+        // Without this, the domain-model default "Top1" would be persisted from seed, causing
+        // the UI to show "Top1" instead of "Observing" before the first engine cycle runs.
+        if (state.SelectionMinimumTurns > 0)
+        {
+            state.ThemeSelectionRule = "Observing";
+            state.PrimaryThemeId = null;
+            state.SecondaryThemeId = null;
+        }
+
+        state.ThemeTrackerUpdatedUtc = DateTime.UtcNow;
         RemoveNonCanonicalStatEntries(state);
         session.AdaptiveState = state;
 
         // --- T034: Logging ---
-        var topSeeded = state.ThemeTracker.Themes.Values
+        var topSeeded = state.ThemeScores.Values
             .Where(t => !t.Blocked && t.Score > 0)
             .OrderByDescending(t => t.Score)
             .Take(3)
@@ -1506,6 +2039,15 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             blockedCount,
             styleProfile?.StatBias?.Count > 0,
             string.Join(", ", topSeeded));
+
+        _logger?.LogInformation(
+            "ThemeGate seed session={SessionId}: activeThemes={ActiveThemeCount} resolvedProfile={ProfileId} sessionProfileId={SessionProfileId} scenarioProfileId={ScenarioProfileId} minTurns={MinTurns}",
+            session.Id,
+            activeThemeCount,
+            resolvedProfileId ?? "(none)",
+            session.SelectedRPThemeProfileId ?? "(none)",
+            scenario.DefaultRPThemeProfileId ?? "(none)",
+            state.SelectionMinimumTurns);
     }
 
     public async Task<bool> ApplyManualScenarioOverrideAsync(
@@ -1520,8 +2062,8 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             return false;
         }
 
-        var state = session.AdaptiveState ?? new RolePlayAdaptiveState();
-        if (!state.ThemeTracker.Themes.TryGetValue(requestedScenarioId, out var requestedTheme) || requestedTheme.Blocked)
+        var state = session.AdaptiveState;
+        if (!state.ThemeScores.TryGetValue(requestedScenarioId, out var requestedTheme) || requestedTheme.Blocked)
         {
             return false;
         }
@@ -1531,17 +2073,17 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         state.InteractionsSinceCommitment = 0;
         state.InteractionsInApproaching = 0;
 
-        var previousPrimary = state.ThemeTracker.PrimaryThemeId;
-        state.ThemeTracker.PrimaryThemeId = requestedScenarioId;
+        var previousPrimary = state.PrimaryThemeId;
+        state.PrimaryThemeId = requestedScenarioId;
         if (!string.Equals(previousPrimary, requestedScenarioId, StringComparison.OrdinalIgnoreCase)
             && !string.IsNullOrWhiteSpace(previousPrimary)
-            && state.ThemeTracker.Themes.ContainsKey(previousPrimary))
+            && state.ThemeScores.ContainsKey(previousPrimary))
         {
-            state.ThemeTracker.SecondaryThemeId = previousPrimary;
+            state.SecondaryThemeId = previousPrimary;
         }
 
-        state.ThemeTracker.ThemeSelectionRule = "ManualOverride";
-        state.ThemeTracker.UpdatedUtc = DateTime.UtcNow;
+        state.ThemeSelectionRule = "ManualOverride";
+        state.ThemeTrackerUpdatedUtc = DateTime.UtcNow;
 
         requestedTheme.Breakdown.ChoiceSignal = Math.Max(requestedTheme.Breakdown.ChoiceSignal, 30);
         requestedTheme.IsScenarioCandidate = true;
@@ -1553,7 +2095,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             "Manual adaptive override applied for session {SessionId}: requestedScenarioId={ScenarioId}, phase={Phase}",
             session.Id,
             requestedScenarioId,
-            state.CurrentNarrativePhase);
+            state.CurrentPhase);
 
         return true;
     }

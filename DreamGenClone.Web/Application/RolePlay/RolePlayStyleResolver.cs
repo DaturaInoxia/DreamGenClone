@@ -1,5 +1,8 @@
+using DreamGenClone.Application.RolePlay;
+using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Domain.StoryAnalysis;
 using DreamGenClone.Web.Domain.RolePlay;
+using NarrativePhase = DreamGenClone.Domain.RolePlay.NarrativePhase;
 
 namespace DreamGenClone.Web.Application.RolePlay;
 
@@ -24,7 +27,7 @@ public static class RolePlayStyleResolver
         if (!session.IsIntensityManuallyPinned)
         {
             var desireValues = session.AdaptiveState.CharacterStats.Values
-                .SelectMany(x => x.Stats.Where(kvp => string.Equals(kvp.Key, "Desire", StringComparison.OrdinalIgnoreCase)).Select(kvp => kvp.Value))
+                .Select(x => CharacterStatProfileV2Accessor.GetStatOrDefault(x, "Desire"))
                 .ToList();
             if (desireValues.Count > 0)
             {
@@ -58,8 +61,8 @@ public static class RolePlayStyleResolver
             }
 
             // T039: HardDealBreaker suppression — check before escalation
-            var primary = session.AdaptiveState.ThemeTracker.PrimaryThemeId ?? string.Empty;
-            var secondary = session.AdaptiveState.ThemeTracker.SecondaryThemeId ?? string.Empty;
+            var primary = session.AdaptiveState.PrimaryThemeId ?? string.Empty;
+            var secondary = session.AdaptiveState.SecondaryThemeId ?? string.Empty;
             var dealBreakerSuppressed = false;
 
             if (themePreferences is not null)
@@ -126,7 +129,7 @@ public static class RolePlayStyleResolver
         }
 
         if (!session.IsIntensityManuallyPinned
-            && session.AdaptiveState.CurrentNarrativePhase == NarrativePhase.Approaching
+            && session.AdaptiveState.CurrentPhase == NarrativePhase.Approaching
             && clamped > (int)IntensityLevel.Explicit)
         {
             clamped = (int)IntensityLevel.Explicit;

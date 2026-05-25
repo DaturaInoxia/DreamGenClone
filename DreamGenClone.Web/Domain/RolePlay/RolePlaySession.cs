@@ -164,7 +164,7 @@ public sealed class RolePlaySession
     public List<AdaptiveIntensityTransitionRecord> AdaptiveIntensityTransitions { get; set; } = [];
 
     /// <summary>Adaptive theme and stat state updated per interaction.</summary>
-    public RolePlayAdaptiveState AdaptiveState { get; set; } = new();
+    public AdaptiveScenarioState AdaptiveState { get; set; } = new();
 
     /// <summary>
     /// When true, structured RP theme AI guidance notes are included as soft prompt hints.

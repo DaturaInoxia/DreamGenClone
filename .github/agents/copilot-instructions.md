@@ -32,6 +32,10 @@ Auto-generated from all feature plans. Last updated: 2026-03-17
 - SQLite — existing `Templates.PayloadJson` and `Sessions.PayloadJson` columns; no new schema (001-physical-attributes)
 - C# 13 / .NET 9 + ASP.NET Core Blazor, Entity Framework Core (SQLite), Serilog, xUnit (024-narrative-prompt-fix)
 - SQLite (unchanged — no schema changes for this feature) (024-narrative-prompt-fix)
+- C# / .NET 9 / Blazor Server + ASP.NET Core DI/logging abstractions, Serilog, Microsoft.Data.Sqlite, System.Text.Json (001-semantic-telemetry-tests)
+- SQLite via existing RolePlay persistence repositories and diagnostics tables (001-semantic-telemetry-tests)
+- C# on .NET 9 + ASP.NET Core/Blazor host, existing RolePlay services, Serilog, SQLite persistence layer (001-semantic-telemetry-tests)
+- SQLite (default policy, no new store) (001-semantic-telemetry-tests)
 
 - C# / .NET 9 (`net9.0`) + ASP.NET Core Blazor Server, `Microsoft.Data.Sqlite`, `Microsoft.Extensions.*`, Serilog (`Serilog.AspNetCore`, `Serilog.Settings.Configuration`, sinks/enrichers) (001-roleplay-session-screens)
 
@@ -52,9 +56,9 @@ tests/
 C# / .NET 9 (`net9.0`): Follow standard conventions
 
 ## Recent Changes
+- 001-semantic-telemetry-tests: Added C# on .NET 9 + ASP.NET Core/Blazor host, existing RolePlay services, Serilog, SQLite persistence layer
+- 001-semantic-telemetry-tests: Added C# / .NET 9 / Blazor Server + ASP.NET Core DI/logging abstractions, Serilog, Microsoft.Data.Sqlite, System.Text.Json
 - 024-narrative-prompt-fix: Added C# 13 / .NET 9 + ASP.NET Core Blazor, Entity Framework Core (SQLite), Serilog, xUnit
-- 024-narrative-prompt-fix: Added [e.g., Python 3.11, Swift 5.9, Rust 1.75 or NEEDS CLARIFICATION] + [e.g., FastAPI, UIKit, LLVM or NEEDS CLARIFICATION]
-- 001-physical-attributes: Added C# 13 / .NET 9 + Blazor Server (InteractiveServer render mode), Serilog, System.Text.Json
 
 
 <!-- MANUAL ADDITIONS START -->

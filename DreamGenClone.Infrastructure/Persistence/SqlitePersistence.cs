@@ -60,6 +60,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 SessionType TEXT NOT NULL,
                 Name TEXT NOT NULL,
                 PayloadJson TEXT NOT NULL,
+                AdaptiveStateJson TEXT NULL,
                 SchemaVersion TEXT NOT NULL DEFAULT 'v1',
                 UpdatedUtc TEXT NOT NULL
             );
@@ -303,6 +304,19 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 FOREIGN KEY (ChildThemeId) REFERENCES RPThemes(Id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS RPThemeSuccessorLinks (
+                SourceThemeId TEXT NOT NULL,
+                SuccessorThemeId TEXT NOT NULL,
+                ScoreBoost REAL NOT NULL,
+                SortOrder INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (SourceThemeId, SuccessorThemeId),
+                FOREIGN KEY (SourceThemeId) REFERENCES RPThemes(Id) ON DELETE CASCADE,
+                FOREIGN KEY (SuccessorThemeId) REFERENCES RPThemes(Id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS IX_RPThemeSuccessorLinks_Source_Sort
+                ON RPThemeSuccessorLinks (SourceThemeId, SortOrder, SuccessorThemeId);
+
             CREATE TABLE IF NOT EXISTS RPThemeKeywords (
                 Id TEXT PRIMARY KEY,
                 ThemeId TEXT NOT NULL,
@@ -375,6 +389,47 @@ public sealed class SqlitePersistence : ISqlitePersistence
 
             CREATE INDEX IF NOT EXISTS IX_RPThemeAIGuidanceNotes_Theme_Sort
                 ON RPThemeAIGuidanceNotes (ThemeId, SortOrder, Id);
+
+            CREATE TABLE IF NOT EXISTS RPThemeSemanticEventMappings (
+                Id TEXT PRIMARY KEY,
+                ThemeId TEXT NOT NULL,
+                EventId TEXT NOT NULL,
+                Direction TEXT NOT NULL,
+                Delta REAL NOT NULL,
+                ConfidenceMin REAL NOT NULL,
+                ConfidenceMax REAL NOT NULL,
+                ReasonCode TEXT NOT NULL,
+                AttributionKey TEXT NOT NULL DEFAULT '',
+                SortOrder INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (ThemeId) REFERENCES RPThemes(Id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS IX_RPThemeSemanticEventMappings_Theme_Sort
+                ON RPThemeSemanticEventMappings (ThemeId, SortOrder, Id);
+
+            CREATE INDEX IF NOT EXISTS IX_RPThemeSemanticEventMappings_Event
+                ON RPThemeSemanticEventMappings (EventId, ThemeId);
+
+            CREATE TABLE IF NOT EXISTS RPThemeSemanticStatMappings (
+                Id TEXT PRIMARY KEY,
+                ThemeId TEXT NOT NULL,
+                EventId TEXT NOT NULL,
+                TargetStat TEXT NOT NULL,
+                Direction TEXT NOT NULL,
+                Delta REAL NOT NULL,
+                ConfidenceMin REAL NOT NULL,
+                ConfidenceMax REAL NOT NULL,
+                ReasonCode TEXT NOT NULL,
+                AttributionKey TEXT NOT NULL DEFAULT '',
+                SortOrder INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (ThemeId) REFERENCES RPThemes(Id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS IX_RPThemeSemanticStatMappings_Theme_Sort
+                ON RPThemeSemanticStatMappings (ThemeId, SortOrder, Id);
+
+            CREATE INDEX IF NOT EXISTS IX_RPThemeSemanticStatMappings_Event
+                ON RPThemeSemanticStatMappings (EventId, ThemeId, TargetStat);
 
             CREATE TABLE IF NOT EXISTS RPThemeNarrativeGateRules (
                 Id TEXT PRIMARY KEY,
@@ -848,6 +903,73 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 MinTurnsBeforeAdvance INTEGER NOT NULL DEFAULT 1
             );
 
+            CREATE TABLE IF NOT EXISTS RolePlayV2ThemeScores (
+                SessionId TEXT NOT NULL,
+                ThemeId TEXT NOT NULL,
+                ThemeName TEXT NOT NULL,
+                Intensity TEXT NOT NULL DEFAULT 'None',
+                Score REAL NOT NULL DEFAULT 0,
+                Blocked INTEGER NOT NULL DEFAULT 0,
+                SuppressedHitCount INTEGER NOT NULL DEFAULT 0,
+                IsScenarioCandidate INTEGER NOT NULL DEFAULT 0,
+                NarrativeFitScore REAL NOT NULL DEFAULT 0,
+                LastCandidateEvaluationTimeUtc TEXT NULL,
+                CompletionCooldownInteractions INTEGER NOT NULL DEFAULT 0,
+                BreakdownJson TEXT NOT NULL DEFAULT '{}',
+                UpdatedUtc TEXT NOT NULL,
+                PRIMARY KEY (SessionId, ThemeId)
+            );
+            CREATE INDEX IF NOT EXISTS IX_RolePlayV2ThemeScores_Session
+                ON RolePlayV2ThemeScores (SessionId);
+
+            CREATE TABLE IF NOT EXISTS RolePlayV2ThemeTrackerMeta (
+                SessionId TEXT PRIMARY KEY,
+                PrimaryThemeId TEXT NULL,
+                SecondaryThemeId TEXT NULL,
+                ThemeSelectionRule TEXT NOT NULL DEFAULT 'Top1',
+                ObservedTurnCount INTEGER NOT NULL DEFAULT 0,
+                SelectionMinimumTurns INTEGER NOT NULL DEFAULT 0,
+                RecentEvidenceJson TEXT NOT NULL DEFAULT '[]',
+                UpdatedUtc TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS RolePlayV2ScenarioHistory (
+                Id TEXT PRIMARY KEY,
+                SessionId TEXT NOT NULL,
+                ScenarioId TEXT NOT NULL,
+                CompletedAtUtc TEXT NOT NULL,
+                InteractionCount INTEGER NOT NULL DEFAULT 0,
+                PeakThemeScore INTEGER NOT NULL DEFAULT 0,
+                PeakDesireLevel INTEGER NOT NULL DEFAULT 0,
+                AverageRestraintLevel REAL NOT NULL DEFAULT 0,
+                Notes TEXT NULL
+            );
+            CREATE INDEX IF NOT EXISTS IX_RolePlayV2ScenarioHistory_Session_CompletedUtc
+                ON RolePlayV2ScenarioHistory (SessionId, CompletedAtUtc DESC);
+
+            CREATE TABLE IF NOT EXISTS RolePlayV2PairwiseStats (
+                SessionId TEXT NOT NULL,
+                SourceCharacterId TEXT NOT NULL,
+                TargetCharacterId TEXT NOT NULL,
+                StatsJson TEXT NOT NULL DEFAULT '{}',
+                UpdatedUtc TEXT NOT NULL,
+                PRIMARY KEY (SessionId, SourceCharacterId, TargetCharacterId)
+            );
+
+            CREATE TABLE IF NOT EXISTS RolePlayV2SemanticEvents (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                SessionId TEXT NOT NULL,
+                InteractionId TEXT NOT NULL,
+                EventId TEXT NOT NULL,
+                Confidence REAL NOT NULL DEFAULT 0,
+                MappingId TEXT NOT NULL DEFAULT '',
+                Direction TEXT NOT NULL DEFAULT '',
+                ThemeTargetsJson TEXT NOT NULL DEFAULT '[]',
+                ProcessedUtc TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS IX_RolePlayV2SemanticEvents_Session_ProcessedUtc
+                ON RolePlayV2SemanticEvents (SessionId, ProcessedUtc DESC);
+
             """;
 
         await command.ExecuteNonQueryAsync(cancellationToken);
@@ -1032,6 +1154,44 @@ public sealed class SqlitePersistence : ISqlitePersistence
             alterPositionEscalationTier.CommandText = "ALTER TABLE RPPositions ADD COLUMN EscalationTier TEXT NOT NULL DEFAULT 'Low'";
             await alterPositionEscalationTier.ExecuteNonQueryAsync(cancellationToken);
             _logger.LogInformation("Migrated RPPositions table: added EscalationTier column");
+        }
+
+        var checkAdaptiveStateJsonColumn = connection.CreateCommand();
+        checkAdaptiveStateJsonColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('Sessions') WHERE name='AdaptiveStateJson'";
+        var hasAdaptiveStateJsonColumn = Convert.ToInt64(await checkAdaptiveStateJsonColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasAdaptiveStateJsonColumn)
+        {
+            var alterAdaptiveStateJson = connection.CreateCommand();
+            alterAdaptiveStateJson.CommandText = "ALTER TABLE Sessions ADD COLUMN AdaptiveStateJson TEXT NULL";
+            await alterAdaptiveStateJson.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated Sessions table: added AdaptiveStateJson column");
+        }
+
+        // V2 unification (B-038): additive columns on RolePlayV2AdaptiveStates for fields previously
+        // held only in V1 Sessions.AdaptiveStateJson. All non-nullable with explicit defaults; existing
+        // rows pick up safe initial values.
+        var v2AdaptiveExtraColumns = new (string Column, string Ddl)[]
+        {
+            ("CompletedScenarios", "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN CompletedScenarios INTEGER NOT NULL DEFAULT 0"),
+            ("InteractionsSinceCommitment", "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN InteractionsSinceCommitment INTEGER NOT NULL DEFAULT 0"),
+            ("InteractionsInApproaching", "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN InteractionsInApproaching INTEGER NOT NULL DEFAULT 0"),
+            ("ScenarioCommitmentTimeUtc", "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN ScenarioCommitmentTimeUtc TEXT NULL"),
+            ("SemanticStepSucceeded", "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN SemanticStepSucceeded INTEGER NOT NULL DEFAULT 1"),
+            ("SemanticDeltaBreakdownsJson", "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN SemanticDeltaBreakdownsJson TEXT NOT NULL DEFAULT '[]'"),
+            ("SemanticStatDeltaBreakdownsJson", "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN SemanticStatDeltaBreakdownsJson TEXT NOT NULL DEFAULT '[]'"),
+        };
+        foreach (var (column, ddl) in v2AdaptiveExtraColumns)
+        {
+            var checkCmd = connection.CreateCommand();
+            checkCmd.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('RolePlayV2AdaptiveStates') WHERE name='{column}'";
+            var present = Convert.ToInt64(await checkCmd.ExecuteScalarAsync(cancellationToken)) > 0;
+            if (!present)
+            {
+                var alter = connection.CreateCommand();
+                alter.CommandText = ddl;
+                await alter.ExecuteNonQueryAsync(cancellationToken);
+                _logger.LogInformation("Migrated RolePlayV2AdaptiveStates table: added {Column} column", column);
+            }
         }
 
         var shouldRunLegacyMigrations = await ShouldRunLegacyMigrationsAsync(connection, cancellationToken);

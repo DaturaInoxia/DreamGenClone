@@ -47,6 +47,7 @@ public sealed class ScenarioSelectionHysteresisTests
     {
         var service = CreateServiceWithProfile();
         var state = RolePlayV2AcceptanceFixtureData.BuildBoundaryState(desire: 60, restraint: 45, tension: 50);
+        state.SelectedNarrativeGateProfileId = "default";
         state.ConsecutiveLeadCount = 0;
         state.InteractionCountInPhase = 2;
         var candidates =
@@ -90,6 +91,7 @@ public sealed class ScenarioSelectionHysteresisTests
     {
         var service = CreateServiceWithProfile();
         var state = RolePlayV2AcceptanceFixtureData.BuildBoundaryState(desire: 70, restraint: 40, tension: 50);
+        state.SelectedNarrativeGateProfileId = "default";
         state.InteractionCountInPhase = 2;
         var evaluations = new[]
         {

@@ -1,4 +1,5 @@
 using CoreAutoSaveCoordinator = DreamGenClone.Application.Sessions.IAutoSaveCoordinator;
+using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Web.Application.RolePlay;
 using DreamGenClone.Web.Application.Sessions;
 using DreamGenClone.Web.Domain.RolePlay;

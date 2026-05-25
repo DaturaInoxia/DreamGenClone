@@ -1,3 +1,4 @@
+using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Web.Domain.RolePlay;
 using DreamGenClone.Web.Domain.Story;
 

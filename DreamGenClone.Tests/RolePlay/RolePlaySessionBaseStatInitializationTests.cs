@@ -1,9 +1,9 @@
 using DreamGenClone.Web.Application.RolePlay;
 using DreamGenClone.Web.Application.Scenarios;
+using DreamGenClone.Web.Domain.RolePlay;
 using DreamGenClone.Web.Domain.Scenarios;
 using DreamGenClone.Application.StoryAnalysis;
 using DreamGenClone.Domain.RolePlay;
-using DreamGenClone.Web.Domain.RolePlay;
 using System.Reflection;
 using Xunit;
 
@@ -50,9 +50,9 @@ public sealed class RolePlaySessionBaseStatInitializationTests
 
         var session = await service.CreateSessionAsync("Base Stats", scenario.Id);
 
-        var stats = session.AdaptiveState.CharacterStats["Alice"].Stats;
-        Assert.Equal(80, stats["Connection"]);
-        Assert.Equal(60, stats["Tension"]);
+        var aliceProfile = session.AdaptiveState.CharacterStats["Alice"];
+        Assert.Equal(80, aliceProfile.Connection);
+        Assert.Equal(60, aliceProfile.Tension);
     }
 
     [Fact]
@@ -82,8 +82,8 @@ public sealed class RolePlaySessionBaseStatInitializationTests
 
         var session = await service.CreateSessionAsync("Fallback", scenario.Id);
 
-        var stats = session.AdaptiveState.CharacterStats["Alice"].Stats;
-        Assert.Equal(40, stats["Desire"]);
+        var profile = session.AdaptiveState.CharacterStats["Alice"];
+        Assert.Equal(40, profile.Desire);
     }
 
     [Fact]
@@ -112,9 +112,8 @@ public sealed class RolePlaySessionBaseStatInitializationTests
 
         var session = await service.CreateSessionAsync("Character Only", scenario.Id);
 
-        var stats = session.AdaptiveState.CharacterStats["Alice"].Stats;
-        Assert.Single(stats);
-        Assert.Equal(22, stats["Tension"]);
+        var profile = session.AdaptiveState.CharacterStats["Alice"];
+        Assert.Equal(22, profile.Tension);
     }
 
     [Fact]
@@ -126,20 +125,6 @@ public sealed class RolePlaySessionBaseStatInitializationTests
             CharacterId = "char-1",
             CharacterName = "Becky"
         });
-        session.AdaptiveState.CharacterStats["Becky"] = new CharacterStatBlock
-        {
-            CharacterId = "char-1",
-            Stats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["Desire"] = 50,
-                ["Restraint"] = 50,
-                ["Tension"] = 50,
-                ["Connection"] = 50,
-                ["Dominance"] = 50,
-                ["Loyalty"] = 50,
-                ["SelfRespect"] = 50
-            }
-        };
 
         var v2State = new AdaptiveScenarioState
         {
@@ -166,17 +151,17 @@ public sealed class RolePlaySessionBaseStatInitializationTests
         Assert.NotNull(method);
         method!.Invoke(null, [session, v2State]);
 
-        Assert.True(session.AdaptiveState.CharacterStats.ContainsKey("Becky"));
-        Assert.False(session.AdaptiveState.CharacterStats.ContainsKey("char-1"));
+        Assert.True(session.AdaptiveState.CharacterStats.ContainsKey("char-1"));
+        Assert.False(session.AdaptiveState.CharacterStats.ContainsKey("Becky"));
 
-        var stats = session.AdaptiveState.CharacterStats["Becky"].Stats;
-        Assert.Equal(73, stats["Desire"]);
-        Assert.Equal(85, stats["Restraint"]);
-        Assert.Equal(23, stats["Tension"]);
-        Assert.Equal(85, stats["Connection"]);
-        Assert.Equal(90, stats["Dominance"]);
-        Assert.Equal(15, stats["Loyalty"]);
-        Assert.Equal(90, stats["SelfRespect"]);
+        var syncedProfile = session.AdaptiveState.CharacterStats["char-1"];
+        Assert.Equal(73, syncedProfile.Desire);
+        Assert.Equal(85, syncedProfile.Restraint);
+        Assert.Equal(23, syncedProfile.Tension);
+        Assert.Equal(85, syncedProfile.Connection);
+        Assert.Equal(90, syncedProfile.Dominance);
+        Assert.Equal(15, syncedProfile.Loyalty);
+        Assert.Equal(90, syncedProfile.SelfRespect);
     }
 
     private sealed class SingleScenarioService : IScenarioService

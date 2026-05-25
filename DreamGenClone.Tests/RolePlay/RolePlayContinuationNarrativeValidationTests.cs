@@ -136,10 +136,10 @@ public sealed class RolePlayContinuationNarrativeValidationTests
             UseThemeAIGuidanceNotesInPrompt = true,
             ThemeAIGuidanceInfluencePercent = 55,
             MaxThemeAIGuidanceNotes = 4,
-            AdaptiveState = new RolePlayAdaptiveState
+            AdaptiveState = new AdaptiveScenarioState
             {
                 ActiveScenarioId = "infidelity-public-facade",
-                CurrentNarrativePhase = DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Committed
+                CurrentPhase = DreamGenClone.Domain.RolePlay.NarrativePhase.Committed
             }
         };
 
@@ -154,6 +154,64 @@ public sealed class RolePlayContinuationNarrativeValidationTests
         var prompt = completion.Prompts[0];
         Assert.Contains("Theme AI Guidance (soft hints, influence=55%):", prompt, StringComparison.Ordinal);
         Assert.Contains("Escalate excuse complexity over time.", prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ContinueAsync_WhenThemeHasHardConstraints_AppendsAuthoritativeConstraintLines()
+    {
+        var completion = new QueueCompletionClient([
+            "Dean paused at the doorway and watched her expression."
+        ]);
+
+        var rpThemeService = new StubRpThemeService(new RPTheme
+        {
+            Id = "denial-edging",
+            AIGenerationNotes =
+            [
+                new RPThemeAIGuidanceNote
+                {
+                    Section = RPThemeAIGuidanceSection.HardConstraint,
+                    Text = "Do not resolve the restraint arc in this response.",
+                    SortOrder = 0
+                },
+                new RPThemeAIGuidanceNote
+                {
+                    Section = RPThemeAIGuidanceSection.InteractionDynamics,
+                    Text = "Sustain tension with interrupted momentum.",
+                    SortOrder = 1
+                }
+            ]
+        });
+
+        var service = CreateService(completion, out _, rpThemeService);
+        var session = new RolePlaySession
+        {
+            Id = "s4-hard",
+            PersonaName = "Becky",
+            UseThemeAIGuidanceNotesInPrompt = true,
+            ThemeAIGuidanceInfluencePercent = 55,
+            MaxThemeAIGuidanceNotes = 4,
+            AdaptiveState = new AdaptiveScenarioState
+            {
+                ActiveScenarioId = "denial-edging",
+                CurrentPhase = DreamGenClone.Domain.RolePlay.NarrativePhase.Committed
+            }
+        };
+
+        await service.ContinueAsync(
+            session,
+            ContinueAsActor.Npc,
+            customActorName: null,
+            intent: PromptIntent.Message,
+            promptText: "Continue naturally.");
+
+        Assert.Single(completion.Prompts);
+        var prompt = completion.Prompts[0];
+        Assert.Contains("Theme Hard Constraints (authoritative):", prompt, StringComparison.Ordinal);
+        Assert.Contains("HARD CONSTRAINT: Do not resolve the restraint arc in this response.", prompt, StringComparison.Ordinal);
+        Assert.Contains("HARD CONSTRAINT — enforce in this response: Do not resolve the restraint arc in this response.", prompt, StringComparison.Ordinal);
+        Assert.Contains("Theme AI Guidance (soft hints, influence=55%):", prompt, StringComparison.Ordinal);
+        Assert.Contains("Sustain tension with interrupted momentum.", prompt, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -201,16 +259,13 @@ public sealed class RolePlayContinuationNarrativeValidationTests
             UseThemeAIGuidanceNotesInPrompt = true,
             ThemeAIGuidanceInfluencePercent = 55,
             MaxThemeAIGuidanceNotes = 4,
-            AdaptiveState = new RolePlayAdaptiveState
+            AdaptiveState = new AdaptiveScenarioState
             {
                 ActiveScenarioId = "infidelity-public-facade",
-                CurrentNarrativePhase = DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Committed,
-                ThemeTracker = new ThemeTrackerState
-                {
-                    ThemeSelectionRule = "Top2Blend",
-                    PrimaryThemeId = "infidelity-public-facade",
-                    SecondaryThemeId = "seduction"
-                }
+                CurrentPhase = DreamGenClone.Domain.RolePlay.NarrativePhase.Committed,
+                ThemeSelectionRule = "Top2Blend",
+                PrimaryThemeId = "infidelity-public-facade",
+                SecondaryThemeId = "seduction"
             }
         };
 
@@ -258,16 +313,13 @@ public sealed class RolePlayContinuationNarrativeValidationTests
             UseThemeAIGuidanceNotesInPrompt = true,
             ThemeAIGuidanceInfluencePercent = 55,
             MaxThemeAIGuidanceNotes = 4,
-            AdaptiveState = new RolePlayAdaptiveState
+            AdaptiveState = new AdaptiveScenarioState
             {
                 ActiveScenarioId = "infidelity-public-facade",
-                CurrentNarrativePhase = DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Committed,
-                ThemeTracker = new ThemeTrackerState
-                {
-                    ThemeSelectionRule = "Top2Blend",
-                    PrimaryThemeId = "infidelity-public-facade",
-                    SecondaryThemeId = "missing-theme"
-                }
+                CurrentPhase = DreamGenClone.Domain.RolePlay.NarrativePhase.Committed,
+                ThemeSelectionRule = "Top2Blend",
+                PrimaryThemeId = "infidelity-public-facade",
+                SecondaryThemeId = "missing-theme"
             }
         };
 
@@ -297,7 +349,7 @@ public sealed class RolePlayContinuationNarrativeValidationTests
         {
             Id = "loc1",
             PersonaName = "Becky",
-            AdaptiveState = new Web.Domain.RolePlay.RolePlayAdaptiveState
+            AdaptiveState = new AdaptiveScenarioState
             {
                 CurrentSceneLocation = "Hotel Room \u2014 Private Suite"
             }
@@ -319,7 +371,7 @@ public sealed class RolePlayContinuationNarrativeValidationTests
         {
             Id = "loc2",
             PersonaName = "Becky",
-            AdaptiveState = new Web.Domain.RolePlay.RolePlayAdaptiveState
+            AdaptiveState = new AdaptiveScenarioState
             {
                 CurrentSceneLocation = "The Library : Special Collection"
             }
@@ -341,7 +393,7 @@ public sealed class RolePlayContinuationNarrativeValidationTests
         {
             Id = "loc3",
             PersonaName = "Becky",
-            AdaptiveState = new Web.Domain.RolePlay.RolePlayAdaptiveState
+            AdaptiveState = new AdaptiveScenarioState
             {
                 CurrentSceneLocation = "The Garden"
             }
@@ -362,7 +414,7 @@ public sealed class RolePlayContinuationNarrativeValidationTests
         {
             Id = "loc4",
             PersonaName = "Becky",
-            AdaptiveState = new Web.Domain.RolePlay.RolePlayAdaptiveState
+            AdaptiveState = new AdaptiveScenarioState
             {
                 CurrentSceneLocation = null
             }
@@ -385,9 +437,9 @@ public sealed class RolePlayContinuationNarrativeValidationTests
         {
             Id = "np1",
             PersonaName = "Becky",
-            AdaptiveState = new Web.Domain.RolePlay.RolePlayAdaptiveState
+            AdaptiveState = new AdaptiveScenarioState
             {
-                CurrentNarrativePhase = DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Committed
+                CurrentPhase = DreamGenClone.Domain.RolePlay.NarrativePhase.Committed
             }
         };
 
@@ -408,9 +460,9 @@ public sealed class RolePlayContinuationNarrativeValidationTests
         {
             Id = "np2",
             PersonaName = "Becky",
-            AdaptiveState = new Web.Domain.RolePlay.RolePlayAdaptiveState
+            AdaptiveState = new AdaptiveScenarioState
             {
-                CurrentNarrativePhase = DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Climax
+                CurrentPhase = DreamGenClone.Domain.RolePlay.NarrativePhase.Climax
             }
         };
 
@@ -431,7 +483,7 @@ public sealed class RolePlayContinuationNarrativeValidationTests
         {
             Id = "np3",
             PersonaName = "Becky",
-            AdaptiveState = new Web.Domain.RolePlay.RolePlayAdaptiveState
+            AdaptiveState = new AdaptiveScenarioState
             {
                 CurrentSceneLocation = "Trailer \u2014 Shared Space"
             }
@@ -521,9 +573,9 @@ public sealed class RolePlayContinuationNarrativeValidationTests
         {
             Id = "v4",
             PersonaName = "Becky",
-            AdaptiveState = new Web.Domain.RolePlay.RolePlayAdaptiveState
+            AdaptiveState = new AdaptiveScenarioState
             {
-                CurrentNarrativePhase = DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Climax
+                CurrentPhase = DreamGenClone.Domain.RolePlay.NarrativePhase.Climax
             }
         };
 
@@ -545,9 +597,9 @@ public sealed class RolePlayContinuationNarrativeValidationTests
         {
             Id = "v5",
             PersonaName = "Becky",
-            AdaptiveState = new Web.Domain.RolePlay.RolePlayAdaptiveState
+            AdaptiveState = new AdaptiveScenarioState
             {
-                CurrentNarrativePhase = DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Committed
+                CurrentPhase = DreamGenClone.Domain.RolePlay.NarrativePhase.Committed
             }
         };
 
@@ -926,6 +978,9 @@ public sealed class RolePlayContinuationNarrativeValidationTests
 
         public Task<IReadOnlyList<RPTheme>> ListThemesByProfileAsync(string profileId, bool includeDisabled = false, CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyList<RPTheme>>(_themes.Values.ToList());
+
+        public Task<IReadOnlyDictionary<string, IReadOnlyList<RPSemanticEventMapping>>> ResolveSemanticEventMappingsByProfileAsync(string profileId, CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyDictionary<string, IReadOnlyList<RPSemanticEventMapping>>>(new Dictionary<string, IReadOnlyList<RPSemanticEventMapping>>(StringComparer.OrdinalIgnoreCase));
 
         public Task<RPTheme?> GetThemeAsync(string id, CancellationToken cancellationToken = default)
             => Task.FromResult(_themes.TryGetValue(id, out var theme) ? theme : null);

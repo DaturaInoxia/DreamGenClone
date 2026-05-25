@@ -76,6 +76,36 @@ public static class CharacterStatProfileV2Accessor
         return SetStat(profile, statName, current + delta);
     }
 
+    /// <summary>
+    /// Returns a snapshot dictionary of all canonical stat values for <paramref name="profile"/>.
+    /// Equivalent to V1's <c>new Dictionary&lt;string,int&gt;(charBlock.Stats)</c>.
+    /// </summary>
+    public static Dictionary<string, int> GetAllStats(CharacterStatProfileV2 profile)
+    {
+        var result = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var statName in AdaptiveStatCatalog.CanonicalStatNames)
+            result[statName] = GetStatOrDefault(profile, statName);
+        return result;
+    }
+
+    /// <summary>
+    /// Applies every entry in <paramref name="deltas"/> to <paramref name="profile"/> via <see cref="ApplyDelta"/>.
+    /// </summary>
+    public static void ApplyAllDeltas(CharacterStatProfileV2 profile, IReadOnlyDictionary<string, int> deltas)
+    {
+        foreach (var (name, delta) in deltas)
+            ApplyDelta(profile, name, delta);
+    }
+
+    /// <summary>
+    /// Overwrites every entry in <paramref name="stats"/> into <paramref name="profile"/> via <see cref="SetStat"/>.
+    /// </summary>
+    public static void SetAllStats(CharacterStatProfileV2 profile, IReadOnlyDictionary<string, int> stats)
+    {
+        foreach (var (name, value) in stats)
+            SetStat(profile, name, value);
+    }
+
     private static bool TryResolveCanonicalStatName(string statName, out string canonicalStatName)
     {
         canonicalStatName = string.Empty;

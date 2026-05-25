@@ -1,5 +1,4 @@
-using DreamGenClone.Domain.StoryAnalysis;
-using DreamGenClone.Web.Domain.RolePlay;
+using DreamGenClone.Domain.RolePlay;
 
 namespace DreamGenClone.Tests.StoryAnalysis;
 
@@ -8,9 +7,9 @@ public sealed class ScenarioStateModelTests
     [Fact]
     public void RolePlayAdaptiveState_DefaultsToBuildUpAndEmptyHistory()
     {
-        var state = new RolePlayAdaptiveState();
+        var state = new AdaptiveScenarioState();
 
-        Assert.Equal(NarrativePhase.BuildUp, state.CurrentNarrativePhase);
+        Assert.Equal(NarrativePhase.BuildUp, state.CurrentPhase);
         Assert.Equal(0, state.CompletedScenarios);
         Assert.Empty(state.ScenarioHistory);
         Assert.Null(state.ActiveScenarioId);
@@ -19,7 +18,7 @@ public sealed class ScenarioStateModelTests
     [Fact]
     public void ThemeTrackerItem_DefaultCandidateFieldsAreSafe()
     {
-        var item = new ThemeTrackerItem();
+        var item = new ThemeScoreState();
 
         Assert.False(item.IsScenarioCandidate);
         Assert.Equal(0, item.NarrativeFitScore);
@@ -30,7 +29,7 @@ public sealed class ScenarioStateModelTests
     public void ScenarioMetadata_StoresExpectedValues()
     {
         var completedAt = DateTime.UtcNow;
-        var metadata = new ScenarioMetadata
+        var metadata = new ScenarioHistoryEntry
         {
             ScenarioId = "scenario-a",
             CompletedAtUtc = completedAt,

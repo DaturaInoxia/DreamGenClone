@@ -53,6 +53,11 @@ public sealed class StoryAnalysisOptions
     // Per-interaction cap for suppressed evidence score gain.
     public double SuppressedEvidencePerTurnCap { get; set; } = 1.5;
 
+    // Per-interaction cap for semantic event evidence score gain per theme.
+    // Semantic event mappings have designed deltas of 5-22; this cap must exceed
+    // SuppressedEvidencePerTurnCap to allow structured LLM-guided signals to apply.
+    public double SemanticEvidencePerTurnCap { get; set; } = 25.0;
+
     // BuildUp scenario selection fit scoring strategy key.
     public string BuildUpSelectionFitScoreStrategy { get; set; } = "weighted-blend";
 
@@ -85,6 +90,10 @@ public sealed class StoryAnalysisOptions
 
     // Theme tracker score penalty applied to the just-completed scenario during reset.
     public int CompletedScenarioThemeScorePenalty { get; set; } = 10;
+
+    // Number of interactions the just-completed theme is suppressed from selection after reset.
+    // Default 10 prevents immediate re-selection during the Reset phase.
+    public int CompletedScenarioThemeCooldownInteractions { get; set; } = 10;
 
     // Per-cycle reduction in reset pull toward baseline for elevated stats.
     // Example: 0.10 means each completed cycle reduces reset pull by 10%.

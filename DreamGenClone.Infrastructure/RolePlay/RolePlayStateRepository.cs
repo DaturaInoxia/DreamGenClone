@@ -210,9 +210,15 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
 
     public async Task SaveAdaptiveStateAsync(AdaptiveScenarioState state, CancellationToken cancellationToken = default)
     {
+        // Ensure the CharacterSnapshots list is in sync with the runtime CharacterStats dictionary
+        // before serialising to JSON.
+        state.SyncCharacterSnapshots();
+
         await using var connection = await OpenConnectionAsync(cancellationToken);
         await EnsureAdaptiveStateSchemaAsync(connection, cancellationToken);
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
         await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText = """
             INSERT INTO RolePlayV2AdaptiveStates (
                 SessionId, ActiveScenarioId, CurrentPhase, InteractionCountInPhase, ConsecutiveLeadCount,
@@ -221,7 +227,10 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 PhaseOverrideFloor, PhaseOverrideScenarioId, PhaseOverrideCycleIndex, PhaseOverrideSource, PhaseOverrideAppliedUtc,
                 CurrentSceneLocation,
                 CharacterLocationsJson, CharacterLocationPerceptionsJson, CharacterSnapshotsJson, ThemeMachineSnapshotJson,
-                CurrentBeatCode, TurnsInCurrentBeat, UpdatedUtc)
+                CurrentBeatCode, TurnsInCurrentBeat,
+                CompletedScenarios, InteractionsSinceCommitment, InteractionsInApproaching, ScenarioCommitmentTimeUtc,
+                SemanticStepSucceeded, SemanticDeltaBreakdownsJson, SemanticStatDeltaBreakdownsJson,
+                UpdatedUtc)
             VALUES (
                 $sessionId, $activeScenarioId, $currentPhase, $interactionCountInPhase, $consecutiveLeadCount,
                 $lastEvaluationUtc, $cycleIndex, $activeFormulaVersion, $activeVariantId,
@@ -229,7 +238,10 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 $phaseOverrideFloor, $phaseOverrideScenarioId, $phaseOverrideCycleIndex, $phaseOverrideSource, $phaseOverrideAppliedUtc,
                 $currentSceneLocation,
                 $characterLocationsJson, $characterLocationPerceptionsJson, $characterSnapshotsJson, $themeMachineSnapshotJson,
-                $currentBeatCode, $turnsInCurrentBeat, $updatedUtc)
+                $currentBeatCode, $turnsInCurrentBeat,
+                $completedScenarios, $interactionsSinceCommitment, $interactionsInApproaching, $scenarioCommitmentTimeUtc,
+                $semanticStepSucceeded, $semanticDeltaBreakdownsJson, $semanticStatDeltaBreakdownsJson,
+                $updatedUtc)
             ON CONFLICT(SessionId) DO UPDATE SET
                 ActiveScenarioId = excluded.ActiveScenarioId,
                 CurrentPhase = excluded.CurrentPhase,
@@ -254,9 +266,17 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 ThemeMachineSnapshotJson = excluded.ThemeMachineSnapshotJson,
                 CurrentBeatCode = excluded.CurrentBeatCode,
                 TurnsInCurrentBeat = excluded.TurnsInCurrentBeat,
+                CompletedScenarios = excluded.CompletedScenarios,
+                InteractionsSinceCommitment = excluded.InteractionsSinceCommitment,
+                InteractionsInApproaching = excluded.InteractionsInApproaching,
+                ScenarioCommitmentTimeUtc = excluded.ScenarioCommitmentTimeUtc,
+                SemanticStepSucceeded = excluded.SemanticStepSucceeded,
+                SemanticDeltaBreakdownsJson = excluded.SemanticDeltaBreakdownsJson,
+                SemanticStatDeltaBreakdownsJson = excluded.SemanticStatDeltaBreakdownsJson,
                 UpdatedUtc = excluded.UpdatedUtc;
             """;
 
+        var nowUtc = DateTime.UtcNow;
         command.Parameters.AddWithValue("$sessionId", state.SessionId);
         command.Parameters.AddWithValue("$activeScenarioId", (object?)state.ActiveScenarioId ?? DBNull.Value);
         command.Parameters.AddWithValue("$currentPhase", state.CurrentPhase.ToString());
@@ -285,8 +305,189 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 : JsonSerializer.Serialize(state.ThemeMachineSnapshot));
         command.Parameters.AddWithValue("$currentBeatCode", (object?)state.CurrentBeatCode ?? DBNull.Value);
         command.Parameters.AddWithValue("$turnsInCurrentBeat", state.TurnsInCurrentBeat);
-        command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
+        command.Parameters.AddWithValue("$completedScenarios", state.CompletedScenarios);
+        command.Parameters.AddWithValue("$interactionsSinceCommitment", state.InteractionsSinceCommitment);
+        command.Parameters.AddWithValue("$interactionsInApproaching", state.InteractionsInApproaching);
+        command.Parameters.AddWithValue("$scenarioCommitmentTimeUtc", state.ScenarioCommitmentTimeUtc?.ToString("O") ?? (object)DBNull.Value);
+        command.Parameters.AddWithValue("$semanticStepSucceeded", state.SemanticStepSucceeded ? 1 : 0);
+        command.Parameters.AddWithValue("$semanticDeltaBreakdownsJson", JsonSerializer.Serialize(state.SemanticDeltaBreakdowns));
+        command.Parameters.AddWithValue("$semanticStatDeltaBreakdownsJson", JsonSerializer.Serialize(state.SemanticStatDeltaBreakdowns));
+        command.Parameters.AddWithValue("$updatedUtc", nowUtc.ToString("O"));
         await command.ExecuteNonQueryAsync(cancellationToken);
+
+        await ReplaceThemeScoresAsync(connection, transaction, state, nowUtc, cancellationToken);
+        await ReplaceThemeTrackerMetaAsync(connection, transaction, state, nowUtc, cancellationToken);
+        await ReplaceScenarioHistoryAsync(connection, transaction, state, cancellationToken);
+        await ReplacePairwiseStatsAsync(connection, transaction, state, nowUtc, cancellationToken);
+        await ReplaceSemanticEventsAsync(connection, transaction, state, cancellationToken);
+
+        await transaction.CommitAsync(cancellationToken);
+    }
+
+    private static async Task ReplaceThemeScoresAsync(SqliteConnection connection, SqliteTransaction transaction, AdaptiveScenarioState state, DateTime nowUtc, CancellationToken cancellationToken)
+    {
+        await using (var del = connection.CreateCommand())
+        {
+            del.Transaction = transaction;
+            del.CommandText = "DELETE FROM RolePlayV2ThemeScores WHERE SessionId = $sessionId";
+            del.Parameters.AddWithValue("$sessionId", state.SessionId);
+            await del.ExecuteNonQueryAsync(cancellationToken);
+        }
+        foreach (var (themeId, score) in state.ThemeScores)
+        {
+            await using var ins = connection.CreateCommand();
+            ins.Transaction = transaction;
+            ins.CommandText = """
+                INSERT INTO RolePlayV2ThemeScores (
+                    SessionId, ThemeId, ThemeName, Intensity, Score, Blocked, SuppressedHitCount,
+                    IsScenarioCandidate, NarrativeFitScore, LastCandidateEvaluationTimeUtc,
+                    CompletionCooldownInteractions, BreakdownJson, UpdatedUtc)
+                VALUES (
+                    $sessionId, $themeId, $themeName, $intensity, $score, $blocked, $suppressedHitCount,
+                    $isScenarioCandidate, $narrativeFitScore, $lastCandidateEvalUtc,
+                    $completionCooldown, $breakdownJson, $updatedUtc);
+                """;
+            ins.Parameters.AddWithValue("$sessionId", state.SessionId);
+            ins.Parameters.AddWithValue("$themeId", themeId);
+            ins.Parameters.AddWithValue("$themeName", score.ThemeName);
+            ins.Parameters.AddWithValue("$intensity", score.Intensity);
+            ins.Parameters.AddWithValue("$score", score.Score);
+            ins.Parameters.AddWithValue("$blocked", score.Blocked ? 1 : 0);
+            ins.Parameters.AddWithValue("$suppressedHitCount", score.SuppressedHitCount);
+            ins.Parameters.AddWithValue("$isScenarioCandidate", score.IsScenarioCandidate ? 1 : 0);
+            ins.Parameters.AddWithValue("$narrativeFitScore", score.NarrativeFitScore);
+            ins.Parameters.AddWithValue("$lastCandidateEvalUtc", score.LastCandidateEvaluationTimeUtc?.ToString("O") ?? (object)DBNull.Value);
+            ins.Parameters.AddWithValue("$completionCooldown", score.CompletionCooldownInteractions);
+            ins.Parameters.AddWithValue("$breakdownJson", JsonSerializer.Serialize(score.Breakdown));
+            ins.Parameters.AddWithValue("$updatedUtc", (score.UpdatedUtc == default ? nowUtc : score.UpdatedUtc).ToString("O"));
+            await ins.ExecuteNonQueryAsync(cancellationToken);
+        }
+    }
+
+    private static async Task ReplaceThemeTrackerMetaAsync(SqliteConnection connection, SqliteTransaction transaction, AdaptiveScenarioState state, DateTime nowUtc, CancellationToken cancellationToken)
+    {
+        await using var cmd = connection.CreateCommand();
+        cmd.Transaction = transaction;
+        cmd.CommandText = """
+            INSERT INTO RolePlayV2ThemeTrackerMeta (
+                SessionId, PrimaryThemeId, SecondaryThemeId, ThemeSelectionRule,
+                ObservedTurnCount, SelectionMinimumTurns, RecentEvidenceJson, UpdatedUtc)
+            VALUES (
+                $sessionId, $primaryThemeId, $secondaryThemeId, $themeSelectionRule,
+                $observedTurnCount, $selectionMinimumTurns, $recentEvidenceJson, $updatedUtc)
+            ON CONFLICT(SessionId) DO UPDATE SET
+                PrimaryThemeId = excluded.PrimaryThemeId,
+                SecondaryThemeId = excluded.SecondaryThemeId,
+                ThemeSelectionRule = excluded.ThemeSelectionRule,
+                ObservedTurnCount = excluded.ObservedTurnCount,
+                SelectionMinimumTurns = excluded.SelectionMinimumTurns,
+                RecentEvidenceJson = excluded.RecentEvidenceJson,
+                UpdatedUtc = excluded.UpdatedUtc;
+            """;
+        cmd.Parameters.AddWithValue("$sessionId", state.SessionId);
+        cmd.Parameters.AddWithValue("$primaryThemeId", (object?)state.PrimaryThemeId ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$secondaryThemeId", (object?)state.SecondaryThemeId ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$themeSelectionRule", state.ThemeSelectionRule);
+        cmd.Parameters.AddWithValue("$observedTurnCount", state.ObservedTurnCount);
+        cmd.Parameters.AddWithValue("$selectionMinimumTurns", state.SelectionMinimumTurns);
+        cmd.Parameters.AddWithValue("$recentEvidenceJson", JsonSerializer.Serialize(state.RecentEvidence));
+        cmd.Parameters.AddWithValue("$updatedUtc", (state.ThemeTrackerUpdatedUtc == default ? nowUtc : state.ThemeTrackerUpdatedUtc).ToString("O"));
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task ReplaceScenarioHistoryAsync(SqliteConnection connection, SqliteTransaction transaction, AdaptiveScenarioState state, CancellationToken cancellationToken)
+    {
+        await using (var del = connection.CreateCommand())
+        {
+            del.Transaction = transaction;
+            del.CommandText = "DELETE FROM RolePlayV2ScenarioHistory WHERE SessionId = $sessionId";
+            del.Parameters.AddWithValue("$sessionId", state.SessionId);
+            await del.ExecuteNonQueryAsync(cancellationToken);
+        }
+        foreach (var entry in state.ScenarioHistory)
+        {
+            await using var ins = connection.CreateCommand();
+            ins.Transaction = transaction;
+            ins.CommandText = """
+                INSERT INTO RolePlayV2ScenarioHistory (
+                    Id, SessionId, ScenarioId, CompletedAtUtc, InteractionCount,
+                    PeakThemeScore, PeakDesireLevel, AverageRestraintLevel, Notes)
+                VALUES (
+                    $id, $sessionId, $scenarioId, $completedAtUtc, $interactionCount,
+                    $peakThemeScore, $peakDesireLevel, $averageRestraintLevel, $notes);
+                """;
+            ins.Parameters.AddWithValue("$id", string.IsNullOrWhiteSpace(entry.Id) ? Guid.NewGuid().ToString() : entry.Id);
+            ins.Parameters.AddWithValue("$sessionId", state.SessionId);
+            ins.Parameters.AddWithValue("$scenarioId", entry.ScenarioId);
+            ins.Parameters.AddWithValue("$completedAtUtc", entry.CompletedAtUtc.ToString("O"));
+            ins.Parameters.AddWithValue("$interactionCount", entry.InteractionCount);
+            ins.Parameters.AddWithValue("$peakThemeScore", entry.PeakThemeScore);
+            ins.Parameters.AddWithValue("$peakDesireLevel", entry.PeakDesireLevel);
+            ins.Parameters.AddWithValue("$averageRestraintLevel", entry.AverageRestraintLevel);
+            ins.Parameters.AddWithValue("$notes", (object?)entry.Notes ?? DBNull.Value);
+            await ins.ExecuteNonQueryAsync(cancellationToken);
+        }
+    }
+
+    private static async Task ReplacePairwiseStatsAsync(SqliteConnection connection, SqliteTransaction transaction, AdaptiveScenarioState state, DateTime nowUtc, CancellationToken cancellationToken)
+    {
+        await using (var del = connection.CreateCommand())
+        {
+            del.Transaction = transaction;
+            del.CommandText = "DELETE FROM RolePlayV2PairwiseStats WHERE SessionId = $sessionId";
+            del.Parameters.AddWithValue("$sessionId", state.SessionId);
+            await del.ExecuteNonQueryAsync(cancellationToken);
+        }
+        foreach (var pair in state.PairwiseStats)
+        {
+            await using var ins = connection.CreateCommand();
+            ins.Transaction = transaction;
+            ins.CommandText = """
+                INSERT INTO RolePlayV2PairwiseStats (
+                    SessionId, SourceCharacterId, TargetCharacterId, StatsJson, UpdatedUtc)
+                VALUES (
+                    $sessionId, $sourceCharacterId, $targetCharacterId, $statsJson, $updatedUtc);
+                """;
+            ins.Parameters.AddWithValue("$sessionId", state.SessionId);
+            ins.Parameters.AddWithValue("$sourceCharacterId", pair.SourceCharacterId);
+            ins.Parameters.AddWithValue("$targetCharacterId", pair.TargetCharacterId);
+            ins.Parameters.AddWithValue("$statsJson", JsonSerializer.Serialize(pair.Stats));
+            ins.Parameters.AddWithValue("$updatedUtc", (pair.UpdatedUtc == default ? nowUtc : pair.UpdatedUtc).ToString("O"));
+            await ins.ExecuteNonQueryAsync(cancellationToken);
+        }
+    }
+
+    private static async Task ReplaceSemanticEventsAsync(SqliteConnection connection, SqliteTransaction transaction, AdaptiveScenarioState state, CancellationToken cancellationToken)
+    {
+        await using (var del = connection.CreateCommand())
+        {
+            del.Transaction = transaction;
+            del.CommandText = "DELETE FROM RolePlayV2SemanticEvents WHERE SessionId = $sessionId";
+            del.Parameters.AddWithValue("$sessionId", state.SessionId);
+            await del.ExecuteNonQueryAsync(cancellationToken);
+        }
+        foreach (var ev in state.SemanticEvents)
+        {
+            await using var ins = connection.CreateCommand();
+            ins.Transaction = transaction;
+            ins.CommandText = """
+                INSERT INTO RolePlayV2SemanticEvents (
+                    SessionId, InteractionId, EventId, Confidence, MappingId, Direction,
+                    ThemeTargetsJson, ProcessedUtc)
+                VALUES (
+                    $sessionId, $interactionId, $eventId, $confidence, $mappingId, $direction,
+                    $themeTargetsJson, $processedUtc);
+                """;
+            ins.Parameters.AddWithValue("$sessionId", state.SessionId);
+            ins.Parameters.AddWithValue("$interactionId", ev.InteractionId);
+            ins.Parameters.AddWithValue("$eventId", ev.EventId);
+            ins.Parameters.AddWithValue("$confidence", ev.Confidence);
+            ins.Parameters.AddWithValue("$mappingId", ev.MappingId);
+            ins.Parameters.AddWithValue("$direction", ev.Direction);
+            ins.Parameters.AddWithValue("$themeTargetsJson", JsonSerializer.Serialize(ev.ThemeTargets));
+            ins.Parameters.AddWithValue("$processedUtc", ev.ProcessedUtc.ToString("O"));
+            await ins.ExecuteNonQueryAsync(cancellationToken);
+        }
     }
 
     public async Task<AdaptiveScenarioState?> LoadAdaptiveStateAsync(string sessionId, CancellationToken cancellationToken = default)
@@ -300,7 +501,9 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                                 SelectedWillingnessProfileId, SelectedNarrativeGateProfileId, HusbandAwarenessProfileId,
                                 PhaseOverrideFloor, PhaseOverrideScenarioId, PhaseOverrideCycleIndex, PhaseOverrideSource, PhaseOverrideAppliedUtc,
                               CurrentSceneLocation, CharacterLocationsJson, CharacterLocationPerceptionsJson, CharacterSnapshotsJson,
-                              ThemeMachineSnapshotJson, CurrentBeatCode, TurnsInCurrentBeat
+                              ThemeMachineSnapshotJson, CurrentBeatCode, TurnsInCurrentBeat,
+                              CompletedScenarios, InteractionsSinceCommitment, InteractionsInApproaching, ScenarioCommitmentTimeUtc,
+                              SemanticStepSucceeded, SemanticDeltaBreakdownsJson, SemanticStatDeltaBreakdownsJson
             FROM RolePlayV2AdaptiveStates
             WHERE SessionId = $sessionId;
             """;
@@ -312,7 +515,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
             return null;
         }
 
-        return new AdaptiveScenarioState
+        var state = new AdaptiveScenarioState
         {
             SessionId = reader.GetString(0),
             ActiveScenarioId = reader.IsDBNull(1) ? null : reader.GetString(1),
@@ -347,8 +550,165 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 ? null
                 : DeserializeThemeMachineSnapshot(reader.GetString(21), reader.GetString(0)),
             CurrentBeatCode = reader.IsDBNull(22) ? null : reader.GetString(22),
-            TurnsInCurrentBeat = reader.IsDBNull(23) ? 0 : reader.GetInt32(23)
+            TurnsInCurrentBeat = reader.IsDBNull(23) ? 0 : reader.GetInt32(23),
+            CompletedScenarios = reader.GetInt32(24),
+            InteractionsSinceCommitment = reader.GetInt32(25),
+            InteractionsInApproaching = reader.GetInt32(26),
+            ScenarioCommitmentTimeUtc = reader.IsDBNull(27)
+                ? null
+                : ParseUtcTimestamp(reader.GetString(27), reader.GetString(0)),
+            SemanticStepSucceeded = reader.GetInt32(28) != 0,
+            SemanticDeltaBreakdowns = reader.IsDBNull(29)
+                ? []
+                : (JsonSerializer.Deserialize<List<SemanticThemeDeltaBreakdown>>(reader.GetString(29)) ?? []),
+            SemanticStatDeltaBreakdowns = reader.IsDBNull(30)
+                ? []
+                : (JsonSerializer.Deserialize<List<SemanticStatDeltaRecord>>(reader.GetString(30)) ?? [])
         };
+        await reader.CloseAsync();
+
+        await LoadThemeScoresAsync(connection, state, cancellationToken);
+        await LoadThemeTrackerMetaAsync(connection, state, cancellationToken);
+        await LoadScenarioHistoryAsync(connection, state, cancellationToken);
+        await LoadPairwiseStatsAsync(connection, state, cancellationToken);
+        await LoadSemanticEventsAsync(connection, state, cancellationToken);
+
+        // Rebuild the runtime CharacterStats dictionary so callers can use dict-style access
+        // without re-parsing CharacterSnapshots themselves.
+        state.RebuildCharacterStatsCache();
+
+        return state;
+    }
+
+    private static async Task LoadThemeScoresAsync(SqliteConnection connection, AdaptiveScenarioState state, CancellationToken cancellationToken)
+    {
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT ThemeId, ThemeName, Intensity, Score, Blocked, SuppressedHitCount,
+                   IsScenarioCandidate, NarrativeFitScore, LastCandidateEvaluationTimeUtc,
+                   CompletionCooldownInteractions, BreakdownJson, UpdatedUtc
+            FROM RolePlayV2ThemeScores WHERE SessionId = $sessionId;
+            """;
+        cmd.Parameters.AddWithValue("$sessionId", state.SessionId);
+        await using var rdr = await cmd.ExecuteReaderAsync(cancellationToken);
+        while (await rdr.ReadAsync(cancellationToken))
+        {
+            var themeId = rdr.GetString(0);
+            var score = new ThemeScoreState
+            {
+                ThemeId = themeId,
+                ThemeName = rdr.GetString(1),
+                Intensity = rdr.GetString(2),
+                Score = rdr.GetDouble(3),
+                Blocked = rdr.GetInt32(4) != 0,
+                SuppressedHitCount = rdr.GetInt32(5),
+                IsScenarioCandidate = rdr.GetInt32(6) != 0,
+                NarrativeFitScore = rdr.GetDouble(7),
+                LastCandidateEvaluationTimeUtc = rdr.IsDBNull(8)
+                    ? null
+                    : (DateTime.TryParse(rdr.GetString(8), out var lastEval) ? lastEval : null),
+                CompletionCooldownInteractions = rdr.GetInt32(9),
+                Breakdown = JsonSerializer.Deserialize<ThemeScoreBreakdownV2>(rdr.GetString(10)) ?? new ThemeScoreBreakdownV2(),
+                UpdatedUtc = ParseUtcTimestamp(rdr.GetString(11), state.SessionId)
+            };
+            state.ThemeScores[themeId] = score;
+        }
+    }
+
+    private static async Task LoadThemeTrackerMetaAsync(SqliteConnection connection, AdaptiveScenarioState state, CancellationToken cancellationToken)
+    {
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT PrimaryThemeId, SecondaryThemeId, ThemeSelectionRule, ObservedTurnCount,
+                   SelectionMinimumTurns, RecentEvidenceJson, UpdatedUtc
+            FROM RolePlayV2ThemeTrackerMeta WHERE SessionId = $sessionId;
+            """;
+        cmd.Parameters.AddWithValue("$sessionId", state.SessionId);
+        await using var rdr = await cmd.ExecuteReaderAsync(cancellationToken);
+        if (!await rdr.ReadAsync(cancellationToken))
+        {
+            return;
+        }
+        state.PrimaryThemeId = rdr.IsDBNull(0) ? null : rdr.GetString(0);
+        state.SecondaryThemeId = rdr.IsDBNull(1) ? null : rdr.GetString(1);
+        state.ThemeSelectionRule = rdr.GetString(2);
+        state.ObservedTurnCount = rdr.GetInt32(3);
+        state.SelectionMinimumTurns = rdr.GetInt32(4);
+        state.RecentEvidence = JsonSerializer.Deserialize<List<ThemeEvidenceRecord>>(rdr.GetString(5)) ?? [];
+        state.ThemeTrackerUpdatedUtc = ParseUtcTimestamp(rdr.GetString(6), state.SessionId);
+    }
+
+    private static async Task LoadScenarioHistoryAsync(SqliteConnection connection, AdaptiveScenarioState state, CancellationToken cancellationToken)
+    {
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT Id, ScenarioId, CompletedAtUtc, InteractionCount, PeakThemeScore,
+                   PeakDesireLevel, AverageRestraintLevel, Notes
+            FROM RolePlayV2ScenarioHistory WHERE SessionId = $sessionId
+            ORDER BY CompletedAtUtc ASC;
+            """;
+        cmd.Parameters.AddWithValue("$sessionId", state.SessionId);
+        await using var rdr = await cmd.ExecuteReaderAsync(cancellationToken);
+        while (await rdr.ReadAsync(cancellationToken))
+        {
+            state.ScenarioHistory.Add(new ScenarioHistoryEntry
+            {
+                Id = rdr.GetString(0),
+                ScenarioId = rdr.GetString(1),
+                CompletedAtUtc = ParseUtcTimestamp(rdr.GetString(2), state.SessionId),
+                InteractionCount = rdr.GetInt32(3),
+                PeakThemeScore = rdr.GetInt32(4),
+                PeakDesireLevel = rdr.GetInt32(5),
+                AverageRestraintLevel = rdr.GetDouble(6),
+                Notes = rdr.IsDBNull(7) ? null : rdr.GetString(7)
+            });
+        }
+    }
+
+    private static async Task LoadPairwiseStatsAsync(SqliteConnection connection, AdaptiveScenarioState state, CancellationToken cancellationToken)
+    {
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT SourceCharacterId, TargetCharacterId, StatsJson, UpdatedUtc
+            FROM RolePlayV2PairwiseStats WHERE SessionId = $sessionId;
+            """;
+        cmd.Parameters.AddWithValue("$sessionId", state.SessionId);
+        await using var rdr = await cmd.ExecuteReaderAsync(cancellationToken);
+        while (await rdr.ReadAsync(cancellationToken))
+        {
+            state.PairwiseStats.Add(new PairwiseStatRecord
+            {
+                SourceCharacterId = rdr.GetString(0),
+                TargetCharacterId = rdr.GetString(1),
+                Stats = JsonSerializer.Deserialize<Dictionary<string, int>>(rdr.GetString(2)) ?? new(StringComparer.OrdinalIgnoreCase),
+                UpdatedUtc = ParseUtcTimestamp(rdr.GetString(3), state.SessionId)
+            });
+        }
+    }
+
+    private static async Task LoadSemanticEventsAsync(SqliteConnection connection, AdaptiveScenarioState state, CancellationToken cancellationToken)
+    {
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT InteractionId, EventId, Confidence, MappingId, Direction, ThemeTargetsJson, ProcessedUtc
+            FROM RolePlayV2SemanticEvents WHERE SessionId = $sessionId
+            ORDER BY ProcessedUtc ASC;
+            """;
+        cmd.Parameters.AddWithValue("$sessionId", state.SessionId);
+        await using var rdr = await cmd.ExecuteReaderAsync(cancellationToken);
+        while (await rdr.ReadAsync(cancellationToken))
+        {
+            state.SemanticEvents.Add(new SemanticEventRecord
+            {
+                InteractionId = rdr.GetString(0),
+                EventId = rdr.GetString(1),
+                Confidence = (decimal)rdr.GetDouble(2),
+                MappingId = rdr.GetString(3),
+                Direction = rdr.GetString(4),
+                ThemeTargets = JsonSerializer.Deserialize<List<string>>(rdr.GetString(5)) ?? [],
+                ProcessedUtc = ParseUtcTimestamp(rdr.GetString(6), state.SessionId)
+            });
+        }
     }
 
     private static ThemeMachineSessionSnapshot DeserializeThemeMachineSnapshot(string payloadJson, string sessionId)
@@ -511,6 +871,140 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
             await using var addTurnsInCurrentBeat = connection.CreateCommand();
             addTurnsInCurrentBeat.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN TurnsInCurrentBeat INTEGER NOT NULL DEFAULT 0";
             await addTurnsInCurrentBeat.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        // Phase 1 (B-038) additive columns for V1→V2 unification.
+        if (!await HasColumnAsync(connection, "RolePlayV2AdaptiveStates", "CompletedScenarios", cancellationToken))
+        {
+            await using var add = connection.CreateCommand();
+            add.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN CompletedScenarios INTEGER NOT NULL DEFAULT 0";
+            await add.ExecuteNonQueryAsync(cancellationToken);
+        }
+        if (!await HasColumnAsync(connection, "RolePlayV2AdaptiveStates", "InteractionsSinceCommitment", cancellationToken))
+        {
+            await using var add = connection.CreateCommand();
+            add.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN InteractionsSinceCommitment INTEGER NOT NULL DEFAULT 0";
+            await add.ExecuteNonQueryAsync(cancellationToken);
+        }
+        if (!await HasColumnAsync(connection, "RolePlayV2AdaptiveStates", "InteractionsInApproaching", cancellationToken))
+        {
+            await using var add = connection.CreateCommand();
+            add.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN InteractionsInApproaching INTEGER NOT NULL DEFAULT 0";
+            await add.ExecuteNonQueryAsync(cancellationToken);
+        }
+        if (!await HasColumnAsync(connection, "RolePlayV2AdaptiveStates", "ScenarioCommitmentTimeUtc", cancellationToken))
+        {
+            await using var add = connection.CreateCommand();
+            add.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN ScenarioCommitmentTimeUtc TEXT NULL";
+            await add.ExecuteNonQueryAsync(cancellationToken);
+        }
+        if (!await HasColumnAsync(connection, "RolePlayV2AdaptiveStates", "SemanticStepSucceeded", cancellationToken))
+        {
+            await using var add = connection.CreateCommand();
+            add.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN SemanticStepSucceeded INTEGER NOT NULL DEFAULT 1";
+            await add.ExecuteNonQueryAsync(cancellationToken);
+        }
+        if (!await HasColumnAsync(connection, "RolePlayV2AdaptiveStates", "SemanticDeltaBreakdownsJson", cancellationToken))
+        {
+            await using var add = connection.CreateCommand();
+            add.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN SemanticDeltaBreakdownsJson TEXT NOT NULL DEFAULT '[]'";
+            await add.ExecuteNonQueryAsync(cancellationToken);
+        }
+        if (!await HasColumnAsync(connection, "RolePlayV2AdaptiveStates", "SemanticStatDeltaBreakdownsJson", cancellationToken))
+        {
+            await using var add = connection.CreateCommand();
+            add.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN SemanticStatDeltaBreakdownsJson TEXT NOT NULL DEFAULT '[]'";
+            await add.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        // Phase 1 (B-038) additive child tables for V1→V2 unification.
+        await using (var createThemeScores = connection.CreateCommand())
+        {
+            createThemeScores.CommandText = """
+                CREATE TABLE IF NOT EXISTS RolePlayV2ThemeScores (
+                    SessionId TEXT NOT NULL,
+                    ThemeId TEXT NOT NULL,
+                    ThemeName TEXT NOT NULL,
+                    Intensity TEXT NOT NULL DEFAULT 'None',
+                    Score REAL NOT NULL DEFAULT 0,
+                    Blocked INTEGER NOT NULL DEFAULT 0,
+                    SuppressedHitCount INTEGER NOT NULL DEFAULT 0,
+                    IsScenarioCandidate INTEGER NOT NULL DEFAULT 0,
+                    NarrativeFitScore REAL NOT NULL DEFAULT 0,
+                    LastCandidateEvaluationTimeUtc TEXT NULL,
+                    CompletionCooldownInteractions INTEGER NOT NULL DEFAULT 0,
+                    BreakdownJson TEXT NOT NULL DEFAULT '{}',
+                    UpdatedUtc TEXT NOT NULL,
+                    PRIMARY KEY (SessionId, ThemeId)
+                );
+                """;
+            await createThemeScores.ExecuteNonQueryAsync(cancellationToken);
+        }
+        await using (var createThemeTrackerMeta = connection.CreateCommand())
+        {
+            createThemeTrackerMeta.CommandText = """
+                CREATE TABLE IF NOT EXISTS RolePlayV2ThemeTrackerMeta (
+                    SessionId TEXT PRIMARY KEY,
+                    PrimaryThemeId TEXT NULL,
+                    SecondaryThemeId TEXT NULL,
+                    ThemeSelectionRule TEXT NOT NULL DEFAULT 'Top1',
+                    ObservedTurnCount INTEGER NOT NULL DEFAULT 0,
+                    SelectionMinimumTurns INTEGER NOT NULL DEFAULT 0,
+                    RecentEvidenceJson TEXT NOT NULL DEFAULT '[]',
+                    UpdatedUtc TEXT NOT NULL
+                );
+                """;
+            await createThemeTrackerMeta.ExecuteNonQueryAsync(cancellationToken);
+        }
+        await using (var createScenarioHistory = connection.CreateCommand())
+        {
+            createScenarioHistory.CommandText = """
+                CREATE TABLE IF NOT EXISTS RolePlayV2ScenarioHistory (
+                    Id TEXT PRIMARY KEY,
+                    SessionId TEXT NOT NULL,
+                    ScenarioId TEXT NOT NULL,
+                    CompletedAtUtc TEXT NOT NULL,
+                    InteractionCount INTEGER NOT NULL DEFAULT 0,
+                    PeakThemeScore INTEGER NOT NULL DEFAULT 0,
+                    PeakDesireLevel INTEGER NOT NULL DEFAULT 0,
+                    AverageRestraintLevel REAL NOT NULL DEFAULT 0,
+                    Notes TEXT NULL
+                );
+                CREATE INDEX IF NOT EXISTS IX_RolePlayV2ScenarioHistory_Session ON RolePlayV2ScenarioHistory(SessionId);
+                """;
+            await createScenarioHistory.ExecuteNonQueryAsync(cancellationToken);
+        }
+        await using (var createPairwiseStats = connection.CreateCommand())
+        {
+            createPairwiseStats.CommandText = """
+                CREATE TABLE IF NOT EXISTS RolePlayV2PairwiseStats (
+                    SessionId TEXT NOT NULL,
+                    SourceCharacterId TEXT NOT NULL,
+                    TargetCharacterId TEXT NOT NULL,
+                    StatsJson TEXT NOT NULL DEFAULT '{}',
+                    UpdatedUtc TEXT NOT NULL,
+                    PRIMARY KEY (SessionId, SourceCharacterId, TargetCharacterId)
+                );
+                """;
+            await createPairwiseStats.ExecuteNonQueryAsync(cancellationToken);
+        }
+        await using (var createSemanticEvents = connection.CreateCommand())
+        {
+            createSemanticEvents.CommandText = """
+                CREATE TABLE IF NOT EXISTS RolePlayV2SemanticEvents (
+                    SessionId TEXT NOT NULL,
+                    InteractionId TEXT NOT NULL,
+                    EventId TEXT NOT NULL,
+                    Confidence TEXT NOT NULL,
+                    MappingId TEXT NOT NULL,
+                    Direction TEXT NOT NULL,
+                    ThemeTargetsJson TEXT NOT NULL DEFAULT '[]',
+                    ProcessedUtc TEXT NOT NULL,
+                    PRIMARY KEY (SessionId, InteractionId, EventId)
+                );
+                CREATE INDEX IF NOT EXISTS IX_RolePlayV2SemanticEvents_Session ON RolePlayV2SemanticEvents(SessionId);
+                """;
+            await createSemanticEvents.ExecuteNonQueryAsync(cancellationToken);
         }
     }
 

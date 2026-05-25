@@ -1,9 +1,9 @@
+using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Domain.StoryAnalysis;
 using DreamGenClone.Web.Application.RolePlay;
 using DreamGenClone.Web.Application.Scenarios;
 using DreamGenClone.Web.Domain.RolePlay;
 using DreamGenClone.Web.Domain.Scenarios;
-using Xunit;
 
 namespace DreamGenClone.Tests.RolePlay;
 
@@ -37,14 +37,12 @@ public sealed class RolePlayAdaptiveProfilesTests
             new RolePlayInteraction { Content = "14" }
         ]);
 
-        session.AdaptiveState.CharacterStats["NPC"] = new CharacterStatBlock
+        session.AdaptiveState.CharacterStats["NPC"] = new CharacterStatProfileV2
         {
-            Stats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["Desire"] = 95
-            }
+            CharacterId = "NPC",
+            Desire = 95
         };
-        session.AdaptiveState.ThemeTracker.PrimaryThemeId = "dominance";
+        session.AdaptiveState.PrimaryThemeId = "dominance";
 
         var (label, reason) = RolePlayStyleResolver.ResolveEffectiveStyle(session, IntensityLevel.Emotional);
 

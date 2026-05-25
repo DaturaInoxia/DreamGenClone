@@ -274,6 +274,19 @@
                     </div>
                     <div class="card-body">
                         <div class="row g-2 align-items-end mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label">
+                                    Theme Selection Turns Per Theme
+                                    <small class="text-muted ms-1">— minimum = (active themes − 1) × this value; 0 = select immediately. Counted per user turn, not per generated interaction.</small>
+                                </label>
+                                <div class="input-group input-group-sm" style="max-width: 280px;">
+                                    <input type="number" class="form-control" min="0" max="20" @bind="_editSelectionMultiplier" />
+                                    <button class="btn btn-primary" @onclick="SaveProfileSettingsAsync" disabled="@_isBusy">Save</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row g-2 align-items-end mb-3">
                             <div class="col-md-9">
                                 <label class="form-label">Add Theme To Profile</label>
                                 <select class="form-select form-select-sm" @bind="_profileAddThemeId">
@@ -368,6 +381,7 @@
 
     private string? _selectedProfileId;
     private RPThemeProfile? _selectedProfile;
+    private int _editSelectionMultiplier;
     private bool _isBusy;
     private string _newProfileName = string.Empty;
     private string _inlineSourcePath = "inline-theme.md";
@@ -435,6 +449,7 @@
     {
         _selectedProfileId = profileId;
         _selectedProfile = _profiles.FirstOrDefault(x => string.Equals(x.Id, profileId, StringComparison.OrdinalIgnoreCase));
+        _editSelectionMultiplier = _selectedProfile?.ThemeSelectionTurnsPerTheme ?? 2;
         _assignments.Clear();
 
         if (_selectedProfile is not null)
@@ -448,6 +463,26 @@
         }
 
         EnsurePendingTierDefaults();
+    }
+
+    private async Task SaveProfileSettingsAsync()
+    {
+        if (_selectedProfile is null)
+        {
+            return;
+        }
+
+        _isBusy = true;
+        try
+        {
+            _selectedProfile.ThemeSelectionTurnsPerTheme = Math.Max(0, _editSelectionMultiplier);
+            await RPThemeService.SaveProfileAsync(_selectedProfile);
+            await ReloadAllAsync();
+        }
+        finally
+        {
+            _isBusy = false;
+        }
     }
 
     private async Task LoadThemeMachineSummariesAsync()
@@ -888,7 +923,9 @@
                 PhaseGuidance = existing?.PhaseGuidance ?? [],
                 GuidancePoints = existing?.GuidancePoints ?? [],
                 FitRules = existing?.FitRules ?? [],
-                AIGenerationNotes = existing?.AIGenerationNotes ?? []
+                AIGenerationNotes = existing?.AIGenerationNotes ?? [],
+                SemanticEventMappings = existing?.SemanticEventMappings ?? [],
+                SemanticStatMappings = existing?.SemanticStatMappings ?? []
             });
 
             var assignment = _assignments.FirstOrDefault(x => string.Equals(x.ThemeId, saved.Id, StringComparison.OrdinalIgnoreCase));
