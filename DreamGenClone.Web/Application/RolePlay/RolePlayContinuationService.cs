@@ -17,6 +17,7 @@ using DreamGenClone.Web.Application.Scenarios;
 using DreamGenClone.Web.Domain.RolePlay;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using NarrativePhase = DreamGenClone.Domain.RolePlay.NarrativePhase;
 
 namespace DreamGenClone.Web.Application.RolePlay;
 
@@ -47,6 +48,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
     private readonly IClimaxBeatRepository? _climaxBeatRepository;
     private readonly IHusbandAwarenessProfileService? _husbandAwarenessProfileService;
     private readonly bool _enableLocationServices;
+    private readonly bool _includeCandidateMenuWhileObserving;
     private readonly ILogger<RolePlayContinuationService> _logger;
 
     public RolePlayContinuationService(
@@ -65,7 +67,8 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         IRPThemeService? rpThemeService = null,
         IClimaxBeatRepository? climaxBeatRepository = null,
         IHusbandAwarenessProfileService? husbandAwarenessProfileService = null,
-        IOptions<RolePlayDecisionOptions>? rolePlayDecisionOptions = null)
+        IOptions<RolePlayDecisionOptions>? rolePlayDecisionOptions = null,
+        IOptions<RolePlayFeatureFlagsOptions>? rolePlayFeatureFlagsOptions = null)
     {
         _completionClient = completionClient;
         _modelResolver = modelResolver;
@@ -82,6 +85,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         _climaxBeatRepository = climaxBeatRepository;
         _husbandAwarenessProfileService = husbandAwarenessProfileService;
         _enableLocationServices = rolePlayDecisionOptions?.Value.EnableLocationServices ?? true;
+        _includeCandidateMenuWhileObserving = rolePlayFeatureFlagsOptions?.Value.IncludeCandidateMenuWhileObserving ?? true;
         _logger = logger;
     }
 
@@ -733,27 +737,26 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             sb.AppendLine("Adaptive Character Stats:");
             foreach (var kvp in session.AdaptiveState.CharacterStats.OrderBy(x => x.Key).Take(8))
             {
-                var summary = string.Join(", ", kvp.Value.Stats.OrderBy(x => x.Key).Select(x => $"{x.Key}={x.Value}"));
+                var summary = string.Join(", ", CharacterStatProfileV2Accessor.GetAllStats(kvp.Value).OrderBy(x => x.Key).Select(x => $"{x.Key}={x.Value}"));
                 sb.AppendLine($"- {kvp.Key}: {summary}");
             }
         }
 
-        if (session.AdaptiveState.ThemeTracker.Themes.Count > 0)
+        if (session.AdaptiveState.ThemeScores.Count > 0)
         {
             sb.AppendLine("Active Theme Tracker:");
-            var tracker = session.AdaptiveState.ThemeTracker;
-            sb.AppendLine($"- Selection Rule: {tracker.ThemeSelectionRule}");
+            sb.AppendLine($"- Selection Rule: {session.AdaptiveState.ThemeSelectionRule}");
 
-            var selectedThemes = new List<ThemeTrackerItem>();
-            if (!string.IsNullOrWhiteSpace(tracker.PrimaryThemeId)
-                && tracker.Themes.TryGetValue(tracker.PrimaryThemeId, out var primaryTheme))
+            var selectedThemes = new List<ThemeScoreState>();
+            if (!string.IsNullOrWhiteSpace(session.AdaptiveState.PrimaryThemeId)
+                && session.AdaptiveState.ThemeScores.TryGetValue(session.AdaptiveState.PrimaryThemeId, out var primaryTheme))
             {
                 selectedThemes.Add(primaryTheme);
             }
 
-            if (!string.IsNullOrWhiteSpace(tracker.SecondaryThemeId)
-                && tracker.Themes.TryGetValue(tracker.SecondaryThemeId, out var secondaryTheme)
-                && !string.Equals(secondaryTheme.ThemeId, tracker.PrimaryThemeId, StringComparison.OrdinalIgnoreCase))
+            if (!string.IsNullOrWhiteSpace(session.AdaptiveState.SecondaryThemeId)
+                && session.AdaptiveState.ThemeScores.TryGetValue(session.AdaptiveState.SecondaryThemeId, out var secondaryTheme)
+                && !string.Equals(secondaryTheme.ThemeId, session.AdaptiveState.PrimaryThemeId, StringComparison.OrdinalIgnoreCase))
             {
                 selectedThemes.Add(secondaryTheme);
             }
@@ -763,7 +766,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                 sb.AppendLine($"- {item.ThemeName}: intensity={item.Intensity}, score={item.Score:F1}");
             }
 
-            var latestEvidence = session.AdaptiveState.ThemeTracker.RecentEvidence.TakeLast(3).ToList();
+            var latestEvidence = session.AdaptiveState.RecentEvidence.TakeLast(3).ToList();
             if (latestEvidence.Count > 0)
             {
                 sb.AppendLine("Recent Theme Evidence:");
@@ -774,9 +777,9 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             }
         }
 
-        var currentPhase = session.AdaptiveState.CurrentNarrativePhase.ToString();
+        var currentPhase = session.AdaptiveState.CurrentPhase.ToString();
         var activeScenarioId = session.AdaptiveState.ActiveScenarioId;
-        var suppressedScenarioIds = session.AdaptiveState.ThemeTracker.Themes.Values
+        var suppressedScenarioIds = session.AdaptiveState.ThemeScores.Values
             .Where(x => !string.Equals(x.ThemeId, activeScenarioId, StringComparison.OrdinalIgnoreCase)
                 && (x.SuppressedHitCount > 0 || x.IsScenarioCandidate))
             .Select(x => x.ThemeId)
@@ -792,22 +795,22 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                 VariantId: session.AdaptiveState.ActiveVariantId,
                 AverageDesire: session.AdaptiveState.CharacterStats.Count == 0
                     ? 50
-                    : session.AdaptiveState.CharacterStats.Values.Average(x => x.Stats.TryGetValue("Desire", out var v) ? v : 50),
+                    : session.AdaptiveState.CharacterStats.Values.Average(x => CharacterStatProfileV2Accessor.GetStatOrDefault(x, "Desire", 50)),
                 AverageRestraint: session.AdaptiveState.CharacterStats.Count == 0
                     ? 50
-                    : session.AdaptiveState.CharacterStats.Values.Average(x => x.Stats.TryGetValue("Restraint", out var v) ? v : 50),
+                    : session.AdaptiveState.CharacterStats.Values.Average(x => CharacterStatProfileV2Accessor.GetStatOrDefault(x, "Restraint", 50)),
                 AverageTension: session.AdaptiveState.CharacterStats.Count == 0
                     ? 50
-                    : session.AdaptiveState.CharacterStats.Values.Average(x => x.Stats.TryGetValue("Tension", out var v) ? v : 50),
+                    : session.AdaptiveState.CharacterStats.Values.Average(x => CharacterStatProfileV2Accessor.GetStatOrDefault(x, "Tension", 50)),
                 AverageConnection: session.AdaptiveState.CharacterStats.Count == 0
                     ? 50
-                    : session.AdaptiveState.CharacterStats.Values.Average(x => x.Stats.TryGetValue("Connection", out var v) ? v : 50),
+                    : session.AdaptiveState.CharacterStats.Values.Average(x => CharacterStatProfileV2Accessor.GetStatOrDefault(x, "Connection", 50)),
                 AverageDominance: session.AdaptiveState.CharacterStats.Count == 0
                     ? 50
-                    : session.AdaptiveState.CharacterStats.Values.Average(x => x.Stats.TryGetValue("Dominance", out var v) ? v : 50),
+                    : session.AdaptiveState.CharacterStats.Values.Average(x => CharacterStatProfileV2Accessor.GetStatOrDefault(x, "Dominance", 50)),
                 AverageLoyalty: session.AdaptiveState.CharacterStats.Count == 0
                     ? 50
-                    : session.AdaptiveState.CharacterStats.Values.Average(x => x.Stats.TryGetValue("Loyalty", out var v) ? v : 50),
+                    : session.AdaptiveState.CharacterStats.Values.Average(x => CharacterStatProfileV2Accessor.GetStatOrDefault(x, "Loyalty", 50)),
                 SelectedWillingnessProfileId: session.AdaptiveState.SelectedWillingnessProfileId,
                 HusbandAwarenessProfileId: session.AdaptiveState.HusbandAwarenessProfileId,
                 SuppressedScenarioIds: suppressedScenarioIds),
@@ -817,6 +820,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         RolePlayAssistantPrompts.AppendScenarioGuidance(sb, guidanceContext, framingGuards);
 
         RPTheme? activeTheme = null;
+        var activeThemeHardConstraints = Array.Empty<string>();
 
         if (_rpThemeService is not null
             && !string.IsNullOrWhiteSpace(activeScenarioId))
@@ -832,6 +836,10 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
 
             AppendActiveThemeContract(sb, activeTheme, currentPhase);
 
+            var maxThemeHardConstraints = Math.Clamp(session.MaxThemeAIGuidanceNotes, 1, 10);
+            activeThemeHardConstraints = [.. RolePlayAssistantPrompts.GetThemeHardConstraintLines(activeTheme, maxThemeHardConstraints)];
+            RolePlayAssistantPrompts.AppendThemeHardConstraints(sb, activeTheme, maxThemeHardConstraints);
+
             if (session.UseThemeAIGuidanceNotesInPrompt)
             {
                 RolePlayAssistantPrompts.AppendThemeAIGuidance(
@@ -842,20 +850,19 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                     session.MaxThemeAIGuidanceNotes);
 
                 RPTheme? secondaryTheme = null;
-                var tracker = session.AdaptiveState.ThemeTracker;
                 if (_rpThemeService is not null
                     && session.ThemeAIGuidanceInfluencePercent > 0
-                    && string.Equals(tracker.ThemeSelectionRule, "Top2Blend", StringComparison.OrdinalIgnoreCase)
-                    && !string.IsNullOrWhiteSpace(tracker.SecondaryThemeId)
-                    && !string.Equals(tracker.SecondaryThemeId, activeScenarioId, StringComparison.OrdinalIgnoreCase))
+                    && string.Equals(session.AdaptiveState.ThemeSelectionRule, "Top2Blend", StringComparison.OrdinalIgnoreCase)
+                    && !string.IsNullOrWhiteSpace(session.AdaptiveState.SecondaryThemeId)
+                    && !string.Equals(session.AdaptiveState.SecondaryThemeId, activeScenarioId, StringComparison.OrdinalIgnoreCase))
                 {
                     try
                     {
-                        secondaryTheme = await _rpThemeService.GetThemeAsync(tracker.SecondaryThemeId, cancellationToken);
+                        secondaryTheme = await _rpThemeService.GetThemeAsync(session.AdaptiveState.SecondaryThemeId, cancellationToken);
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogDebug(ex, "Unable to load secondary RP theme AI guidance notes for theme {ThemeId} in session {SessionId}.", tracker.SecondaryThemeId, session.Id);
+                        _logger.LogDebug(ex, "Unable to load secondary RP theme AI guidance notes for theme {ThemeId} in session {SessionId}.", session.AdaptiveState.SecondaryThemeId, session.Id);
                     }
                 }
 
@@ -871,6 +878,12 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                         secondaryMaxNotes);
                 }
             }
+        }
+        else if (_includeCandidateMenuWhileObserving
+            && _rpThemeService is not null
+            && string.IsNullOrWhiteSpace(activeScenarioId))
+        {
+            await AppendObservingCandidateMenuAsync(sb, session, currentPhase, cancellationToken);
         }
 
         // Steer guidance should still be phase/theme grounded whenever we have an active scenario
@@ -1113,10 +1126,14 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             : $"{scenarioStyle} | effective mode: {effectiveStyleLabel}";
 
         // Beat cursor context: inject current sub-beat framing when in Climax phase.
+        // Only active when the theme has [BeatStyle:episodic] in its Climax guidance — the tag
+        // signals that this theme uses brief episodic disappearances, making the staged beat
+        // catalog meaningful and correctly paced. Themes without the tag do not use the beat sheet.
         if (string.Equals(currentPhase, "Climax", StringComparison.OrdinalIgnoreCase)
             && intent != PromptIntent.Instruction
             && !string.IsNullOrWhiteSpace(session.AdaptiveState.CurrentBeatCode)
-            && _climaxBeatRepository is not null)
+            && _climaxBeatRepository is not null
+            && RolePlayAssistantPrompts.IsEpisodicBeatStyle(activeTheme, currentPhase))
         {
             var beatEntry = await _climaxBeatRepository.GetByCodeAsync(session.AdaptiveState.CurrentBeatCode, cancellationToken);
             if (beatEntry is null)
@@ -1190,6 +1207,11 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             sb.AppendLine($"HARD CONSTRAINT — enforce in this response: {guidanceContext.HusbandAwarenessFrame}");
         }
 
+        foreach (var themeConstraint in activeThemeHardConstraints)
+        {
+            sb.AppendLine($"HARD CONSTRAINT — enforce in this response: {themeConstraint}");
+        }
+
         if (intent == PromptIntent.Narrative)
         {
             if (string.Equals(currentPhase, "Climax", StringComparison.OrdinalIgnoreCase))
@@ -1234,6 +1256,63 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         }
 
         return sb.ToString();
+    }
+
+    private async Task AppendObservingCandidateMenuAsync(
+        StringBuilder sb,
+        RolePlaySession session,
+        string currentPhase,
+        CancellationToken cancellationToken)
+    {
+        if (_rpThemeService is null)
+        {
+            return;
+        }
+
+        var themeIds = (session.SessionThemeSelections ?? [])
+            .Select(x => x.ThemeId)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (themeIds.Count < 2)
+        {
+            // Need at least two candidates for the menu to be meaningful as an option space.
+            return;
+        }
+
+        var candidateLabels = new List<string>(themeIds.Count);
+        foreach (var themeId in themeIds)
+        {
+            try
+            {
+                var theme = await _rpThemeService.GetThemeAsync(themeId, cancellationToken);
+                if (theme is null)
+                {
+                    continue;
+                }
+                var label = string.IsNullOrWhiteSpace(theme.Label) ? theme.Id : theme.Label;
+                candidateLabels.Add(label);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(
+                    ex,
+                    "Unable to resolve candidate theme label for {ThemeId} in session {SessionId} (observing menu).",
+                    themeId,
+                    session.Id);
+            }
+        }
+
+        if (candidateLabels.Count < 2)
+        {
+            return;
+        }
+
+        sb.AppendLine("Theme Observation (no theme committed yet):");
+        sb.AppendLine($"- Current narrative phase: {currentPhase}");
+        sb.AppendLine($"- Candidates: {string.Join(", ", candidateLabels)}");
+        sb.AppendLine("- Let natural events emerge from the persona, characters and recent context. Do not steer the scene toward any single candidate; treat this list only as awareness of the option space.");
     }
 
     private static void AppendActiveThemeContract(StringBuilder sb, RPTheme? activeTheme, string phase)
@@ -1338,7 +1417,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         }
         else
         {
-            var availableThemes = session.AdaptiveState.ThemeTracker.Themes.Values
+            var availableThemes = session.AdaptiveState.ThemeScores.Values
                 .Where(x => !x.Blocked)
                 .OrderByDescending(x => x.Score)
                 .Take(3)
@@ -1493,9 +1572,9 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         }
 
         var actorStats = ResolvePromptActorStats(session, actorName);
-        var desire = ResolveStat(actorStats, "Desire", session.AdaptiveState.CharacterStats.Values.Average(x => ResolveStat(x.Stats, "Desire", 50)));
-        var restraint = ResolveStat(actorStats, "Restraint", session.AdaptiveState.CharacterStats.Values.Average(x => ResolveStat(x.Stats, "Restraint", 50)));
-        var tension = ResolveStat(actorStats, "Tension", session.AdaptiveState.CharacterStats.Values.Average(x => ResolveStat(x.Stats, "Tension", 50)));
+        var desire = ResolveStat(actorStats, "Desire", session.AdaptiveState.CharacterStats.Values.Average(x => CharacterStatProfileV2Accessor.GetStatOrDefault(x, "Desire", 50)));
+        var restraint = ResolveStat(actorStats, "Restraint", session.AdaptiveState.CharacterStats.Values.Average(x => CharacterStatProfileV2Accessor.GetStatOrDefault(x, "Restraint", 50)));
+        var tension = ResolveStat(actorStats, "Tension", session.AdaptiveState.CharacterStats.Values.Average(x => CharacterStatProfileV2Accessor.GetStatOrDefault(x, "Tension", 50)));
 
         var isLatePhase = phase is "Approaching" or "Climax";
         if (!isLatePhase)
@@ -1576,12 +1655,12 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             .FirstOrDefault(x => string.Equals(x.Key, actorName, StringComparison.OrdinalIgnoreCase));
         if (!string.IsNullOrWhiteSpace(direct.Key))
         {
-            return direct.Value.Stats;
+            return CharacterStatProfileV2Accessor.GetAllStats(direct.Value);
         }
 
         var byCharacterId = session.AdaptiveState.CharacterStats.Values.FirstOrDefault(x =>
             string.Equals(x.CharacterId, actorName, StringComparison.OrdinalIgnoreCase));
-        return byCharacterId?.Stats;
+        return byCharacterId is null ? null : CharacterStatProfileV2Accessor.GetAllStats(byCharacterId);
     }
 
     private static int ResolveStat(IReadOnlyDictionary<string, int>? stats, string statName, double fallback)
@@ -1613,16 +1692,17 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         {
             var stats = session.AdaptiveState.CharacterStats;
             var avgDesire = stats.Count == 0 ? 50.0
-                : stats.Values.Average(x => x.Stats.TryGetValue("Desire", out var v) ? v : 50);
+                : stats.Values.Average(x => CharacterStatProfileV2Accessor.GetStatOrDefault(x, "Desire", 50));
             var avgDominance = stats.Count == 0 ? 50.0
-                : stats.Values.Average(x => x.Stats.TryGetValue("Dominance", out var v) ? v : 50);
+                : stats.Values.Average(x => CharacterStatProfileV2Accessor.GetStatOrDefault(x, "Dominance", 50));
             var otherManDominance = stats.Count == 0 ? avgDominance
                 : stats.Values.Average(x =>
                 {
-                    if (x.Stats.TryGetValue("OtherManDominance", out var d)) return (double)d;
-                    if (x.Stats.TryGetValue("OtherManDom", out var d2)) return (double)d2;
-                    if (x.Stats.TryGetValue("RivalDominance", out var d3)) return (double)d3;
-                    if (x.Stats.TryGetValue("BullDominance", out var d4)) return (double)d4;
+                    var allStats = CharacterStatProfileV2Accessor.GetAllStats(x);
+                    if (allStats.TryGetValue("OtherManDominance", out var d)) return (double)d;
+                    if (allStats.TryGetValue("OtherManDom", out var d2)) return (double)d2;
+                    if (allStats.TryGetValue("RivalDominance", out var d3)) return (double)d3;
+                    if (allStats.TryGetValue("BullDominance", out var d4)) return (double)d4;
                     return avgDominance;
                 });
 
@@ -1699,7 +1779,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         CancellationToken cancellationToken)
     {
         var correlationId = Guid.NewGuid().ToString("N");
-        var climaxMode = session.AdaptiveState.CurrentNarrativePhase == DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Climax;
+        var climaxMode = session.AdaptiveState.CurrentPhase == NarrativePhase.Climax;
 
         var firstOutput = await _completionClient.GenerateAsync(prompt, resolved, cancellationToken);
         var firstAnalysis = AnalyzeNarrativeOutput(firstOutput, climaxMode);

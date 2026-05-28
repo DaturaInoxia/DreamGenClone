@@ -24,6 +24,13 @@ public interface IRolePlayEngineService
 
     Task<RolePlaySession?> GetSessionAsync(string sessionId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Drops the in-memory cached copy of the given session so the next read goes back to the
+    /// persistent store. Used after out-of-band writes (e.g. background semantic-analysis jobs)
+    /// to prevent the UI from showing a stale snapshot.
+    /// </summary>
+    void InvalidateSessionCache(string sessionId);
+
     Task<RolePlaySession> OpenSessionAsync(
         string sessionId,
         RolePlaySessionOpenAction action,

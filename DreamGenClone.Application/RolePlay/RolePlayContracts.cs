@@ -10,7 +10,9 @@ public sealed record ScenarioDefinition(
     decimal PreferencePriorityScore = 0m,
     string? ScenarioFitRulesJson = null,
     string? ScenarioFitRuleSource = null,
-    decimal FitScoreMultiplier = 1m);
+    decimal FitScoreMultiplier = 1m,
+    decimal SuccessorCausalityBoost = 0m,
+    decimal CompletionFitScorePenaltyPoints = 0m);
 
 public sealed class ScenarioGuidanceRequest
 {

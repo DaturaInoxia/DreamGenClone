@@ -95,7 +95,18 @@ public sealed class RPFinishHisControlLevelSeedServiceTests : IDisposable
 
     public void Dispose()
     {
-        if (File.Exists(_databasePath))
+        if (!File.Exists(_databasePath))
+        {
+            return;
+        }
+
+        try
+        {
             File.Delete(_databasePath);
+        }
+        catch (IOException)
+        {
+            // Provider cleanup can hold a transient handle after test completion.
+        }
     }
 }

@@ -1,4 +1,4 @@
-using DreamGenClone.Web.Application.Scenarios;
+﻿using DreamGenClone.Web.Application.Scenarios;
 using DreamGenClone.Web.Application.Sessions;
 using DreamGenClone.Web.Domain.RolePlay;
 using Microsoft.Extensions.Logging;
@@ -12,9 +12,11 @@ using DreamGenClone.Application.Templates;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Domain.StoryAnalysis;
+using NarrativePhase = DreamGenClone.Domain.RolePlay.NarrativePhase;
 using DreamGenClone.Infrastructure.Configuration;
 using DreamGenClone.Infrastructure.Logging;
 using DreamGenClone.Infrastructure.RolePlay;
+using DreamGenClone.Web.Application.BackgroundJobs;
 using Microsoft.Extensions.Options;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -150,13 +152,19 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     private readonly decimal _completedScenarioRepeatPenaltyFloor;
     private readonly decimal _completedScenarioRecentPenaltyMultiplier;
     private readonly decimal _completedScenarioThemeScorePenalty;
+    private readonly int _completedScenarioThemeCooldownInteractions;
+    private readonly decimal _completedScenarioFitScorePenaltyPoints;
     private readonly bool _suppressNarrativeAfterDecision;
     private readonly bool _suppressNarrativeAfterPhaseChange;
     private readonly bool _enablePhaseChangeDecisionPrompts;
     private readonly bool _enableSceneLocationDecisionPrompts;
     private readonly bool _enableLocationServices;
     private readonly bool _enableDecisionPrompts;
+    private readonly bool _enableAdaptiveStateUpdates;
+    private readonly bool _enableSemanticInference;
     private readonly IClimaxBeatRepository? _climaxBeatRepository;
+    private readonly IBackgroundJobQueue? _backgroundJobQueue;
+    private readonly ISemanticInteractionAnalysisRepository? _semanticInteractionAnalysisRepository;
 
     public RolePlayEngineService(
         IRolePlayContinuationService continuationService,
@@ -186,8 +194,11 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         RolePlaySessionCompatibilityService? compatibilityService = null,
         IOptions<StoryAnalysisOptions>? storyAnalysisOptions = null,
         IOptions<RolePlayDecisionOptions>? rolePlayDecisionOptions = null,
+        IOptions<RolePlayFeatureFlagsOptions>? rolePlayFeatureFlagsOptions = null,
         ITemplateService? templateService = null,
-        IClimaxBeatRepository? climaxBeatRepository = null)
+        IClimaxBeatRepository? climaxBeatRepository = null,
+        IBackgroundJobQueue? backgroundJobQueue = null,
+        ISemanticInteractionAnalysisRepository? semanticInteractionAnalysisRepository = null)
     {
         _continuationService = continuationService;
         _behaviorModeService = behaviorModeService;
@@ -219,13 +230,19 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         _completedScenarioRepeatPenaltyFloor = (decimal)Math.Clamp(storyAnalysisOptions?.Value.CompletedScenarioRepeatPenaltyFloor ?? 0.40, 0d, 1d);
         _completedScenarioRecentPenaltyMultiplier = (decimal)Math.Clamp(storyAnalysisOptions?.Value.CompletedScenarioRecentPenaltyMultiplier ?? 0.65, 0d, 1d);
         _completedScenarioThemeScorePenalty = Math.Clamp(storyAnalysisOptions?.Value.CompletedScenarioThemeScorePenalty ?? 10, 0, 100);
+        _completedScenarioThemeCooldownInteractions = Math.Clamp(storyAnalysisOptions?.Value.CompletedScenarioThemeCooldownInteractions ?? 10, 0, 200);
+        _completedScenarioFitScorePenaltyPoints = Math.Clamp(storyAnalysisOptions?.Value.CompletedScenarioFitScorePenaltyPoints ?? 20m, 0m, 100m);
         _suppressNarrativeAfterDecision = rolePlayDecisionOptions?.Value.SuppressNarrativeAfterDecision ?? false;
         _suppressNarrativeAfterPhaseChange = rolePlayDecisionOptions?.Value.SuppressNarrativeAfterPhaseChange ?? false;
         _enablePhaseChangeDecisionPrompts = rolePlayDecisionOptions?.Value.EnablePhaseChangeDecisionPrompts ?? false;
         _enableSceneLocationDecisionPrompts = rolePlayDecisionOptions?.Value.EnableSceneLocationDecisionPrompts ?? false;
         _enableLocationServices = rolePlayDecisionOptions?.Value.EnableLocationServices ?? true;
         _enableDecisionPrompts = rolePlayDecisionOptions?.Value.EnableDecisionPrompts ?? false;
+        _enableAdaptiveStateUpdates = rolePlayFeatureFlagsOptions?.Value.EnableAdaptiveStateUpdates ?? true;
+        _enableSemanticInference = rolePlayFeatureFlagsOptions?.Value.EnableSemanticInference ?? true;
         _climaxBeatRepository = climaxBeatRepository;
+        _backgroundJobQueue = backgroundJobQueue;
+        _semanticInteractionAnalysisRepository = semanticInteractionAnalysisRepository;
     }
 
     public Task<RolePlaySession> CreateSessionAsync(
@@ -376,11 +393,13 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                         continue;
                     }
 
-                    session.AdaptiveState.CharacterStats[character.Name.Trim()] = new CharacterStatBlock
-                    {
-                        CharacterId = character.Id,
-                        Stats = mergedStats
-                    };
+                    // CharacterId is the runtime lookup key used throughout the engine (character name).
+                    // Use the trimmed character name so CharacterStats dict key, CharacterId, and
+                    // the CharacterSnapshots list are all consistent after SyncCharacterSnapshots().
+                    var charKey = character.Name.Trim();
+                    var createdProfile = CharacterStatProfileV2Accessor.CreateDefault(charKey);
+                    CharacterStatProfileV2Accessor.SetAllStats(createdProfile, mergedStats);
+                    session.AdaptiveState.CharacterStats[charKey] = createdProfile;
                 }
 
                 await _adaptiveStateService.SeedFromScenarioAsync(session, scenario, cancellationToken);
@@ -390,13 +409,17 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         await SeedPersonaStatsFromTemplateAsync(session, cancellationToken);
 
         // Apply wizard-provided persona stat overrides after template seeding.
+        // The overrides represent the user's explicit profile choice, so update BOTH the
+        // current stats and the baseline — the baseline identifies which stat profile the
+        // session "started from" in the Adaptive panel display.
         if (request.PersonaStatOverrides.Count > 0
             && session.AdaptiveState.CharacterStats.TryGetValue(session.PersonaName, out var personaBlock))
         {
             var normalizedPersonaOverrides = AdaptiveStatCatalog.NormalizePartial(request.PersonaStatOverrides);
             foreach (var (statName, statValue) in normalizedPersonaOverrides)
             {
-                personaBlock.Stats[statName] = statValue;
+                CharacterStatProfileV2Accessor.SetStat(personaBlock, statName, statValue);
+                personaBlock.BaselineStats[statName] = statValue;
             }
         }
 
@@ -409,12 +432,22 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         {
             if (block.BaselineStats.Count == 0)
             {
-                block.BaselineStats = new Dictionary<string, int>(block.Stats, StringComparer.OrdinalIgnoreCase);
+                block.BaselineStats = CharacterStatProfileV2Accessor.GetAllStats(block);
             }
         }
 
+        // Propagate the session ID into AdaptiveState (required by SaveAdaptiveStateAsync) and
+        // sync the runtime CharacterStats dictionary into CharacterSnapshots so the persisted
+        // PayloadJson and the V2 state row both contain the seeded character data.
+        session.AdaptiveState.SessionId = session.Id;
+        session.AdaptiveState.SyncCharacterSnapshots();
+
         Sessions[session.Id] = session;
         _autoSaveCoordinator.QueueRolePlaySessionSave(session, "roleplay-session-created");
+
+        // Eagerly write the initial V2 state row so the workspace Adaptive panel can display
+        // characters immediately without waiting for the first turn to complete.
+        await _stateRepository.SaveAdaptiveStateAsync(session.AdaptiveState, cancellationToken);
         await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
         {
             SessionId = session.Id,
@@ -446,6 +479,16 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
         _logger.LogInformation("Retrieved {Count} role-play sessions", results.Count);
         return results;
+    }
+
+    public void InvalidateSessionCache(string sessionId)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            return;
+        }
+
+        Sessions.TryRemove(sessionId, out _);
     }
 
     public async Task<RolePlaySession?> GetSessionAsync(string sessionId, CancellationToken cancellationToken = default)
@@ -623,6 +666,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             interaction.ActorName,
             null,
             cancellationToken);
+        session.AdaptiveState.ObservedTurnCount++;
 
         var outputInteractionIds = new List<string>();
         var turnSucceeded = false;
@@ -634,7 +678,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             session.Status = RolePlaySessionStatus.InProgress;
             session.ModifiedAt = DateTime.UtcNow;
 
-            session.AdaptiveState = await _adaptiveStateService.UpdateFromInteractionAsync(session, interaction, cancellationToken);
+            session.AdaptiveState = await UpdateAdaptiveStateWithSemanticDiagnosticsAsync(session, interaction, cancellationToken);
             await RunRolePlayV2PipelinesAsync(
                 session,
                 DecisionTrigger.InteractionStart,
@@ -717,6 +761,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             ResolveActorName(actor, customActorName),
             null,
             cancellationToken);
+        session.AdaptiveState.ObservedTurnCount++;
 
         var outputInteractionIds = new List<string>();
         var turnSucceeded = false;
@@ -738,9 +783,14 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             outputInteractionIds.Add(interaction.Id);
             session.Status = RolePlaySessionStatus.InProgress;
             session.ModifiedAt = DateTime.UtcNow;
-            session.AdaptiveState = await _adaptiveStateService.UpdateFromInteractionAsync(session, interaction, cancellationToken);
+            session.AdaptiveState = await UpdateAdaptiveStateWithSemanticDiagnosticsAsync(session, interaction, cancellationToken);
             await RunRolePlayV2PipelinesAsync(session, DecisionTrigger.InteractionStart, cancellationToken);
+            // Flush the pending session save to DB before enqueueing the semantic analysis job.
+            // The job handler loads the session from DB; if we only queue the save (debounced 1s),
+            // the background runner will read a stale snapshot that does not contain the new interaction.
             _autoSaveCoordinator.QueueRolePlaySessionSave(session, "roleplay-continue-generated");
+            await _autoSaveCoordinator.FlushAsync(cancellationToken);
+            await QueueSemanticInteractionAnalysisAsync(session, interaction, cancellationToken);
             await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
             {
                 SessionId = session.Id,
@@ -853,6 +903,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             initiatedByActorName,
             null,
             cancellationToken);
+        session.AdaptiveState.ObservedTurnCount++;
         var outputInteractionIds = new List<string>();
 
         var route = _promptRouter.Resolve(submission.Intent);
@@ -894,7 +945,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
             session.Interactions.Add(userPromptInteraction);
             outputInteractionIds.Add(userPromptInteraction.Id);
-            session.AdaptiveState = await _adaptiveStateService.UpdateFromInteractionAsync(session, userPromptInteraction, cancellationToken);
+            session.AdaptiveState = await UpdateAdaptiveStateWithSemanticDiagnosticsAsync(session, userPromptInteraction, cancellationToken);
 
             if (submission.SubmittedVia == SubmissionSource.PlusButton)
             {
@@ -915,7 +966,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
                 session.Interactions.Add(interaction);
                 outputInteractionIds.Add(interaction.Id);
-                session.AdaptiveState = await _adaptiveStateService.UpdateFromInteractionAsync(session, interaction, cancellationToken);
+                session.AdaptiveState = await UpdateAdaptiveStateWithSemanticDiagnosticsAsync(session, interaction, cancellationToken);
             }
         }
 
@@ -923,7 +974,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         {
             session.Interactions.Add(interaction);
             outputInteractionIds.Add(interaction.Id);
-            session.AdaptiveState = await _adaptiveStateService.UpdateFromInteractionAsync(session, interaction, cancellationToken);
+            session.AdaptiveState = await UpdateAdaptiveStateWithSemanticDiagnosticsAsync(session, interaction, cancellationToken);
         }
 
         session.Status = RolePlaySessionStatus.InProgress;
@@ -982,7 +1033,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 {
                     command = "/steer",
                     directive = steerDirective,
-                    currentPhase = session.AdaptiveState.CurrentNarrativePhase.ToString(),
+                    currentPhase = session.AdaptiveState.CurrentPhase.ToString(),
                     activeThemeId = session.AdaptiveState.ActiveScenarioId,
                     currentSceneLocation = session.AdaptiveState.CurrentSceneLocation
                 })
@@ -1005,7 +1056,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         // This prevents V1 pipeline mutations (from UpdateFromInteractionAsync above) from polluting
         // the phase used by ResolveManualPhaseAdvanceTarget, which must reflect the V2 canonical state.
         await AlignPromptNarrativeStateWithV2Async(session, cancellationToken);
-        var phaseBeforePipeline = session.AdaptiveState.CurrentNarrativePhase;
+        var phaseBeforePipeline = session.AdaptiveState.CurrentPhase;
         var activeScenarioBeforePipeline = session.AdaptiveState.ActiveScenarioId;
         var manualPhaseAdvanceTarget = ResolveManualPhaseAdvanceTarget(submission.PromptText, phaseBeforePipeline);
 
@@ -1020,16 +1071,80 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 explicitClimaxCompletionRequested);
         }
 
-        await RunRolePlayV2PipelinesAsync(
-            session,
-            DecisionTrigger.InteractionStart,
-            cancellationToken,
-            explicitClimaxCompletionRequested,
-            manualPhaseAdvanceTarget);
+        // /completeclimax: transition Climax -> Reset via the pipeline FIRST, then generate
+        // the directive narrative under Reset phase guidelines. Only triggered when phase is
+        // still Climax — if the session is not in Climax the finish-move narrative is skipped
+        // and the standard pipeline path handles the interaction instead.
+        bool pipelinesAlreadyRan = false;
+        if (explicitClimaxCompletionRequested
+            && phaseBeforePipeline == NarrativePhase.Climax)
+        {
+            // Step 1: advance phase to Reset before generating any narrative.
+            await RunRolePlayV2PipelinesAsync(
+                session,
+                DecisionTrigger.InteractionStart,
+                cancellationToken,
+                explicitClimaxCompletionRequested: true,
+                manualPhaseAdvanceTarget);
+            pipelinesAlreadyRan = true;
+
+            // Step 2: generate the finish-move narrative in Reset phase context using the
+            // player's persona so the interaction is attributed correctly.
+            TryExtractClimaxCompletionDirective(submission.PromptText, out var completionDirective);
+            if (string.IsNullOrWhiteSpace(completionDirective))
+            {
+                completionDirective = "Write the final beat of the climax — close the moment decisively and resolve the immediate tension. End the scene cleanly.";
+            }
+
+            var personaName = string.IsNullOrWhiteSpace(session.PersonaName) ? null : session.PersonaName;
+            var finalClimaxInteraction = await _continuationService.ContinueAsync(
+                session,
+                ContinueAsActor.You,
+                customActorName: personaName,
+                PromptIntent.Narrative,
+                completionDirective,
+                onChunk,
+                cancellationToken);
+
+            session.Interactions.Add(finalClimaxInteraction);
+            outputInteractionIds.Add(finalClimaxInteraction.Id);
+            session.AdaptiveState = await UpdateAdaptiveStateWithSemanticDiagnosticsAsync(session, finalClimaxInteraction, cancellationToken);
+
+            await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+            {
+                SessionId = session.Id,
+                InteractionId = finalClimaxInteraction.Id,
+                EventKind = "ClimaxCompletionFinalWriteGenerated",
+                Severity = "Info",
+                ActorName = finalClimaxInteraction.ActorName,
+                ModelIdentifier = finalClimaxInteraction.GeneratedByModelId,
+                ProviderName = finalClimaxInteraction.GeneratedByProvider,
+                Summary = "Finish-move narrative generated in Reset phase after Climax -> Reset transition.",
+                MetadataJson = JsonSerializer.Serialize(new
+                {
+                    directive = completionDirective,
+                    phaseAtGeneration = session.AdaptiveState.CurrentPhase.ToString(),
+                    interactionId = finalClimaxInteraction.Id,
+                    activeScenarioId = activeScenarioBeforePipeline
+                })
+            }, cancellationToken);
+
+            interaction = finalClimaxInteraction;
+        }
+
+        if (!pipelinesAlreadyRan)
+        {
+            await RunRolePlayV2PipelinesAsync(
+                session,
+                DecisionTrigger.InteractionStart,
+                cancellationToken,
+                explicitClimaxCompletionRequested,
+                manualPhaseAdvanceTarget);
+        }
 
         if (nextPhaseCommandRequested || explicitClimaxCompletionRequested)
         {
-            var phaseAfterPipeline = session.AdaptiveState.CurrentNarrativePhase;
+            var phaseAfterPipeline = session.AdaptiveState.CurrentPhase;
             var activeScenarioAfterPipeline = session.AdaptiveState.ActiveScenarioId;
             var phaseChanged = phaseAfterPipeline != phaseBeforePipeline;
 
@@ -1114,6 +1229,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             string.IsNullOrWhiteSpace(request.CustomIdentityName) ? session.PersonaName : request.CustomIdentityName,
             null,
             cancellationToken);
+        session.AdaptiveState.ObservedTurnCount++;
         var outputInteractionIds = new List<string>();
 
         var isOverflowContinue = request.TriggeredBy == SubmissionSource.MainOverflowContinue;
@@ -1139,7 +1255,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             result.NarrativeOutput = openingNarrative;
             session.Interactions.Add(openingNarrative);
             outputInteractionIds.Add(openingNarrative.Id);
-            session.AdaptiveState = await _adaptiveStateService.UpdateFromInteractionAsync(session, openingNarrative, cancellationToken);
+            session.AdaptiveState = await UpdateAdaptiveStateWithSemanticDiagnosticsAsync(session, openingNarrative, cancellationToken);
         }
 
         if (selectedIdentityOptions.Count > 0)
@@ -1162,7 +1278,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 // Add to session immediately so the next generation sees this in its context
                 session.Interactions.Add(interaction);
                 outputInteractionIds.Add(interaction.Id);
-                session.AdaptiveState = await _adaptiveStateService.UpdateFromInteractionAsync(session, interaction, cancellationToken);
+                session.AdaptiveState = await UpdateAdaptiveStateWithSemanticDiagnosticsAsync(session, interaction, cancellationToken);
             }
         }
         else if (isOverflowContinue)
@@ -1201,7 +1317,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 var candidate = sceneActors[i];
                 var actor = candidate.Actor;
                 var actorName = candidate.Name;
-                var isClimaxPhase = string.Equals(session.AdaptiveState.CurrentNarrativePhase.ToString(), "Climax", StringComparison.OrdinalIgnoreCase);
+                var isClimaxPhase = string.Equals(session.AdaptiveState.CurrentPhase.ToString(), "Climax", StringComparison.OrdinalIgnoreCase);
                 var promptText = isClimaxPhase
                     ? (i == 0
                         ? "You are the first to respond this turn. Advance the scene naturally from where it left off — escalate physical intimacy, deepen the act, or progress to the next beat as continuity allows. Describe the moment from your character's perspective with explicit physical and sensory detail. Establish this turn's scene clearly so other participants can react to the same moment."
@@ -1218,7 +1334,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 // Append to session so next iteration's prompt sees this interaction
                 session.Interactions.Add(interaction);
                 outputInteractionIds.Add(interaction.Id);
-                session.AdaptiveState = await _adaptiveStateService.UpdateFromInteractionAsync(session, interaction, cancellationToken);
+                session.AdaptiveState = await UpdateAdaptiveStateWithSemanticDiagnosticsAsync(session, interaction, cancellationToken);
             }
         }
         else
@@ -1239,7 +1355,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             result.ParticipantOutputs.Add(interaction);
             session.Interactions.Add(interaction);
             outputInteractionIds.Add(interaction.Id);
-            session.AdaptiveState = await _adaptiveStateService.UpdateFromInteractionAsync(session, interaction, cancellationToken);
+            session.AdaptiveState = await UpdateAdaptiveStateWithSemanticDiagnosticsAsync(session, interaction, cancellationToken);
         }
 
         // --- AUTO-NARRATIVE ---
@@ -1292,7 +1408,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             result.NarrativeOutput = narrative;
             session.Interactions.Add(narrative);
             outputInteractionIds.Add(narrative.Id);
-            session.AdaptiveState = await _adaptiveStateService.UpdateFromInteractionAsync(session, narrative, cancellationToken);
+            session.AdaptiveState = await UpdateAdaptiveStateWithSemanticDiagnosticsAsync(session, narrative, cancellationToken);
         }
 
         // --- TURN-TAKING ENFORCEMENT ---
@@ -1312,6 +1428,17 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             result.IsUserTurn);
 
         await RunRolePlayV2PipelinesAsync(session, DecisionTrigger.InteractionStart, cancellationToken);
+        // Flush the pending session save to DB before enqueueing semantic analysis jobs.
+        // The job handler loads the session from DB; if we only queue the save (debounced 1s),
+        // the background runner will read a stale snapshot that does not contain the new interactions.
+        await _autoSaveCoordinator.FlushAsync(cancellationToken);
+        foreach (var generatedInteraction in outputInteractionIds
+            .Select(id => session.Interactions.FirstOrDefault(x => string.Equals(x.Id, id, StringComparison.OrdinalIgnoreCase)))
+            .Where(x => x is not null)
+            .Cast<RolePlayInteraction>())
+        {
+            await QueueSemanticInteractionAnalysisAsync(session, generatedInteraction, cancellationToken);
+        }
         _autoSaveCoordinator.QueueRolePlaySessionSave(session, "roleplay-continueas-v2-processed");
 
         await _stateRepository.CompleteTurnAsync(
@@ -1322,6 +1449,119 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             cancellationToken: cancellationToken);
 
         return result;
+    }
+
+    private async Task QueueSemanticInteractionAnalysisAsync(RolePlaySession session, RolePlayInteraction interaction, CancellationToken cancellationToken)
+    {
+        if (!_enableSemanticInference)
+        {
+            // Feature flag RolePlayFeatureFlags:EnableSemanticInference is false.
+            // Do not create an analysis state row and do not enqueue a background job.
+            await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+            {
+                SessionId = session.Id,
+                InteractionId = interaction.Id,
+                EventKind = "SemanticInferenceSkipped",
+                Severity = "Info",
+                ActorName = interaction.ActorName,
+                Summary = "Semantic inference skipped (RolePlayFeatureFlags:EnableSemanticInference=false).",
+                MetadataJson = JsonSerializer.Serialize(new
+                {
+                    interactionId = interaction.Id,
+                    reasonCode = "semantic_inference_disabled_by_flag"
+                })
+            }, cancellationToken);
+            return;
+        }
+
+        if (_backgroundJobQueue is null || _semanticInteractionAnalysisRepository is null)
+        {
+            return;
+        }
+
+        var sessionId = session.Id;
+        if (string.IsNullOrWhiteSpace(sessionId) || string.IsNullOrWhiteSpace(interaction.Id))
+        {
+            return;
+        }
+
+        // Fail-fast: required semantic configuration must be present BEFORE we create any
+        // analysis state row or enqueue a background job. Per repo no-fallback rule, missing RP
+        // configuration is surfaced explicitly to the caller instead of being recorded as an
+        // errored background job after the fact. The authoritative theme source is the
+        // per-session SessionThemeSelections list (the profile is only a seed at create time).
+        var hasSessionThemes = (session.SessionThemeSelections ?? [])
+            .Any(x => !string.IsNullOrWhiteSpace(x.ThemeId));
+        if (!hasSessionThemes)
+        {
+            throw new InvalidOperationException(
+                $"MissingSemanticConfiguration: session '{sessionId}' has no SessionThemeSelections; " +
+                "cannot enqueue semantic interaction analysis. Add themes to the session.");
+        }
+
+        if (session.ContextWindowSize <= 0)
+        {
+            throw new InvalidOperationException(
+                $"MissingSemanticConfiguration: session '{sessionId}' ContextWindowSize must be greater than zero; " +
+                "cannot enqueue semantic interaction analysis.");
+        }
+
+        // Enqueue the newly generated interaction, then catch up any prior interactions that do not
+        // yet have a Complete analysis row (e.g. created before the profile was set, or previously
+        // failed and since reset). The in-memory queue dedupes by (sessionId:interactionId) so this
+        // is safe to call repeatedly.
+        await EnqueueSingleAnalysisAsync(sessionId, interaction, cancellationToken);
+
+        var priorStates = await _semanticInteractionAnalysisRepository.ListBySessionAsync(sessionId, cancellationToken);
+        var completeOrAnalyzing = priorStates
+            .Where(s => s.Status == SemanticAnalysisStatus.Complete || s.Status == SemanticAnalysisStatus.Analyzing)
+            .Select(s => s.InteractionId)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var priorInteraction in session.Interactions)
+        {
+            if (string.IsNullOrWhiteSpace(priorInteraction.Id)) continue;
+            if (string.Equals(priorInteraction.Id, interaction.Id, StringComparison.OrdinalIgnoreCase)) continue;
+            if (priorInteraction.IsExcluded) continue;
+            if (completeOrAnalyzing.Contains(priorInteraction.Id)) continue;
+
+            await EnqueueSingleAnalysisAsync(sessionId, priorInteraction, cancellationToken);
+        }
+    }
+
+    private async Task EnqueueSingleAnalysisAsync(string sessionId, RolePlayInteraction interaction, CancellationToken cancellationToken)
+    {
+        // Semantic analysis applies only to character/persona interactions.
+        // System-type interactions (Narrative) do not represent a character speaking
+        // and must not be fed to the semantic inference model.
+        if (interaction.InteractionType == InteractionType.System)
+        {
+            return;
+        }
+
+        var characterId = string.IsNullOrWhiteSpace(interaction.ActorName) ? "Unknown" : interaction.ActorName.Trim();
+
+        await _semanticInteractionAnalysisRepository!.UpsertAsync(new SemanticInteractionAnalysisState
+        {
+            SessionId = sessionId,
+            InteractionId = interaction.Id,
+            CharacterId = characterId,
+            Status = SemanticAnalysisStatus.Idle,
+            CreatedUtc = DateTime.UtcNow,
+            UpdatedUtc = DateTime.UtcNow
+        }, cancellationToken);
+
+        var payloadJson = JsonSerializer.Serialize(new SemanticInteractionAnalysisJobPayload
+        {
+            SessionId = sessionId,
+            InteractionId = interaction.Id,
+            CharacterId = characterId
+        });
+
+        _backgroundJobQueue!.Enqueue(
+            BackgroundJobTypes.SemanticInteractionAnalysis,
+            payloadJson,
+            dedupeKey: $"{sessionId}:{interaction.Id}");
     }
 
     public async Task<RolePlayPendingDecisionPrompt?> GetPendingDecisionPromptAsync(string sessionId, CancellationToken cancellationToken = default)
@@ -1805,7 +2045,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
     private async Task RebuildAdaptiveStateInternalAsync(RolePlaySession session, CancellationToken cancellationToken)
     {
-        session.AdaptiveState = new RolePlayAdaptiveState();
+        session.AdaptiveState = new AdaptiveScenarioState();
 
         if (!string.IsNullOrWhiteSpace(session.ScenarioId))
         {
@@ -1818,15 +2058,78 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
         foreach (var interaction in session.Interactions.Where(x => !x.IsExcluded))
         {
-            session.AdaptiveState = await _adaptiveStateService.UpdateFromInteractionAsync(session, interaction, cancellationToken);
+            session.AdaptiveState = await UpdateAdaptiveStateWithSemanticDiagnosticsAsync(session, interaction, cancellationToken);
         }
 
         _logger.LogInformation(
             "Adaptive state rebuilt for session {SessionId}: interactionsReplayed={InteractionCount}, primaryTheme={PrimaryTheme}, secondaryTheme={SecondaryTheme}",
             session.Id,
             session.Interactions.Count(x => !x.IsExcluded),
-            session.AdaptiveState.ThemeTracker.PrimaryThemeId ?? "(none)",
-            session.AdaptiveState.ThemeTracker.SecondaryThemeId ?? "(none)");
+            session.AdaptiveState.PrimaryThemeId ?? "(none)",
+            session.AdaptiveState.SecondaryThemeId ?? "(none)");
+    }
+
+    private async Task<AdaptiveScenarioState> UpdateAdaptiveStateWithSemanticDiagnosticsAsync(
+        RolePlaySession session,
+        RolePlayInteraction interaction,
+        CancellationToken cancellationToken)
+    {
+        if (!_enableAdaptiveStateUpdates)
+        {
+            // Feature flag RolePlayFeatureFlags:EnableAdaptiveStateUpdates is false.
+            // Skip the synchronous adaptive-state update entirely so theme scoring and
+            // character stats are not modified by inline regex evidence. The async semantic
+            // pipeline (if enabled) still applies its own evidence in the background.
+            await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+            {
+                SessionId = session.Id,
+                InteractionId = interaction.Id,
+                EventKind = "AdaptiveStateUpdateSkipped",
+                Severity = "Info",
+                ActorName = interaction.ActorName,
+                Summary = "Adaptive state update skipped (RolePlayFeatureFlags:EnableAdaptiveStateUpdates=false).",
+                MetadataJson = JsonSerializer.Serialize(new
+                {
+                    interactionId = interaction.Id,
+                    reasonCode = "adaptive_state_disabled_by_flag"
+                })
+            }, cancellationToken);
+            return session.AdaptiveState;
+        }
+
+        try
+        {
+            var updatedState = await _adaptiveStateService.UpdateFromInteractionAsync(session, interaction, cancellationToken);
+
+            // Note: this sync path runs ApplySemanticEvidenceAsync with inferredSignals=null and
+            // only sees inline SemanticSignalRegex matches in interaction content. The real
+            // semantic contribution is applied asynchronously by SemanticInteractionAnalysisJobHandler
+            // via ApplyInferredSemanticEvidenceAsync after the LLM inference job completes, which
+            // emits its own SemanticInferredEvidenceApplied debug event. Do not emit a
+            // "no contribution" diagnostic here because it would race the async job and mislead.
+
+            return updatedState;
+        }
+        catch (InvalidOperationException ex)
+        {
+            await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+            {
+                SessionId = session.Id,
+                InteractionId = interaction.Id,
+                EventKind = "SemanticProcessingFailed",
+                Severity = "Error",
+                ActorName = interaction.ActorName,
+                Summary = "Semantic processing failed with explicit diagnostics.",
+                MetadataJson = JsonSerializer.Serialize(new
+                {
+                    interactionId = interaction.Id,
+                    error = ex.Message,
+                    reasonCode = ex.Message.Split(':', 2, StringSplitOptions.TrimEntries)[0]
+                })
+            }, cancellationToken);
+
+            throw;
+        }
     }
 
     private async Task SeedAdaptiveStateFromScenarioAsync(RolePlaySession session, DreamGenClone.Web.Domain.Scenarios.Scenario scenario, CancellationToken cancellationToken)
@@ -1871,12 +2174,10 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 continue;
             }
 
-            session.AdaptiveState.CharacterStats[character.Name.Trim()] = new CharacterStatBlock
-            {
-                CharacterId = character.Id,
-                Stats = mergedStats,
-                BaselineStats = new Dictionary<string, int>(mergedStats, StringComparer.OrdinalIgnoreCase)
-            };
+            var seededProfile = CharacterStatProfileV2Accessor.CreateDefault(character.Id);
+            CharacterStatProfileV2Accessor.SetAllStats(seededProfile, mergedStats);
+            seededProfile.BaselineStats = new Dictionary<string, int>(mergedStats, StringComparer.OrdinalIgnoreCase);
+            session.AdaptiveState.CharacterStats[character.Name.Trim()] = seededProfile;
         }
 
         await _adaptiveStateService.SeedFromScenarioAsync(session, scenario, cancellationToken);
@@ -1964,7 +2265,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         if (lastInteraction is null)
             return "Set the scene and establish the atmosphere.";
 
-        if (string.Equals(session.AdaptiveState.CurrentNarrativePhase.ToString(), "Climax", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(session.AdaptiveState.CurrentPhase.ToString(), "Climax", StringComparison.OrdinalIgnoreCase))
         {
             return "Write an omniscient narrative description of the full scene as it stands this turn. Describe the physical moment, setting, character positions, sensations, and atmosphere in explicit detail. All participants have already described this same moment from their own perspectives — your role is to close the turn with a rich, omniscient account of what is happening right now. Do not advance the scene beyond what the characters have already established."
                 + " Write at least 300 words. Use direct, explicit language.";
@@ -2038,20 +2339,9 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         }
     }
 
-    private async Task ValidateSessionCompatibilityOrThrowAsync(RolePlaySession session, CancellationToken cancellationToken)
-    {
-        if (_compatibilityService is null)
-        {
-            return;
-        }
-
-        var payloadJson = JsonSerializer.Serialize(session);
-        var compatibilityError = await _compatibilityService.ValidateSessionPayloadAsync(session.Id, payloadJson, cancellationToken);
-        if (compatibilityError is not null)
-        {
-            throw new InvalidOperationException($"Session '{session.Id}' is not compatible with RolePlay v2 ({compatibilityError.ErrorCode}).");
-        }
-    }
+    // Schema compatibility check removed — there is only one session schema now.
+    private static Task ValidateSessionCompatibilityOrThrowAsync(RolePlaySession session, CancellationToken cancellationToken)
+        => Task.CompletedTask;
 
     private async Task RunRolePlayV2PipelinesAsync(
         RolePlaySession session,
@@ -2283,7 +2573,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
         var preSelectionDirective = BuildDirectiveFromSnapshot(session.Id, v2State.ThemeMachineSnapshot);
 
-        var candidates = await BuildScenarioCandidatesAsync(session, cancellationToken);
+        var candidates = await BuildScenarioCandidatesAsync(session, v2State, cancellationToken);
         var (linkedNarrativeGateProfileId, linkedNarrativeGateRules) = await ResolveThemeNarrativeGateConfigAsync(session, v2State, cancellationToken);
         v2State.SelectedNarrativeGateProfileId = linkedNarrativeGateProfileId;
         var blockedScenarioIds = ResolveBlockedScenarioIdsFromDirective(session.Id, v2State, preSelectionDirective, candidates);
@@ -2364,16 +2654,78 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             var enteringArc = currentPhase is DreamGenClone.Domain.RolePlay.NarrativePhase.BuildUp
                 or DreamGenClone.Domain.RolePlay.NarrativePhase.Reset;
             var hasActiveScenario = !string.IsNullOrWhiteSpace(v2State.ActiveScenarioId);
-            var suppressMidArcSwitch = hasActiveScenario && !sameScenarioAlreadyActive && !enteringArc;
+            // Active-scenario lock: once an ActiveScenarioId is set, it must not be replaced by a
+            // different scenario from a later evaluation cycle. The only legitimate way to clear the
+            // active scenario is the explicit completion path (ScenarioLifecycleService), which sets
+            // ActiveScenarioId back to null. This prevents the engine from switching themes after a
+            // scenario has been selected, even when re-entering BuildUp/Reset.
+            var suppressActiveScenarioSwitch = hasActiveScenario && !sameScenarioAlreadyActive;
+            // First-scenario-selection guard: when we are in BuildUp and the arc has never had an
+            // ActiveScenarioId yet, the BuildUp commit gate was evaluated against an
+            // InteractionCountInPhase that accumulated during the Observing window (no scenario
+            // assigned). That makes any configured InteractionsSinceCommitment threshold trivially
+            // pass on the very first turn a candidate becomes eligible, which collapses the BuildUp
+            // phase to zero turns. Treat this evaluation as a scenario SELECTION (assign and reset
+            // the per-phase counter) and keep the session in BuildUp; the next turn will re-evaluate
+            // the configured per-theme narrative gate against a counter that reflects only turns the
+            // selected scenario has actually been in play.
+            var firstScenarioSelectionInBuildUp = currentPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.BuildUp
+                && !hasActiveScenario;
 
-            if (suppressMidArcSwitch)
+            if (suppressActiveScenarioSwitch)
             {
                 _logger.LogInformation(
-                    "RolePlayV2 recommit suppressed to preserve phase continuity: SessionId={SessionId} Phase={Phase} ActiveScenarioId={ActiveScenarioId} CandidateScenarioId={CandidateScenarioId}",
+                    "RolePlayV2 active-scenario switch suppressed (active-scenario lock): SessionId={SessionId} Phase={Phase} ActiveScenarioId={ActiveScenarioId} CandidateScenarioId={CandidateScenarioId}",
                     session.Id,
                     currentPhase,
                     v2State.ActiveScenarioId,
                     commitResult.ScenarioId);
+            }
+            else if (firstScenarioSelectionInBuildUp)
+            {
+                // Observation window guard: do not select a scenario while the theme tracker is
+                // still in its configured observation window (ObservedTurnCount <= SelectionMinimumTurns).
+                // The backfill path below handles first-scenario assignment once the observation
+                // window expires. Without this guard, a low InteractionsSinceCommitment threshold on
+                // the configured gate profile would allow the commit gate to fire before the minimum
+                // observation turns have elapsed — bypassing the SelectionMinimumTurns setting.
+                var fsInObservationWindow = session.AdaptiveState.SelectionMinimumTurns > 0
+                    && session.AdaptiveState.ObservedTurnCount <= session.AdaptiveState.SelectionMinimumTurns;
+
+                if (fsInObservationWindow)
+                {
+                    _logger.LogInformation(
+                        "RolePlayV2 first scenario selection deferred (observation window active): SessionId={SessionId} ScenarioId={ScenarioId} ObservedTurnCount={ObservedTurns} SelectionMinimumTurns={MinTurns}",
+                        session.Id,
+                        commitResult.ScenarioId,
+                        session.AdaptiveState.ObservedTurnCount,
+                        session.AdaptiveState.SelectionMinimumTurns);
+                }
+                else
+                {
+                    v2State.ActiveScenarioId = commitResult.ScenarioId;
+                    v2State.InteractionCountInPhase = 0;
+                    // Phase remains BuildUp. Do not set commitApplied=true: the configured BuildUp
+                    // narrative gate must still be evaluated against post-selection turn counts.
+                    _logger.LogInformation(
+                        "RolePlayV2 first scenario selected during BuildUp; phase commit deferred until configured BuildUp narrative gate is met against post-selection turns. SessionId={SessionId} ScenarioId={ScenarioId} PreviousInteractionCountInPhase={PreviousInteractionCountInPhase}",
+                        session.Id,
+                        commitResult.ScenarioId,
+                        previousPhaseInteractionCount);
+                    await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+                    {
+                        SessionId = session.Id,
+                        EventKind = "AdaptiveScenarioFirstSelected",
+                        Severity = "Info",
+                        Summary = "First scenario selected in BuildUp; commit deferred to satisfy configured narrative gate.",
+                        MetadataJson = JsonSerializer.Serialize(new
+                        {
+                            scenarioId = commitResult.ScenarioId,
+                            previousInteractionCountInPhase = previousPhaseInteractionCount,
+                            reason = commitResult.Reason
+                        })
+                    }, cancellationToken);
+                }
             }
             else
             {
@@ -2395,7 +2747,10 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 }
 
                 v2State.ActiveScenarioId = commitResult.ScenarioId;
-                if (!sameScenarioAlreadyActive || enteringArc)
+                // Only advance/reset to Committed when entering a fresh arc from BuildUp or Reset.
+                // Do NOT revert an already-advanced phase (Approaching, Climax) back to Committed —
+                // that would undo any /nextphase advances the user has already made.
+                if (enteringArc)
                 {
                     v2State.CurrentPhase = DreamGenClone.Domain.RolePlay.NarrativePhase.Committed;
 
@@ -2408,23 +2763,44 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         }
 
         // BuildUp always needs a selected scenario/theme even before commit gates allow phase promotion.
-        if (v2State.CurrentPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.BuildUp
+        // However, while the theme tracker is still in its observation period (configured per profile via
+        // ThemeSelectionTurnsPerTheme), do not backfill — we have not observed enough turns yet to pick.
+        if (v2State.CurrentPhase == NarrativePhase.BuildUp
             && string.IsNullOrWhiteSpace(v2State.ActiveScenarioId))
         {
-            var inferredScenarioId = !string.IsNullOrWhiteSpace(commitResult.ScenarioId)
-                ? commitResult.ScenarioId
-                : evaluations.FirstOrDefault(x => x.StageBEligible)?.ScenarioId
-                    ?? evaluations.FirstOrDefault()?.ScenarioId
-                    ?? candidates.FirstOrDefault()?.ScenarioId;
+            var observing = session.AdaptiveState.SelectionMinimumTurns > 0
+                && session.AdaptiveState.ObservedTurnCount <= session.AdaptiveState.SelectionMinimumTurns;
 
-            if (!string.IsNullOrWhiteSpace(inferredScenarioId))
+            if (observing)
             {
-                v2State.ActiveScenarioId = inferredScenarioId;
                 _logger.LogInformation(
-                    "RolePlayV2 BuildUp active scenario backfilled: SessionId={SessionId} ScenarioId={ScenarioId} Reason={Reason}",
+                    "RolePlayV2 BuildUp active scenario backfill skipped (observing): SessionId={SessionId} ObservedTurnCount={ObservedTurns} SelectionMinimumTurns={MinTurns}",
                     session.Id,
-                    inferredScenarioId,
-                    commitResult.Reason);
+                    session.AdaptiveState.ObservedTurnCount,
+                    session.AdaptiveState.SelectionMinimumTurns);
+            }
+            else
+            {
+                var inferredScenarioId = !string.IsNullOrWhiteSpace(commitResult.ScenarioId)
+                    ? commitResult.ScenarioId
+                    : evaluations.FirstOrDefault(x => x.StageBEligible)?.ScenarioId
+                        ?? evaluations.FirstOrDefault()?.ScenarioId
+                        ?? candidates.FirstOrDefault()?.ScenarioId;
+
+                if (!string.IsNullOrWhiteSpace(inferredScenarioId))
+                {
+                    v2State.ActiveScenarioId = inferredScenarioId;
+                    // Reset BuildUp's phase-local interaction cadence to the moment a scenario is
+                    // actually selected. Without this, turns accumulated while Observing (when no
+                    // scenario was committed yet) count toward BuildUp's lifecycle gate and the
+                    // phase is immediately promoted past as soon as the backfill happens.
+                    v2State.InteractionCountInPhase = 0;
+                    _logger.LogInformation(
+                        "RolePlayV2 BuildUp active scenario backfilled: SessionId={SessionId} ScenarioId={ScenarioId} Reason={Reason}",
+                        session.Id,
+                        inferredScenarioId,
+                        commitResult.Reason);
+                }
             }
         }
 
@@ -2456,11 +2832,9 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         var lifecycleConfidence = commitApplied
             ? (commitResult.SelectedEvaluation?.Confidence ?? activeScenarioEvaluation?.Confidence ?? 0m)
             : (activeScenarioEvaluation?.Confidence ?? 0m);
-        // Use the unpenalized score for lifecycle gate evaluation — the gate penalty is for scenario
-        // selection competition only. Phase transitions should use the true narrative fit score.
         var lifecycleFitScore = commitApplied
-            ? (commitResult.SelectedEvaluation?.UnpenalizedFitScore ?? activeScenarioEvaluation?.UnpenalizedFitScore ?? 0m)
-            : (activeScenarioEvaluation?.UnpenalizedFitScore ?? 0m);
+            ? (commitResult.SelectedEvaluation?.FitScore ?? activeScenarioEvaluation?.FitScore ?? 0m)
+            : (activeScenarioEvaluation?.FitScore ?? 0m);
 
         var lifecycle = await _scenarioLifecycleService.EvaluateTransitionAsync(
             v2State,
@@ -2528,53 +2902,30 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
                 {
                     SessionId = session.Id,
-                    EventKind = "PhaseOverrideLockCleared",
+                    EventKind = "ClimaxToResetTransition",
                     Severity = "Info",
-                    Summary = "Phase override lock cleared due reset",
+                    Summary = "Climax → Reset phase transition. Active scenario and theme preserved.",
                     MetadataJson = JsonSerializer.Serialize(new
                     {
-                        reason = "Reset",
-                        resetReason = lifecycle.Reason
+                        fromPhase = transitionSourcePhase.ToString(),
+                        toPhase = DreamGenClone.Domain.RolePlay.NarrativePhase.Reset.ToString(),
+                        activeScenarioId = v2State.ActiveScenarioId,
+                        cycleIndex = v2State.CycleIndex,
+                        reason = lifecycle.Reason
                     })
                 }, cancellationToken);
+            }
+
+            if (transitionSourcePhase == DreamGenClone.Domain.RolePlay.NarrativePhase.Reset
+                && lifecycle.TargetPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.BuildUp)
+            {
+                // Reset → BuildUp: apply stat decay, theme score penalties, and successor bonuses.
                 var completedScenarioId = v2State.ActiveScenarioId;
-                var completion = new DreamGenClone.Domain.RolePlay.ScenarioCompletionMetadata
-                {
-                    SessionId = session.Id,
-                    CycleIndex = v2State.CycleIndex,
-                    ScenarioId = v2State.ActiveScenarioId ?? string.Empty,
-                    PeakPhase = DreamGenClone.Domain.RolePlay.NarrativePhase.Climax,
-                    ResetReason = lifecycle.Reason,
-                    StartedUtc = session.AdaptiveState.ScenarioCommitmentTimeUtc ?? DateTime.UtcNow,
-                    CompletedUtc = DateTime.UtcNow
-                };
-                await _stateRepository.SaveCompletionMetadataAsync(completion, cancellationToken);
-                if (!string.IsNullOrWhiteSpace(completedScenarioId))
-                {
-                    var scenarioHistory = session.AdaptiveState.ScenarioHistory;
-                    scenarioHistory ??= [];
 
-                    scenarioHistory.Add(new DreamGenClone.Domain.StoryAnalysis.ScenarioMetadata
-                    {
-                        ScenarioId = completedScenarioId,
-                        CompletedAtUtc = completion.CompletedUtc,
-                        InteractionCount = Math.Max(0, v2State.InteractionCountInPhase),
-                        PeakThemeScore = session.AdaptiveState.ThemeTracker.Themes.TryGetValue(completedScenarioId, out var completedTheme)
-                            ? (int)Math.Round(Math.Clamp(completedTheme.Score, 0d, 100d), MidpointRounding.AwayFromZero)
-                            : 0,
-                        PeakDesireLevel = v2State.CharacterSnapshots.Count == 0
-                            ? 0
-                            : v2State.CharacterSnapshots.Max(x => Math.Clamp(x.Desire, 0, 100)),
-                        AverageRestraintLevel = v2State.CharacterSnapshots.Count == 0
-                            ? 0
-                            : Math.Round(v2State.CharacterSnapshots.Average(x => Math.Clamp(x.Restraint, 0, 100)), 2),
-                        Notes = lifecycle.Reason
-                    });
+                var statsBefore = v2State.CharacterSnapshots
+                    .Select(s => new { s.CharacterId, s.Desire, s.Restraint, s.Tension, s.Connection })
+                    .ToList();
 
-                    session.AdaptiveState.CompletedScenarios = Math.Max(
-                        session.AdaptiveState.CompletedScenarios,
-                        scenarioHistory.Count);
-                }
                 v2State = await _scenarioLifecycleService.ExecuteResetAsync(
                     v2State,
                     ResetReason.Completion,
@@ -2586,7 +2937,66 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                             StringComparer.OrdinalIgnoreCase),
                     await ResolveThemeStatDecayScaleOverridesAsync(completedScenarioId, cancellationToken),
                     cancellationToken);
-                ApplyThemeSemiReset(session.AdaptiveState.ThemeTracker, completedScenarioId);
+                // ExecuteResetAsync sets CurrentPhase = Reset and increments CycleIndex — restore BuildUp.
+                v2State.CurrentPhase = DreamGenClone.Domain.RolePlay.NarrativePhase.BuildUp;
+
+                var statsAfter = v2State.CharacterSnapshots
+                    .Select(s => new { s.CharacterId, s.Desire, s.Restraint, s.Tension, s.Connection })
+                    .ToList();
+
+                var themeScoresBefore = session.AdaptiveState.ThemeScores
+                    .ToDictionary(kvp => kvp.Key, kvp => kvp.Value.Score);
+
+                await ApplyThemeSemiResetAsync(session.AdaptiveState, completedScenarioId, cancellationToken);
+
+                // ExecuteResetAsync returned a new AdaptiveScenarioState instance — v2State is now a
+                // different object than session.AdaptiveState. Copy the semi-reset theme state (penalty/
+                // bonus scores, cooldowns, observer mode setup) from the old session.AdaptiveState into
+                // v2State so it survives the cycle boundary and is correctly persisted.
+                v2State.ThemeScores = session.AdaptiveState.ThemeScores;
+                v2State.PrimaryThemeId = session.AdaptiveState.PrimaryThemeId;
+                v2State.SecondaryThemeId = session.AdaptiveState.SecondaryThemeId;
+                v2State.ThemeSelectionRule = session.AdaptiveState.ThemeSelectionRule;
+                v2State.ObservedTurnCount = session.AdaptiveState.ObservedTurnCount;
+                v2State.SelectionMinimumTurns = session.AdaptiveState.SelectionMinimumTurns;
+                v2State.RecentEvidence = session.AdaptiveState.RecentEvidence;
+
+                var themeScoresAfter = session.AdaptiveState.ThemeScores
+                    .ToDictionary(kvp => kvp.Key, kvp => kvp.Value.Score);
+
+                await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+                {
+                    SessionId = session.Id,
+                    EventKind = "ResetToObserverTransition",
+                    Severity = "Info",
+                    Summary = $"Reset → Observer (BuildUp). Stat decay applied. Theme penalties/bonuses applied. ActiveScenarioId cleared. CompletedScenario={completedScenarioId ?? "(none)"}",
+                    MetadataJson = JsonSerializer.Serialize(new
+                    {
+                        completedScenarioId,
+                        newCycleIndex = v2State.CycleIndex,
+                        statDecay = statsBefore.Select(before =>
+                        {
+                            var after = statsAfter.FirstOrDefault(a => a.CharacterId == before.CharacterId);
+                            return new
+                            {
+                                characterId = before.CharacterId,
+                                desire = new { before = before.Desire, after = after?.Desire },
+                                restraint = new { before = before.Restraint, after = after?.Restraint },
+                                tension = new { before = before.Tension, after = after?.Tension },
+                                connection = new { before = before.Connection, after = after?.Connection }
+                            };
+                        }),
+                        themeScoreChanges = themeScoresBefore
+                            .Where(kvp => Math.Abs(kvp.Value - (themeScoresAfter.TryGetValue(kvp.Key, out var a) ? a : kvp.Value)) > 0.001)
+                            .Select(kvp => new
+                            {
+                                themeId = kvp.Key,
+                                before = kvp.Value,
+                                after = themeScoresAfter.TryGetValue(kvp.Key, out var af) ? af : kvp.Value
+                            }),
+                        activeScenarioIdCleared = completedScenarioId
+                    })
+                }, cancellationToken);
             }
         }
 
@@ -2829,18 +3239,21 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             cancellationToken);
 
         // Beat cursor: init when entering Climax, reset when leaving, advance when staying.
+        // The cursor is only active for themes tagged [BeatStyle:episodic] in their Climax
+        // phase guidance. Themes without that tag use an unstructured climax and the beat
+        // catalog should not be applied.
         var priorPhase = previousV2State?.CurrentPhase;
         var finalPhase = v2State.CurrentPhase;
 
-        if (finalPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.Climax
-            && priorPhase != DreamGenClone.Domain.RolePlay.NarrativePhase.Climax)
+        RPTheme? beatCursorTheme = null;
+        if (_rpThemeService is not null && !string.IsNullOrWhiteSpace(v2State.ActiveScenarioId))
         {
-            // Just entered Climax (or first run with Climax): initialize cursor.
-            v2State.CurrentBeatCode = "1a";
-            v2State.TurnsInCurrentBeat = 0;
-            _logger.LogInformation("ClimaxBeatCursor initialized: SessionId={SessionId} BeatCode=1a", session.Id);
+            try { beatCursorTheme = await _rpThemeService.GetThemeAsync(v2State.ActiveScenarioId, cancellationToken); }
+            catch (Exception ex) { _logger.LogDebug(ex, "ClimaxBeatCursor: could not load theme {ThemeId}: SessionId={SessionId}", v2State.ActiveScenarioId, session.Id); }
         }
-        else if (finalPhase != DreamGenClone.Domain.RolePlay.NarrativePhase.Climax
+        var isEpisodicBeatStyle = RolePlayAssistantPrompts.IsEpisodicBeatStyle(beatCursorTheme, "Climax");
+
+        if (finalPhase != DreamGenClone.Domain.RolePlay.NarrativePhase.Climax
                  && v2State.CurrentBeatCode != null)
         {
             // Left Climax: clear cursor.
@@ -2848,36 +3261,140 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             v2State.TurnsInCurrentBeat = 0;
         }
         else if (finalPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.Climax
+                 && !isEpisodicBeatStyle
+                 && v2State.CurrentBeatCode != null)
+        {
+            // In Climax but the active theme does not have [BeatStyle:episodic]: clear any
+            // existing cursor so it is not injected into prompts or reported in diagnostics.
+            v2State.CurrentBeatCode = null;
+            v2State.TurnsInCurrentBeat = 0;
+            _logger.LogInformation(
+                "ClimaxBeatCursor cleared: theme {ThemeId} does not have [BeatStyle:episodic]: SessionId={SessionId}",
+                v2State.ActiveScenarioId, session.Id);
+        }
+        else if (finalPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.Climax
+            && isEpisodicBeatStyle
+            && priorPhase != DreamGenClone.Domain.RolePlay.NarrativePhase.Climax)
+        {
+            // Just entered Climax with an episodic theme: initialize cursor.
+            v2State.CurrentBeatCode = "1a";
+            v2State.TurnsInCurrentBeat = 0;
+            _logger.LogInformation("ClimaxBeatCursor initialized: SessionId={SessionId} BeatCode=1a", session.Id);
+        }
+        else if (finalPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.Climax
+                 && isEpisodicBeatStyle
                  && v2State.CurrentBeatCode == null)
         {
-            // In Climax but cursor missing (session upgrade): recover to "1a".
+            // In Climax with episodic theme but cursor missing (session upgrade): recover to "1a".
             v2State.CurrentBeatCode = "1a";
             v2State.TurnsInCurrentBeat = 0;
             _logger.LogInformation("ClimaxBeatCursor recovered to 1a: SessionId={SessionId}", session.Id);
         }
         else if (finalPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.Climax
+                 && isEpisodicBeatStyle
                  && v2State.CurrentBeatCode != null
                  && generatedSinceLastEval > 0
                  && _climaxBeatRepository != null)
         {
-            // Still in Climax with new interactions: advance cursor if threshold met.
+            // Still in Climax with new interactions: advance cursor by ONE beat if
+            // threshold met. Multi-hop advancement is intentionally disabled — pacing
+            // should walk the beat sheet one step at a time, even if multiple turns
+            // batched into a single pipeline run.
+            var beforeBeatCode = v2State.CurrentBeatCode;
+            var beforeTurns = v2State.TurnsInCurrentBeat;
             v2State.TurnsInCurrentBeat += generatedSinceLastEval;
             var beatEntry = await _climaxBeatRepository.GetByCodeAsync(v2State.CurrentBeatCode, cancellationToken);
+            string outcome;
+            string? toBeatCode = null;
             if (beatEntry is null)
             {
+                outcome = "BeatNotFound";
                 _logger.LogWarning(
                     "ClimaxBeatCursor: BeatCode {BeatCode} not found in repository: SessionId={SessionId}",
                     v2State.CurrentBeatCode, session.Id);
             }
-            else if (beatEntry.NextBeatCode is not null
-                     && v2State.TurnsInCurrentBeat >= beatEntry.MinTurnsBeforeAdvance)
+            else if (beatEntry.NextBeatCode is null)
             {
-                _logger.LogInformation(
-                    "ClimaxBeatCursor advanced: {From} -> {To} after {Turns} turns in beat: SessionId={SessionId}",
-                    v2State.CurrentBeatCode, beatEntry.NextBeatCode, v2State.TurnsInCurrentBeat, session.Id);
-                v2State.CurrentBeatCode = beatEntry.NextBeatCode;
-                v2State.TurnsInCurrentBeat = 0;
+                outcome = "EndOfChain";
+                // Clamp so TurnsInCurrentBeat does not grow unbounded at the terminal beat.
+                if (v2State.TurnsInCurrentBeat > beatEntry.MinTurnsBeforeAdvance)
+                    v2State.TurnsInCurrentBeat = beatEntry.MinTurnsBeforeAdvance;
             }
+            else if (v2State.TurnsInCurrentBeat < beatEntry.MinTurnsBeforeAdvance)
+            {
+                outcome = "ThresholdNotMet";
+            }
+            else
+            {
+                outcome = "Advanced";
+                toBeatCode = beatEntry.NextBeatCode;
+                _logger.LogInformation(
+                    "ClimaxBeatCursor advanced: {From} -> {To} after {Turns} turns in beat (threshold={Threshold}): SessionId={SessionId}",
+                    v2State.CurrentBeatCode, beatEntry.NextBeatCode, v2State.TurnsInCurrentBeat, beatEntry.MinTurnsBeforeAdvance, session.Id);
+                v2State.CurrentBeatCode = beatEntry.NextBeatCode;
+                // Carry leftover turn credit forward into the next beat instead of zeroing it.
+                // This guarantees that a submission generating N>1 interactions (e.g. user-prompt
+                // + model continuation in a single PostUnifiedPromptSubmissionAsync call) does not
+                // discard the extra turns; the next pipeline tick will see the leftover credit
+                // and advance the next beat once its own threshold is met.
+                v2State.TurnsInCurrentBeat -= beatEntry.MinTurnsBeforeAdvance;
+                if (v2State.TurnsInCurrentBeat < 0)
+                    v2State.TurnsInCurrentBeat = 0;
+            }
+
+            await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+            {
+                SessionId = session.Id,
+                EventKind = "ClimaxBeatCursorTick",
+                Severity = outcome == "BeatNotFound" ? "Warn" : "Info",
+                Summary = outcome == "Advanced"
+                    ? $"Beat cursor {beforeBeatCode} -> {toBeatCode} (turns {beforeTurns}+{generatedSinceLastEval}>=thr {beatEntry?.MinTurnsBeforeAdvance}, carryOver={v2State.TurnsInCurrentBeat})"
+                    : $"Beat cursor {beforeBeatCode} stayed ({outcome}); turns {beforeTurns}+{generatedSinceLastEval}={v2State.TurnsInCurrentBeat}, threshold={(beatEntry is null ? "n/a" : beatEntry.MinTurnsBeforeAdvance.ToString())}",
+                MetadataJson = JsonSerializer.Serialize(new
+                {
+                    outcome,
+                    beforeBeatCode,
+                    afterBeatCode = v2State.CurrentBeatCode,
+                    nextBeatCode = beatEntry?.NextBeatCode,
+                    beforeTurns,
+                    addedTurns = generatedSinceLastEval,
+                    afterTurns = v2State.TurnsInCurrentBeat,
+                    carryOverTurns = outcome == "Advanced" ? v2State.TurnsInCurrentBeat : 0,
+                    minTurnsBeforeAdvance = beatEntry?.MinTurnsBeforeAdvance,
+                    stageNumber = beatEntry?.StageNumber,
+                    stageName = beatEntry?.StageName,
+                    subBeatName = beatEntry?.SubBeatName,
+                    previousLastEvaluationUtc = previousV2State?.LastEvaluationUtc,
+                    enableAdaptiveStateUpdates = _enableAdaptiveStateUpdates
+                })
+            }, cancellationToken);
+        }
+        else if (finalPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.Climax
+                 && isEpisodicBeatStyle
+                 && v2State.CurrentBeatCode != null
+                 && _climaxBeatRepository != null)
+        {
+            // Climax with episodic cursor present but no new interactions counted this run.
+            // Emit a diagnostic so we can see why the cursor isn't ticking.
+            await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+            {
+                SessionId = session.Id,
+                EventKind = "ClimaxBeatCursorTick",
+                Severity = "Info",
+                Summary = $"Beat cursor {v2State.CurrentBeatCode} idle (generatedSinceLastEval=0)",
+                MetadataJson = JsonSerializer.Serialize(new
+                {
+                    outcome = "NoNewInteractions",
+                    beforeBeatCode = v2State.CurrentBeatCode,
+                    afterBeatCode = v2State.CurrentBeatCode,
+                    addedTurns = 0,
+                    afterTurns = v2State.TurnsInCurrentBeat,
+                    previousLastEvaluationUtc = previousV2State?.LastEvaluationUtc,
+                    totalGeneratedInteractions,
+                    previousPhaseInteractionCount,
+                    enableAdaptiveStateUpdates = _enableAdaptiveStateUpdates
+                })
+            }, cancellationToken);
         }
 
         // Refresh evaluation watermark so generatedSinceLastEval only counts interactions
@@ -2892,7 +3409,8 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         RolePlaySession session,
         DreamGenClone.Domain.RolePlay.AdaptiveScenarioState? previousState)
     {
-        var mapped = MapToV2State(session);
+        var mapped = session.AdaptiveState;
+        mapped.SyncCharacterSnapshots();
         if (previousState is null)
         {
             return mapped;
@@ -2903,12 +3421,31 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         {
             mapped.ActiveScenarioId = session.AdaptiveState.ActiveScenarioId;
             mapped.ActiveVariantId = session.AdaptiveState.ActiveVariantId;
-            mapped.CurrentPhase = MapPhase(session.AdaptiveState.CurrentNarrativePhase);
+            mapped.CurrentPhase = session.AdaptiveState.CurrentPhase;
             mapped.InteractionCountInPhase = Math.Max(0, session.AdaptiveState.InteractionsSinceCommitment);
         }
         else
         {
-            mapped.ActiveScenarioId = previousState.ActiveScenarioId ?? mapped.ActiveScenarioId;
+            // V2 ThemeSelectionRule is authoritative. PayloadJson can lag — e.g. retaining
+            // "Observing" after the background job has advanced the tracker to
+            // "ActiveScenarioLock". Using the stale PayloadJson value makes isObservingWindow=true,
+            // which nulls ActiveScenarioId and triggers false scenario re-selection on every
+            // pipeline run, resetting InteractionCountInPhase to 0 each time.
+            //
+            // Still respect the original guard: while the session is genuinely in its
+            // observation window, do not restore ActiveScenarioId from the V2 snapshot.
+            // The snapshot may hold the just-completed scenario from the previous cycle
+            // (saved before ExecuteResetAsync cleared it). Restoring it here would defeat the
+            // Reset→Observer→BuildUp re-selection flow. The reset pipeline explicitly writes
+            // ThemeSelectionRule="Observing" into V2 (line ~2956), so V2 is correct for that case.
+            if (!string.IsNullOrWhiteSpace(previousState.ThemeSelectionRule))
+                mapped.ThemeSelectionRule = previousState.ThemeSelectionRule;
+            var isObservingWindow = string.Equals(
+                mapped.ThemeSelectionRule, "Observing",
+                StringComparison.OrdinalIgnoreCase);
+            mapped.ActiveScenarioId = isObservingWindow
+                ? null
+                : previousState.ActiveScenarioId ?? mapped.ActiveScenarioId;
             mapped.ActiveVariantId = previousState.ActiveVariantId ?? mapped.ActiveVariantId;
             mapped.CurrentPhase = previousState.CurrentPhase;
             mapped.InteractionCountInPhase = Math.Max(0, previousState.InteractionCountInPhase);
@@ -2920,11 +3457,14 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             ? mapped.ActiveFormulaVersion
             : previousState.ActiveFormulaVersion;
         mapped.SelectedNarrativeGateProfileId = previousState.SelectedNarrativeGateProfileId ?? mapped.SelectedNarrativeGateProfileId;
-        mapped.PhaseOverrideFloor = previousState.PhaseOverrideFloor ?? mapped.PhaseOverrideFloor;
-        mapped.PhaseOverrideScenarioId = previousState.PhaseOverrideScenarioId ?? mapped.PhaseOverrideScenarioId;
-        mapped.PhaseOverrideCycleIndex = previousState.PhaseOverrideCycleIndex ?? mapped.PhaseOverrideCycleIndex;
-        mapped.PhaseOverrideSource = previousState.PhaseOverrideSource ?? mapped.PhaseOverrideSource;
-        mapped.PhaseOverrideAppliedUtc = previousState.PhaseOverrideAppliedUtc ?? mapped.PhaseOverrideAppliedUtc;
+        // PhaseOverride fields are authoritative in the V2 live store (RolePlayV2AdaptiveStates).
+        // null is a valid cleared state (set by ClearPhaseOverrideLock). Do NOT fall back to the
+        // session payload here — it may be stale and would re-activate a cleared floor override.
+        mapped.PhaseOverrideFloor = previousState.PhaseOverrideFloor;
+        mapped.PhaseOverrideScenarioId = previousState.PhaseOverrideScenarioId;
+        mapped.PhaseOverrideCycleIndex = previousState.PhaseOverrideCycleIndex;
+        mapped.PhaseOverrideSource = previousState.PhaseOverrideSource;
+        mapped.PhaseOverrideAppliedUtc = previousState.PhaseOverrideAppliedUtc;
         mapped.LastEvaluationUtc = previousState.LastEvaluationUtc;
         mapped.CurrentSceneLocation = previousState.CurrentSceneLocation;
         mapped.CharacterLocations = previousState.CharacterLocations
@@ -2954,12 +3494,46 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         mapped.ThemeMachineSnapshot = previousState.ThemeMachineSnapshot is null
             ? null
             : CloneThemeMachineSnapshot(previousState.ThemeMachineSnapshot);
+
+        // Theme scores and metadata: if the fresh V1 map has no themes yet (pre-seed),
+        // carry forward the persisted V2 scores so display stays consistent.
+        if (mapped.ThemeScores.Count == 0 && previousState.ThemeScores.Count > 0)
+        {
+            mapped.ThemeScores = previousState.ThemeScores;
+            mapped.PrimaryThemeId ??= previousState.PrimaryThemeId;
+            mapped.SecondaryThemeId ??= previousState.SecondaryThemeId;
+            mapped.ThemeSelectionRule = previousState.ThemeSelectionRule;
+            mapped.ObservedTurnCount = Math.Max(mapped.ObservedTurnCount, previousState.ObservedTurnCount);
+            mapped.SelectionMinimumTurns = Math.Max(mapped.SelectionMinimumTurns, previousState.SelectionMinimumTurns);
+            mapped.RecentEvidence = previousState.RecentEvidence;
+        }
+        else if (previousState.ThemeScores.Count > 0)
+        {
+            // When themes are already seeded in the current state, carry forward the accumulated
+            // InteractionEvidenceSignal from the V2-persisted state. IES is incremented
+            // exclusively by the async background semantic job. Without this merge every foreground
+            // pipeline turn resets V2ThemeScores back to the stale PayloadJson baseline (IES=0),
+            // causing background-job accumulations to be overwritten and IES to never rise above
+            // a single per-run delta. The merge is monotone (only increases IES/Score) so it
+            // cannot undo inline-regex contributions applied earlier in this turn.
+            foreach (var (themeId, prevScore) in previousState.ThemeScores)
+            {
+                if (mapped.ThemeScores.TryGetValue(themeId, out var cur) &&
+                    prevScore.Breakdown.InteractionEvidenceSignal > cur.Breakdown.InteractionEvidenceSignal)
+                {
+                    var iesDelta = prevScore.Breakdown.InteractionEvidenceSignal - cur.Breakdown.InteractionEvidenceSignal;
+                    cur.Breakdown.InteractionEvidenceSignal = prevScore.Breakdown.InteractionEvidenceSignal;
+                    cur.Score = Math.Clamp(cur.Score + iesDelta, 0, 100);
+                }
+            }
+        }
+
         return mapped;
     }
 
     private static bool IsManualThemeOverrideLockActive(RolePlaySession session)
     {
-        if (!string.Equals(session.AdaptiveState.ThemeTracker.ThemeSelectionRule, "ManualOverride", StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(session.AdaptiveState.ThemeSelectionRule, "ManualOverride", StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
@@ -2983,154 +3557,65 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             return;
         }
 
-        session.AdaptiveState.ActiveScenarioId = snapshot.ActiveScenarioId;
         session.AdaptiveState.ActiveVariantId = snapshot.ActiveVariantId;
-        session.AdaptiveState.CurrentNarrativePhase = MapStoryPhase(snapshot.CurrentPhase);
-        session.AdaptiveState.PhaseOverrideFloor = snapshot.PhaseOverrideFloor is null
-            ? null
-            : MapStoryPhase(snapshot.PhaseOverrideFloor.Value);
+        session.AdaptiveState.CurrentPhase = snapshot.CurrentPhase;
+
+        // While the session is in its observation window the in-memory tracker owns the
+        // scenario slot: the observation window reset cleared ActiveScenarioId to null and
+        // set ThemeSelectionRule="Observing". The V2 snapshot may still hold the just-
+        // completed scenario from the previous cycle (written before ExecuteResetAsync
+        // replaced session.AdaptiveState). Restoring it here would re-lock the tracker onto
+        // the old scenario and defeat the observation period entirely.
+        var isObservingWindow = string.Equals(
+            session.AdaptiveState.ThemeSelectionRule, "Observing",
+            StringComparison.OrdinalIgnoreCase);
+        if (!isObservingWindow)
+        {
+            session.AdaptiveState.ActiveScenarioId = snapshot.ActiveScenarioId;
+        }
+        session.AdaptiveState.PhaseOverrideFloor = snapshot.PhaseOverrideFloor;
         session.AdaptiveState.PhaseOverrideScenarioId = snapshot.PhaseOverrideScenarioId;
         session.AdaptiveState.PhaseOverrideCycleIndex = snapshot.PhaseOverrideCycleIndex;
         session.AdaptiveState.PhaseOverrideSource = snapshot.PhaseOverrideSource;
         session.AdaptiveState.PhaseOverrideAppliedUtc = snapshot.PhaseOverrideAppliedUtc;
 
         var interactionCount = Math.Max(0, snapshot.InteractionCountInPhase);
-        session.AdaptiveState.InteractionsSinceCommitment = snapshot.CurrentPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.BuildUp
+        session.AdaptiveState.InteractionsSinceCommitment = snapshot.CurrentPhase == NarrativePhase.BuildUp
             ? 0
             : interactionCount;
-        session.AdaptiveState.InteractionsInApproaching = snapshot.CurrentPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.Approaching
+        session.AdaptiveState.InteractionsInApproaching = snapshot.CurrentPhase == NarrativePhase.Approaching
             ? interactionCount
             : 0;
-        session.AdaptiveState.ThemeMachineSnapshot = snapshot.ThemeMachineSnapshot is null
-            ? null
-            : CloneThemeMachineSnapshot(snapshot.ThemeMachineSnapshot);
+        session.AdaptiveState.ThemeMachineSnapshot = snapshot.ThemeMachineSnapshot;
+        SyncThemeTrackerFromV2State(session, snapshot);
+
+        // Carry forward character snapshots from the V2 table so that async semantic deltas
+        // (written by SemanticInteractionAnalysisJobHandler) are not overwritten by the session's
+        // stale PayloadJson copy at the start of the next turn.  Only replace when the V2 table
+        // has entries; an empty list means this session has not been seeded yet and the in-memory
+        // state (from SeedPersonaStatsFromTemplateAsync) is the correct source of truth.
+        if (snapshot.CharacterSnapshots.Count > 0)
+        {
+            session.AdaptiveState.CharacterSnapshots = snapshot.CharacterSnapshots;
+            session.AdaptiveState.RebuildCharacterStatsCache();
+        }
     }
 
     private static void SyncSessionAdaptiveStateFromV2(
         RolePlaySession session,
         DreamGenClone.Domain.RolePlay.AdaptiveScenarioState v2State)
     {
-        session.AdaptiveState.ActiveScenarioId = v2State.ActiveScenarioId;
-        session.AdaptiveState.ActiveVariantId = v2State.ActiveVariantId;
-        session.AdaptiveState.CurrentNarrativePhase = MapStoryPhase(v2State.CurrentPhase);
-        session.AdaptiveState.PhaseOverrideFloor = v2State.PhaseOverrideFloor is null
-            ? null
-            : MapStoryPhase(v2State.PhaseOverrideFloor.Value);
-        session.AdaptiveState.PhaseOverrideScenarioId = v2State.PhaseOverrideScenarioId;
-        session.AdaptiveState.PhaseOverrideCycleIndex = v2State.PhaseOverrideCycleIndex;
-        session.AdaptiveState.PhaseOverrideSource = v2State.PhaseOverrideSource;
-        session.AdaptiveState.PhaseOverrideAppliedUtc = v2State.PhaseOverrideAppliedUtc;
+        // In V2, session.AdaptiveState IS AdaptiveScenarioState. Just assign and rebuild cache.
+        session.AdaptiveState = v2State;
+        v2State.RebuildCharacterStatsCache();
+    }
 
-        var interactionCount = Math.Max(0, v2State.InteractionCountInPhase);
-        session.AdaptiveState.InteractionsSinceCommitment = v2State.CurrentPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.BuildUp
-            ? 0
-            : interactionCount;
-        session.AdaptiveState.InteractionsInApproaching = v2State.CurrentPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.Approaching
-            ? interactionCount
-            : 0;
-        session.AdaptiveState.SelectedNarrativeGateProfileId = v2State.SelectedNarrativeGateProfileId;
-        session.AdaptiveState.CurrentSceneLocation = v2State.CurrentSceneLocation;
-        session.AdaptiveState.CurrentBeatCode = v2State.CurrentBeatCode;
-        session.AdaptiveState.ThemeMachineSnapshot = v2State.ThemeMachineSnapshot is null
-            ? null
-            : CloneThemeMachineSnapshot(v2State.ThemeMachineSnapshot);
-        session.AdaptiveState.CharacterLocations = v2State.CharacterLocations
-            .Select(x => new RolePlayCharacterLocationState
-            {
-                CharacterId = x.CharacterId,
-                TrueLocation = x.TrueLocation,
-                IsHidden = x.IsHidden,
-                UpdatedUtc = x.UpdatedUtc
-            })
-            .ToList();
-        session.AdaptiveState.CharacterLocationPerceptions = v2State.CharacterLocationPerceptions
-            .Select(x => new RolePlayCharacterLocationPerceptionState
-            {
-                ObserverCharacterId = x.ObserverCharacterId,
-                TargetCharacterId = x.TargetCharacterId,
-                PerceivedLocation = x.PerceivedLocation,
-                Confidence = x.Confidence,
-                HasLineOfSight = x.HasLineOfSight,
-                IsInProximity = x.IsInProximity,
-                KnowledgeSource = x.KnowledgeSource,
-                UpdatedUtc = x.UpdatedUtc
-            })
-            .ToList();
-
-        if (v2State.CurrentPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.Committed
-            && session.AdaptiveState.ScenarioCommitmentTimeUtc is null)
-        {
-            session.AdaptiveState.ScenarioCommitmentTimeUtc = DateTime.UtcNow;
-        }
-        else if (v2State.CurrentPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.BuildUp)
-        {
-            session.AdaptiveState.ScenarioCommitmentTimeUtc = null;
-        }
-
-        if (v2State.CharacterSnapshots.Count > 0)
-        {
-            foreach (var snapshot in v2State.CharacterSnapshots)
-            {
-                if (string.IsNullOrWhiteSpace(snapshot.CharacterId))
-                {
-                    continue;
-                }
-
-                var mappedKey = ResolveAdaptiveCharacterStatsKey(session, snapshot.CharacterId);
-                if (!session.AdaptiveState.CharacterStats.TryGetValue(mappedKey, out var statBlock))
-                {
-                    statBlock = new CharacterStatBlock
-                    {
-                        CharacterId = snapshot.CharacterId,
-                        Stats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase),
-                        LastStatDeltas = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
-                    };
-                    session.AdaptiveState.CharacterStats[mappedKey] = statBlock;
-                }
-
-                var previousStats = statBlock.Stats is null
-                    ? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
-                    : new Dictionary<string, int>(statBlock.Stats, StringComparer.OrdinalIgnoreCase);
-
-                statBlock.CharacterId = snapshot.CharacterId;
-                var syncedStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
-                {
-                    ["Desire"] = Math.Clamp(snapshot.Desire, AdaptiveStatCatalog.MinValue, AdaptiveStatCatalog.MaxValue),
-                    ["Restraint"] = Math.Clamp(snapshot.Restraint, AdaptiveStatCatalog.MinValue, AdaptiveStatCatalog.MaxValue),
-                    ["Tension"] = Math.Clamp(snapshot.Tension, AdaptiveStatCatalog.MinValue, AdaptiveStatCatalog.MaxValue),
-                    ["Connection"] = Math.Clamp(snapshot.Connection, AdaptiveStatCatalog.MinValue, AdaptiveStatCatalog.MaxValue),
-                    ["Dominance"] = Math.Clamp(snapshot.Dominance, AdaptiveStatCatalog.MinValue, AdaptiveStatCatalog.MaxValue),
-                    ["Loyalty"] = Math.Clamp(snapshot.Loyalty, AdaptiveStatCatalog.MinValue, AdaptiveStatCatalog.MaxValue),
-                    ["SelfRespect"] = Math.Clamp(snapshot.SelfRespect, AdaptiveStatCatalog.MinValue, AdaptiveStatCatalog.MaxValue)
-                };
-                statBlock.Stats = syncedStats;
-
-                var lastDeltas = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-                foreach (var (statName, currentValue) in syncedStats)
-                {
-                    var previousValue = previousStats.TryGetValue(statName, out var value)
-                        ? value
-                        : currentValue;
-                    var delta = currentValue - previousValue;
-                    if (delta != 0)
-                    {
-                        lastDeltas[statName] = delta;
-                    }
-                }
-
-                statBlock.LastStatDeltas = lastDeltas;
-                statBlock.LastStatDeltaUpdatedUtc = DateTime.UtcNow;
-                statBlock.UpdatedUtc = DateTime.UtcNow;
-
-                // Clean up historical duplicate keys where snapshots were previously materialized by GUID key.
-                if (!string.Equals(mappedKey, snapshot.CharacterId, StringComparison.OrdinalIgnoreCase)
-                    && session.AdaptiveState.CharacterStats.TryGetValue(snapshot.CharacterId, out var duplicateById)
-                    && string.Equals(duplicateById.CharacterId, snapshot.CharacterId, StringComparison.OrdinalIgnoreCase))
-                {
-                    session.AdaptiveState.CharacterStats.Remove(snapshot.CharacterId);
-                }
-            }
-        }
+    private static void SyncThemeTrackerFromV2State(
+        RolePlaySession session,
+        DreamGenClone.Domain.RolePlay.AdaptiveScenarioState v2State)
+    {
+        // No-op: theme state is stored as flat fields on AdaptiveScenarioState.
+        // session.AdaptiveState and v2State are the same object in V2.
     }
 
     private static string ResolveAdaptiveCharacterStatsKey(RolePlaySession session, string characterId)
@@ -3176,29 +3661,68 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 StringComparer.OrdinalIgnoreCase);
     }
 
-    private void ApplyThemeSemiReset(ThemeTrackerState tracker, string? completedScenarioId)
+    private async Task ApplyThemeSemiResetAsync(DreamGenClone.Domain.RolePlay.AdaptiveScenarioState tracker, string? completedScenarioId, CancellationToken cancellationToken)
     {
         tracker.RecentEvidence.Clear();
         tracker.PrimaryThemeId = null;
         tracker.SecondaryThemeId = null;
-        tracker.ThemeSelectionRule = "Top2Blend";
-        tracker.UpdatedUtc = DateTime.UtcNow;
+        // "Observing" prevents NormalizeRolePlaySession from re-locking the scenario via
+        // the repair path (which fires when ThemeSelectionRule != "Observing" and
+        // ActiveScenarioId is null). RecalculateSelectedThemes will confirm "Observing"
+        // while ObservedTurnCount <= SelectionMinimumTurns, then naturally advance to
+        // Top1/Top2Blend once enough evidence accumulates.
+        tracker.ThemeSelectionRule = "Observing";
+        // Reset the observation counter so the next BuildUp re-enters observer mode and
+        // accumulates fresh evidence before re-committing to a scenario. SelectionMinimumTurns
+        // is already populated from the configured RP theme profile at session start and is
+        // intentionally preserved here.
+        tracker.ObservedTurnCount = 0;
+        tracker.ThemeTrackerUpdatedUtc = DateTime.UtcNow;
 
-        foreach (var item in tracker.Themes.Values)
+        foreach (var item in tracker.ThemeScores.Values)
         {
-            item.Score = Math.Round(Math.Max(0, item.Score * 0.15), 4);
-            item.Breakdown.ChoiceSignal = 0;
             item.Breakdown.CharacterStateSignal = 0;
-            item.Breakdown.InteractionEvidenceSignal = 0;
-            item.Breakdown.ScenarioPhaseSignal = 0;
+            item.Breakdown.SuccessorCausalityBoost = 0;
+            item.Breakdown.CompletionFitScorePenalty = 0;
             item.Intensity = ResolveResetIntensity(item.Score);
         }
 
         if (!string.IsNullOrWhiteSpace(completedScenarioId)
-            && tracker.Themes.TryGetValue(completedScenarioId, out var completedTheme))
+            && tracker.ThemeScores.TryGetValue(completedScenarioId, out var completedTheme))
         {
             completedTheme.Score = Math.Round(Math.Max(0, completedTheme.Score - (double)_completedScenarioThemeScorePenalty), 4);
             completedTheme.Intensity = ResolveResetIntensity(completedTheme.Score);
+            completedTheme.Breakdown.CompletionFitScorePenalty = (double)_completedScenarioFitScorePenaltyPoints;
+        }
+
+        if (string.IsNullOrWhiteSpace(completedScenarioId) || _rpThemeService is null)
+        {
+            return;
+        }
+
+        var completedThemeConfig = await _rpThemeService.GetThemeAsync(completedScenarioId, cancellationToken);
+        if (completedThemeConfig is null)
+        {
+            throw new InvalidOperationException(
+                $"RolePlayV2 theme semi-reset causality failed for scenario '{completedScenarioId}': RP theme definition was not found.");
+        }
+
+        foreach (var successor in completedThemeConfig.SuccessorThemeLinks
+                     .Where(link => !string.IsNullOrWhiteSpace(link.SuccessorThemeId))
+                     .OrderBy(link => link.SortOrder))
+        {
+            if (!tracker.ThemeScores.TryGetValue(successor.SuccessorThemeId, out var successorTrackerItem))
+            {
+                continue;
+            }
+
+            successorTrackerItem.Score = Math.Round(Math.Max(0, successorTrackerItem.Score + (double)successor.ScoreBoost), 4);
+            successorTrackerItem.Breakdown.InteractionEvidenceSignal = Math.Clamp(
+                successorTrackerItem.Breakdown.InteractionEvidenceSignal + (double)successor.ScoreBoost, 0, 100);
+            // Direct FitScore boost: applied additively to the gate-adjusted FitScore (0-100 scale)
+            // during candidate evaluation. Persisted in BreakdownJson. Cleared on the next semi-reset.
+            successorTrackerItem.Breakdown.SuccessorCausalityBoost += (double)successor.ScoreBoost;
+            successorTrackerItem.Intensity = ResolveResetIntensity(successorTrackerItem.Score);
         }
     }
 
@@ -4070,7 +4594,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
     private static DreamGenClone.Domain.RolePlay.NarrativePhase? ResolveManualPhaseAdvanceTarget(
         string? content,
-        DreamGenClone.Domain.StoryAnalysis.NarrativePhase currentPhase)
+        DreamGenClone.Domain.RolePlay.NarrativePhase currentPhase)
     {
         if (!ContainsNextPhaseCommand(content))
         {
@@ -4080,9 +4604,9 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         // Climax exits ONLY via /endclimax — /nextphase is intentionally blocked here.
         return currentPhase switch
         {
-            DreamGenClone.Domain.StoryAnalysis.NarrativePhase.BuildUp => DreamGenClone.Domain.RolePlay.NarrativePhase.Committed,
-            DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Committed => DreamGenClone.Domain.RolePlay.NarrativePhase.Approaching,
-            DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Approaching => DreamGenClone.Domain.RolePlay.NarrativePhase.Climax,
+            NarrativePhase.BuildUp => NarrativePhase.Committed,
+            NarrativePhase.Committed => NarrativePhase.Approaching,
+            NarrativePhase.Approaching => NarrativePhase.Climax,
             _ => null
         };
     }
@@ -4134,6 +4658,39 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             ? "Steer the scene in a meaningful, phase-consistent direction."
             : remaining;
         return true;
+    }
+
+    private static bool TryExtractClimaxCompletionDirective(string? content, out string directive)
+    {
+        directive = string.Empty;
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            return false;
+        }
+
+        var raw = content.Trim();
+        // Try each known command marker in order; strip whichever is present.
+        string[] markers = ["/completeclimax", "/endclimax", "/end-climax"];
+        foreach (var marker in markers)
+        {
+            var markerIndex = raw.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (markerIndex >= 0)
+            {
+                directive = raw[(markerIndex + marker.Length)..].Trim();
+                return true;
+            }
+        }
+
+        // Natural-language variant ("complete climax" / "end climax").
+        var match = Regex.Match(raw, @"\b(complete|end)\s+climax\b\s*(?<rest>.*)$",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Singleline);
+        if (match.Success)
+        {
+            directive = match.Groups["rest"].Value.Trim();
+            return true;
+        }
+
+        return false;
     }
 
     private static bool TryGetActivePhaseOverrideFloor(
@@ -4434,7 +4991,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         string statName,
         int fallback)
     {
-        CharacterStatBlock? statBlock = null;
+        CharacterStatProfileV2? statBlock = null;
         if (!string.IsNullOrWhiteSpace(actorId))
         {
             statBlock = session.AdaptiveState.CharacterStats.Values
@@ -4447,9 +5004,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             return fallback;
         }
 
-        return statBlock.Stats.TryGetValue(statName, out var value)
-            ? value
-            : fallback;
+        return CharacterStatProfileV2Accessor.GetStatOrDefault(statBlock, statName, fallback);
     }
 
     private async Task<DecisionOptionRewriteResult> TryApplyAiDecisionOptionAnswersAsync(
@@ -4560,7 +5115,7 @@ Requirements:
             return "(no stats)";
         }
 
-        CharacterStatBlock? target = null;
+        CharacterStatProfileV2? target = null;
         if (!string.IsNullOrWhiteSpace(actorId))
         {
             target = session.AdaptiveState.CharacterStats.Values.FirstOrDefault(x =>
@@ -4568,23 +5123,18 @@ Requirements:
         }
 
         target ??= session.AdaptiveState.CharacterStats.Values.FirstOrDefault();
-        if (target is null || target.Stats.Count == 0)
+        if (target is null || CharacterStatProfileV2Accessor.GetAllStats(target).Count == 0)
         {
             return "(no stats)";
         }
 
         return string.Join(", ", AdaptiveStatCatalog.CanonicalStatNames
-            .Select(stat => $"{stat}={GetCharacterStatValue(target, stat)}"));
+            .Select(stat => $"{stat}={CharacterStatProfileV2Accessor.GetStatOrDefault(target, stat)}"));
     }
 
-    private static int GetCharacterStatValue(CharacterStatBlock block, string statName)
+    private static int GetCharacterStatValue(CharacterStatProfileV2 block, string statName)
     {
-        if (block.Stats.TryGetValue(statName, out var value))
-        {
-            return value;
-        }
-
-        return 50;
+        return CharacterStatProfileV2Accessor.GetStatOrDefault(block, statName);
     }
 
     private static Dictionary<string, GeneratedDecisionAnswer> ParseGeneratedDecisionAnswers(
@@ -4713,7 +5263,7 @@ Requirements:
 
     private static IReadOnlyList<string> ResolveTopThemeNames(RolePlaySession session, int take)
     {
-        return session.AdaptiveState.ThemeTracker.Themes.Values
+        return session.AdaptiveState.ThemeScores.Values
             .OrderByDescending(x => x.Score)
             .ThenBy(x => x.ThemeName, StringComparer.OrdinalIgnoreCase)
             .Select(x => string.IsNullOrWhiteSpace(x.ThemeName) ? x.ThemeId : x.ThemeName)
@@ -4724,7 +5274,7 @@ Requirements:
 
     private static (string StatName, int Value) ResolveHighestStat(RolePlaySession session, string? actorId)
     {
-        CharacterStatBlock? statBlock = null;
+        CharacterStatProfileV2? statBlock = null;
 
         if (!string.IsNullOrWhiteSpace(actorId))
         {
@@ -4738,12 +5288,18 @@ Requirements:
         }
 
         statBlock ??= session.AdaptiveState.CharacterStats.Values.FirstOrDefault();
-        if (statBlock is null || statBlock.Stats.Count == 0)
+        if (statBlock is null)
         {
             return (string.Empty, 0);
         }
 
-        var highest = statBlock.Stats.OrderByDescending(x => x.Value).First();
+        var allStats = CharacterStatProfileV2Accessor.GetAllStats(statBlock);
+        if (allStats.Count == 0)
+        {
+            return (string.Empty, 0);
+        }
+
+        var highest = allStats.OrderByDescending(x => x.Value).First();
         return (highest.Key, highest.Value);
     }
 
@@ -4794,7 +5350,7 @@ Requirements:
             return "(none)";
         }
 
-        if (session.AdaptiveState.ThemeTracker.Themes.TryGetValue(scenarioId, out var theme)
+        if (session.AdaptiveState.ThemeScores.TryGetValue(scenarioId, out var theme)
             && !string.IsNullOrWhiteSpace(theme.ThemeName))
         {
             return $"{theme.ThemeName} ({scenarioId})";
@@ -5194,16 +5750,15 @@ Requirements:
     }
 
     private static void ApplyDeltasToStatBlock(
-        CharacterStatBlock statBlock,
+        CharacterStatProfileV2 statBlock,
         IReadOnlyDictionary<string, int> deltas)
     {
         var appliedDeltas = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         foreach (var (statName, delta) in deltas)
         {
-            var current = statBlock.Stats.TryGetValue(statName, out var currentValue)
-                ? currentValue
-                : AdaptiveStatCatalog.DefaultValue;
-            statBlock.Stats[statName] = Math.Clamp(current + delta, AdaptiveStatCatalog.MinValue, AdaptiveStatCatalog.MaxValue);
+            var current = CharacterStatProfileV2Accessor.GetStatOrDefault(statBlock, statName, AdaptiveStatCatalog.DefaultValue);
+            var newValue = Math.Clamp(current + delta, AdaptiveStatCatalog.MinValue, AdaptiveStatCatalog.MaxValue);
+            CharacterStatProfileV2Accessor.SetStat(statBlock, statName, newValue);
             if (delta != 0)
             {
                 appliedDeltas[statName] = delta;
@@ -5993,7 +6548,7 @@ Requirements:
             .Select(x =>
             {
                 var characterId = string.IsNullOrWhiteSpace(x.Value.CharacterId) ? x.Key : x.Value.CharacterId;
-                var snapshot = CharacterStatProfileV2Accessor.CreateFromStats(characterId, x.Value.Stats);
+                var snapshot = CharacterStatProfileV2Accessor.CreateFromStats(characterId, CharacterStatProfileV2Accessor.GetAllStats(x.Value));
                 snapshot.SnapshotUtc = DateTime.UtcNow;
                 return snapshot;
             })
@@ -6006,7 +6561,7 @@ Requirements:
             SessionId = session.Id,
             ActiveScenarioId = session.AdaptiveState.ActiveScenarioId,
             ActiveVariantId = session.AdaptiveState.ActiveVariantId,
-            CurrentPhase = MapPhase(session.AdaptiveState.CurrentNarrativePhase),
+            CurrentPhase = session.AdaptiveState.CurrentPhase,
             InteractionCountInPhase = session.AdaptiveState.InteractionsSinceCommitment,
             ConsecutiveLeadCount = 0,
             LastEvaluationUtc = DateTime.UtcNow,
@@ -6015,9 +6570,7 @@ Requirements:
             SelectedWillingnessProfileId = session.AdaptiveState.SelectedWillingnessProfileId,
             SelectedNarrativeGateProfileId = session.AdaptiveState.SelectedNarrativeGateProfileId,
             HusbandAwarenessProfileId = session.AdaptiveState.HusbandAwarenessProfileId,
-            PhaseOverrideFloor = session.AdaptiveState.PhaseOverrideFloor is null
-                ? null
-                : MapPhase(session.AdaptiveState.PhaseOverrideFloor.Value),
+            PhaseOverrideFloor = session.AdaptiveState.PhaseOverrideFloor,
             PhaseOverrideScenarioId = session.AdaptiveState.PhaseOverrideScenarioId,
             PhaseOverrideCycleIndex = session.AdaptiveState.PhaseOverrideCycleIndex,
             PhaseOverrideSource = session.AdaptiveState.PhaseOverrideSource,
@@ -6048,7 +6601,91 @@ Requirements:
                 .ToList(),
             ThemeMachineSnapshot = session.AdaptiveState.ThemeMachineSnapshot is null
                 ? null
-                : CloneThemeMachineSnapshot(session.AdaptiveState.ThemeMachineSnapshot)
+                : CloneThemeMachineSnapshot(session.AdaptiveState.ThemeMachineSnapshot),
+            ThemeScores = session.AdaptiveState.ThemeScores
+                .ToDictionary(
+                    kvp => kvp.Key,
+                    kvp => new DreamGenClone.Domain.RolePlay.ThemeScoreState
+                    {
+                        ThemeId = kvp.Value.ThemeId,
+                        ThemeName = kvp.Value.ThemeName,
+                        Intensity = kvp.Value.Intensity,
+                        Score = kvp.Value.Score,
+                        Breakdown = new DreamGenClone.Domain.RolePlay.ThemeScoreBreakdownV2
+                        {
+                            ChoiceSignal = kvp.Value.Breakdown.ChoiceSignal,
+                            CharacterStateSignal = kvp.Value.Breakdown.CharacterStateSignal,
+                            InteractionEvidenceSignal = kvp.Value.Breakdown.InteractionEvidenceSignal,
+                            ScenarioPhaseSignal = kvp.Value.Breakdown.ScenarioPhaseSignal
+                        },
+                        Blocked = kvp.Value.Blocked,
+                        SuppressedHitCount = kvp.Value.SuppressedHitCount,
+                        IsScenarioCandidate = kvp.Value.IsScenarioCandidate,
+                        NarrativeFitScore = kvp.Value.NarrativeFitScore,
+                        LastCandidateEvaluationTimeUtc = kvp.Value.LastCandidateEvaluationTimeUtc,
+                        CompletionCooldownInteractions = kvp.Value.CompletionCooldownInteractions,
+                        UpdatedUtc = session.AdaptiveState.ThemeTrackerUpdatedUtc
+                    },
+                    StringComparer.OrdinalIgnoreCase),
+            PrimaryThemeId = session.AdaptiveState.PrimaryThemeId,
+            SecondaryThemeId = session.AdaptiveState.SecondaryThemeId,
+            ThemeSelectionRule = session.AdaptiveState.ThemeSelectionRule,
+            ObservedTurnCount = session.AdaptiveState.ObservedTurnCount,
+            SelectionMinimumTurns = session.AdaptiveState.SelectionMinimumTurns,
+            ThemeTrackerUpdatedUtc = session.AdaptiveState.ThemeTrackerUpdatedUtc,
+            RecentEvidence = session.AdaptiveState.RecentEvidence
+                .Select(e => new DreamGenClone.Domain.RolePlay.ThemeEvidenceRecord
+                {
+                    InteractionId = e.InteractionId,
+                    ThemeId = e.ThemeId,
+                    SignalType = e.SignalType,
+                    Delta = e.Delta,
+                    Confidence = e.Confidence,
+                    Rationale = e.Rationale,
+                    CreatedUtc = e.CreatedUtc
+                })
+                .ToList(),
+            SemanticStepSucceeded = session.AdaptiveState.SemanticStepSucceeded,
+            SemanticEvents = session.AdaptiveState.SemanticEvents
+                .Select(e => new DreamGenClone.Domain.RolePlay.SemanticEventRecord
+                {
+                    InteractionId = e.InteractionId,
+                    EventId = e.EventId,
+                    Confidence = e.Confidence,
+                    MappingId = e.MappingId,
+                    Direction = e.Direction,
+                    ThemeTargets = [..e.ThemeTargets],
+                    ProcessedUtc = e.ProcessedUtc
+                })
+                .ToList(),
+            SemanticDeltaBreakdowns = session.AdaptiveState.SemanticDeltaBreakdowns
+                .Select(d => new DreamGenClone.Domain.RolePlay.SemanticThemeDeltaBreakdown
+                {
+                    InteractionId = d.InteractionId,
+                    ThemeId = d.ThemeId,
+                    SourceType = d.SourceType,
+                    RawDelta = d.RawDelta,
+                    AppliedDelta = d.AppliedDelta,
+                    CappedDelta = d.CappedDelta,
+                    SuppressedDelta = d.SuppressedDelta,
+                    SuppressionReasonCode = d.SuppressionReasonCode
+                })
+                .ToList(),
+            SemanticStatDeltaBreakdowns = session.AdaptiveState.SemanticStatDeltaBreakdowns
+                .Select(d => new DreamGenClone.Domain.RolePlay.SemanticStatDeltaRecord
+                {
+                    InteractionId = d.InteractionId,
+                    CharacterId = d.CharacterId,
+                    StatName = d.StatName,
+                    SourceType = d.SourceType,
+                    RawDelta = d.RawDelta,
+                    AppliedDelta = d.AppliedDelta,
+                    CappedDelta = d.CappedDelta,
+                    SuppressedDelta = d.SuppressedDelta,
+                    SuppressionReasonCode = d.SuppressionReasonCode,
+                    ReasonCode = d.ReasonCode
+                })
+                .ToList()
         };
     }
 
@@ -6102,13 +6739,11 @@ Requirements:
         }
 
         var normalizedStats = AdaptiveStatCatalog.NormalizeComplete(personaTemplate.BaseStats);
-        session.AdaptiveState.CharacterStats[personaName] = new CharacterStatBlock
-        {
-            CharacterId = personaName,
-            Stats = normalizedStats,
-            BaselineStats = new Dictionary<string, int>(normalizedStats, StringComparer.OrdinalIgnoreCase),
-            UpdatedUtc = DateTime.UtcNow
-        };
+        var seededPersona = CharacterStatProfileV2Accessor.CreateDefault(personaName);
+        CharacterStatProfileV2Accessor.SetAllStats(seededPersona, normalizedStats);
+        seededPersona.BaselineStats = new Dictionary<string, int>(normalizedStats, StringComparer.OrdinalIgnoreCase);
+        seededPersona.UpdatedUtc = DateTime.UtcNow;
+        session.AdaptiveState.CharacterStats[personaName] = seededPersona;
 
         _logger.LogDebug(
             "Seeded persona '{PersonaName}' stats from template '{TemplateId}' for session {SessionId}",
@@ -6131,20 +6766,20 @@ Requirements:
             return false;
         }
 
-        var seedStats = session.AdaptiveState.CharacterStats.Values.FirstOrDefault()?.Stats;
-        var normalizedStats = AdaptiveStatCatalog.NormalizeComplete(seedStats ?? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase));
+        var seedStats = session.AdaptiveState.CharacterStats.Values.FirstOrDefault() is { } seedProfile
+            ? CharacterStatProfileV2Accessor.GetAllStats(seedProfile)
+            : new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var normalizedStats = AdaptiveStatCatalog.NormalizeComplete(seedStats);
 
-        session.AdaptiveState.CharacterStats[personaName] = new CharacterStatBlock
-        {
-            CharacterId = personaName,
-            Stats = normalizedStats,
-            UpdatedUtc = DateTime.UtcNow
-        };
+        var ensuredProfile = CharacterStatProfileV2Accessor.CreateDefault(personaName);
+        CharacterStatProfileV2Accessor.SetAllStats(ensuredProfile, normalizedStats);
+        ensuredProfile.UpdatedUtc = DateTime.UtcNow;
+        session.AdaptiveState.CharacterStats[personaName] = ensuredProfile;
 
         return true;
     }
 
-    private async Task<List<ScenarioDefinition>> BuildScenarioCandidatesAsync(RolePlaySession session, CancellationToken cancellationToken)
+    private async Task<List<ScenarioDefinition>> BuildScenarioCandidatesAsync(RolePlaySession session, AdaptiveScenarioState v2State, CancellationToken cancellationToken)
     {
         var completionCounts = session.AdaptiveState.ScenarioHistory
             .Where(x => !string.IsNullOrWhiteSpace(x.ScenarioId))
@@ -6188,11 +6823,18 @@ Requirements:
                 PreferencePriorityScore = ApplyCompletedScenarioPenalty(candidate.ScenarioId, candidate.PreferencePriorityScore)
             };
 
-        var rankedThemes = session.AdaptiveState.ThemeTracker.Themes.Values
+        var rankedThemes = v2State.ThemeScores.Values
+            .Where(theme => !theme.Blocked)
             .Select(theme => new
             {
                 Theme = theme,
-                PenalizedScore = ApplyCompletedScenarioPenalty(theme.ThemeId, NormalizeThemeScore(theme.Score))
+                // PenalizedScore drives ordering only; uses full composite score.
+                PenalizedScore = ApplyCompletedScenarioPenalty(theme.ThemeId, NormalizeThemeScore(theme.Score)),
+                // NarrativeEvidenceScore uses only interaction evidence — excludes ChoiceSignal
+                // (preference, already in PreferencePriorityScore) and ScenarioPhaseSignal
+                // (scenario keyword fit, not user narrative behaviour).
+                // ApplyRepeatPenalty will apply the completion penalty when building candidates.
+                NarrativeEvidenceScore = NormalizeThemeScore(theme.Breakdown.InteractionEvidenceSignal)
             })
             .OrderByDescending(x => x.PenalizedScore)
             .ThenBy(x => x.Theme.ThemeId, StringComparer.OrdinalIgnoreCase)
@@ -6217,6 +6859,12 @@ Requirements:
                         return null;
                     }
 
+                    if (v2State.ThemeScores.TryGetValue(selection.ThemeId, out var selectedTrackerItem)
+                        && selectedTrackerItem.Blocked)
+                    {
+                        return null;
+                    }
+
                     var preferencePriority = selection.Tier switch
                     {
                         DreamGenClone.Domain.RolePlay.RPThemeTier.MustHave => 1m,
@@ -6227,14 +6875,15 @@ Requirements:
                         _ => 0.5m
                     };
 
-                    // NarrativeEvidenceScore uses the current tracker score (no penalty).
-                    // This reflects how strongly the narrative has been building toward this theme,
-                    // which grows organically through interaction. On repeat arcs the tracker score
-                    // continues to reflect active narrative evidence rather than being penalized.
-                    var trackerScore = session.AdaptiveState.ThemeTracker.Themes.TryGetValue(
-                        selection.ThemeId, out var trackerItem)
-                        ? NormalizeThemeScore(trackerItem.Score)
-                        : preferencePriority;
+                    // NarrativeEvidenceScore uses only the InteractionEvidenceSignal component of the
+                    // tracker breakdown — the organic signal that grows through user interaction choices.
+                    // Excludes ChoiceSignal (preference already in PreferencePriorityScore — Bug 1 fix)
+                    // and ScenarioPhaseSignal (scenario keyword fit, not narrative buildup — Bug 2 fix).
+                    // Fallback is 0 (no evidence yet); PreferencePriorityScore carries tier weight.
+                    // v2State.ThemeScores holds the live V2-synced values; session.AdaptiveState may be stale.
+                    var trackerScore = selectedTrackerItem is not null
+                        ? NormalizeThemeScore(selectedTrackerItem.Breakdown.InteractionEvidenceSignal)
+                        : 0m;
 
                     var fitRulesJson = RPThemeFitRulesConverter.BuildScenarioFitRulesJson(theme, selectionRoleBindings);
 
@@ -6245,7 +6894,9 @@ Requirements:
                         NarrativeEvidenceScore: trackerScore,
                         PreferencePriorityScore: preferencePriority,
                         ScenarioFitRulesJson: fitRulesJson,
-                        ScenarioFitRuleSource: "session-selection");
+                        ScenarioFitRuleSource: "session-selection",
+                        SuccessorCausalityBoost: (decimal)(selectedTrackerItem?.Breakdown.SuccessorCausalityBoost ?? 0),
+                        CompletionFitScorePenaltyPoints: (decimal)(selectedTrackerItem?.Breakdown.CompletionFitScorePenalty ?? 0));
                 })
                 .Where(x => x is not null)
                 .Select(x => x!)
@@ -6277,6 +6928,12 @@ Requirements:
                         return null;
                     }
 
+                    if (v2State.ThemeScores.TryGetValue(assignment.ThemeId, out var assignmentTrackerItem)
+                        && assignmentTrackerItem.Blocked)
+                    {
+                        return null;
+                    }
+
                     var preferencePriority = assignment.Tier switch
                     {
                         DreamGenClone.Domain.RolePlay.RPThemeTier.MustHave => 1m,
@@ -6294,14 +6951,21 @@ Requirements:
 
                     var fitRulesJson = RPThemeFitRulesConverter.BuildScenarioFitRulesJson(theme, roleCharacterBindings);
 
+                    // NarrativeEvidenceScore: pure interaction evidence only (Bug 1 + Bug 2 fix).
+                    var trackerScore = assignmentTrackerItem is not null
+                        ? NormalizeThemeScore(assignmentTrackerItem.Breakdown.InteractionEvidenceSignal)
+                        : 0m;
+
                     return ApplyRepeatPenalty(new ScenarioDefinition(
                         theme.Id,
                         theme.Label,
                         Priority: Math.Max(1, 5 - index),
-                        NarrativeEvidenceScore: preferencePriority,
+                        NarrativeEvidenceScore: trackerScore,
                         PreferencePriorityScore: preferencePriority,
                         ScenarioFitRulesJson: fitRulesJson,
-                        ScenarioFitRuleSource: "rp-theme"));
+                        ScenarioFitRuleSource: "rp-theme",
+                        SuccessorCausalityBoost: (decimal)(assignmentTrackerItem?.Breakdown.SuccessorCausalityBoost ?? 0),
+                        CompletionFitScorePenaltyPoints: (decimal)(assignmentTrackerItem?.Breakdown.CompletionFitScorePenalty ?? 0)));
                 })
                 .Where(x => x is not null)
                 .Select(x => x!)
@@ -6331,8 +6995,10 @@ Requirements:
                         theme.Theme.ThemeId,
                         theme.Theme.ThemeName,
                         Priority: 5 - index,
-                        NarrativeEvidenceScore: theme.PenalizedScore,
-                        PreferencePriorityScore: NormalizePreferencePriority(5 - index))))
+                        NarrativeEvidenceScore: theme.NarrativeEvidenceScore,
+                        PreferencePriorityScore: NormalizePreferencePriority(5 - index),
+                        SuccessorCausalityBoost: (decimal)theme.Theme.Breakdown.SuccessorCausalityBoost,
+                        CompletionFitScorePenaltyPoints: (decimal)theme.Theme.Breakdown.CompletionFitScorePenalty)))
                     .ToList();
 
                 if (profileCandidates.Count > 0)
@@ -6348,8 +7014,10 @@ Requirements:
                 theme.Theme.ThemeId,
                 theme.Theme.ThemeName,
                 Priority: 5 - index,
-                NarrativeEvidenceScore: theme.PenalizedScore,
-                PreferencePriorityScore: NormalizePreferencePriority(5 - index))))
+                NarrativeEvidenceScore: theme.NarrativeEvidenceScore,
+                PreferencePriorityScore: NormalizePreferencePriority(5 - index),
+                SuccessorCausalityBoost: (decimal)theme.Theme.Breakdown.SuccessorCausalityBoost,
+                CompletionFitScorePenaltyPoints: (decimal)theme.Theme.Breakdown.CompletionFitScorePenalty)))
             .ToList();
 
         if (candidates.Count == 0)
@@ -6893,11 +7561,11 @@ Requirements:
     private static List<DreamGenClone.Domain.RolePlay.BehavioralConcept> BuildConceptCandidates(RolePlaySession session)
     {
         var list = new List<DreamGenClone.Domain.RolePlay.BehavioralConcept>();
-        if (!string.IsNullOrWhiteSpace(session.AdaptiveState.ThemeTracker.PrimaryThemeId))
+        if (!string.IsNullOrWhiteSpace(session.AdaptiveState.PrimaryThemeId))
         {
             list.Add(new DreamGenClone.Domain.RolePlay.BehavioralConcept
             {
-                ConceptId = $"theme:{session.AdaptiveState.ThemeTracker.PrimaryThemeId}",
+                ConceptId = $"theme:{session.AdaptiveState.PrimaryThemeId}",
                 Category = "Scenario",
                 Priority = 100,
                 GuidanceText = "Maintain primary-theme continuity.",
@@ -7142,3 +7810,4 @@ Requirements:
         public Task<IReadOnlyList<DreamGenClone.Domain.RolePlay.ThemeMachineDiagnosticEvent>> LoadThemeMachineDiagnosticEventsAsync(string sessionId, int take = 100, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<DreamGenClone.Domain.RolePlay.ThemeMachineDiagnosticEvent>>([]);
     }
 }
+

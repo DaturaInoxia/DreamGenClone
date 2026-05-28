@@ -1,18 +1,49 @@
 using DreamGenClone.Web.Domain.RolePlay;
+using DreamGenClone.Web.Application.RolePlay;
 using DreamGenClone.Web.Application.Scenarios;
 using DreamGenClone.Web.Domain.Scenarios;
 using DreamGenClone.Application.RolePlay;
+using DreamGenClone.Application.Abstractions;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Infrastructure.Configuration;
 using DreamGenClone.Infrastructure.RolePlay;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using System.Text.Json;
 using Xunit;
 
 namespace DreamGenClone.Tests.RolePlay;
 
 public sealed class RolePlayContinueAsSelectionTests
 {
+    [Fact]
+    public async Task AddInteractionAsync_EmitsSemanticDebugTelemetryFields()
+    {
+        var recordingSink = new RecordingDebugEventSink();
+        var adaptiveService = new RolePlayAdaptiveStateService(
+            new RolePlayTestFactory.FakeThemeCatalogService(),
+            recordingSink,
+            NullLogger<RolePlayAdaptiveStateService>.Instance);
+
+        var service = RolePlayTestFactory.CreateEngineService(
+            adaptiveStateService: adaptiveService,
+            debugEventSink: recordingSink);
+
+        var session = await service.CreateSessionAsync("debug semantic telemetry");
+        await service.AddInteractionAsync(session.Id, ContinueAsActor.Npc, "Becky", "plain interaction without semantic markers");
+
+        var adaptiveUpdate = Assert.Single(recordingSink.Records.Where(x => string.Equals(x.EventKind, "InteractionAdaptiveStateUpdated", StringComparison.Ordinal)));
+        using var metadata = JsonDocument.Parse(adaptiveUpdate.MetadataJson);
+        var root = metadata.RootElement;
+
+        Assert.True(root.TryGetProperty("semanticStepSucceeded", out var semanticStep));
+        Assert.True(semanticStep.GetBoolean());
+        Assert.True(root.TryGetProperty("semanticEvents", out var semanticEvents));
+        Assert.Equal(JsonValueKind.Array, semanticEvents.ValueKind);
+        Assert.True(root.TryGetProperty("semanticDeltaBreakdowns", out var semanticDeltas));
+        Assert.Equal(JsonValueKind.Array, semanticDeltas.ValueKind);
+    }
+
     [Fact]
     public async Task ContinueAsAsync_SelectedIdentityIds_HonorsAvailability()
     {
@@ -127,6 +158,55 @@ public sealed class RolePlayContinueAsSelectionTests
         Assert.Contains("all candidates were blocked", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public async Task EvaluateCandidatesAsync_ChangesLeader_WhenNarrativeEvidenceSnapshotChanges()
+    {
+        var service = CreateScenarioSelectionService();
+        var state = new AdaptiveScenarioState
+        {
+            SessionId = "session-ordering",
+            ActiveScenarioId = "scenario-a"
+        };
+
+        var firstPass = await service.EvaluateCandidatesAsync(
+            state,
+            [
+                new ScenarioDefinition("scenario-a", "Scenario A", Priority: 5, NarrativeEvidenceScore: 0.8m, PreferencePriorityScore: 0.5m),
+                new ScenarioDefinition("scenario-b", "Scenario B", Priority: 4, NarrativeEvidenceScore: 0.2m, PreferencePriorityScore: 0.5m)
+            ]);
+
+        var secondPass = await service.EvaluateCandidatesAsync(
+            state,
+            [
+                new ScenarioDefinition("scenario-a", "Scenario A", Priority: 5, NarrativeEvidenceScore: 0.2m, PreferencePriorityScore: 0.5m),
+                new ScenarioDefinition("scenario-b", "Scenario B", Priority: 4, NarrativeEvidenceScore: 0.8m, PreferencePriorityScore: 0.5m)
+            ]);
+
+        Assert.Equal("scenario-a", firstPass[0].ScenarioId);
+        Assert.Equal("scenario-b", secondPass[0].ScenarioId);
+    }
+
+    [Fact]
+    public async Task EvaluateCandidatesAsync_IncreasesFitScore_WhenNarrativeEvidenceSnapshotIncreases()
+    {
+        var service = CreateScenarioSelectionService();
+        var state = new AdaptiveScenarioState
+        {
+            SessionId = "session-fit",
+            ActiveScenarioId = "scenario-a"
+        };
+
+        var lowEvidenceResult = await service.EvaluateCandidatesAsync(
+            state,
+            [new ScenarioDefinition("scenario-a", "Scenario A", Priority: 5, NarrativeEvidenceScore: 0.2m, PreferencePriorityScore: 0.5m)]);
+
+        var highEvidenceResult = await service.EvaluateCandidatesAsync(
+            state,
+            [new ScenarioDefinition("scenario-a", "Scenario A", Priority: 5, NarrativeEvidenceScore: 0.8m, PreferencePriorityScore: 0.5m)]);
+
+        Assert.True(highEvidenceResult[0].FitScore > lowEvidenceResult[0].FitScore);
+    }
+
     private static ScenarioSelectionService CreateScenarioSelectionService()
     {
         var options = Options.Create(new StoryAnalysisOptions
@@ -178,5 +258,16 @@ public sealed class RolePlayContinueAsSelectionTests
         public Task<bool> DeleteScenarioAsync(string id) => Task.FromResult(false);
 
         public Task<Scenario> CloneScenarioAsync(string id, string newName) => throw new NotImplementedException();
+    }
+
+    private sealed class RecordingDebugEventSink : IRolePlayDebugEventSink
+    {
+        public List<RolePlayDebugEventRecord> Records { get; } = [];
+
+        public Task WriteAsync(RolePlayDebugEventRecord record, CancellationToken cancellationToken = default)
+        {
+            Records.Add(record);
+            return Task.CompletedTask;
+        }
     }
 }

@@ -1,4 +1,5 @@
 using DreamGenClone.Application.StoryAnalysis;
+using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Domain.StoryAnalysis;
 using DreamGenClone.Web.Application.RolePlay;
 using DreamGenClone.Web.Domain.RolePlay;
@@ -103,11 +104,11 @@ public sealed class ScenarioSeedAdaptiveStateTests
 
         await service.SeedFromScenarioAsync(session, scenario);
 
-        Assert.Equal(4, session.AdaptiveState.ThemeTracker.Themes.Count);
-        Assert.Contains("intimacy", session.AdaptiveState.ThemeTracker.Themes.Keys);
-        Assert.Contains("power-dynamics", session.AdaptiveState.ThemeTracker.Themes.Keys);
-        Assert.Contains("forbidden-risk", session.AdaptiveState.ThemeTracker.Themes.Keys);
-        Assert.Contains("confession", session.AdaptiveState.ThemeTracker.Themes.Keys);
+        Assert.Equal(4, session.AdaptiveState.ThemeScores.Count);
+        Assert.Contains("intimacy", session.AdaptiveState.ThemeScores.Keys);
+        Assert.Contains("power-dynamics", session.AdaptiveState.ThemeScores.Keys);
+        Assert.Contains("forbidden-risk", session.AdaptiveState.ThemeScores.Keys);
+        Assert.Contains("confession", session.AdaptiveState.ThemeScores.Keys);
     }
 
     [Fact]
@@ -119,10 +120,9 @@ public sealed class ScenarioSeedAdaptiveStateTests
 
         await service.SeedFromScenarioAsync(session, scenario);
 
-        foreach (var item in session.AdaptiveState.ThemeTracker.Themes.Values)
+        foreach (var item in session.AdaptiveState.ThemeScores.Values)
         {
-            // Scenario text scoring may bump some scores above 0, but without keywords in scenario text they should stay 0
-            Assert.False(item.Blocked);
+            Assert.Equal(0.0, item.Score);
         }
     }
 
@@ -142,7 +142,7 @@ public sealed class ScenarioSeedAdaptiveStateTests
 
         await service.SeedFromScenarioAsync(session, scenario);
 
-        var item = session.AdaptiveState.ThemeTracker.Themes["intimacy"];
+        var item = session.AdaptiveState.ThemeScores["intimacy"];
         Assert.Equal(15, item.Breakdown.ChoiceSignal);
         // MustHave gets +15 ChoiceSignal + 3 affinity bonus = 18 base score (before scenario text)
         Assert.True(item.Score >= 18);
@@ -163,7 +163,7 @@ public sealed class ScenarioSeedAdaptiveStateTests
 
         await service.SeedFromScenarioAsync(session, scenario);
 
-        var item = session.AdaptiveState.ThemeTracker.Themes["power-dynamics"];
+        var item = session.AdaptiveState.ThemeScores["power-dynamics"];
         Assert.Equal(8, item.Breakdown.ChoiceSignal);
         Assert.True(item.Score >= 8);
     }
@@ -182,7 +182,7 @@ public sealed class ScenarioSeedAdaptiveStateTests
 
         await service.SeedFromScenarioAsync(session, scenario);
 
-        var item = session.AdaptiveState.ThemeTracker.Themes["confession"];
+        var item = session.AdaptiveState.ThemeScores["confession"];
         Assert.Equal(3, item.Breakdown.ChoiceSignal);
     }
 
@@ -200,7 +200,7 @@ public sealed class ScenarioSeedAdaptiveStateTests
 
         await service.SeedFromScenarioAsync(session, scenario);
 
-        var item = session.AdaptiveState.ThemeTracker.Themes["forbidden-risk"];
+        var item = session.AdaptiveState.ThemeScores["forbidden-risk"];
         Assert.Equal(-5, item.Breakdown.ChoiceSignal);
         // Score cannot go below 0
         Assert.Equal(0, item.Score);
@@ -222,7 +222,7 @@ public sealed class ScenarioSeedAdaptiveStateTests
 
         await service.SeedFromScenarioAsync(session, scenario);
 
-        var item = session.AdaptiveState.ThemeTracker.Themes["power-dynamics"];
+        var item = session.AdaptiveState.ThemeScores["power-dynamics"];
         Assert.True(item.Blocked);
         Assert.Equal(0, item.Score);
         Assert.Equal(0, item.Breakdown.ChoiceSignal);
@@ -244,7 +244,7 @@ public sealed class ScenarioSeedAdaptiveStateTests
 
         await service.SeedFromScenarioAsync(session, scenario);
 
-        var item = session.AdaptiveState.ThemeTracker.Themes["forbidden-risk"];
+        var item = session.AdaptiveState.ThemeScores["forbidden-risk"];
         Assert.True(item.Blocked);
         Assert.Equal(0, item.Score);
         Assert.Equal(0, item.Breakdown.ScenarioPhaseSignal);
@@ -262,7 +262,7 @@ public sealed class ScenarioSeedAdaptiveStateTests
 
         await service.SeedFromScenarioAsync(session, scenario);
 
-        var item = session.AdaptiveState.ThemeTracker.Themes["intimacy"];
+        var item = session.AdaptiveState.ThemeScores["intimacy"];
         Assert.True(item.Breakdown.ScenarioPhaseSignal > 0, "ScenarioPhaseSignal should be > 0 for keyword matches");
         Assert.True(item.Score > 0);
     }
@@ -277,7 +277,7 @@ public sealed class ScenarioSeedAdaptiveStateTests
 
         await service.SeedFromScenarioAsync(session, scenario);
 
-        var item = session.AdaptiveState.ThemeTracker.Themes["power-dynamics"];
+        var item = session.AdaptiveState.ThemeScores["power-dynamics"];
         Assert.True(item.Breakdown.ScenarioPhaseSignal > 0);
     }
 
@@ -291,7 +291,7 @@ public sealed class ScenarioSeedAdaptiveStateTests
 
         await service.SeedFromScenarioAsync(session, scenario);
 
-        var item = session.AdaptiveState.ThemeTracker.Themes["confession"];
+        var item = session.AdaptiveState.ThemeScores["confession"];
         Assert.True(item.Breakdown.ScenarioPhaseSignal > 0);
     }
 
@@ -324,8 +324,8 @@ public sealed class ScenarioSeedAdaptiveStateTests
         await service.SeedFromScenarioAsync(session, scenarioWithAffinity);
         await serviceNoStyle.SeedFromScenarioAsync(sessionWithout, scenarioWithout);
 
-        var withAffinity = session.AdaptiveState.ThemeTracker.Themes["intimacy"].Score;
-        var withoutAffinity = sessionWithout.AdaptiveState.ThemeTracker.Themes["intimacy"].Score;
+        var withAffinity = session.AdaptiveState.ThemeScores["intimacy"].Score;
+        var withoutAffinity = sessionWithout.AdaptiveState.ThemeScores["intimacy"].Score;
 
         Assert.True(withAffinity > withoutAffinity, $"Affinity score ({withAffinity}) should be greater than without ({withoutAffinity})");
     }
@@ -347,17 +347,21 @@ public sealed class ScenarioSeedAdaptiveStateTests
             new FakeCatalogService(), new FakePreferenceService(), styleService,
             null!, null!);
         var session = new RolePlaySession { SelectedSteeringProfileId = "style-1" };
-        session.AdaptiveState.CharacterStats["Alice"] = new CharacterStatBlock
+        session.AdaptiveState.CharacterStats["Alice"] = new CharacterStatProfileV2
         {
             CharacterId = "alice-1",
-            Stats = new(StringComparer.OrdinalIgnoreCase) { ["Desire"] = 50, ["Connection"] = 50, ["Restraint"] = 50, ["Tension"] = 50, ["Dominance"] = 50 }
+            Desire = 50,
+            Connection = 50,
+            Restraint = 50,
+            Tension = 50,
+            Dominance = 50
         };
         var scenario = CreateMinimalScenario();
 
         await service.SeedFromScenarioAsync(session, scenario);
 
-        Assert.Equal(55, session.AdaptiveState.CharacterStats["Alice"].Stats["Desire"]);
-        Assert.Equal(47, session.AdaptiveState.CharacterStats["Alice"].Stats["Connection"]);
+        Assert.Equal(55, session.AdaptiveState.CharacterStats["Alice"].Desire);
+        Assert.Equal(47, session.AdaptiveState.CharacterStats["Alice"].Connection);
         // Unaffected stats stay the same (before StatAffinities)
     }
 
@@ -373,18 +377,22 @@ public sealed class ScenarioSeedAdaptiveStateTests
             new FakeCatalogService(), prefService, new FakeStyleProfileService(),
             null!, null!);
         var session = new RolePlaySession { SelectedThemeProfileId = "profile-1" };
-        session.AdaptiveState.CharacterStats["Bob"] = new CharacterStatBlock
+        session.AdaptiveState.CharacterStats["Bob"] = new CharacterStatProfileV2
         {
             CharacterId = "bob-1",
-            Stats = new(StringComparer.OrdinalIgnoreCase) { ["Desire"] = 50, ["Connection"] = 50, ["Restraint"] = 50, ["Tension"] = 50, ["Dominance"] = 50 }
+            Desire = 50,
+            Connection = 50,
+            Restraint = 50,
+            Tension = 50,
+            Dominance = 50
         };
         var scenario = CreateMinimalScenario();
 
         await service.SeedFromScenarioAsync(session, scenario);
 
         // Intimacy has StatAffinities: Desire +2, Connection +1
-        Assert.Equal(52, session.AdaptiveState.CharacterStats["Bob"].Stats["Desire"]);
-        Assert.Equal(51, session.AdaptiveState.CharacterStats["Bob"].Stats["Connection"]);
+        Assert.Equal(52, session.AdaptiveState.CharacterStats["Bob"].Desire);
+        Assert.Equal(51, session.AdaptiveState.CharacterStats["Bob"].Connection);
     }
 
     [Fact]
@@ -397,17 +405,21 @@ public sealed class ScenarioSeedAdaptiveStateTests
             new FakeCatalogService(), prefService, new FakeStyleProfileService(),
             null!, null!);
         var session = new RolePlaySession { SelectedThemeProfileId = "profile-1" };
-        session.AdaptiveState.CharacterStats["Bob"] = new CharacterStatBlock
+        session.AdaptiveState.CharacterStats["Bob"] = new CharacterStatProfileV2
         {
             CharacterId = "bob-1",
-            Stats = new(StringComparer.OrdinalIgnoreCase) { ["Desire"] = 50, ["Connection"] = 50, ["Restraint"] = 50, ["Tension"] = 50, ["Dominance"] = 50 }
+            Desire = 50,
+            Connection = 50,
+            Restraint = 50,
+            Tension = 50,
+            Dominance = 50
         };
         var scenario = CreateMinimalScenario();
 
         await service.SeedFromScenarioAsync(session, scenario);
 
         // Power Dynamics has StatAffinities: Dominance +3, but it's blocked
-        Assert.Equal(50, session.AdaptiveState.CharacterStats["Bob"].Stats["Dominance"]);
+        Assert.Equal(50, session.AdaptiveState.CharacterStats["Bob"].Dominance);
     }
 
     // --- BaseStatProfile + per-char overrides + StatBias order ---
@@ -435,19 +447,23 @@ public sealed class ScenarioSeedAdaptiveStateTests
             SelectedThemeProfileId = "profile-1",
             SelectedSteeringProfileId = "style-1"
         };
-        session.AdaptiveState.CharacterStats["Carol"] = new CharacterStatBlock
+        session.AdaptiveState.CharacterStats["Carol"] = new CharacterStatProfileV2
         {
             CharacterId = "carol-1",
-            Stats = new(StringComparer.OrdinalIgnoreCase) { ["Desire"] = 50, ["Connection"] = 50, ["Restraint"] = 50, ["Tension"] = 50, ["Dominance"] = 50 }
+            Desire = 50,
+            Connection = 50,
+            Restraint = 50,
+            Tension = 50,
+            Dominance = 50
         };
         var scenario = CreateMinimalScenario();
 
         await service.SeedFromScenarioAsync(session, scenario);
 
         // Desire: 50 (base) + 10 (StatBias) + 2 (Intimacy StatAffinity) = 62
-        Assert.Equal(62, session.AdaptiveState.CharacterStats["Carol"].Stats["Desire"]);
+        Assert.Equal(62, session.AdaptiveState.CharacterStats["Carol"].Desire);
         // Connection: 50 (base) + 1 (Intimacy StatAffinity) = 51
-        Assert.Equal(51, session.AdaptiveState.CharacterStats["Carol"].Stats["Connection"]);
+        Assert.Equal(51, session.AdaptiveState.CharacterStats["Carol"].Connection);
     }
 
     // --- Null / edge cases ---
@@ -467,7 +483,7 @@ public sealed class ScenarioSeedAdaptiveStateTests
         await service.SeedFromScenarioAsync(session, scenario);
 
         // No ChoiceSignal should be applied
-        foreach (var item in session.AdaptiveState.ThemeTracker.Themes.Values)
+        foreach (var item in session.AdaptiveState.ThemeScores.Values)
         {
             Assert.Equal(0, item.Breakdown.ChoiceSignal);
             Assert.False(item.Blocked);
@@ -483,6 +499,6 @@ public sealed class ScenarioSeedAdaptiveStateTests
 
         await service.SeedFromScenarioAsync(session, scenario);
 
-        Assert.Equal(4, session.AdaptiveState.ThemeTracker.Themes.Count);
+        Assert.Equal(4, session.AdaptiveState.ThemeScores.Count);
     }
 }

@@ -23,6 +23,58 @@ public sealed class AdaptiveScenarioState
     public List<CharacterLocationState> CharacterLocations { get; set; } = [];
     public List<CharacterLocationPerceptionState> CharacterLocationPerceptions { get; set; } = [];
     public List<CharacterStatProfileV2> CharacterSnapshots { get; set; } = [];
+
+    // ---- Runtime CharacterStats dictionary (not persisted) --------------------------------
+    // Lazy-initialised from CharacterSnapshots on first access. Shares object references with
+    // CharacterSnapshots for existing entries. Call SyncCharacterSnapshots() before persistence
+    // whenever entries are added or removed.
+    [System.Text.Json.Serialization.JsonIgnore]
+    private Dictionary<string, CharacterStatProfileV2>? _characterStats;
+
+    /// <summary>
+    /// Runtime in-memory dictionary of character stat profiles, keyed by CharacterId.
+    /// Lazily built from <see cref="CharacterSnapshots"/>. The dictionary and the list share
+    /// object references, so in-place mutations are visible from both sides.
+    /// Call <see cref="SyncCharacterSnapshots"/> before any persistence when entries were added
+    /// or removed via this dictionary.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public Dictionary<string, CharacterStatProfileV2> CharacterStats
+    {
+        get
+        {
+            if (_characterStats is null)
+            {
+                _characterStats = new Dictionary<string, CharacterStatProfileV2>(StringComparer.OrdinalIgnoreCase);
+                foreach (var snap in CharacterSnapshots)
+                    _characterStats[snap.CharacterId] = snap;
+            }
+            return _characterStats;
+        }
+    }
+
+    /// <summary>
+    /// Rebuilds <see cref="CharacterSnapshots"/> from the runtime <see cref="CharacterStats"/>
+    /// dictionary. Call this before persistence when the dictionary entries may have changed.
+    /// </summary>
+    public void SyncCharacterSnapshots()
+    {
+        if (_characterStats is null) return;
+        CharacterSnapshots.Clear();
+        CharacterSnapshots.AddRange(_characterStats.Values);
+    }
+
+    /// <summary>
+    /// Rebuilds the runtime <see cref="CharacterStats"/> dictionary from the current
+    /// <see cref="CharacterSnapshots"/> list. Call after a fresh load from the repository.
+    /// </summary>
+    public void RebuildCharacterStatsCache()
+    {
+        _characterStats = new Dictionary<string, CharacterStatProfileV2>(StringComparer.OrdinalIgnoreCase);
+        foreach (var snap in CharacterSnapshots)
+            _characterStats[snap.CharacterId] = snap;
+    }
+
     public ThemeMachineSessionSnapshot? ThemeMachineSnapshot { get; set; }
 
     /// <summary>
@@ -36,6 +88,54 @@ public sealed class AdaptiveScenarioState
     /// Reset to 0 when CurrentBeatCode changes.
     /// </summary>
     public int TurnsInCurrentBeat { get; set; }
+
+    // ---- V2 theme tracker -----------------------------------------------------------------
+    /// <summary>Per-theme score state. Hydrated from <c>RolePlayV2ThemeScores</c>.</summary>
+    public Dictionary<string, ThemeScoreState> ThemeScores { get; set; }
+        = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Recent theme evidence ring. Hydrated from <c>RolePlayV2ThemeTrackerMeta.RecentEvidenceJson</c>.</summary>
+    public List<ThemeEvidenceRecord> RecentEvidence { get; set; } = [];
+
+    public string? PrimaryThemeId { get; set; }
+    public string? SecondaryThemeId { get; set; }
+    public string ThemeSelectionRule { get; set; } = "Top1";
+    public DateTime ThemeTrackerUpdatedUtc { get; set; } = DateTime.UtcNow;
+
+    /// <summary>
+    /// Number of user-initiated turns observed for this session. One increment per
+    /// <c>StartTurnAsync</c> call.
+    /// </summary>
+    public int ObservedTurnCount { get; set; }
+
+    /// <summary>Minimum number of turns that must be observed before theme selection commits.</summary>
+    public int SelectionMinimumTurns { get; set; }
+
+    // ---- Pacing / progression -------------------------------------------------------------
+    public int CompletedScenarios { get; set; }
+    public int InteractionsSinceCommitment { get; set; }
+    public int InteractionsInApproaching { get; set; }
+    public DateTime? ScenarioCommitmentTimeUtc { get; set; }
+
+    // ---- Scenario history -----------------------------------------------------------------
+    /// <summary>Rows hydrated from <c>RolePlayV2ScenarioHistory</c>.</summary>
+    public List<ScenarioHistoryEntry> ScenarioHistory { get; set; } = [];
+
+    // ---- Pairwise stats -------------------------------------------------------------------
+    /// <summary>Rows hydrated from <c>RolePlayV2PairwiseStats</c>.</summary>
+    public List<PairwiseStatRecord> PairwiseStats { get; set; } = [];
+
+    // ---- Semantic telemetry ---------------------------------------------------------------
+    public bool SemanticStepSucceeded { get; set; } = true;
+
+    /// <summary>Recent semantic events. Hydrated from <c>RolePlayV2SemanticEvents</c>.</summary>
+    public List<SemanticEventRecord> SemanticEvents { get; set; } = [];
+
+    /// <summary>Theme delta breakdowns. Persisted in <c>RolePlayV2AdaptiveStates.SemanticDeltaBreakdownsJson</c>.</summary>
+    public List<SemanticThemeDeltaBreakdown> SemanticDeltaBreakdowns { get; set; } = [];
+
+    /// <summary>Stat delta breakdowns. Persisted in <c>RolePlayV2AdaptiveStates.SemanticStatDeltaBreakdownsJson</c>.</summary>
+    public List<SemanticStatDeltaRecord> SemanticStatDeltaBreakdowns { get; set; } = [];
 }
 
 public sealed class CharacterLocationState

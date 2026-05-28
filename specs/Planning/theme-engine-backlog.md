@@ -49,6 +49,8 @@ The theme pipeline works as follows:
 
 **Complexity:** Medium. The phase enum and transition logic already exist. The change is allowing themes to opt out of phases that don't apply and adjusting the transition conditions accordingly.
 
+**Implemented (partial — Reset contradiction):** Rather than adding a full phase-model enum, the Reset contradiction was addressed by making stat recovery configurable per-theme via `RPThemeStatDecayOverride`. Each theme can now declare a `DecayScale` per stat (0.0 = permanent, 1.0 = full global recovery). Corruption-type themes can set near-zero scales so arc-earned stat changes survive Reset. Implemented: `RPThemeStatDecayOverride` domain model + `RPThemeStatDecayOverrides` DB table (FK → `RPThemes ON DELETE CASCADE`), full CRUD in `RPThemeService` (loaded in all 3 load paths), `ResolveThemeStatDecayScaleOverridesAsync` in `RolePlayEngineService`, `EffectivePull` override logic in `ApplySemiResetDecay`, UI sliders + global schedule read-only display in `RPThemeDetail.razor`, 3 engine tests in `PhaseLifecycleTransitionTests`, and 49 seed rows across 9 active themes (`artifacts/tmp/seed_decay_overrides.py`). The full phase-model support (skipping inapplicable phases, cyclical/static/aftermath-only models) is **not yet implemented**.
+
 ---
 
 ## Gap 3: Keyword-Driven Scoring Under-Serves Psychological Themes
@@ -105,7 +107,7 @@ The husband-awareness HARD CONSTRAINT mechanism already proves this pattern work
 | ID | Title | State | Notes |
 |---|---|---|---|
 | TE-001 | Allow primary + secondary themes to both inject guidance | `new` | The `Top2Blend` selection rule already tracks a secondary theme, but only the primary gets phase guidance and AI notes injected into the prompt. Allow the secondary theme to also inject guidance at reduced influence. Enables layered narratives (e.g. Seduction primary + Corruption secondary). See Gap 1 above. |
-| TE-002 | Support per-theme phase models (linear, cyclical, static, aftermath-only) | `new` | All themes currently follow the same 5-phase ladder (BuildUp→Committed→Approaching→Climax→Reset). Some themes are poorly served: Growing Apart has no climax, Corruption has no reset, Regret/Guilt is aftermath-only, Negotiation/Consent is setup-only. Allow RPTheme to declare a phase model and skip phases that don't apply. See Gap 2 above. |
+| TE-002 | Per-theme stat decay scale overrides on Reset (partial Gap 2 fix) | `done` | Originally scoped as full per-theme phase model support (linear/cyclical/static/aftermath-only). Implemented as a targeted fix for the Reset contradiction: `RPThemeStatDecayOverride` model (Id, ThemeId FK, StatName, DecayScale 0.0–1.0, Description) + `RPThemeStatDecayOverrides` DB table + full CRUD persistence in `RPThemeService` (all 3 load paths) + `ResolveThemeStatDecayScaleOverridesAsync` in `RolePlayEngineService` + `EffectivePull` override in `ApplySemiResetDecay` + slider UI and global schedule read-only display in `RPThemeDetail.razor` + 3 engine tests in `PhaseLifecycleTransitionTests` + 49 seed rows across 9 active themes. Full phase-model support (skip inapplicable phases, cyclical/static/aftermath-only models) remains unimplemented — see Gap 2 above. |
 | TE-003 | Boost character-state-driven scoring for psychological themes | `new` | Keyword-driven scoring works for observable themes (infidelity, voyeurism) but under-scores psychological themes where the action is internal (Seduction, Internal Conflict, Corruption). The `CharacterStateSignal` already exists but is underweighted for these themes. Add a per-theme `CharacterStateSignalWeight` override so psychological themes can rely more on character stats than keyword hits. See Gap 3 above. |
 | TE-004 | Add theme-to-theme causality chains | `new` | Themes are currently independent candidates with no causal relationships. Add a `SucceedingThemeIds` field to RPTheme so that when a theme completes, its successors get a score boost instead of just a generic penalty on the completed theme. Enables narrative arcs: Growing Apart → Infidelity → Regret/Guilt → Reconciliation. See Gap 4 above. |
 | TE-005 | Allow themes to declare hard constraints (not just soft hints) | `new` | Theme AI guidance notes are currently injected as soft hints or strong guidance, but the LLM can ignore them. For themes requiring restraint or pacing (Denial/Edging, Blackmail/Coercion), the AI's natural tendency to escalate works against the theme. Generalize the existing husband-awareness HARD CONSTRAINT mechanism so any theme can declare hard constraints. See Gap 5 above. |
@@ -138,7 +140,7 @@ The husband-awareness HARD CONSTRAINT mechanism already proves this pattern work
 | 2 | TE-005 | Hard constraints for themes | Low complexity, enables restraint-based themes | Nothing |
 | 3 | TE-001 | Primary + secondary guidance | Enables layered narratives | Nothing |
 | 4 | TE-004 | Theme causality chains | Enables multi-theme narrative arcs | Nothing |
-| 5 | TE-002 | Per-theme phase models | Medium complexity, needed for non-linear themes | Design first |
+| 5 | TE-002 | Per-theme phase models (full) | Medium complexity; Reset contradiction partially addressed via decay overrides — phase-skip/cyclical/static models still unimplemented | Design first |
 
 ### New Themes
 

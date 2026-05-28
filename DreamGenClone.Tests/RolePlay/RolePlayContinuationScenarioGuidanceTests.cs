@@ -68,7 +68,8 @@ public sealed class RolePlayContinuationScenarioGuidanceTests
                 new RPThemeAIGuidanceNote { Section = RPThemeAIGuidanceSection.KeyScenarioElement, Text = "Keep departures brief and plausible.", SortOrder = 0 },
                 new RPThemeAIGuidanceNote { Section = RPThemeAIGuidanceSection.InteractionDynamics, Text = "Escalate excuse complexity over time.", SortOrder = 1 },
                 new RPThemeAIGuidanceNote { Section = RPThemeAIGuidanceSection.Avoidance, Text = "Avoid direct witness by partner.", SortOrder = 2 },
-                new RPThemeAIGuidanceNote { Section = RPThemeAIGuidanceSection.FitFormula, Text = "Fit Score = (Tension x 0.25) + (Restraint x 0.25)", SortOrder = 3 }
+                new RPThemeAIGuidanceNote { Section = RPThemeAIGuidanceSection.HardConstraint, Text = "Do not write immediate resolution.", SortOrder = 3 },
+                new RPThemeAIGuidanceNote { Section = RPThemeAIGuidanceSection.FitFormula, Text = "Fit Score = (Tension x 0.25) + (Restraint x 0.25)", SortOrder = 4 }
             ]
         };
 
@@ -78,7 +79,31 @@ public sealed class RolePlayContinuationScenarioGuidanceTests
         Assert.Contains("Theme AI Guidance (soft hints, influence=40%):", text, StringComparison.Ordinal);
         Assert.Contains("Escalate excuse complexity over time.", text, StringComparison.Ordinal);
         Assert.Contains("Apply these as soft guidance only", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Do not write immediate resolution.", text, StringComparison.Ordinal);
         Assert.DoesNotContain("Fit Score =", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AppendThemeHardConstraints_RendersOnlyHardConstraintNotes()
+    {
+        var builder = new StringBuilder();
+        var theme = new RPTheme
+        {
+            Id = "denial-edging",
+            AIGenerationNotes =
+            [
+                new RPThemeAIGuidanceNote { Section = RPThemeAIGuidanceSection.InteractionDynamics, Text = "Maintain teasing rhythm.", SortOrder = 0 },
+                new RPThemeAIGuidanceNote { Section = RPThemeAIGuidanceSection.HardConstraint, Text = "No climax release in this turn.", SortOrder = 1 },
+                new RPThemeAIGuidanceNote { Section = RPThemeAIGuidanceSection.HardConstraint, Text = "No climax release in this turn.", SortOrder = 2 }
+            ]
+        };
+
+        RolePlayAssistantPrompts.AppendThemeHardConstraints(builder, theme, maxConstraints: 5);
+
+        var text = builder.ToString();
+        Assert.Contains("Theme Hard Constraints (authoritative):", text, StringComparison.Ordinal);
+        Assert.Contains("HARD CONSTRAINT: No climax release in this turn.", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Maintain teasing rhythm.", text, StringComparison.Ordinal);
     }
 
     [Fact]

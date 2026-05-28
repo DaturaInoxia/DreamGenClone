@@ -5,6 +5,9 @@ using DreamGenClone.Infrastructure.RolePlay;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Logging.Abstractions;
+using DreamGenClone.Web.Application.RolePlay;
+using DreamGenClone.Web.Domain.RolePlay;
+using System.Reflection;
 
 namespace DreamGenClone.Tests.RolePlay;
 
@@ -89,19 +92,116 @@ public sealed class PhaseLifecycleTransitionTests
     }
 
     [Fact]
-    public async Task Climax_DoesNotAutoResetWithoutCommandOrGateProfile()
+    public async Task Climax_AlwaysTransitionsToReset()
     {
         var state = CreateState();
         state.CurrentPhase = NarrativePhase.Climax;
 
+        // Climax → Reset is configuration-driven. Without configured Climax→Reset gate rules,
+        // explicit climax completion must be requested to transition.
         var result = await _service.EvaluateTransitionAsync(state, new LifecycleInputs
         {
             InteractionsSinceCommitment = 50,
-            ActiveScenarioFitScore = 95m
+            ActiveScenarioFitScore = 95m,
+            ClimaxCompletionRequested = true
+        });
+
+        Assert.True(result.Transitioned);
+        Assert.Equal(NarrativePhase.Reset, result.TargetPhase);
+    }
+
+    [Fact]
+    public async Task BuildScenarioCandidates_ReordersPrimaryCandidate_WhenEvidenceScoresChange()
+    {
+        var engine = RolePlayTestFactory.CreateEngineService();
+        var session = await engine.CreateSessionAsync("phase-ordering");
+
+        session.AdaptiveState.ThemeScores = new Dictionary<string, ThemeScoreState>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["theme-a"] = new ThemeScoreState { ThemeId = "theme-a", ThemeName = "Theme A", Score = 80, Blocked = false },
+            ["theme-b"] = new ThemeScoreState { ThemeId = "theme-b", ThemeName = "Theme B", Score = 20, Blocked = false }
+        };
+
+        var firstCandidates = await InvokeBuildScenarioCandidatesAsync(engine, session);
+        Assert.Equal("theme-a", firstCandidates[0].ScenarioId);
+
+        // Simulate semantic evidence shifting narrative momentum to theme-b.
+        session.AdaptiveState.ThemeScores["theme-a"].Score = 20;
+        session.AdaptiveState.ThemeScores["theme-b"].Score = 90;
+
+        var secondCandidates = await InvokeBuildScenarioCandidatesAsync(engine, session);
+        Assert.Equal("theme-b", secondCandidates[0].ScenarioId);
+    }
+
+    [Fact]
+    public async Task BuildScenarioCandidates_ExcludesBlockedTheme_EvenWhenScoreIsHigher()
+    {
+        var engine = RolePlayTestFactory.CreateEngineService();
+        var session = await engine.CreateSessionAsync("phase-lock-safe");
+
+        session.AdaptiveState.ThemeScores = new Dictionary<string, ThemeScoreState>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["theme-safe"] = new ThemeScoreState { ThemeId = "theme-safe", ThemeName = "Theme Safe", Score = 25, Blocked = false },
+            ["theme-blocked"] = new ThemeScoreState { ThemeId = "theme-blocked", ThemeName = "Theme Blocked", Score = 99, Blocked = true }
+        };
+
+        var candidates = await InvokeBuildScenarioCandidatesAsync(engine, session);
+
+        Assert.DoesNotContain(candidates, x => string.Equals(x.ScenarioId, "theme-blocked", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal("theme-safe", candidates[0].ScenarioId);
+    }
+
+    [Fact]
+    public async Task CommittedPhase_TransitionsWhenPostSemanticDesireCrossesGateThreshold()
+    {
+        var service = CreateServiceWithProfile();
+        var state = CreateState();
+        state.CurrentPhase = NarrativePhase.Committed;
+        state.CharacterSnapshots[0].Desire = 64;
+        state.CharacterSnapshots[0].Restraint = 44;
+
+        var beforeSemantic = await service.EvaluateTransitionAsync(state, new LifecycleInputs
+        {
+            InteractionsSinceCommitment = 3,
+            ActiveScenarioFitScore = 61m,
+            ActiveScenarioConfidence = 0.8m
+        });
+        Assert.False(beforeSemantic.Transitioned);
+
+        // Simulate semantic stat mapping delta being applied before gate evaluation.
+        state.CharacterSnapshots[0].Desire = 66;
+
+        var afterSemantic = await service.EvaluateTransitionAsync(state, new LifecycleInputs
+        {
+            InteractionsSinceCommitment = 3,
+            ActiveScenarioFitScore = 61m,
+            ActiveScenarioConfidence = 0.8m
+        });
+
+        Assert.True(afterSemantic.Transitioned);
+        Assert.Equal(NarrativePhase.Approaching, afterSemantic.TargetPhase);
+    }
+
+    [Fact]
+    public async Task CommittedPhase_DoesNotTransitionWhenSemanticStatDeltaIsSuppressed()
+    {
+        var service = CreateServiceWithProfile();
+        var state = CreateState();
+        state.CurrentPhase = NarrativePhase.Committed;
+
+        // Simulate suppression/cap outcome where applied semantic delta is effectively zero.
+        state.CharacterSnapshots[0].Desire = 64;
+        state.CharacterSnapshots[0].Restraint = 44;
+
+        var result = await service.EvaluateTransitionAsync(state, new LifecycleInputs
+        {
+            InteractionsSinceCommitment = 3,
+            ActiveScenarioFitScore = 61m,
+            ActiveScenarioConfidence = 0.8m
         });
 
         Assert.False(result.Transitioned);
-        Assert.Equal(NarrativePhase.Climax, result.TargetPhase);
+        Assert.Equal(NarrativePhase.Committed, result.TargetPhase);
     }
 
     [Fact]
@@ -641,6 +741,23 @@ public sealed class PhaseLifecycleTransitionTests
         command.Parameters.AddWithValue("$createdUtc", DateTime.UtcNow.ToString("O"));
         command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
         await command.ExecuteNonQueryAsync();
+    }
+
+    private static async Task<IReadOnlyList<ScenarioDefinition>> InvokeBuildScenarioCandidatesAsync(RolePlayEngineService engine, RolePlaySession session)
+    {
+        var method = typeof(RolePlayEngineService).GetMethod("BuildScenarioCandidatesAsync", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("BuildScenarioCandidatesAsync method not found.");
+
+        var taskObject = method.Invoke(engine, [session, CancellationToken.None]) as Task
+            ?? throw new InvalidOperationException("BuildScenarioCandidatesAsync invocation did not return a task.");
+
+        await taskObject.ConfigureAwait(false);
+
+        var resultProperty = taskObject.GetType().GetProperty("Result")
+            ?? throw new InvalidOperationException("BuildScenarioCandidatesAsync task did not expose a Result property.");
+
+        return (IReadOnlyList<ScenarioDefinition>?)resultProperty.GetValue(taskObject)
+            ?? [];
     }
 
     private static AdaptiveScenarioState CreateState() => new()

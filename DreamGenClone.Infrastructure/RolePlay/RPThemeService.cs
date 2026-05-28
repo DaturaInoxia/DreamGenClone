@@ -14,6 +14,16 @@ namespace DreamGenClone.Infrastructure.RolePlay;
 public sealed partial class RPThemeService : IRPThemeService
 {
     private const string AutoBackfillRationale = "auto-backfilled for canonical stat parity";
+    private static readonly HashSet<string> SupportedSemanticStatKeys = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Desire",
+        "Restraint",
+        "Tension",
+        "Connection",
+        "Dominance",
+        "Loyalty",
+        "SelfRespect"
+    };
     private static readonly (string From, string To)[] RequiredNarrativeTransitions =
     [
         ("BuildUp", "Committed"),
@@ -65,13 +75,14 @@ public sealed partial class RPThemeService : IRPThemeService
         await using var connection = await OpenConnectionAsync(cancellationToken);
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO RPThemeProfiles (Id, Name, Description, IsDefault, CreatedUtc, UpdatedUtc)
-            VALUES ($id, $name, $description, $isDefault, $createdUtc, $updatedUtc)
+            INSERT INTO RPThemeProfiles (Id, Name, Description, IsDefault, CreatedUtc, UpdatedUtc, ThemeSelectionTurnsPerTheme)
+            VALUES ($id, $name, $description, $isDefault, $createdUtc, $updatedUtc, $selectionMultiplier)
             ON CONFLICT(Id) DO UPDATE SET
                 Name = excluded.Name,
                 Description = excluded.Description,
                 IsDefault = excluded.IsDefault,
-                UpdatedUtc = excluded.UpdatedUtc;
+                UpdatedUtc = excluded.UpdatedUtc,
+                ThemeSelectionTurnsPerTheme = excluded.ThemeSelectionTurnsPerTheme;
             """;
 
         command.Parameters.AddWithValue("$id", profile.Id);
@@ -80,6 +91,7 @@ public sealed partial class RPThemeService : IRPThemeService
         command.Parameters.AddWithValue("$isDefault", profile.IsDefault ? 1 : 0);
         command.Parameters.AddWithValue("$createdUtc", profile.CreatedUtc.ToString("O"));
         command.Parameters.AddWithValue("$updatedUtc", profile.UpdatedUtc.ToString("O"));
+        command.Parameters.AddWithValue("$selectionMultiplier", profile.ThemeSelectionTurnsPerTheme);
         await command.ExecuteNonQueryAsync(cancellationToken);
         return profile;
     }
@@ -89,7 +101,7 @@ public sealed partial class RPThemeService : IRPThemeService
         var profiles = new List<RPThemeProfile>();
         await using var connection = await OpenConnectionAsync(cancellationToken);
         await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, Name, Description, IsDefault, CreatedUtc, UpdatedUtc FROM RPThemeProfiles ORDER BY Name";
+        command.CommandText = "SELECT Id, Name, Description, IsDefault, CreatedUtc, UpdatedUtc, ThemeSelectionTurnsPerTheme FROM RPThemeProfiles ORDER BY Name";
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
@@ -101,7 +113,8 @@ public sealed partial class RPThemeService : IRPThemeService
                 Description = reader.GetString(2),
                 IsDefault = reader.GetInt32(3) == 1,
                 CreatedUtc = DateTime.TryParse(reader.GetString(4), out var created) ? created : DateTime.UtcNow,
-                UpdatedUtc = DateTime.TryParse(reader.GetString(5), out var updated) ? updated : DateTime.UtcNow
+                UpdatedUtc = DateTime.TryParse(reader.GetString(5), out var updated) ? updated : DateTime.UtcNow,
+                ThemeSelectionTurnsPerTheme = reader.GetInt32(6)
             });
         }
 
@@ -112,7 +125,7 @@ public sealed partial class RPThemeService : IRPThemeService
     {
         await using var connection = await OpenConnectionAsync(cancellationToken);
         await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, Name, Description, IsDefault, CreatedUtc, UpdatedUtc FROM RPThemeProfiles WHERE Id = $id";
+        command.CommandText = "SELECT Id, Name, Description, IsDefault, CreatedUtc, UpdatedUtc, ThemeSelectionTurnsPerTheme FROM RPThemeProfiles WHERE Id = $id";
         command.Parameters.AddWithValue("$id", id);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -128,7 +141,8 @@ public sealed partial class RPThemeService : IRPThemeService
             Description = reader.GetString(2),
             IsDefault = reader.GetInt32(3) == 1,
             CreatedUtc = DateTime.TryParse(reader.GetString(4), out var created) ? created : DateTime.UtcNow,
-            UpdatedUtc = DateTime.TryParse(reader.GetString(5), out var updated) ? updated : DateTime.UtcNow
+            UpdatedUtc = DateTime.TryParse(reader.GetString(5), out var updated) ? updated : DateTime.UtcNow,
+            ThemeSelectionTurnsPerTheme = reader.GetInt32(6)
         };
     }
 
@@ -161,12 +175,14 @@ public sealed partial class RPThemeService : IRPThemeService
             throw new ArgumentException("Theme label is required.", nameof(theme));
         }
 
+        theme.SuccessorThemeLinks = NormalizeSuccessorThemeLinks(theme.Id, theme.SuccessorThemeLinks);
         theme.NarrativeGateRules = NormalizeNarrativeGateRules(theme.NarrativeGateRules);
 
         EnsureCanonicalStatAffinities(theme);
 
         await using var connection = await OpenConnectionAsync(cancellationToken);
         ValidateRequiredNarrativeTransitions(theme.NarrativeGateRules);
+        await ValidateSuccessorThemeLinksAsync(connection, theme, cancellationToken);
         theme.NarrativeGateProfileId = null;
 
         await EnsureGlobalThemeLibraryProfileAsync(connection, cancellationToken);
@@ -408,6 +424,37 @@ public sealed partial class RPThemeService : IRPThemeService
                     SortOrder = note.SortOrder
                 })
                 .ToList(),
+            SemanticEventMappings = sourceTheme.SemanticEventMappings
+                .Select(mapping => new RPSemanticEventMapping
+                {
+                    Id = Guid.NewGuid().ToString("N"),
+                    ThemeId = newThemeId,
+                    EventId = mapping.EventId,
+                    Direction = mapping.Direction,
+                    Delta = mapping.Delta,
+                    ConfidenceMin = mapping.ConfidenceMin,
+                    ConfidenceMax = mapping.ConfidenceMax,
+                    ReasonCode = mapping.ReasonCode,
+                    AttributionKey = mapping.AttributionKey,
+                    SortOrder = mapping.SortOrder
+                })
+                .ToList(),
+            SemanticStatMappings = sourceTheme.SemanticStatMappings
+                .Select(mapping => new RPSemanticStatMapping
+                {
+                    Id = Guid.NewGuid().ToString("N"),
+                    ThemeId = newThemeId,
+                    EventId = mapping.EventId,
+                    TargetStat = mapping.TargetStat,
+                    Direction = mapping.Direction,
+                    Delta = mapping.Delta,
+                    ConfidenceMin = mapping.ConfidenceMin,
+                    ConfidenceMax = mapping.ConfidenceMax,
+                    ReasonCode = mapping.ReasonCode,
+                    AttributionKey = mapping.AttributionKey,
+                    SortOrder = mapping.SortOrder
+                })
+                .ToList(),
             NarrativeGateRules = sourceTheme.NarrativeGateRules
                 .Select(rule => new NarrativeGateRule
                 {
@@ -417,6 +464,15 @@ public sealed partial class RPThemeService : IRPThemeService
                     MetricKey = rule.MetricKey,
                     Comparator = rule.Comparator,
                     Threshold = rule.Threshold
+                })
+                .ToList(),
+            SuccessorThemeLinks = sourceTheme.SuccessorThemeLinks
+                .Select((link, index) => new RPThemeSuccessorLink
+                {
+                    SourceThemeId = newThemeId,
+                    SuccessorThemeId = link.SuccessorThemeId,
+                    ScoreBoost = link.ScoreBoost,
+                    SortOrder = index + 1
                 })
                 .ToList(),
             StatDecayOverrides = sourceTheme.StatDecayOverrides
@@ -463,6 +519,7 @@ public sealed partial class RPThemeService : IRPThemeService
         foreach (var theme in themes)
         {
             theme.ParentThemeId = await LoadParentThemeIdAsync(connection, theme.Id, cancellationToken);
+            theme.SuccessorThemeLinks = await LoadThemeSuccessorLinksAsync(connection, theme.Id, cancellationToken);
             theme.Keywords = await LoadThemeKeywordsAsync(connection, theme.Id, cancellationToken);
             theme.StatAffinities = await LoadThemeStatAffinitiesAsync(connection, theme.Id, cancellationToken);
             theme.StatDecayOverrides = await LoadThemeStatDecayOverridesAsync(connection, theme.Id, cancellationToken);
@@ -470,6 +527,8 @@ public sealed partial class RPThemeService : IRPThemeService
             theme.GuidancePoints = await LoadThemeGuidancePointsAsync(connection, theme.Id, _logger, cancellationToken);
             theme.FitRules = await LoadThemeFitRulesAsync(connection, theme.Id, cancellationToken);
             theme.AIGenerationNotes = await LoadThemeAIGuidanceNotesAsync(connection, theme.Id, cancellationToken);
+            theme.SemanticEventMappings = await LoadThemeSemanticEventMappingsAsync(connection, theme.Id, cancellationToken);
+            theme.SemanticStatMappings = await LoadThemeSemanticStatMappingsAsync(connection, theme.Id, cancellationToken);
             theme.NarrativeGateRules = await LoadThemeNarrativeGateRulesAsync(connection, theme.Id, cancellationToken);
             await EnsureCanonicalStatAffinitiesPersistedAsync(connection, theme, cancellationToken);
             await EnsureThemeNarrativeGateRulesPersistedAsync(connection, theme, cancellationToken);
@@ -520,6 +579,7 @@ public sealed partial class RPThemeService : IRPThemeService
         foreach (var theme in themes)
         {
             theme.ParentThemeId = await LoadParentThemeIdAsync(connection, theme.Id, cancellationToken);
+            theme.SuccessorThemeLinks = await LoadThemeSuccessorLinksAsync(connection, theme.Id, cancellationToken);
             theme.Keywords = await LoadThemeKeywordsAsync(connection, theme.Id, cancellationToken);
             theme.StatAffinities = await LoadThemeStatAffinitiesAsync(connection, theme.Id, cancellationToken);
             theme.StatDecayOverrides = await LoadThemeStatDecayOverridesAsync(connection, theme.Id, cancellationToken);
@@ -527,12 +587,206 @@ public sealed partial class RPThemeService : IRPThemeService
             theme.GuidancePoints = await LoadThemeGuidancePointsAsync(connection, theme.Id, _logger, cancellationToken);
             theme.FitRules = await LoadThemeFitRulesAsync(connection, theme.Id, cancellationToken);
             theme.AIGenerationNotes = await LoadThemeAIGuidanceNotesAsync(connection, theme.Id, cancellationToken);
+            theme.SemanticEventMappings = await LoadThemeSemanticEventMappingsAsync(connection, theme.Id, cancellationToken);
+            theme.SemanticStatMappings = await LoadThemeSemanticStatMappingsAsync(connection, theme.Id, cancellationToken);
             theme.NarrativeGateRules = await LoadThemeNarrativeGateRulesAsync(connection, theme.Id, cancellationToken);
             await EnsureCanonicalStatAffinitiesPersistedAsync(connection, theme, cancellationToken);
             await EnsureThemeNarrativeGateRulesPersistedAsync(connection, theme, cancellationToken);
         }
 
         return themes;
+    }
+
+    public async Task<IReadOnlyDictionary<string, IReadOnlyList<RPSemanticEventMapping>>> ResolveSemanticEventMappingsByThemeIdsAsync(
+        IEnumerable<string> themeIds,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(themeIds);
+        var ids = themeIds
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (ids.Count == 0)
+        {
+            throw new InvalidOperationException("Semantic mapping resolution requires at least one theme id.");
+        }
+
+        var themes = new List<RPTheme>(ids.Count);
+        foreach (var id in ids)
+        {
+            var theme = await GetThemeAsync(id, cancellationToken)
+                ?? throw new InvalidOperationException($"RP theme '{id}' referenced by session theme selection was not found.");
+            if (!theme.IsEnabled)
+            {
+                throw new InvalidOperationException($"RP theme '{id}' referenced by session theme selection is disabled.");
+            }
+            themes.Add(theme);
+        }
+
+        var mappingsByEvent = new Dictionary<string, List<RPSemanticEventMapping>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var theme in themes)
+        {
+            foreach (var mapping in theme.SemanticEventMappings)
+            {
+                if (!mappingsByEvent.TryGetValue(mapping.EventId, out var bucket))
+                {
+                    bucket = [];
+                    mappingsByEvent[mapping.EventId] = bucket;
+                }
+                bucket.Add(mapping);
+            }
+        }
+
+        if (mappingsByEvent.Count == 0)
+        {
+            throw new InvalidOperationException(
+                $"No semantic event mapping configuration found for session theme ids [{string.Join(", ", ids)}]. Add semantic mappings in the theme Semantic Event Mappings section.");
+        }
+
+        return mappingsByEvent.ToDictionary(
+            x => x.Key,
+            x => (IReadOnlyList<RPSemanticEventMapping>)x.Value,
+            StringComparer.OrdinalIgnoreCase);
+    }
+
+    public async Task<IReadOnlyDictionary<string, IReadOnlyList<RPSemanticStatMapping>>> ResolveSemanticStatMappingsByThemeIdsAsync(
+        IEnumerable<string> themeIds,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(themeIds);
+        var ids = themeIds
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (ids.Count == 0)
+        {
+            throw new InvalidOperationException("Semantic stat mapping resolution requires at least one theme id.");
+        }
+
+        var themes = new List<RPTheme>(ids.Count);
+        foreach (var id in ids)
+        {
+            var theme = await GetThemeAsync(id, cancellationToken)
+                ?? throw new InvalidOperationException($"RP theme '{id}' referenced by session theme selection was not found.");
+            if (!theme.IsEnabled)
+            {
+                throw new InvalidOperationException($"RP theme '{id}' referenced by session theme selection is disabled.");
+            }
+            themes.Add(theme);
+        }
+
+        var mappingsByEvent = new Dictionary<string, List<RPSemanticStatMapping>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var theme in themes)
+        {
+            foreach (var mapping in theme.SemanticStatMappings)
+            {
+                if (!mappingsByEvent.TryGetValue(mapping.EventId, out var bucket))
+                {
+                    bucket = [];
+                    mappingsByEvent[mapping.EventId] = bucket;
+                }
+                bucket.Add(mapping);
+            }
+        }
+
+        if (mappingsByEvent.Count == 0)
+        {
+            throw new InvalidOperationException(
+                $"No semantic stat mapping configuration found for session theme ids [{string.Join(", ", ids)}]. Add semantic stat mappings in the theme Semantic Stat Mappings section.");
+        }
+
+        return mappingsByEvent.ToDictionary(
+            x => x.Key,
+            x => (IReadOnlyList<RPSemanticStatMapping>)x.Value,
+            StringComparer.OrdinalIgnoreCase);
+    }
+
+    public async Task<IReadOnlyDictionary<string, IReadOnlyList<RPSemanticEventMapping>>> ResolveSemanticEventMappingsByProfileAsync(
+        string profileId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(profileId))
+        {
+            throw new InvalidOperationException("Semantic mapping resolution requires a profile id.");
+        }
+
+        var themes = await ListThemesByProfileAsync(profileId.Trim(), includeDisabled: false, cancellationToken);
+        if (themes.Count == 0)
+        {
+            throw new InvalidOperationException($"No enabled RP themes are assigned to profile '{profileId}'.");
+        }
+
+        var mappingsByEvent = new Dictionary<string, List<RPSemanticEventMapping>>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var theme in themes)
+        {
+            foreach (var mapping in theme.SemanticEventMappings)
+            {
+                if (!mappingsByEvent.TryGetValue(mapping.EventId, out var bucket))
+                {
+                    bucket = [];
+                    mappingsByEvent[mapping.EventId] = bucket;
+                }
+
+                bucket.Add(mapping);
+            }
+        }
+
+        if (mappingsByEvent.Count == 0)
+        {
+            throw new InvalidOperationException(
+                $"No semantic mapping configuration found for profile '{profileId}'. Add semantic mappings in the theme Semantic Event Mappings section.");
+        }
+
+        return mappingsByEvent.ToDictionary(
+            x => x.Key,
+            x => (IReadOnlyList<RPSemanticEventMapping>)x.Value,
+            StringComparer.OrdinalIgnoreCase);
+    }
+
+    public async Task<IReadOnlyDictionary<string, IReadOnlyList<RPSemanticStatMapping>>> ResolveSemanticStatMappingsByProfileAsync(
+        string profileId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(profileId))
+        {
+            throw new InvalidOperationException("Semantic stat mapping resolution requires a profile id.");
+        }
+
+        var themes = await ListThemesByProfileAsync(profileId.Trim(), includeDisabled: false, cancellationToken);
+        if (themes.Count == 0)
+        {
+            throw new InvalidOperationException($"No enabled RP themes are assigned to profile '{profileId}'.");
+        }
+
+        var mappingsByEvent = new Dictionary<string, List<RPSemanticStatMapping>>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var theme in themes)
+        {
+            foreach (var mapping in theme.SemanticStatMappings)
+            {
+                if (!mappingsByEvent.TryGetValue(mapping.EventId, out var bucket))
+                {
+                    bucket = [];
+                    mappingsByEvent[mapping.EventId] = bucket;
+                }
+
+                bucket.Add(mapping);
+            }
+        }
+
+        if (mappingsByEvent.Count == 0)
+        {
+            throw new InvalidOperationException(
+                $"No semantic stat mapping configuration found for profile '{profileId}'. Add semantic stat mappings in the theme Semantic Stat Mappings section.");
+        }
+
+        return mappingsByEvent.ToDictionary(
+            x => x.Key,
+            x => (IReadOnlyList<RPSemanticStatMapping>)x.Value,
+            StringComparer.OrdinalIgnoreCase);
     }
 
     public async Task<RPTheme?> GetThemeAsync(string id, CancellationToken cancellationToken = default)
@@ -562,6 +816,7 @@ public sealed partial class RPThemeService : IRPThemeService
         };
 
         theme.ParentThemeId = await LoadParentThemeIdAsync(connection, theme.Id, cancellationToken);
+        theme.SuccessorThemeLinks = await LoadThemeSuccessorLinksAsync(connection, theme.Id, cancellationToken);
         theme.Keywords = await LoadThemeKeywordsAsync(connection, theme.Id, cancellationToken);
         theme.StatAffinities = await LoadThemeStatAffinitiesAsync(connection, theme.Id, cancellationToken);
         theme.StatDecayOverrides = await LoadThemeStatDecayOverridesAsync(connection, theme.Id, cancellationToken);
@@ -569,6 +824,8 @@ public sealed partial class RPThemeService : IRPThemeService
         theme.GuidancePoints = await LoadThemeGuidancePointsAsync(connection, theme.Id, _logger, cancellationToken);
         theme.FitRules = await LoadThemeFitRulesAsync(connection, theme.Id, cancellationToken);
         theme.AIGenerationNotes = await LoadThemeAIGuidanceNotesAsync(connection, theme.Id, cancellationToken);
+        theme.SemanticEventMappings = await LoadThemeSemanticEventMappingsAsync(connection, theme.Id, cancellationToken);
+        theme.SemanticStatMappings = await LoadThemeSemanticStatMappingsAsync(connection, theme.Id, cancellationToken);
         theme.NarrativeGateRules = await LoadThemeNarrativeGateRulesAsync(connection, theme.Id, cancellationToken);
         await EnsureCanonicalStatAffinitiesPersistedAsync(connection, theme, cancellationToken);
         await EnsureThemeNarrativeGateRulesPersistedAsync(connection, theme, cancellationToken);
@@ -1136,9 +1393,9 @@ public sealed partial class RPThemeService : IRPThemeService
                 UpdatedUtc = excluded.UpdatedUtc;
             """;
         command.Parameters.AddWithValue("$id", row.Id);
-        command.Parameters.AddWithValue("$desireBand", row.EscalationTier);
-        command.Parameters.AddWithValue("$selfRespectBand", row.EscalationTier);
-        command.Parameters.AddWithValue("$otherManDominanceBand", row.EscalationTier);
+        command.Parameters.AddWithValue("$desireBand", row.DesireBand);
+        command.Parameters.AddWithValue("$selfRespectBand", row.SelfRespectBand);
+        command.Parameters.AddWithValue("$otherManDominanceBand", row.OtherManDominanceBand);
         command.Parameters.AddWithValue("$escalationTier", row.EscalationTier);
         command.Parameters.AddWithValue("$primaryLocationsJson", SerializeStringList(row.PrimaryLocations));
         command.Parameters.AddWithValue("$secondaryLocationsJson", SerializeStringList(row.SecondaryLocations));
@@ -1177,6 +1434,9 @@ public sealed partial class RPThemeService : IRPThemeService
             rows.Add(new RPFinishingMoveMatrixRow
             {
                 Id = reader.GetString(0),
+                DesireBand = reader.GetString(1),
+                SelfRespectBand = reader.GetString(2),
+                OtherManDominanceBand = reader.GetString(3),
                 EscalationTier = reader.GetString(4),
                 PrimaryLocations = DeserializeStringList(reader.GetString(5)),
                 SecondaryLocations = DeserializeStringList(reader.GetString(6)),
@@ -1466,11 +1726,11 @@ public sealed partial class RPThemeService : IRPThemeService
         command.CommandText = """
             INSERT INTO RPFinishReceptivityLevels (
                 Id, Name, Description, PhysicalCues, NarrativeCue,
-                EscalationTier,
+                EscalationTier, EligibleDesireBands, EligibleSelfRespectBands,
                 SortOrder, IsEnabled, CreatedUtc, UpdatedUtc)
             VALUES (
                 $id, $name, $description, $physicalCues, $narrativeCue,
-                $escalationTier,
+                $escalationTier, $eligibleDesireBands, $eligibleSelfRespectBands,
                 $sortOrder, $isEnabled, $createdUtc, $updatedUtc)
             ON CONFLICT(Id) DO UPDATE SET
                 Name = excluded.Name,
@@ -1478,6 +1738,8 @@ public sealed partial class RPThemeService : IRPThemeService
                 PhysicalCues = excluded.PhysicalCues,
                 NarrativeCue = excluded.NarrativeCue,
                 EscalationTier = excluded.EscalationTier,
+                EligibleDesireBands = excluded.EligibleDesireBands,
+                EligibleSelfRespectBands = excluded.EligibleSelfRespectBands,
                 SortOrder = excluded.SortOrder,
                 IsEnabled = excluded.IsEnabled,
                 UpdatedUtc = excluded.UpdatedUtc;
@@ -1488,6 +1750,8 @@ public sealed partial class RPThemeService : IRPThemeService
         command.Parameters.AddWithValue("$physicalCues", entry.PhysicalCues ?? string.Empty);
         command.Parameters.AddWithValue("$narrativeCue", entry.NarrativeCue ?? string.Empty);
         command.Parameters.AddWithValue("$escalationTier", entry.EscalationTier ?? "Low");
+        command.Parameters.AddWithValue("$eligibleDesireBands", entry.EligibleDesireBands ?? string.Empty);
+        command.Parameters.AddWithValue("$eligibleSelfRespectBands", entry.EligibleSelfRespectBands ?? string.Empty);
         command.Parameters.AddWithValue("$sortOrder", entry.SortOrder);
         command.Parameters.AddWithValue("$isEnabled", entry.IsEnabled ? 1 : 0);
         command.Parameters.AddWithValue("$createdUtc", entry.CreatedUtc.ToString("O"));
@@ -1503,8 +1767,8 @@ public sealed partial class RPThemeService : IRPThemeService
         await using var connection = await OpenConnectionAsync(cancellationToken);
         await using var command = connection.CreateCommand();
         command.CommandText = includeDisabled
-            ? "SELECT Id, Name, Description, PhysicalCues, NarrativeCue, EscalationTier, SortOrder, IsEnabled, CreatedUtc, UpdatedUtc FROM RPFinishReceptivityLevels ORDER BY SortOrder, Id"
-            : "SELECT Id, Name, Description, PhysicalCues, NarrativeCue, EscalationTier, SortOrder, IsEnabled, CreatedUtc, UpdatedUtc FROM RPFinishReceptivityLevels WHERE IsEnabled = 1 ORDER BY SortOrder, Id";
+            ? "SELECT Id, Name, Description, PhysicalCues, NarrativeCue, EscalationTier, EligibleDesireBands, EligibleSelfRespectBands, SortOrder, IsEnabled, CreatedUtc, UpdatedUtc FROM RPFinishReceptivityLevels ORDER BY SortOrder, Id"
+            : "SELECT Id, Name, Description, PhysicalCues, NarrativeCue, EscalationTier, EligibleDesireBands, EligibleSelfRespectBands, SortOrder, IsEnabled, CreatedUtc, UpdatedUtc FROM RPFinishReceptivityLevels WHERE IsEnabled = 1 ORDER BY SortOrder, Id";
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
@@ -1513,9 +1777,10 @@ public sealed partial class RPThemeService : IRPThemeService
                 Id = reader.GetString(0), Name = reader.GetString(1), Description = reader.GetString(2),
                 PhysicalCues = reader.GetString(3), NarrativeCue = reader.GetString(4),
                 EscalationTier = reader.GetString(5),
-                SortOrder = reader.GetInt32(6), IsEnabled = reader.GetInt32(7) == 1,
-                CreatedUtc = DateTime.TryParse(reader.GetString(8), out var c) ? c : DateTime.UtcNow,
-                UpdatedUtc = DateTime.TryParse(reader.GetString(9), out var u) ? u : DateTime.UtcNow
+                EligibleDesireBands = reader.GetString(6), EligibleSelfRespectBands = reader.GetString(7),
+                SortOrder = reader.GetInt32(8), IsEnabled = reader.GetInt32(9) == 1,
+                CreatedUtc = DateTime.TryParse(reader.GetString(10), out var c) ? c : DateTime.UtcNow,
+                UpdatedUtc = DateTime.TryParse(reader.GetString(11), out var u) ? u : DateTime.UtcNow
             });
         }
         return rows;
@@ -1547,17 +1812,18 @@ public sealed partial class RPThemeService : IRPThemeService
         command.CommandText = """
             INSERT INTO RPFinishHisControlLevels (
                 Id, Name, Description, ExampleDialogue,
-                EscalationTier,
+                EscalationTier, EligibleOtherManDominanceBands,
                 SortOrder, IsEnabled, CreatedUtc, UpdatedUtc)
             VALUES (
                 $id, $name, $description, $exampleDialogue,
-                $escalationTier,
+                $escalationTier, $eligibleOtherManDominanceBands,
                 $sortOrder, $isEnabled, $createdUtc, $updatedUtc)
             ON CONFLICT(Id) DO UPDATE SET
                 Name = excluded.Name,
                 Description = excluded.Description,
                 ExampleDialogue = excluded.ExampleDialogue,
                 EscalationTier = excluded.EscalationTier,
+                EligibleOtherManDominanceBands = excluded.EligibleOtherManDominanceBands,
                 SortOrder = excluded.SortOrder,
                 IsEnabled = excluded.IsEnabled,
                 UpdatedUtc = excluded.UpdatedUtc;
@@ -1567,6 +1833,7 @@ public sealed partial class RPThemeService : IRPThemeService
         command.Parameters.AddWithValue("$description", entry.Description ?? string.Empty);
         command.Parameters.AddWithValue("$exampleDialogue", entry.ExampleDialogue ?? string.Empty);
         command.Parameters.AddWithValue("$escalationTier", entry.EscalationTier ?? "Low");
+        command.Parameters.AddWithValue("$eligibleOtherManDominanceBands", entry.EligibleOtherManDominanceBands ?? string.Empty);
         command.Parameters.AddWithValue("$sortOrder", entry.SortOrder);
         command.Parameters.AddWithValue("$isEnabled", entry.IsEnabled ? 1 : 0);
         command.Parameters.AddWithValue("$createdUtc", entry.CreatedUtc.ToString("O"));
@@ -1582,8 +1849,8 @@ public sealed partial class RPThemeService : IRPThemeService
         await using var connection = await OpenConnectionAsync(cancellationToken);
         await using var command = connection.CreateCommand();
         command.CommandText = includeDisabled
-            ? "SELECT Id, Name, Description, ExampleDialogue, EscalationTier, SortOrder, IsEnabled, CreatedUtc, UpdatedUtc FROM RPFinishHisControlLevels ORDER BY SortOrder, Id"
-            : "SELECT Id, Name, Description, ExampleDialogue, EscalationTier, SortOrder, IsEnabled, CreatedUtc, UpdatedUtc FROM RPFinishHisControlLevels WHERE IsEnabled = 1 ORDER BY SortOrder, Id";
+            ? "SELECT Id, Name, Description, ExampleDialogue, EscalationTier, EligibleOtherManDominanceBands, SortOrder, IsEnabled, CreatedUtc, UpdatedUtc FROM RPFinishHisControlLevels ORDER BY SortOrder, Id"
+            : "SELECT Id, Name, Description, ExampleDialogue, EscalationTier, EligibleOtherManDominanceBands, SortOrder, IsEnabled, CreatedUtc, UpdatedUtc FROM RPFinishHisControlLevels WHERE IsEnabled = 1 ORDER BY SortOrder, Id";
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
@@ -1591,9 +1858,10 @@ public sealed partial class RPThemeService : IRPThemeService
             {
                 Id = reader.GetString(0), Name = reader.GetString(1), Description = reader.GetString(2),
                 ExampleDialogue = reader.GetString(3), EscalationTier = reader.GetString(4),
-                SortOrder = reader.GetInt32(5), IsEnabled = reader.GetInt32(6) == 1,
-                CreatedUtc = DateTime.TryParse(reader.GetString(7), out var c) ? c : DateTime.UtcNow,
-                UpdatedUtc = DateTime.TryParse(reader.GetString(8), out var u) ? u : DateTime.UtcNow
+                EligibleOtherManDominanceBands = reader.GetString(5),
+                SortOrder = reader.GetInt32(6), IsEnabled = reader.GetInt32(7) == 1,
+                CreatedUtc = DateTime.TryParse(reader.GetString(8), out var c) ? c : DateTime.UtcNow,
+                UpdatedUtc = DateTime.TryParse(reader.GetString(9), out var u) ? u : DateTime.UtcNow
             });
         }
         return rows;
@@ -1718,6 +1986,7 @@ public sealed partial class RPThemeService : IRPThemeService
         foreach (var item in sourceItems)
         {
             var desireBand = GetRequiredString(item, "desireBand", "desire");
+            var selfRespectBand = GetRequiredString(item, "selfRespectBand", "selfRespect");
             var otherManDominanceBand = GetRequiredString(item, "otherManDominanceBand", "dominanceBand", "dominance");
 
             // Derive EscalationTier from the import source (new format has it directly; old format has band ranges)
@@ -1727,6 +1996,9 @@ public sealed partial class RPThemeService : IRPThemeService
             var row = new RPFinishingMoveMatrixRow
             {
                 Id = GetString(item, "id") ?? Guid.NewGuid().ToString("N"),
+                DesireBand = desireBand ?? string.Empty,
+                SelfRespectBand = selfRespectBand ?? string.Empty,
+                OtherManDominanceBand = otherManDominanceBand ?? string.Empty,
                 EscalationTier = escalationTier,
                 PrimaryLocations = GetStringList(item, "primaryLocations", "locationsPrimary"),
                 SecondaryLocations = GetStringList(item, "secondaryLocations", "locationsSecondary"),
@@ -2251,8 +2523,11 @@ public sealed partial class RPThemeService : IRPThemeService
             "DELETE FROM RPThemePhaseGuidance WHERE ThemeId = $themeId",
             "DELETE FROM RPThemeGuidancePoints WHERE ThemeId = $themeId",
             "DELETE FROM RPThemeAIGuidanceNotes WHERE ThemeId = $themeId",
+            "DELETE FROM RPThemeSemanticEventMappings WHERE ThemeId = $themeId",
+            "DELETE FROM RPThemeSemanticStatMappings WHERE ThemeId = $themeId",
             "DELETE FROM RPThemeFitRules WHERE ThemeId = $themeId",
-            "DELETE FROM RPThemeNarrativeGateRules WHERE ThemeId = $themeId"
+            "DELETE FROM RPThemeNarrativeGateRules WHERE ThemeId = $themeId",
+            "DELETE FROM RPThemeSuccessorLinks WHERE SourceThemeId = $themeId"
         };
 
         foreach (var clearSql in clearTables)
@@ -2360,6 +2635,43 @@ public sealed partial class RPThemeService : IRPThemeService
             await cmd.ExecuteNonQueryAsync(cancellationToken);
         }
 
+        foreach (var mapping in theme.SemanticEventMappings.OrderBy(x => x.SortOrder))
+        {
+            await using var cmd = connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = "INSERT INTO RPThemeSemanticEventMappings (Id, ThemeId, EventId, Direction, Delta, ConfidenceMin, ConfidenceMax, ReasonCode, AttributionKey, SortOrder) VALUES ($id, $themeId, $eventId, $direction, $delta, $confidenceMin, $confidenceMax, $reasonCode, $attributionKey, $sortOrder)";
+            cmd.Parameters.AddWithValue("$id", string.IsNullOrWhiteSpace(mapping.Id) ? Guid.NewGuid().ToString("N") : mapping.Id);
+            cmd.Parameters.AddWithValue("$themeId", theme.Id);
+            cmd.Parameters.AddWithValue("$eventId", mapping.EventId);
+            cmd.Parameters.AddWithValue("$direction", mapping.Direction);
+            cmd.Parameters.AddWithValue("$delta", (double)mapping.Delta);
+            cmd.Parameters.AddWithValue("$confidenceMin", (double)mapping.ConfidenceMin);
+            cmd.Parameters.AddWithValue("$confidenceMax", (double)mapping.ConfidenceMax);
+            cmd.Parameters.AddWithValue("$reasonCode", mapping.ReasonCode);
+            cmd.Parameters.AddWithValue("$attributionKey", mapping.AttributionKey ?? string.Empty);
+            cmd.Parameters.AddWithValue("$sortOrder", mapping.SortOrder);
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        foreach (var mapping in theme.SemanticStatMappings.OrderBy(x => x.SortOrder))
+        {
+            await using var cmd = connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = "INSERT INTO RPThemeSemanticStatMappings (Id, ThemeId, EventId, TargetStat, Direction, Delta, ConfidenceMin, ConfidenceMax, ReasonCode, AttributionKey, SortOrder) VALUES ($id, $themeId, $eventId, $targetStat, $direction, $delta, $confidenceMin, $confidenceMax, $reasonCode, $attributionKey, $sortOrder)";
+            cmd.Parameters.AddWithValue("$id", string.IsNullOrWhiteSpace(mapping.Id) ? Guid.NewGuid().ToString("N") : mapping.Id);
+            cmd.Parameters.AddWithValue("$themeId", theme.Id);
+            cmd.Parameters.AddWithValue("$eventId", mapping.EventId);
+            cmd.Parameters.AddWithValue("$targetStat", mapping.TargetStat);
+            cmd.Parameters.AddWithValue("$direction", mapping.Direction);
+            cmd.Parameters.AddWithValue("$delta", (double)mapping.Delta);
+            cmd.Parameters.AddWithValue("$confidenceMin", (double)mapping.ConfidenceMin);
+            cmd.Parameters.AddWithValue("$confidenceMax", (double)mapping.ConfidenceMax);
+            cmd.Parameters.AddWithValue("$reasonCode", mapping.ReasonCode);
+            cmd.Parameters.AddWithValue("$attributionKey", mapping.AttributionKey ?? string.Empty);
+            cmd.Parameters.AddWithValue("$sortOrder", mapping.SortOrder);
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+
         foreach (var rule in theme.NarrativeGateRules.Select((item, index) => (Rule: item, SortOrder: index + 1)))
         {
             await using var cmd = connection.CreateCommand();
@@ -2386,6 +2698,18 @@ public sealed partial class RPThemeService : IRPThemeService
             cmd.Parameters.AddWithValue("$statName", decayOverride.StatName);
             cmd.Parameters.AddWithValue("$decayScale", (double)Math.Clamp(decayOverride.DecayScale, 0m, 1m));
             cmd.Parameters.AddWithValue("$description", decayOverride.Description ?? string.Empty);
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        foreach (var successor in theme.SuccessorThemeLinks.OrderBy(x => x.SortOrder))
+        {
+            await using var cmd = connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = "INSERT INTO RPThemeSuccessorLinks (SourceThemeId, SuccessorThemeId, ScoreBoost, SortOrder) VALUES ($sourceThemeId, $successorThemeId, $scoreBoost, $sortOrder)";
+            cmd.Parameters.AddWithValue("$sourceThemeId", theme.Id);
+            cmd.Parameters.AddWithValue("$successorThemeId", successor.SuccessorThemeId);
+            cmd.Parameters.AddWithValue("$scoreBoost", (double)successor.ScoreBoost);
+            cmd.Parameters.AddWithValue("$sortOrder", successor.SortOrder);
             await cmd.ExecuteNonQueryAsync(cancellationToken);
         }
     }
@@ -2656,7 +2980,9 @@ public sealed partial class RPThemeService : IRPThemeService
             ["Interaction Dynamics"] = RPThemeAIGuidanceSection.InteractionDynamics,
             ["Scenario Distinction from Related Themes"] = RPThemeAIGuidanceSection.ScenarioDistinction,
             ["Variations Within This Scenario"] = RPThemeAIGuidanceSection.Variation,
-            ["Optional Variations Within This Scenario"] = RPThemeAIGuidanceSection.Variation
+            ["Optional Variations Within This Scenario"] = RPThemeAIGuidanceSection.Variation,
+            ["Hard Constraints"] = RPThemeAIGuidanceSection.HardConstraint,
+            ["Hard Constraint"] = RPThemeAIGuidanceSection.HardConstraint
         };
 
         RPThemeAIGuidanceSection? currentSection = null;
@@ -2931,12 +3257,12 @@ public sealed partial class RPThemeService : IRPThemeService
         command.Transaction = tx;
         command.CommandText = """
             INSERT INTO RPFinishingMoveMatrixRows (
-                Id, DesireBand, SelfRespectBand, OtherManDominanceBand,
+                Id, DesireBand, SelfRespectBand, OtherManDominanceBand, EscalationTier,
                 PrimaryLocationsJson, SecondaryLocationsJson, ExcludedLocationsJson,
                 WifeReceptivity, WifeBehaviorModifier, OtherManBehaviorModifier, TransitionInstruction,
                 SortOrder, IsEnabled, CreatedUtc, UpdatedUtc)
             VALUES (
-                $id, $desireBand, $selfRespectBand, $otherManDominanceBand,
+                $id, $desireBand, $selfRespectBand, $otherManDominanceBand, $escalationTier,
                 $primaryLocationsJson, $secondaryLocationsJson, $excludedLocationsJson,
                 $wifeReceptivity, $wifeBehaviorModifier, $otherManBehaviorModifier, $transitionInstruction,
                 $sortOrder, $isEnabled, $createdUtc, $updatedUtc)
@@ -2944,6 +3270,7 @@ public sealed partial class RPThemeService : IRPThemeService
                 DesireBand = excluded.DesireBand,
                 SelfRespectBand = excluded.SelfRespectBand,
                 OtherManDominanceBand = excluded.OtherManDominanceBand,
+                EscalationTier = excluded.EscalationTier,
                 PrimaryLocationsJson = excluded.PrimaryLocationsJson,
                 SecondaryLocationsJson = excluded.SecondaryLocationsJson,
                 ExcludedLocationsJson = excluded.ExcludedLocationsJson,
@@ -2956,9 +3283,10 @@ public sealed partial class RPThemeService : IRPThemeService
                 UpdatedUtc = excluded.UpdatedUtc;
             """;
         command.Parameters.AddWithValue("$id", row.Id);
-        command.Parameters.AddWithValue("$desireBand", row.EscalationTier);
-        command.Parameters.AddWithValue("$selfRespectBand", row.EscalationTier);
-        command.Parameters.AddWithValue("$otherManDominanceBand", row.EscalationTier);
+        command.Parameters.AddWithValue("$desireBand", row.DesireBand);
+        command.Parameters.AddWithValue("$selfRespectBand", row.SelfRespectBand);
+        command.Parameters.AddWithValue("$otherManDominanceBand", row.OtherManDominanceBand);
+        command.Parameters.AddWithValue("$escalationTier", row.EscalationTier);
         command.Parameters.AddWithValue("$primaryLocationsJson", SerializeStringList(row.PrimaryLocations));
         command.Parameters.AddWithValue("$secondaryLocationsJson", SerializeStringList(row.SecondaryLocations));
         command.Parameters.AddWithValue("$excludedLocationsJson", SerializeStringList(row.ExcludedLocations));
@@ -3217,6 +3545,27 @@ public sealed partial class RPThemeService : IRPThemeService
         return value?.ToString();
     }
 
+    private static async Task<List<RPThemeSuccessorLink>> LoadThemeSuccessorLinksAsync(SqliteConnection connection, string themeId, CancellationToken cancellationToken)
+    {
+        var list = new List<RPThemeSuccessorLink>();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT SourceThemeId, SuccessorThemeId, ScoreBoost, SortOrder FROM RPThemeSuccessorLinks WHERE SourceThemeId = $sourceThemeId ORDER BY SortOrder, SuccessorThemeId";
+        command.Parameters.AddWithValue("$sourceThemeId", themeId);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            list.Add(new RPThemeSuccessorLink
+            {
+                SourceThemeId = reader.GetString(0),
+                SuccessorThemeId = reader.GetString(1),
+                ScoreBoost = Math.Clamp(Convert.ToDecimal(reader.GetValue(2)), 1m, 100m),
+                SortOrder = reader.GetInt32(3)
+            });
+        }
+
+        return list;
+    }
+
     private static async Task<List<RPThemeKeyword>> LoadThemeKeywordsAsync(SqliteConnection connection, string themeId, CancellationToken cancellationToken)
     {
         var list = new List<RPThemeKeyword>();
@@ -3408,6 +3757,113 @@ public sealed partial class RPThemeService : IRPThemeService
         return list;
     }
 
+    private static async Task<List<RPSemanticEventMapping>> LoadThemeSemanticEventMappingsAsync(SqliteConnection connection, string themeId, CancellationToken cancellationToken)
+    {
+        var list = new List<RPSemanticEventMapping>();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT Id, ThemeId, EventId, Direction, Delta, ConfidenceMin, ConfidenceMax, ReasonCode, AttributionKey, SortOrder FROM RPThemeSemanticEventMappings WHERE ThemeId = $themeId ORDER BY SortOrder, Id";
+        command.Parameters.AddWithValue("$themeId", themeId);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var mapping = new RPSemanticEventMapping
+            {
+                Id = reader.GetString(0),
+                ThemeId = reader.GetString(1),
+                EventId = reader.GetString(2),
+                Direction = reader.GetString(3),
+                Delta = Convert.ToDecimal(reader.GetValue(4), CultureInfo.InvariantCulture),
+                ConfidenceMin = Convert.ToDecimal(reader.GetValue(5), CultureInfo.InvariantCulture),
+                ConfidenceMax = Convert.ToDecimal(reader.GetValue(6), CultureInfo.InvariantCulture),
+                ReasonCode = reader.GetString(7),
+                AttributionKey = reader.IsDBNull(8) ? string.Empty : reader.GetString(8),
+                SortOrder = reader.GetInt32(9)
+            };
+
+            if (string.IsNullOrWhiteSpace(mapping.EventId)
+                || string.IsNullOrWhiteSpace(mapping.Direction)
+                || string.IsNullOrWhiteSpace(mapping.ReasonCode))
+            {
+                throw new InvalidOperationException(
+                    $"Invalid semantic mapping row '{mapping.Id}' for theme '{themeId}': required fields are empty.");
+            }
+
+            if (mapping.ConfidenceMin < 0m || mapping.ConfidenceMax > 1m || mapping.ConfidenceMin > mapping.ConfidenceMax)
+            {
+                throw new InvalidOperationException(
+                    $"Invalid semantic mapping row '{mapping.Id}' for theme '{themeId}': confidence range [{mapping.ConfidenceMin}, {mapping.ConfidenceMax}] is invalid.");
+            }
+
+            list.Add(mapping);
+        }
+
+        return list;
+    }
+
+    private static async Task<List<RPSemanticStatMapping>> LoadThemeSemanticStatMappingsAsync(SqliteConnection connection, string themeId, CancellationToken cancellationToken)
+    {
+        var list = new List<RPSemanticStatMapping>();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT Id, ThemeId, EventId, TargetStat, Direction, Delta, ConfidenceMin, ConfidenceMax, ReasonCode, AttributionKey, SortOrder FROM RPThemeSemanticStatMappings WHERE ThemeId = $themeId ORDER BY SortOrder, Id";
+        command.Parameters.AddWithValue("$themeId", themeId);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var mapping = new RPSemanticStatMapping
+            {
+                Id = reader.GetString(0),
+                ThemeId = reader.GetString(1),
+                EventId = reader.GetString(2),
+                TargetStat = reader.GetString(3),
+                Direction = reader.IsDBNull(4) ? string.Empty : reader.GetString(4),
+                Delta = Convert.ToDecimal(reader.GetValue(5), CultureInfo.InvariantCulture),
+                ConfidenceMin = Convert.ToDecimal(reader.GetValue(6), CultureInfo.InvariantCulture),
+                ConfidenceMax = Convert.ToDecimal(reader.GetValue(7), CultureInfo.InvariantCulture),
+                ReasonCode = reader.GetString(8),
+                AttributionKey = reader.IsDBNull(9) ? string.Empty : reader.GetString(9),
+                SortOrder = reader.GetInt32(10)
+            };
+
+            mapping.Direction = string.IsNullOrWhiteSpace(mapping.Direction)
+                ? "increase"
+                : mapping.Direction.Trim();
+
+            var isBlankRow = string.IsNullOrWhiteSpace(mapping.EventId)
+                && string.IsNullOrWhiteSpace(mapping.TargetStat)
+                && string.IsNullOrWhiteSpace(mapping.ReasonCode);
+
+            if (isBlankRow)
+            {
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(mapping.EventId)
+                || string.IsNullOrWhiteSpace(mapping.TargetStat)
+                || string.IsNullOrWhiteSpace(mapping.ReasonCode))
+            {
+                continue;
+            }
+
+            if (!SupportedSemanticStatKeys.Contains(mapping.TargetStat))
+            {
+                throw new InvalidOperationException(
+                    $"Invalid semantic stat mapping row '{mapping.Id}' for theme '{themeId}': target stat '{mapping.TargetStat}' is not supported.");
+            }
+
+            if (mapping.ConfidenceMin < 0m || mapping.ConfidenceMax > 1m || mapping.ConfidenceMin > mapping.ConfidenceMax)
+            {
+                throw new InvalidOperationException(
+                    $"Invalid semantic stat mapping row '{mapping.Id}' for theme '{themeId}': confidence range [{mapping.ConfidenceMin}, {mapping.ConfidenceMax}] is invalid.");
+            }
+
+            list.Add(mapping);
+        }
+
+        return list;
+    }
+
     private static async Task<List<NarrativeGateRule>> LoadThemeNarrativeGateRulesAsync(SqliteConnection connection, string themeId, CancellationToken cancellationToken)
     {
         var list = new List<NarrativeGateRule>();
@@ -3505,6 +3961,52 @@ public sealed partial class RPThemeService : IRPThemeService
                 Threshold = rule.Threshold
             })
             .ToList();
+    }
+
+    private static List<RPThemeSuccessorLink> NormalizeSuccessorThemeLinks(string sourceThemeId, IReadOnlyList<RPThemeSuccessorLink> links)
+    {
+        return links
+            .Where(link => !string.IsNullOrWhiteSpace(link.SuccessorThemeId))
+            .Select((link, index) => new RPThemeSuccessorLink
+            {
+                SourceThemeId = sourceThemeId,
+                SuccessorThemeId = link.SuccessorThemeId.Trim(),
+                ScoreBoost = Math.Clamp(link.ScoreBoost, 1m, 100m),
+                SortOrder = index + 1
+            })
+            .GroupBy(link => link.SuccessorThemeId, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .ToList();
+    }
+
+    private static async Task ValidateSuccessorThemeLinksAsync(SqliteConnection connection, RPTheme theme, CancellationToken cancellationToken)
+    {
+        foreach (var link in theme.SuccessorThemeLinks)
+        {
+            if (string.IsNullOrWhiteSpace(link.SuccessorThemeId))
+            {
+                throw new InvalidOperationException($"Theme '{theme.Id}' has an invalid successor link: successor theme id is required.");
+            }
+
+            if (string.Equals(link.SuccessorThemeId, theme.Id, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException($"Theme '{theme.Id}' has an invalid successor link: a theme cannot point to itself.");
+            }
+
+            if (link.ScoreBoost <= 0m)
+            {
+                throw new InvalidOperationException($"Theme '{theme.Id}' has an invalid successor link to '{link.SuccessorThemeId}': score boost must be greater than zero.");
+            }
+
+            await using var command = connection.CreateCommand();
+            command.CommandText = "SELECT COUNT(*) FROM RPThemes WHERE Id = $id";
+            command.Parameters.AddWithValue("$id", link.SuccessorThemeId);
+            var exists = Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken)) > 0;
+            if (!exists)
+            {
+                throw new InvalidOperationException($"Theme '{theme.Id}' references missing successor theme '{link.SuccessorThemeId}'.");
+            }
+        }
     }
 
     private static void ValidateRequiredNarrativeTransitions(IReadOnlyList<NarrativeGateRule> rules)
@@ -4302,6 +4804,7 @@ public sealed partial class RPThemeService : IRPThemeService
         {
             await EnsureSupplementalTablesAsync(connection, cancellationToken);
             await EnsureRpThemesColumnsAsync(connection, cancellationToken);
+            await EnsureRPThemeProfilesSelectionColumnAsync(connection, cancellationToken);
             _supplementalTablesEnsured = true;
         }
 
@@ -4321,10 +4824,37 @@ public sealed partial class RPThemeService : IRPThemeService
         _rpThemesHasNarrativeGateProfileIdColumn = true;
     }
 
+    private static async Task EnsureRPThemeProfilesSelectionColumnAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        await using var checkNewCommand = connection.CreateCommand();
+        checkNewCommand.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RPThemeProfiles') WHERE name='ThemeSelectionTurnsPerTheme'";
+        var hasNewColumn = Convert.ToInt64(await checkNewCommand.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (hasNewColumn)
+        {
+            return;
+        }
+
+        await using var checkLegacyCommand = connection.CreateCommand();
+        checkLegacyCommand.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RPThemeProfiles') WHERE name='ThemeSelectionInteractionsPerTheme'";
+        var hasLegacyColumn = Convert.ToInt64(await checkLegacyCommand.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (hasLegacyColumn)
+        {
+            await using var renameCommand = connection.CreateCommand();
+            renameCommand.CommandText = "ALTER TABLE RPThemeProfiles RENAME COLUMN ThemeSelectionInteractionsPerTheme TO ThemeSelectionTurnsPerTheme";
+            await renameCommand.ExecuteNonQueryAsync(cancellationToken);
+            return;
+        }
+
+        await using var alterCommand = connection.CreateCommand();
+        alterCommand.CommandText = "ALTER TABLE RPThemeProfiles ADD COLUMN ThemeSelectionTurnsPerTheme INTEGER NOT NULL DEFAULT 2";
+        await alterCommand.ExecuteNonQueryAsync(cancellationToken);
+    }
+
     private static async Task EnsureSupplementalTablesAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {
         await MigrateLegacyMatrixTablesToGlobalAsync(connection, cancellationToken);
         await MigrateFinishingMoveMatrixToV2Async(connection, cancellationToken);
+        await MigrateFinishingMoveMatrixToV3Async(connection, cancellationToken);
 
         await using var command = connection.CreateCommand();
         command.CommandText = """
@@ -4345,7 +4875,7 @@ public sealed partial class RPThemeService : IRPThemeService
                 IsEnabled INTEGER NOT NULL DEFAULT 1,
                 CreatedUtc TEXT NOT NULL,
                 UpdatedUtc TEXT NOT NULL,
-                UNIQUE (DesireBand, SelfRespectBand, OtherManDominanceBand)
+                UNIQUE (EscalationTier)
             );
 
             CREATE INDEX IF NOT EXISTS IX_RPFinishingMoveMatrixRows_Sort
@@ -4428,6 +4958,19 @@ public sealed partial class RPThemeService : IRPThemeService
             CREATE INDEX IF NOT EXISTS IX_RPThemeStatDecayOverrides_Theme
                 ON RPThemeStatDecayOverrides (ThemeId);
 
+            CREATE TABLE IF NOT EXISTS RPThemeSuccessorLinks (
+                SourceThemeId TEXT NOT NULL,
+                SuccessorThemeId TEXT NOT NULL,
+                ScoreBoost REAL NOT NULL,
+                SortOrder INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (SourceThemeId, SuccessorThemeId),
+                FOREIGN KEY (SourceThemeId) REFERENCES RPThemes(Id) ON DELETE CASCADE,
+                FOREIGN KEY (SuccessorThemeId) REFERENCES RPThemes(Id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS IX_RPThemeSuccessorLinks_Source_Sort
+                ON RPThemeSuccessorLinks (SourceThemeId, SortOrder, SuccessorThemeId);
+
             CREATE TABLE IF NOT EXISTS RPFinishLocations (
                 Id TEXT PRIMARY KEY,
                 Name TEXT NOT NULL,
@@ -4465,6 +5008,8 @@ public sealed partial class RPThemeService : IRPThemeService
                 PhysicalCues TEXT NOT NULL DEFAULT '',
                 NarrativeCue TEXT NOT NULL DEFAULT '',
                 EscalationTier TEXT NOT NULL DEFAULT 'Low',
+                EligibleDesireBands TEXT NOT NULL DEFAULT '',
+                EligibleSelfRespectBands TEXT NOT NULL DEFAULT '',
                 SortOrder INTEGER NOT NULL DEFAULT 0,
                 IsEnabled INTEGER NOT NULL DEFAULT 1,
                 CreatedUtc TEXT NOT NULL,
@@ -4480,6 +5025,7 @@ public sealed partial class RPThemeService : IRPThemeService
                 Description TEXT NOT NULL DEFAULT '',
                 ExampleDialogue TEXT NOT NULL DEFAULT '',
                 EscalationTier TEXT NOT NULL DEFAULT 'Low',
+                EligibleOtherManDominanceBands TEXT NOT NULL DEFAULT '',
                 SortOrder INTEGER NOT NULL DEFAULT 0,
                 IsEnabled INTEGER NOT NULL DEFAULT 1,
                 CreatedUtc TEXT NOT NULL,
@@ -4506,6 +5052,38 @@ public sealed partial class RPThemeService : IRPThemeService
             """;
         await command.ExecuteNonQueryAsync(cancellationToken);
         await EnsureFinishCatalogEscalationTierColumnsAsync(connection, cancellationToken);
+        await EnsureFinishCatalogBandEligibilityColumnsAsync(connection, cancellationToken);
+    }
+
+    private static async Task EnsureFinishCatalogBandEligibilityColumnsAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        var checkCmd = connection.CreateCommand();
+        checkCmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RPFinishReceptivityLevels') WHERE name='EligibleDesireBands'";
+        var hasDesireBands = Convert.ToInt64(await checkCmd.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasDesireBands)
+        {
+            var alter = connection.CreateCommand();
+            alter.CommandText = "ALTER TABLE RPFinishReceptivityLevels ADD COLUMN EligibleDesireBands TEXT NOT NULL DEFAULT ''";
+            await alter.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        checkCmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RPFinishReceptivityLevels') WHERE name='EligibleSelfRespectBands'";
+        var hasSelfRespectBands = Convert.ToInt64(await checkCmd.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasSelfRespectBands)
+        {
+            var alter = connection.CreateCommand();
+            alter.CommandText = "ALTER TABLE RPFinishReceptivityLevels ADD COLUMN EligibleSelfRespectBands TEXT NOT NULL DEFAULT ''";
+            await alter.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        checkCmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RPFinishHisControlLevels') WHERE name='EligibleOtherManDominanceBands'";
+        var hasDominanceBands = Convert.ToInt64(await checkCmd.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasDominanceBands)
+        {
+            var alter = connection.CreateCommand();
+            alter.CommandText = "ALTER TABLE RPFinishHisControlLevels ADD COLUMN EligibleOtherManDominanceBands TEXT NOT NULL DEFAULT ''";
+            await alter.ExecuteNonQueryAsync(cancellationToken);
+        }
     }
 
     private static async Task EnsureFinishCatalogEscalationTierColumnsAsync(SqliteConnection connection, CancellationToken cancellationToken)
@@ -4572,6 +5150,70 @@ public sealed partial class RPThemeService : IRPThemeService
             DROP INDEX IF EXISTS IX_RPFinishingMoveMatrixRows_Sort;
             """;
         cmd.Parameters.AddWithValue("$archivedUtc", DateTime.UtcNow.ToString("O"));
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+        await tx.CommitAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// V3 migration: changes the UNIQUE constraint on RPFinishingMoveMatrixRows from
+    /// (DesireBand, SelfRespectBand, OtherManDominanceBand) to (EscalationTier).
+    /// The old constraint prevents seeding the 3-row tier format when all rows have empty bands.
+    /// </summary>
+    private static async Task MigrateFinishingMoveMatrixToV3Async(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        // Check whether the table exists with the old band UNIQUE constraint.
+        var check = connection.CreateCommand();
+        check.CommandText = "SELECT sql FROM sqlite_master WHERE type='table' AND name='RPFinishingMoveMatrixRows'";
+        var tableSql = (await check.ExecuteScalarAsync(cancellationToken)) as string;
+        if (tableSql == null || !tableSql.Contains("UNIQUE (DesireBand, SelfRespectBand, OtherManDominanceBand)", StringComparison.OrdinalIgnoreCase))
+        {
+            return; // Already on V3 schema or table does not exist yet.
+        }
+
+        await using var tx = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        await using var cmd = connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = """
+            CREATE TABLE RPFinishingMoveMatrixRows_V3 (
+                Id TEXT PRIMARY KEY,
+                DesireBand TEXT NOT NULL,
+                SelfRespectBand TEXT NOT NULL,
+                OtherManDominanceBand TEXT NOT NULL,
+                EscalationTier TEXT NOT NULL DEFAULT 'Low',
+                PrimaryLocationsJson TEXT NOT NULL DEFAULT '[]',
+                SecondaryLocationsJson TEXT NOT NULL DEFAULT '[]',
+                ExcludedLocationsJson TEXT NOT NULL DEFAULT '[]',
+                WifeReceptivity TEXT NOT NULL DEFAULT '',
+                WifeBehaviorModifier TEXT NOT NULL DEFAULT '',
+                OtherManBehaviorModifier TEXT NOT NULL DEFAULT '',
+                TransitionInstruction TEXT NOT NULL DEFAULT '',
+                SortOrder INTEGER NOT NULL DEFAULT 0,
+                IsEnabled INTEGER NOT NULL DEFAULT 1,
+                CreatedUtc TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL,
+                UNIQUE (EscalationTier)
+            );
+
+            INSERT INTO RPFinishingMoveMatrixRows_V3 (
+                Id, DesireBand, SelfRespectBand, OtherManDominanceBand, EscalationTier,
+                PrimaryLocationsJson, SecondaryLocationsJson, ExcludedLocationsJson,
+                WifeReceptivity, WifeBehaviorModifier, OtherManBehaviorModifier,
+                TransitionInstruction, SortOrder, IsEnabled, CreatedUtc, UpdatedUtc)
+            SELECT
+                Id, DesireBand, SelfRespectBand, OtherManDominanceBand, EscalationTier,
+                PrimaryLocationsJson, SecondaryLocationsJson, ExcludedLocationsJson,
+                WifeReceptivity, WifeBehaviorModifier, OtherManBehaviorModifier,
+                TransitionInstruction, SortOrder, IsEnabled, CreatedUtc, UpdatedUtc
+            FROM RPFinishingMoveMatrixRows;
+
+            DROP TABLE RPFinishingMoveMatrixRows;
+            DROP INDEX IF EXISTS IX_RPFinishingMoveMatrixRows_Sort;
+
+            ALTER TABLE RPFinishingMoveMatrixRows_V3 RENAME TO RPFinishingMoveMatrixRows;
+
+            CREATE INDEX IF NOT EXISTS IX_RPFinishingMoveMatrixRows_Sort
+                ON RPFinishingMoveMatrixRows (SortOrder, Id);
+            """;
         await cmd.ExecuteNonQueryAsync(cancellationToken);
         await tx.CommitAsync(cancellationToken);
     }

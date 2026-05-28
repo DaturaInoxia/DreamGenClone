@@ -66,6 +66,7 @@ public static class RolePlayAssistantPrompts
 
         return activeTheme.AIGenerationNotes
             .Where(x => !string.IsNullOrWhiteSpace(x.Text))
+            .Where(x => x.Section != RPThemeAIGuidanceSection.HardConstraint)
             .Where(x => includeFormulaNotes || x.Section != RPThemeAIGuidanceSection.FitFormula)
             .Select(x => new
             {
@@ -76,6 +77,27 @@ public static class RolePlayAssistantPrompts
             .ThenBy(x => x.Note.SortOrder)
             .Select(x => x.Note)
             .DistinctBy(x => x.Text.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Take(clampedMax)
+            .ToList();
+    }
+
+    public static IReadOnlyList<string> GetThemeHardConstraintLines(
+        RPTheme? activeTheme,
+        int maxConstraints)
+    {
+        if (activeTheme is null || activeTheme.AIGenerationNotes.Count == 0)
+        {
+            return [];
+        }
+
+        var clampedMax = Math.Clamp(maxConstraints, 1, 20);
+
+        return activeTheme.AIGenerationNotes
+            .Where(x => x.Section == RPThemeAIGuidanceSection.HardConstraint)
+            .Where(x => !string.IsNullOrWhiteSpace(x.Text))
+            .OrderBy(x => x.SortOrder)
+            .Select(x => x.Text.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
             .Take(clampedMax)
             .ToList();
     }
@@ -209,6 +231,26 @@ public static class RolePlayAssistantPrompts
             ? "Apply these as authoritative directives; follow them unless the user explicitly overrides."
             : "Apply these as soft guidance only; avoid repetitive restatement and do not force them if they conflict with immediate user direction or safety constraints.";
         promptBuilder.AppendLine(closingNote);
+    }
+
+    public static void AppendThemeHardConstraints(
+        StringBuilder promptBuilder,
+        RPTheme? activeTheme,
+        int maxConstraints)
+    {
+        ArgumentNullException.ThrowIfNull(promptBuilder);
+
+        var constraints = GetThemeHardConstraintLines(activeTheme, maxConstraints);
+        if (constraints.Count == 0)
+        {
+            return;
+        }
+
+        promptBuilder.AppendLine("Theme Hard Constraints (authoritative):");
+        foreach (var constraint in constraints)
+        {
+            promptBuilder.AppendLine($"- HARD CONSTRAINT: {constraint}");
+        }
     }
 
     public static void AppendThemeMachineGuidance(

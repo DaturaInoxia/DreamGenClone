@@ -1,3 +1,4 @@
+using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Domain.StoryAnalysis;
 using DreamGenClone.Web.Application.RolePlay;
 using DreamGenClone.Web.Domain.RolePlay;
@@ -9,12 +10,16 @@ public sealed class StyleResolverProfileDrivenTests
     private static RolePlaySession CreateSession(string? primaryThemeId = null, string? secondaryThemeId = null, int desireStat = 50)
     {
         var session = new RolePlaySession();
-        session.AdaptiveState.ThemeTracker.PrimaryThemeId = primaryThemeId;
-        session.AdaptiveState.ThemeTracker.SecondaryThemeId = secondaryThemeId;
-        session.AdaptiveState.CharacterStats["Alice"] = new CharacterStatBlock
+        session.AdaptiveState.PrimaryThemeId = primaryThemeId;
+        session.AdaptiveState.SecondaryThemeId = secondaryThemeId;
+        session.AdaptiveState.CharacterStats["Alice"] = new CharacterStatProfileV2
         {
             CharacterId = "alice",
-            Stats = new(StringComparer.OrdinalIgnoreCase) { ["Desire"] = desireStat, ["Restraint"] = 50, ["Tension"] = 50, ["Connection"] = 50, ["Dominance"] = 50 }
+            Desire = desireStat,
+            Restraint = 50,
+            Tension = 50,
+            Connection = 50,
+            Dominance = 50
         };
         // Add enough interactions to avoid early-session penalty
         for (var i = 0; i < 8; i++)
@@ -225,7 +230,7 @@ public sealed class StyleResolverProfileDrivenTests
     {
         var session = CreateSession(primaryThemeId: null, desireStat: 90);
         session.IsIntensityManuallyPinned = false;
-        session.AdaptiveState.CurrentNarrativePhase = NarrativePhase.Approaching;
+        session.AdaptiveState.CurrentPhase = DreamGenClone.Domain.RolePlay.NarrativePhase.Approaching;
         for (var i = 0; i < 8; i++)
         {
             session.Interactions.Add(new RolePlayInteraction { Content = "late" });
@@ -245,7 +250,7 @@ public sealed class StyleResolverProfileDrivenTests
     {
         var session = CreateSession(primaryThemeId: null, desireStat: 90);
         session.IsIntensityManuallyPinned = true;
-        session.AdaptiveState.CurrentNarrativePhase = NarrativePhase.Approaching;
+        session.AdaptiveState.CurrentPhase = DreamGenClone.Domain.RolePlay.NarrativePhase.Approaching;
 
         var (label, reason) = RolePlayStyleResolver.ResolveEffectiveStyle(
             session,

@@ -24,6 +24,7 @@ using DreamGenClone.Web.Application.Sessions;
 using DreamGenClone.Web.Application.StoryParser;
 using DreamGenClone.Web.Application.Story;
 using DreamGenClone.Web.Application.StoryAnalysis;
+using DreamGenClone.Web.Application.BackgroundJobs;
 using DreamGenClone.Application.Processing;
 using DreamGenClone.Infrastructure.Processing;
 using Microsoft.Extensions.Options;
@@ -48,6 +49,7 @@ builder.Services.Configure<StoryParserOptions>(builder.Configuration.GetSection(
 builder.Services.Configure<StoryAnalysisOptions>(builder.Configuration.GetSection(StoryAnalysisOptions.SectionName));
 builder.Services.Configure<ScenarioAdaptationOptions>(builder.Configuration.GetSection(ScenarioAdaptationOptions.SectionName));
 builder.Services.Configure<RolePlayDecisionOptions>(builder.Configuration.GetSection(RolePlayDecisionOptions.SectionName));
+builder.Services.Configure<RolePlayFeatureFlagsOptions>(builder.Configuration.GetSection(RolePlayFeatureFlagsOptions.SectionName));
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
@@ -82,6 +84,7 @@ builder.Services.AddScoped<RolePlayPromptComposer>();
 builder.Services.AddScoped<IRolePlayEngineService, RolePlayEngineService>();
 builder.Services.AddScoped<IRolePlayContinuationService, RolePlayContinuationService>();
 builder.Services.AddScoped<IRolePlayAdaptiveStateService, RolePlayAdaptiveStateService>();
+builder.Services.AddScoped<ISemanticEventInferenceService, SemanticEventInferenceService>();
 builder.Services.AddScoped<IRolePlayPromptRouter, RolePlayPromptRouter>();
 builder.Services.AddScoped<IRolePlayIdentityOptionsService, RolePlayIdentityOptionsService>();
 builder.Services.AddScoped<IBehaviorModeService, BehaviorModeService>();
@@ -111,6 +114,7 @@ builder.Services.AddScoped<IThemeMachineResolutionService, ThemeMachineResolutio
 builder.Services.AddScoped<IThemeMachineEvaluator, ThemeMachineEvaluator>();
 builder.Services.AddScoped<IRPThemeService, RPThemeService>();
 builder.Services.AddScoped<IRolePlayStateRepository, RolePlayStateRepository>();
+builder.Services.AddScoped<ISemanticInteractionAnalysisRepository, SemanticInteractionAnalysisRepository>();
 builder.Services.AddScoped<IRolePlayDiagnosticsRepository, RolePlayDiagnosticsRepository>();
 builder.Services.AddScoped<IRolePlayDiagnosticsService, RolePlayDiagnosticsService>();
 builder.Services.AddScoped<RolePlaySessionCompatibilityService>();
@@ -173,6 +177,12 @@ builder.Services.AddScoped<ModelMetadataService>();
 builder.Services.AddSingleton<ModelProcessingQueue>();
 builder.Services.AddSingleton<IModelProcessingQueue>(sp => sp.GetRequiredService<ModelProcessingQueue>());
 builder.Services.AddHostedService<ModelProcessingWorker>();
+
+// Generic background jobs queue
+builder.Services.AddSingleton<GenericBackgroundJobQueue>();
+builder.Services.AddSingleton<IBackgroundJobQueue>(sp => sp.GetRequiredService<GenericBackgroundJobQueue>());
+builder.Services.AddScoped<IBackgroundJobHandler, SemanticInteractionAnalysisJobHandler>();
+builder.Services.AddHostedService<GenericBackgroundJobWorker>();
 
 // Increase SignalR message size for large text editing (combined story text)
 builder.Services.AddSignalR(o => o.MaximumReceiveMessageSize = 1024 * 1024); // 1 MB

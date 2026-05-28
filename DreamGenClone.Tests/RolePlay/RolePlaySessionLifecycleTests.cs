@@ -1,7 +1,7 @@
 using CoreAutoSaveCoordinator = DreamGenClone.Application.Sessions.IAutoSaveCoordinator;
 using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Domain.RolePlay;
-using ScenarioMetadata = DreamGenClone.Domain.StoryAnalysis.ScenarioMetadata;
+using ScenarioHistoryEntry = DreamGenClone.Domain.RolePlay.ScenarioHistoryEntry;
 using DreamGenClone.Infrastructure.Configuration;
 using DreamGenClone.Infrastructure.RolePlay;
 using DreamGenClone.Web.Application.RolePlay;
@@ -479,27 +479,27 @@ public sealed class RolePlaySessionLifecycleTests
         var session = await service.GetSessionAsync(created.Id);
         Assert.NotNull(session);
 
-        session!.AdaptiveState.ThemeTracker.Themes["dominance"] = new ThemeTrackerItem
+        session!.AdaptiveState.ThemeScores["dominance"] = new ThemeScoreState
         {
             ThemeId = "dominance",
             ThemeName = "Dominance",
             Score = 62
         };
-        session.AdaptiveState.ThemeTracker.Themes["infidelity"] = new ThemeTrackerItem
+        session.AdaptiveState.ThemeScores["infidelity"] = new ThemeScoreState
         {
             ThemeId = "infidelity",
             ThemeName = "Infidelity",
             Score = 40
         };
         session.AdaptiveState.ActiveScenarioId = "dominance";
-        session.AdaptiveState.CurrentNarrativePhase = DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Approaching;
+        session.AdaptiveState.CurrentPhase = DreamGenClone.Domain.RolePlay.NarrativePhase.Approaching;
         session.AdaptiveState.InteractionsSinceCommitment = 5;
         await service.SaveSessionAsync(session);
 
         var overridden = await service.OverrideAdaptiveThemeAsync(created.Id, "infidelity");
 
         Assert.Equal("infidelity", overridden.AdaptiveState.ActiveScenarioId);
-        Assert.Equal("infidelity", overridden.AdaptiveState.ThemeTracker.PrimaryThemeId);
+        Assert.Equal("infidelity", overridden.AdaptiveState.PrimaryThemeId);
         Assert.Equal(0, overridden.AdaptiveState.InteractionsSinceCommitment);
     }
 
@@ -574,13 +574,13 @@ public sealed class RolePlaySessionLifecycleTests
         var session = await service.GetSessionAsync(created.Id);
         Assert.NotNull(session);
 
-        session!.AdaptiveState.ThemeTracker.Themes["dominance"] = new ThemeTrackerItem
+        session!.AdaptiveState.ThemeScores["dominance"] = new ThemeScoreState
         {
             ThemeId = "dominance",
             ThemeName = "Dominance",
             Score = 72
         };
-        session.AdaptiveState.ThemeTracker.Themes["infidelity"] = new ThemeTrackerItem
+        session.AdaptiveState.ThemeScores["infidelity"] = new ThemeScoreState
         {
             ThemeId = "infidelity",
             ThemeName = "Infidelity",
@@ -596,7 +596,7 @@ public sealed class RolePlaySessionLifecycleTests
         var reloaded = await service.GetSessionAsync(created.Id);
         Assert.NotNull(reloaded);
         Assert.Equal("infidelity", reloaded!.AdaptiveState.ActiveScenarioId);
-        Assert.Equal("ManualOverride", reloaded.AdaptiveState.ThemeTracker.ThemeSelectionRule);
+        Assert.Equal("ManualOverride", reloaded.AdaptiveState.ThemeSelectionRule);
     }
 
     [Fact]
@@ -607,20 +607,20 @@ public sealed class RolePlaySessionLifecycleTests
         var session = await service.GetSessionAsync(created.Id);
         Assert.NotNull(session);
 
-        session!.AdaptiveState.ThemeTracker.Themes["dominance"] = new ThemeTrackerItem
+        session!.AdaptiveState.ThemeScores["dominance"] = new ThemeScoreState
         {
             ThemeId = "dominance",
             ThemeName = "Dominance",
             Score = 90
         };
-        session.AdaptiveState.ThemeTracker.Themes["infidelity"] = new ThemeTrackerItem
+        session.AdaptiveState.ThemeScores["infidelity"] = new ThemeScoreState
         {
             ThemeId = "infidelity",
             ThemeName = "Infidelity",
             Score = 35
         };
         session.AdaptiveState.ActiveScenarioId = "dominance";
-        session.AdaptiveState.CurrentNarrativePhase = DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Committed;
+        session.AdaptiveState.CurrentPhase = DreamGenClone.Domain.RolePlay.NarrativePhase.Committed;
         session.AdaptiveState.InteractionsSinceCommitment = 0;
         await service.SaveSessionAsync(session);
 
@@ -628,7 +628,7 @@ public sealed class RolePlaySessionLifecycleTests
 
         var overridden = await service.GetSessionAsync(created.Id);
         Assert.NotNull(overridden);
-        overridden!.AdaptiveState.CurrentNarrativePhase = DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Committed;
+        overridden!.AdaptiveState.CurrentPhase = DreamGenClone.Domain.RolePlay.NarrativePhase.Committed;
         overridden.AdaptiveState.InteractionsSinceCommitment = 9;
         await service.SaveSessionAsync(overridden);
 
@@ -637,8 +637,8 @@ public sealed class RolePlaySessionLifecycleTests
         var reloaded = await service.GetSessionAsync(created.Id);
         Assert.NotNull(reloaded);
         Assert.Equal("infidelity", reloaded!.AdaptiveState.ActiveScenarioId);
-        Assert.Equal("infidelity", reloaded.AdaptiveState.ThemeTracker.PrimaryThemeId);
-        Assert.Equal("ManualOverride", reloaded.AdaptiveState.ThemeTracker.ThemeSelectionRule);
+        Assert.Equal("infidelity", reloaded.AdaptiveState.PrimaryThemeId);
+        Assert.Equal("ManualOverride", reloaded.AdaptiveState.ThemeSelectionRule);
     }
 
     [Fact]
@@ -651,7 +651,7 @@ public sealed class RolePlaySessionLifecycleTests
         var session = await service.GetSessionAsync(created.Id);
         Assert.NotNull(session);
         session!.AdaptiveState.ActiveScenarioId = "scenario-a";
-        session.AdaptiveState.CurrentNarrativePhase = DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Committed;
+        session.AdaptiveState.CurrentPhase = DreamGenClone.Domain.RolePlay.NarrativePhase.Committed;
         await repository.SaveAdaptiveStateAsync(new AdaptiveScenarioState
         {
             SessionId = session.Id,
@@ -665,8 +665,8 @@ public sealed class RolePlaySessionLifecycleTests
 
         var reloaded = await service.GetSessionAsync(created.Id);
         Assert.NotNull(reloaded);
-        Assert.Equal(DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Approaching, reloaded!.AdaptiveState.CurrentNarrativePhase);
-        Assert.Equal(DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Approaching, reloaded.AdaptiveState.PhaseOverrideFloor);
+        Assert.Equal(DreamGenClone.Domain.RolePlay.NarrativePhase.Approaching, reloaded!.AdaptiveState.CurrentPhase);
+        Assert.Equal(DreamGenClone.Domain.RolePlay.NarrativePhase.Approaching, reloaded.AdaptiveState.PhaseOverrideFloor);
         Assert.Equal("scenario-a", reloaded.AdaptiveState.PhaseOverrideScenarioId);
         Assert.Equal(reloaded.AdaptiveState.CompletedScenarios, reloaded.AdaptiveState.PhaseOverrideCycleIndex);
         Assert.Equal("/nextphase", reloaded.AdaptiveState.PhaseOverrideSource);
@@ -701,7 +701,7 @@ public sealed class RolePlaySessionLifecycleTests
         var session = await service.GetSessionAsync(created.Id);
         Assert.NotNull(session);
         session!.AdaptiveState.ActiveScenarioId = "scenario-a";
-        session.AdaptiveState.CurrentNarrativePhase = DreamGenClone.Domain.StoryAnalysis.NarrativePhase.BuildUp;
+        session.AdaptiveState.CurrentPhase = DreamGenClone.Domain.RolePlay.NarrativePhase.BuildUp;
         await service.SaveSessionAsync(session);
 
         await service.SubmitPromptAsync(new UnifiedPromptSubmission
@@ -717,8 +717,8 @@ public sealed class RolePlaySessionLifecycleTests
 
         var reloaded = await service.GetSessionAsync(created.Id);
         Assert.NotNull(reloaded);
-        Assert.Equal(DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Approaching, reloaded!.AdaptiveState.CurrentNarrativePhase);
-        Assert.Equal(DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Approaching, reloaded.AdaptiveState.PhaseOverrideFloor);
+        Assert.Equal(DreamGenClone.Domain.RolePlay.NarrativePhase.Approaching, reloaded!.AdaptiveState.CurrentPhase);
+        Assert.Equal(DreamGenClone.Domain.RolePlay.NarrativePhase.Approaching, reloaded.AdaptiveState.PhaseOverrideFloor);
     }
 
     [Fact]
@@ -744,10 +744,10 @@ public sealed class RolePlaySessionLifecycleTests
         var session = await service.GetSessionAsync(created.Id);
         Assert.NotNull(session);
         session!.AdaptiveState.ActiveScenarioId = null;
-        session.AdaptiveState.CurrentNarrativePhase = DreamGenClone.Domain.StoryAnalysis.NarrativePhase.BuildUp;
-        session.AdaptiveState.ThemeTracker.Themes = new Dictionary<string, ThemeTrackerItem>(StringComparer.OrdinalIgnoreCase)
+        session.AdaptiveState.CurrentPhase = DreamGenClone.Domain.RolePlay.NarrativePhase.BuildUp;
+        session.AdaptiveState.ThemeScores = new Dictionary<string, ThemeScoreState>(StringComparer.OrdinalIgnoreCase)
         {
-            ["scenario-a"] = new ThemeTrackerItem
+            ["scenario-a"] = new ThemeScoreState
             {
                 ThemeId = "scenario-a",
                 ThemeName = "Scenario A",
@@ -770,7 +770,7 @@ public sealed class RolePlaySessionLifecycleTests
         var reloaded = await service.GetSessionAsync(created.Id);
         Assert.NotNull(reloaded);
         Assert.False(string.IsNullOrWhiteSpace(reloaded!.AdaptiveState.ActiveScenarioId));
-        if (reloaded.AdaptiveState.CurrentNarrativePhase == DreamGenClone.Domain.StoryAnalysis.NarrativePhase.BuildUp)
+        if (reloaded.AdaptiveState.CurrentPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.BuildUp)
         {
             Assert.False(string.IsNullOrWhiteSpace(reloaded.AdaptiveState.ActiveScenarioId));
         }
@@ -786,7 +786,7 @@ public sealed class RolePlaySessionLifecycleTests
         var session = await service.GetSessionAsync(created.Id);
         Assert.NotNull(session);
         session!.AdaptiveState.ActiveScenarioId = "scenario-a";
-        session.AdaptiveState.CurrentNarrativePhase = DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Climax;
+        session.AdaptiveState.CurrentPhase = DreamGenClone.Domain.RolePlay.NarrativePhase.Climax;
         await repository.SaveAdaptiveStateAsync(new AdaptiveScenarioState
         {
             SessionId = session.Id,
@@ -800,7 +800,7 @@ public sealed class RolePlaySessionLifecycleTests
 
         var reloaded = await service.GetSessionAsync(created.Id);
         Assert.NotNull(reloaded);
-        Assert.Equal(DreamGenClone.Domain.StoryAnalysis.NarrativePhase.BuildUp, reloaded!.AdaptiveState.CurrentNarrativePhase);
+        Assert.Equal(DreamGenClone.Domain.RolePlay.NarrativePhase.BuildUp, reloaded!.AdaptiveState.CurrentPhase);
         Assert.Null(reloaded.AdaptiveState.PhaseOverrideFloor);
         Assert.Null(reloaded.AdaptiveState.PhaseOverrideScenarioId);
         Assert.Null(reloaded.AdaptiveState.PhaseOverrideCycleIndex);
@@ -831,7 +831,7 @@ public sealed class RolePlaySessionLifecycleTests
         var session = await service.GetSessionAsync(created.Id);
         Assert.NotNull(session);
         session!.AdaptiveState.ActiveScenarioId = "scenario-a";
-        session.AdaptiveState.CurrentNarrativePhase = DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Committed;
+        session.AdaptiveState.CurrentPhase = DreamGenClone.Domain.RolePlay.NarrativePhase.Committed;
         await service.SaveSessionAsync(session);
 
         var interaction = await service.SubmitPromptAsync(new UnifiedPromptSubmission
@@ -854,7 +854,7 @@ public sealed class RolePlaySessionLifecycleTests
 
         var reloaded = await service.GetSessionAsync(created.Id);
         Assert.NotNull(reloaded);
-        Assert.Equal(DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Committed, reloaded!.AdaptiveState.CurrentNarrativePhase);
+        Assert.Equal(DreamGenClone.Domain.RolePlay.NarrativePhase.Committed, reloaded!.AdaptiveState.CurrentPhase);
     }
 
     private static async Task InvokeRunAdaptivePipelineAsync(
@@ -886,31 +886,28 @@ public sealed class RolePlaySessionLifecycleTests
         var service = RolePlayTestFactory.CreateEngineService();
         var session = new RolePlaySession
         {
-            AdaptiveState = new RolePlayAdaptiveState
+            AdaptiveState = new AdaptiveScenarioState
             {
-                ThemeTracker = new ThemeTrackerState
-                {
-                    Themes = new Dictionary<string, ThemeTrackerItem>(StringComparer.OrdinalIgnoreCase)
+                ThemeScores = new Dictionary<string, ThemeScoreState>(StringComparer.OrdinalIgnoreCase)
                     {
-                        ["repeat-theme"] = new ThemeTrackerItem
+                        ["repeat-theme"] = new ThemeScoreState
                         {
                             ThemeId = "repeat-theme",
                             ThemeName = "Repeat Theme",
                             Score = 96
                         },
-                        ["fresh-theme"] = new ThemeTrackerItem
+                        ["fresh-theme"] = new ThemeScoreState
                         {
                             ThemeId = "fresh-theme",
                             ThemeName = "Fresh Theme",
                             Score = 91
                         }
-                    }
-                },
+                    },
                 ScenarioHistory =
                 [
-                    new ScenarioMetadata { ScenarioId = "repeat-theme" },
-                    new ScenarioMetadata { ScenarioId = "repeat-theme" },
-                    new ScenarioMetadata { ScenarioId = "repeat-theme" }
+                    new ScenarioHistoryEntry { ScenarioId = "repeat-theme" },
+                    new ScenarioHistoryEntry { ScenarioId = "repeat-theme" },
+                    new ScenarioHistoryEntry { ScenarioId = "repeat-theme" }
                 ]
             }
         };
@@ -941,30 +938,27 @@ public sealed class RolePlaySessionLifecycleTests
         var service = RolePlayTestFactory.CreateEngineService();
         var session = new RolePlaySession
         {
-            AdaptiveState = new RolePlayAdaptiveState
+            AdaptiveState = new AdaptiveScenarioState
             {
-                ThemeTracker = new ThemeTrackerState
-                {
-                    Themes = new Dictionary<string, ThemeTrackerItem>(StringComparer.OrdinalIgnoreCase)
+                ThemeScores = new Dictionary<string, ThemeScoreState>(StringComparer.OrdinalIgnoreCase)
                     {
-                        ["older-theme"] = new ThemeTrackerItem
+                        ["older-theme"] = new ThemeScoreState
                         {
                             ThemeId = "older-theme",
                             ThemeName = "Older Theme",
                             Score = 90
                         },
-                        ["recent-theme"] = new ThemeTrackerItem
+                        ["recent-theme"] = new ThemeScoreState
                         {
                             ThemeId = "recent-theme",
                             ThemeName = "Recent Theme",
                             Score = 90
                         }
-                    }
-                },
+                    },
                 ScenarioHistory =
                 [
-                    new ScenarioMetadata { ScenarioId = "older-theme" },
-                    new ScenarioMetadata { ScenarioId = "recent-theme" }
+                    new ScenarioHistoryEntry { ScenarioId = "older-theme" },
+                    new ScenarioHistoryEntry { ScenarioId = "recent-theme" }
                 ]
             }
         };
@@ -1007,18 +1001,15 @@ public sealed class RolePlaySessionLifecycleTests
                 new SessionThemeSelection { ThemeId = themeA.Id, Tier = DreamGenClone.Domain.RolePlay.RPThemeTier.MustHave },
                 new SessionThemeSelection { ThemeId = themeB.Id, Tier = DreamGenClone.Domain.RolePlay.RPThemeTier.MustHave }
             ],
-            AdaptiveState = new RolePlayAdaptiveState
+            AdaptiveState = new AdaptiveScenarioState
             {
-                ThemeTracker = new ThemeTrackerState
-                {
-                    Themes = new Dictionary<string, ThemeTrackerItem>(StringComparer.OrdinalIgnoreCase)
+                ThemeScores = new Dictionary<string, ThemeScoreState>(StringComparer.OrdinalIgnoreCase)
                     {
-                        [themeA.Id] = new ThemeTrackerItem { ThemeId = themeA.Id, Score = 90 },
-                        [themeB.Id] = new ThemeTrackerItem { ThemeId = themeB.Id, Score = 90 }
-                    }
-                },
+                        [themeA.Id] = new ThemeScoreState { ThemeId = themeA.Id, Score = 90 },
+                        [themeB.Id] = new ThemeScoreState { ThemeId = themeB.Id, Score = 90 }
+                    },
                 // theme-a was just completed — it is the most recent entry
-                ScenarioHistory = [new ScenarioMetadata { ScenarioId = themeA.Id }]
+                ScenarioHistory = [new ScenarioHistoryEntry { ScenarioId = themeA.Id }]
             }
         };
 
@@ -1047,6 +1038,50 @@ public sealed class RolePlaySessionLifecycleTests
         Assert.Equal(1m, candidateB.FitScoreMultiplier);
     }
 
+    [Fact]
+    public async Task ApplyThemeSemiResetAsync_BoostsConfiguredSuccessorThemes()
+    {
+        var sourceTheme = new DreamGenClone.Domain.RolePlay.RPTheme
+        {
+            Id = "theme-source",
+            Label = "Theme Source",
+            IsEnabled = true,
+            SuccessorThemeLinks =
+            [
+                new RPThemeSuccessorLink
+                {
+                    SourceThemeId = "theme-source",
+                    SuccessorThemeId = "theme-successor",
+                    ScoreBoost = 15m,
+                    SortOrder = 1
+                }
+            ]
+        };
+
+        var service = RolePlayTestFactory.CreateEngineService(
+            rpThemeService: new StubListOnlyRpThemeService([sourceTheme]));
+
+        var tracker = new AdaptiveScenarioState
+        {
+            ThemeScores = new Dictionary<string, ThemeScoreState>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["theme-source"] = new ThemeScoreState { ThemeId = "theme-source", Score = 80 },
+                ["theme-successor"] = new ThemeScoreState { ThemeId = "theme-successor", Score = 20 }
+            }
+        };
+
+        var method = typeof(RolePlayEngineService).GetMethod(
+            "ApplyThemeSemiResetAsync",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+
+        var result = method!.Invoke(service, [tracker, "theme-source", CancellationToken.None]);
+        var task = Assert.IsAssignableFrom<Task>(result);
+        await task;
+
+        Assert.Equal(18, tracker.ThemeScores["theme-successor"].Score);
+    }
+
     private sealed class StubListOnlyRpThemeService : IRPThemeService
     {
         private readonly IReadOnlyList<DreamGenClone.Domain.RolePlay.RPTheme> _themes;
@@ -1061,7 +1096,9 @@ public sealed class RolePlaySessionLifecycleTests
         public Task<DreamGenClone.Domain.RolePlay.RPTheme> SaveThemeAsync(DreamGenClone.Domain.RolePlay.RPTheme theme, CancellationToken cancellationToken = default) => throw new NotImplementedException();
         public Task<DreamGenClone.Domain.RolePlay.RPTheme> CloneThemeAsync(string sourceThemeId, string newThemeId, string newThemeLabel, CancellationToken cancellationToken = default) => throw new NotImplementedException();
         public Task<IReadOnlyList<DreamGenClone.Domain.RolePlay.RPTheme>> ListThemesByProfileAsync(string profileId, bool includeDisabled = false, CancellationToken cancellationToken = default) => throw new NotImplementedException();
-        public Task<DreamGenClone.Domain.RolePlay.RPTheme?> GetThemeAsync(string id, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<IReadOnlyDictionary<string, IReadOnlyList<DreamGenClone.Domain.RolePlay.RPSemanticEventMapping>>> ResolveSemanticEventMappingsByProfileAsync(string profileId, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<DreamGenClone.Domain.RolePlay.RPTheme?> GetThemeAsync(string id, CancellationToken cancellationToken = default)
+            => Task.FromResult(_themes.FirstOrDefault(x => string.Equals(x.Id, id, StringComparison.OrdinalIgnoreCase)));
         public Task<bool> DeleteThemeAsync(string id, CancellationToken cancellationToken = default) => throw new NotImplementedException();
         public Task<DreamGenClone.Domain.RolePlay.RPThemeProfile> SaveProfileAsync(DreamGenClone.Domain.RolePlay.RPThemeProfile profile, CancellationToken cancellationToken = default) => throw new NotImplementedException();
         public Task<IReadOnlyList<DreamGenClone.Domain.RolePlay.RPThemeProfile>> ListProfilesAsync(CancellationToken cancellationToken = default) => throw new NotImplementedException();

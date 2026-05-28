@@ -563,8 +563,8 @@ public sealed class RolePlayThemeMachineCommandTests
                 new RolePlayCharacterPerspective { CharacterId = "Ken", CharacterName = "Ken" }
             ]
         };
-        session.AdaptiveState.CharacterStats["wife-char"] = new CharacterStatBlock { CharacterId = "wife-char" };
-        session.AdaptiveState.CharacterStats["Ken"] = new CharacterStatBlock { CharacterId = "Ken" };
+        session.AdaptiveState.CharacterStats["wife-char"] = new CharacterStatProfileV2 { CharacterId = "wife-char" };
+        session.AdaptiveState.CharacterStats["Ken"] = new CharacterStatProfileV2 { CharacterId = "Ken" };
 
         var state = new AdaptiveScenarioState
         {

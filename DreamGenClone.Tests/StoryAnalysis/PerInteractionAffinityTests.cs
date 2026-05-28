@@ -3,6 +3,7 @@ using DreamGenClone.Domain.StoryAnalysis;
 using DreamGenClone.Infrastructure.Configuration;
 using DreamGenClone.Web.Application.RolePlay;
 using DreamGenClone.Web.Domain.RolePlay;
+using DreamGenClone.Domain.RolePlay;
 using Microsoft.Extensions.Options;
 
 namespace DreamGenClone.Tests.StoryAnalysis;
@@ -91,8 +92,8 @@ public sealed class PerInteractionAffinityTests
         await serviceWithAffinity.UpdateFromInteractionAsync(sessionWith, interaction);
         await serviceWithout.UpdateFromInteractionAsync(sessionWithout, interaction);
 
-        var scoreWith = sessionWith.AdaptiveState.ThemeTracker.Themes["intimacy"].Score;
-        var scoreWithout = sessionWithout.AdaptiveState.ThemeTracker.Themes["intimacy"].Score;
+        var scoreWith = sessionWith.AdaptiveState.ThemeScores["intimacy"].Score;
+        var scoreWithout = sessionWithout.AdaptiveState.ThemeScores["intimacy"].Score;
 
         Assert.True(scoreWith > scoreWithout, $"With affinity ({scoreWith}) should be > without ({scoreWithout})");
     }
@@ -104,16 +105,9 @@ public sealed class PerInteractionAffinityTests
     {
         var service = new RolePlayAdaptiveStateService(new FakeCatalogService());
         var session = new RolePlaySession();
-        session.AdaptiveState.CurrentNarrativePhase = NarrativePhase.Committed;
+        session.AdaptiveState.CurrentPhase = DreamGenClone.Domain.RolePlay.NarrativePhase.Committed;
         // Pre-initialize character stats
-        session.AdaptiveState.CharacterStats["Alice"] = new CharacterStatBlock
-        {
-            CharacterId = "alice",
-            Stats = new(StringComparer.OrdinalIgnoreCase)
-            {
-                ["Desire"] = 50, ["Connection"] = 50, ["Restraint"] = 50, ["Tension"] = 50, ["Dominance"] = 50
-            }
-        };
+        session.AdaptiveState.CharacterStats["Alice"] = new CharacterStatProfileV2 { CharacterId = "alice", Desire = 50, Connection = 50, Restraint = 50, Tension = 50, Dominance = 50 };
 
         // Interaction with intimacy keywords triggers StatAffinities: Desire +3, Connection +2
         var interaction = new RolePlayInteraction
@@ -124,10 +118,10 @@ public sealed class PerInteractionAffinityTests
 
         await service.UpdateFromInteractionAsync(session, interaction);
 
-        var stats = session.AdaptiveState.CharacterStats["Alice"].Stats;
+        var profile = session.AdaptiveState.CharacterStats["Alice"];
         // Desire should be higher than 50 (base keyword delta + StatAffinity delta)
-        Assert.True(stats["Desire"] > 50, $"Desire should be > 50, got {stats["Desire"]}");
-        Assert.True(stats["Connection"] > 50, $"Connection should be > 50, got {stats["Connection"]}");
+        Assert.True(profile.Desire > 50, $"Desire should be > 50, got {profile.Desire}");
+        Assert.True(profile.Connection > 50, $"Connection should be > 50, got {profile.Connection}");
     }
 
     [Fact]
@@ -135,17 +129,14 @@ public sealed class PerInteractionAffinityTests
     {
         var service = new RolePlayAdaptiveStateService(new FakeCatalogService());
         var session = new RolePlaySession();
-        session.AdaptiveState.CharacterStats["Becky"] = new CharacterStatBlock
+        session.AdaptiveState.CharacterStats["Becky"] = new CharacterStatProfileV2
         {
             CharacterId = "becky",
-            Stats = new(StringComparer.OrdinalIgnoreCase)
-            {
-                ["Desire"] = 50,
-                ["Connection"] = 50,
-                ["Restraint"] = 50,
-                ["Tension"] = 50,
-                ["Dominance"] = 50
-            }
+            Desire = 50,
+            Connection = 50,
+            Restraint = 50,
+            Tension = 50,
+            Dominance = 50
         };
 
         await service.UpdateFromInteractionAsync(session, new RolePlayInteraction
@@ -160,7 +151,7 @@ public sealed class PerInteractionAffinityTests
             Content = "She stayed close, wanting more, her touch warm and careful."
         });
 
-        Assert.InRange(session.AdaptiveState.CharacterStats["Becky"].Stats["Desire"], 50, 64);
+        Assert.InRange(session.AdaptiveState.CharacterStats["Becky"].Desire, 50, 64);
     }
 
     // --- T044: HardDealBreaker skip-scoring with SuppressedHitCount ---
@@ -172,8 +163,7 @@ public sealed class PerInteractionAffinityTests
         var session = new RolePlaySession();
 
         // Pre-block the forbidden-risk theme
-        session.AdaptiveState.ThemeTracker.Themes["forbidden-risk"] = new ThemeTrackerItem
-        {
+        session.AdaptiveState.ThemeScores["forbidden-risk"] = new ThemeScoreState {
             ThemeId = "forbidden-risk",
             ThemeName = "Forbidden Risk",
             Blocked = true,
@@ -189,7 +179,7 @@ public sealed class PerInteractionAffinityTests
 
         await service.UpdateFromInteractionAsync(session, interaction);
 
-        var item = session.AdaptiveState.ThemeTracker.Themes["forbidden-risk"];
+        var item = session.AdaptiveState.ThemeScores["forbidden-risk"];
         Assert.True(item.Blocked);
         Assert.Equal(0, item.Score);
         Assert.True(item.SuppressedHitCount > 0, $"SuppressedHitCount should be > 0, got {item.SuppressedHitCount}");
@@ -201,8 +191,7 @@ public sealed class PerInteractionAffinityTests
         var service = new RolePlayAdaptiveStateService(new FakeCatalogService());
         var session = new RolePlaySession();
 
-        session.AdaptiveState.ThemeTracker.Themes["power-dynamics"] = new ThemeTrackerItem
-        {
+        session.AdaptiveState.ThemeScores["power-dynamics"] = new ThemeScoreState {
             ThemeId = "power-dynamics",
             ThemeName = "Power Dynamics",
             Blocked = true,
@@ -218,7 +207,7 @@ public sealed class PerInteractionAffinityTests
             });
         }
 
-        var item = session.AdaptiveState.ThemeTracker.Themes["power-dynamics"];
+        var item = session.AdaptiveState.ThemeScores["power-dynamics"];
         Assert.Equal(0, item.Score);
         Assert.Equal(5, item.SuppressedHitCount);
     }
@@ -253,7 +242,7 @@ public sealed class PerInteractionAffinityTests
             Content = "The secret risk could get them caught in danger."
         });
 
-        var nonActive = session.AdaptiveState.ThemeTracker.Themes["forbidden-risk"];
+        var nonActive = session.AdaptiveState.ThemeScores["forbidden-risk"];
         Assert.True(nonActive.SuppressedHitCount > 0);
         Assert.Equal(1.5, nonActive.Score, 3);
         Assert.Equal(1.5, nonActive.Breakdown.InteractionEvidenceSignal, 3);

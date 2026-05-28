@@ -39,7 +39,10 @@ public sealed class RolePlaySessionCompatibilityService
         {
             using var doc = JsonDocument.Parse(payloadJson);
             var root = doc.RootElement;
-            var schemaVersion = root.TryGetProperty("RolePlayV2SchemaVersion", out var schemaProp)
+
+            // PayloadJson is serialized with camelCase (JsonSerializerDefaults.Web),
+            // so property lookups must use camelCase names.
+            var schemaVersion = root.TryGetProperty("rolePlayV2SchemaVersion", out var schemaProp)
                 ? schemaProp.GetString()
                 : null;
 
@@ -50,22 +53,19 @@ public sealed class RolePlaySessionCompatibilityService
                 missing.Add("RolePlayV2SchemaVersion");
             }
 
-            if (root.TryGetProperty("AdaptiveState", out var adaptiveState)
-                && adaptiveState.TryGetProperty("CharacterStats", out var characterStats)
-                && characterStats.ValueKind == JsonValueKind.Object
-                && characterStats.EnumerateObject().Any())
+            // CharacterStats is [JsonIgnore] and never written to PayloadJson.
+            // Check characterSnapshots (the persisted form) instead, and look for flat
+            // stat properties (Desire, Restraint, …) directly on each snapshot element.
+            if (root.TryGetProperty("adaptiveState", out var adaptiveState)
+                && adaptiveState.TryGetProperty("characterSnapshots", out var characterSnaps)
+                && characterSnaps.ValueKind == JsonValueKind.Array
+                && characterSnaps.GetArrayLength() > 0)
             {
-                var firstCharacter = characterStats.EnumerateObject().First().Value;
-                if (firstCharacter.TryGetProperty("Stats", out var statsElement)
-                    && statsElement.ValueKind == JsonValueKind.Object)
-                {
-                    var available = statsElement.EnumerateObject().Select(x => x.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
-                    missing.AddRange(RequiredStats.Where(stat => !available.Contains(stat)));
-                }
-                else
-                {
-                    missing.AddRange(RequiredStats);
-                }
+                var firstSnap = characterSnaps.EnumerateArray().First();
+                var available = firstSnap.EnumerateObject()
+                    .Select(x => x.Name)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                missing.AddRange(RequiredStats.Where(stat => !available.Contains(stat)));
             }
             else
             {

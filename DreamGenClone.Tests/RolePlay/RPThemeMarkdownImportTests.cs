@@ -109,6 +109,9 @@ Fit Score = (Wife Tension × 0.25) + (Wife Restraint × 0.25)
 **Interaction Dynamics:**
 - Excuses should escalate in complexity
 
+**Hard Constraints:**
+- Do not resolve restraint pacing in a single turn
+
 **Scenario Distinction from Related Themes:**
 - **Vs. hotel encounters:** same venue constraint is required
 
@@ -130,6 +133,7 @@ Fit Score = (Wife Tension × 0.25) + (Wife Restraint × 0.25)
         Assert.Contains(theme.AIGenerationNotes, x => x.Section == RPThemeAIGuidanceSection.InteractionDynamics);
         Assert.Contains(theme.AIGenerationNotes, x => x.Section == RPThemeAIGuidanceSection.ScenarioDistinction);
         Assert.Contains(theme.AIGenerationNotes, x => x.Section == RPThemeAIGuidanceSection.Variation);
+        Assert.Contains(theme.AIGenerationNotes, x => x.Section == RPThemeAIGuidanceSection.HardConstraint);
         Assert.Contains(theme.AIGenerationNotes, x => x.Section == RPThemeAIGuidanceSection.FitPattern);
         Assert.Contains(theme.AIGenerationNotes, x => x.Section == RPThemeAIGuidanceSection.FitFormula);
 

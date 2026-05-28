@@ -35,7 +35,49 @@ public enum RPThemeAIGuidanceSection
     Variation = 4,
     FitNote = 5,
     FitFormula = 6,
-    FitPattern = 7
+    FitPattern = 7,
+    HardConstraint = 8
+}
+
+public static class RPSemanticDiagnosticReasonCodes
+{
+    public const string MissingSemanticConfiguration = "semantic_config_missing";
+    public const string UnknownSemanticEvent = "semantic_event_unknown";
+    public const string ConfidenceOutOfRange = "semantic_confidence_out_of_range";
+    public const string SemanticPayloadInvalid = "semantic_payload_invalid";
+    public const string SemanticNoContribution = "semantic_no_contribution";
+    public const string SemanticSuppressedThemeBlocked = "semantic_suppressed_theme_blocked";
+    public const string SemanticSuppressedAdjacentCooldown = "semantic_suppressed_adjacent_cooldown";
+    public const string SemanticCappedPerTurn = "semantic_capped_per_turn";
+}
+
+public sealed class RPSemanticEventMapping
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string EventId { get; set; } = string.Empty;
+    public string ThemeId { get; set; } = string.Empty;
+    public decimal Delta { get; set; }
+    public decimal ConfidenceMin { get; set; }
+    public decimal ConfidenceMax { get; set; }
+    public string Direction { get; set; } = string.Empty;
+    public string ReasonCode { get; set; } = string.Empty;
+    public string AttributionKey { get; set; } = string.Empty;
+    public int SortOrder { get; set; }
+}
+
+public sealed class RPSemanticStatMapping
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string EventId { get; set; } = string.Empty;
+    public string ThemeId { get; set; } = string.Empty;
+    public string TargetStat { get; set; } = string.Empty;
+    public decimal Delta { get; set; }
+    public decimal ConfidenceMin { get; set; }
+    public decimal ConfidenceMax { get; set; }
+    public string Direction { get; set; } = string.Empty;
+    public string ReasonCode { get; set; } = string.Empty;
+    public string AttributionKey { get; set; } = string.Empty;
+    public int SortOrder { get; set; }
 }
 
 public sealed class RPThemeProfile
@@ -46,6 +88,13 @@ public sealed class RPThemeProfile
     public bool IsDefault { get; set; }
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;
+
+    /// <summary>
+    /// Multiplier used to compute how many interactions must be observed before theme selection
+    /// commits. Scaled by active theme count: <c>(themeCount - 1) * ThemeSelectionTurnsPerTheme</c>.
+    /// Set to 0 to commit immediately regardless of theme count.
+    /// </summary>
+    public int ThemeSelectionTurnsPerTheme { get; set; } = 2;
 }
 
 public sealed class RPTheme
@@ -68,8 +117,19 @@ public sealed class RPTheme
     public List<RPThemeGuidancePoint> GuidancePoints { get; set; } = [];
     public List<RPThemeFitRule> FitRules { get; set; } = [];
     public List<RPThemeAIGuidanceNote> AIGenerationNotes { get; set; } = [];
+    public List<RPSemanticEventMapping> SemanticEventMappings { get; set; } = [];
+    public List<RPSemanticStatMapping> SemanticStatMappings { get; set; } = [];
     public List<NarrativeGateRule> NarrativeGateRules { get; set; } = [];
+    public List<RPThemeSuccessorLink> SuccessorThemeLinks { get; set; } = [];
     public List<RPThemeMachineDefinition> MachineDefinitions { get; set; } = [];
+}
+
+public sealed class RPThemeSuccessorLink
+{
+    public string SourceThemeId { get; set; } = string.Empty;
+    public string SuccessorThemeId { get; set; } = string.Empty;
+    public decimal ScoreBoost { get; set; }
+    public int SortOrder { get; set; }
 }
 
 public sealed class RPThemeMachineDefinition
@@ -235,6 +295,9 @@ public sealed class RPFinishingMoveMatrixRow
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public string ProfileId { get; set; } = string.Empty;
+    public string DesireBand { get; set; } = string.Empty;
+    public string SelfRespectBand { get; set; } = string.Empty;
+    public string OtherManDominanceBand { get; set; } = string.Empty;
     public string EscalationTier { get; set; } = "Low";
     public List<string> PrimaryLocations { get; set; } = [];
     public List<string> SecondaryLocations { get; set; } = [];
@@ -319,6 +382,8 @@ public sealed class RPFinishReceptivityLevel
     public string PhysicalCues { get; set; } = string.Empty;
     public string NarrativeCue { get; set; } = string.Empty;
     public string EscalationTier { get; set; } = "Low";
+    public string EligibleDesireBands { get; set; } = string.Empty;
+    public string EligibleSelfRespectBands { get; set; } = string.Empty;
     public int SortOrder { get; set; }
     public bool IsEnabled { get; set; } = true;
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
@@ -332,6 +397,7 @@ public sealed class RPFinishHisControlLevel
     public string Description { get; set; } = string.Empty;
     public string ExampleDialogue { get; set; } = string.Empty;
     public string EscalationTier { get; set; } = "Low";
+    public string EligibleOtherManDominanceBands { get; set; } = string.Empty;
     public int SortOrder { get; set; }
     public bool IsEnabled { get; set; } = true;
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
