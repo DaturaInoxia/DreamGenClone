@@ -761,6 +761,12 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
+        // Compute commit status early — used below to suppress theme-score deltas once the
+        // narrative has progressed past BuildUp. "Committed" = phase advanced beyond BuildUp.
+        // Note: stat mapping scoping is based on ActiveScenarioId alone (see below), not this flag.
+        var primaryThemeCommitted = !string.IsNullOrWhiteSpace(session.AdaptiveState.ActiveScenarioId)
+            && session.AdaptiveState.CurrentPhase != NarrativePhase.BuildUp;
+
         if (sessionThemeIds.Count > 0)
         {
             mappingsByEvent = await _rpThemeService.ResolveSemanticEventMappingsByThemeIdsAsync(sessionThemeIds, cancellationToken);
@@ -776,6 +782,42 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             state.SemanticStepSucceeded = false;
             throw new InvalidOperationException(
                 $"{DreamGenClone.Domain.RolePlay.RPSemanticDiagnosticReasonCodes.MissingSemanticConfiguration}: session '{session.Id}' has no SessionThemeSelections and no SelectedRPThemeProfileId; cannot resolve semantic mappings.");
+        }
+
+        // Scope stat mappings to avoid multi-theme stacking:
+        //  * Active theme set (ActiveScenarioId is non-empty): a theme has been picked — only that
+        //    theme's stat mappings apply, across all phases including BuildUp. Other selected themes
+        //    must not stack their stat deltas once the narrative is tracking a specific theme.
+        //  * No active theme yet: deduplicate across all selected themes — for each
+        //    (eventId, targetStat) pair keep only the single highest-magnitude mapping. This lets
+        //    all themes participate in the selection race without stacking identical-event deltas
+        //    from similar themes (e.g. infidelity-brief-disappearance duplicating
+        //    infidelity-public-facade-v2 entries).
+        if (!string.IsNullOrWhiteSpace(session.AdaptiveState.ActiveScenarioId))
+        {
+            var activeThemeId = session.AdaptiveState.ActiveScenarioId;
+            statMappingsByEvent = statMappingsByEvent
+                .ToDictionary(
+                    kvp => kvp.Key,
+                    kvp => (IReadOnlyList<DreamGenClone.Domain.RolePlay.RPSemanticStatMapping>)kvp.Value
+                        .Where(m => string.Equals(m.ThemeId, activeThemeId, StringComparison.OrdinalIgnoreCase))
+                        .ToList(),
+                    StringComparer.OrdinalIgnoreCase);
+            _logger?.LogInformation(
+                "Semantic stat mappings scoped to active theme. SessionId={SessionId} ActiveThemeId={ActiveThemeId} Phase={Phase}",
+                session.Id, activeThemeId, session.AdaptiveState.CurrentPhase);
+        }
+        else
+        {
+            // No active theme yet — deduplicate by (eventId, targetStat), keeping highest absolute delta per pair.
+            statMappingsByEvent = statMappingsByEvent
+                .ToDictionary(
+                    kvp => kvp.Key,
+                    kvp => (IReadOnlyList<DreamGenClone.Domain.RolePlay.RPSemanticStatMapping>)kvp.Value
+                        .GroupBy(m => m.TargetStat, StringComparer.OrdinalIgnoreCase)
+                        .Select(g => g.OrderByDescending(m => Math.Abs(m.Delta)).First())
+                        .ToList(),
+                    StringComparer.OrdinalIgnoreCase);
         }
 
         var pending = new List<(string EventId, decimal Confidence, DreamGenClone.Domain.RolePlay.RPSemanticEventMapping Mapping, string TargetCharacterId)>();
@@ -890,29 +932,28 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         }
 
         // Per product requirement:
-        //  * Semantic Event Mappings drive theme scoring; once a primary theme is committed
-        //    they are not needed anymore (the score race is over) — otherwise every theme
-        //    eventually pegs at the 100 cap as evidence keeps accumulating.
+        //  * Semantic Event Mappings drive theme scoring; once a primary theme is committed,
+        //    non-active themes no longer participate (the score race is over for them) —
+        //    otherwise every theme eventually pegs at the 100 cap as evidence keeps accumulating.
+        //    The active theme continues to accumulate InteractionEvidenceSignal so the panel
+        //    reflects ongoing narrative engagement.
         //  * Semantic Stat Mappings drive per-character stats and always run while the
         //    session is live, independent of theme-commit status.
         //  * SessionThemeSelections is authoritative for live sessions; SelectedRPThemeProfileId
         //    is only a seed at session create time. Resolve mappings from SessionThemeSelections
         //    when available. Missing configuration fails fast — no silent no-ops.
-        // "Committed" here means the narrative phase has actually advanced past BuildUp. During
-        // BuildUp an ActiveScenarioId may already be assigned (first-scenario selection) while the
-        // configured narrative gate is still being evaluated — the score race must remain open
-        // until the phase itself commits, otherwise theme scores freeze at 0 mid-BuildUp.
-        var primaryThemeCommitted = !string.IsNullOrWhiteSpace(session.AdaptiveState.ActiveScenarioId)
-            && session.AdaptiveState.CurrentPhase != NarrativePhase.BuildUp;
         if (primaryThemeCommitted && pending.Count > 0)
         {
+            var activeId = session.AdaptiveState.ActiveScenarioId;
+            var suppressedCount = pending.RemoveAll(x =>
+                !string.Equals(x.Mapping.ThemeId, activeId, StringComparison.OrdinalIgnoreCase));
             _logger?.LogInformation(
-                "Semantic theme-delta pass skipped: primary theme already committed. SessionId={SessionId} ActiveScenarioId={ActiveScenarioId} Phase={Phase} SuppressedEvents={SuppressedEvents}",
+                "Semantic theme-delta pass: non-active themes suppressed (primary committed). SessionId={SessionId} ActiveScenarioId={ActiveScenarioId} Phase={Phase} SuppressedCount={SuppressedCount} RemainingCount={RemainingCount}",
                 session.Id,
-                session.AdaptiveState.ActiveScenarioId,
+                activeId,
                 session.AdaptiveState.CurrentPhase,
+                suppressedCount,
                 pending.Count);
-            pending.Clear();
         }
 
         foreach (var item in pending)
@@ -1121,42 +1162,6 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             return;
         }
 
-        var desire = AverageCharacterStat(session.AdaptiveState, "Desire");
-        var restraint = AverageCharacterStat(session.AdaptiveState, "Restraint");
-        var tension = AverageCharacterStat(session.AdaptiveState, "Tension");
-
-        var reasonCode = "stable";
-        var delta = 0;
-
-        if (desire >= 82 && restraint <= 42)
-        {
-            delta = 1;
-            reasonCode = "desire-high-restraint-low-escalate";
-        }
-        else if (desire <= 38 || restraint >= 72)
-        {
-            delta = -1;
-            reasonCode = "desire-low-or-restraint-high-deescalate";
-        }
-
-        if (tension >= 85 && restraint >= 65)
-        {
-            delta = -1;
-            reasonCode = "tension-and-restraint-high-deescalate";
-        }
-
-        var interactionCount = session.Interactions.Count + 1;
-        if (interactionCount <= 3 && delta > 0)
-        {
-            delta = 0;
-            reasonCode = "early-phase-no-escalation";
-        }
-        else if (interactionCount >= 18 && delta == 0 && desire >= 68)
-        {
-            delta = 1;
-            reasonCode = "late-phase-gentle-escalation";
-        }
-
         var selectedProfile = !string.IsNullOrWhiteSpace(session.SelectedIntensityProfileId)
             ? profiles.FirstOrDefault(x => string.Equals(x.Id, session.SelectedIntensityProfileId, StringComparison.OrdinalIgnoreCase))
             : null;
@@ -1167,14 +1172,12 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             : (int)currentProfile.Intensity;
 
         var flowBaselineScale = Math.Clamp(selectedScale + phaseBaselineDelta, 1, 5);
-        var boundedStatDelta = Math.Clamp(delta, -1, 1);
 
         var floor = RolePlayStyleResolver.ParseBoundScale(session.IntensityFloorOverride);
         var ceiling = RolePlayStyleResolver.ParseBoundScale(session.IntensityCeilingOverride);
-        var targetScale = flowBaselineScale + boundedStatDelta;
-        targetScale = Math.Clamp(targetScale, 1, 5);
+        var targetScale = Math.Clamp(flowBaselineScale, 1, 5);
 
-        reasonCode += $"|phase={session.AdaptiveState.CurrentPhase}|phase-delta={phaseBaselineDelta}|stat-delta={boundedStatDelta}";
+        var reasonCode = $"phase-driven|phase={session.AdaptiveState.CurrentPhase}|phase-delta={phaseBaselineDelta}";
 
         if (floor.HasValue && targetScale < floor.Value)
         {
@@ -1614,6 +1617,26 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             .ThenBy(x => x.ThemeId, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
+        // Observation window guard: must run BEFORE ActiveScenarioLock so that a stale
+        // ActiveScenarioId left in state from a prior cycle (e.g. a PayloadJson race where the
+        // just-completed scenario was not cleared before this function is called) cannot re-lock
+        // the tracker. While observing we enforce null on ActiveScenarioId so every downstream
+        // consumer (background job loader, AlignPromptNarrativeStateWithV2Async, HydrateV2State)
+        // sees a consistent observation-window state.
+        if (state.SelectionMinimumTurns > 0 && state.ObservedTurnCount <= state.SelectionMinimumTurns)
+        {
+            state.ThemeSelectionRule = "Observing";
+            state.ActiveScenarioId = null;
+            // Clear any stale selection from a prior pass so downstream consumers (semantic
+            // theme-delta application, UI panel, prompt builders) see a consistent Observing
+            // state. Without this, a PrimaryThemeId left over from a previous Top1/Top2Blend
+            // recalculation would incorrectly short-circuit "theme already picked" gates while
+            // the score race is still open.
+            state.PrimaryThemeId = null;
+            state.SecondaryThemeId = null;
+            return;
+        }
+
         if (string.Equals(state.ThemeSelectionRule, "ManualOverride", StringComparison.OrdinalIgnoreCase)
             && !string.IsNullOrWhiteSpace(state.ActiveScenarioId)
             && state.ThemeScores.ContainsKey(state.ActiveScenarioId))
@@ -1637,19 +1660,6 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
                 .FirstOrDefault(x => !string.Equals(x.ThemeId, state.ActiveScenarioId, StringComparison.OrdinalIgnoreCase))
                 ?.ThemeId;
             state.ThemeSelectionRule = "ActiveScenarioLock";
-            return;
-        }
-
-        if (state.SelectionMinimumTurns > 0 && state.ObservedTurnCount <= state.SelectionMinimumTurns)
-        {
-            state.ThemeSelectionRule = "Observing";
-            // Clear any stale selection from a prior pass so downstream consumers (semantic
-            // theme-delta application, UI panel, prompt builders) see a consistent Observing
-            // state. Without this, a PrimaryThemeId left over from a previous Top1/Top2Blend
-            // recalculation would incorrectly short-circuit "theme already picked" gates while
-            // the score race is still open.
-            state.PrimaryThemeId = null;
-            state.SecondaryThemeId = null;
             return;
         }
 

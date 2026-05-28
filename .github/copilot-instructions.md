@@ -47,11 +47,11 @@ These rules are mandatory for all coding tasks in this repository.
 
 A permanent .NET 9 console project lives at `artifacts/tmp/dbquery/dbquery.csproj` (part of the solution under `artifacts > tmp`).
 - **Use it for all SQLite database queries**, inspections, and data seeding tasks against `DreamGenClone.Web/data/dreamgenclone.dev.db`.
-- Run with: `dotnet run --project artifacts/tmp/dbquery/dbquery.csproj`
-- The project uses `Microsoft.Data.Sqlite`. Rewrite `Program.cs` for each task — it is a scratch pad, not a persistent program.
+- Run with: `dotnet run --project artifacts/tmp/dbquery -- <command> [args...]`
+- **Program.cs is a permanent named-command dispatcher — do NOT rewrite it per task.**
+- For ad-hoc SQL: write a `.sql` file and use the `sql` command: `dotnet run --project artifacts/tmp/dbquery -- sql myquery.sql [id]`
+- Full schema, all commands, and usage examples are in `.github/instructions/dbquery-reference.instructions.md`.
 - **Do not recreate this project.** It already exists in the solution and is ready to use.
-- Key pattern: create a fresh `SqliteCommand` per query (never reuse a command while a reader is open). Use the `Q(conn, sql, params)` helper pattern established in the file.
-- The DB path resolves relative to the workspace root: `Path.GetFullPath("DreamGenClone.Web/data/dreamgenclone.dev.db")`.
 
 ## Project Backlog
 

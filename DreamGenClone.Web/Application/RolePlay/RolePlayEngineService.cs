@@ -153,6 +153,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     private readonly decimal _completedScenarioRecentPenaltyMultiplier;
     private readonly decimal _completedScenarioThemeScorePenalty;
     private readonly int _completedScenarioThemeCooldownInteractions;
+    private readonly decimal _completedScenarioFitScorePenaltyPoints;
     private readonly bool _suppressNarrativeAfterDecision;
     private readonly bool _suppressNarrativeAfterPhaseChange;
     private readonly bool _enablePhaseChangeDecisionPrompts;
@@ -230,6 +231,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         _completedScenarioRecentPenaltyMultiplier = (decimal)Math.Clamp(storyAnalysisOptions?.Value.CompletedScenarioRecentPenaltyMultiplier ?? 0.65, 0d, 1d);
         _completedScenarioThemeScorePenalty = Math.Clamp(storyAnalysisOptions?.Value.CompletedScenarioThemeScorePenalty ?? 10, 0, 100);
         _completedScenarioThemeCooldownInteractions = Math.Clamp(storyAnalysisOptions?.Value.CompletedScenarioThemeCooldownInteractions ?? 10, 0, 200);
+        _completedScenarioFitScorePenaltyPoints = Math.Clamp(storyAnalysisOptions?.Value.CompletedScenarioFitScorePenaltyPoints ?? 20m, 0m, 100m);
         _suppressNarrativeAfterDecision = rolePlayDecisionOptions?.Value.SuppressNarrativeAfterDecision ?? false;
         _suppressNarrativeAfterPhaseChange = rolePlayDecisionOptions?.Value.SuppressNarrativeAfterPhaseChange ?? false;
         _enablePhaseChangeDecisionPrompts = rolePlayDecisionOptions?.Value.EnablePhaseChangeDecisionPrompts ?? false;
@@ -2745,7 +2747,10 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 }
 
                 v2State.ActiveScenarioId = commitResult.ScenarioId;
-                if (!sameScenarioAlreadyActive || enteringArc)
+                // Only advance/reset to Committed when entering a fresh arc from BuildUp or Reset.
+                // Do NOT revert an already-advanced phase (Approaching, Climax) back to Committed —
+                // that would undo any /nextphase advances the user has already made.
+                if (enteringArc)
                 {
                     v2State.CurrentPhase = DreamGenClone.Domain.RolePlay.NarrativePhase.Committed;
 
@@ -2827,11 +2832,9 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         var lifecycleConfidence = commitApplied
             ? (commitResult.SelectedEvaluation?.Confidence ?? activeScenarioEvaluation?.Confidence ?? 0m)
             : (activeScenarioEvaluation?.Confidence ?? 0m);
-        // Use the unpenalized score for lifecycle gate evaluation — the gate penalty is for scenario
-        // selection competition only. Phase transitions should use the true narrative fit score.
         var lifecycleFitScore = commitApplied
-            ? (commitResult.SelectedEvaluation?.UnpenalizedFitScore ?? activeScenarioEvaluation?.UnpenalizedFitScore ?? 0m)
-            : (activeScenarioEvaluation?.UnpenalizedFitScore ?? 0m);
+            ? (commitResult.SelectedEvaluation?.FitScore ?? activeScenarioEvaluation?.FitScore ?? 0m)
+            : (activeScenarioEvaluation?.FitScore ?? 0m);
 
         var lifecycle = await _scenarioLifecycleService.EvaluateTransitionAsync(
             v2State,
@@ -3423,7 +3426,26 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         }
         else
         {
-            mapped.ActiveScenarioId = previousState.ActiveScenarioId ?? mapped.ActiveScenarioId;
+            // V2 ThemeSelectionRule is authoritative. PayloadJson can lag — e.g. retaining
+            // "Observing" after the background job has advanced the tracker to
+            // "ActiveScenarioLock". Using the stale PayloadJson value makes isObservingWindow=true,
+            // which nulls ActiveScenarioId and triggers false scenario re-selection on every
+            // pipeline run, resetting InteractionCountInPhase to 0 each time.
+            //
+            // Still respect the original guard: while the session is genuinely in its
+            // observation window, do not restore ActiveScenarioId from the V2 snapshot.
+            // The snapshot may hold the just-completed scenario from the previous cycle
+            // (saved before ExecuteResetAsync cleared it). Restoring it here would defeat the
+            // Reset→Observer→BuildUp re-selection flow. The reset pipeline explicitly writes
+            // ThemeSelectionRule="Observing" into V2 (line ~2956), so V2 is correct for that case.
+            if (!string.IsNullOrWhiteSpace(previousState.ThemeSelectionRule))
+                mapped.ThemeSelectionRule = previousState.ThemeSelectionRule;
+            var isObservingWindow = string.Equals(
+                mapped.ThemeSelectionRule, "Observing",
+                StringComparison.OrdinalIgnoreCase);
+            mapped.ActiveScenarioId = isObservingWindow
+                ? null
+                : previousState.ActiveScenarioId ?? mapped.ActiveScenarioId;
             mapped.ActiveVariantId = previousState.ActiveVariantId ?? mapped.ActiveVariantId;
             mapped.CurrentPhase = previousState.CurrentPhase;
             mapped.InteractionCountInPhase = Math.Max(0, previousState.InteractionCountInPhase);
@@ -3435,11 +3457,14 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             ? mapped.ActiveFormulaVersion
             : previousState.ActiveFormulaVersion;
         mapped.SelectedNarrativeGateProfileId = previousState.SelectedNarrativeGateProfileId ?? mapped.SelectedNarrativeGateProfileId;
-        mapped.PhaseOverrideFloor = previousState.PhaseOverrideFloor ?? mapped.PhaseOverrideFloor;
-        mapped.PhaseOverrideScenarioId = previousState.PhaseOverrideScenarioId ?? mapped.PhaseOverrideScenarioId;
-        mapped.PhaseOverrideCycleIndex = previousState.PhaseOverrideCycleIndex ?? mapped.PhaseOverrideCycleIndex;
-        mapped.PhaseOverrideSource = previousState.PhaseOverrideSource ?? mapped.PhaseOverrideSource;
-        mapped.PhaseOverrideAppliedUtc = previousState.PhaseOverrideAppliedUtc ?? mapped.PhaseOverrideAppliedUtc;
+        // PhaseOverride fields are authoritative in the V2 live store (RolePlayV2AdaptiveStates).
+        // null is a valid cleared state (set by ClearPhaseOverrideLock). Do NOT fall back to the
+        // session payload here — it may be stale and would re-activate a cleared floor override.
+        mapped.PhaseOverrideFloor = previousState.PhaseOverrideFloor;
+        mapped.PhaseOverrideScenarioId = previousState.PhaseOverrideScenarioId;
+        mapped.PhaseOverrideCycleIndex = previousState.PhaseOverrideCycleIndex;
+        mapped.PhaseOverrideSource = previousState.PhaseOverrideSource;
+        mapped.PhaseOverrideAppliedUtc = previousState.PhaseOverrideAppliedUtc;
         mapped.LastEvaluationUtc = previousState.LastEvaluationUtc;
         mapped.CurrentSceneLocation = previousState.CurrentSceneLocation;
         mapped.CharacterLocations = previousState.CharacterLocations
@@ -3482,6 +3507,26 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             mapped.SelectionMinimumTurns = Math.Max(mapped.SelectionMinimumTurns, previousState.SelectionMinimumTurns);
             mapped.RecentEvidence = previousState.RecentEvidence;
         }
+        else if (previousState.ThemeScores.Count > 0)
+        {
+            // When themes are already seeded in the current state, carry forward the accumulated
+            // InteractionEvidenceSignal from the V2-persisted state. IES is incremented
+            // exclusively by the async background semantic job. Without this merge every foreground
+            // pipeline turn resets V2ThemeScores back to the stale PayloadJson baseline (IES=0),
+            // causing background-job accumulations to be overwritten and IES to never rise above
+            // a single per-run delta. The merge is monotone (only increases IES/Score) so it
+            // cannot undo inline-regex contributions applied earlier in this turn.
+            foreach (var (themeId, prevScore) in previousState.ThemeScores)
+            {
+                if (mapped.ThemeScores.TryGetValue(themeId, out var cur) &&
+                    prevScore.Breakdown.InteractionEvidenceSignal > cur.Breakdown.InteractionEvidenceSignal)
+                {
+                    var iesDelta = prevScore.Breakdown.InteractionEvidenceSignal - cur.Breakdown.InteractionEvidenceSignal;
+                    cur.Breakdown.InteractionEvidenceSignal = prevScore.Breakdown.InteractionEvidenceSignal;
+                    cur.Score = Math.Clamp(cur.Score + iesDelta, 0, 100);
+                }
+            }
+        }
 
         return mapped;
     }
@@ -3512,9 +3557,22 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             return;
         }
 
-        session.AdaptiveState.ActiveScenarioId = snapshot.ActiveScenarioId;
         session.AdaptiveState.ActiveVariantId = snapshot.ActiveVariantId;
         session.AdaptiveState.CurrentPhase = snapshot.CurrentPhase;
+
+        // While the session is in its observation window the in-memory tracker owns the
+        // scenario slot: the observation window reset cleared ActiveScenarioId to null and
+        // set ThemeSelectionRule="Observing". The V2 snapshot may still hold the just-
+        // completed scenario from the previous cycle (written before ExecuteResetAsync
+        // replaced session.AdaptiveState). Restoring it here would re-lock the tracker onto
+        // the old scenario and defeat the observation period entirely.
+        var isObservingWindow = string.Equals(
+            session.AdaptiveState.ThemeSelectionRule, "Observing",
+            StringComparison.OrdinalIgnoreCase);
+        if (!isObservingWindow)
+        {
+            session.AdaptiveState.ActiveScenarioId = snapshot.ActiveScenarioId;
+        }
         session.AdaptiveState.PhaseOverrideFloor = snapshot.PhaseOverrideFloor;
         session.AdaptiveState.PhaseOverrideScenarioId = snapshot.PhaseOverrideScenarioId;
         session.AdaptiveState.PhaseOverrideCycleIndex = snapshot.PhaseOverrideCycleIndex;
@@ -3623,11 +3681,9 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
         foreach (var item in tracker.ThemeScores.Values)
         {
-            item.Score = Math.Round(Math.Max(0, item.Score * 0.15), 4);
-            item.Breakdown.ChoiceSignal = 0;
             item.Breakdown.CharacterStateSignal = 0;
-            item.Breakdown.InteractionEvidenceSignal = 0;
-            item.Breakdown.ScenarioPhaseSignal = 0;
+            item.Breakdown.SuccessorCausalityBoost = 0;
+            item.Breakdown.CompletionFitScorePenalty = 0;
             item.Intensity = ResolveResetIntensity(item.Score);
         }
 
@@ -3636,7 +3692,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         {
             completedTheme.Score = Math.Round(Math.Max(0, completedTheme.Score - (double)_completedScenarioThemeScorePenalty), 4);
             completedTheme.Intensity = ResolveResetIntensity(completedTheme.Score);
-            completedTheme.CompletionCooldownInteractions = _completedScenarioThemeCooldownInteractions;
+            completedTheme.Breakdown.CompletionFitScorePenalty = (double)_completedScenarioFitScorePenaltyPoints;
         }
 
         if (string.IsNullOrWhiteSpace(completedScenarioId) || _rpThemeService is null)
@@ -3661,6 +3717,11 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             }
 
             successorTrackerItem.Score = Math.Round(Math.Max(0, successorTrackerItem.Score + (double)successor.ScoreBoost), 4);
+            successorTrackerItem.Breakdown.InteractionEvidenceSignal = Math.Clamp(
+                successorTrackerItem.Breakdown.InteractionEvidenceSignal + (double)successor.ScoreBoost, 0, 100);
+            // Direct FitScore boost: applied additively to the gate-adjusted FitScore (0-100 scale)
+            // during candidate evaluation. Persisted in BreakdownJson. Cleared on the next semi-reset.
+            successorTrackerItem.Breakdown.SuccessorCausalityBoost += (double)successor.ScoreBoost;
             successorTrackerItem.Intensity = ResolveResetIntensity(successorTrackerItem.Score);
         }
     }
@@ -6820,9 +6881,8 @@ Requirements:
                     // and ScenarioPhaseSignal (scenario keyword fit, not narrative buildup — Bug 2 fix).
                     // Fallback is 0 (no evidence yet); PreferencePriorityScore carries tier weight.
                     // v2State.ThemeScores holds the live V2-synced values; session.AdaptiveState may be stale.
-                    var trackerScore = v2State.ThemeScores.TryGetValue(
-                        selection.ThemeId, out var trackerItem)
-                        ? NormalizeThemeScore(trackerItem.Breakdown.InteractionEvidenceSignal)
+                    var trackerScore = selectedTrackerItem is not null
+                        ? NormalizeThemeScore(selectedTrackerItem.Breakdown.InteractionEvidenceSignal)
                         : 0m;
 
                     var fitRulesJson = RPThemeFitRulesConverter.BuildScenarioFitRulesJson(theme, selectionRoleBindings);
@@ -6834,7 +6894,9 @@ Requirements:
                         NarrativeEvidenceScore: trackerScore,
                         PreferencePriorityScore: preferencePriority,
                         ScenarioFitRulesJson: fitRulesJson,
-                        ScenarioFitRuleSource: "session-selection");
+                        ScenarioFitRuleSource: "session-selection",
+                        SuccessorCausalityBoost: (decimal)(selectedTrackerItem?.Breakdown.SuccessorCausalityBoost ?? 0),
+                        CompletionFitScorePenaltyPoints: (decimal)(selectedTrackerItem?.Breakdown.CompletionFitScorePenalty ?? 0));
                 })
                 .Where(x => x is not null)
                 .Select(x => x!)
@@ -6890,9 +6952,8 @@ Requirements:
                     var fitRulesJson = RPThemeFitRulesConverter.BuildScenarioFitRulesJson(theme, roleCharacterBindings);
 
                     // NarrativeEvidenceScore: pure interaction evidence only (Bug 1 + Bug 2 fix).
-                    var trackerScore = v2State.ThemeScores.TryGetValue(
-                        assignment.ThemeId, out var trackerItem)
-                        ? NormalizeThemeScore(trackerItem.Breakdown.InteractionEvidenceSignal)
+                    var trackerScore = assignmentTrackerItem is not null
+                        ? NormalizeThemeScore(assignmentTrackerItem.Breakdown.InteractionEvidenceSignal)
                         : 0m;
 
                     return ApplyRepeatPenalty(new ScenarioDefinition(
@@ -6902,7 +6963,9 @@ Requirements:
                         NarrativeEvidenceScore: trackerScore,
                         PreferencePriorityScore: preferencePriority,
                         ScenarioFitRulesJson: fitRulesJson,
-                        ScenarioFitRuleSource: "rp-theme"));
+                        ScenarioFitRuleSource: "rp-theme",
+                        SuccessorCausalityBoost: (decimal)(assignmentTrackerItem?.Breakdown.SuccessorCausalityBoost ?? 0),
+                        CompletionFitScorePenaltyPoints: (decimal)(assignmentTrackerItem?.Breakdown.CompletionFitScorePenalty ?? 0)));
                 })
                 .Where(x => x is not null)
                 .Select(x => x!)
@@ -6933,7 +6996,9 @@ Requirements:
                         theme.Theme.ThemeName,
                         Priority: 5 - index,
                         NarrativeEvidenceScore: theme.NarrativeEvidenceScore,
-                        PreferencePriorityScore: NormalizePreferencePriority(5 - index))))
+                        PreferencePriorityScore: NormalizePreferencePriority(5 - index),
+                        SuccessorCausalityBoost: (decimal)theme.Theme.Breakdown.SuccessorCausalityBoost,
+                        CompletionFitScorePenaltyPoints: (decimal)theme.Theme.Breakdown.CompletionFitScorePenalty)))
                     .ToList();
 
                 if (profileCandidates.Count > 0)
@@ -6950,7 +7015,9 @@ Requirements:
                 theme.Theme.ThemeName,
                 Priority: 5 - index,
                 NarrativeEvidenceScore: theme.NarrativeEvidenceScore,
-                PreferencePriorityScore: NormalizePreferencePriority(5 - index))))
+                PreferencePriorityScore: NormalizePreferencePriority(5 - index),
+                SuccessorCausalityBoost: (decimal)theme.Theme.Breakdown.SuccessorCausalityBoost,
+                CompletionFitScorePenaltyPoints: (decimal)theme.Theme.Breakdown.CompletionFitScorePenalty)))
             .ToList();
 
         if (candidates.Count == 0)

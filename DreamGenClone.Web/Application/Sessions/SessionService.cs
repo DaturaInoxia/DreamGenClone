@@ -291,17 +291,26 @@ public sealed class SessionService : ISessionService
             session.AdaptiveIntensityProfileId = session.SelectedIntensityProfileId;
         }
 
-        if (string.IsNullOrWhiteSpace(session.AdaptiveState.ActiveScenarioId))
         {
-            // Only attempt to repair ActiveScenarioId when the theme tracker has already
-            // completed its observation window and promoted a primary theme. While the rule
-            // is "Observing" the scenario race is still open; injecting an ActiveScenarioId
-            // here would bypass the observation gate and cause the tracker to jump straight
-            // to ActiveScenarioLock on the next RecalculateSelectedThemes call.
             var state = session.AdaptiveState;
             var isObserving = string.Equals(state.ThemeSelectionRule, "Observing", StringComparison.OrdinalIgnoreCase);
-            if (!isObserving)
+
+            if (isObserving && !string.IsNullOrWhiteSpace(state.ActiveScenarioId))
             {
+                // Clear any stale ActiveScenarioId that leaked into PayloadJson while the tracker
+                // is in its observation window. A non-null ActiveScenarioId in Observing state is a
+                // race-condition artefact: background jobs loading this payload would see a live
+                // scenario, call RecalculateSelectedThemes, and immediately re-lock onto the just-
+                // completed scenario — defeating the observation period entirely.
+                session.AdaptiveState.ActiveScenarioId = null;
+            }
+            else if (!isObserving && string.IsNullOrWhiteSpace(state.ActiveScenarioId))
+            {
+                // Only attempt to repair ActiveScenarioId when the theme tracker has already
+                // completed its observation window and promoted a primary theme. While the rule
+                // is "Observing" the scenario race is still open; injecting an ActiveScenarioId
+                // here would bypass the observation gate and cause the tracker to jump straight
+                // to ActiveScenarioLock on the next RecalculateSelectedThemes call.
                 var repairedScenarioId = ResolveScenarioIdFromState(state);
                 if (!string.IsNullOrWhiteSpace(repairedScenarioId))
                 {

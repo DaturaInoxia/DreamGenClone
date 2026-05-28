@@ -1080,6 +1080,18 @@ public sealed class SqlitePersistence : ISqlitePersistence
             _logger.LogInformation("Migrated RolePlayV2CandidateEvaluations table: added UnpenalizedFitScore column");
         }
 
+        // Always ensure RolePlayV2CandidateEvaluations has SuccessorCausalityBoost column.
+        var ensureCandidateSuccessorBoostColumn = connection.CreateCommand();
+        ensureCandidateSuccessorBoostColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RolePlayV2CandidateEvaluations') WHERE name='SuccessorCausalityBoost'";
+        var hasCandidateSuccessorBoostColumn = Convert.ToInt64(await ensureCandidateSuccessorBoostColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasCandidateSuccessorBoostColumn)
+        {
+            var alterCandidateSuccessorBoost = connection.CreateCommand();
+            alterCandidateSuccessorBoost.CommandText = "ALTER TABLE RolePlayV2CandidateEvaluations ADD COLUMN SuccessorCausalityBoost REAL NOT NULL DEFAULT 0";
+            await alterCandidateSuccessorBoost.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated RolePlayV2CandidateEvaluations table: added SuccessorCausalityBoost column");
+        }
+
         // Always ensure ToneProfiles has phase-offset columns, even if legacy migrations are marked complete.
         var ensureToneBuildUpOffset = connection.CreateCommand();
         ensureToneBuildUpOffset.CommandText = "SELECT COUNT(*) FROM pragma_table_info('ToneProfiles') WHERE name='BuildUpPhaseOffset'";

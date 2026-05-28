@@ -27,6 +27,20 @@ public sealed class ThemeScoreBreakdownV2
     public double CharacterStateSignal { get; set; }
     public double InteractionEvidenceSignal { get; set; }
     public double ScenarioPhaseSignal { get; set; }
+    /// <summary>
+    /// Direct FitScore additive bonus from successor causality links. Set when a predecessor
+    /// scenario completes and this theme is listed as a successor. Applied directly to the
+    /// gate-adjusted FitScore (0-100 scale) during candidate evaluation. Reset each semi-reset
+    /// cycle so it does not stack across arcs.
+    /// </summary>
+    public double SuccessorCausalityBoost { get; set; }
+    /// <summary>
+    /// Flat FitScore point deduction applied to the just-completed theme after Reset.
+    /// Subtracted directly from the gate-adjusted FitScore (0-100 scale). Set during
+    /// <c>ApplyThemeSemiResetAsync</c> using the configured penalty value. Cleared on
+    /// all themes at the start of the next semi-reset cycle.
+    /// </summary>
+    public double CompletionFitScorePenalty { get; set; }
 }
 
 /// <summary>

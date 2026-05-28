@@ -108,6 +108,18 @@ public sealed class SemanticInteractionAnalysisJobHandler : IBackgroundJobHandle
                 ?? throw new InvalidOperationException(
                     $"Interaction '{payload.InteractionId}' was not found in role-play session '{payload.SessionId}'.");
 
+            // Seed session.AdaptiveState from V2 persisted tables rather than PayloadJson so
+            // InteractionEvidenceSignal (and all other theme-score breakdown components) start
+            // from the ACCUMULATED values written by previous background-job runs. PayloadJson
+            // only holds the base engine-pipeline scores (IES=0); each background run would
+            // otherwise overwrite V2ThemeScores with the same per-run delta instead of
+            // accumulating correctly across interactions.
+            var persistedAdaptiveState = await _stateRepository.LoadAdaptiveStateAsync(payload.SessionId, cancellationToken);
+            if (persistedAdaptiveState is not null)
+            {
+                session.AdaptiveState = persistedAdaptiveState;
+            }
+
             // Per-session theme selections are authoritative for live sessions. The RP theme
             // profile is only a seed at create time; it may be cleared once the user customises
             // the per-session theme list. Source the allowed event ids from SessionThemeSelections.
@@ -196,6 +208,47 @@ public sealed class SemanticInteractionAnalysisJobHandler : IBackgroundJobHandle
             // must never write the session blob (PayloadJson) because doing so would overwrite
             // interactions / decision points appended by the foreground engine while this
             // long-running LLM inference call was in flight.
+            //
+            // Additionally, reload the latest V2 state immediately before saving and overwrite
+            // every pipeline-managed field in session.AdaptiveState with the freshly loaded
+            // values. ApplyInferredSemanticEvidenceAsync never touches these fields, but the
+            // long-running LLM inference above may have allowed RunRolePlayV2PipelinesAsync to
+            // run on a new foreground turn, advancing InteractionCountInPhase, LastEvaluationUtc,
+            // CurrentPhase, etc. Without this refresh the background save would clobber the
+            // pipeline's updates and reset InteractionCountInPhase back to its pre-inference
+            // value — permanently stalling phase-transition gate evaluation.
+            var latestStateBeforeSave = await _stateRepository.LoadAdaptiveStateAsync(payload.SessionId, cancellationToken);
+            if (latestStateBeforeSave is not null)
+            {
+                var updated = session.AdaptiveState;
+                updated.ActiveScenarioId              = latestStateBeforeSave.ActiveScenarioId;
+                updated.ActiveVariantId               = latestStateBeforeSave.ActiveVariantId;
+                updated.CurrentPhase                  = latestStateBeforeSave.CurrentPhase;
+                updated.InteractionCountInPhase        = latestStateBeforeSave.InteractionCountInPhase;
+                updated.ConsecutiveLeadCount           = latestStateBeforeSave.ConsecutiveLeadCount;
+                updated.LastEvaluationUtc              = latestStateBeforeSave.LastEvaluationUtc;
+                updated.CycleIndex                    = latestStateBeforeSave.CycleIndex;
+                updated.ActiveFormulaVersion           = latestStateBeforeSave.ActiveFormulaVersion;
+                updated.SelectedWillingnessProfileId  = latestStateBeforeSave.SelectedWillingnessProfileId;
+                updated.SelectedNarrativeGateProfileId = latestStateBeforeSave.SelectedNarrativeGateProfileId;
+                updated.HusbandAwarenessProfileId      = latestStateBeforeSave.HusbandAwarenessProfileId;
+                updated.PhaseOverrideFloor             = latestStateBeforeSave.PhaseOverrideFloor;
+                updated.PhaseOverrideScenarioId        = latestStateBeforeSave.PhaseOverrideScenarioId;
+                updated.PhaseOverrideCycleIndex        = latestStateBeforeSave.PhaseOverrideCycleIndex;
+                updated.PhaseOverrideSource            = latestStateBeforeSave.PhaseOverrideSource;
+                updated.PhaseOverrideAppliedUtc        = latestStateBeforeSave.PhaseOverrideAppliedUtc;
+                updated.CurrentSceneLocation           = latestStateBeforeSave.CurrentSceneLocation;
+                updated.CharacterLocations             = latestStateBeforeSave.CharacterLocations;
+                updated.CharacterLocationPerceptions   = latestStateBeforeSave.CharacterLocationPerceptions;
+                updated.CurrentBeatCode                = latestStateBeforeSave.CurrentBeatCode;
+                updated.TurnsInCurrentBeat             = latestStateBeforeSave.TurnsInCurrentBeat;
+                updated.CompletedScenarios             = latestStateBeforeSave.CompletedScenarios;
+                updated.InteractionsSinceCommitment    = latestStateBeforeSave.InteractionsSinceCommitment;
+                updated.InteractionsInApproaching      = latestStateBeforeSave.InteractionsInApproaching;
+                updated.ScenarioCommitmentTimeUtc      = latestStateBeforeSave.ScenarioCommitmentTimeUtc;
+                session.AdaptiveState = updated;
+            }
+
             await _stateRepository.SaveAdaptiveStateAsync(session.AdaptiveState, cancellationToken);
 
             // Background semantic-analysis writes happen on a copy loaded directly from the store.

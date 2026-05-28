@@ -81,15 +81,17 @@ public sealed class ScenarioSelectionService : IScenarioSelectionService
 
                 var weightedScore = decimal.Round(weightedScore01 * 100m, 3, MidpointRounding.AwayFromZero);
                 var gateFailPenaltyMultiplier = Clamp01((decimal)_options.GateFailScorePenaltyMultiplier);
-                var fitScoreMultiplier = candidate.FitScoreMultiplier > 0m
-                    ? Math.Min(candidate.FitScoreMultiplier, 1m)
-                    : 1m;
                 var gateAdjustedScore = gate.Passed
                     ? weightedScore
                     : decimal.Round(weightedScore * gateFailPenaltyMultiplier, 3, MidpointRounding.AwayFromZero);
-                var score = fitScoreMultiplier < 1m
-                    ? decimal.Round(gateAdjustedScore * fitScoreMultiplier, 3, MidpointRounding.AwayFromZero)
+                var successorBoost = Math.Clamp(candidate.SuccessorCausalityBoost, 0m, 100m);
+                var boostedGateAdjustedScore = successorBoost > 0m
+                    ? Math.Clamp(gateAdjustedScore + successorBoost, 0m, 100m)
                     : gateAdjustedScore;
+                var completionPenalty = Math.Clamp(candidate.CompletionFitScorePenaltyPoints, 0m, 100m);
+                var score = completionPenalty > 0m
+                    ? Math.Clamp(decimal.Round(boostedGateAdjustedScore - completionPenalty, 3, MidpointRounding.AwayFromZero), 0m, 100m)
+                    : boostedGateAdjustedScore;
 
                 var confidence = Math.Clamp((double)score / 100d, 0d, 1d);
                 var evaluation = new ScenarioCandidateEvaluation
@@ -103,14 +105,18 @@ public sealed class ScenarioSelectionService : IScenarioSelectionService
                     NarrativeEvidenceScore = decimal.Round(narrativeEvidenceScore, 3, MidpointRounding.AwayFromZero),
                     PreferencePriorityScore = decimal.Round(preferencePriorityScore, 3, MidpointRounding.AwayFromZero),
                     FitScore = score,
-                    UnpenalizedFitScore = weightedScore,
+                    UnpenalizedFitScore = boostedGateAdjustedScore,
+                    FitScoreMultiplier = 1m,
+                    SuccessorCausalityBoost = successorBoost,
                     Confidence = decimal.Round((decimal)confidence, 3, MidpointRounding.AwayFromZero),
                     TieBreakKey = $"{candidate.Priority:D3}:{candidate.ScenarioId}",
                     Rationale = gate.Passed
                         ? BuildRationale(score, characterAlignmentScore, narrativeEvidenceScore, preferencePriorityScore, fit, gate.Reason)
-                            + (fitScoreMultiplier < 1m ? $" FitScore further penalized by recentCompletion multiplier={fitScoreMultiplier:0.###} from {gateAdjustedScore:0.###} to {score:0.###}." : string.Empty)
+                            + (successorBoost > 0m ? $" Successor causality boost +{successorBoost:0.###} applied to gate-adjusted score ({gateAdjustedScore:0.###} → {boostedGateAdjustedScore:0.###})." : string.Empty)
+                            + (completionPenalty > 0m ? $" Completion FitScore penalty −{completionPenalty:0.###} applied ({boostedGateAdjustedScore:0.###} → {score:0.###})." : string.Empty)
                         : $"{gate.Reason} Penalized weighted score from {weightedScore:0.###} to {gateAdjustedScore:0.###} (gateMultiplier={gateFailPenaltyMultiplier:0.###})"
-                            + (fitScoreMultiplier < 1m ? $", then recentCompletion multiplier={fitScoreMultiplier:0.###} from {gateAdjustedScore:0.###} to {score:0.###}." : "."),
+                            + (successorBoost > 0m ? $" Successor causality boost +{successorBoost:0.###} applied ({gateAdjustedScore:0.###} → {boostedGateAdjustedScore:0.###})." : string.Empty)
+                            + (completionPenalty > 0m ? $" Completion FitScore penalty −{completionPenalty:0.###} applied ({boostedGateAdjustedScore:0.###} → {score:0.###})." : "."),
                     DetailsJson = BuildDetailsJson(candidate, fit, gate),
                     EvaluatedUtc = DateTime.UtcNow
                 };
@@ -425,7 +431,33 @@ public sealed class ScenarioSelectionService : IScenarioSelectionService
             .ToList();
 
         var leader = ordered[0];
-        if (!leader.StageBEligible)
+
+        // When an active theme is already selected and the leader is that same scenario,
+        // Fit Rules And Clauses (StageBEligible / dominant-role candidate gate) are bypassed.
+        // Only the Narrative Gate Profile rules (EvaluateBuildUpProfileGateAsync) gate the
+        // BuildUp→Committed transition once a theme is locked in.
+        // For new scenario selection (no active theme yet), the full two-stage gate applies.
+        var leaderMatchesActiveScenario = !string.IsNullOrWhiteSpace(state.ActiveScenarioId)
+            && string.Equals(state.ActiveScenarioId, leader.ScenarioId, StringComparison.OrdinalIgnoreCase);
+
+        // Theme lock: once an active scenario is set, the engine must not switch to a different
+        // theme mid-arc. A competing leader cannot displace the active scenario. The only path
+        // to a new theme is through a full cycle (Climax → Reset → BuildUp via ExecuteResetAsync,
+        // which clears ActiveScenarioId and returns the engine to observer mode for the next cycle).
+        if (!string.IsNullOrWhiteSpace(state.ActiveScenarioId) && !leaderMatchesActiveScenario)
+        {
+            return new ScenarioCommitResult
+            {
+                Committed = false,
+                ScenarioId = state.ActiveScenarioId,
+                UpdatedConsecutiveLeadCount = state.ConsecutiveLeadCount,
+                Reason = $"Theme lock active: scenario '{state.ActiveScenarioId}' is locked in the current arc. " +
+                         $"Competing leader '{leader.ScenarioId}' cannot replace it. Complete the full phase cycle to unlock.",
+                SelectedEvaluation = leader
+            };
+        }
+
+        if (!leader.StageBEligible && !leaderMatchesActiveScenario)
         {
             return new ScenarioCommitResult
             {

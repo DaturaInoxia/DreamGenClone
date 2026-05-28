@@ -95,6 +95,11 @@ public sealed class StoryAnalysisOptions
     // Default 10 prevents immediate re-selection during the Reset phase.
     public int CompletedScenarioThemeCooldownInteractions { get; set; } = 10;
 
+    // Flat FitScore point deduction applied to the just-completed theme after reset.
+    // Applied as a direct subtraction from the gate-adjusted FitScore (0–100 scale).
+    // Configurable. Default 20 points. Set to 0 to disable.
+    public decimal CompletedScenarioFitScorePenaltyPoints { get; set; } = 20m;
+
     // Per-cycle reduction in reset pull toward baseline for elevated stats.
     // Example: 0.10 means each completed cycle reduces reset pull by 10%.
     // Default 0 means no reduction (feature must be explicitly enabled via configuration).

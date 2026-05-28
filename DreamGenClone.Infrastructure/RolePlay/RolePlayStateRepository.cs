@@ -1064,11 +1064,13 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 INSERT INTO RolePlayV2CandidateEvaluations (
                     SessionId, EvaluationId, ScenarioId, StageAWillingnessTier, StageBEligible,
                     CharacterAlignmentScore, NarrativeEvidenceScore, PreferencePriorityScore,
-                    FitScore, UnpenalizedFitScore, Confidence, TieBreakKey, Rationale, DetailsJson, EvaluatedUtc)
+                    FitScore, UnpenalizedFitScore, Confidence, TieBreakKey, Rationale, DetailsJson,
+                    SuccessorCausalityBoost, EvaluatedUtc)
                 VALUES (
                     $sessionId, $evaluationId, $scenarioId, $tier, $eligible,
                     $characterAlignmentScore, $narrativeEvidenceScore, $preferencePriorityScore,
-                    $fitScore, $unpenalizedFitScore, $confidence, $tieBreakKey, $rationale, $detailsJson, $evaluatedUtc);
+                    $fitScore, $unpenalizedFitScore, $confidence, $tieBreakKey, $rationale, $detailsJson,
+                    $successorCausalityBoost, $evaluatedUtc);
                 """;
             command.Parameters.AddWithValue("$sessionId", eval.SessionId);
             command.Parameters.AddWithValue("$evaluationId", eval.EvaluationId);
@@ -1084,6 +1086,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
             command.Parameters.AddWithValue("$tieBreakKey", eval.TieBreakKey);
             command.Parameters.AddWithValue("$rationale", eval.Rationale);
             command.Parameters.AddWithValue("$detailsJson", eval.DetailsJson);
+            command.Parameters.AddWithValue("$successorCausalityBoost", eval.SuccessorCausalityBoost);
             command.Parameters.AddWithValue("$evaluatedUtc", eval.EvaluatedUtc.ToString("O"));
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
@@ -1505,7 +1508,8 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
         command.CommandText = """
             SELECT SessionId, EvaluationId, ScenarioId, StageAWillingnessTier, StageBEligible,
                  CharacterAlignmentScore, NarrativeEvidenceScore, PreferencePriorityScore,
-                 FitScore, UnpenalizedFitScore, Confidence, TieBreakKey, Rationale, DetailsJson, EvaluatedUtc
+                 FitScore, UnpenalizedFitScore, Confidence, TieBreakKey, Rationale, DetailsJson,
+                 SuccessorCausalityBoost, EvaluatedUtc
             FROM RolePlayV2CandidateEvaluations
             WHERE SessionId = $sessionId
             ORDER BY EvaluatedUtc DESC
@@ -1533,7 +1537,8 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 TieBreakKey = reader.GetString(11),
                 Rationale = reader.GetString(12),
                 DetailsJson = reader.GetString(13),
-                EvaluatedUtc = DateTime.TryParse(reader.GetString(14), out var evaluatedUtc) ? evaluatedUtc : DateTime.UtcNow
+                SuccessorCausalityBoost = reader.IsDBNull(14) ? 0m : reader.GetDecimal(14),
+                EvaluatedUtc = DateTime.TryParse(reader.GetString(15), out var evaluatedUtc) ? evaluatedUtc : DateTime.UtcNow
             });
         }
 
