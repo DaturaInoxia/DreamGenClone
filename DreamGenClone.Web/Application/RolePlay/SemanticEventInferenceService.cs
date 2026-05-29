@@ -35,9 +35,28 @@ public sealed class SemanticEventInferenceService : ISemanticEventInferenceServi
     {
         ValidateRequest(request);
 
-        var resolved = await _modelResolutionService.ResolveAsync(
-            AppFunction.RolePlayGeneration,
-            cancellationToken: cancellationToken);
+        ResolvedModel resolved;
+        try
+        {
+            resolved = await _modelResolutionService.ResolveAsync(
+                AppFunction.RolePlaySemanticAnalysis,
+                cancellationToken: cancellationToken);
+        }
+        catch (ModelResolutionException ex)
+        {
+            _logger?.LogWarning(ex,
+                "SemanticInference: model unavailable for {Function}, SessionId={SessionId} InteractionId={InteractionId}",
+                AppFunction.RolePlaySemanticAnalysis, request.SessionId, request.InteractionId);
+            return new SemanticEventInferenceResult
+            {
+                Success = false,
+                ErrorMessage = ex.Message,
+                Events = Array.Empty<SemanticInferredEvent>(),
+                RawModelOutput = string.Empty,
+                PromptSystem = string.Empty,
+                PromptUser = string.Empty
+            };
+        }
 
         var systemMessage =
             "You extract canonical semantic event IDs from roleplay text. " +

@@ -16,6 +16,22 @@ public sealed class ScenarioGuidanceTemplateSeedService
     private static readonly SeedDefinition[] SeedTemplates =
     [
         new(
+            Guid.Parse("5f9a5d7b-2b34-4a2f-ae6d-9a8a2d8d1005"),
+            "scenario-guidance:infidelity-brief-disappearance:default",
+            BuildTemplate(
+                "infidelity-brief-disappearance",
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["BuildUp"] = "Establish anticipation through suggestive glances, layered subtext, and brief test absences. The transgressor is building toward acting — keep the mood charged but deniable; avoid any direct physical consummation in this phase.",
+                    ["Committed"] = "The transgressor is now actively executing planned disappearances. Each beat must include: a plausible excuse for the absence, a brief private encounter, and a composed return to normal social behavior. The partner remains unaware or only mildly concerned. Build anticipation and confidence between disappearances — do not introduce discovery or full exposure in this phase.",
+                    ["Approaching"] = "Disappearances are becoming bolder, longer, or more frequent. Near-miss moments — almost caught returning, disheveled appearance, timing pressure — should increase. The partner may begin to notice a pattern. Physical evidence is harder to conceal. Ratchet up the risk and urgency without delivering the peak confrontation or full consummation yet.",
+                    ["Climax"] = "Deliver the peak transgression: the most daring disappearance, the longest encounter, or the moment the pattern nearly collapses. Physical and emotional stakes are at their highest. The composed facade is stretched to its limit. Deliver full intensity in the private encounter and the nerve-wracking return.",
+                    ["Reset"] = "Shift to aftermath: composure restored, the facade back in place, but the weight of repeated deception visible beneath the surface. Reflective tone — no further escalation. The partner's unawareness (or dawning suspicion) drives the emotional close.",
+                    ["Default"] = "Each narrative beat must respect the core constraint: brief private encounters with immediate return to normal social composure. The tension lives in the gap between what the partner sees and what is happening. Anchor all escalation to the disappearance-and-return rhythm."
+                },
+                ["composed facade after each return", "time-pressure urgency during the encounter", "plausible excuse logistics", "partner's incremental awareness"],
+                ["breaking the disappear-and-return rhythm with extended private scenes", "relocating to secluded private spaces that remove all discovery risk", "rushing to discovery or confrontation before Climax"])),
+        new(
             Guid.Parse("5f9a5d7b-2b34-4a2f-ae6d-9a8a2d8d1004"),
             "scenario-guidance:threesome-spontaneous-exclusion-v2:default",
             BuildTemplate(

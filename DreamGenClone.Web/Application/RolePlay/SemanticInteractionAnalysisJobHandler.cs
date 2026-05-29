@@ -189,6 +189,25 @@ public sealed class SemanticInteractionAnalysisJobHandler : IBackgroundJobHandle
                 AllowedEventIds = allowedEventIds
             }, cancellationToken);
 
+            if (!inferenceResult.Success)
+            {
+                await _analysisRepository.UpsertAsync(new SemanticInteractionAnalysisState
+                {
+                    SessionId = payload.SessionId,
+                    InteractionId = payload.InteractionId,
+                    CharacterId = payload.CharacterId,
+                    Status = SemanticAnalysisStatus.Error,
+                    ErrorMessage = inferenceResult.ErrorMessage ?? "Model resolution failed",
+                    UpdatedUtc = DateTime.UtcNow,
+                    CreatedUtc = createdUtc,
+                    AnalyzedUtc = DateTime.UtcNow
+                }, cancellationToken);
+                _logger.LogWarning(
+                    "Semantic analysis aborted for session {SessionId} interaction {InteractionId}: {Error}",
+                    payload.SessionId, payload.InteractionId, inferenceResult.ErrorMessage);
+                return;
+            }
+
             var inferredSignals = inferenceResult.Events
                 .Select(x => new IRolePlayAdaptiveStateService.InferredSemanticSignal(
                     x.EventId,
@@ -267,7 +286,17 @@ public sealed class SemanticInteractionAnalysisJobHandler : IBackgroundJobHandle
                 ContextTurnsCount = contextTurns.Count,
                 InferenceRawOutput = inferenceResult.RawModelOutput,
                 PromptSystem = inferenceResult.PromptSystem,
-                PromptUser = inferenceResult.PromptUser
+                PromptUser = inferenceResult.PromptUser,
+                InferredEvents = inferenceResult.Events
+                    .Select(e => new InferredEventRecord
+                    {
+                        EventId = e.EventId,
+                        Confidence = e.Confidence,
+                        ActorName = e.ActorName,
+                        TargetCharacterName = e.TargetCharacterName,
+                        EvidenceSpan = e.EvidenceSpan
+                    })
+                    .ToList()
             }, JsonOptions);
 
             await _analysisRepository.UpsertAsync(new SemanticInteractionAnalysisState
@@ -324,5 +353,20 @@ public sealed class SemanticInteractionAnalysisJobHandler : IBackgroundJobHandle
         public string PromptSystem { get; set; } = string.Empty;
 
         public string PromptUser { get; set; } = string.Empty;
+
+        public List<InferredEventRecord> InferredEvents { get; set; } = [];
+    }
+
+    private sealed class InferredEventRecord
+    {
+        public string EventId { get; set; } = string.Empty;
+
+        public decimal Confidence { get; set; }
+
+        public string? ActorName { get; set; }
+
+        public string? TargetCharacterName { get; set; }
+
+        public string? EvidenceSpan { get; set; }
     }
 }

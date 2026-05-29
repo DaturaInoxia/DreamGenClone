@@ -110,19 +110,35 @@ public static class BehavioralDimensionCatalog
             "He persistently pushes past resistance and stated limits; he treats reluctance as something to overcome rather than a boundary."),
     ];
 
+    // Normalizes role variants so lookups work regardless of legacy spelling.
+    // "The Other Man", "Other Man" all map to the catalog key "OtherMan".
+    private static string NormalizeRole(string targetRole)
+    {
+        var t = targetRole.Trim();
+        if (t.Equals("OtherMan", StringComparison.OrdinalIgnoreCase)
+            || t.Equals("Other Man", StringComparison.OrdinalIgnoreCase)
+            || t.Equals("The Other Man", StringComparison.OrdinalIgnoreCase))
+        {
+            return "OtherMan";
+        }
+        return targetRole;
+    }
+
     /// <summary>
     /// Returns all behavioral dimensions defined for the given role.
     /// Returns an empty list for "Any" or unrecognized roles.
+    /// Accepts "OtherMan", "Other Man", and "The Other Man" as equivalent.
     /// </summary>
     public static IReadOnlyList<BehavioralDimension> GetDimensions(string targetRole) =>
-        AllDimensions.Where(d => d.TargetRole.Equals(targetRole, StringComparison.OrdinalIgnoreCase)).ToList();
+        AllDimensions.Where(d => d.TargetRole.Equals(NormalizeRole(targetRole), StringComparison.OrdinalIgnoreCase)).ToList();
 
     /// <summary>
     /// Returns the single dimension matching the given role and name, or null if not found.
+    /// Accepts "OtherMan", "Other Man", and "The Other Man" as equivalent.
     /// </summary>
     public static BehavioralDimension? FindDimension(string targetRole, string name) =>
         AllDimensions.FirstOrDefault(d =>
-            d.TargetRole.Equals(targetRole, StringComparison.OrdinalIgnoreCase) &&
+            d.TargetRole.Equals(NormalizeRole(targetRole), StringComparison.OrdinalIgnoreCase) &&
             d.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>

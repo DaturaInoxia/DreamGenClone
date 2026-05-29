@@ -702,6 +702,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 Temperature REAL NOT NULL DEFAULT 0.7,
                 TopP REAL NOT NULL DEFAULT 0.9,
                 MaxTokens INTEGER NOT NULL DEFAULT 500,
+                MaxConcurrentJobs INTEGER NULL,
                 UpdatedUtc TEXT NOT NULL,
                 FOREIGN KEY (ModelId) REFERENCES RegisteredModels(Id)
             );
@@ -1928,6 +1929,18 @@ public sealed class SqlitePersistence : ISqlitePersistence
         var updatedRows = await updateAssistantTokens.ExecuteNonQueryAsync(cancellationToken);
         if (updatedRows > 0)
             _logger.LogInformation("Migrated RolePlayAssistant function default: MaxTokens 500 → 2000");
+
+        // Migrate: add MaxConcurrentJobs column to FunctionModelDefaults (semantic model concurrency control)
+        var checkMaxConcurrent = connection.CreateCommand();
+        checkMaxConcurrent.CommandText = "SELECT COUNT(*) FROM pragma_table_info('FunctionModelDefaults') WHERE name='MaxConcurrentJobs'";
+        var hasMaxConcurrentJobs = Convert.ToInt64(await checkMaxConcurrent.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasMaxConcurrentJobs)
+        {
+            var addMaxConcurrent = connection.CreateCommand();
+            addMaxConcurrent.CommandText = "ALTER TABLE FunctionModelDefaults ADD COLUMN MaxConcurrentJobs INTEGER NULL";
+            await addMaxConcurrent.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated FunctionModelDefaults: added MaxConcurrentJobs column");
+        }
 
         // Migrate: ensure ScenarioEngineSettings table exists (for databases created before this table was added)
         var checkEngineSettings = connection.CreateCommand();

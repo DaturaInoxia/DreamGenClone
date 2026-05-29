@@ -186,6 +186,9 @@ builder.Services.AddSingleton<GenericBackgroundJobQueue>();
 builder.Services.AddSingleton<IBackgroundJobQueue>(sp => sp.GetRequiredService<GenericBackgroundJobQueue>());
 builder.Services.AddScoped<IBackgroundJobHandler, SemanticInteractionAnalysisJobHandler>();
 builder.Services.AddHostedService<GenericBackgroundJobWorker>();
+builder.Services.AddSingleton<SemanticBackgroundJobQueue>();
+builder.Services.AddSingleton<ISemanticBackgroundJobQueue>(sp => sp.GetRequiredService<SemanticBackgroundJobQueue>());
+builder.Services.AddHostedService<SemanticBackgroundJobWorker>();
 
 // Increase SignalR message size for large text editing (combined story text)
 builder.Services.AddSignalR(o => o.MaximumReceiveMessageSize = 1024 * 1024); // 1 MB

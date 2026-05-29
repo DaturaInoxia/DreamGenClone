@@ -4,7 +4,7 @@ public static class CharacterRoleCatalog
 {
     public const string Wife = "Wife";
     public const string Husband = "Husband";
-    public const string TheOtherMan = "The Other Man";
+    public const string TheOtherMan = "OtherMan";
     public const string BackgroundCharacters = "Background Characters";
     public const string Unknown = "Unknown";
 
@@ -32,7 +32,8 @@ public static class CharacterRoleCatalog
             return Husband;
         }
 
-        if (trimmed.Equals(TheOtherMan, StringComparison.OrdinalIgnoreCase)
+        if (trimmed.Equals(TheOtherMan, StringComparison.OrdinalIgnoreCase)         // "OtherMan"
+            || trimmed.Equals("The Other Man", StringComparison.OrdinalIgnoreCase)   // legacy alias
             || trimmed.Equals("Other Man", StringComparison.OrdinalIgnoreCase)
             || trimmed.Equals("The Other Guy", StringComparison.OrdinalIgnoreCase)
             || trimmed.Equals("Bull", StringComparison.OrdinalIgnoreCase))
