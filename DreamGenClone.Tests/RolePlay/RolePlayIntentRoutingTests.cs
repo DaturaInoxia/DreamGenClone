@@ -161,7 +161,7 @@ public sealed class RolePlayIntentRoutingTests
             validator,
             fakeSessionService,
             new RolePlayTestFactory.NullScenarioService(),
-            new RolePlayTestFactory.FakeBaseStatProfileService(),
+            new RolePlayTestFactory.FakeCharacterProfileService(),
             autoSave,
             new RolePlayTestFactory.NullRolePlayDebugEventSink(),
             NullLogger<RolePlayEngineService>.Instance);

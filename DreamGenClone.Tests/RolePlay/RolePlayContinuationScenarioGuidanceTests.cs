@@ -1,5 +1,6 @@
 using System.Text;
 using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Application.StoryAnalysis.Abstractions;
 using DreamGenClone.Application.StoryAnalysis.Models;
 using DreamGenClone.Infrastructure.StoryAnalysis;
 using DreamGenClone.Web.Application.RolePlay;
@@ -16,7 +17,7 @@ public sealed class RolePlayContinuationScenarioGuidanceTests
     [InlineData("Reset")]
     public async Task CreateAsync_BuildsGuidance_ForEachPhase(string phase)
     {
-        var factory = new ScenarioGuidanceContextFactory();
+        var factory = new ScenarioGuidanceContextFactory(new NoOpBehavioralFrameGenerator());
 
         var context = await factory.CreateAsync(new ScenarioGuidanceInput(
             SessionId: "s1",
@@ -30,7 +31,8 @@ public sealed class RolePlayContinuationScenarioGuidanceTests
             AverageDominance: 50,
             AverageLoyalty: 50,
             SelectedWillingnessProfileId: null,
-            HusbandAwarenessProfileId: null,
+            CharacterEncounterProfileIds: new Dictionary<string, string>(),
+            Characters: [],
             SuppressedScenarioIds: ["infidelity"]));
 
         Assert.Equal(phase, context.Phase);
@@ -45,7 +47,8 @@ public sealed class RolePlayContinuationScenarioGuidanceTests
             Phase: "Climax",
             ActiveScenarioId: "dominance",
             GuidanceText: "Deliver culmination",
-            ExcludedScenarioIds: ["infidelity", "voyeurism"]);
+            ExcludedScenarioIds: ["infidelity", "voyeurism"],
+            CharacterBehavioralFrames: new Dictionary<string, string>());
 
         var guards = RolePlayAssistantPrompts.BuildFramingGuards("Climax", "dominance");
         RolePlayAssistantPrompts.AppendScenarioGuidance(builder, guidance, guards);
@@ -201,5 +204,14 @@ public sealed class RolePlayContinuationScenarioGuidanceTests
         Assert.Contains("Current State: ReintegrationCooldown", text, StringComparison.Ordinal);
         Assert.Contains("Cooldown interactions in current state: 3", text, StringComparison.Ordinal);
         Assert.Contains("Return beat completed: no", text, StringComparison.Ordinal);
+    }
+
+    private sealed class NoOpBehavioralFrameGenerator : IBehavioralFrameGenerator
+    {
+        public Task<IReadOnlyDictionary<string, string>> GenerateFramesAsync(
+            IReadOnlyDictionary<string, string> characterEncounterProfileIds,
+            IReadOnlyList<ScenarioCharacter> characters,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyDictionary<string, string>>(new Dictionary<string, string>());
     }
 }

@@ -231,7 +231,7 @@ public sealed class SemanticInteractionAnalysisJobHandler : IBackgroundJobHandle
                 updated.ActiveFormulaVersion           = latestStateBeforeSave.ActiveFormulaVersion;
                 updated.SelectedWillingnessProfileId  = latestStateBeforeSave.SelectedWillingnessProfileId;
                 updated.SelectedNarrativeGateProfileId = latestStateBeforeSave.SelectedNarrativeGateProfileId;
-                updated.HusbandAwarenessProfileId      = latestStateBeforeSave.HusbandAwarenessProfileId;
+                updated.CharacterEncounterProfileIds   = new Dictionary<string, string>(latestStateBeforeSave.CharacterEncounterProfileIds, StringComparer.OrdinalIgnoreCase);
                 updated.PhaseOverrideFloor             = latestStateBeforeSave.PhaseOverrideFloor;
                 updated.PhaseOverrideScenarioId        = latestStateBeforeSave.PhaseOverrideScenarioId;
                 updated.PhaseOverrideCycleIndex        = latestStateBeforeSave.PhaseOverrideCycleIndex;

@@ -12,7 +12,8 @@ public sealed record ScenarioGuidanceInput(
     double AverageDominance,
     double AverageLoyalty,
     string? SelectedWillingnessProfileId,
-    string? HusbandAwarenessProfileId,
+    IReadOnlyDictionary<string, string> CharacterEncounterProfileIds,
+    IReadOnlyList<ScenarioCharacter> Characters,
     IReadOnlyList<string> SuppressedScenarioIds);
 
 public sealed record ScenarioGuidanceContext(
@@ -20,4 +21,4 @@ public sealed record ScenarioGuidanceContext(
     string? ActiveScenarioId,
     string GuidanceText,
     IReadOnlyList<string> ExcludedScenarioIds,
-    string HusbandAwarenessFrame = "");
+    IReadOnlyDictionary<string, string> CharacterBehavioralFrames);

@@ -1,4 +1,5 @@
 using DreamGenClone.Application.StoryAnalysis;
+using DreamGenClone.Application.StoryAnalysis.Abstractions;
 using DreamGenClone.Application.StoryAnalysis.Models;
 using DreamGenClone.Application.RolePlay;
 
@@ -7,9 +8,13 @@ namespace DreamGenClone.Infrastructure.StoryAnalysis;
 public sealed class ScenarioGuidanceContextFactory : IScenarioGuidanceContextFactory
 {
     private readonly IScenarioGuidanceGenerator? _scenarioGuidanceGenerator;
+    private readonly IBehavioralFrameGenerator _frameGenerator;
 
-    public ScenarioGuidanceContextFactory(IScenarioGuidanceGenerator? scenarioGuidanceGenerator = null)
+    public ScenarioGuidanceContextFactory(
+        IBehavioralFrameGenerator frameGenerator,
+        IScenarioGuidanceGenerator? scenarioGuidanceGenerator = null)
     {
+        _frameGenerator = frameGenerator;
         _scenarioGuidanceGenerator = scenarioGuidanceGenerator;
     }
 
@@ -24,7 +29,7 @@ public sealed class ScenarioGuidanceContextFactory : IScenarioGuidanceContextFac
             return CreateFromGeneratorAsync(input, cancellationToken);
         }
 
-        return Task.FromResult(CreateFallback(input));
+        return CreateFallbackAsync(input, cancellationToken);
     }
 
     private async Task<ScenarioGuidanceContext> CreateFromGeneratorAsync(
@@ -45,7 +50,8 @@ public sealed class ScenarioGuidanceContextFactory : IScenarioGuidanceContextFac
                 AverageDominance = input.AverageDominance,
                 AverageLoyalty = input.AverageLoyalty,
                 SelectedWillingnessProfileId = input.SelectedWillingnessProfileId,
-                HusbandAwarenessProfileId = input.HusbandAwarenessProfileId,
+                CharacterEncounterProfileIds = input.CharacterEncounterProfileIds,
+                Characters = input.Characters,
                 SuppressedScenarioIds = input.SuppressedScenarioIds
             },
             cancellationToken);
@@ -61,15 +67,21 @@ public sealed class ScenarioGuidanceContextFactory : IScenarioGuidanceContextFac
             mergedGuidanceText += $" Avoid: {string.Join(", ", generated.AvoidancePoints)}.";
         }
 
+        // T016: generate per-character behavioral frames independently of the guidance generator
+        var characterBehavioralFrames = await _frameGenerator.GenerateFramesAsync(
+            input.CharacterEncounterProfileIds,
+            input.Characters,
+            cancellationToken);
+
         return new ScenarioGuidanceContext(
             input.CurrentPhase,
             input.ActiveScenarioId,
             mergedGuidanceText,
             input.SuppressedScenarioIds,
-            generated.HusbandAwarenessFrame);
+            characterBehavioralFrames);
     }
 
-    private static ScenarioGuidanceContext CreateFallback(ScenarioGuidanceInput input)
+    private async Task<ScenarioGuidanceContext> CreateFallbackAsync(ScenarioGuidanceInput input, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(input);
 
@@ -87,10 +99,16 @@ public sealed class ScenarioGuidanceContextFactory : IScenarioGuidanceContextFac
             _ => "Maintain coherent narrative progression."
         };
 
+        var characterBehavioralFrames = await _frameGenerator.GenerateFramesAsync(
+            input.CharacterEncounterProfileIds,
+            input.Characters,
+            cancellationToken);
+
         return new ScenarioGuidanceContext(
             input.CurrentPhase,
             input.ActiveScenarioId,
             guidance,
-            input.SuppressedScenarioIds);
+            input.SuppressedScenarioIds,
+            characterBehavioralFrames);
     }
 }

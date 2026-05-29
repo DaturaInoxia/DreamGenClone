@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 
 namespace DreamGenClone.Infrastructure.StoryAnalysis;
 
+[Obsolete("Replaced by CharacterProfileService — B-042")]
 public sealed class BaseStatProfileService : IBaseStatProfileService
 {
     private readonly ISqlitePersistence _persistence;
@@ -18,8 +19,6 @@ public sealed class BaseStatProfileService : IBaseStatProfileService
 
     public async Task<BaseStatProfile> CreateAsync(string name, string description, IReadOnlyDictionary<string, int> defaultStats, string targetGender, string targetRole, CancellationToken cancellationToken = default)
     {
-        await EnsureDefaultProfilesAsync(cancellationToken);
-
         var trimmedName = (name ?? string.Empty).Trim();
         if (string.IsNullOrWhiteSpace(trimmedName))
         {
@@ -60,8 +59,6 @@ public sealed class BaseStatProfileService : IBaseStatProfileService
 
     public async Task<BaseStatProfile?> UpdateAsync(string id, string name, string description, IReadOnlyDictionary<string, int> defaultStats, string targetGender, string targetRole, CancellationToken cancellationToken = default)
     {
-        await EnsureDefaultProfilesAsync(cancellationToken);
-
         var existing = await _persistence.LoadBaseStatProfileAsync(id, cancellationToken);
         if (existing is null)
         {
@@ -95,18 +92,13 @@ public sealed class BaseStatProfileService : IBaseStatProfileService
 
     public async Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default)
     {
-        await EnsureDefaultProfilesAsync(cancellationToken);
-
         var deleted = await _persistence.DeleteBaseStatProfileAsync(id, cancellationToken);
         _logger.LogInformation("Base stat profile deleted: {BaseStatProfileId}, Success={Deleted}", id, deleted);
         return deleted;
     }
 
-    private async Task<List<BaseStatProfile>> ListInternalAsync(CancellationToken cancellationToken)
-    {
-        await EnsureDefaultProfilesAsync(cancellationToken);
-        return await _persistence.LoadAllBaseStatProfilesAsync(cancellationToken);
-    }
+    private Task<List<BaseStatProfile>> ListInternalAsync(CancellationToken cancellationToken)
+        => _persistence.LoadAllBaseStatProfilesAsync(cancellationToken);
 
     private async Task EnsureDefaultProfilesAsync(CancellationToken cancellationToken)
     {

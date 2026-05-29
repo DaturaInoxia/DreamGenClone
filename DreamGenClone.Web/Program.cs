@@ -34,6 +34,7 @@ using DreamGenClone.Infrastructure.ModelManager;
 using DreamGenClone.Web.Application.Administration;
 using DreamGenClone.Web.Application.ModelManager;
 using DreamGenClone.Application.RolePlay;
+using DreamGenClone.Application.StoryAnalysis.Abstractions;
 using DreamGenClone.Infrastructure.RolePlay;
 using Serilog.Context;
 
@@ -148,6 +149,8 @@ builder.Services.AddScoped<IBaseStatProfileService, BaseStatProfileService>();
 builder.Services.AddScoped<IStatWillingnessProfileService, StatWillingnessProfileService>();
 builder.Services.AddScoped<INarrativeGateProfileService, NarrativeGateProfileService>();
 builder.Services.AddScoped<IHusbandAwarenessProfileService, HusbandAwarenessProfileService>();
+builder.Services.AddScoped<ICharacterProfileService, CharacterProfileService>();
+builder.Services.AddScoped<IBehavioralFrameGenerator, CharacterBehavioralFrameGenerator>();
 builder.Services.AddScoped<IBackgroundCharacterProfileService, BackgroundCharacterProfileService>();
 builder.Services.AddScoped<IRoleDefinitionService, RoleDefinitionService>();
 builder.Services.AddScoped<IPromptDealbreakerService, PromptDealbreakerService>();
@@ -233,6 +236,9 @@ using (var scope = app.Services.CreateScope())
 
     var themePreferenceService = scope.ServiceProvider.GetRequiredService<IThemePreferenceService>();
     await themePreferenceService.AutoLinkToCatalogAsync();
+
+    var characterProfileService = scope.ServiceProvider.GetRequiredService<ICharacterProfileService>();
+    await characterProfileService.EnsureDefaultsAsync();
 }
 
 // Run startup health checks for all configured providers and models

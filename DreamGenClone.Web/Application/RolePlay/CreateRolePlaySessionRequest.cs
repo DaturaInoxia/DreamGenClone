@@ -46,8 +46,9 @@ public sealed class CreateRolePlaySessionRequest
     public IReadOnlyDictionary<string, int> PersonaStatOverrides { get; init; }
         = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Optional Husband Awareness Profile to associate with this session.</summary>
-    public string? AwarenessProfileId { get; init; }
+    /// <summary>Per-character encounter profile IDs, keyed by character ID.</summary>
+    public IReadOnlyDictionary<string, string> CharacterEncounterProfileIds { get; init; }
+        = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Optional physical appearance data for the POV persona.</summary>
     public DreamGenClone.Domain.Templates.PhysicalAttributes? PersonaPhysicalAttributes { get; init; }

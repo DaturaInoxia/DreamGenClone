@@ -161,7 +161,7 @@
     private List<TemplateDefinition> _characterLikeTemplates = [];
     private List<RoleDefinition> _roleDefinitions = [];
     private List<StatWillingnessProfile> _willingnessProfiles = [];
-    private List<HusbandAwarenessProfile> _husbandAwarenessProfiles = [];
+    private List<CharacterProfile> _characterProfiles = [];
     private readonly Dictionary<string, string?> _scenarioCharacterProfileSelectionById = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, IntensityProfile> _intensityProfilesById = new(StringComparer.OrdinalIgnoreCase);
     private string _pendingResponseText = string.Empty;
@@ -376,6 +376,13 @@
             .OrderByDescending(c => c.ModifiedAt)
             .ToList();
         _activeAssistantChatId = _session.ActiveAssistantChatId;
+
+        // Restore persona profile selection from the stored profile ID (persisted during session creation).
+        if (_session.AdaptiveState.CharacterEncounterProfileIds.TryGetValue("__persona__", out var storedPersonaProfileId)
+            && !string.IsNullOrWhiteSpace(storedPersonaProfileId))
+        {
+            _personaProfileSelection = storedPersonaProfileId;
+        }
 
         if (sessionUpdated)
         {
@@ -1187,7 +1194,7 @@
             _steeringProfiles = [];
             _baseStatProfiles = [];
             _willingnessProfiles = [];
-            _husbandAwarenessProfiles = [];
+            _characterProfiles = [];
             _intensityProfilesById = new(StringComparer.OrdinalIgnoreCase);
             return;
         }
@@ -1213,7 +1220,7 @@
             .OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        _husbandAwarenessProfiles = (await StoryAnalysisFacade.ListHusbandAwarenessProfilesAsync())
+        _characterProfiles = (await StoryAnalysisFacade.GetAllCharacterProfilesAsync())
             .OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
@@ -1430,7 +1437,7 @@
         await SaveSessionSettingsAsync();
     }
 
-    private async Task OnHusbandAwarenessProfileChanged(ChangeEventArgs args)
+    private async Task OnCharacterEncounterProfileChanged(string characterId, string profileId)
     {
         if (_session is null)
         {
@@ -1438,9 +1445,14 @@
         }
 
         _session.AdaptiveState ??= new AdaptiveScenarioState();
-        _session.AdaptiveState.HusbandAwarenessProfileId = string.IsNullOrWhiteSpace(args.Value?.ToString())
-            ? null
-            : args.Value!.ToString();
+        if (string.IsNullOrWhiteSpace(profileId))
+        {
+            _session.AdaptiveState.CharacterEncounterProfileIds.Remove(characterId);
+        }
+        else
+        {
+            _session.AdaptiveState.CharacterEncounterProfileIds[characterId] = profileId;
+        }
 
         await SaveSessionSettingsAsync();
     }
@@ -1482,23 +1494,6 @@
             ? item.ThemeId
             : item.ThemeName;
         return $"{label} ({item.ThemeId}) score {item.Score:0.0}";
-    }
-
-    private string GetSelectedHusbandAwarenessProfileName()
-    {
-        if (_session is null)
-        {
-            return "(none)";
-        }
-
-        var selectedId = _session.AdaptiveState?.HusbandAwarenessProfileId;
-        if (string.IsNullOrWhiteSpace(selectedId))
-        {
-            return "(none)";
-        }
-
-        var match = _husbandAwarenessProfiles.FirstOrDefault(x => string.Equals(x.Id, selectedId, StringComparison.OrdinalIgnoreCase));
-        return match?.Name ?? selectedId;
     }
 
     private async Task OnStyleFloorChanged(ChangeEventArgs args)
@@ -3283,7 +3278,8 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
                 NarrEvidScore: eval?.NarrativeEvidenceScore,
                 PrefPriorityScore: eval?.PreferencePriorityScore,
                 StageBEligible: eval?.StageBEligible,
-                SuccessorCausalityBoost: eval is not null && eval.SuccessorCausalityBoost > 0m ? eval.SuccessorCausalityBoost : (decimal?)null);
+                SuccessorCausalityBoost: eval is not null && eval.SuccessorCausalityBoost > 0m ? eval.SuccessorCausalityBoost : (decimal?)null,
+                GateDetailsJson: eval?.DetailsJson);
             })
             .ToList();
     }
@@ -3490,16 +3486,14 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
 
     private (string BaselineProfile, string MigratingToProfile) GetCharacterProfileAlignment(string actorName, CharacterStatProfileV2 profile)
     {
-        var actorGender = ResolveCharacterGender(actorName);
         var actorRole = ResolveCharacterRole(actorName);
-        var candidateProfiles = _baseStatProfiles
-            .Where(x => CharacterGenderCatalog.IsProfileApplicableToCharacter(x.TargetGender, actorGender)
-                && CharacterRoleCatalog.IsProfileApplicableToCharacter(x.TargetRole, actorRole))
+        var candidateProfiles = _characterProfiles
+            .Where(x => CharacterRoleCatalog.IsProfileApplicableToCharacter(x.TargetRole, actorRole))
             .ToList();
 
         if (candidateProfiles.Count == 0)
         {
-            return ("(set Male/Female + role + matching profile)", "(set Male/Female + role + matching profile)");
+            return ("(set role + matching profile)", "(set role + matching profile)");
         }
 
         var reference = ResolveCharacterReferenceStats(actorName);
@@ -3507,13 +3501,13 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
             .ToDictionary(n => n, n => CharacterStatProfileV2Accessor.GetStatOrDefault(profile, n), StringComparer.OrdinalIgnoreCase);
         var normalizedCurrent = AdaptiveStatCatalog.NormalizeComplete(currentStats);
         var baseline = candidateProfiles
-            .Select(p => new { Profile = p, Distance = CalculateProfileDistance(reference, p.DefaultStats) })
+            .Select(p => new { Profile = p, Distance = CalculateProfileDistance(reference, p.CharacterStats) })
             .OrderBy(x => x.Distance)
             .ThenBy(x => x.Profile.Name, StringComparer.OrdinalIgnoreCase)
             .First();
         var projected = ProjectTrend(normalizedCurrent, reference);
         var migrating = candidateProfiles
-            .Select(p => new { Profile = p, Distance = CalculateProfileDistance(projected, p.DefaultStats) })
+            .Select(p => new { Profile = p, Distance = CalculateProfileDistance(projected, p.CharacterStats) })
             .OrderBy(x => x.Distance)
             .ThenBy(x => x.Profile.Name, StringComparer.OrdinalIgnoreCase)
             .First();
@@ -3859,25 +3853,23 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
             && CharacterRoleCatalog.IsProfileApplicableToCharacter(profile.TargetRole, character.Role));
     }
 
-    private IEnumerable<BaseStatProfile> GetApplicableBaseStatProfilesForPersona()
+    private IEnumerable<CharacterProfile> GetApplicableCharacterProfilesForPersona()
     {
         if (_session is null) return [];
-        return _baseStatProfiles.Where(profile =>
-            CharacterGenderCatalog.IsProfileApplicableToCharacter(profile.TargetGender, _session.PersonaGender)
-            && CharacterRoleCatalog.IsProfileApplicableToCharacter(profile.TargetRole, _session.PersonaRole));
+        return _characterProfiles.Where(profile =>
+            CharacterRoleCatalog.IsProfileApplicableToCharacter(profile.TargetRole, _session.PersonaRole));
     }
 
     private void ApplyPersonaProfile()
     {
         if (_session is null || string.IsNullOrWhiteSpace(_personaProfileSelection)) return;
 
-        var profile = _baseStatProfiles.FirstOrDefault(x =>
+        var profile = _characterProfiles.FirstOrDefault(x =>
             string.Equals(x.Id, _personaProfileSelection, StringComparison.OrdinalIgnoreCase)
-            && CharacterGenderCatalog.IsProfileApplicableToCharacter(x.TargetGender, _session.PersonaGender)
             && CharacterRoleCatalog.IsProfileApplicableToCharacter(x.TargetRole, _session.PersonaRole));
         if (profile is null) return;
 
-        var normalizedStats = AdaptiveStatCatalog.NormalizeComplete(profile.DefaultStats);
+        var normalizedStats = AdaptiveStatCatalog.NormalizeComplete(profile.CharacterStats);
         var personaKey = string.IsNullOrWhiteSpace(_session.PersonaName) ? "You" : _session.PersonaName;
         if (!_session.AdaptiveState.CharacterStats.TryGetValue(personaKey, out var block))
         {
@@ -8857,9 +8849,9 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
                                                     value="@(_personaProfileSelection ?? string.Empty)"
                                                     @onchange="@(e => _personaProfileSelection = string.IsNullOrWhiteSpace(e.Value?.ToString()) ? null : e.Value?.ToString())">
                                                 <option value="">(Select Profile)</option>
-                                                @foreach (var profile in GetApplicableBaseStatProfilesForPersona())
+                                                @foreach (var profile in GetApplicableCharacterProfilesForPersona())
                                                 {
-                                                    <option value="@profile.Id">@profile.Name (@CharacterGenderCatalog.NormalizeForProfile(profile.TargetGender) / @CharacterRoleCatalog.Normalize(profile.TargetRole))</option>
+                                                    <option value="@profile.Id">@profile.Name (@CharacterRoleCatalog.Normalize(profile.TargetRole))</option>
                                                 }
                                             </select>
                                             <button class="btn btn-outline-primary" type="button" @onclick="ApplyPersonaProfile">Apply</button>
@@ -9007,16 +8999,30 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
                                         }
                                     </select>
                                 </div>
-                                <div class="rw-scenario-field">
-                                    <label class="rw-scenario-field-label">Husband Awareness Profile</label>
-                                    <select class="rw-mode-select" value="@(_v2State?.HusbandAwarenessProfileId)" @onchange="OnHusbandAwarenessProfileChanged">
-                                        <option value="">(None)</option>
-                                        @foreach (var profile in _husbandAwarenessProfiles)
-                                        {
-                                            <option value="@profile.Id">@profile.Name</option>
-                                        }
-                                    </select>
-                                </div>
+                                @if (_loadedScenario is not null)
+                                {
+                                    @foreach (var character in _loadedScenario.Characters.Where(c => !string.IsNullOrWhiteSpace(c.Name) && !string.Equals(c.Role, "Any", StringComparison.OrdinalIgnoreCase)))
+                                    {
+                                        var charId = character.Id;
+                                        var charRole = character.Role;
+                                        var charName = character.Name ?? charId;
+                                        var applicableProfiles = _characterProfiles
+                                            .Where(p => CharacterRoleCatalog.IsProfileApplicableToCharacter(p.TargetRole, charRole))
+                                            .ToList();
+                                        var currentProfileId = _session?.AdaptiveState?.CharacterEncounterProfileIds.GetValueOrDefault(charId) ?? string.Empty;
+                                        <div class="rw-scenario-field">
+                                            <label class="rw-scenario-field-label">@charName Encounter Profile</label>
+                                            <select class="rw-mode-select" value="@currentProfileId"
+                                                    @onchange="@(e => OnCharacterEncounterProfileChanged(charId, e.Value?.ToString() ?? string.Empty))">
+                                                <option value="">(None)</option>
+                                                @foreach (var profile in applicableProfiles)
+                                                {
+                                                    <option value="@profile.Id">@profile.Name</option>
+                                                }
+                                            </select>
+                                        </div>
+                                    }
+                                }
                                 <div class="rw-settings-info-row"><span>Selected Intensity Profile</span><span>@GetSelectedIntensityProfileName()</span></div>
                                 <div class="rw-settings-info-row"><span>Adaptive Intensity Profile</span><span>@GetAdaptiveIntensityProfileName()</span></div>
                                 <div class="rw-settings-info-row"><span>Resolved Intensity</span><span>@GetEffectiveStyleLabel()</span></div>
@@ -9273,6 +9279,43 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
                                                         <div class="rw-settings-info-row"><span title="How well the current character stats match this scenario's requirements. Weight 50% of FitScore.">Char Alignment</span><span>@((row.CharAlignScore * 100m ?? 0m).ToString("F1"))</span></div>
                                                         <div class="rw-settings-info-row"><span title="Narrative evidence contribution from theme score and in-play evidence. Weight 30% of FitScore.">Narrative Evidence</span><span>@((row.NarrEvidScore * 100m ?? 0m).ToString("F1"))</span></div>
                                                         <div class="rw-settings-info-row"><span title="Preference priority contribution from profile tier assignment. Weight 20% of FitScore.">Pref Priority</span><span>@((row.PrefPriorityScore * 100m ?? 0m).ToString("F1"))</span></div>
+                                                        @if (row.StageBEligible == false && row.GateDetailsJson is not null)
+                                                        {
+                                                            var gateEnv = ParseFullCandidateDetails(row.GateDetailsJson);
+                                                            if (gateEnv is not null)
+                                                            {
+                                                                <div class="rw-fit-score-block" style="margin-top:6px;">
+                                                                    <div class="rw-fit-score-header">
+                                                                        <span>Fit Gate Failure</span>
+                                                                        @if (gateEnv.Gate?.Strategy is { Length: > 0 } gateStrategy)
+                                                                        {
+                                                                            <span class="rw-settings-info-value-muted">@gateStrategy</span>
+                                                                        }
+                                                                    </div>
+                                                                    @if (gateEnv.Gate?.Reason is { Length: > 0 } gateReason)
+                                                                    {
+                                                                        <div class="rw-fit-score-rationale">@gateReason</div>
+                                                                    }
+                                                                    @if (gateEnv.FitResult?.ClauseEvaluations is { Count: > 0 } clausesByRole)
+                                                                    {
+                                                                        @foreach (var clauseRoleKv in clausesByRole.OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase))
+                                                                        {
+                                                                            var roleScore = gateEnv.FitResult.RoleScores?.TryGetValue(clauseRoleKv.Key, out var rs) == true ? rs : (double?)null;
+                                                                            <div class="rw-fit-char-row">
+                                                                                <span class="rw-fit-char-name">@clauseRoleKv.Key @(roleScore.HasValue ? $"({roleScore.Value:F3})" : string.Empty)</span>
+                                                                                <span class="rw-fit-char-clauses">
+                                                                                    @foreach (var clause in clauseRoleKv.Value)
+                                                                                    {
+                                                                                        var clauseIsPass = clause.StartsWith("PASS", StringComparison.OrdinalIgnoreCase);
+                                                                                        <span class="@(clauseIsPass ? \"rw-fit-score-pass\" : \"rw-fit-clause-gap\")">@clause</span>
+                                                                                    }
+                                                                                </span>
+                                                                            </div>
+                                                                        }
+                                                                    }
+                                                                </div>
+                                                            }
+                                                        }
                                                     }
                                                 </div>
                                             }
@@ -9530,7 +9573,8 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
         decimal? NarrEvidScore,
         decimal? PrefPriorityScore,
         bool? StageBEligible,
-        decimal? SuccessorCausalityBoost);
+        decimal? SuccessorCausalityBoost,
+        string? GateDetailsJson);
     private sealed record PhaseProgressInfo(string NextPhase, int ProgressPercent, string Details);
     private sealed record PhaseLadderItem(string Label, string BadgeClass);
     private sealed record PhaseGateThresholds(double ScoreMin, double DesireMin, double RestraintMax, int InteractionsMin, string Source);
@@ -9546,6 +9590,23 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
         {
             var details = JsonSerializer.Deserialize<CandidateDetailsEnvelope>(candidate.DetailsJson, CandidateDetailsJsonOptions);
             return details?.Gate;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static CandidateDetailsEnvelope? ParseFullCandidateDetails(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<CandidateDetailsEnvelope>(json, CandidateDetailsJsonOptions);
         }
         catch
         {

@@ -46,7 +46,7 @@ public sealed class AdaptiveScenarioStateV2RoundTripTests
                 ActiveFormulaVersion = "v1",
                 SelectedWillingnessProfileId = "willing-default",
                 SelectedNarrativeGateProfileId = "gates-default",
-                HusbandAwarenessProfileId = "ha-default",
+                CharacterEncounterProfileIds = new(StringComparer.OrdinalIgnoreCase) { ["char-a"] = "encounter-profile-1" },
                 CurrentSceneLocation = "garden",
                 CurrentBeatCode = "3b",
                 TurnsInCurrentBeat = 2,
@@ -265,6 +265,10 @@ public sealed class AdaptiveScenarioStateV2RoundTripTests
             Assert.Equal(1.25m, loaded.SemanticDeltaBreakdowns[0].AppliedDelta);
             Assert.Single(loaded.SemanticStatDeltaBreakdowns);
             Assert.Equal("SemanticDeltaApplied", loaded.SemanticStatDeltaBreakdowns[0].ReasonCode);
+
+            // CharacterEncounterProfileIds (B-042 round-trip)
+            Assert.Single(loaded.CharacterEncounterProfileIds);
+            Assert.Equal("encounter-profile-1", loaded.CharacterEncounterProfileIds["char-a"]);
 
             // Character snapshots — Phase 1 new fields
             Assert.Single(loaded.CharacterSnapshots);

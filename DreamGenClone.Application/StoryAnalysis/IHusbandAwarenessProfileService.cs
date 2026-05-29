@@ -2,6 +2,7 @@ using DreamGenClone.Domain.StoryAnalysis;
 
 namespace DreamGenClone.Application.StoryAnalysis;
 
+[Obsolete("Replaced by ICharacterProfileService — B-042")]
 public interface IHusbandAwarenessProfileService
 {
     Task<HusbandAwarenessProfile> SaveAsync(HusbandAwarenessProfile profile, CancellationToken cancellationToken = default);

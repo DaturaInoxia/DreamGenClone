@@ -92,6 +92,13 @@ public interface ISqlitePersistence
     Task<List<BackgroundCharacterProfile>> LoadAllBackgroundCharacterProfilesAsync(CancellationToken cancellationToken = default);
     Task<bool> DeleteBackgroundCharacterProfileAsync(string id, CancellationToken cancellationToken = default);
 
+    // Character profile operations (B-042)
+    Task SaveCharacterProfileAsync(CharacterProfile profile, CancellationToken cancellationToken = default);
+    Task<CharacterProfile?> LoadCharacterProfileAsync(string id, CancellationToken cancellationToken = default);
+    Task<List<CharacterProfile>> LoadAllCharacterProfilesAsync(CancellationToken cancellationToken = default);
+    Task<List<CharacterProfile>> LoadCharacterProfilesByRoleAsync(string targetRole, CancellationToken cancellationToken = default);
+    Task<bool> DeleteCharacterProfileAsync(string id, CancellationToken cancellationToken = default);
+
     // Role definition operations
     Task SaveRoleDefinitionAsync(RoleDefinition roleDefinition, CancellationToken cancellationToken = default);
     Task<RoleDefinition?> LoadRoleDefinitionAsync(string id, CancellationToken cancellationToken = default);

@@ -13,7 +13,14 @@ public sealed class AdaptiveScenarioState
     public string ActiveFormulaVersion { get; set; } = string.Empty;
     public string? SelectedWillingnessProfileId { get; set; }
     public string? SelectedNarrativeGateProfileId { get; set; }
-    public string? HusbandAwarenessProfileId { get; set; }
+
+    /// <summary>
+    /// Maps characterId → CharacterProfile.Id for encounter behavioral profile bindings.
+    /// One entry per character that has an encounter profile bound.
+    /// Empty dictionary means no encounter profiles are bound for any character.
+    /// </summary>
+    public Dictionary<string, string> CharacterEncounterProfileIds { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
     public NarrativePhase? PhaseOverrideFloor { get; set; }
     public string? PhaseOverrideScenarioId { get; set; }
     public int? PhaseOverrideCycleIndex { get; set; }

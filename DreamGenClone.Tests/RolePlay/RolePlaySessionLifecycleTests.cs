@@ -1166,7 +1166,7 @@ public sealed class RolePlaySessionLifecycleTests
             validator,
             fakeSessionService,
             new RolePlayTestFactory.NullScenarioService(),
-            new RolePlayTestFactory.FakeBaseStatProfileService(),
+            new RolePlayTestFactory.FakeCharacterProfileService(),
             autoSave,
             new RolePlayTestFactory.NullRolePlayDebugEventSink(),
             NullLogger<RolePlayEngineService>.Instance,
@@ -1422,7 +1422,7 @@ public sealed class RolePlaySessionLifecycleTests
                 ActiveFormulaVersion = state.ActiveFormulaVersion,
                 SelectedWillingnessProfileId = state.SelectedWillingnessProfileId,
                 SelectedNarrativeGateProfileId = state.SelectedNarrativeGateProfileId,
-                HusbandAwarenessProfileId = state.HusbandAwarenessProfileId,
+                // HusbandAwarenessProfileId removed B-042 — see CharacterEncounterProfileIds
                 PhaseOverrideFloor = state.PhaseOverrideFloor,
                 PhaseOverrideScenarioId = state.PhaseOverrideScenarioId,
                 PhaseOverrideCycleIndex = state.PhaseOverrideCycleIndex,

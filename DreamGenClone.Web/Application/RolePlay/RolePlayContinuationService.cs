@@ -402,22 +402,6 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         string promptText,
         CancellationToken cancellationToken)
     {
-        // Resolve husband awareness frame early — must appear at top of prompt so the model
-        // sees it before the ~50K of interaction history that would otherwise bury it.
-        var earlyAwarenessFrame = string.Empty;
-        if (_husbandAwarenessProfileService is not null
-            && !string.IsNullOrWhiteSpace(session.AdaptiveState.HusbandAwarenessProfileId))
-        {
-            var awarenessProfile = await _husbandAwarenessProfileService.GetAsync(
-                session.AdaptiveState.HusbandAwarenessProfileId, cancellationToken);
-            if (awarenessProfile is not null)
-            {
-                earlyAwarenessFrame = string.IsNullOrWhiteSpace(awarenessProfile.Notes)
-                    ? string.Empty
-                    : awarenessProfile.Notes.Trim();
-            }
-        }
-
         var sb = new StringBuilder();
         sb.AppendLine("You are continuing an interactive role-play scene.");
         sb.AppendLine($"Behavior mode: {session.BehaviorMode}");
@@ -438,13 +422,6 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             sb.AppendLine($"POV Persona: {session.PersonaName}");
         }
 
-        // Inject partner behavior constraint at the top of the prompt — before all scenario
-        // and interaction history — so the model cannot miss it regardless of context length.
-        if (!string.IsNullOrWhiteSpace(earlyAwarenessFrame))
-        {
-            sb.AppendLine($"HARD CONSTRAINT — Partner/Husband Behavior (applies to every line of output; overrides all other instructions): {earlyAwarenessFrame}");
-        }
-
         // Inject scene location lock at the top — before scenario and interaction history —
         // so the model cannot teleport characters to a new location without a written transition.
         if (_enableLocationServices && !string.IsNullOrWhiteSpace(session.AdaptiveState.CurrentSceneLocation))
@@ -461,12 +438,16 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         List<string> scenarioGoals = [];
         List<string> scenarioConflicts = [];
         List<string> scenarioNarrativeGuidelines = [];
+        IReadOnlyList<ScenarioCharacter>? scenarioCharacters = null;
 
         if (!string.IsNullOrWhiteSpace(session.ScenarioId))
         {
             var scenario = await _scenarioService.GetScenarioAsync(session.ScenarioId);
             if (scenario is not null)
             {
+                scenarioCharacters = scenario.Characters
+                    .Select(c => new ScenarioCharacter(c.Id, c.Name ?? string.Empty, c.Role))
+                    .ToList();
                 var personaRelation = RolePlayRelationFormatter.DescribePersonaRelation(session, scenario.Characters);
                 var personaRole = CharacterRoleCatalog.Normalize(session.PersonaRole);
                 if (!string.Equals(personaRole, CharacterRoleCatalog.Unknown, StringComparison.OrdinalIgnoreCase)
@@ -812,7 +793,8 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                     ? 50
                     : session.AdaptiveState.CharacterStats.Values.Average(x => CharacterStatProfileV2Accessor.GetStatOrDefault(x, "Loyalty", 50)),
                 SelectedWillingnessProfileId: session.AdaptiveState.SelectedWillingnessProfileId,
-                HusbandAwarenessProfileId: session.AdaptiveState.HusbandAwarenessProfileId,
+                CharacterEncounterProfileIds: session.AdaptiveState.CharacterEncounterProfileIds,
+                Characters: BuildCharactersWithPersona(scenarioCharacters, session),
                 SuppressedScenarioIds: suppressedScenarioIds),
             cancellationToken);
 
@@ -1199,12 +1181,9 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             sb.AppendLine(promptText.Trim());
         }
 
-        // Re-inject the partner behavior constraint immediately before the writing directive.
-        // The constraint was already appended ~12K chars earlier; repeating it here ensures it
-        // is the most recent instruction the model reads before generating any character or narrative output.
-        if (!string.IsNullOrWhiteSpace(guidanceContext.HusbandAwarenessFrame))
+        foreach (var (label, frameText) in guidanceContext.CharacterBehavioralFrames)
         {
-            sb.AppendLine($"HARD CONSTRAINT — enforce in this response: {guidanceContext.HusbandAwarenessFrame}");
+            sb.AppendLine($"HARD CONSTRAINT — enforce in this response: {label} behavioral frame: {frameText}");
         }
 
         foreach (var themeConstraint in activeThemeHardConstraints)
@@ -1968,6 +1947,23 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             DialogueAttributionCount: attributionCount,
             FirstPersonLeakCount: firstPersonCount,
             CharacterInteriorityCount: interiorityCount);
+    }
+
+    private static IReadOnlyList<ScenarioCharacter> BuildCharactersWithPersona(
+        IReadOnlyList<ScenarioCharacter>? scenarioCharacters,
+        RolePlaySession session)
+    {
+        var list = scenarioCharacters is not null
+            ? new List<ScenarioCharacter>(scenarioCharacters)
+            : [];
+
+        // Add persona as a named entry so the frame generator can resolve "__persona__"
+        // to the actual persona name rather than emitting the raw key in the prompt.
+        var personaName = !string.IsNullOrWhiteSpace(session.PersonaName) ? session.PersonaName : "Persona";
+        var personaRole = !string.IsNullOrWhiteSpace(session.PersonaRole) ? session.PersonaRole : string.Empty;
+        list.Add(new ScenarioCharacter("__persona__", personaName, personaRole));
+
+        return list;
     }
 
     private sealed record NarrativeValidationResult(

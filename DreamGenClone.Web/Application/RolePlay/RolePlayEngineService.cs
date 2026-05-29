@@ -8,6 +8,7 @@ using DreamGenClone.Application.Abstractions;
 using DreamGenClone.Application.ModelManager;
 using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Application.StoryAnalysis;
+using DreamGenClone.Application.StoryAnalysis.Abstractions;
 using DreamGenClone.Application.Templates;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Domain.ModelManager;
@@ -130,7 +131,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     private readonly IRolePlayCommandValidator _commandValidator;
     private readonly ISessionService _sessionService;
     private readonly IScenarioService _scenarioService;
-    private readonly IBaseStatProfileService _baseStatProfileService;
+    private readonly ICharacterProfileService _characterProfileService;
     private readonly AutoSaveCoordinator _autoSaveCoordinator;
     private readonly IRolePlayDebugEventSink _debugEventSink;
     private readonly IScenarioSelectionService _scenarioSelectionService;
@@ -175,7 +176,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         IRolePlayCommandValidator commandValidator,
         ISessionService sessionService,
         IScenarioService scenarioService,
-        IBaseStatProfileService baseStatProfileService,
+        ICharacterProfileService characterProfileService,
         AutoSaveCoordinator autoSaveCoordinator,
         IRolePlayDebugEventSink debugEventSink,
         ILogger<RolePlayEngineService> logger,
@@ -208,7 +209,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         _commandValidator = commandValidator;
         _sessionService = sessionService;
         _scenarioService = scenarioService;
-        _baseStatProfileService = baseStatProfileService;
+        _characterProfileService = characterProfileService;
         _autoSaveCoordinator = autoSaveCoordinator;
         _debugEventSink = debugEventSink;
         _scenarioSelectionService = scenarioSelectionService ?? new NullScenarioSelectionService();
@@ -286,14 +287,12 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             PersonaRole = CharacterRoleCatalog.Normalize(request.PersonaRole),
             PersonaRelationTargetId = CharacterRelationCatalog.NormalizeTargetId(request.PersonaRelationTargetId),
             PersonaPerspectiveMode = CharacterPerspectiveMode.FirstPersonInternalMonologue,
-            SelectedAwarenessProfileId = string.IsNullOrWhiteSpace(request.AwarenessProfileId) ? null : request.AwarenessProfileId,
             PersonaPhysicalAttributes = request.PersonaPhysicalAttributes,
         };
 
-        // Propagate awareness profile to adaptive state so the prompt pipeline can inject it immediately.
-        if (!string.IsNullOrWhiteSpace(request.AwarenessProfileId))
+        foreach (var kvp in request.CharacterEncounterProfileIds)
         {
-            session.AdaptiveState.HusbandAwarenessProfileId = request.AwarenessProfileId;
+            session.AdaptiveState.CharacterEncounterProfileIds[kvp.Key] = kvp.Value;
         }
 
         if (!string.IsNullOrWhiteSpace(request.ScenarioId))
@@ -346,10 +345,10 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 var resolvedBaseStats = AdaptiveStatCatalog.NormalizePartial(scenario.ResolvedBaseStats);
                 if (!string.IsNullOrWhiteSpace(scenario.BaseStatProfileId))
                 {
-                    var baseStatProfile = await _baseStatProfileService.GetAsync(scenario.BaseStatProfileId, cancellationToken);
+                    var baseStatProfile = await _characterProfileService.GetAsync(scenario.BaseStatProfileId, cancellationToken);
                     if (baseStatProfile is not null)
                     {
-                        resolvedBaseStats = AdaptiveStatCatalog.NormalizeComplete(baseStatProfile.DefaultStats);
+                        resolvedBaseStats = AdaptiveStatCatalog.NormalizeComplete(baseStatProfile.CharacterStats);
                         scenario.ResolvedBaseStats = new Dictionary<string, int>(resolvedBaseStats, StringComparer.OrdinalIgnoreCase);
                     }
                 }
@@ -2137,10 +2136,10 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         var resolvedBaseStats = AdaptiveStatCatalog.NormalizePartial(scenario.ResolvedBaseStats);
         if (!string.IsNullOrWhiteSpace(scenario.BaseStatProfileId))
         {
-            var baseStatProfile = await _baseStatProfileService.GetAsync(scenario.BaseStatProfileId, cancellationToken);
+            var baseStatProfile = await _characterProfileService.GetAsync(scenario.BaseStatProfileId, cancellationToken);
             if (baseStatProfile is not null)
             {
-                resolvedBaseStats = AdaptiveStatCatalog.NormalizeComplete(baseStatProfile.DefaultStats);
+                resolvedBaseStats = AdaptiveStatCatalog.NormalizeComplete(baseStatProfile.CharacterStats);
                 scenario.ResolvedBaseStats = new Dictionary<string, int>(resolvedBaseStats, StringComparer.OrdinalIgnoreCase);
             }
         }
@@ -6569,7 +6568,8 @@ Requirements:
             ActiveFormulaVersion = "rpv2-default",
             SelectedWillingnessProfileId = session.AdaptiveState.SelectedWillingnessProfileId,
             SelectedNarrativeGateProfileId = session.AdaptiveState.SelectedNarrativeGateProfileId,
-            HusbandAwarenessProfileId = session.AdaptiveState.HusbandAwarenessProfileId,
+            CharacterEncounterProfileIds = session.AdaptiveState.CharacterEncounterProfileIds
+                .ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.OrdinalIgnoreCase),
             PhaseOverrideFloor = session.AdaptiveState.PhaseOverrideFloor,
             PhaseOverrideScenarioId = session.AdaptiveState.PhaseOverrideScenarioId,
             PhaseOverrideCycleIndex = session.AdaptiveState.PhaseOverrideCycleIndex,

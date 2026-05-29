@@ -2,8 +2,9 @@ using DreamGenClone.Web.Application.RolePlay;
 using DreamGenClone.Web.Application.Scenarios;
 using DreamGenClone.Web.Domain.RolePlay;
 using DreamGenClone.Web.Domain.Scenarios;
-using DreamGenClone.Application.StoryAnalysis;
+using DreamGenClone.Application.StoryAnalysis.Abstractions;
 using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Domain.StoryAnalysis;
 using System.Reflection;
 using Xunit;
 
@@ -14,17 +15,14 @@ public sealed class RolePlaySessionBaseStatInitializationTests
     [Fact]
     public async Task CreateSessionAsync_AppliesProfileDefaultsThenCharacterOverrides()
     {
-        var baseStatProfiles = new RolePlayTestFactory.FakeBaseStatProfileService();
-        var profile = await baseStatProfiles.CreateAsync(
+        var characterProfiles = new RolePlayTestFactory.FakeCharacterProfileService();
+        var profile = characterProfiles.Add(
             "Test Profile",
-            "Defaults",
             new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
             {
                 ["Connection"] = 30,
                 ["Tension"] = 60
-            },
-            CharacterGenderCatalog.Female,
-            CharacterRoleCatalog.Wife);
+            });
 
         var scenario = new Scenario
         {
@@ -46,7 +44,7 @@ public sealed class RolePlaySessionBaseStatInitializationTests
 
         var service = RolePlayTestFactory.CreateEngineService(
             scenarioService: new SingleScenarioService(scenario),
-            baseStatProfileService: baseStatProfiles);
+            characterProfileService: characterProfiles);
 
         var session = await service.CreateSessionAsync("Base Stats", scenario.Id);
 
@@ -78,7 +76,7 @@ public sealed class RolePlaySessionBaseStatInitializationTests
 
         var service = RolePlayTestFactory.CreateEngineService(
             scenarioService: new SingleScenarioService(scenario),
-            baseStatProfileService: new RolePlayTestFactory.FakeBaseStatProfileService());
+            characterProfileService: new RolePlayTestFactory.FakeCharacterProfileService());
 
         var session = await service.CreateSessionAsync("Fallback", scenario.Id);
 
@@ -108,7 +106,7 @@ public sealed class RolePlaySessionBaseStatInitializationTests
 
         var service = RolePlayTestFactory.CreateEngineService(
             scenarioService: new SingleScenarioService(scenario),
-            baseStatProfileService: new RolePlayTestFactory.FakeBaseStatProfileService());
+            characterProfileService: new RolePlayTestFactory.FakeCharacterProfileService());
 
         var session = await service.CreateSessionAsync("Character Only", scenario.Id);
 

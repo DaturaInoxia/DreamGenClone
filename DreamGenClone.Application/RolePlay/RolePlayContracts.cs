@@ -1,3 +1,4 @@
+using DreamGenClone.Application.StoryAnalysis.Models;
 using DreamGenClone.Domain.RolePlay;
 
 namespace DreamGenClone.Application.RolePlay;
@@ -27,14 +28,15 @@ public sealed class ScenarioGuidanceRequest
     public double AverageDominance { get; init; } = 50;
     public double AverageLoyalty { get; init; } = 50;
     public string? SelectedWillingnessProfileId { get; init; }
-    public string? HusbandAwarenessProfileId { get; init; }
+    public IReadOnlyDictionary<string, string> CharacterEncounterProfileIds { get; init; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    public IReadOnlyList<ScenarioCharacter> Characters { get; init; } = [];
     public IReadOnlyList<string> SuppressedScenarioIds { get; init; } = [];
 }
 
 public sealed class ScenarioGuidanceOutput
 {
     public string GuidanceText { get; init; } = string.Empty;
-    public string HusbandAwarenessFrame { get; init; } = string.Empty;
+    public IReadOnlyDictionary<string, string> CharacterBehavioralFrames { get; init; } = new Dictionary<string, string>();
     public IReadOnlyList<string> EmphasisPoints { get; init; } = [];
     public IReadOnlyList<string> AvoidancePoints { get; init; } = [];
     public string Source { get; init; } = "Fallback";

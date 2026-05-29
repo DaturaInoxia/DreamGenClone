@@ -15,7 +15,7 @@ namespace DreamGenClone.Infrastructure.Persistence;
 public sealed class SqlitePersistence : ISqlitePersistence
 {
     private const string LegacyMigrationVersionKey = "LegacyMigrationsVersion";
-    private const string CurrentLegacyMigrationVersion = "2026-04-12-1";
+    private const string CurrentLegacyMigrationVersion = "2026-05-01-1";
 
     private readonly PersistenceOptions _options;
     private readonly LmStudioOptions _lmStudioOptions;
@@ -214,6 +214,21 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 Description TEXT NOT NULL,
                 CreatedUtc TEXT NOT NULL,
                 UpdatedUtc TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS CharacterProfiles (
+                Id                  TEXT NOT NULL PRIMARY KEY,
+                Name                TEXT NOT NULL,
+                Description         TEXT NOT NULL DEFAULT '',
+                TargetGender        TEXT NOT NULL DEFAULT 'Any',
+                TargetRole          TEXT NOT NULL DEFAULT 'Any',
+                CharacterStatsJson  TEXT NOT NULL DEFAULT '{}',
+                EncounterStatsJson  TEXT NOT NULL DEFAULT '{}',
+                AdditionalNotes     TEXT NOT NULL DEFAULT '',
+                FullOverride        INTEGER NOT NULL DEFAULT 0,
+                IsSeeded            INTEGER NOT NULL DEFAULT 0,
+                CreatedUtc          TEXT NOT NULL,
+                UpdatedUtc          TEXT NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS RoleDefinitions (
@@ -736,6 +751,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 SelectedWillingnessProfileId TEXT NULL,
                 SelectedNarrativeGateProfileId TEXT NULL,
                 HusbandAwarenessProfileId TEXT NULL,
+                CharacterEncounterProfileIdsJson TEXT NULL,
                 PhaseOverrideFloor TEXT NULL,
                 PhaseOverrideScenarioId TEXT NULL,
                 PhaseOverrideCycleIndex INTEGER NULL,
@@ -1750,6 +1766,55 @@ public sealed class SqlitePersistence : ISqlitePersistence
 
             _logger.LogInformation("Migrated ThemePreferences table: added CatalogId column");
         }
+
+        // B-042: Migrate BaseStatProfiles and HusbandAwarenessProfiles → CharacterProfiles
+        // Delete the synthetic "Balanced Baseline" seed that is superseded by per-role unified archetypes.
+        var deleteBalancedBaseline = connection.CreateCommand();
+        deleteBalancedBaseline.CommandText = "DELETE FROM BaseStatProfiles WHERE Name = 'Balanced Baseline'";
+        await deleteBalancedBaseline.ExecuteNonQueryAsync(cancellationToken);
+
+        // Migrate BaseStatProfiles → CharacterProfiles (INSERT OR IGNORE = safe to re-run)
+        var migrateBaseStats = connection.CreateCommand();
+        migrateBaseStats.CommandText = """
+            INSERT OR IGNORE INTO CharacterProfiles
+                (Id, Name, Description, TargetGender, TargetRole,
+                 CharacterStatsJson, EncounterStatsJson, AdditionalNotes,
+                 FullOverride, IsSeeded, CreatedUtc, UpdatedUtc)
+            SELECT
+                Id, Name, Description,
+                COALESCE(TargetGender, 'Any'), COALESCE(TargetRole, 'Any'),
+                COALESCE(DefaultStatsJson, '{}'), '{}', '',
+                0, 1, CreatedUtc, UpdatedUtc
+            FROM BaseStatProfiles;
+            """;
+        await migrateBaseStats.ExecuteNonQueryAsync(cancellationToken);
+        _logger.LogInformation("B-042: Migrated BaseStatProfiles → CharacterProfiles");
+
+        // Migrate HusbandAwarenessProfiles → CharacterProfiles (INSERT OR IGNORE = safe to re-run)
+        var migrateHusband = connection.CreateCommand();
+        migrateHusband.CommandText = """
+            INSERT OR IGNORE INTO CharacterProfiles
+                (Id, Name, Description, TargetGender, TargetRole,
+                 CharacterStatsJson, EncounterStatsJson, AdditionalNotes,
+                 FullOverride, IsSeeded, CreatedUtc, UpdatedUtc)
+            SELECT
+                Id, Name, Description,
+                'Any', 'Husband',
+                '{"Desire":50,"Restraint":50,"Tension":50,"Connection":50,"Dominance":50,"Loyalty":50,"SelfRespect":50}',
+                json_object(
+                    'Awareness',     AwarenessLevel,
+                    'Acceptance',    AcceptanceLevel,
+                    'Voyeurism',     VoyeurismLevel,
+                    'Participation', ParticipationLevel,
+                    'Encouragement', EncouragementLevel,
+                    'RiskTolerance', RiskTolerance
+                ),
+                COALESCE(Notes, ''),
+                0, 1, CreatedUtc, UpdatedUtc
+            FROM HusbandAwarenessProfiles;
+            """;
+        await migrateHusband.ExecuteNonQueryAsync(cancellationToken);
+        _logger.LogInformation("B-042: Migrated HusbandAwarenessProfiles → CharacterProfiles");
 
         await MarkLegacyMigrationsCompleteAsync(connection, cancellationToken);
 
@@ -3559,6 +3624,150 @@ public sealed class SqlitePersistence : ISqlitePersistence
             Description = reader.GetString(2),
             CreatedUtc = DateTime.TryParse(reader.GetString(3), out var created) ? created : DateTime.UtcNow,
             UpdatedUtc = DateTime.TryParse(reader.GetString(4), out var updated) ? updated : DateTime.UtcNow
+        };
+    }
+
+    // --- Character profile persistence (B-042) ---
+
+    public async Task SaveCharacterProfileAsync(CharacterProfile profile, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO CharacterProfiles
+                (Id, Name, Description, TargetGender, TargetRole,
+                 CharacterStatsJson, EncounterStatsJson, AdditionalNotes, FullOverride, IsSeeded,
+                 CreatedUtc, UpdatedUtc)
+            VALUES
+                ($id, $name, $description, $targetGender, $targetRole,
+                 $characterStatsJson, $encounterStatsJson, $additionalNotes, $fullOverride, $isSeeded,
+                 $createdUtc, $updatedUtc)
+            ON CONFLICT(Id) DO UPDATE SET
+                Name              = $name,
+                Description       = $description,
+                TargetGender      = $targetGender,
+                TargetRole        = $targetRole,
+                CharacterStatsJson= $characterStatsJson,
+                EncounterStatsJson= $encounterStatsJson,
+                AdditionalNotes   = $additionalNotes,
+                FullOverride      = $fullOverride,
+                UpdatedUtc        = $updatedUtc;
+            """;
+
+        command.Parameters.AddWithValue("$id", profile.Id);
+        command.Parameters.AddWithValue("$name", profile.Name);
+        command.Parameters.AddWithValue("$description", profile.Description ?? "");
+        command.Parameters.AddWithValue("$targetGender", profile.TargetGender ?? "Any");
+        command.Parameters.AddWithValue("$targetRole", profile.TargetRole ?? "Any");
+        command.Parameters.AddWithValue("$characterStatsJson",
+            profile.CharacterStats.Count > 0 ? JsonSerializer.Serialize(profile.CharacterStats) : "{}");
+        command.Parameters.AddWithValue("$encounterStatsJson",
+            profile.EncounterStats.Count > 0 ? JsonSerializer.Serialize(profile.EncounterStats) : "{}");
+        command.Parameters.AddWithValue("$additionalNotes", profile.AdditionalNotes ?? "");
+        command.Parameters.AddWithValue("$fullOverride", profile.FullOverride ? 1 : 0);
+        command.Parameters.AddWithValue("$isSeeded", profile.IsSeeded ? 1 : 0);
+        command.Parameters.AddWithValue("$createdUtc", profile.CreatedUtc.ToString("O"));
+        command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
+
+        await command.ExecuteNonQueryAsync(cancellationToken);
+        _logger.LogInformation("Character profile persisted: {ProfileId}, Name={Name}, Role={Role}", profile.Id, profile.Name, profile.TargetRole);
+    }
+
+    public async Task<CharacterProfile?> LoadCharacterProfileAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText =
+            "SELECT Id, Name, Description, TargetGender, TargetRole, CharacterStatsJson, EncounterStatsJson, AdditionalNotes, FullOverride, IsSeeded, CreatedUtc, UpdatedUtc " +
+            "FROM CharacterProfiles WHERE Id = $id";
+        command.Parameters.AddWithValue("$id", id);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return ReadCharacterProfile(reader);
+    }
+
+    public async Task<List<CharacterProfile>> LoadAllCharacterProfilesAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText =
+            "SELECT Id, Name, Description, TargetGender, TargetRole, CharacterStatsJson, EncounterStatsJson, AdditionalNotes, FullOverride, IsSeeded, CreatedUtc, UpdatedUtc " +
+            "FROM CharacterProfiles ORDER BY TargetRole, Name";
+
+        var results = new List<CharacterProfile>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            results.Add(ReadCharacterProfile(reader));
+        }
+
+        return results;
+    }
+
+    public async Task<List<CharacterProfile>> LoadCharacterProfilesByRoleAsync(string targetRole, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText =
+            "SELECT Id, Name, Description, TargetGender, TargetRole, CharacterStatsJson, EncounterStatsJson, AdditionalNotes, FullOverride, IsSeeded, CreatedUtc, UpdatedUtc " +
+            "FROM CharacterProfiles WHERE TargetRole = $role ORDER BY Name";
+        command.Parameters.AddWithValue("$role", targetRole);
+
+        var results = new List<CharacterProfile>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            results.Add(ReadCharacterProfile(reader));
+        }
+
+        return results;
+    }
+
+    public async Task<bool> DeleteCharacterProfileAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM CharacterProfiles WHERE Id = $id";
+        command.Parameters.AddWithValue("$id", id);
+
+        var rowsAffected = await command.ExecuteNonQueryAsync(cancellationToken);
+        _logger.LogInformation("Character profile deletion attempted: {ProfileId}, RowsAffected={RowsAffected}", id, rowsAffected);
+        return rowsAffected > 0;
+    }
+
+    private static CharacterProfile ReadCharacterProfile(SqliteDataReader reader)
+    {
+        return new CharacterProfile
+        {
+            Id = reader.GetString(0),
+            Name = reader.GetString(1),
+            Description = reader.GetString(2),
+            TargetGender = reader.GetString(3),
+            TargetRole = reader.GetString(4),
+            CharacterStats = JsonSerializer.Deserialize<Dictionary<string, int>>(reader.GetString(5)) ?? [],
+            EncounterStats = JsonSerializer.Deserialize<Dictionary<string, int>>(reader.GetString(6)) ?? [],
+            AdditionalNotes = reader.GetString(7),
+            FullOverride = reader.GetInt32(8) != 0,
+            IsSeeded = reader.GetInt32(9) != 0,
+            CreatedUtc = DateTime.TryParse(reader.GetString(10), out var created) ? created : DateTime.UtcNow,
+            UpdatedUtc = DateTime.TryParse(reader.GetString(11), out var updated) ? updated : DateTime.UtcNow
         };
     }
 

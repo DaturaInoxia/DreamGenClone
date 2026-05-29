@@ -223,7 +223,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
             INSERT INTO RolePlayV2AdaptiveStates (
                 SessionId, ActiveScenarioId, CurrentPhase, InteractionCountInPhase, ConsecutiveLeadCount,
                 LastEvaluationUtc, CycleIndex, ActiveFormulaVersion, ActiveVariantId,
-                SelectedWillingnessProfileId, SelectedNarrativeGateProfileId, HusbandAwarenessProfileId,
+                SelectedWillingnessProfileId, SelectedNarrativeGateProfileId, CharacterEncounterProfileIdsJson,
                 PhaseOverrideFloor, PhaseOverrideScenarioId, PhaseOverrideCycleIndex, PhaseOverrideSource, PhaseOverrideAppliedUtc,
                 CurrentSceneLocation,
                 CharacterLocationsJson, CharacterLocationPerceptionsJson, CharacterSnapshotsJson, ThemeMachineSnapshotJson,
@@ -234,7 +234,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
             VALUES (
                 $sessionId, $activeScenarioId, $currentPhase, $interactionCountInPhase, $consecutiveLeadCount,
                 $lastEvaluationUtc, $cycleIndex, $activeFormulaVersion, $activeVariantId,
-                $selectedWillingnessProfileId, $selectedNarrativeGateProfileId, $husbandAwarenessProfileId,
+                $selectedWillingnessProfileId, $selectedNarrativeGateProfileId, $characterEncounterProfileIdsJson,
                 $phaseOverrideFloor, $phaseOverrideScenarioId, $phaseOverrideCycleIndex, $phaseOverrideSource, $phaseOverrideAppliedUtc,
                 $currentSceneLocation,
                 $characterLocationsJson, $characterLocationPerceptionsJson, $characterSnapshotsJson, $themeMachineSnapshotJson,
@@ -253,7 +253,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 ActiveVariantId = excluded.ActiveVariantId,
                 SelectedWillingnessProfileId = excluded.SelectedWillingnessProfileId,
                 SelectedNarrativeGateProfileId = excluded.SelectedNarrativeGateProfileId,
-                HusbandAwarenessProfileId = excluded.HusbandAwarenessProfileId,
+                CharacterEncounterProfileIdsJson = excluded.CharacterEncounterProfileIdsJson,
                 PhaseOverrideFloor = excluded.PhaseOverrideFloor,
                 PhaseOverrideScenarioId = excluded.PhaseOverrideScenarioId,
                 PhaseOverrideCycleIndex = excluded.PhaseOverrideCycleIndex,
@@ -288,7 +288,10 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
         command.Parameters.AddWithValue("$activeVariantId", (object?)state.ActiveVariantId ?? DBNull.Value);
         command.Parameters.AddWithValue("$selectedWillingnessProfileId", (object?)state.SelectedWillingnessProfileId ?? DBNull.Value);
         command.Parameters.AddWithValue("$selectedNarrativeGateProfileId", (object?)state.SelectedNarrativeGateProfileId ?? DBNull.Value);
-        command.Parameters.AddWithValue("$husbandAwarenessProfileId", (object?)state.HusbandAwarenessProfileId ?? DBNull.Value);
+        command.Parameters.AddWithValue("$characterEncounterProfileIdsJson",
+            state.CharacterEncounterProfileIds.Count == 0
+                ? (object)DBNull.Value
+                : JsonSerializer.Serialize(state.CharacterEncounterProfileIds));
         command.Parameters.AddWithValue("$phaseOverrideFloor", state.PhaseOverrideFloor?.ToString() ?? (object)DBNull.Value);
         command.Parameters.AddWithValue("$phaseOverrideScenarioId", (object?)state.PhaseOverrideScenarioId ?? DBNull.Value);
         command.Parameters.AddWithValue("$phaseOverrideCycleIndex", state.PhaseOverrideCycleIndex ?? (object)DBNull.Value);
@@ -499,11 +502,13 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
             SELECT SessionId, ActiveScenarioId, CurrentPhase, InteractionCountInPhase, ConsecutiveLeadCount,
                  LastEvaluationUtc, CycleIndex, ActiveFormulaVersion, ActiveVariantId,
                                 SelectedWillingnessProfileId, SelectedNarrativeGateProfileId, HusbandAwarenessProfileId,
-                                PhaseOverrideFloor, PhaseOverrideScenarioId, PhaseOverrideCycleIndex, PhaseOverrideSource, PhaseOverrideAppliedUtc,
+                                PhaseOverrideFloor,
+                                PhaseOverrideScenarioId, PhaseOverrideCycleIndex, PhaseOverrideSource, PhaseOverrideAppliedUtc,
                               CurrentSceneLocation, CharacterLocationsJson, CharacterLocationPerceptionsJson, CharacterSnapshotsJson,
                               ThemeMachineSnapshotJson, CurrentBeatCode, TurnsInCurrentBeat,
                               CompletedScenarios, InteractionsSinceCommitment, InteractionsInApproaching, ScenarioCommitmentTimeUtc,
-                              SemanticStepSucceeded, SemanticDeltaBreakdownsJson, SemanticStatDeltaBreakdownsJson
+                              SemanticStepSucceeded, SemanticDeltaBreakdownsJson, SemanticStatDeltaBreakdownsJson,
+                              CharacterEncounterProfileIdsJson
             FROM RolePlayV2AdaptiveStates
             WHERE SessionId = $sessionId;
             """;
@@ -514,6 +519,9 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
         {
             return null;
         }
+
+        // Capture legacy field before building state (T014 backward compat)
+        var legacyHusbandAwarenessProfileId = reader.IsDBNull(11) ? null : reader.GetString(11);
 
         var state = new AdaptiveScenarioState
         {
@@ -528,7 +536,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
             ActiveVariantId = reader.IsDBNull(8) ? null : reader.GetString(8),
             SelectedWillingnessProfileId = reader.IsDBNull(9) ? null : reader.GetString(9),
             SelectedNarrativeGateProfileId = reader.IsDBNull(10) ? null : reader.GetString(10),
-            HusbandAwarenessProfileId = reader.IsDBNull(11) ? null : reader.GetString(11),
+            // ordinal 11 = HusbandAwarenessProfileId (legacy column, kept in SELECT for backward compat — not mapped)
             PhaseOverrideFloor = reader.IsDBNull(12)
                 ? null
                 : (Enum.TryParse<NarrativePhase>(reader.GetString(12), out var overrideFloor) ? overrideFloor : null),
@@ -563,7 +571,12 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 : (JsonSerializer.Deserialize<List<SemanticThemeDeltaBreakdown>>(reader.GetString(29)) ?? []),
             SemanticStatDeltaBreakdowns = reader.IsDBNull(30)
                 ? []
-                : (JsonSerializer.Deserialize<List<SemanticStatDeltaRecord>>(reader.GetString(30)) ?? [])
+                : (JsonSerializer.Deserialize<List<SemanticStatDeltaRecord>>(reader.GetString(30)) ?? []),
+            CharacterEncounterProfileIds = reader.IsDBNull(31)
+                ? new(StringComparer.OrdinalIgnoreCase)
+                : new Dictionary<string, string>(
+                    JsonSerializer.Deserialize<Dictionary<string, string>>(reader.GetString(31)) ?? [],
+                    StringComparer.OrdinalIgnoreCase)
         };
         await reader.CloseAsync();
 
@@ -576,6 +589,17 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
         // Rebuild the runtime CharacterStats dictionary so callers can use dict-style access
         // without re-parsing CharacterSnapshots themselves.
         state.RebuildCharacterStatsCache();
+
+        // T014 backward compat: synthesize CharacterEncounterProfileIds from legacy HusbandAwarenessProfileId
+        // for sessions saved before B-042. Once the state is re-saved, this branch will not fire again.
+        if (state.CharacterEncounterProfileIds.Count == 0 && legacyHusbandAwarenessProfileId is not null)
+        {
+            var husbandCharId = await TryFindHusbandCharacterIdAsync(connection, sessionId, cancellationToken);
+            if (husbandCharId is not null)
+            {
+                state.CharacterEncounterProfileIds[husbandCharId] = legacyHusbandAwarenessProfileId;
+            }
+        }
 
         return state;
     }
@@ -914,6 +938,14 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
         {
             await using var add = connection.CreateCommand();
             add.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN SemanticStatDeltaBreakdownsJson TEXT NOT NULL DEFAULT '[]'";
+            await add.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        // B-042: per-character encounter behavioral profile bindings — replaces single HusbandAwarenessProfileId
+        if (!await HasColumnAsync(connection, "RolePlayV2AdaptiveStates", "CharacterEncounterProfileIdsJson", cancellationToken))
+        {
+            await using var add = connection.CreateCommand();
+            add.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN CharacterEncounterProfileIdsJson TEXT NULL";
             await add.ExecuteNonQueryAsync(cancellationToken);
         }
 
@@ -1576,5 +1608,62 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 ON RolePlayV2ThemeMachineDiagnostics (SessionId, OccurredUtc DESC);
             """;
         await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// T014 backward compat: find the first character with Role="Husband" in the session's
+    /// linked scenario so we can synthesize <see cref="AdaptiveScenarioState.CharacterEncounterProfileIds"/>
+    /// from the legacy <c>HusbandAwarenessProfileId</c> column on sessions saved before B-042.
+    /// </summary>
+    private static async Task<string?> TryFindHusbandCharacterIdAsync(
+        SqliteConnection connection,
+        string sessionId,
+        CancellationToken cancellationToken)
+    {
+        // Step 1: resolve the scenario ID from the session payload
+        await using var sessionCmd = connection.CreateCommand();
+        sessionCmd.CommandText = "SELECT json_extract(PayloadJson, '$.ScenarioId') FROM Sessions WHERE Id = $sessionId";
+        sessionCmd.Parameters.AddWithValue("$sessionId", sessionId);
+        var scenarioId = Convert.ToString(await sessionCmd.ExecuteScalarAsync(cancellationToken));
+        if (string.IsNullOrWhiteSpace(scenarioId))
+        {
+            return null;
+        }
+
+        // Step 2: get the characters JSON from the scenario payload
+        await using var scenarioCmd = connection.CreateCommand();
+        scenarioCmd.CommandText = "SELECT json_extract(PayloadJson, '$.Characters') FROM Scenarios WHERE Id = $scenarioId";
+        scenarioCmd.Parameters.AddWithValue("$scenarioId", scenarioId);
+        var charactersJson = Convert.ToString(await scenarioCmd.ExecuteScalarAsync(cancellationToken));
+        if (string.IsNullOrWhiteSpace(charactersJson))
+        {
+            return null;
+        }
+
+        // Step 3: deserialize and find the first Husband character
+        try
+        {
+            var characters = JsonSerializer.Deserialize<List<System.Text.Json.JsonElement>>(charactersJson);
+            if (characters is null)
+            {
+                return null;
+            }
+
+            foreach (var c in characters)
+            {
+                if (c.TryGetProperty("Role", out var roleProp)
+                    && string.Equals(roleProp.GetString(), "Husband", StringComparison.OrdinalIgnoreCase)
+                    && c.TryGetProperty("Id", out var idProp))
+                {
+                    return idProp.GetString();
+                }
+            }
+        }
+        catch
+        {
+            // ignore deserialization errors — backward compat is best-effort
+        }
+
+        return null;
     }
 }

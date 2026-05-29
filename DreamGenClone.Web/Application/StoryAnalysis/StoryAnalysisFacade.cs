@@ -1,4 +1,5 @@
 using DreamGenClone.Application.StoryAnalysis;
+using DreamGenClone.Application.StoryAnalysis.Abstractions;
 using DreamGenClone.Application.StoryAnalysis.Models;
 using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Domain.RolePlay;
@@ -19,6 +20,7 @@ public sealed class StoryAnalysisFacade
     private readonly IStatWillingnessProfileService _statWillingnessProfileService;
     private readonly INarrativeGateProfileService _narrativeGateProfileService;
     private readonly IHusbandAwarenessProfileService _husbandAwarenessProfileService;
+    private readonly ICharacterProfileService _characterProfileService;
     private readonly IBackgroundCharacterProfileService _backgroundCharacterProfileService;
     private readonly IRoleDefinitionService _roleDefinitionService;
     private readonly IStoryRankingService _rankingService;
@@ -42,6 +44,7 @@ public sealed class StoryAnalysisFacade
         IStatWillingnessProfileService statWillingnessProfileService,
         INarrativeGateProfileService narrativeGateProfileService,
         IHusbandAwarenessProfileService husbandAwarenessProfileService,
+        ICharacterProfileService characterProfileService,
         IBackgroundCharacterProfileService backgroundCharacterProfileService,
         IRoleDefinitionService roleDefinitionService,
         IStoryRankingService rankingService,
@@ -64,6 +67,7 @@ public sealed class StoryAnalysisFacade
         _statWillingnessProfileService = statWillingnessProfileService;
         _narrativeGateProfileService = narrativeGateProfileService;
         _husbandAwarenessProfileService = husbandAwarenessProfileService;
+        _characterProfileService = characterProfileService;
         _backgroundCharacterProfileService = backgroundCharacterProfileService;
         _roleDefinitionService = roleDefinitionService;
         _rankingService = rankingService;
@@ -371,6 +375,19 @@ public sealed class StoryAnalysisFacade
 
     public Task<bool> DeleteHusbandAwarenessProfileAsync(string id, CancellationToken cancellationToken = default)
         => _husbandAwarenessProfileService.DeleteAsync(id, cancellationToken);
+
+    // Character Profiles (B-042)
+    public Task<IReadOnlyList<CharacterProfile>> GetAllCharacterProfilesAsync(CancellationToken cancellationToken = default)
+        => _characterProfileService.GetAllAsync(cancellationToken);
+
+    public Task<IReadOnlyList<CharacterProfile>> GetCharacterProfilesByRoleAsync(string targetRole, CancellationToken cancellationToken = default)
+        => _characterProfileService.GetByRoleAsync(targetRole, cancellationToken);
+
+    public Task SaveCharacterProfileAsync(CharacterProfile profile, CancellationToken cancellationToken = default)
+        => _characterProfileService.SaveAsync(profile, cancellationToken);
+
+    public Task<bool> DeleteCharacterProfileAsync(string id, CancellationToken cancellationToken = default)
+        => _characterProfileService.DeleteAsync(id, cancellationToken);
 
     // Background Character Profiles
     public Task<BackgroundCharacterProfile> SaveBackgroundCharacterProfileAsync(BackgroundCharacterProfile profile, CancellationToken cancellationToken = default)

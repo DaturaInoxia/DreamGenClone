@@ -3,6 +3,7 @@
 
 @using DreamGenClone.Application.Templates
 @using DreamGenClone.Application.StoryAnalysis
+@using DreamGenClone.Application.StoryAnalysis.Abstractions
 @using DreamGenClone.Application.RolePlay
 @using DreamGenClone.Domain.Templates
 @using DreamGenClone.Domain.StoryAnalysis
@@ -13,8 +14,7 @@
 @inject IScenarioService ScenarioService
 @inject ITemplateService TemplateService
 @inject IRPThemeService RPThemeService
-@inject IBaseStatProfileService BaseStatProfileService
-@inject IHusbandAwarenessProfileService HusbandAwarenessProfileService
+@inject ICharacterProfileService CharacterProfileService
 @inject NavigationManager Navigation
 @inject ILogger<RolePlayCreate> Logger
 
@@ -200,9 +200,9 @@
                     <div class="input-group input-group-sm mb-1" style="max-width: 480px;">
                         <select class="form-select" @bind="_personaStatProfileId">
                             <option value="">(Select Stat Profile)</option>
-                            @foreach (var p in GetApplicableBaseStatProfiles(_personaGender, _personaRole))
+                            @foreach (var p in GetApplicableCharacterProfiles(_personaRole))
                             {
-                                <option value="@p.Id">@p.Name (@CharacterGenderCatalog.NormalizeForProfile(p.TargetGender) / @CharacterRoleCatalog.Normalize(p.TargetRole))</option>
+                                <option value="@p.Id">@p.Name (@CharacterRoleCatalog.Normalize(p.TargetRole))</option>
                             }
                         </select>
                         <button class="btn btn-outline-primary" type="button" @onclick="ApplyPersonaStatProfile">Apply</button>
@@ -244,10 +244,10 @@
                         <div class="input-group input-group-sm" style="max-width: 480px;">
                             <select class="form-select" value="@cs.SelectedStatProfileId"
                                     @onchange="@(e => cs.SelectedStatProfileId = e.Value?.ToString() ?? string.Empty)">
-                                <option value="">(Select Stat Profile)</option>
-                                @foreach (var p in GetApplicableBaseStatProfiles(cs.Gender, cs.Role))
+                                <option value="">(Select Character Profile)</option>
+                                @foreach (var p in GetApplicableCharacterProfiles(cs.Role))
                                 {
-                                    <option value="@p.Id">@p.Name (@CharacterGenderCatalog.NormalizeForProfile(p.TargetGender) / @CharacterRoleCatalog.Normalize(p.TargetRole))</option>
+                                    <option value="@p.Id">@p.Name (@CharacterRoleCatalog.Normalize(p.TargetRole))</option>
                                 }
                             </select>
                             <button class="btn btn-outline-primary" type="button" @onclick="@(() => ApplyCharacterStatProfile(cs))">Apply</button>
@@ -257,23 +257,6 @@
             </div>
         }
 
-        <!-- Awareness profile -->
-        @if (_awarenessProfiles.Count > 0)
-        {
-            <div class="card mb-3">
-                <div class="card-header"><h5 class="mb-0">Awareness Profile</h5></div>
-                <div class="card-body">
-                    <label class="form-label">Husband Awareness Profile (optional)</label>
-                    <select class="form-select" style="max-width: 420px;" @bind="_awarenessProfileId">
-                        <option value="">(none)</option>
-                        @foreach (var ap in _awarenessProfiles)
-                        {
-                            <option value="@ap.Id">@ap.Name</option>
-                        }
-                    </select>
-                </div>
-            </div>
-        }
     }
 
     <!-- Navigation buttons -->
@@ -362,9 +345,8 @@
     private string _personaStatProfileId = string.Empty;
     private readonly List<CharacterEditState> _characterEditStates = [];
     private readonly List<TemplateDefinition> _personaTemplates = [];
-    private readonly List<BaseStatProfile> _baseStatProfiles = [];
-    private readonly List<HusbandAwarenessProfile> _awarenessProfiles = [];
-    private string _awarenessProfileId = string.Empty;
+    private readonly List<CharacterProfile> _characterProfiles = [];
+    private readonly Dictionary<string, string> _characterEncounterProfileIds = new(StringComparer.OrdinalIgnoreCase);
 
     private bool CanGoNext => _currentStep == 1
         ? !string.IsNullOrWhiteSpace(_newSessionScenarioId)
@@ -479,11 +461,9 @@
         _personaTemplates.Clear();
         _personaTemplates.AddRange(await TemplateService.GetAllAsync(TemplateType.Persona));
 
-        _baseStatProfiles.Clear();
-        _baseStatProfiles.AddRange(await BaseStatProfileService.ListAsync());
-
-        _awarenessProfiles.Clear();
-        _awarenessProfiles.AddRange(await HusbandAwarenessProfileService.ListAsync());
+        _characterProfiles.Clear();
+        _characterProfiles.AddRange(await CharacterProfileService.GetAllAsync());
+        _characterEncounterProfileIds.Clear();
 
         // Initialize persona stats with defaults if not already set
         foreach (var statName in AdaptiveStatCatalog.CanonicalStatNames)
@@ -497,16 +477,7 @@
             return;
         }
 
-        // Resolve scenario base stats (mirrors CreateSessionAsync logic, client-side)
         var resolvedBaseStats = AdaptiveStatCatalog.NormalizePartial(_selectedScenario.ResolvedBaseStats);
-        if (!string.IsNullOrWhiteSpace(_selectedScenario.BaseStatProfileId))
-        {
-            var baseStatProfile = await BaseStatProfileService.GetAsync(_selectedScenario.BaseStatProfileId);
-            if (baseStatProfile is not null)
-            {
-                resolvedBaseStats = AdaptiveStatCatalog.NormalizeComplete(baseStatProfile.DefaultStats);
-            }
-        }
 
         foreach (var character in _selectedScenario.Characters.Where(c => !string.IsNullOrWhiteSpace(c.Name)))
         {
@@ -617,9 +588,8 @@
             return;
         }
 
-        var profile = _baseStatProfiles.FirstOrDefault(p =>
+        var profile = _characterProfiles.FirstOrDefault(p =>
             string.Equals(p.Id, _personaStatProfileId, StringComparison.OrdinalIgnoreCase)
-            && CharacterGenderCatalog.IsProfileApplicableToCharacter(p.TargetGender, _personaGender)
             && CharacterRoleCatalog.IsProfileApplicableToCharacter(p.TargetRole, _personaRole));
 
         if (profile is null)
@@ -627,14 +597,16 @@
             return;
         }
 
-        var normalized = AdaptiveStatCatalog.NormalizeComplete(profile.DefaultStats);
+        var normalized = AdaptiveStatCatalog.NormalizeComplete(profile.CharacterStats);
         foreach (var (k, v) in normalized)
         {
             _personaStats[k] = v;
         }
 
-        _personaGender = CharacterGenderCatalog.NormalizeForCharacter(profile.TargetGender);
         _personaRole = CharacterRoleCatalog.Normalize(profile.TargetRole);
+
+        // Store the persona's profile selection so the workspace can restore it on load.
+        _characterEncounterProfileIds["__persona__"] = profile.Id;
     }
 
     // ── Character stat helpers ─────────────────────────────────────
@@ -654,9 +626,8 @@
             return;
         }
 
-        var profile = _baseStatProfiles.FirstOrDefault(p =>
+        var profile = _characterProfiles.FirstOrDefault(p =>
             string.Equals(p.Id, cs.SelectedStatProfileId, StringComparison.OrdinalIgnoreCase)
-            && CharacterGenderCatalog.IsProfileApplicableToCharacter(p.TargetGender, cs.Gender)
             && CharacterRoleCatalog.IsProfileApplicableToCharacter(p.TargetRole, cs.Role));
 
         if (profile is null)
@@ -664,22 +635,20 @@
             return;
         }
 
-        var normalized = AdaptiveStatCatalog.NormalizeComplete(profile.DefaultStats);
+        var normalized = AdaptiveStatCatalog.NormalizeComplete(profile.CharacterStats);
         foreach (var (k, v) in normalized)
         {
             cs.Stats[k] = v;
         }
 
-        cs.Gender = CharacterGenderCatalog.NormalizeForCharacter(profile.TargetGender);
         cs.Role = CharacterRoleCatalog.Normalize(profile.TargetRole);
+        _characterEncounterProfileIds[cs.CharacterId] = profile.Id;
     }
 
-    private IReadOnlyList<BaseStatProfile> GetApplicableBaseStatProfiles(string gender, string role)
+    private IReadOnlyList<CharacterProfile> GetApplicableCharacterProfiles(string role)
     {
-        return _baseStatProfiles
-            .Where(p =>
-                CharacterGenderCatalog.IsProfileApplicableToCharacter(p.TargetGender, gender)
-                && CharacterRoleCatalog.IsProfileApplicableToCharacter(p.TargetRole, role))
+        return _characterProfiles
+            .Where(p => CharacterRoleCatalog.IsProfileApplicableToCharacter(p.TargetRole, role))
             .ToList();
     }
 
@@ -730,7 +699,7 @@
                 ThemeSelections = themeSelections,
                 CharacterStatOverrides = charStatOverrides,
                 PersonaStatOverrides = new Dictionary<string, int>(_personaStats, StringComparer.OrdinalIgnoreCase),
-                AwarenessProfileId = string.IsNullOrWhiteSpace(_awarenessProfileId) ? null : _awarenessProfileId,
+                CharacterEncounterProfileIds = new Dictionary<string, string>(_characterEncounterProfileIds, StringComparer.OrdinalIgnoreCase),
                 PersonaPhysicalAttributes = _personaPhysicalAttributes,
             };
 

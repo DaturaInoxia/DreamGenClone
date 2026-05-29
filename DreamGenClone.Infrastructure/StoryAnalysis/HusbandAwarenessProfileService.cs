@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 
 namespace DreamGenClone.Infrastructure.StoryAnalysis;
 
+[Obsolete("Replaced by CharacterProfileService — B-042")]
 public sealed class HusbandAwarenessProfileService : IHusbandAwarenessProfileService
 {
     private readonly ISqlitePersistence _persistence;
@@ -19,7 +20,6 @@ public sealed class HusbandAwarenessProfileService : IHusbandAwarenessProfileSer
     public async Task<HusbandAwarenessProfile> SaveAsync(HusbandAwarenessProfile profile, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(profile);
-        await EnsureDefaultsAsync(cancellationToken);
 
         profile.Name = (profile.Name ?? string.Empty).Trim();
         profile.Description = (profile.Description ?? string.Empty).Trim();
@@ -57,11 +57,8 @@ public sealed class HusbandAwarenessProfileService : IHusbandAwarenessProfileSer
         return profile;
     }
 
-    public async Task<List<HusbandAwarenessProfile>> ListAsync(CancellationToken cancellationToken = default)
-    {
-        await EnsureDefaultsAsync(cancellationToken);
-        return await _persistence.LoadAllHusbandAwarenessProfilesAsync(cancellationToken);
-    }
+    public Task<List<HusbandAwarenessProfile>> ListAsync(CancellationToken cancellationToken = default)
+        => _persistence.LoadAllHusbandAwarenessProfilesAsync(cancellationToken);
 
     public Task<HusbandAwarenessProfile?> GetAsync(string id, CancellationToken cancellationToken = default)
         => _persistence.LoadHusbandAwarenessProfileAsync(id, cancellationToken);

@@ -1,5 +1,6 @@
 using DreamGenClone.Domain.StoryAnalysis;
 using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Application.StoryAnalysis.Abstractions;
 using DreamGenClone.Application.StoryAnalysis.Models;
 using DreamGenClone.Infrastructure.StoryAnalysis;
 using DreamGenClone.Web.Application.RolePlay;
@@ -230,7 +231,7 @@ public sealed class SceneWritingDirectivePromptTests
     public async Task ScenarioGuidanceContextFactory_ClimaxFallback_ContainsPhysicalDetailGuidance()
     {
         // No LLM generator → fallback path is taken
-        var factory = new ScenarioGuidanceContextFactory();
+        var factory = new ScenarioGuidanceContextFactory(NoOpFrameGenerator());
         var context = await factory.CreateAsync(new ScenarioGuidanceInput(
             SessionId: "s1",
             CurrentPhase: "Climax",
@@ -243,8 +244,9 @@ public sealed class SceneWritingDirectivePromptTests
             AverageDominance: 50,
             AverageLoyalty: 50,
             SelectedWillingnessProfileId: null,
-            HusbandAwarenessProfileId: null,
-            SuppressedScenarioIds: []));
+            CharacterEncounterProfileIds: new Dictionary<string, string>(),
+            Characters: [],
+            SuppressedScenarioIds: []));;
 
         Assert.Equal("Climax", context.Phase);
         // Post-B006: guidance must be multi-sentence and mention physical detail and pacing
@@ -259,7 +261,7 @@ public sealed class SceneWritingDirectivePromptTests
     [Fact]
     public async Task ScenarioGuidanceContextFactory_ClimaxFallback_ContainsUrgencyGuidance()
     {
-        var factory = new ScenarioGuidanceContextFactory();
+        var factory = new ScenarioGuidanceContextFactory(NoOpFrameGenerator());
         var context = await factory.CreateAsync(new ScenarioGuidanceInput(
             SessionId: "s1",
             CurrentPhase: "Climax",
@@ -272,7 +274,8 @@ public sealed class SceneWritingDirectivePromptTests
             AverageDominance: 50,
             AverageLoyalty: 50,
             SelectedWillingnessProfileId: null,
-            HusbandAwarenessProfileId: null,
+            CharacterEncounterProfileIds: new Dictionary<string, string>(),
+            Characters: [],
             SuppressedScenarioIds: []));
 
         Assert.True(
@@ -285,7 +288,7 @@ public sealed class SceneWritingDirectivePromptTests
     [Fact]
     public async Task ScenarioGuidanceContextFactory_NonClimaxPhases_StillReturnGuidance()
     {
-        var factory = new ScenarioGuidanceContextFactory();
+        var factory = new ScenarioGuidanceContextFactory(NoOpFrameGenerator());
         foreach (var phase in new[] { "BuildUp", "Committed", "Approaching", "Reset" })
         {
             var context = await factory.CreateAsync(new ScenarioGuidanceInput(
@@ -300,7 +303,8 @@ public sealed class SceneWritingDirectivePromptTests
                 AverageDominance: 50,
                 AverageLoyalty: 50,
                 SelectedWillingnessProfileId: null,
-                HusbandAwarenessProfileId: null,
+                CharacterEncounterProfileIds: new Dictionary<string, string>(),
+                Characters: [],
                 SuppressedScenarioIds: []));
 
             Assert.False(string.IsNullOrWhiteSpace(context.GuidanceText),
@@ -338,7 +342,7 @@ public sealed class SceneWritingDirectivePromptTests
     [Fact]
     public async Task ScenarioGuidanceContextFactory_ClimaxFallback_ContainsEndClimaxGate()
     {
-        var factory = new ScenarioGuidanceContextFactory();
+        var factory = new ScenarioGuidanceContextFactory(NoOpFrameGenerator());
         var context = await factory.CreateAsync(new ScenarioGuidanceInput(
             SessionId: "s1",
             CurrentPhase: "Climax",
@@ -351,7 +355,8 @@ public sealed class SceneWritingDirectivePromptTests
             AverageDominance: 50,
             AverageLoyalty: 50,
             SelectedWillingnessProfileId: null,
-            HusbandAwarenessProfileId: null,
+            CharacterEncounterProfileIds: new Dictionary<string, string>(),
+            Characters: [],
             SuppressedScenarioIds: []));
 
         Assert.Contains("/endclimax", context.GuidanceText, StringComparison.OrdinalIgnoreCase);
@@ -387,5 +392,16 @@ public sealed class SceneWritingDirectivePromptTests
             g.Contains("departure", StringComparison.OrdinalIgnoreCase) ||
             g.Contains("drove away", StringComparison.OrdinalIgnoreCase) ||
             g.Contains("weekend was over", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static IBehavioralFrameGenerator NoOpFrameGenerator() => new NoOpBehavioralFrameGenerator();
+
+    private sealed class NoOpBehavioralFrameGenerator : IBehavioralFrameGenerator
+    {
+        public Task<IReadOnlyDictionary<string, string>> GenerateFramesAsync(
+            IReadOnlyDictionary<string, string> characterEncounterProfileIds,
+            IReadOnlyList<ScenarioCharacter> characters,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyDictionary<string, string>>(new Dictionary<string, string>());
     }
 }

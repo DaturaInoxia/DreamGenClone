@@ -120,9 +120,9 @@ public static class RolePlayAssistantPrompts
 
         promptBuilder.AppendLine($"- Guidance: {guidance.GuidanceText}");
 
-        if (!string.IsNullOrWhiteSpace(guidance.HusbandAwarenessFrame))
+        foreach (var (label, frameText) in guidance.CharacterBehavioralFrames)
         {
-            promptBuilder.AppendLine($"HARD CONSTRAINT — Partner Character Behavior (authoritative, overrides all theme notes and guidance): {guidance.HusbandAwarenessFrame}");
+            promptBuilder.AppendLine($"HARD CONSTRAINT — {label} behavioral frame (authoritative, overrides all theme notes and guidance): {frameText}");
         }
 
         if (guidance.ExcludedScenarioIds.Count > 0)

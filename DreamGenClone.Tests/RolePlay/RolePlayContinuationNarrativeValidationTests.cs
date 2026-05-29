@@ -929,7 +929,8 @@ public sealed class RolePlayContinuationNarrativeValidationTests
                 Phase: input.CurrentPhase,
                 ActiveScenarioId: input.ActiveScenarioId,
                 GuidanceText: "Keep pacing coherent.",
-                ExcludedScenarioIds: []));
+                ExcludedScenarioIds: [],
+                CharacterBehavioralFrames: new Dictionary<string, string>()));
         }
     }
 

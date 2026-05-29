@@ -296,10 +296,16 @@ public sealed class SessionThemeSelectionsTests
     }
 
     [Fact]
-    public void CreateRolePlaySessionRequest_AwarenessProfileId_Persists()
+    public void CreateRolePlaySessionRequest_CharacterEncounterProfileIds_Persists()
     {
-        var req = new CreateRolePlaySessionRequest { AwarenessProfileId = "profile-42" };
-        Assert.Equal("profile-42", req.AwarenessProfileId);
+        var req = new CreateRolePlaySessionRequest
+        {
+            CharacterEncounterProfileIds = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["char-1"] = "profile-42"
+            }
+        };
+        Assert.Equal("profile-42", req.CharacterEncounterProfileIds["char-1"]);
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -377,15 +383,21 @@ public sealed class SessionThemeSelectionsTests
     }
 
     [Fact]
-    public async Task CreateSessionAsync_WithAwarenessProfileId_StoredOnSessionAndAdaptiveState()
+    public async Task CreateSessionAsync_WithCharacterEncounterProfileIds_StoredOnAdaptiveState()
     {
         var engine = CreateEngineService();
-        var request = new CreateRolePlaySessionRequest { AwarenessProfileId = "awareness-99" };
+        var request = new CreateRolePlaySessionRequest
+        {
+            CharacterEncounterProfileIds = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["char-1"] = "awareness-99"
+            }
+        };
 
         var session = await engine.CreateSessionAsync(request);
 
-        Assert.Equal("awareness-99", session.SelectedAwarenessProfileId);
-        Assert.Equal("awareness-99", session.AdaptiveState.HusbandAwarenessProfileId);
+        Assert.True(session.AdaptiveState.CharacterEncounterProfileIds.ContainsKey("char-1"));
+        Assert.Equal("awareness-99", session.AdaptiveState.CharacterEncounterProfileIds["char-1"]);
     }
 
     [Fact]
