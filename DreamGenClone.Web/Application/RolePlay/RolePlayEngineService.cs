@@ -164,7 +164,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     private readonly bool _enableAdaptiveStateUpdates;
     private readonly bool _enableSemanticInference;
     private readonly IClimaxBeatRepository? _climaxBeatRepository;
-    private readonly IBackgroundJobQueue? _backgroundJobQueue;
+    private readonly ISemanticBackgroundJobQueue? _backgroundJobQueue;
     private readonly ISemanticInteractionAnalysisRepository? _semanticInteractionAnalysisRepository;
 
     public RolePlayEngineService(
@@ -198,7 +198,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         IOptions<RolePlayFeatureFlagsOptions>? rolePlayFeatureFlagsOptions = null,
         ITemplateService? templateService = null,
         IClimaxBeatRepository? climaxBeatRepository = null,
-        IBackgroundJobQueue? backgroundJobQueue = null,
+        ISemanticBackgroundJobQueue? backgroundJobQueue = null,
         ISemanticInteractionAnalysisRepository? semanticInteractionAnalysisRepository = null)
     {
         _continuationService = continuationService;

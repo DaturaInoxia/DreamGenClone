@@ -369,6 +369,7 @@
                                 <th style="width:120px">Temperature</th>
                                 <th style="width:100px">Top P</th>
                                 <th style="width:100px">Max Tokens</th>
+                                <th style="width:100px">Max Parallel</th>
                                 <th style="width:80px"></th>
                             </tr>
                         </thead>
@@ -379,6 +380,10 @@
                                 <tr>
                                     <td>
                                         <strong>@FormatFunctionName(func)</strong>
+                                        @if (func == AppFunction.RolePlaySemanticAnalysis && string.IsNullOrEmpty(state.ModelId))
+                                        {
+                                            <span class="badge bg-warning text-dark ms-1">No model</span>
+                                        }
                                     </td>
                                     <td>
                                         <select class="form-select form-select-sm" value="@state.ModelId" @onchange="e => OnFunctionModelChange(func, e)">
@@ -407,9 +412,20 @@
                                                value="@state.MaxTokens" @onchange="e => state.MaxTokens = ParseInt(e, 500)" />
                                     </td>
                                     <td>
+                                        @if (func == AppFunction.RolePlaySemanticAnalysis)
+                                        {
+                                            <input type="number" class="form-control form-control-sm" min="1" max="16"
+                                                   value="@state.MaxConcurrentJobs" @onchange="e => state.MaxConcurrentJobs = ParseNullableInt(e)" />
+                                        }
+                                    </td>
+                                    <td>
                                         <button class="btn btn-sm btn-outline-success" @onclick="() => SaveFunctionDefault(func)" disabled="@_isBusy">
                                             <i class="bi bi-check-lg me-1"></i> Save
                                         </button>
+                                        @if (func == AppFunction.RolePlaySemanticAnalysis && state.HasBeenSaved)
+                                        {
+                                            <div class="form-text text-muted mt-1" style="font-size:0.75em">Restart app to apply concurrency changes.</div>
+                                        }
                                     </td>
                                 </tr>
                             }
@@ -526,6 +542,8 @@
                     Temperature = fd?.Temperature ?? 0.7,
                     TopP = fd?.TopP ?? 0.9,
                     MaxTokens = fd?.MaxTokens ?? 500,
+                    MaxConcurrentJobs = fd?.MaxConcurrentJobs,
+                    HasBeenSaved = fd is not null,
                     ExistingId = fd?.Id
                 };
             }
@@ -870,6 +888,8 @@
         state.Temperature = Math.Clamp(state.Temperature, 0.0, 2.0);
         state.TopP = Math.Clamp(state.TopP, 0.0, 1.0);
         state.MaxTokens = Math.Clamp(state.MaxTokens, 1, 8000);
+        if (state.MaxConcurrentJobs.HasValue)
+            state.MaxConcurrentJobs = Math.Clamp(state.MaxConcurrentJobs.Value, 1, 16);
 
         _isBusy = true;
         try
@@ -881,7 +901,8 @@
                 ModelId = state.ModelId,
                 Temperature = state.Temperature,
                 TopP = state.TopP,
-                MaxTokens = state.MaxTokens
+                MaxTokens = state.MaxTokens,
+                MaxConcurrentJobs = state.MaxConcurrentJobs
             };
             await Facade.SaveFunctionDefaultAsync(fd);
             await LoadAllDataAsync();
@@ -935,6 +956,7 @@
         AppFunction.WritingAssistant => "Writing Assistant",
         AppFunction.RolePlayAssistant => "Role-Play Assistant",
         AppFunction.ModelAnalysis => "Model Analysis",
+        AppFunction.RolePlaySemanticAnalysis => "RP Semantic Analysis (Background)",
         _ => func.ToString()
     };
 
@@ -946,6 +968,12 @@
     private static int ParseInt(ChangeEventArgs e, int fallback)
     {
         return int.TryParse(e.Value?.ToString(), out var v) ? v : fallback;
+    }
+
+    private static int? ParseNullableInt(ChangeEventArgs e)
+    {
+        var s = e.Value?.ToString();
+        return string.IsNullOrWhiteSpace(s) ? null : int.TryParse(s, out var v) ? v : null;
     }
 
     private static string FormatTimestamp(string isoTimestamp)
@@ -961,6 +989,8 @@
         public double Temperature { get; set; } = 0.7;
         public double TopP { get; set; } = 0.9;
         public int MaxTokens { get; set; } = 500;
+        public int? MaxConcurrentJobs { get; set; }
+        public bool HasBeenSaved { get; set; }
         public string? ExistingId { get; set; }
     }
 }

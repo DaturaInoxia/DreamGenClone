@@ -38,6 +38,8 @@ Auto-generated from all feature plans. Last updated: 2026-03-17
 - SQLite (default policy, no new store) (001-semantic-telemetry-tests)
 - C# / .NET 9 + Blazor Server, Microsoft.Data.Sqlite, Serilog, xUnit (development)
 - SQLite (`DreamGenClone.Web/data/dreamgenclone.dev.db`) — all new tables and migrations in `SqlitePersistence.cs` (development)
+- C# / .NET 9 / Blazor Server + System.Threading.Channels (existing), SemaphoreSlim (BCL), Serilog, Microsoft.Data.Sqlite (existing ADO.NET, no EF Core) (001-semantic-dedicated-model)
+- SQLite via `FunctionModelDefaults` table — one `ALTER TABLE ... ADD COLUMN MaxConcurrentJobs INTEGER NULL` migration (001-semantic-dedicated-model)
 
 - C# / .NET 9 (`net9.0`) + ASP.NET Core Blazor Server, `Microsoft.Data.Sqlite`, `Microsoft.Extensions.*`, Serilog (`Serilog.AspNetCore`, `Serilog.Settings.Configuration`, sinks/enrichers) (001-roleplay-session-screens)
 
@@ -58,9 +60,9 @@ tests/
 C# / .NET 9 (`net9.0`): Follow standard conventions
 
 ## Recent Changes
+- 001-semantic-dedicated-model: Added C# / .NET 9 / Blazor Server + System.Threading.Channels (existing), SemaphoreSlim (BCL), Serilog, Microsoft.Data.Sqlite (existing ADO.NET, no EF Core)
 - development: Added C# / .NET 9 + Blazor Server, Microsoft.Data.Sqlite, Serilog, xUnit
 - 001-semantic-telemetry-tests: Added C# on .NET 9 + ASP.NET Core/Blazor host, existing RolePlay services, Serilog, SQLite persistence layer
-- 001-semantic-telemetry-tests: Added C# / .NET 9 / Blazor Server + ASP.NET Core DI/logging abstractions, Serilog, Microsoft.Data.Sqlite, System.Text.Json
 
 
 <!-- MANUAL ADDITIONS START -->

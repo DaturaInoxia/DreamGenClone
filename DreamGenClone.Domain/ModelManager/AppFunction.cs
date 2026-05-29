@@ -12,5 +12,6 @@ public enum AppFunction
     ScenarioAssistant,
     WritingAssistant,
     RolePlayAssistant,
-    ModelAnalysis
+    ModelAnalysis,
+    RolePlaySemanticAnalysis
 }

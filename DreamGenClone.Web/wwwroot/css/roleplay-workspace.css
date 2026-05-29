@@ -1533,6 +1533,44 @@ article:has(.rw-shell) {
     color: #ff6060;
 }
 
+/* ─── Semantic status toolbar button variants ─── */
+
+.rw-toolbar-btn-semantic-complete {
+    background: #1a3326;
+    color: #7bdc9a;
+}
+
+.rw-toolbar-btn-semantic-complete:hover {
+    background: #234a37;
+    color: #a2eebc;
+}
+
+.rw-toolbar-btn-semantic-analyzing {
+    background: #1a2a45;
+    color: #86b7ff;
+    animation: rw-semantic-pulse 1.8s ease-in-out infinite;
+}
+
+.rw-toolbar-btn-semantic-analyzing:hover {
+    background: #243a60;
+    color: #aecfff;
+}
+
+@keyframes rw-semantic-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.55; }
+}
+
+.rw-toolbar-btn-semantic-error {
+    background: #3e1a1a;
+    color: #ff9f9f;
+}
+
+.rw-toolbar-btn-semantic-error:hover {
+    background: #5a2222;
+    color: #ffbbbb;
+}
+
 .rw-semantic-status {
     display: inline-flex;
     align-items: center;
@@ -1884,6 +1922,157 @@ article:has(.rw-shell) {
 .rw-modal-info {
     min-width: 380px;
     max-width: 520px;
+}
+
+/* ─── Semantic Detail Modal ─── */
+
+.rw-modal-semantic {
+    width: min(92vw, 600px);
+    max-height: calc(100vh - 40px);
+    display: flex;
+    flex-direction: column;
+}
+
+.rw-modal-semantic .rw-modal-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: 60vh;
+    overflow-y: auto;
+}
+
+.rw-semantic-detail-error {
+    background: #3e1a1a;
+    color: #ff9f9f;
+    border-radius: 6px;
+    padding: 8px 12px;
+    margin-bottom: 12px;
+    font-size: 13px;
+}
+
+.rw-semantic-detail-empty {
+    color: #777;
+    font-size: 13px;
+    font-style: italic;
+    padding: 8px 0;
+}
+
+.rw-semantic-event-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.rw-semantic-event-header th {
+    text-align: left;
+    color: #888;
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 4px 8px 6px;
+    border-bottom: 1px solid #333;
+}
+
+.rw-semantic-event-row td {
+    padding: 5px 8px;
+    border-bottom: 1px solid #252525;
+    vertical-align: top;
+    color: #c8c8c8;
+}
+
+.rw-semantic-event-row:last-child td {
+    border-bottom: none;
+}
+
+.rw-semantic-event-id {
+    font-family: monospace;
+    color: #86b7ff !important;
+    white-space: nowrap;
+}
+
+.rw-semantic-event-conf {
+    white-space: nowrap;
+    color: #7bdc9a !important;
+    font-weight: 600;
+}
+
+.rw-semantic-event-actors {
+    white-space: nowrap;
+}
+
+.rw-semantic-event-target {
+    color: #a0a0a0;
+    margin-left: 4px;
+}
+
+.rw-semantic-event-evidence {
+    color: #999 !important;
+    font-style: italic;
+    word-break: break-word;
+    max-width: 200px;
+}
+
+/* ── Semantic modal tabs ── */
+.rw-semantic-tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid #333;
+    padding: 0 16px;
+    background: transparent;
+}
+
+.rw-semantic-tab {
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: #888;
+    font-size: 13px;
+    font-weight: 500;
+    padding: 7px 14px 6px;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+    margin-bottom: -1px;
+}
+
+.rw-semantic-tab:hover {
+    color: #c8c8c8;
+}
+
+.rw-semantic-tab-active {
+    color: #e0e0e0;
+    border-bottom-color: #86b7ff;
+}
+
+.rw-semantic-totals-section-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #666;
+    padding: 4px 0 6px;
+}
+
+.rw-semantic-totals-num {
+    font-family: monospace;
+    white-space: nowrap;
+    font-size: 12px;
+}
+
+.rw-totals-pos {
+    color: #7bdc9a !important;
+}
+
+.rw-totals-neg {
+    color: #ff9f9f !important;
+}
+
+.rw-totals-suppressed {
+    color: #e0a04a !important;
+}
+    width: min(92vw, 560px);
+    max-height: calc(100vh - 32px);
+    display: flex;
+    flex-direction: column;
 }
 
 .rw-modal-decision {

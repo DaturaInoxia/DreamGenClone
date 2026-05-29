@@ -27,14 +27,15 @@ public sealed class FunctionDefaultRepository : IFunctionDefaultRepository
 
         var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO FunctionModelDefaults (Id, FunctionName, ModelId, Temperature, TopP, MaxTokens, UpdatedUtc)
-            VALUES ($id, $funcName, $modelId, $temp, $topP, $maxTokens, $updated)
+            INSERT INTO FunctionModelDefaults (Id, FunctionName, ModelId, Temperature, TopP, MaxTokens, MaxConcurrentJobs, UpdatedUtc)
+            VALUES ($id, $funcName, $modelId, $temp, $topP, $maxTokens, $maxConcurrentJobs, $updated)
             ON CONFLICT(Id) DO UPDATE SET
                 FunctionName = $funcName,
                 ModelId = $modelId,
                 Temperature = $temp,
                 TopP = $topP,
                 MaxTokens = $maxTokens,
+                MaxConcurrentJobs = $maxConcurrentJobs,
                 UpdatedUtc = $updated
             """;
 
@@ -44,6 +45,7 @@ public sealed class FunctionDefaultRepository : IFunctionDefaultRepository
         command.Parameters.AddWithValue("$temp", functionDefault.Temperature);
         command.Parameters.AddWithValue("$topP", functionDefault.TopP);
         command.Parameters.AddWithValue("$maxTokens", functionDefault.MaxTokens);
+        command.Parameters.AddWithValue("$maxConcurrentJobs", (object?)functionDefault.MaxConcurrentJobs ?? DBNull.Value);
         command.Parameters.AddWithValue("$updated", functionDefault.UpdatedUtc);
 
         await command.ExecuteNonQueryAsync(cancellationToken);
@@ -57,7 +59,7 @@ public sealed class FunctionDefaultRepository : IFunctionDefaultRepository
         await connection.OpenAsync(cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, FunctionName, ModelId, Temperature, TopP, MaxTokens, UpdatedUtc FROM FunctionModelDefaults WHERE FunctionName = $funcName";
+        command.CommandText = "SELECT Id, FunctionName, ModelId, Temperature, TopP, MaxTokens, UpdatedUtc, MaxConcurrentJobs FROM FunctionModelDefaults WHERE FunctionName = $funcName";
         command.Parameters.AddWithValue("$funcName", function.ToString());
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -75,7 +77,7 @@ public sealed class FunctionDefaultRepository : IFunctionDefaultRepository
         await connection.OpenAsync(cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, FunctionName, ModelId, Temperature, TopP, MaxTokens, UpdatedUtc FROM FunctionModelDefaults ORDER BY FunctionName";
+        command.CommandText = "SELECT Id, FunctionName, ModelId, Temperature, TopP, MaxTokens, UpdatedUtc, MaxConcurrentJobs FROM FunctionModelDefaults ORDER BY FunctionName";
 
         var defaults = new List<FunctionModelDefault>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -93,7 +95,7 @@ public sealed class FunctionDefaultRepository : IFunctionDefaultRepository
         await connection.OpenAsync(cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, FunctionName, ModelId, Temperature, TopP, MaxTokens, UpdatedUtc FROM FunctionModelDefaults WHERE ModelId = $modelId ORDER BY FunctionName";
+        command.CommandText = "SELECT Id, FunctionName, ModelId, Temperature, TopP, MaxTokens, UpdatedUtc, MaxConcurrentJobs FROM FunctionModelDefaults WHERE ModelId = $modelId ORDER BY FunctionName";
         command.Parameters.AddWithValue("$modelId", modelId);
 
         var defaults = new List<FunctionModelDefault>();
@@ -128,6 +130,7 @@ public sealed class FunctionDefaultRepository : IFunctionDefaultRepository
         Temperature = reader.GetDouble(3),
         TopP = reader.GetDouble(4),
         MaxTokens = reader.GetInt32(5),
-        UpdatedUtc = reader.GetString(6)
+        UpdatedUtc = reader.GetString(6),
+        MaxConcurrentJobs = reader.IsDBNull(7) ? null : reader.GetInt32(7)
     };
 }

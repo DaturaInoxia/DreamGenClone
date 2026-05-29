@@ -17,6 +17,10 @@ public sealed class SemanticEventInferenceRequest
 
 public sealed class SemanticEventInferenceResult
 {
+    public bool Success { get; init; } = true;
+
+    public string? ErrorMessage { get; init; }
+
     public required IReadOnlyList<SemanticInferredEvent> Events { get; init; }
 
     public required string RawModelOutput { get; init; }
