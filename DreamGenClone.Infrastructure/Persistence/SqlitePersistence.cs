@@ -987,6 +987,28 @@ public sealed class SqlitePersistence : ISqlitePersistence
             CREATE INDEX IF NOT EXISTS IX_RolePlayV2SemanticEvents_Session_ProcessedUtc
                 ON RolePlayV2SemanticEvents (SessionId, ProcessedUtc DESC);
 
+            CREATE TABLE IF NOT EXISTS RolePlayV2EncounterSummaries (
+                Id                          TEXT NOT NULL PRIMARY KEY,
+                SessionId                   TEXT NOT NULL,
+                CharacterId                 TEXT NOT NULL,
+                SummaryType                 TEXT NOT NULL,
+                CycleIndex                  INTEGER NOT NULL DEFAULT 0,
+                FromPhase                   TEXT NOT NULL,
+                ToPhase                     TEXT NOT NULL,
+                OccurredUtc                 TEXT NOT NULL,
+                InteractionCountInPhase     INTEGER NOT NULL DEFAULT 0,
+                SceneLocation               TEXT NULL,
+                ActiveThemeId               TEXT NULL,
+                FinishingMoveId             TEXT NULL,
+                PositionIdsJson             TEXT NULL,
+                CharacterStatsSnapshotJson  TEXT NOT NULL DEFAULT '{}',
+                TemplateSummary             TEXT NOT NULL DEFAULT '',
+                LlmSummary                  TEXT NULL,
+                LlmEnhancedUtc              TEXT NULL
+            );
+            CREATE INDEX IF NOT EXISTS IX_RolePlayV2EncounterSummaries_Session_OccurredUtc
+                ON RolePlayV2EncounterSummaries (SessionId, OccurredUtc DESC);
+
             """;
 
         await command.ExecuteNonQueryAsync(cancellationToken);
@@ -1194,6 +1216,17 @@ public sealed class SqlitePersistence : ISqlitePersistence
             alterAdaptiveStateJson.CommandText = "ALTER TABLE Sessions ADD COLUMN AdaptiveStateJson TEXT NULL";
             await alterAdaptiveStateJson.ExecuteNonQueryAsync(cancellationToken);
             _logger.LogInformation("Migrated Sessions table: added AdaptiveStateJson column");
+        }
+
+        var checkMaxMilestonesToInjectColumn = connection.CreateCommand();
+        checkMaxMilestonesToInjectColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('Sessions') WHERE name='MaxMilestonesToInject'";
+        var hasMaxMilestonesToInjectColumn = Convert.ToInt64(await checkMaxMilestonesToInjectColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasMaxMilestonesToInjectColumn)
+        {
+            var alterMaxMilestonesToInject = connection.CreateCommand();
+            alterMaxMilestonesToInject.CommandText = "ALTER TABLE Sessions ADD COLUMN MaxMilestonesToInject INTEGER NULL";
+            await alterMaxMilestonesToInject.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated Sessions table: added MaxMilestonesToInject column");
         }
 
         // V2 unification (B-038): additive columns on RolePlayV2AdaptiveStates for fields previously

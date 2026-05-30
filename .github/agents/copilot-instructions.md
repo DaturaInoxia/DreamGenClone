@@ -42,6 +42,8 @@ Auto-generated from all feature plans. Last updated: 2026-03-17
 - SQLite via `FunctionModelDefaults` table — one `ALTER TABLE ... ADD COLUMN MaxConcurrentJobs INTEGER NULL` migration (001-semantic-dedicated-model)
 - C# 13 / .NET 9 + Blazor Server (ASP.NET Core 9), `System.Collections.Concurrent`, `System.Threading`, Serilog (027-prompt-queue-continue)
 - In-memory only (singleton `ConcurrentDictionary`); no SQLite for tracker state — exception documented in FR-015 with rationale (027-prompt-queue-continue)
+- C# 12 / .NET 9 + Blazor Server (DreamGenClone.Web), SQLite via Microsoft.Data.Sqlite, Serilog, IOptions<T> configuration pattern, IBackgroundJobHandler infrastructure (001-session-memory-context)
+- SQLite — new `RolePlayV2EncounterSummaries` table + additive `Sessions` column (001-session-memory-context)
 
 - C# / .NET 9 (`net9.0`) + ASP.NET Core Blazor Server, `Microsoft.Data.Sqlite`, `Microsoft.Extensions.*`, Serilog (`Serilog.AspNetCore`, `Serilog.Settings.Configuration`, sinks/enrichers) (001-roleplay-session-screens)
 
@@ -62,9 +64,9 @@ tests/
 C# / .NET 9 (`net9.0`): Follow standard conventions
 
 ## Recent Changes
+- 001-session-memory-context: Added C# 12 / .NET 9 + Blazor Server (DreamGenClone.Web), SQLite via Microsoft.Data.Sqlite, Serilog, IOptions<T> configuration pattern, IBackgroundJobHandler infrastructure
 - 027-prompt-queue-continue: Added C# 13 / .NET 9 + Blazor Server (ASP.NET Core 9), `System.Collections.Concurrent`, `System.Threading`, Serilog
 - 027-prompt-queue-continue: Added [e.g., Python 3.11, Swift 5.9, Rust 1.75 or NEEDS CLARIFICATION] + [e.g., FastAPI, UIKit, LLVM or NEEDS CLARIFICATION]
-- 001-semantic-dedicated-model: Added C# / .NET 9 / Blazor Server + System.Threading.Channels (existing), SemaphoreSlim (BCL), Serilog, Microsoft.Data.Sqlite (existing ADO.NET, no EF Core)
 
 
 <!-- MANUAL ADDITIONS START -->

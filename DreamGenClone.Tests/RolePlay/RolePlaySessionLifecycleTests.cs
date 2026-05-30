@@ -1406,6 +1406,9 @@ public sealed class RolePlaySessionLifecycleTests
         public Task<IReadOnlyList<UnsupportedSessionError>> LoadUnsupportedSessionErrorsAsync(string sessionId, int take = 20, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<UnsupportedSessionError>>([]);
         public Task SaveThemeMachineDiagnosticEventsAsync(IReadOnlyList<ThemeMachineDiagnosticEvent> events, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task<IReadOnlyList<ThemeMachineDiagnosticEvent>> LoadThemeMachineDiagnosticEventsAsync(string sessionId, int take = 100, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ThemeMachineDiagnosticEvent>>([]);
+        public Task SaveEncounterSummaryAsync(EncounterSummaryRecord record, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task UpdateEncounterSummaryLlmAsync(string summaryId, string llmSummary, DateTime llmEnhancedUtc, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task<IReadOnlyList<EncounterSummaryRecord>> LoadEncounterSummariesForSessionAsync(string sessionId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<EncounterSummaryRecord>>([]);
 
         private static AdaptiveScenarioState CloneState(AdaptiveScenarioState state)
         {
@@ -1498,6 +1501,25 @@ public sealed class RolePlaySessionLifecycleTests
                 CharacterLocationPerceptionsJson TEXT NOT NULL DEFAULT '[]',
                 CharacterSnapshotsJson TEXT NOT NULL,
                 UpdatedUtc TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS RolePlayV2EncounterSummaries (
+                Id                          TEXT NOT NULL PRIMARY KEY,
+                SessionId                   TEXT NOT NULL,
+                CharacterId                 TEXT NOT NULL,
+                SummaryType                 TEXT NOT NULL,
+                CycleIndex                  INTEGER NOT NULL DEFAULT 0,
+                FromPhase                   TEXT NOT NULL,
+                ToPhase                     TEXT NOT NULL,
+                OccurredUtc                 TEXT NOT NULL,
+                InteractionCountInPhase     INTEGER NOT NULL DEFAULT 0,
+                SceneLocation               TEXT NULL,
+                ActiveThemeId               TEXT NULL,
+                FinishingMoveId             TEXT NULL,
+                PositionIdsJson             TEXT NULL,
+                CharacterStatsSnapshotJson  TEXT NOT NULL DEFAULT '{}',
+                TemplateSummary             TEXT NOT NULL DEFAULT '',
+                LlmSummary                  TEXT NULL,
+                LlmEnhancedUtc              TEXT NULL
             );
             """;
         await command.ExecuteNonQueryAsync();

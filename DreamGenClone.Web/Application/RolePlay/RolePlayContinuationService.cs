@@ -49,6 +49,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
     private readonly IHusbandAwarenessProfileService? _husbandAwarenessProfileService;
     private readonly bool _enableLocationServices;
     private readonly bool _includeCandidateMenuWhileObserving;
+    private readonly IOptions<RolePlayMemoryOptions>? _memoryOptions;
     private readonly ILogger<RolePlayContinuationService> _logger;
 
     public RolePlayContinuationService(
@@ -68,7 +69,8 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         IClimaxBeatRepository? climaxBeatRepository = null,
         IHusbandAwarenessProfileService? husbandAwarenessProfileService = null,
         IOptions<RolePlayDecisionOptions>? rolePlayDecisionOptions = null,
-        IOptions<RolePlayFeatureFlagsOptions>? rolePlayFeatureFlagsOptions = null)
+        IOptions<RolePlayFeatureFlagsOptions>? rolePlayFeatureFlagsOptions = null,
+        IOptions<RolePlayMemoryOptions>? memoryOptions = null)
     {
         _completionClient = completionClient;
         _modelResolver = modelResolver;
@@ -86,6 +88,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         _husbandAwarenessProfileService = husbandAwarenessProfileService;
         _enableLocationServices = rolePlayDecisionOptions?.Value.EnableLocationServices ?? true;
         _includeCandidateMenuWhileObserving = rolePlayFeatureFlagsOptions?.Value.IncludeCandidateMenuWhileObserving ?? true;
+        _memoryOptions = memoryOptions;
         _logger = logger;
     }
 
@@ -670,6 +673,13 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         foreach (var interaction in contextView.TakeLast(windowSize))
         {
             sb.AppendLine($"[{interaction.InteractionType}] {interaction.ActorName}: {interaction.Content}");
+        }
+
+        if (_memoryOptions is not null && session.AdaptiveState.EncounterSummaries.Count > 0)
+        {
+            var effectiveMilestones = session.MaxMilestonesToInject ?? _memoryOptions.Value.MaxMilestonesToInject;
+            var effectiveArcCompletions = _memoryOptions.Value.MaxArcCompletionsToInject;
+            InjectSessionMemoryBlock(sb, session.AdaptiveState.EncounterSummaries, effectiveMilestones, effectiveArcCompletions, session.AdaptiveState.CycleIndex);
         }
 
         if (_enableLocationServices
@@ -1292,6 +1302,55 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         sb.AppendLine($"- Current narrative phase: {currentPhase}");
         sb.AppendLine($"- Candidates: {string.Join(", ", candidateLabels)}");
         sb.AppendLine("- Let natural events emerge from the persona, characters and recent context. Do not steer the scene toward any single candidate; treat this list only as awareness of the option space.");
+    }
+
+    private static void InjectSessionMemoryBlock(
+        StringBuilder sb,
+        List<DreamGenClone.Domain.RolePlay.EncounterSummaryRecord> summaries,
+        int effectiveMilestones,
+        int effectiveArcCompletions,
+        int currentCycleIndex)
+    {
+        // Arc completions: take most recent N (DESC by OccurredUtc, then reverse to chronological)
+        var arcCompletions = summaries
+            .Where(s => s.SummaryType == DreamGenClone.Domain.RolePlay.EncounterSummaryType.ArcCompletion)
+            .OrderByDescending(s => s.OccurredUtc)
+            .Take(effectiveArcCompletions)
+            .OrderBy(s => s.OccurredUtc)
+            .ToList();
+
+        // Phase milestones: only current arc, take most recent N (DESC, then reverse)
+        var milestones = summaries
+            .Where(s => s.SummaryType == DreamGenClone.Domain.RolePlay.EncounterSummaryType.PhaseMilestone && s.CycleIndex == currentCycleIndex)
+            .OrderByDescending(s => s.OccurredUtc)
+            .Take(effectiveMilestones)
+            .OrderBy(s => s.OccurredUtc)
+            .ToList();
+
+        if (arcCompletions.Count == 0 && milestones.Count == 0)
+        {
+            return;
+        }
+
+        sb.AppendLine("Session Memory:");
+
+        foreach (var record in arcCompletions)
+        {
+            sb.AppendLine($"[Arc {record.CycleIndex + 1} Complete — {record.CharacterId}]");
+            if (!string.IsNullOrWhiteSpace(record.ActiveSummary))
+            {
+                sb.AppendLine(record.ActiveSummary);
+            }
+        }
+
+        foreach (var record in milestones)
+        {
+            sb.AppendLine($"[{record.FromPhase} → {record.ToPhase} — {record.CharacterId}]");
+            if (!string.IsNullOrWhiteSpace(record.ActiveSummary))
+            {
+                sb.AppendLine(record.ActiveSummary);
+            }
+        }
     }
 
     private static void AppendActiveThemeContract(StringBuilder sb, RPTheme? activeTheme, string phase)

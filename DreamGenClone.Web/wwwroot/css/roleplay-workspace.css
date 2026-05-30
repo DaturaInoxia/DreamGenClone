@@ -1337,6 +1337,81 @@ article:has(.rw-shell) {
     font-weight: 600;
 }
 
+/* ---- Character memory entries (encounter summaries) ---- */
+.rw-char-memory-section {
+    margin-top: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.rw-char-memory-heading {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: #7a8899;
+    margin-bottom: 2px;
+}
+
+.rw-char-memory-entry {
+    border-radius: 5px;
+    padding: 6px 9px;
+    font-size: 0.8rem;
+    line-height: 1.45;
+}
+
+.rw-char-memory-arc {
+    background: #1b2233;
+    border: 1px solid #2e4068;
+}
+
+.rw-char-memory-milestone {
+    background: #1c1e25;
+    border: 1px solid #2c303d;
+}
+
+.rw-char-memory-meta {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    flex-wrap: wrap;
+    margin-bottom: 4px;
+}
+
+.rw-char-memory-type {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    color: #8899bb;
+}
+
+.rw-char-memory-arc-label {
+    font-size: 10px;
+    color: #6a7888;
+}
+
+.rw-char-memory-phases {
+    font-size: 10px;
+    color: #5d6878;
+    font-style: italic;
+}
+
+.rw-char-memory-enhanced {
+    font-size: 10px;
+    color: #8ab4d4;
+    cursor: default;
+}
+
+.rw-char-memory-text {
+    color: #c8cdd8;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+/* ---- end character memory ---- */
+
 .rw-stat-current-lower {
     color: #d68f8f;
     font-weight: 600;

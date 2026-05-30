@@ -51,6 +51,7 @@ builder.Services.Configure<StoryAnalysisOptions>(builder.Configuration.GetSectio
 builder.Services.Configure<ScenarioAdaptationOptions>(builder.Configuration.GetSection(ScenarioAdaptationOptions.SectionName));
 builder.Services.Configure<RolePlayDecisionOptions>(builder.Configuration.GetSection(RolePlayDecisionOptions.SectionName));
 builder.Services.Configure<RolePlayFeatureFlagsOptions>(builder.Configuration.GetSection(RolePlayFeatureFlagsOptions.SectionName));
+builder.Services.Configure<RolePlayMemoryOptions>(builder.Configuration.GetSection(RolePlayMemoryOptions.SectionName));
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
@@ -115,6 +116,7 @@ builder.Services.AddScoped<IThemeMachineResolutionService, ThemeMachineResolutio
 builder.Services.AddScoped<IThemeMachineEvaluator, ThemeMachineEvaluator>();
 builder.Services.AddScoped<IRPThemeService, RPThemeService>();
 builder.Services.AddScoped<IRolePlayStateRepository, RolePlayStateRepository>();
+builder.Services.AddScoped<IEncounterSummaryService, EncounterSummaryService>();
 builder.Services.AddScoped<ISemanticInteractionAnalysisRepository, SemanticInteractionAnalysisRepository>();
 builder.Services.AddScoped<IRolePlayDiagnosticsRepository, RolePlayDiagnosticsRepository>();
 builder.Services.AddScoped<IRolePlayDiagnosticsService, RolePlayDiagnosticsService>();
@@ -185,6 +187,7 @@ builder.Services.AddHostedService<ModelProcessingWorker>();
 builder.Services.AddSingleton<GenericBackgroundJobQueue>();
 builder.Services.AddSingleton<IBackgroundJobQueue>(sp => sp.GetRequiredService<GenericBackgroundJobQueue>());
 builder.Services.AddScoped<IBackgroundJobHandler, SemanticInteractionAnalysisJobHandler>();
+builder.Services.AddScoped<IBackgroundJobHandler, EncounterSummaryJobHandler>();
 builder.Services.AddHostedService<GenericBackgroundJobWorker>();
 builder.Services.AddSingleton<SemanticBackgroundJobQueue>();
 builder.Services.AddSingleton<ISemanticBackgroundJobQueue>(sp => sp.GetRequiredService<SemanticBackgroundJobQueue>());

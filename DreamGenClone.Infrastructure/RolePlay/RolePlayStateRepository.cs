@@ -585,6 +585,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
         await LoadScenarioHistoryAsync(connection, state, cancellationToken);
         await LoadPairwiseStatsAsync(connection, state, cancellationToken);
         await LoadSemanticEventsAsync(connection, state, cancellationToken);
+        await LoadEncounterSummariesAsync(connection, state, cancellationToken);
 
         // Rebuild the runtime CharacterStats dictionary so callers can use dict-style access
         // without re-parsing CharacterSnapshots themselves.
@@ -731,6 +732,45 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 Direction = rdr.GetString(4),
                 ThemeTargets = JsonSerializer.Deserialize<List<string>>(rdr.GetString(5)) ?? [],
                 ProcessedUtc = ParseUtcTimestamp(rdr.GetString(6), state.SessionId)
+            });
+        }
+    }
+
+    private static async Task LoadEncounterSummariesAsync(SqliteConnection connection, AdaptiveScenarioState state, CancellationToken cancellationToken)
+    {
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT Id, CharacterId, SummaryType, CycleIndex, FromPhase, ToPhase,
+                   OccurredUtc, InteractionCountInPhase, SceneLocation, ActiveThemeId,
+                   FinishingMoveId, PositionIdsJson, CharacterStatsSnapshotJson,
+                   TemplateSummary, LlmSummary, LlmEnhancedUtc
+            FROM RolePlayV2EncounterSummaries
+            WHERE SessionId = $sessionId
+            ORDER BY OccurredUtc ASC;
+            """;
+        cmd.Parameters.AddWithValue("$sessionId", state.SessionId);
+        await using var rdr = await cmd.ExecuteReaderAsync(cancellationToken);
+        while (await rdr.ReadAsync(cancellationToken))
+        {
+            state.EncounterSummaries.Add(new EncounterSummaryRecord
+            {
+                Id           = rdr.GetString(0),
+                SessionId    = state.SessionId,
+                CharacterId  = rdr.GetString(1),
+                SummaryType  = Enum.Parse<EncounterSummaryType>(rdr.GetString(2)),
+                CycleIndex   = rdr.GetInt32(3),
+                FromPhase    = Enum.Parse<NarrativePhase>(rdr.GetString(4)),
+                ToPhase      = Enum.Parse<NarrativePhase>(rdr.GetString(5)),
+                OccurredUtc  = ParseUtcTimestamp(rdr.GetString(6), state.SessionId),
+                InteractionCountInPhase = rdr.GetInt32(7),
+                SceneLocation           = rdr.IsDBNull(8) ? null : rdr.GetString(8),
+                ActiveThemeId           = rdr.IsDBNull(9) ? null : rdr.GetString(9),
+                FinishingMoveId         = rdr.IsDBNull(10) ? null : rdr.GetString(10),
+                PositionIdsJson         = rdr.IsDBNull(11) ? "[]" : rdr.GetString(11),
+                CharacterStatsSnapshotJson = rdr.IsDBNull(12) ? "{}" : rdr.GetString(12),
+                TemplateSummary         = rdr.IsDBNull(13) ? string.Empty : rdr.GetString(13),
+                LlmSummary              = rdr.IsDBNull(14) ? null : rdr.GetString(14),
+                LlmEnhancedUtc          = rdr.IsDBNull(15) ? null : ParseUtcTimestamp(rdr.GetString(15), state.SessionId)
             });
         }
     }
@@ -1576,6 +1616,99 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
 
         evaluations.Reverse();
         return evaluations;
+    }
+
+    public async Task SaveEncounterSummaryAsync(EncounterSummaryRecord record, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO RolePlayV2EncounterSummaries (
+                Id, SessionId, CharacterId, SummaryType, CycleIndex, FromPhase, ToPhase,
+                OccurredUtc, InteractionCountInPhase, SceneLocation, ActiveThemeId,
+                FinishingMoveId, PositionIdsJson, CharacterStatsSnapshotJson,
+                TemplateSummary, LlmSummary, LlmEnhancedUtc)
+            VALUES (
+                $id, $sessionId, $characterId, $summaryType, $cycleIndex, $fromPhase, $toPhase,
+                $occurredUtc, $interactionCountInPhase, $sceneLocation, $activeThemeId,
+                $finishingMoveId, $positionIdsJson, $characterStatsSnapshotJson,
+                $templateSummary, $llmSummary, $llmEnhancedUtc);
+            """;
+        cmd.Parameters.AddWithValue("$id", record.Id);
+        cmd.Parameters.AddWithValue("$sessionId", record.SessionId);
+        cmd.Parameters.AddWithValue("$characterId", record.CharacterId);
+        cmd.Parameters.AddWithValue("$summaryType", record.SummaryType.ToString());
+        cmd.Parameters.AddWithValue("$cycleIndex", record.CycleIndex);
+        cmd.Parameters.AddWithValue("$fromPhase", record.FromPhase.ToString());
+        cmd.Parameters.AddWithValue("$toPhase", record.ToPhase.ToString());
+        cmd.Parameters.AddWithValue("$occurredUtc", record.OccurredUtc.ToString("O"));
+        cmd.Parameters.AddWithValue("$interactionCountInPhase", record.InteractionCountInPhase);
+        cmd.Parameters.AddWithValue("$sceneLocation", (object?)record.SceneLocation ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$activeThemeId", (object?)record.ActiveThemeId ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$finishingMoveId", (object?)record.FinishingMoveId ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$positionIdsJson", record.PositionIdsJson ?? "[]");
+        cmd.Parameters.AddWithValue("$characterStatsSnapshotJson", record.CharacterStatsSnapshotJson);
+        cmd.Parameters.AddWithValue("$templateSummary", string.IsNullOrEmpty(record.TemplateSummary) ? (object)DBNull.Value : record.TemplateSummary);
+        cmd.Parameters.AddWithValue("$llmSummary", (object?)record.LlmSummary ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$llmEnhancedUtc", record.LlmEnhancedUtc.HasValue ? (object)record.LlmEnhancedUtc.Value.ToString("O") : DBNull.Value);
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    public async Task UpdateEncounterSummaryLlmAsync(string summaryId, string llmSummary, DateTime llmEnhancedUtc, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = """
+            UPDATE RolePlayV2EncounterSummaries
+            SET LlmSummary = $llmSummary, LlmEnhancedUtc = $llmEnhancedUtc
+            WHERE Id = $id;
+            """;
+        cmd.Parameters.AddWithValue("$id", summaryId);
+        cmd.Parameters.AddWithValue("$llmSummary", llmSummary);
+        cmd.Parameters.AddWithValue("$llmEnhancedUtc", llmEnhancedUtc.ToString("O"));
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<EncounterSummaryRecord>> LoadEncounterSummariesForSessionAsync(string sessionId, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        var results = new List<EncounterSummaryRecord>();
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT Id, CharacterId, SummaryType, CycleIndex, FromPhase, ToPhase,
+                   OccurredUtc, InteractionCountInPhase, SceneLocation, ActiveThemeId,
+                   FinishingMoveId, PositionIdsJson, CharacterStatsSnapshotJson,
+                   TemplateSummary, LlmSummary, LlmEnhancedUtc
+            FROM RolePlayV2EncounterSummaries
+            WHERE SessionId = $sessionId
+            ORDER BY OccurredUtc ASC;
+            """;
+        cmd.Parameters.AddWithValue("$sessionId", sessionId);
+        await using var rdr = await cmd.ExecuteReaderAsync(cancellationToken);
+        while (await rdr.ReadAsync(cancellationToken))
+        {
+            results.Add(new EncounterSummaryRecord
+            {
+                Id           = rdr.GetString(0),
+                SessionId    = sessionId,
+                CharacterId  = rdr.GetString(1),
+                SummaryType  = Enum.Parse<EncounterSummaryType>(rdr.GetString(2)),
+                CycleIndex   = rdr.GetInt32(3),
+                FromPhase    = Enum.Parse<NarrativePhase>(rdr.GetString(4)),
+                ToPhase      = Enum.Parse<NarrativePhase>(rdr.GetString(5)),
+                OccurredUtc  = ParseUtcTimestamp(rdr.GetString(6), sessionId),
+                InteractionCountInPhase = rdr.GetInt32(7),
+                SceneLocation           = rdr.IsDBNull(8) ? null : rdr.GetString(8),
+                ActiveThemeId           = rdr.IsDBNull(9) ? null : rdr.GetString(9),
+                FinishingMoveId         = rdr.IsDBNull(10) ? null : rdr.GetString(10),
+                PositionIdsJson         = rdr.IsDBNull(11) ? "[]" : rdr.GetString(11),
+                CharacterStatsSnapshotJson = rdr.IsDBNull(12) ? "{}" : rdr.GetString(12),
+                TemplateSummary         = rdr.IsDBNull(13) ? string.Empty : rdr.GetString(13),
+                LlmSummary              = rdr.IsDBNull(14) ? null : rdr.GetString(14),
+                LlmEnhancedUtc          = rdr.IsDBNull(15) ? null : ParseUtcTimestamp(rdr.GetString(15), sessionId)
+            });
+        }
+        return results;
     }
 
     private async Task<SqliteConnection> OpenConnectionAsync(CancellationToken cancellationToken)
