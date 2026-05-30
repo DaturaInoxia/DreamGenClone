@@ -46,6 +46,7 @@
 @inject IRolePlayDebugEventSink RolePlayDebugEventSink
 @inject ISemanticInteractionAnalysisRepository SemanticInteractionAnalysisRepository
 @inject IRolePlayStateRepository RolePlayStateRepository
+@inject IRolePlaySubmissionTracker _tracker
 @implements IAsyncDisposable
 @using System.Globalization
 @using System.Diagnostics
@@ -66,6 +67,14 @@
     private bool _isSubmitting = false;
     private bool _isAwaitingModelResponse = false;
     private string _pendingResponseLabel = string.Empty;
+
+    // Background-submission resilience (B-027)
+    private bool _backgroundSubmissionRunning = false;
+    private bool _resubmitPending = false;
+    private UnifiedPromptSubmission? _resubmitPayload;
+    private string? _resubmitFailureMessage;
+    private bool _resubmitConfirmVisible = false;
+    private PeriodicTimer? _submissionPollTimer;
 
     // Settings panel
     private BehaviorMode _selectedBehaviorMode = BehaviorMode.TakeTurns;
@@ -241,6 +250,58 @@
     protected override async Task OnParametersSetAsync()
     {
         await LoadSessionAsync();
+        await QueryTrackerOnMountAsync();
+    }
+
+    // T018: Reconnect to any in-flight or failed background submission when the component mounts
+    // or when the session parameter changes (navigation return).
+    private async Task QueryTrackerOnMountAsync()
+    {
+        if (string.IsNullOrEmpty(sessionId)) return;
+
+        var entry = _tracker.GetEntry(sessionId);
+        if (entry is null) return;
+
+        if (entry.Status == RolePlaySubmissionStatus.Running)
+        {
+            _backgroundSubmissionRunning = true;
+            // Attach chunk callback so any future streaming chunks reach this component instance.
+            _tracker.AttachChunkCallback(sessionId, OnRolePlayResponseChunkAsync);
+            _tracker.OnJobStatusChanged += OnTrackerStatusChanged;
+            _ = StartSubmissionPollingAsync();
+            Logger.LogInformation(
+                "Reconnected to in-flight background submission on mount: session={SessionId}",
+                sessionId);
+        }
+        else if (entry.Status == RolePlaySubmissionStatus.Failed)
+        {
+            _resubmitPending = true;
+            _resubmitPayload = entry.Payload;
+            _resubmitFailureMessage = entry.FailureMessage;
+        }
+
+        await Task.CompletedTask;
+    }
+
+    // T020: PeriodicTimer fallback — handles the case where OnJobStatusChanged fired before
+    // this component instance was mounted (e.g. completed while navigated away).
+    private async Task StartSubmissionPollingAsync()
+    {
+        _submissionPollTimer?.Dispose();
+        _submissionPollTimer = new PeriodicTimer(TimeSpan.FromSeconds(2));
+        try
+        {
+            while (await _submissionPollTimer.WaitForNextTickAsync())
+            {
+                if (_tracker.GetEntry(sessionId)?.Status != RolePlaySubmissionStatus.Running)
+                {
+                    OnTrackerStatusChanged(sessionId);
+                    break;
+                }
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (ObjectDisposedException) { }
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -3306,6 +3367,14 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
         };
     }
 
+    private static string GetQueueEntryStatusBadgeClass(RolePlaySubmissionStatus status) => status switch
+    {
+        RolePlaySubmissionStatus.Running   => "badge text-bg-primary",
+        RolePlaySubmissionStatus.Completed => "badge text-bg-success",
+        RolePlaySubmissionStatus.Failed    => "badge text-bg-danger",
+        _                                  => "badge text-bg-secondary"
+    };
+
     private static string GetGateStatusBadgeClass(string status)
     {
         if (string.Equals(status, "Open", StringComparison.OrdinalIgnoreCase)
@@ -4293,13 +4362,15 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
         _session is not null &&
         HasPromptText &&
         IsAddIntent &&
-        !_isSubmitting;
+        !_isSubmitting &&
+        !_backgroundSubmissionRunning;
 
     private bool CanSendPrompt =>
         _session is not null &&
         HasPromptText &&
         IsIdentitySelectionValidForIntent &&
-        !_isSubmitting;
+        !_isSubmitting &&
+        !_backgroundSubmissionRunning;
 
     private bool HasPromptText => !string.IsNullOrWhiteSpace(_promptText);
 
@@ -4453,59 +4524,172 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
             return;
         }
 
+        // Block duplicate submissions while a background task is active for this session.
+        if (_tracker.GetEntry(sessionId) is not null)
+        {
+            _statusMessage = "A response is already in progress.";
+            return;
+        }
+
         _isSubmitting = true;
         _statusMessage = string.Empty;
         CloseAllPopups();
 
-        try
+        var awaitsModelResponse = _selectedIntent != PromptIntent.Instruction;
+        if (awaitsModelResponse)
         {
-            var awaitsModelResponse = _selectedIntent != PromptIntent.Instruction;
-            if (awaitsModelResponse)
-            {
-                _isAwaitingModelResponse = true;
-                _pendingResponseLabel = BuildPromptPendingResponseLabel();
-                _pendingResponseText = string.Empty;
-                _pendingResponseBuilder.Clear();
-                _lastPendingResponseRenderAt = DateTime.MinValue;
-                await InvokeAsync(StateHasChanged);
-                await Task.Yield();
-            }
-
-            var submission = new UnifiedPromptSubmission
-            {
-                SessionId = _session!.Id,
-                PromptText = _promptText.Trim(),
-                Intent = _selectedIntent,
-                SelectedIdentityId = _selectedIntent == PromptIntent.Instruction ? string.Empty : (_selectedIdentity?.Id ?? string.Empty),
-                SelectedIdentityType = _selectedIntent == PromptIntent.Instruction ? IdentityOptionSource.Persona : (_selectedIdentity?.SourceType ?? IdentityOptionSource.Persona),
-                CustomIdentityName = string.IsNullOrWhiteSpace(_customIdentityName) ? null : _customIdentityName.Trim(),
-                BehaviorModeAtSubmit = _selectedBehaviorMode,
-                SubmittedVia = SubmissionSource.SendButton
-            };
-
-            Logger.LogInformation(
-                "Role-play prompt submitted from send button: session={SessionId}, intent={Intent}, mode={Mode}",
-                _session.Id,
-                _selectedIntent,
-                _selectedBehaviorMode);
-
-            await RolePlayEngine.SubmitPromptAsync(submission, awaitsModelResponse ? OnRolePlayResponseChunkAsync : null);
-            _promptText = string.Empty;
-            await LoadSessionAsync();
-        }
-        catch (Exception ex)
-        {
-            _statusMessage = $"Error: {ex.Message}";
-            Logger.LogError(ex, "Prompt submission via send failed for session {SessionId}", sessionId);
-        }
-        finally
-        {
-            _isAwaitingModelResponse = false;
-            _pendingResponseLabel = string.Empty;
+            _isAwaitingModelResponse = true;
+            _pendingResponseLabel = BuildPromptPendingResponseLabel();
             _pendingResponseText = string.Empty;
             _pendingResponseBuilder.Clear();
             _lastPendingResponseRenderAt = DateTime.MinValue;
-            _isSubmitting = false;
+            await InvokeAsync(StateHasChanged);
+            await Task.Yield();
+        }
+
+        var submission = new UnifiedPromptSubmission
+        {
+            SessionId = _session!.Id,
+            PromptText = _promptText.Trim(),
+            Intent = _selectedIntent,
+            SelectedIdentityId = _selectedIntent == PromptIntent.Instruction ? string.Empty : (_selectedIdentity?.Id ?? string.Empty),
+            SelectedIdentityType = _selectedIntent == PromptIntent.Instruction ? IdentityOptionSource.Persona : (_selectedIdentity?.SourceType ?? IdentityOptionSource.Persona),
+            CustomIdentityName = string.IsNullOrWhiteSpace(_customIdentityName) ? null : _customIdentityName.Trim(),
+            BehaviorModeAtSubmit = _selectedBehaviorMode,
+            SubmittedVia = SubmissionSource.SendButton
+        };
+
+        Logger.LogInformation(
+            "Role-play prompt submitted from send button: session={SessionId}, intent={Intent}, mode={Mode}",
+            _session.Id,
+            _selectedIntent,
+            _selectedBehaviorMode);
+
+        // Fire the engine task without awaiting — the task will survive page navigation.
+        // CompletionClient wraps the chunk callback defensively so ObjectDisposedException
+        // on component dispose never faults the engine task.
+        var engineTask = RolePlayEngine.SubmitPromptAsync(
+            submission,
+            awaitsModelResponse ? OnRolePlayResponseChunkAsync : null);
+
+        _tracker.TryBeginSubmission(sessionId, submission, engineTask);
+
+        Logger.LogInformation(
+            "Prompt handed to tracker: session={SessionId}, intent={Intent}",
+            sessionId, submission.Intent);
+
+        // Subscribe to tracker status changes so the UI updates when the engine task completes
+        // or fails — whether the component is still mounted or has returned from navigation.
+        _tracker.OnJobStatusChanged += OnTrackerStatusChanged;
+
+        _promptText = string.Empty;
+        _backgroundSubmissionRunning = true;
+        _isSubmitting = false;
+        // _isAwaitingModelResponse remains true — OnTrackerStatusChanged resets it on completion.
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task DismissResubmitAsync()
+    {
+        _tracker.AcknowledgeFailure(sessionId);
+        _resubmitPending = false;
+        _resubmitPayload = null;
+        _resubmitFailureMessage = null;
+        _resubmitConfirmVisible = false;
+        await Task.CompletedTask;
+    }
+
+    private async Task ConfirmResubmitAsync()
+    {
+        if (_resubmitPayload is null) return;
+
+        _tracker.AcknowledgeFailure(sessionId);
+        var submission = _resubmitPayload;
+        _resubmitPending = false;
+        _resubmitPayload = null;
+        _resubmitFailureMessage = null;
+        _resubmitConfirmVisible = false;
+
+        var awaitsModelResponse = submission.Intent != PromptIntent.Instruction;
+        if (awaitsModelResponse)
+        {
+            _isAwaitingModelResponse = true;
+            _pendingResponseLabel = BuildPromptPendingResponseLabel();
+            _pendingResponseText = string.Empty;
+            _pendingResponseBuilder.Clear();
+            _lastPendingResponseRenderAt = DateTime.MinValue;
+        }
+
+        Logger.LogInformation(
+            "Retrying failed background submission: session={SessionId}, intent={Intent}",
+            sessionId, submission.Intent);
+
+        var engineTask = RolePlayEngine.SubmitPromptAsync(
+            submission,
+            awaitsModelResponse ? OnRolePlayResponseChunkAsync : null);
+
+        _tracker.TryBeginSubmission(sessionId, submission, engineTask);
+        _tracker.OnJobStatusChanged += OnTrackerStatusChanged;
+        _backgroundSubmissionRunning = true;
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    // Called by the tracker (on a thread-pool thread) when the engine task completes or fails.
+    private async void OnTrackerStatusChanged(string changedSessionId)
+    {
+        if (changedSessionId != sessionId) return;
+
+        _tracker.OnJobStatusChanged -= OnTrackerStatusChanged;
+        _submissionPollTimer?.Dispose();
+        _submissionPollTimer = null;
+
+        try
+        {
+            await InvokeAsync(async () =>
+            {
+                _backgroundSubmissionRunning = false;
+                _isAwaitingModelResponse = false;
+                _pendingResponseLabel = string.Empty;
+                _pendingResponseText = string.Empty;
+                _pendingResponseBuilder.Clear();
+                _lastPendingResponseRenderAt = DateTime.MinValue;
+
+                var entry = _tracker.GetEntry(sessionId);
+                if (entry?.Status == RolePlaySubmissionStatus.Failed)
+                {
+                    if (entry.IsResubmittable)
+                    {
+                        _resubmitPending = true;
+                        _resubmitPayload = entry.Payload;
+                        _resubmitFailureMessage = entry.FailureMessage;
+                        _statusMessage = "Last response failed — see re-submit option below.";
+                        Logger.LogWarning(
+                            "Background submission failed for session {SessionId}: {FailureMessage}",
+                            sessionId, entry.FailureMessage);
+                    }
+                    else
+                    {
+                        // Non-resubmittable failure (e.g. Continue action): show error inline
+                        // and auto-acknowledge so future submissions are not blocked.
+                        _statusMessage = entry.FailureMessage ?? "Action failed.";
+                        _tracker.AcknowledgeFailure(sessionId);
+                        Logger.LogWarning(
+                            "Continue action failed for session {SessionId}: {FailureMessage}",
+                            sessionId, entry.FailureMessage);
+                    }
+                }
+                else
+                {
+                    await LoadSessionAsync();
+                }
+
+                StateHasChanged();
+            });
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "OnTrackerStatusChanged handler threw for session {SessionId}", sessionId);
         }
     }
 
@@ -6551,34 +6735,42 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
         await InvokeAsync(StateHasChanged);
         await Task.Yield();
 
-        try
+        // Block if a tracker entry already exists (e.g. previous background submission still running).
+        if (_tracker.GetEntry(sessionId) is not null)
         {
-            var result = await RolePlayEngine.ContinueAsAsync(request, OnRolePlayResponseChunkAsync);
-            if (!result.Success)
-            {
-                _statusMessage = result.ValidationError ?? defaultErrorMessage;
-                return false;
-            }
-
-            _statusMessage = string.Empty;
-            await LoadSessionAsync();
-            return true;
-        }
-        catch (Exception ex)
-        {
-            _statusMessage = $"Error: {ex.Message}";
-            Logger.LogError(ex, "Continue action failed for session {SessionId}", sessionId);
+            _statusMessage = "A response is already in progress.";
+            _isSubmitting = false;
+            _isAwaitingModelResponse = false;
+            await InvokeAsync(StateHasChanged);
             return false;
         }
-        finally
+
+        // Synthetic payload for the Queues card display — Continue has no user prompt text.
+        var payload = new UnifiedPromptSubmission
         {
-            _isAwaitingModelResponse = false;
-            _pendingResponseLabel = string.Empty;
-            _pendingResponseText = string.Empty;
-            _pendingResponseBuilder.Clear();
-            _lastPendingResponseRenderAt = DateTime.MinValue;
-            _isSubmitting = false;
-        }
+            SessionId = sessionId,
+            PromptText = string.Empty,
+            Intent = PromptIntent.Message,
+            SelectedIdentityId = string.Empty,
+            BehaviorModeAtSubmit = _selectedBehaviorMode,
+            SubmittedVia = request.TriggeredBy
+        };
+
+        // Fire without awaiting — task survives component dispose (same pattern as Send button / B-027).
+        // isResubmittable: false — Continue failures show inline; no re-submit prompt is offered.
+        var engineTask = RolePlayEngine.ContinueAsAsync(request, OnRolePlayResponseChunkAsync);
+        _tracker.TryBeginSubmission(sessionId, payload, engineTask, isResubmittable: false);
+        _tracker.OnJobStatusChanged += OnTrackerStatusChanged;
+
+        Logger.LogInformation(
+            "Continue action handed to tracker: session={SessionId}, source={TriggeredBy}",
+            sessionId, request.TriggeredBy);
+
+        _isSubmitting = false;
+        _backgroundSubmissionRunning = true;
+        // _isAwaitingModelResponse remains true — OnTrackerStatusChanged resets it on completion.
+        await InvokeAsync(StateHasChanged);
+        return true;
     }
 
     private static string FormatDecisionDeltas(string statDeltaJson)
@@ -7028,6 +7220,13 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
         _finishOptionsGenerationCts?.Cancel();
         _finishOptionsGenerationCts?.Dispose();
         _finishOptionsGenerationCts = null;
+
+        // B-027: detach chunk callback and unsubscribe tracker event so a disposed
+        // component never receives streaming invocations or status change notifications.
+        _tracker.DetachChunkCallback(sessionId);
+        _tracker.OnJobStatusChanged -= OnTrackerStatusChanged;
+        _submissionPollTimer?.Dispose();
+        _submissionPollTimer = null;
 
         if (_resizeInitialized)
         {
@@ -8026,11 +8225,11 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
                                                     <thead>
                                                         <tr class="rw-semantic-event-header">
                                                             <th>Theme</th>
-                                                            <th>Raw</th>
-                                                            <th>Applied</th>
+                                                            <th>Score</th>
+                                                            <th>Δ Applied</th>
+                                                            <th>Δ Raw</th>
                                                             <th>Capped</th>
                                                             <th>Suppressed</th>
-                                                            <th>Reason</th>
                                                         </tr>
                                                     </thead>
                                                     <tbody>
@@ -8038,27 +8237,28 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
                                                         {
                                                             var isPositive = td.AppliedDelta > 0;
                                                             var isSuppressed = td.SuppressedDelta != 0;
+                                                            _session.AdaptiveState.ThemeScores.TryGetValue(td.ThemeId, out var themeScore);
                                                             <tr class="rw-semantic-event-row">
                                                                 <td class="rw-semantic-event-id">@td.ThemeId</td>
-                                                                <td class="rw-semantic-totals-num">@td.RawDelta.ToString("+0.##;-0.##;0")</td>
+                                                                <td class="rw-semantic-totals-num">@(themeScore is not null ? themeScore.Score.ToString("0.##") : "—")</td>
                                                                 <td class="rw-semantic-totals-num @(isPositive ? "rw-totals-pos" : "rw-totals-neg")">@td.AppliedDelta.ToString("+0.##;-0.##;0")</td>
+                                                                <td class="rw-semantic-totals-num">@td.RawDelta.ToString("+0.##;-0.##;0")</td>
                                                                 <td class="rw-semantic-totals-num">@(td.CappedDelta != 0 ? td.CappedDelta.ToString("+0.##;-0.##;0") : "—")</td>
                                                                 <td class="rw-semantic-totals-num @(isSuppressed ? "rw-totals-suppressed" : "")">@(isSuppressed ? td.SuppressedDelta.ToString("0.##") : "—")</td>
-                                                                <td class="rw-semantic-event-evidence">@(td.SuppressionReasonCode ?? "—")</td>
                                                             </tr>
                                                         }
                                                     </tbody>
                                                 </table>
                                             }
+                                            <div class="rw-semantic-totals-section-label">Character stats</div>
                                             @if (sdStatDeltas.Count > 0)
                                             {
-                                                <div class="rw-semantic-totals-section-label">Character stats</div>
                                                 <table class="rw-semantic-event-table">
                                                     <thead>
                                                         <tr class="rw-semantic-event-header">
                                                             <th>Character</th>
                                                             <th>Stat</th>
-                                                            <th>Applied</th>
+                                                            <th>Δ Applied</th>
                                                             <th>Capped</th>
                                                             <th>Suppressed</th>
                                                             <th>Reason</th>
@@ -8080,6 +8280,10 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
                                                         }
                                                     </tbody>
                                                 </table>
+                                            }
+                                            else
+                                            {
+                                                <div class="rw-semantic-detail-empty">No character stat changes recorded for this interaction. Stat history accumulates from the next semantic run onwards.</div>
                                             }
                                             @if (sdThemeDeltas.Count == 0 && sdStatDeltas.Count == 0)
                                             {
@@ -8207,6 +8411,34 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
 
             
             <div class="rw-prompt-area" @onclick:stopPropagation>
+
+                @* T024: Background-processing indicator (B-027) *@
+                @if (_backgroundSubmissionRunning)
+                {
+                    <div class="rw-bg-processing-bar">
+                        <span class="rw-spinner rw-spinner--sm"></span>
+                        <span>Response processing in background…</span>
+                    </div>
+                }
+
+                @* T022/T023: Re-submit banner with optional confirmation step (B-027) *@
+                @if (_resubmitPending)
+                {
+                    <div class="rw-resubmit-bar">
+                        @if (_resubmitConfirmVisible)
+                        {
+                            <span class="rw-resubmit-msg">Retry this response?</span>
+                            <button class="rw-resubmit-btn rw-resubmit-btn--confirm" @onclick="ConfirmResubmitAsync">Yes, retry</button>
+                            <button class="rw-resubmit-btn rw-resubmit-btn--cancel" @onclick="@(() => _resubmitConfirmVisible = false)">Cancel</button>
+                        }
+                        else
+                        {
+                            <span class="rw-resubmit-msg">Last response failed — <span class="rw-resubmit-detail">@_resubmitFailureMessage</span></span>
+                            <button class="rw-resubmit-btn rw-resubmit-btn--retry" @onclick="@(() => _resubmitConfirmVisible = true)">Retry</button>
+                            <button class="rw-resubmit-btn rw-resubmit-btn--dismiss" @onclick="DismissResubmitAsync">Dismiss</button>
+                        }
+                    </div>
+                }
 
                 
                 @if (_intentPopupOpen)
@@ -9743,6 +9975,90 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
                             </div>
                         }
                     </div>
+
+                    <div class="rw-collapsible-section">
+                        @{
+                            var qEntry = _tracker.GetEntry(sessionId);
+                            var qPromptRunning = qEntry?.Status == RolePlaySubmissionStatus.Running
+                                                 || _isAwaitingModelResponse || _isSubmitting;
+                            var qSemAnalyzing = _semanticAnalysisByInteractionId.Values.Count(s => s.Status == SemanticAnalysisStatus.Analyzing);
+                            var qSemErrors = _semanticAnalysisByInteractionId.Values.Count(s => s.Status == SemanticAnalysisStatus.Error);
+                            var qAnyActive = qPromptRunning || qSemAnalyzing > 0;
+                        }
+                        <button type="button" class="rw-collapsible-header" @onclick='() => ToggleAdaptiveSection("queues")'>
+                            <span class="rw-collapsible-chevron @(IsAdaptiveSectionExpanded("queues") ? "is-open" : "")">›</span>
+                            <span class="rw-collapsible-title">Queues</span>
+                            @if (qAnyActive)
+                            {
+                                <span class="badge text-bg-primary" style="margin-left:auto;">Active</span>
+                            }
+                            @if (qSemErrors > 0)
+                            {
+                                <span class="badge text-bg-danger" style="@(qAnyActive ? "" : "margin-left:auto;")">@qSemErrors err</span>
+                            }
+                        </button>
+                        @if (IsAdaptiveSectionExpanded("queues"))
+                        {
+                            <div class="rw-collapsible-body">
+                                <div class="rw-settings-info-row"><span><strong>Prompt Submission</strong></span><span></span></div>
+                                @if (qEntry is not null)
+                                {
+                                    <div class="rw-settings-info-row"><span>Status</span><span class="@GetQueueEntryStatusBadgeClass(qEntry.Status)">@qEntry.Status</span></div>
+                                    <div class="rw-settings-info-row"><span>Intent</span><span>@qEntry.Payload.Intent</span></div>
+                                    <div class="rw-settings-info-row"><span>Started</span><span>@qEntry.StartedUtc.ToString("HH:mm:ss") UTC</span></div>
+                                    @if (qEntry.Status == RolePlaySubmissionStatus.Failed && qEntry.FailureMessage is not null)
+                                    {
+                                        <div class="rw-settings-info-row"><span>Failure</span><span class="rw-fit-score-fail">@qEntry.FailureMessage</span></div>
+                                    }
+                                }
+                                else if (_isAwaitingModelResponse || _isSubmitting)
+                                {
+                                    <div class="rw-settings-info-row"><span>Status</span><span class="badge text-bg-primary">Running</span></div>
+                                    @if (!string.IsNullOrEmpty(_pendingResponseLabel))
+                                    {
+                                        <div class="rw-settings-info-row"><span>Label</span><span>@_pendingResponseLabel</span></div>
+                                    }
+                                }
+                                else
+                                {
+                                    <div class="rw-settings-info-row"><span>Status</span><span>Idle</span></div>
+                                }
+
+                                <div class="rw-settings-info-row" style="margin-top:8px;"><span><strong>Semantic Analysis</strong></span><span></span></div>
+                                @{
+                                    var qSemStates = _semanticAnalysisByInteractionId.Values
+                                        .OrderBy(s => s.Status == SemanticAnalysisStatus.Analyzing ? 0 :
+                                                      s.Status == SemanticAnalysisStatus.Error ? 1 :
+                                                      s.Status == SemanticAnalysisStatus.Idle ? 2 : 3)
+                                        .ThenByDescending(s => s.UpdatedUtc)
+                                        .ToList();
+                                }
+                                @if (qSemStates.Count == 0)
+                                {
+                                    <div class="rw-settings-info-row"><span>States</span><span>None loaded</span></div>
+                                }
+                                else
+                                {
+                                    <div class="rw-settings-info-row"><span>Summary</span><span>@qSemAnalyzing analyzing · @qSemErrors errors · @qSemStates.Count(s => s.Status == SemanticAnalysisStatus.Complete) complete</span></div>
+                                    @foreach (var qState in qSemStates.Take(10))
+                                    {
+                                        var qRowClickable = qState.Status != SemanticAnalysisStatus.Idle;
+                                        <div class="rw-settings-info-row @(qRowClickable ? "rw-queue-sem-row-clickable" : "")"
+                                             style="@(qRowClickable ? "cursor:pointer;" : "")"
+                                             @onclick="@(() => { if (qState.Status != SemanticAnalysisStatus.Idle) ShowSemanticDetail(qState.InteractionId); })">
+                                            <span style="font-size:0.78em;word-break:break-all;">@(qState.InteractionId.Length > 8 ? qState.InteractionId[..8] + "…" : qState.InteractionId)&nbsp;<span style="opacity:0.55;">@(string.IsNullOrEmpty(qState.CharacterId) ? "—" : (qState.CharacterId.Length > 8 ? qState.CharacterId[..8] : qState.CharacterId))</span></span>
+                                            <span class="@GetSemanticStatusBadgeClass(qState.Status)">@qState.Status</span>
+                                        </div>
+                                    }
+                                    @if (qSemStates.Count > 10)
+                                    {
+                                        <div class="rw-adaptive-note">+@(qSemStates.Count - 10) more (showing 10)</div>
+                                    }
+                                }
+                            </div>
+                        }
+                    </div>
+
                 </div>
             }
         }
