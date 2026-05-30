@@ -40,6 +40,8 @@ Auto-generated from all feature plans. Last updated: 2026-03-17
 - SQLite (`DreamGenClone.Web/data/dreamgenclone.dev.db`) — all new tables and migrations in `SqlitePersistence.cs` (development)
 - C# / .NET 9 / Blazor Server + System.Threading.Channels (existing), SemaphoreSlim (BCL), Serilog, Microsoft.Data.Sqlite (existing ADO.NET, no EF Core) (001-semantic-dedicated-model)
 - SQLite via `FunctionModelDefaults` table — one `ALTER TABLE ... ADD COLUMN MaxConcurrentJobs INTEGER NULL` migration (001-semantic-dedicated-model)
+- C# 13 / .NET 9 + Blazor Server (ASP.NET Core 9), `System.Collections.Concurrent`, `System.Threading`, Serilog (027-prompt-queue-continue)
+- In-memory only (singleton `ConcurrentDictionary`); no SQLite for tracker state — exception documented in FR-015 with rationale (027-prompt-queue-continue)
 
 - C# / .NET 9 (`net9.0`) + ASP.NET Core Blazor Server, `Microsoft.Data.Sqlite`, `Microsoft.Extensions.*`, Serilog (`Serilog.AspNetCore`, `Serilog.Settings.Configuration`, sinks/enrichers) (001-roleplay-session-screens)
 
@@ -60,9 +62,9 @@ tests/
 C# / .NET 9 (`net9.0`): Follow standard conventions
 
 ## Recent Changes
+- 027-prompt-queue-continue: Added C# 13 / .NET 9 + Blazor Server (ASP.NET Core 9), `System.Collections.Concurrent`, `System.Threading`, Serilog
+- 027-prompt-queue-continue: Added [e.g., Python 3.11, Swift 5.9, Rust 1.75 or NEEDS CLARIFICATION] + [e.g., FastAPI, UIKit, LLVM or NEEDS CLARIFICATION]
 - 001-semantic-dedicated-model: Added C# / .NET 9 / Blazor Server + System.Threading.Channels (existing), SemaphoreSlim (BCL), Serilog, Microsoft.Data.Sqlite (existing ADO.NET, no EF Core)
-- development: Added C# / .NET 9 + Blazor Server, Microsoft.Data.Sqlite, Serilog, xUnit
-- 001-semantic-telemetry-tests: Added C# on .NET 9 + ASP.NET Core/Blazor host, existing RolePlay services, Serilog, SQLite persistence layer
 
 
 <!-- MANUAL ADDITIONS START -->

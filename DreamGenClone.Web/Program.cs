@@ -190,6 +190,10 @@ builder.Services.AddSingleton<SemanticBackgroundJobQueue>();
 builder.Services.AddSingleton<ISemanticBackgroundJobQueue>(sp => sp.GetRequiredService<SemanticBackgroundJobQueue>());
 builder.Services.AddHostedService<SemanticBackgroundJobWorker>();
 
+// Prompt-queue navigation resilience (B-027)
+builder.Services.AddSingleton<RolePlaySubmissionTracker>();
+builder.Services.AddSingleton<IRolePlaySubmissionTracker>(sp => sp.GetRequiredService<RolePlaySubmissionTracker>());
+
 // Increase SignalR message size for large text editing (combined story text)
 builder.Services.AddSignalR(o => o.MaximumReceiveMessageSize = 1024 * 1024); // 1 MB
 

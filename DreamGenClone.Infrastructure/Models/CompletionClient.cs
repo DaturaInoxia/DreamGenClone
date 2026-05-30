@@ -370,6 +370,21 @@ public sealed class CompletionClient : ICompletionClient
         Func<string, Task> onChunk,
         CancellationToken cancellationToken)
     {
+        // Wrap the chunk callback so that ObjectDisposedException / InvalidOperationException
+        // (thrown when the Blazor component that owns the callback has been disposed due to
+        // page navigation) never fault the engine task.  The wrapper is a no-op after the
+        // first disposal exception, mirroring RolePlayChunkCallbackWrapper behaviour.
+        var safeOnChunk = onChunk;
+        onChunk = async chunk =>
+        {
+            try
+            {
+                await safeOnChunk(chunk).ConfigureAwait(false);
+            }
+            catch (ObjectDisposedException) { }
+            catch (InvalidOperationException) { }
+        };
+
         var startTime = DateTime.UtcNow;
 
         var client = _httpClientFactory.CreateClient("CompletionClient");

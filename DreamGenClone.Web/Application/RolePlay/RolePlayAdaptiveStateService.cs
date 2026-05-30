@@ -708,8 +708,8 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
 
         state.SemanticStepSucceeded = true;
         state.SemanticEvents.Clear();
-        state.SemanticDeltaBreakdowns.Clear();
-        state.SemanticStatDeltaBreakdowns.Clear();
+        // Keep SemanticDeltaBreakdowns and SemanticStatDeltaBreakdowns — they accumulate per-interaction
+        // so the Semantic Analysis modal can show history for any prior interaction in the session.
 
         var matches = SemanticSignalRegex.Matches(interaction.Content ?? string.Empty);
         var inferredCount = inferredSignals?.Count ?? 0;
