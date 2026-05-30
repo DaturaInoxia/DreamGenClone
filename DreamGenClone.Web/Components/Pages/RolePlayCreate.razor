@@ -59,6 +59,13 @@
                         <label class="form-label">Session Title</label>
                         <input class="form-control" @bind="_newSessionTitle" placeholder="Role-Play Session" />
                     </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label">Max milestones to inject <span class="text-muted">(optional)</span></label>
+                        <input type="number" class="form-control" min="0" max="100" placeholder="Global default"
+                               value="@_maxMilestonesToInject"
+                               @onchange="@(e => _maxMilestonesToInject = int.TryParse(e.Value?.ToString(), out var v) ? v : null)" />
+                        <div class="form-text">Overrides the global MaxMilestonesToInject default for this session. Leave blank to use global default.</div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -319,6 +326,7 @@
     // Step 1
     private string _newSessionTitle = "Role-Play Session";
     private string _newSessionScenarioId = string.Empty;
+    private int? _maxMilestonesToInject;
     private readonly List<Scenario> _scenarios = [];
 
     private void OnScenarioSelected(ChangeEventArgs e)
@@ -701,6 +709,7 @@
                 PersonaStatOverrides = new Dictionary<string, int>(_personaStats, StringComparer.OrdinalIgnoreCase),
                 CharacterEncounterProfileIds = new Dictionary<string, string>(_characterEncounterProfileIds, StringComparer.OrdinalIgnoreCase),
                 PersonaPhysicalAttributes = _personaPhysicalAttributes,
+                MaxMilestonesToInject = _maxMilestonesToInject,
             };
 
             var created = await RolePlayEngine.CreateSessionAsync(request);

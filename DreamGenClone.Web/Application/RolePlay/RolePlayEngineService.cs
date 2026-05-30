@@ -166,6 +166,8 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     private readonly IClimaxBeatRepository? _climaxBeatRepository;
     private readonly ISemanticBackgroundJobQueue? _backgroundJobQueue;
     private readonly ISemanticInteractionAnalysisRepository? _semanticInteractionAnalysisRepository;
+    private readonly IEncounterSummaryService? _encounterSummaryService;
+    private readonly IOptions<RolePlayMemoryOptions>? _memoryOptions;
 
     public RolePlayEngineService(
         IRolePlayContinuationService continuationService,
@@ -199,7 +201,9 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         ITemplateService? templateService = null,
         IClimaxBeatRepository? climaxBeatRepository = null,
         ISemanticBackgroundJobQueue? backgroundJobQueue = null,
-        ISemanticInteractionAnalysisRepository? semanticInteractionAnalysisRepository = null)
+        ISemanticInteractionAnalysisRepository? semanticInteractionAnalysisRepository = null,
+        IEncounterSummaryService? encounterSummaryService = null,
+        IOptions<RolePlayMemoryOptions>? memoryOptions = null)
     {
         _continuationService = continuationService;
         _behaviorModeService = behaviorModeService;
@@ -244,6 +248,8 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         _climaxBeatRepository = climaxBeatRepository;
         _backgroundJobQueue = backgroundJobQueue;
         _semanticInteractionAnalysisRepository = semanticInteractionAnalysisRepository;
+        _encounterSummaryService = encounterSummaryService;
+        _memoryOptions = memoryOptions;
     }
 
     public Task<RolePlaySession> CreateSessionAsync(
@@ -288,6 +294,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             PersonaRelationTargetId = CharacterRelationCatalog.NormalizeTargetId(request.PersonaRelationTargetId),
             PersonaPerspectiveMode = CharacterPerspectiveMode.FirstPersonInternalMonologue,
             PersonaPhysicalAttributes = request.PersonaPhysicalAttributes,
+            MaxMilestonesToInject = request.MaxMilestonesToInject,
         };
 
         foreach (var kvp in request.CharacterEncounterProfileIds)
@@ -2893,6 +2900,66 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             if (lifecycle.TransitionEvent is not null)
             {
                 await _stateRepository.SaveTransitionEventAsync(lifecycle.TransitionEvent, cancellationToken);
+
+                if (_encounterSummaryService is not null)
+                {
+                    // Build an allowlist of characters that belong to the scenario and persona.
+                    // CharacterSnapshots may contain names extracted from narrative text that are
+                    // not actual scenario participants — filter those out.
+                    IReadOnlySet<string>? allowedCharacterIds = null;
+                    if (!string.IsNullOrWhiteSpace(session.ScenarioId))
+                    {
+                        var scenarioForSummary = await _scenarioService.GetScenarioAsync(session.ScenarioId);
+                        if (scenarioForSummary is not null)
+                        {
+                            var allowed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                            foreach (var c in scenarioForSummary.Characters)
+                            {
+                                if (!string.IsNullOrWhiteSpace(c.Name))
+                                    allowed.Add(c.Name);
+                            }
+                            if (!string.IsNullOrWhiteSpace(session.PersonaName))
+                                allowed.Add(session.PersonaName);
+                            allowedCharacterIds = allowed;
+                        }
+                    }
+
+                    var summaries = await _encounterSummaryService.GenerateTemplatesAsync(lifecycle.TransitionEvent, v2State, allowedCharacterIds, cancellationToken);
+                    foreach (var summary in summaries)
+                    {
+                        await _encounterSummaryService.SaveAsync(summary, cancellationToken);
+                        v2State.EncounterSummaries.Add(summary);
+                    }
+                    if (summaries.Count > 0)
+                    {
+                        _logger.LogInformation(
+                            "Encounter summaries written: {Count} records for session {SessionId} cycle {CycleIndex} transition {FromPhase}→{ToPhase}",
+                            summaries.Count, session.Id, v2State.CycleIndex,
+                            lifecycle.TransitionEvent.FromPhase, lifecycle.TransitionEvent.ToPhase);
+                    }
+
+                    if (_backgroundJobQueue is not null
+                        && _memoryOptions?.Value.EnableLlmSummaryEnhancement == true)
+                    {
+                        foreach (var summary in summaries)
+                        {
+                            _backgroundJobQueue.Enqueue(
+                                BackgroundJobTypes.EncounterSummaryEnhancement,
+                                JsonSerializer.Serialize(new EncounterSummaryJobPayload
+                                {
+                                    SessionId   = session.Id,
+                                    CycleIndex  = v2State.CycleIndex,
+                                    SummaryId   = summary.Id,
+                                    SummaryType = summary.SummaryType.ToString()
+                                }),
+                                dedupeKey: $"enc-summary:{session.Id}:{summary.Id}");
+                        }
+                        _logger.LogInformation(
+                            "Enqueued {Count} encounter summary enhancement job(s) for session {SessionId} cycle {CycleIndex} transition {FromPhase}→{ToPhase}",
+                            summaries.Count, session.Id, v2State.CycleIndex,
+                            lifecycle.TransitionEvent.FromPhase, lifecycle.TransitionEvent.ToPhase);
+                    }
+                }
             }
 
             if (lifecycle.TargetPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.Reset)
@@ -3597,6 +3664,15 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         {
             session.AdaptiveState.CharacterSnapshots = snapshot.CharacterSnapshots;
             session.AdaptiveState.RebuildCharacterStatsCache();
+        }
+
+        // Always refresh encounter summaries from the V2 table snapshot. The LLM enhancement
+        // job writes LlmSummary asynchronously after the session was last saved to PayloadJson,
+        // so the PayloadJson copy may be stale (LlmSummary=null). The V2 snapshot is the
+        // authoritative, up-to-date source.
+        if (snapshot.EncounterSummaries.Count > 0)
+        {
+            session.AdaptiveState.EncounterSummaries = snapshot.EncounterSummaries;
         }
     }
 
@@ -7808,6 +7884,9 @@ Requirements:
         public Task<IReadOnlyList<DreamGenClone.Domain.RolePlay.UnsupportedSessionError>> LoadUnsupportedSessionErrorsAsync(string sessionId, int take = 20, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<DreamGenClone.Domain.RolePlay.UnsupportedSessionError>>([]);
         public Task SaveThemeMachineDiagnosticEventsAsync(IReadOnlyList<DreamGenClone.Domain.RolePlay.ThemeMachineDiagnosticEvent> events, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task<IReadOnlyList<DreamGenClone.Domain.RolePlay.ThemeMachineDiagnosticEvent>> LoadThemeMachineDiagnosticEventsAsync(string sessionId, int take = 100, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<DreamGenClone.Domain.RolePlay.ThemeMachineDiagnosticEvent>>([]);
+        public Task SaveEncounterSummaryAsync(DreamGenClone.Domain.RolePlay.EncounterSummaryRecord record, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task UpdateEncounterSummaryLlmAsync(string summaryId, string llmSummary, DateTime llmEnhancedUtc, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task<IReadOnlyList<DreamGenClone.Domain.RolePlay.EncounterSummaryRecord>> LoadEncounterSummariesForSessionAsync(string sessionId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<DreamGenClone.Domain.RolePlay.EncounterSummaryRecord>>([]);
     }
 }
 

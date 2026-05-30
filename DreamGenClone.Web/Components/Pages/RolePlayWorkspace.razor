@@ -9879,6 +9879,33 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
                                                             </div>
                                                         }
                                                     </div>
+                                                    @{
+                                                        var charMemory = (_v2State?.EncounterSummaries ?? [])
+                                                            .Where(s => string.Equals(s.CharacterId, actorStats.CharacterId, StringComparison.OrdinalIgnoreCase))
+                                                            .OrderBy(s => s.OccurredUtc)
+                                                            .ToList();
+                                                    }
+                                                    @if (charMemory.Count > 0)
+                                                    {
+                                                        <div class="rw-char-memory-section">
+                                                            <div class="rw-char-memory-heading">Memory (@charMemory.Count)</div>
+                                                            @foreach (var mem in charMemory)
+                                                            {
+                                                                <div class="rw-char-memory-entry @(mem.SummaryType == DreamGenClone.Domain.RolePlay.EncounterSummaryType.ArcCompletion ? "rw-char-memory-arc" : "rw-char-memory-milestone")">
+                                                                    <div class="rw-char-memory-meta">
+                                                                        <span class="rw-char-memory-type">@(mem.SummaryType == DreamGenClone.Domain.RolePlay.EncounterSummaryType.ArcCompletion ? "Arc" : "Milestone")</span>
+                                                                        <span class="rw-char-memory-arc-label">Arc @(mem.CycleIndex + 1)</span>
+                                                                        <span class="rw-char-memory-phases">@mem.FromPhase → @mem.ToPhase</span>
+                                                                        @if (mem.IsEnhanced)
+                                                                        {
+                                                                            <span class="rw-char-memory-enhanced" title="LLM-enhanced prose">✦</span>
+                                                                        }
+                                                                    </div>
+                                                                    <div class="rw-char-memory-text">@mem.ActiveSummary</div>
+                                                                </div>
+                                                            }
+                                                        </div>
+                                                    }
                                                 </div>
                                             }
                                         </div>

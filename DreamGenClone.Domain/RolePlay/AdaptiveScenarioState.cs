@@ -143,6 +143,13 @@ public sealed class AdaptiveScenarioState
 
     /// <summary>Stat delta breakdowns. Persisted in <c>RolePlayV2AdaptiveStates.SemanticStatDeltaBreakdownsJson</c>.</summary>
     public List<SemanticStatDeltaRecord> SemanticStatDeltaBreakdowns { get; set; } = [];
+
+    // ---- Encounter summaries ---------------------------------------------------------------
+    /// <summary>
+    /// Per-character encounter summaries loaded from RolePlayV2EncounterSummaries.
+    /// Populated at session load; updated in-memory when new summaries are written.
+    /// </summary>
+    public List<EncounterSummaryRecord> EncounterSummaries { get; set; } = [];
 }
 
 public sealed class CharacterLocationState

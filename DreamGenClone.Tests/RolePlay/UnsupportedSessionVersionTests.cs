@@ -98,5 +98,9 @@ public sealed class UnsupportedSessionVersionTests
 
         public Task<IReadOnlyList<ThemeMachineDiagnosticEvent>> LoadThemeMachineDiagnosticEventsAsync(string sessionId, int take = 100, CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyList<ThemeMachineDiagnosticEvent>>([]);
+
+        public Task SaveEncounterSummaryAsync(EncounterSummaryRecord record, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task UpdateEncounterSummaryLlmAsync(string summaryId, string llmSummary, DateTime llmEnhancedUtc, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task<IReadOnlyList<EncounterSummaryRecord>> LoadEncounterSummariesForSessionAsync(string sessionId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<EncounterSummaryRecord>>([]);
     }
 }

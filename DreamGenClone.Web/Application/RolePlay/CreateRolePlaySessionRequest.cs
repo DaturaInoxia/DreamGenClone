@@ -52,4 +52,11 @@ public sealed class CreateRolePlaySessionRequest
 
     /// <summary>Optional physical appearance data for the POV persona.</summary>
     public DreamGenClone.Domain.Templates.PhysicalAttributes? PersonaPhysicalAttributes { get; init; }
+
+    /// <summary>
+    /// Optional per-session override for the maximum number of phase milestones to inject into
+    /// the continuation prompt. When null, the global <c>RolePlayMemoryOptions.MaxMilestonesToInject</c>
+    /// default is used.
+    /// </summary>
+    public int? MaxMilestonesToInject { get; init; }
 }

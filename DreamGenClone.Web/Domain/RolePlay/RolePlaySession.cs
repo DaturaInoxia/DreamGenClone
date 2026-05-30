@@ -199,6 +199,12 @@ public sealed class RolePlaySession
     /// <summary>Currently selected assistant chat thread ID.</summary>
     public string? ActiveAssistantChatId { get; set; }
 
+    /// <summary>
+    /// Per-session override for the number of phase milestones to inject into prompts.
+    /// Null means use the global RolePlayMemoryOptions.MaxMilestonesToInject default.
+    /// </summary>
+    public int? MaxMilestonesToInject { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public DateTime ModifiedAt { get; set; } = DateTime.UtcNow;
