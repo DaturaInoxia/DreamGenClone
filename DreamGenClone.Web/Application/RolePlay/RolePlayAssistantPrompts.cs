@@ -123,6 +123,18 @@ public static class RolePlayAssistantPrompts
         foreach (var (label, frameText) in guidance.CharacterBehavioralFrames)
         {
             promptBuilder.AppendLine($"HARD CONSTRAINT — {label} behavioral frame (authoritative, overrides all theme notes and guidance): {frameText}");
+            if (guidance.CharacterStatStateTexts.TryGetValue(label, out var statStateText))
+            {
+                promptBuilder.AppendLine($"HARD CONSTRAINT — {label} current state (authoritative, overrides all theme notes and guidance): {statStateText}");
+            }
+        }
+
+        foreach (var (label, statStateText) in guidance.CharacterStatStateTexts)
+        {
+            if (!guidance.CharacterBehavioralFrames.ContainsKey(label))
+            {
+                promptBuilder.AppendLine($"HARD CONSTRAINT — {label} current state (authoritative, overrides all theme notes and guidance): {statStateText}");
+            }
         }
 
         if (guidance.ExcludedScenarioIds.Count > 0)

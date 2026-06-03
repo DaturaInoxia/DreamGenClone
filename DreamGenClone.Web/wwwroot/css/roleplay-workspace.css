@@ -1337,6 +1337,55 @@ article:has(.rw-shell) {
     font-weight: 600;
 }
 
+/* ---- Stat prompt text display ---- */
+.rw-stat-prompt-section {
+    margin-top: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.rw-stat-prompt-heading {
+    font-size: 10px;
+    font-weight: 600;
+    color: #7f7f7f;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 2px;
+}
+
+.rw-stat-prompt-row {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 5px 8px;
+    background: #181818;
+    border-radius: 4px;
+    border-left: 2px solid #3a6a4a;
+}
+
+.rw-stat-prompt-row-neutral {
+    border-left-color: #2c2c2c;
+}
+
+.rw-stat-prompt-name {
+    font-size: 10px;
+    font-weight: 600;
+    color: #9a9ab8;
+}
+
+.rw-stat-prompt-text {
+    font-size: 11px;
+    color: #b8b8c4;
+    line-height: 1.45;
+}
+
+.rw-stat-prompt-neutral {
+    font-size: 11px;
+    color: #474750;
+    font-style: italic;
+}
+
 /* ---- Character memory entries (encounter summaries) ---- */
 .rw-char-memory-section {
     margin-top: 12px;
@@ -1995,8 +2044,18 @@ article:has(.rw-shell) {
 /* ─── Interaction Info Popup ─── */
 
 .rw-modal-info {
-    min-width: 380px;
-    max-width: 520px;
+    width: min(92vw, 540px);
+    max-width: min(92vw, 540px);
+    max-height: calc(100vh - 40px);
+    display: flex;
+    flex-direction: column;
+}
+
+.rw-modal-info .rw-modal-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
 }
 
 /* ─── Semantic Detail Modal ─── */
@@ -2201,13 +2260,17 @@ article:has(.rw-shell) {
     font-size: 13px;
     color: #d4d4d4;
     text-align: right;
+    word-break: break-word;
+    overflow-wrap: anywhere;
 }
 
 .rw-info-value-mono {
     font-family: 'Consolas', 'Menlo', monospace;
     font-size: 11px;
     color: #91d6e4;
-    word-break: break-all;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
 }
 
 /* ─── Delete Alternative Confirmation ─── */

@@ -23,6 +23,7 @@
 @using Microsoft.Extensions.Options
 
 @inject IRolePlayEngineService RolePlayEngine
+@inject IRolePlayAdaptiveStateService AdaptiveStateService
 @inject IRolePlayBranchService RolePlayBranchService
 @inject IInteractionCommandService InteractionCommandService
 @inject IInteractionRetryService InteractionRetryService
@@ -519,6 +520,17 @@
             if (string.IsNullOrWhiteSpace(_session.SelectedIntensityProfileId) && !string.IsNullOrWhiteSpace(_loadedScenario.DefaultIntensityProfileId))
             {
                 _session.SelectedIntensityProfileId = _loadedScenario.DefaultIntensityProfileId;
+                sessionUpdated = true;
+            }
+
+            // Clear a stale SelectedIntensityProfileId that points to a non-selectable profile
+            // (e.g. Atmospheric/Intro, which is excluded from the dropdown). This can happen when
+            // old code wrote the resolved intensity — which could be Intro — back into the field.
+            if (!string.IsNullOrWhiteSpace(_session.SelectedIntensityProfileId)
+                && _intensityProfilesById.Count > 0
+                && !_intensityProfilesById.ContainsKey(_session.SelectedIntensityProfileId))
+            {
+                _session.SelectedIntensityProfileId = null;
                 sessionUpdated = true;
             }
 
@@ -1517,14 +1529,14 @@
         }
 
         _session.AdaptiveState ??= new AdaptiveScenarioState();
-        if (string.IsNullOrWhiteSpace(profileId))
-        {
-            _session.AdaptiveState.CharacterEncounterProfileIds.Remove(characterId);
-        }
-        else
-        {
-            _session.AdaptiveState.CharacterEncounterProfileIds[characterId] = profileId;
-        }
+        var profile = _characterProfiles.FirstOrDefault(x =>
+            string.Equals(x.Id, profileId, StringComparison.OrdinalIgnoreCase));
+        AdaptiveStateService.RebindEncounterProfile(
+            _session.AdaptiveState,
+            characterId,
+            profileId,
+            profile?.EncounterStats,
+            profile?.TargetRole);
 
         await SaveSessionSettingsAsync();
     }
@@ -2086,8 +2098,6 @@
         var state = _session.AdaptiveState;
         var desire = GetAverageAdaptiveStat(state, "Desire");
         var restraint = GetAverageAdaptiveStat(state, "Restraint");
-        var tension = GetAverageAdaptiveStat(state, "Tension");
-        var connection = GetAverageAdaptiveStat(state, "Connection");
         var dominance = GetAverageAdaptiveStat(state, "Dominance");
         var loyalty = GetAverageAdaptiveStat(state, "Loyalty");
         var selfRespect = GetAverageAdaptiveStat(state, "SelfRespect");
@@ -2101,7 +2111,7 @@
         rows.Add(new PhaseGateRow(
             "Session Stats Snapshot",
             "Live",
-            $"Desire={desire:0.0}, Restraint={restraint:0.0}, Tension={tension:0.0}, Connection={connection:0.0}, Dominance={dominance:0.0}, Loyalty={loyalty:0.0}, SelfRespect={selfRespect:0.0}, ActiveScenarioScore={activeScenarioScore:0.0} ({activeScenarioScoreSource}), CompletedScenarios={state.CompletedScenarios}."));
+            $"Desire={desire:0.0}, Restraint={restraint:0.0}, Dominance={dominance:0.0}, Loyalty={loyalty:0.0}, SelfRespect={selfRespect:0.0}, ActiveScenarioScore={activeScenarioScore:0.0} ({activeScenarioScoreSource}), CompletedScenarios={state.CompletedScenarios}."));
 
         var desireGapToStageA = Math.Max(0, stageALowDesireMin - desire);
         rows.Add(new PhaseGateRow(
@@ -2125,8 +2135,6 @@
             var interactionCount = _v2State?.InteractionCountInPhase ?? state.InteractionCountInPhase;
             var averageDesire = GetAverageAdaptiveStat(state, "Desire");
             var averageRestraint = GetAverageAdaptiveStat(state, "Restraint");
-            var averageTension = GetAverageAdaptiveStat(state, "Tension");
-            var averageConnection = GetAverageAdaptiveStat(state, "Connection");
             var averageDominance = GetAverageAdaptiveStat(state, "Dominance");
             var averageLoyalty = GetAverageAdaptiveStat(state, "Loyalty");
             var averageSelfRespect = GetAverageAdaptiveStat(state, "SelfRespect");
@@ -2136,8 +2144,6 @@
                 [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.InteractionsSinceCommitment] = interactionCount,
                 [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageDesire] = (decimal)averageDesire,
                 [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageRestraint] = (decimal)averageRestraint,
-                [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageTension] = (decimal)averageTension,
-                [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageConnection] = (decimal)averageConnection,
                 [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageDominance] = (decimal)averageDominance,
                 [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageLoyalty] = (decimal)averageLoyalty,
                 [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageSelfRespect] = (decimal)averageSelfRespect
@@ -2397,14 +2403,13 @@
         var state = _session.AdaptiveState;
         var desire = GetAverageAdaptiveStat(state, "Desire");
         var restraint = GetAverageAdaptiveStat(state, "Restraint");
-        var tension = GetAverageAdaptiveStat(state, "Tension");
         var activeScenarioScore = GetLifecycleActiveScenarioScore(state, out _);
         var effectiveInteractionsSinceCommitment = GetEffectiveInteractionsSinceCommitment(state);
         var effectiveInteractionsInApproaching = GetEffectiveInteractionsInApproaching(state, effectiveInteractionsSinceCommitment);
 
         return state.CurrentPhase switch
         {
-            NarrativePhase.BuildUp => BuildBuildUpProgress(state, desire, restraint, tension),
+            NarrativePhase.BuildUp => BuildBuildUpProgress(state, desire, restraint),
             NarrativePhase.Committed => BuildCommittedProgress(state, activeScenarioScore, desire, restraint, effectiveInteractionsSinceCommitment),
             NarrativePhase.Approaching => BuildApproachingProgress(state, activeScenarioScore, desire, restraint, effectiveInteractionsInApproaching),
             NarrativePhase.Climax => new PhaseProgressInfo(
@@ -2416,7 +2421,7 @@
         };
     }
 
-    private PhaseProgressInfo BuildBuildUpProgress(AdaptiveScenarioState state, double desire, double restraint, double tension)
+    private PhaseProgressInfo BuildBuildUpProgress(AdaptiveScenarioState state, double desire, double restraint)
     {
         var nextPhase = "Committed";
 
@@ -2470,8 +2475,6 @@
             [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.InteractionsSinceCommitment] = interactionCount,
             [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageDesire] = (decimal)GetAverageAdaptiveStat(_session.AdaptiveState, "Desire"),
             [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageRestraint] = (decimal)GetAverageAdaptiveStat(_session.AdaptiveState, "Restraint"),
-            [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageTension] = (decimal)GetAverageAdaptiveStat(_session.AdaptiveState, "Tension"),
-            [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageConnection] = (decimal)GetAverageAdaptiveStat(_session.AdaptiveState, "Connection"),
             [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageDominance] = (decimal)GetAverageAdaptiveStat(_session.AdaptiveState, "Dominance"),
             [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageLoyalty] = (decimal)GetAverageAdaptiveStat(_session.AdaptiveState, "Loyalty"),
             [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageSelfRespect] = (decimal)GetAverageAdaptiveStat(_session.AdaptiveState, "SelfRespect")
@@ -3176,15 +3179,19 @@
 
     private static double GetAverageAdaptiveStat(AdaptiveScenarioState state, string statName)
     {
-        if (state.CharacterStats.Count == 0)
+        // Only scenario-bound characters (those with a CharacterRole) contribute to averages.
+        // Incidental characters mentioned in narrative have no role and must not affect gating.
+        var tracked = state.CharacterStats.Values
+            .Where(x => !string.IsNullOrEmpty(x.CharacterRole))
+            .ToList();
+        if (tracked.Count == 0)
         {
             return AdaptiveStatCatalog.DefaultValue;
         }
 
-        var values = state.CharacterStats.Values
+        return tracked
             .Select(x => CharacterStatProfileV2Accessor.GetStatOrDefault(x, statName, AdaptiveStatCatalog.DefaultValue))
-            .ToList();
-        return values.Average();
+            .Average();
     }
 
     private double GetLifecycleActiveScenarioScore(AdaptiveScenarioState state, out string source)
@@ -3491,6 +3498,27 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
             // Per user requirement: Apply resets the baseline too — the new profile becomes
             // the reference point for Base column display and Reset-phase decay target.
             liveBlock.BaselineStats = new Dictionary<string, int>(character.BaseStats, StringComparer.OrdinalIgnoreCase);
+
+            // Re-seed RuntimeEncounterStats from the encounter profile that was seeded at session creation.
+            if (_session.AdaptiveState.CharacterEncounterProfileIds.TryGetValue(character.Id, out var applyEncProfileId)
+                && !string.IsNullOrWhiteSpace(applyEncProfileId))
+            {
+                var encProfile = _characterProfiles.FirstOrDefault(p =>
+                    string.Equals(p.Id, applyEncProfileId, StringComparison.OrdinalIgnoreCase));
+                if (encProfile?.EncounterStats is { Count: > 0 })
+                {
+                    var applyRole = CharacterRoleCatalog.Normalize(character.Role);
+                    var dims = BehavioralDimensionCatalog.GetDimensions(applyRole);
+                    if (dims.Count > 0)
+                    {
+                        liveBlock.RuntimeEncounterStats = dims.ToDictionary(
+                            d => d.Name,
+                            d => encProfile.EncounterStats.TryGetValue(d.Name, out var v) ? v : 50,
+                            StringComparer.OrdinalIgnoreCase);
+                    }
+                }
+            }
+
             liveBlock.UpdatedUtc = DateTime.UtcNow;
         }
 
@@ -3545,7 +3573,14 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
             block = CharacterStatProfileV2Accessor.CreateDefault(actorKey);
             _session.AdaptiveState.CharacterStats[actorKey] = block;
         }
+        var oldValue = CharacterStatProfileV2Accessor.GetStatOrDefault(block, statName, AdaptiveStatCatalog.DefaultValue);
         CharacterStatProfileV2Accessor.SetStat(block, statName, parsed);
+        var delta = parsed - oldValue;
+        if (delta != 0 && _session.AdaptiveState.CharacterRoles.TryGetValue(actorKey, out var role))
+        {
+            block.RuntimeEncounterStats ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            StatToDimensionMappings.ApplyDelta(block.RuntimeEncounterStats, role, statName, delta);
+        }
         block.UpdatedUtc = DateTime.UtcNow;
         MarkSessionStatsDirty();
     }
@@ -3564,35 +3599,40 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
         SetCharacterLiveSessionStat(key, statName, rawValue);
     }
 
-    private (string BaselineProfile, string MigratingToProfile) GetCharacterProfileAlignment(string actorName, CharacterStatProfileV2 profile)
+    private string GetBaselineCharacterProfile(string actorName)
     {
-        var actorRole = ResolveCharacterRole(actorName);
-        var candidateProfiles = _characterProfiles
-            .Where(x => CharacterRoleCatalog.IsProfileApplicableToCharacter(x.TargetRole, actorRole))
-            .ToList();
+        if (_session is null)
+            return "(no session)";
 
-        if (candidateProfiles.Count == 0)
+        // Resolve the encounter-profile selection the user made at session creation.
+        // Key is character.Id for scenario characters, "__persona__" for the persona,
+        // and the persona block's CharacterId equals session.PersonaName.
+        var profileIds = _session.AdaptiveState.CharacterEncounterProfileIds;
+        string? selectedProfileId = null;
+
+        var personaName = string.IsNullOrWhiteSpace(_session.PersonaName) ? "You" : _session.PersonaName;
+        if (string.Equals(actorName, personaName, StringComparison.OrdinalIgnoreCase))
         {
-            return ("(set role + matching profile)", "(set role + matching profile)");
+            profileIds.TryGetValue("__persona__", out selectedProfileId);
+        }
+        else
+        {
+            // actorName here is the character's runtime key (the name). Map to character.Id via the scenario.
+            var characterId = _loadedScenario?.Characters
+                .FirstOrDefault(c => string.Equals(c.Name?.Trim(), actorName, StringComparison.OrdinalIgnoreCase))
+                ?.Id;
+            if (!string.IsNullOrWhiteSpace(characterId))
+            {
+                profileIds.TryGetValue(characterId!, out selectedProfileId);
+            }
         }
 
-        var reference = ResolveCharacterReferenceStats(actorName);
-        var currentStats = AdaptiveStatCatalog.CanonicalStatNames
-            .ToDictionary(n => n, n => CharacterStatProfileV2Accessor.GetStatOrDefault(profile, n), StringComparer.OrdinalIgnoreCase);
-        var normalizedCurrent = AdaptiveStatCatalog.NormalizeComplete(currentStats);
-        var baseline = candidateProfiles
-            .Select(p => new { Profile = p, Distance = CalculateProfileDistance(reference, p.CharacterStats) })
-            .OrderBy(x => x.Distance)
-            .ThenBy(x => x.Profile.Name, StringComparer.OrdinalIgnoreCase)
-            .First();
-        var projected = ProjectTrend(normalizedCurrent, reference);
-        var migrating = candidateProfiles
-            .Select(p => new { Profile = p, Distance = CalculateProfileDistance(projected, p.CharacterStats) })
-            .OrderBy(x => x.Distance)
-            .ThenBy(x => x.Profile.Name, StringComparer.OrdinalIgnoreCase)
-            .First();
+        if (string.IsNullOrWhiteSpace(selectedProfileId))
+            return "(none selected)";
 
-        return (baseline.Profile.Name, migrating.Profile.Name);
+        var profile = _characterProfiles.FirstOrDefault(p =>
+            string.Equals(p.Id, selectedProfileId, StringComparison.OrdinalIgnoreCase));
+        return profile?.Name ?? "(profile not found)";
     }
 
     private int GetCharacterBaselineStatValue(string actorName, string statName)
@@ -3635,6 +3675,41 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
         }
 
         return delta > 0 ? $"+{delta}" : delta.ToString(CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>
+    /// Resolves the associated encounter profile and returns the baseline dimension value
+    /// from that profile's EncounterStats. Returns null if no profile is bound or the dimension
+    /// isn't in the profile.
+    /// </summary>
+    private int? GetBaselineEncounterDimensionValue(string actorName, string dimensionName)
+    {
+        if (_session is null) return null;
+
+        var profileIds = _session.AdaptiveState.CharacterEncounterProfileIds;
+        string? selectedProfileId = null;
+
+        var personaName = string.IsNullOrWhiteSpace(_session.PersonaName) ? "You" : _session.PersonaName;
+        if (string.Equals(actorName, personaName, StringComparison.OrdinalIgnoreCase))
+        {
+            profileIds.TryGetValue("__persona__", out selectedProfileId);
+        }
+        else
+        {
+            var characterId = _loadedScenario?.Characters
+                .FirstOrDefault(c => string.Equals(c.Name?.Trim(), actorName, StringComparison.OrdinalIgnoreCase))
+                ?.Id;
+            if (!string.IsNullOrWhiteSpace(characterId))
+                profileIds.TryGetValue(characterId!, out selectedProfileId);
+        }
+
+        if (string.IsNullOrWhiteSpace(selectedProfileId)) return null;
+
+        var profile = _characterProfiles.FirstOrDefault(p =>
+            string.Equals(p.Id, selectedProfileId, StringComparison.OrdinalIgnoreCase));
+        if (profile?.EncounterStats is not { Count: > 0 }) return null;
+
+        return profile.EncounterStats.TryGetValue(dimensionName, out var val) ? val : null;
     }
 
     private sealed record StatIndicator(string Label, string CssClass, string Tooltip);
@@ -3957,6 +4032,27 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
             _session.AdaptiveState.CharacterStats[personaKey] = block;
         }
         CharacterStatProfileV2Accessor.SetAllStats(block, normalizedStats);
+
+        // Re-seed RuntimeEncounterStats from the encounter profile that was seeded at session creation.
+        if (_session.AdaptiveState.CharacterEncounterProfileIds.TryGetValue("__persona__", out var personaApplyEncProfileId)
+            && !string.IsNullOrWhiteSpace(personaApplyEncProfileId))
+        {
+            var encProfile = _characterProfiles.FirstOrDefault(p =>
+                string.Equals(p.Id, personaApplyEncProfileId, StringComparison.OrdinalIgnoreCase));
+            if (encProfile?.EncounterStats is { Count: > 0 })
+            {
+                var personaApplyRole = CharacterRoleCatalog.Normalize(_session.PersonaRole);
+                var dims = BehavioralDimensionCatalog.GetDimensions(personaApplyRole);
+                if (dims.Count > 0)
+                {
+                    block.RuntimeEncounterStats = dims.ToDictionary(
+                        d => d.Name,
+                        d => encProfile.EncounterStats.TryGetValue(d.Name, out var v) ? v : 50,
+                        StringComparer.OrdinalIgnoreCase);
+                }
+            }
+        }
+
         block.UpdatedUtc = DateTime.UtcNow;
         MarkSessionStatsDirty();
     }
@@ -4207,59 +4303,6 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
         return AdaptiveStatCatalog.CreateDefaultStatMap();
     }
 
-    private static Dictionary<string, int> ProjectTrend(
-        IReadOnlyDictionary<string, int> current,
-        IReadOnlyDictionary<string, int> reference)
-    {
-        var projected = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var statName in AdaptiveStatCatalog.CanonicalStatNames)
-        {
-            var currentValue = current.TryGetValue(statName, out var value)
-                ? value
-                : AdaptiveStatCatalog.DefaultValue;
-            var referenceValue = reference.TryGetValue(statName, out var baseline)
-                ? baseline
-                : AdaptiveStatCatalog.DefaultValue;
-
-            var delta = currentValue - referenceValue;
-            var projectedValue = currentValue;
-            if (delta > 0)
-            {
-                projectedValue += 5;
-            }
-            else if (delta < 0)
-            {
-                projectedValue -= 5;
-            }
-
-            projected[statName] = Math.Clamp(projectedValue, AdaptiveStatCatalog.MinValue, AdaptiveStatCatalog.MaxValue);
-        }
-
-        return projected;
-    }
-
-    private static int CalculateProfileDistance(
-        IReadOnlyDictionary<string, int> left,
-        IReadOnlyDictionary<string, int> right)
-    {
-        var normalizedRight = AdaptiveStatCatalog.NormalizeComplete(right);
-        var distance = 0;
-
-        foreach (var statName in AdaptiveStatCatalog.CanonicalStatNames)
-        {
-            var leftValue = left.TryGetValue(statName, out var value)
-                ? value
-                : AdaptiveStatCatalog.DefaultValue;
-            var rightValue = normalizedRight.TryGetValue(statName, out var comparison)
-                ? comparison
-                : AdaptiveStatCatalog.DefaultValue;
-            distance += Math.Abs(leftValue - rightValue);
-        }
-
-        return distance;
-    }
-
     private (string Label, string Reason) ResolveEffectiveStyle(RolePlaySession session)
     {
         IntensityLevel? selectedIntensityLevel = IntensityLevel.SuggestivePg12;
@@ -4287,12 +4330,15 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
             return null;
         }
 
-        if (_session.IsIntensityManuallyPinned)
+        // Only return the ID if it is actually present in the selectable set (Intro/Atmospheric
+        // is excluded from the dropdown). A stale non-selectable ID shows as blank; treat as null.
+        var id = _session.SelectedIntensityProfileId;
+        if (!string.IsNullOrWhiteSpace(id) && _intensityProfilesById.ContainsKey(id))
         {
-            return _session.SelectedIntensityProfileId;
+            return id;
         }
 
-        return GetResolvedIntensityProfileId(_session) ?? _session.SelectedIntensityProfileId;
+        return null;
     }
 
     private string? GetResolvedIntensityProfileId(RolePlaySession session)
@@ -4320,14 +4366,9 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
         session.LastResolvedIntensityReason = reason;
         session.LastResolvedIntensityUtc = DateTime.UtcNow;
 
-        if (!session.IsIntensityManuallyPinned)
-        {
-            var resolvedProfileId = GetResolvedIntensityProfileId(session);
-            if (!string.IsNullOrWhiteSpace(resolvedProfileId))
-            {
-                session.SelectedIntensityProfileId = resolvedProfileId;
-            }
-        }
+        // Do NOT overwrite SelectedIntensityProfileId here. It is the user's explicitly chosen
+        // base profile and must only change via OnIntensityProfileChanged. Overwriting it with
+        // the resolved/adaptive value would corrupt the escalation baseline on every save.
     }
 
     private static int GetTierPriority(ThemeTier tier)
@@ -4947,68 +4988,14 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
             currentPhase,
             commandText);
 
-        _nextPhaseOptionSubmitting = true;
-        _isSubmitting = true;
-        _isAwaitingModelResponse = false;
-        _pendingResponseLabel = string.Empty;
-        _pendingResponseText = string.Empty;
-        _pendingResponseBuilder.Clear();
-        _lastPendingResponseRenderAt = DateTime.MinValue;
-        _nextPhaseOptionError = string.Empty;
+        // Load the command text into the prompt input so the user can review, edit,
+        // and submit it manually with Continue rather than executing immediately.
         _nextPhasePopupOpen = false;
+        _nextPhaseOptionError = string.Empty;
+        _promptText = commandText;
+        _nextPhaseOptions.Clear();
+        _selectedNextPhaseOption = string.Empty;
         await InvokeAsync(StateHasChanged);
-
-        try
-        {
-            var phaseBeforeSubmit = currentPhase;
-            var submission = new UnifiedPromptSubmission
-            {
-                SessionId = _session.Id,
-                PromptText = commandText,
-                Intent = PromptIntent.Instruction,
-                SelectedIdentityId = string.Empty,
-                SelectedIdentityType = IdentityOptionSource.Persona,
-                CustomIdentityName = null,
-                BehaviorModeAtSubmit = _selectedBehaviorMode,
-                SubmittedVia = SubmissionSource.SendButton
-            };
-
-            await RolePlayEngine.SubmitPromptAsync(submission, onChunk: null);
-            await LoadSessionAsync();
-
-            var phaseAfterSubmit = _v2State?.CurrentPhase;
-            if (phaseAfterSubmit.HasValue && phaseAfterSubmit.Value == phaseBeforeSubmit)
-            {
-                _nextPhaseOptionError = currentPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.Climax
-                    ? "Phase did not advance. Climax requires completion and may still be gated by state constraints."
-                    : "Phase did not advance. Check transition gates and try again.";
-                _nextPhasePopupOpen = true;
-                Logger.LogWarning(
-                    "Next Phase command completed without transition in UI: SessionId={SessionId} Phase={Phase} Command={Command}",
-                    _session?.Id,
-                    phaseAfterSubmit,
-                    commandText);
-                return;
-            }
-
-            _nextPhaseOptions.Clear();
-            _selectedNextPhaseOption = string.Empty;
-        }
-        catch (Exception ex)
-        {
-            _nextPhaseOptionError = ex.Message;
-            Logger.LogError(ex, "Failed applying next-phase option for session {SessionId}", _session.Id);
-        }
-        finally
-        {
-            _isAwaitingModelResponse = false;
-            _pendingResponseLabel = string.Empty;
-            _pendingResponseText = string.Empty;
-            _pendingResponseBuilder.Clear();
-            _lastPendingResponseRenderAt = DateTime.MinValue;
-            _isSubmitting = false;
-            _nextPhaseOptionSubmitting = false;
-        }
     }
 
     private Task OpenSteerPopupAsync()
@@ -5978,74 +5965,27 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
             return;
         }
 
-        _steerOptionSubmitting = true;
-        _isSubmitting = true;
-        _isAwaitingModelResponse = false;
-        _pendingResponseLabel = string.Empty;
-        _pendingResponseText = string.Empty;
-        _pendingResponseBuilder.Clear();
-        _lastPendingResponseRenderAt = DateTime.MinValue;
-        _steerOptionError = string.Empty;
-        _steerPopupOpen = false;
-        await InvokeAsync(StateHasChanged);
-
-        try
+        // Load the command text into the prompt input so the user can review, edit,
+        // and submit it manually with Continue rather than executing immediately.
+        var selectedOption = _selectedSteerOption.Trim();
+        var positionInstruction = string.Empty;
+        if (_steerUseGuidedFlow)
         {
-            var selectedOption = _selectedSteerOption.Trim();
-            var positionInstruction = string.Empty;
-            if (_steerUseGuidedFlow)
+            positionInstruction = BuildSteerPositionInstructionSnippet();
+            if (string.IsNullOrWhiteSpace(positionInstruction))
             {
-                positionInstruction = BuildSteerPositionInstructionSnippet();
-                if (string.IsNullOrWhiteSpace(positionInstruction))
-                {
-                    positionInstruction = "State an explicit physical position and orientation in the steer instruction.";
-                }
-
-                selectedOption = $"{selectedOption} [Position instruction: {positionInstruction}]";
+                positionInstruction = "State an explicit physical position and orientation in the steer instruction.";
             }
-
-            Logger.LogInformation(
-                "Applying steer option for session {SessionId}: mode={Mode}, option={Option}, positionInstruction={PositionInstruction}",
-                _session.Id,
-                _steerUseGuidedFlow ? "Position" : "Direction",
-                _selectedSteerOption,
-                string.IsNullOrWhiteSpace(positionInstruction) ? "(none)" : positionInstruction);
-
-            var submission = new UnifiedPromptSubmission
-            {
-                SessionId = _session.Id,
-                PromptText = string.IsNullOrWhiteSpace(selectedOption)
-                    ? "/steer"
-                    : $"/steer {selectedOption}",
-                Intent = PromptIntent.Instruction,
-                SelectedIdentityId = string.Empty,
-                SelectedIdentityType = IdentityOptionSource.Persona,
-                CustomIdentityName = null,
-                BehaviorModeAtSubmit = _selectedBehaviorMode,
-                SubmittedVia = SubmissionSource.SendButton
-            };
-
-            await RolePlayEngine.SubmitPromptAsync(submission, onChunk: null);
-            _steerOptionPages.Clear();
-            _steerPageIndex = 0;
-            _selectedSteerOption = string.Empty;
-            await LoadSessionAsync();
+            selectedOption = $"{selectedOption} [Position instruction: {positionInstruction}]";
         }
-        catch (Exception ex)
-        {
-            _steerOptionError = ex.Message;
-            Logger.LogError(ex, "Failed applying steer option for session {SessionId}", _session.Id);
-        }
-        finally
-        {
-            _isAwaitingModelResponse = false;
-            _pendingResponseLabel = string.Empty;
-            _pendingResponseText = string.Empty;
-            _pendingResponseBuilder.Clear();
-            _lastPendingResponseRenderAt = DateTime.MinValue;
-            _isSubmitting = false;
-            _steerOptionSubmitting = false;
-        }
+
+        _steerPopupOpen = false;
+        _steerOptionError = string.Empty;
+        _promptText = string.IsNullOrWhiteSpace(selectedOption) ? "/steer" : $"/steer {selectedOption}";
+        _steerOptionPages.Clear();
+        _steerPageIndex = 0;
+        _selectedSteerOption = string.Empty;
+        await InvokeAsync(StateHasChanged);
     }
 
     private async Task CloseFinishPopup()
@@ -6402,59 +6342,21 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
             return;
         }
 
-        _finishOptionSubmitting = true;
-        _isSubmitting = true;
-        _isAwaitingModelResponse = false;
-        _pendingResponseLabel = string.Empty;
-        _pendingResponseText = string.Empty;
-        _pendingResponseBuilder.Clear();
-        _lastPendingResponseRenderAt = DateTime.MinValue;
-        _finishOptionError = string.Empty;
+        // Load the command text into the prompt input so the user can review, edit,
+        // and submit it manually with Continue rather than executing immediately.
+        var directive = _selectedFinishOption.Trim();
+        var promptText = _finishEndClimax
+            ? $"/completeclimax {directive}"
+            : (_finishUseGuidedFlow ? directive : BuildThirdPersonWriteInstruction(directive));
+
         _finishPopupOpen = false;
+        _finishOptionError = string.Empty;
+        _promptText = promptText;
+        _finishOptionPages.Clear();
+        _finishPageIndex = 0;
+        _finishGenerationIndex = 0;
+        _selectedFinishOption = string.Empty;
         await InvokeAsync(StateHasChanged);
-
-        try
-        {
-            var directive = _selectedFinishOption.Trim();
-            var promptText = _finishEndClimax
-                ? $"/completeclimax {directive}"
-                : (_finishUseGuidedFlow ? directive : BuildThirdPersonWriteInstruction(directive));
-
-            var submission = new UnifiedPromptSubmission
-            {
-                SessionId = _session.Id,
-                PromptText = promptText,
-                Intent = PromptIntent.Instruction,
-                SelectedIdentityId = string.Empty,
-                SelectedIdentityType = IdentityOptionSource.Persona,
-                CustomIdentityName = null,
-                BehaviorModeAtSubmit = _selectedBehaviorMode,
-                SubmittedVia = SubmissionSource.SendButton
-            };
-
-            await RolePlayEngine.SubmitPromptAsync(submission, onChunk: null);
-
-            _finishOptionPages.Clear();
-            _finishPageIndex = 0;
-            _finishGenerationIndex = 0;
-            _selectedFinishOption = string.Empty;
-            await LoadSessionAsync();
-        }
-        catch (Exception ex)
-        {
-            _finishOptionError = ex.Message;
-            Logger.LogError(ex, "Failed applying finish option for session {SessionId}", _session.Id);
-        }
-        finally
-        {
-            _isAwaitingModelResponse = false;
-            _pendingResponseLabel = string.Empty;
-            _pendingResponseText = string.Empty;
-            _pendingResponseBuilder.Clear();
-            _lastPendingResponseRenderAt = DateTime.MinValue;
-            _isSubmitting = false;
-            _finishOptionSubmitting = false;
-        }
     }
 
     private string BuildThirdPersonWriteInstruction(string directive)
@@ -8076,7 +7978,38 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
                                             }
                                             @if (!string.IsNullOrWhiteSpace(infoSemanticState?.ResultJson))
                                             {
-                                                <div class="rw-info-row rw-settings-info-row-block"><span class="rw-info-label">Semantic Details</span><span class="rw-info-value rw-info-value-mono">@infoSemanticState.ResultJson</span></div>
+                                                @try
+                                                {
+                                                    var parsedResult = JsonSerializer.Deserialize<JsonElement>(infoSemanticState.ResultJson);
+                                                    <div class="rw-info-row"><span class="rw-info-label">Events Inferred</span><span class="rw-info-value">@(parsedResult.TryGetProperty("inferredEventCount", out var ec) ? ec.GetInt32() : 0)</span></div>
+                                                    <div class="rw-info-row"><span class="rw-info-label">Context Turns</span><span class="rw-info-value">@(parsedResult.TryGetProperty("contextTurnsCount", out var ct) ? ct.GetInt32() : 0)</span></div>
+                                                    @if (parsedResult.TryGetProperty("inferredEvents", out var eventsEl) && eventsEl.GetArrayLength() > 0)
+                                                    {
+                                                        <div class="rw-info-row rw-settings-info-row-block">
+                                                            <span class="rw-info-label">Inferred Events</span>
+                                                            <span class="rw-info-value">
+                                                                @foreach (var ev in eventsEl.EnumerateArray())
+                                                                {
+                                                                    var evId = ev.TryGetProperty("eventId", out var eid) ? eid.GetString() : "?";
+                                                                    var evConf = ev.TryGetProperty("confidence", out var ec2) ? ec2.GetDecimal().ToString("F2") : "?";
+                                                                    var evActor = ev.TryGetProperty("actorName", out var ea) && ea.ValueKind != JsonValueKind.Null ? ea.GetString() : null;
+                                                                    var evSpan = ev.TryGetProperty("evidenceSpan", out var es) && es.ValueKind != JsonValueKind.Null ? es.GetString() : null;
+                                                                    <div class="rw-info-value-mono" style="margin-bottom:2px">
+                                                                        @evId — conf: @evConf@(evActor is not null ? $" | actor: {evActor}" : "")@(evSpan is not null ? $" | \"{evSpan}\"" : "")
+                                                                    </div>
+                                                                }
+                                                            </span>
+                                                        </div>
+                                                    }
+                                                    @if (parsedResult.TryGetProperty("inferenceRawOutput", out var raw) && !string.IsNullOrWhiteSpace(raw.GetString()))
+                                                    {
+                                                        <div class="rw-info-row rw-settings-info-row-block"><span class="rw-info-label">Raw Output</span><span class="rw-info-value rw-info-value-mono">@raw.GetString()</span></div>
+                                                    }
+                                                }
+                                                catch
+                                                {
+                                                    <div class="rw-info-row rw-settings-info-row-block"><span class="rw-info-label">Semantic Details</span><span class="rw-info-value rw-info-value-mono">@infoSemanticState.ResultJson</span></div>
+                                                }
                                             }
                                             <div class="rw-info-row"><span class="rw-info-label">Word Count</span><span class="rw-info-value">@(string.IsNullOrWhiteSpace(infoInteraction.Content) ? 0 : infoInteraction.Content.Trim().Split((char[])null!, StringSplitOptions.RemoveEmptyEntries).Length)</span></div>
                                             @if (infoInteraction.ParentInteractionId is not null)
@@ -9175,6 +9108,16 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
                                                 </div>
                                             </div>
                                             @{
+                                                var charEncProfileId = _session?.AdaptiveState?.CharacterEncounterProfileIds.GetValueOrDefault(character.Id) ?? string.Empty;
+                                                var charEncProfileName = string.IsNullOrWhiteSpace(charEncProfileId)
+                                                    ? "(none)"
+                                                    : _characterProfiles.FirstOrDefault(p => string.Equals(p.Id, charEncProfileId, StringComparison.OrdinalIgnoreCase))?.Name ?? "(none)";
+                                            }
+                                            <div class="rw-scenario-field">
+                                                <label class="rw-scenario-field-label">Encounter Profile (seeded)</label>
+                                                <span class="rw-adaptive-note">@charEncProfileName</span>
+                                            </div>
+                                            @{
                                                 var charActorKey = character.Name?.Trim() ?? string.Empty;
                                                 var charHasLiveStats = !string.IsNullOrWhiteSpace(charActorKey)
                                                     && _v2State?.CharacterSnapshots?.Any(c => string.Equals(c.CharacterId, charActorKey, StringComparison.OrdinalIgnoreCase)) == true;
@@ -9289,6 +9232,16 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
                                             </select>
                                             <button class="btn btn-outline-primary" type="button" @onclick="ApplyPersonaProfile">Apply</button>
                                         </div>
+                                    </div>
+                                    @{
+                                        var personaEncProfileIdDisplay = _session?.AdaptiveState?.CharacterEncounterProfileIds.GetValueOrDefault("__persona__") ?? string.Empty;
+                                        var personaEncProfileNameDisplay = string.IsNullOrWhiteSpace(personaEncProfileIdDisplay)
+                                            ? "(none)"
+                                            : _characterProfiles.FirstOrDefault(p => string.Equals(p.Id, personaEncProfileIdDisplay, StringComparison.OrdinalIgnoreCase))?.Name ?? "(none)";
+                                    }
+                                    <div class="rw-scenario-field">
+                                        <label class="rw-scenario-field-label">Encounter Profile (seeded)</label>
+                                        <span class="rw-adaptive-note">@personaEncProfileNameDisplay</span>
                                     </div>
                                     @{
                                         var personaStatKey = string.IsNullOrWhiteSpace(_session.PersonaName) ? "You" : _session.PersonaName;
@@ -9432,30 +9385,6 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
                                         }
                                     </select>
                                 </div>
-                                @if (_loadedScenario is not null)
-                                {
-                                    @foreach (var character in _loadedScenario.Characters.Where(c => !string.IsNullOrWhiteSpace(c.Name) && !string.Equals(c.Role, "Any", StringComparison.OrdinalIgnoreCase)))
-                                    {
-                                        var charId = character.Id;
-                                        var charRole = character.Role;
-                                        var charName = character.Name ?? charId;
-                                        var applicableProfiles = _characterProfiles
-                                            .Where(p => CharacterRoleCatalog.IsProfileApplicableToCharacter(p.TargetRole, charRole))
-                                            .ToList();
-                                        var currentProfileId = _session?.AdaptiveState?.CharacterEncounterProfileIds.GetValueOrDefault(charId) ?? string.Empty;
-                                        <div class="rw-scenario-field">
-                                            <label class="rw-scenario-field-label">@charName Encounter Profile</label>
-                                            <select class="rw-mode-select" value="@currentProfileId"
-                                                    @onchange="@(e => OnCharacterEncounterProfileChanged(charId, e.Value?.ToString() ?? string.Empty))">
-                                                <option value="">(None)</option>
-                                                @foreach (var profile in applicableProfiles)
-                                                {
-                                                    <option value="@profile.Id">@profile.Name</option>
-                                                }
-                                            </select>
-                                        </div>
-                                    }
-                                }
                                 <div class="rw-settings-info-row"><span>Selected Intensity Profile</span><span>@GetSelectedIntensityProfileName()</span></div>
                                 <div class="rw-settings-info-row"><span>Adaptive Intensity Profile</span><span>@GetAdaptiveIntensityProfileName()</span></div>
                                 <div class="rw-settings-info-row"><span>Resolved Intensity</span><span>@GetEffectiveStyleLabel()</span></div>
@@ -9844,7 +9773,7 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
                                     }
                                     @foreach (var actorStats in (_v2State?.CharacterSnapshots ?? []).OrderBy(c => c.CharacterId))
                                     {
-                                        var alignment = GetCharacterProfileAlignment(actorStats.CharacterId, actorStats);
+                                        var baselineProfile = GetBaselineCharacterProfile(actorStats.CharacterId);
                                         var characterExpanded = _expandedAdaptiveCharacterStats.Contains(actorStats.CharacterId);
                                         <div class="rw-collapsible-section" style="margin-bottom:10px;">
                                             <button type="button" class="rw-collapsible-header" @onclick='() => ToggleAdaptiveCharacterStatsCharacter(actorStats.CharacterId)'>
@@ -9854,8 +9783,7 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
                                             @if (characterExpanded)
                                             {
                                                 <div class="rw-collapsible-body">
-                                                    <div class="rw-settings-info-row"><span>Baseline Character Stat Profile</span><span>@alignment.BaselineProfile</span></div>
-                                                    <div class="rw-settings-info-row"><span>Migrating Toward</span><span>@alignment.MigratingToProfile</span></div>
+                                                    <div class="rw-settings-info-row"><span>Baseline Character Stat Profile</span><span>@baselineProfile</span></div>
                                                     <div class="rw-stat-grid" role="table" aria-label="Baseline and current character stats">
                                                         <div class="rw-stat-grid-header" role="row">
                                                             <span class="rw-stat-cell rw-stat-col-name" role="columnheader">Stat</span>
@@ -9879,6 +9807,71 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
                                                             </div>
                                                         }
                                                     </div>
+                                                    @{
+                                                        var charRole = ResolveCharacterRole(actorStats.CharacterId);
+                                                    }
+                                                    <div class="rw-stat-prompt-section">
+                                                        <div class="rw-stat-prompt-heading">Stat Prompt Texts</div>
+                                                        @foreach (var pStatName in AdaptiveStatCatalog.CanonicalStatNames)
+                                                        {
+                                                            var pValue = GetCharacterStatValue(actorStats, pStatName);
+                                                            var pText = CharacterStatTextCatalog.ResolveText(pStatName, charRole, pValue);
+                                                            <div class="rw-stat-prompt-row">
+                                                                <span class="rw-stat-prompt-name">@pStatName (@pValue)</span>
+                                                                @if (pText is null)
+                                                                {
+                                                                    <span class="rw-stat-prompt-neutral">no catalog entry for @pStatName/@charRole</span>
+                                                                }
+                                                                else
+                                                                {
+                                                                    <span class="rw-stat-prompt-text">@pText</span>
+                                                                }
+                                                            </div>
+                                                        }
+                                                    </div>
+                                                    @{
+                                                        var bDims = !string.IsNullOrWhiteSpace(actorStats.CharacterRole)
+                                                            ? BehavioralDimensionCatalog.GetDimensions(actorStats.CharacterRole)
+                                                            : null;
+                                                    }
+                                                    @if (bDims is { Count: > 0 })
+                                                    {
+                                                        <div class="rw-stat-prompt-section">
+                                                            <div class="rw-stat-prompt-heading">Behavioral Dimensions (@actorStats.CharacterRole)</div>
+                                                            @if (actorStats.RuntimeEncounterStats is not { Count: > 0 })
+                                                            {
+                                                                <div class="rw-stat-prompt-row rw-stat-prompt-row-neutral">
+                                                                    <span class="rw-stat-prompt-neutral">not yet initialized — will seed on first stat mutation</span>
+                                                                </div>
+                                                            }
+                                                            else
+                                                            {
+                                                                <div class="rw-stat-grid" role="table" aria-label="Behavioral dimension drift">
+                                                                    <div class="rw-stat-grid-header" role="row">
+                                                                        <span class="rw-stat-cell rw-stat-col-name" role="columnheader">Dimension</span>
+                                                                        <span class="rw-stat-cell rw-stat-col-baseline" role="columnheader">Base</span>
+                                                                        <span class="rw-stat-cell rw-stat-col-current" role="columnheader">Curr</span>
+                                                                        <span class="rw-stat-cell rw-stat-col-fit" role="columnheader">Δ</span>
+                                                                        <span class="rw-stat-cell rw-stat-col-gate" role="columnheader">Tier</span>
+                                                                    </div>
+                                                                    @foreach (var bDim in bDims)
+                                                                    {
+                                                                        var bVal = actorStats.RuntimeEncounterStats.TryGetValue(bDim.Name, out var bv) ? bv : 50;
+                                                                        var bTier = BehavioralDimensionCatalog.ResolveTierText(actorStats.CharacterRole!, bDim.Name, bVal);
+                                                                        var bBase = GetBaselineEncounterDimensionValue(actorStats.CharacterId, bDim.Name);
+                                                                        var displayBaseline = bBase ?? 50;
+                                                                        <div class="rw-stat-grid-row" role="row">
+                                                                            <span class="rw-stat-cell rw-stat-col-name" role="cell">@bDim.Name</span>
+                                                                            <span class="rw-stat-cell rw-stat-col-baseline" role="cell">@displayBaseline</span>
+                                                                            <span class="@GetCharacterStatDeltaClass(bVal, displayBaseline) rw-stat-col-current" role="cell">@bVal</span>
+                                                                            <span class="rw-stat-cell rw-stat-col-fit" role="cell">@FormatCharacterStatDelta(bVal, displayBaseline)</span>
+                                                                            <span class="rw-stat-cell rw-stat-col-gate" role="cell" title="@bTier">@(bVal <= 20 ? "B1" : bVal <= 50 ? "B2" : bVal <= 75 ? "B3" : "B4")</span>
+                                                                        </div>
+                                                                    }
+                                                                </div>
+                                                            }
+                                                        </div>
+                                                    }
                                                     @{
                                                         var charMemory = (_v2State?.EncounterSummaries ?? [])
                                                             .Where(s => string.Equals(s.CharacterId, actorStats.CharacterId, StringComparison.OrdinalIgnoreCase))

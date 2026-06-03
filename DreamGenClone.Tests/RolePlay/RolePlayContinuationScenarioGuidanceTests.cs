@@ -26,8 +26,6 @@ public sealed class RolePlayContinuationScenarioGuidanceTests
             VariantId: null,
             AverageDesire: 70,
             AverageRestraint: 35,
-            AverageTension: 50,
-            AverageConnection: 50,
             AverageDominance: 50,
             AverageLoyalty: 50,
             SelectedWillingnessProfileId: null,
@@ -48,7 +46,8 @@ public sealed class RolePlayContinuationScenarioGuidanceTests
             ActiveScenarioId: "dominance",
             GuidanceText: "Deliver culmination",
             ExcludedScenarioIds: ["infidelity", "voyeurism"],
-            CharacterBehavioralFrames: new Dictionary<string, string>());
+            CharacterBehavioralFrames: new Dictionary<string, string>(),
+            CharacterStatStateTexts: new Dictionary<string, string>());
 
         var guards = RolePlayAssistantPrompts.BuildFramingGuards("Climax", "dominance");
         RolePlayAssistantPrompts.AppendScenarioGuidance(builder, guidance, guards);
@@ -211,6 +210,7 @@ public sealed class RolePlayContinuationScenarioGuidanceTests
         public Task<IReadOnlyDictionary<string, string>> GenerateFramesAsync(
             IReadOnlyDictionary<string, string> characterEncounterProfileIds,
             IReadOnlyList<ScenarioCharacter> characters,
+            IReadOnlyDictionary<string, CharacterStatProfileV2>? characterRuntimeStats = null,
             CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyDictionary<string, string>>(new Dictionary<string, string>());
     }

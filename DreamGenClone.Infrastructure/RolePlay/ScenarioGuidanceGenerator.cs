@@ -56,8 +56,6 @@ public sealed class ScenarioGuidanceGenerator : IScenarioGuidanceGenerator
         var statInterpretation = BuildStatInterpretation(
             request.AverageDesire,
             request.AverageRestraint,
-            request.AverageTension,
-            request.AverageConnection,
             request.AverageDominance,
             request.AverageLoyalty);
         var guidanceText = string.IsNullOrWhiteSpace(statInterpretation)
@@ -146,8 +144,6 @@ public sealed class ScenarioGuidanceGenerator : IScenarioGuidanceGenerator
     private static string BuildStatInterpretation(
         double averageDesire,
         double averageRestraint,
-        double averageTension,
-        double averageConnection,
         double averageDominance,
         double averageLoyalty)
     {
@@ -171,24 +167,6 @@ public sealed class ScenarioGuidanceGenerator : IScenarioGuidanceGenerator
             notes.Add("Low restraint supports impulse-driven escalation.");
         }
 
-        if (averageConnection >= 70)
-        {
-            notes.Add("High connection supports trust-forward interactions and emotional openness.");
-        }
-        else if (averageConnection <= 35)
-        {
-            notes.Add("Low connection favors distance-first framing and reduced vulnerability.");
-        }
-
-        if (averageTension >= 70)
-        {
-            notes.Add("High tension permits more risk-tinged pacing and volatile scene turns.");
-        }
-        else if (averageTension <= 35)
-        {
-            notes.Add("Low tension supports steadier pacing with lower-risk scene framing.");
-        }
-
         var agencyScore = averageDominance - averageRestraint + (averageDesire / 3.0);
         if (agencyScore >= 60)
         {
@@ -203,7 +181,7 @@ public sealed class ScenarioGuidanceGenerator : IScenarioGuidanceGenerator
             notes.Add("Agency profile is reactive: stronger external invitation is needed before escalation.");
         }
 
-        var cheatingPressure = averageLoyalty - (averageDesire / 2.0) + (averageRestraint / 2.0) - (averageTension / 3.0);
+        var cheatingPressure = averageLoyalty - (averageDesire / 2.0) + (averageRestraint / 2.0);
         if (cheatingPressure >= 80)
         {
             notes.Add("Loyalty pressure is high, so keep decisions spouse-anchored and avoid infidelity pivots.");

@@ -33,4 +33,16 @@ public interface IRolePlayAdaptiveStateService
         RolePlaySession session,
         Scenario scenario,
         CancellationToken cancellationToken = default);
+
+    Task EvaluateAdaptiveIntensityTransitionAsync(
+        RolePlaySession session,
+        RolePlayInteraction interaction,
+        CancellationToken cancellationToken = default);
+
+    void RebindEncounterProfile(
+        AdaptiveScenarioState state,
+        string characterId,
+        string? profileId,
+        IReadOnlyDictionary<string, int>? profileEncounterStats = null,
+        string? targetRole = null);
 }

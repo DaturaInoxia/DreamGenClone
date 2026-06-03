@@ -188,9 +188,12 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         var rawStatDeltasForEvent = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         if (trackCharacterStats)
         {
-            actorStats = GetOrCreateCharacterStats(state, actorKey);
-            statsBefore = CharacterStatProfileV2Accessor.GetAllStats(actorStats);
-            actorStats.LastStatDeltas ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            actorStats = GetCharacterStats(state, actorKey);
+            if (actorStats is not null)
+            {
+                statsBefore = CharacterStatProfileV2Accessor.GetAllStats(actorStats);
+                actorStats.LastStatDeltas ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            }
         }
 
         var phaseAffinityCap = GetThemeAffinityPhaseCap(state.CurrentPhase);
@@ -393,7 +396,6 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         RemoveNonCanonicalStatEntries(state);
 
         session.AdaptiveState = state;
-        await EvaluateAdaptiveIntensityTransitionAsync(session, interaction, cancellationToken);
 
         if (_debugEventSink is not null)
         {
@@ -471,6 +473,20 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             }
 
             CharacterStatProfileV2Accessor.ApplyDelta(profile, statName, delta);
+
+            // Encounter dimension drift: evolve RuntimeEncounterStats based on stat change.
+            if (state.CharacterRoles.TryGetValue(actorKey, out var actorTargetRole))
+            {
+                // InitializeRuntimeEncounterStatsIfNeeded (spec step 12):
+                // Seed from BehavioralDimensionCatalog at 50 on first mutation if not yet initialized.
+                if (profile.RuntimeEncounterStats is not { Count: > 0 })
+                {
+                    profile.RuntimeEncounterStats = BehavioralDimensionCatalog
+                        .GetDimensions(actorTargetRole)
+                        .ToDictionary(d => d.Name, _ => 50, StringComparer.OrdinalIgnoreCase);
+                }
+                StatToDimensionMappings.ApplyDelta(profile.RuntimeEncounterStats, actorTargetRole, statName, delta);
+            }
 
             if (!statDeltaContributors.TryGetValue(statName, out var reasons))
             {
@@ -965,6 +981,8 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             }
 
             var rawDelta = item.Mapping.Delta;
+            if (string.Equals(item.Mapping.Direction, "decrease", StringComparison.OrdinalIgnoreCase))
+                rawDelta = -Math.Abs(rawDelta);
             decimal appliedDelta = rawDelta;
             decimal cappedDelta = 0m;
             decimal suppressedDelta = 0m;
@@ -1050,6 +1068,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         }
 
         var perCharacterStatAppliedMagnitude = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+        var perCharacterAppliedDeltas = new Dictionary<string, Dictionary<string, int>>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var item in pendingStat)
         {
@@ -1060,6 +1079,8 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             }
 
             var rawDelta = item.Mapping.Delta;
+            if (string.Equals(item.Mapping.Direction, "decrease", StringComparison.OrdinalIgnoreCase))
+                rawDelta = -Math.Abs(rawDelta);
             decimal appliedDelta = rawDelta;
             decimal cappedDelta = 0m;
             decimal suppressedDelta = 0m;
@@ -1089,8 +1110,35 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
                     : (int)Math.Ceiling(appliedDelta);
                 if (deltaInt != 0)
                 {
-                    var targetStats = GetOrCreateCharacterStats(state, item.TargetCharacterId);
-                    CharacterStatProfileV2Accessor.ApplyDelta(targetStats, item.Mapping.TargetStat, deltaInt);
+                    var targetStats = GetCharacterStats(state, item.TargetCharacterId);
+                    if (targetStats is null) continue;
+                    if (CharacterStatProfileV2Accessor.ApplyDelta(targetStats, item.Mapping.TargetStat, deltaInt))
+                    {
+                        if (!perCharacterAppliedDeltas.TryGetValue(item.TargetCharacterId, out var charDeltas))
+                        {
+                            charDeltas = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                            perCharacterAppliedDeltas[item.TargetCharacterId] = charDeltas;
+                        }
+                        charDeltas.TryGetValue(item.Mapping.TargetStat, out var existingDelta);
+                        charDeltas[item.Mapping.TargetStat] = existingDelta + deltaInt;
+
+                        // Encounter dimension drift (mirrors ApplyTrackedDelta in UpdateFromInteractionAsync).
+                        // EnableAdaptiveStateUpdates=false skips the inline keyword path entirely, so this
+                        // is the ONLY place RuntimeEncounterStats gets seeded and drifted during a session.
+                        // Do NOT remove this — without it, behavioral dimensions are never initialized.
+                        if (state.CharacterRoles.TryGetValue(item.TargetCharacterId, out var semanticTargetRole)
+                            && !string.IsNullOrWhiteSpace(semanticTargetRole))
+                        {
+                            if (targetStats.RuntimeEncounterStats is not { Count: > 0 })
+                            {
+                                targetStats.RuntimeEncounterStats = BehavioralDimensionCatalog
+                                    .GetDimensions(semanticTargetRole)
+                                    .ToDictionary(d => d.Name, _ => 50, StringComparer.OrdinalIgnoreCase);
+                            }
+                            StatToDimensionMappings.ApplyDelta(
+                                targetStats.RuntimeEncounterStats, semanticTargetRole, item.Mapping.TargetStat, deltaInt);
+                        }
+                    }
                 }
 
                 var magnitudeKey = $"{item.Mapping.TargetStat}";
@@ -1113,6 +1161,15 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             });
         }
 
+        foreach (var (characterId, appliedDeltas) in perCharacterAppliedDeltas)
+        {
+            var profile = GetCharacterStats(state, characterId);
+            if (profile is null) continue;
+            profile.LastStatDeltas = appliedDeltas;
+            profile.LastStatDeltaUpdatedUtc = DateTime.UtcNow;
+            profile.UpdatedUtc = DateTime.UtcNow;
+        }
+
         TrimEvidence(state);
 
         _logger?.LogInformation(
@@ -1123,13 +1180,14 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             state.SemanticDeltaBreakdowns.Count);
     }
 
-    private async Task EvaluateAdaptiveIntensityTransitionAsync(
+    public async Task EvaluateAdaptiveIntensityTransitionAsync(
         RolePlaySession session,
         RolePlayInteraction interaction,
         CancellationToken cancellationToken)
     {
         if (_intensityProfileService is null)
         {
+            _logger?.LogWarning("IntensityTransition session={SessionId}: skipped — no intensity profile service", session.Id);
             return;
         }
 
@@ -1138,6 +1196,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         if (session.IsIntensityManuallyPinned)
         {
             session.AdaptiveIntensityLastTransitionReason = "manual-pin-suppressed";
+            _logger?.LogInformation("IntensityTransition session={SessionId}: manual-pin-suppressed", session.Id);
             return;
         }
 
@@ -1145,6 +1204,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         if (profiles.Count == 0)
         {
             session.AdaptiveIntensityLastTransitionReason = "no-intensity-profiles";
+            _logger?.LogWarning("IntensityTransition session={SessionId}: no profiles in database", session.Id);
             return;
         }
 
@@ -1159,25 +1219,50 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         if (currentProfile is null)
         {
             session.AdaptiveIntensityLastTransitionReason = "adaptive-profile-not-found";
+            _logger?.LogWarning("IntensityTransition session={SessionId}: adaptive profile id={ProfileId} not found in {Count} profiles",
+                session.Id, session.AdaptiveIntensityProfileId, profiles.Count);
             return;
         }
 
         var selectedProfile = !string.IsNullOrWhiteSpace(session.SelectedIntensityProfileId)
             ? profiles.FirstOrDefault(x => string.Equals(x.Id, session.SelectedIntensityProfileId, StringComparison.OrdinalIgnoreCase))
             : null;
+        // Intro/Atmospheric is not a valid character intensity baseline (it is filtered from the
+        // UI dropdown). Treat it as null so the adaptive profile (currentProfile) is used instead.
+        if (selectedProfile?.Intensity == IntensityLevel.Intro)
+        {
+            selectedProfile = null;
+        }
         var phaseBaselineSourceProfile = selectedProfile ?? currentProfile;
-        var phaseBaselineDelta = phaseBaselineSourceProfile.GetPhaseOffset((DreamGenClone.Domain.StoryAnalysis.NarrativePhase)(int)session.AdaptiveState.CurrentPhase);
-        var selectedScale = selectedProfile is not null
-            ? (int)selectedProfile.Intensity
-            : (int)currentProfile.Intensity;
-
-        var flowBaselineScale = Math.Clamp(selectedScale + phaseBaselineDelta, 1, 5);
+        // Phase ladder: Observer/Reset = base, BuildUp = base+1, Committed = base+2,
+        // Approaching = base+3, Climax = base+4. Floor and ceiling clamp the result.
+        var phaseStep = session.AdaptiveState.CurrentPhase switch
+        {
+            NarrativePhase.BuildUp     => 1,
+            NarrativePhase.Committed   => 2,
+            NarrativePhase.Approaching => 3,
+            NarrativePhase.Climax      => 4,
+            NarrativePhase.Reset       => 0,
+            _                          => 0
+        };
+        var selectedScale = (int)phaseBaselineSourceProfile.Intensity;
+        var flowBaselineScale = Math.Clamp(selectedScale + phaseStep, 1, 5);
 
         var floor = RolePlayStyleResolver.ParseBoundScale(session.IntensityFloorOverride);
         var ceiling = RolePlayStyleResolver.ParseBoundScale(session.IntensityCeilingOverride);
         var targetScale = Math.Clamp(flowBaselineScale, 1, 5);
 
-        var reasonCode = $"phase-driven|phase={session.AdaptiveState.CurrentPhase}|phase-delta={phaseBaselineDelta}";
+        var reasonCode = $"phase-driven|phase={session.AdaptiveState.CurrentPhase}|phase-step={phaseStep}";
+
+        _logger?.LogInformation(
+            "IntensityTransition session={SessionId} phase={Phase} baselineProfile={BaselineProfile}({BaselineScale}) " +
+            "currentAdaptive={CurrentAdaptive} phaseStep={PhaseStep} flowScale={FlowScale} floor={Floor} ceiling={Ceiling} targetScale={TargetScale}",
+            session.Id, session.AdaptiveState.CurrentPhase,
+            phaseBaselineSourceProfile.Name, selectedScale,
+            currentProfile.Name,
+            phaseStep, flowBaselineScale,
+            session.IntensityFloorOverride ?? "(none)", session.IntensityCeilingOverride ?? "(none)",
+            targetScale);
 
         if (floor.HasValue && targetScale < floor.Value)
         {
@@ -1204,14 +1289,20 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         if (targetProfile is null)
         {
             session.AdaptiveIntensityLastTransitionReason = reasonCode + "-target-profile-missing";
+            _logger?.LogWarning("IntensityTransition session={SessionId}: no profile found for targetScale={TargetScale}", session.Id, targetScale);
             return;
         }
 
         if (string.Equals(targetProfile.Id, currentProfile.Id, StringComparison.OrdinalIgnoreCase))
         {
+            _logger?.LogInformation("IntensityTransition session={SessionId}: no change needed — already at {Profile} (scale={Scale})",
+                session.Id, targetProfile.Name, targetScale);
             session.AdaptiveIntensityLastTransitionReason = reasonCode;
             return;
         }
+
+        _logger?.LogInformation("IntensityTransition session={SessionId}: TRANSITIONING {From} → {To} (scale {FromScale}→{ToScale}) reason={Reason}",
+            session.Id, currentProfile.Name, targetProfile.Name, (int)currentProfile.Intensity, targetScale, reasonCode);
 
         session.AdaptiveIntensityProfileId = targetProfile.Id;
         session.AdaptiveIntensityLastFromProfileId = currentProfile.Id;
@@ -1236,16 +1327,19 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
 
     private static double AverageCharacterStat(AdaptiveScenarioState state, string statName)
     {
-        if (state.CharacterStats.Count == 0)
+        // Only scenario-bound characters (those with a CharacterRole) contribute to averages.
+        var tracked = state.CharacterStats.Values
+            .Where(x => !string.IsNullOrEmpty(x.CharacterRole))
+            .ToList();
+
+        if (tracked.Count == 0)
         {
             return AdaptiveStatCatalog.DefaultValue;
         }
 
-        var values = state.CharacterStats.Values
+        return tracked
             .Select(x => CharacterStatProfileV2Accessor.GetStatOrDefault(x, statName))
-            .ToList();
-
-        return values.Average();
+            .Average();
     }
 
     private static double Clamp01(double value) => Math.Clamp(Math.Round(value, 4), 0.0, 1.0);
@@ -1342,16 +1436,37 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         return RPThemeFitRulesConverter.BuildScenarioFitRulesJson(theme);
     }
 
-    private static CharacterStatProfileV2 GetOrCreateCharacterStats(AdaptiveScenarioState state, string actorKey)
+    public void RebindEncounterProfile(
+        AdaptiveScenarioState state,
+        string characterId,
+        string? profileId,
+        IReadOnlyDictionary<string, int>? profileEncounterStats = null,
+        string? targetRole = null)
     {
-        if (state.CharacterStats.TryGetValue(actorKey, out var existing))
+        if (string.IsNullOrWhiteSpace(profileId))
+            state.CharacterEncounterProfileIds.Remove(characterId);
+        else
+            state.CharacterEncounterProfileIds[characterId] = profileId;
+
+        if (!string.IsNullOrWhiteSpace(targetRole))
         {
-            return existing;
+            state.CharacterRoles[characterId] = targetRole;
+            if (state.CharacterStats.TryGetValue(characterId, out var roleProfile))
+                roleProfile.CharacterRole = targetRole;
         }
 
-        var created = CharacterStatProfileV2Accessor.CreateDefault(actorKey);
-        state.CharacterStats[actorKey] = created;
-        return created;
+        if (state.CharacterStats.TryGetValue(characterId, out var profile))
+        {
+            profile.RuntimeEncounterStats = profileEncounterStats is { Count: > 0 }
+                ? new Dictionary<string, int>(profileEncounterStats, StringComparer.OrdinalIgnoreCase)
+                : null;
+        }
+    }
+
+    private static CharacterStatProfileV2? GetCharacterStats(AdaptiveScenarioState state, string actorKey)
+    {
+        state.CharacterStats.TryGetValue(actorKey, out var existing);
+        return existing;
     }
 
     private static void EnsureDefaultStats(Dictionary<string, int> stats) { }
@@ -1452,8 +1567,6 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
     [
         BuildDefaultStatKeywordCategory("desire", "Desire", "Desire", 1, 4, ["kiss", "touch", "desire", "want", "close", "heat"], 10),
         BuildDefaultStatKeywordCategory("restraint", "Restraint", "Restraint", 1, 3, ["can't", "wrong", "shouldn't", "hesitate", "guilt"], 20),
-        BuildDefaultStatKeywordCategory("tension", "Tension", "Tension", 1, 4, ["fear", "caught", "risk", "panic", "nervous"], 30),
-        BuildDefaultStatKeywordCategory("connection", "Connection", "Connection", 1, 3, ["safe", "comfort", "trust", "reassure"], 40),
         BuildDefaultStatKeywordCategory("dominance", "Dominance", "Dominance", 1, 3, ["control", "command", "obey", "claim", "choose", "decide", "insist"], 50),
         BuildDefaultStatKeywordCategory("loyalty-positive", "Loyalty Positive", "Loyalty", 1, 5, ["husband", "wife", "promise", "vow", "faithful", "devoted", "commitment"], 60),
         BuildDefaultStatKeywordCategory("loyalty-negative", "Loyalty Negative", "Loyalty", -1, 5, ["affair", "betray", "cheat", "secret", "sneak", "stranger"], 70),

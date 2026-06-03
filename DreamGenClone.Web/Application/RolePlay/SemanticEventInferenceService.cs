@@ -154,12 +154,25 @@ public sealed class SemanticEventInferenceService : ISemanticEventInferenceServi
         };
     }
 
+    // Some models emit chain-of-thought or preamble text before the final JSON answer.
+    // Extract the outermost {...} block so ParseAndValidate always receives clean JSON.
+    internal static string ExtractJsonObject(string modelOutput)
+    {
+        if (string.IsNullOrWhiteSpace(modelOutput)) return modelOutput ?? string.Empty;
+        var start = modelOutput.IndexOf('{');
+        var end   = modelOutput.LastIndexOf('}');
+        if (start >= 0 && end > start)
+            return modelOutput.Substring(start, end - start + 1);
+        return modelOutput;
+    }
+
     private static IReadOnlyList<SemanticInferredEvent> ParseAndValidate(string modelOutput, IReadOnlyList<string> allowedEventIds)
     {
+        var json = ExtractJsonObject(modelOutput);
         InferenceEnvelope? envelope;
         try
         {
-            envelope = JsonSerializer.Deserialize<InferenceEnvelope>(modelOutput, JsonOptions);
+            envelope = JsonSerializer.Deserialize<InferenceEnvelope>(json, JsonOptions);
         }
         catch (JsonException ex)
         {

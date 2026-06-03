@@ -18,8 +18,7 @@ public sealed class EncounterSummaryServiceTests
             CharacterId = charId,
             Desire      = 60,
             Restraint   = 30,
-            Tension     = 50,
-            Connection  = 40
+            RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 50, ["Connection"] = 40 }
         };
 
     private static AdaptiveScenarioState MakeState(string sessionId = "sess-1", int cycleIndex = 0) =>

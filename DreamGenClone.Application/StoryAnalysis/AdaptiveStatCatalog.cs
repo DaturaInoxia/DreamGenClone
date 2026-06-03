@@ -37,20 +37,6 @@ public static class AdaptiveStatCatalog
         },
         new AdaptiveStatDefinition
         {
-            Name = "Tension",
-            Description = "Conflict pressure from uncertainty, risk, or emotional strain.",
-            LowMeaning = "Stable, low-friction, and relatively safe.",
-            HighMeaning = "Volatile, high-stakes, and emotionally charged."
-        },
-        new AdaptiveStatDefinition
-        {
-            Name = "Connection",
-            Description = "Personal confidence that the current dynamic feels safe and reliable.",
-            LowMeaning = "Defensive, suspicious, and emotionally guarded.",
-            HighMeaning = "Open, reassured, and more willing to engage."
-        },
-        new AdaptiveStatDefinition
-        {
             Name = "Dominance",
             Description = "Perceived ability to choose, act, and steer outcomes.",
             LowMeaning = "Passive, cornered, or acted upon.",

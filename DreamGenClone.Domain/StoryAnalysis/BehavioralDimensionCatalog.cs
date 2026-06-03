@@ -73,16 +73,16 @@ public static class BehavioralDimensionCatalog
             "She actively enjoys being seen and heard during the encounter — visibility is part of what she wants."),
 
         new("EmotionalEngagement", "Wife",
-            "This is purely transactional — she feels no emotional connection to the other man; it is physical only.",
-            "She finds him pleasant but maintains clear emotional detachment.",
-            "She has developed some emotional warmth toward him; it shows in how she treats him.",
-            "She is developing genuine feelings for him; the emotional component is real and present."),
+            "She has no particular focus on him; she is physically present but inwardly disengaged — she does not orient toward his pleasure or experience.",
+            "She is a willing participant and responds to what he does, but she does not track his experience or adjust to serve it.",
+            "She is attentive to him during the encounter — she reads his responses, adjusts to what he reacts to, and actively works to satisfy him.",
+            "She is sexually focused on him — she actively pursues his pleasure, follows his lead without resistance, and takes her own satisfaction from his response to her."),
 
         new("PostEncounterGuilt", "Wife",
-            "She shows no guilt after the encounter — she behaves completely normally with her husband.",
+            "She shows no tells after the encounter — she behaves completely normally with her husband.",
             "She is slightly subdued but recovers quickly and acts normally.",
-            "She is noticeably affected — she may be overly affectionate or slightly withdrawn with her husband.",
-            "She is overwhelmed — visibly guilty, over-compensating, or emotionally withdrawn after the encounter."),
+            "She is noticeably off — her manner with her husband has visible tells; she is either more solicitous than usual or quieter, and she steers away from anything that could invite scrutiny.",
+            "She cannot fully compose herself — she over-compensates with her husband, avoids sustained eye contact, or goes quiet; anyone paying attention would notice something happened."),
 
         // ── OtherMan ─────────────────────────────────────────────────────────────────────────
         new("HusbandAwareness", "OtherMan",

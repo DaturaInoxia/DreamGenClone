@@ -285,8 +285,6 @@ public sealed class SemanticInteractionAnalysisJobHandler : IBackgroundJobHandle
                 InferredEventCount = inferenceResult.Events.Count,
                 ContextTurnsCount = contextTurns.Count,
                 InferenceRawOutput = inferenceResult.RawModelOutput,
-                PromptSystem = inferenceResult.PromptSystem,
-                PromptUser = inferenceResult.PromptUser,
                 InferredEvents = inferenceResult.Events
                     .Select(e => new InferredEventRecord
                     {

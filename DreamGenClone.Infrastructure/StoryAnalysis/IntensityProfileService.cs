@@ -7,11 +7,20 @@ namespace DreamGenClone.Infrastructure.StoryAnalysis;
 
 public sealed class IntensityProfileService : IIntensityProfileService
 {
-    private sealed record DefaultToneProfile(string Name, string Description, IntensityLevel Intensity);
+    private sealed record DefaultToneProfile(
+        string Name,
+        string Description,
+        IntensityLevel Intensity,
+        int BuildUpPhaseOffset = 0,
+        int CommittedPhaseOffset = 0,
+        int ApproachingPhaseOffset = 1,
+        int ClimaxPhaseOffset = 2,
+        int ResetPhaseOffset = -1);
 
     private static readonly DefaultToneProfile[] PocDefaultProfiles =
     [
-        new(IntensityLadder.GetLabel(IntensityLevel.Emotional), IntensityLadder.GetDefaultDescription(IntensityLevel.Emotional), IntensityLevel.Emotional),
+        new(IntensityLadder.GetLabel(IntensityLevel.Emotional), IntensityLadder.GetDefaultDescription(IntensityLevel.Emotional), IntensityLevel.Emotional,
+            BuildUpPhaseOffset: 1, CommittedPhaseOffset: 2, ApproachingPhaseOffset: 3, ClimaxPhaseOffset: 4, ResetPhaseOffset: 0),
         new(IntensityLadder.GetLabel(IntensityLevel.SuggestivePg12), IntensityLadder.GetDefaultDescription(IntensityLevel.SuggestivePg12), IntensityLevel.SuggestivePg12),
         new(IntensityLadder.GetLabel(IntensityLevel.SensualMature), IntensityLadder.GetDefaultDescription(IntensityLevel.SensualMature), IntensityLevel.SensualMature),
         new(IntensityLadder.GetLabel(IntensityLevel.Explicit), IntensityLadder.GetDefaultDescription(IntensityLevel.Explicit), IntensityLevel.Explicit),
@@ -200,6 +209,11 @@ public sealed class IntensityProfileService : IIntensityProfileService
                     Name = item.Name,
                     Description = item.Description,
                     Intensity = item.Intensity,
+                    BuildUpPhaseOffset = item.BuildUpPhaseOffset,
+                    CommittedPhaseOffset = item.CommittedPhaseOffset,
+                    ApproachingPhaseOffset = item.ApproachingPhaseOffset,
+                    ClimaxPhaseOffset = item.ClimaxPhaseOffset,
+                    ResetPhaseOffset = item.ResetPhaseOffset,
                     CreatedUtc = DateTime.UtcNow,
                     UpdatedUtc = DateTime.UtcNow
                 };

@@ -299,7 +299,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
         foreach (var kvp in request.CharacterEncounterProfileIds)
         {
-            session.AdaptiveState.CharacterEncounterProfileIds[kvp.Key] = kvp.Value;
+            _adaptiveStateService.RebindEncounterProfile(session.AdaptiveState, kvp.Key, kvp.Value);
         }
 
         if (!string.IsNullOrWhiteSpace(request.ScenarioId))
@@ -405,7 +405,28 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                     var charKey = character.Name.Trim();
                     var createdProfile = CharacterStatProfileV2Accessor.CreateDefault(charKey);
                     CharacterStatProfileV2Accessor.SetAllStats(createdProfile, mergedStats);
+                    createdProfile.CharacterRole = CharacterRoleCatalog.Normalize(character.Role);
                     session.AdaptiveState.CharacterStats[charKey] = createdProfile;
+
+                    // Seed RuntimeEncounterStats from the selected encounter profile.
+                    // CharacterEncounterProfileIds is keyed by character.Id (scenario GUID), not by name,
+                    // so we must do this lookup here while character.Id is in scope.
+                    if (request.CharacterEncounterProfileIds.TryGetValue(character.Id, out var charEncProfileId)
+                        && !string.IsNullOrWhiteSpace(charEncProfileId))
+                    {
+                        var charDims = BehavioralDimensionCatalog.GetDimensions(createdProfile.CharacterRole);
+                        if (charDims.Count > 0)
+                        {
+                            var charEncProfile = await _characterProfileService.GetAsync(charEncProfileId, cancellationToken);
+                            if (charEncProfile?.EncounterStats is { Count: > 0 })
+                            {
+                                createdProfile.RuntimeEncounterStats = charDims.ToDictionary(
+                                    d => d.Name,
+                                    d => charEncProfile.EncounterStats.TryGetValue(d.Name, out var v) ? v : 50,
+                                    StringComparer.OrdinalIgnoreCase);
+                            }
+                        }
+                    }
                 }
 
                 await _adaptiveStateService.SeedFromScenarioAsync(session, scenario, cancellationToken);
@@ -414,6 +435,12 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
         await SeedPersonaStatsFromTemplateAsync(session, cancellationToken);
 
+        // Ensure the persona block exists before applying overrides.
+        // EnsurePersonaCharacterState is a no-op when SeedPersonaStatsFromTemplateAsync
+        // already created it; when no template is set this creates the placeholder block
+        // so the stat-override application below can find it by name.
+        EnsurePersonaCharacterState(session);
+
         // Apply wizard-provided persona stat overrides after template seeding.
         // The overrides represent the user's explicit profile choice, so update BOTH the
         // current stats and the baseline — the baseline identifies which stat profile the
@@ -421,7 +448,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         if (request.PersonaStatOverrides.Count > 0
             && session.AdaptiveState.CharacterStats.TryGetValue(session.PersonaName, out var personaBlock))
         {
-            var normalizedPersonaOverrides = AdaptiveStatCatalog.NormalizePartial(request.PersonaStatOverrides);
+            var normalizedPersonaOverrides = AdaptiveStatCatalog.NormalizeComplete(request.PersonaStatOverrides);
             foreach (var (statName, statValue) in normalizedPersonaOverrides)
             {
                 CharacterStatProfileV2Accessor.SetStat(personaBlock, statName, statValue);
@@ -429,7 +456,35 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             }
         }
 
-        EnsurePersonaCharacterState(session);
+        // Stamp CharacterRole on the persona block (and any character missing it).
+        var personaRole = CharacterRoleCatalog.Normalize(session.PersonaRole);
+        if (!string.IsNullOrWhiteSpace(personaRole)
+            && session.AdaptiveState.CharacterStats.TryGetValue(session.PersonaName, out var personaBlockForRole)
+            && string.IsNullOrWhiteSpace(personaBlockForRole.CharacterRole))
+        {
+            personaBlockForRole.CharacterRole = personaRole;
+        }
+
+        // Seed RuntimeEncounterStats for persona from the selected encounter profile.
+        // The wizard stores the persona's encounter profile under the "__persona__" key.
+        if (request.CharacterEncounterProfileIds.TryGetValue("__persona__", out var personaEncProfileId)
+            && !string.IsNullOrWhiteSpace(personaEncProfileId)
+            && session.AdaptiveState.CharacterStats.TryGetValue(session.PersonaName, out var personaEncBlock)
+            && personaEncBlock.RuntimeEncounterStats is not { Count: > 0 })
+        {
+            var personaDims = BehavioralDimensionCatalog.GetDimensions(personaEncBlock.CharacterRole ?? string.Empty);
+            if (personaDims.Count > 0)
+            {
+                var personaEncProfile = await _characterProfileService.GetAsync(personaEncProfileId, cancellationToken);
+                if (personaEncProfile?.EncounterStats is { Count: > 0 })
+                {
+                    personaEncBlock.RuntimeEncounterStats = personaDims.ToDictionary(
+                        d => d.Name,
+                        d => personaEncProfile.EncounterStats.TryGetValue(d.Name, out var v) ? v : 50,
+                        StringComparer.OrdinalIgnoreCase);
+                }
+            }
+        }
 
         // Seal session-start baseline for all character stat blocks.
         // This snapshot is the reference for the "Base" column in the Adaptive panel
@@ -440,6 +495,20 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             {
                 block.BaselineStats = CharacterStatProfileV2Accessor.GetAllStats(block);
             }
+        }
+
+        // Seed RuntimeEncounterStats at neutral baseline (50) for any character that still
+        // has no encounter stats at this point (no encounter profile was selected in the wizard).
+        // Characters with a selected profile were already seeded in the character loop above.
+        foreach (var block in session.AdaptiveState.CharacterStats.Values)
+        {
+            if (string.IsNullOrWhiteSpace(block.CharacterRole)
+                || block.RuntimeEncounterStats is { Count: > 0 })
+                continue;
+
+            var dims = BehavioralDimensionCatalog.GetDimensions(block.CharacterRole);
+            if (dims.Count > 0)
+                block.RuntimeEncounterStats = dims.ToDictionary(d => d.Name, _ => 50, StringComparer.OrdinalIgnoreCase);
         }
 
         // Propagate the session ID into AdaptiveState (required by SaveAdaptiveStateAsync) and
@@ -776,13 +845,10 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         {
             await AlignPromptNarrativeStateWithV2Async(session, cancellationToken);
 
-            var interaction = await _continuationService.ContinueAsync(
+            var interaction = await _continuationService.ContinueNarrativeAsync(
                 session,
-                actor,
-                customActorName,
-                PromptIntent.Narrative,
+                ResolveActorName(actor, customActorName),
                 promptText,
-                null,
                 cancellationToken);
 
             session.Interactions.Add(interaction);
@@ -1103,13 +1169,10 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             }
 
             var personaName = string.IsNullOrWhiteSpace(session.PersonaName) ? null : session.PersonaName;
-            var finalClimaxInteraction = await _continuationService.ContinueAsync(
+            var finalClimaxInteraction = await _continuationService.ContinueNarrativeAsync(
                 session,
-                ContinueAsActor.You,
-                customActorName: personaName,
-                PromptIntent.Narrative,
+                personaName ?? "Narrative",
                 completionDirective,
-                onChunk,
                 cancellationToken);
 
             session.Interactions.Add(finalClimaxInteraction);
@@ -1247,17 +1310,11 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         {
             var openingPrompt = await BuildOpeningNarrativePromptAsync(session, cancellationToken);
             await AlignPromptNarrativeStateWithV2Async(session, cancellationToken);
-            var openingNarrative = await _continuationService.ContinueAsync(
+            var openingNarrative = await _continuationService.ContinueNarrativeAsync(
                 session,
-                ContinueAsActor.Npc,
                 "Narrative",
-                PromptIntent.Narrative,
                 openingPrompt,
-                onChunk,
                 cancellationToken);
-
-            openingNarrative.InteractionType = InteractionType.System;
-            openingNarrative.ActorName = "Narrative";
             result.NarrativeOutput = openingNarrative;
             session.Interactions.Add(openingNarrative);
             outputInteractionIds.Add(openingNarrative.Id);
@@ -1400,17 +1457,11 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         {
             var narrativePrompt = DetermineNarrativePrompt(session);
             await AlignPromptNarrativeStateWithV2Async(session, cancellationToken);
-            var narrative = await _continuationService.ContinueAsync(
+            var narrative = await _continuationService.ContinueNarrativeAsync(
                 session,
-                ContinueAsActor.Npc,
                 "Narrative",
-                PromptIntent.Narrative,
                 narrativePrompt,
-                onChunk,
                 cancellationToken);
-
-            narrative.InteractionType = InteractionType.System;
-            narrative.ActorName = "Narrative";
             result.NarrativeOutput = narrative;
             session.Interactions.Add(narrative);
             outputInteractionIds.Add(narrative.Id);
@@ -2051,7 +2102,16 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
     private async Task RebuildAdaptiveStateInternalAsync(RolePlaySession session, CancellationToken cancellationToken)
     {
+        // Preserve encounter profile selections before discarding adaptive state —
+        // CharacterEncounterProfileIds is stored on AdaptiveState and would be lost on reset.
+        var savedEncounterProfileIds = new Dictionary<string, string>(
+            session.AdaptiveState.CharacterEncounterProfileIds, StringComparer.OrdinalIgnoreCase);
+
         session.AdaptiveState = new AdaptiveScenarioState();
+
+        // Restore so SeedRuntimeEncounterStatsAsync can seed behavioral stats from the original profiles.
+        foreach (var kvp in savedEncounterProfileIds)
+            session.AdaptiveState.CharacterEncounterProfileIds[kvp.Key] = kvp.Value;
 
         if (!string.IsNullOrWhiteSpace(session.ScenarioId))
         {
@@ -2059,6 +2119,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             if (scenario is not null)
             {
                 await SeedAdaptiveStateFromScenarioAsync(session, scenario, cancellationToken);
+                await SeedRuntimeEncounterStatsAsync(session, scenario, cancellationToken);
             }
         }
 
@@ -2082,10 +2143,13 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     {
         if (!_enableAdaptiveStateUpdates)
         {
-            // Feature flag RolePlayFeatureFlags:EnableAdaptiveStateUpdates is false.
-            // Skip the synchronous adaptive-state update entirely so theme scoring and
-            // character stats are not modified by inline regex evidence. The async semantic
-            // pipeline (if enabled) still applies its own evidence in the background.
+            // ⛔ DO NOT "FIX" THIS — EnableAdaptiveStateUpdates=false IS INTENTIONAL AND PERMANENT.
+            // The old inline keyword/regex adaptive-state path was REPLACED by the Semantic Engine.
+            // All stat deltas now come from the async Semantic Engine pipeline (SemanticInferredEvidenceApplied
+            // events via ApplyInferredSemanticEvidenceAsync → ApplySemanticEvidenceAsync).
+            // AdaptiveStateUpdateSkipped in the debug log is EXPECTED. It is not a bug.
+            // If RuntimeEncounterStats are not seeding, the bug is in ApplySemanticEvidenceAsync,
+            // not here. Do not change this flag.
             await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
             {
                 SessionId = session.Id,
@@ -2100,6 +2164,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                     reasonCode = "adaptive_state_disabled_by_flag"
                 })
             }, cancellationToken);
+            await _adaptiveStateService.EvaluateAdaptiveIntensityTransitionAsync(session, interaction, cancellationToken);
             return session.AdaptiveState;
         }
 
@@ -2113,6 +2178,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             // via ApplyInferredSemanticEvidenceAsync after the LLM inference job completes, which
             // emits its own SemanticInferredEvidenceApplied debug event. Do not emit a
             // "no contribution" diagnostic here because it would race the async job and mislead.
+            await _adaptiveStateService.EvaluateAdaptiveIntensityTransitionAsync(session, interaction, cancellationToken);
 
             return updatedState;
         }
@@ -2187,6 +2253,74 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         }
 
         await _adaptiveStateService.SeedFromScenarioAsync(session, scenario, cancellationToken);
+    }
+
+    /// <summary>
+    /// Seeds RuntimeEncounterStats for all characters and persona in a session from the encounter profiles
+    /// stored in session.AdaptiveState.CharacterEncounterProfileIds. Called after SeedAdaptiveStateFromScenarioAsync
+    /// during both session creation (via CreateSessionAsync) and on rebuild so stats survive Scenario Save.
+    /// Characters without a selected encounter profile are seeded at neutral 50 per dimension.
+    /// </summary>
+    private async Task SeedRuntimeEncounterStatsAsync(
+        RolePlaySession session,
+        DreamGenClone.Web.Domain.Scenarios.Scenario scenario,
+        CancellationToken cancellationToken)
+    {
+        var encounterProfileIds = session.AdaptiveState.CharacterEncounterProfileIds;
+
+        foreach (var character in scenario.Characters)
+        {
+            if (string.IsNullOrWhiteSpace(character.Name)) continue;
+            var charKey = character.Name.Trim();
+            if (!session.AdaptiveState.CharacterStats.TryGetValue(charKey, out var block)) continue;
+
+            if (encounterProfileIds.TryGetValue(character.Id, out var encProfileId)
+                && !string.IsNullOrWhiteSpace(encProfileId))
+            {
+                var dims = BehavioralDimensionCatalog.GetDimensions(block.CharacterRole ?? string.Empty);
+                if (dims.Count > 0)
+                {
+                    var encProfile = await _characterProfileService.GetAsync(encProfileId, cancellationToken);
+                    if (encProfile?.EncounterStats is { Count: > 0 })
+                    {
+                        block.RuntimeEncounterStats = dims.ToDictionary(
+                            d => d.Name,
+                            d => encProfile.EncounterStats.TryGetValue(d.Name, out var v) ? v : 50,
+                            StringComparer.OrdinalIgnoreCase);
+                    }
+                }
+            }
+        }
+
+        // Persona
+        if (encounterProfileIds.TryGetValue("__persona__", out var personaEncProfileId)
+            && !string.IsNullOrWhiteSpace(personaEncProfileId)
+            && !string.IsNullOrWhiteSpace(session.PersonaName)
+            && session.AdaptiveState.CharacterStats.TryGetValue(session.PersonaName, out var personaBlock))
+        {
+            var personaDims = BehavioralDimensionCatalog.GetDimensions(personaBlock.CharacterRole ?? string.Empty);
+            if (personaDims.Count > 0)
+            {
+                var personaEncProfile = await _characterProfileService.GetAsync(personaEncProfileId, cancellationToken);
+                if (personaEncProfile?.EncounterStats is { Count: > 0 })
+                {
+                    personaBlock.RuntimeEncounterStats = personaDims.ToDictionary(
+                        d => d.Name,
+                        d => personaEncProfile.EncounterStats.TryGetValue(d.Name, out var v) ? v : 50,
+                        StringComparer.OrdinalIgnoreCase);
+                }
+            }
+        }
+
+        // Seed any remaining characters at neutral 50 (no encounter profile selected).
+        foreach (var block in session.AdaptiveState.CharacterStats.Values)
+        {
+            if (block.RuntimeEncounterStats is { Count: > 0 } || string.IsNullOrWhiteSpace(block.CharacterRole))
+                continue;
+            var dims = BehavioralDimensionCatalog.GetDimensions(block.CharacterRole);
+            if (dims.Count > 0)
+                block.RuntimeEncounterStats = dims.ToDictionary(d => d.Name, _ => 50, StringComparer.OrdinalIgnoreCase);
+        }
     }
 
     /// <summary>
@@ -2710,14 +2844,19 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 else
                 {
                     v2State.ActiveScenarioId = commitResult.ScenarioId;
-                    v2State.InteractionCountInPhase = 0;
+                    // Do NOT reset InteractionCountInPhase here. The interactions that accumulated
+                    // before the scenario was selected were scored against this scenario's candidacy;
+                    // resetting to 0 forces the gate to re-count from scratch, causing the session
+                    // to remain in BuildUp for another full threshold window despite the gate having
+                    // already passed. The counter continues from its current value so the next gate
+                    // evaluation correctly sees the legitimate interaction count.
                     // Phase remains BuildUp. Do not set commitApplied=true: the configured BuildUp
                     // narrative gate must still be evaluated against post-selection turn counts.
                     _logger.LogInformation(
-                        "RolePlayV2 first scenario selected during BuildUp; phase commit deferred until configured BuildUp narrative gate is met against post-selection turns. SessionId={SessionId} ScenarioId={ScenarioId} PreviousInteractionCountInPhase={PreviousInteractionCountInPhase}",
+                        "RolePlayV2 first scenario selected during BuildUp; phase commit deferred until configured BuildUp narrative gate is met against post-selection turns. SessionId={SessionId} ScenarioId={ScenarioId} CurrentInteractionCountInPhase={CurrentInteractionCountInPhase}",
                         session.Id,
                         commitResult.ScenarioId,
-                        previousPhaseInteractionCount);
+                        v2State.InteractionCountInPhase);
                     await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
                     {
                         SessionId = session.Id,
@@ -2727,7 +2866,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                         MetadataJson = JsonSerializer.Serialize(new
                         {
                             scenarioId = commitResult.ScenarioId,
-                            previousInteractionCountInPhase = previousPhaseInteractionCount,
+                            currentInteractionCountInPhase = v2State.InteractionCountInPhase,
                             reason = commitResult.Reason
                         })
                     }, cancellationToken);
@@ -2762,9 +2901,69 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
                     // Reset phase interaction cadence only when a new arc is entered.
                     v2State.InteractionCountInPhase = 0;
-                }
 
-                commitApplied = true;
+                    // Write the BuildUp→Committed transition event and encounter summary records.
+                    // This transition happens via the commit gate (not the lifecycle service), so we
+                    // must create the event here — no TransitionEvent flows through the lifecycle path.
+                    var commitTransitionEvent = new DreamGenClone.Domain.RolePlay.NarrativePhaseTransitionEvent
+                    {
+                        TransitionId = Guid.NewGuid().ToString("N"),
+                        SessionId    = session.Id,
+                        FromPhase    = currentPhase,
+                        ToPhase      = DreamGenClone.Domain.RolePlay.NarrativePhase.Committed,
+                        TriggerType  = DreamGenClone.Domain.RolePlay.TransitionTriggerType.Threshold,
+                        ReasonCode   = "BUILDUP_TO_COMMITTED",
+                        EvidencePayload = System.Text.Json.JsonSerializer.Serialize(new
+                        {
+                            scenarioId = commitResult.ScenarioId,
+                            reason     = commitResult.Reason
+                        }),
+                        OccurredUtc = DateTime.UtcNow
+                    };
+                    await _stateRepository.SaveTransitionEventAsync(commitTransitionEvent, cancellationToken);
+
+                    if (_encounterSummaryService is not null)
+                    {
+                        IReadOnlySet<string>? commitAllowedIds = null;
+                        if (!string.IsNullOrWhiteSpace(session.ScenarioId))
+                        {
+                            var commitScenario = await _scenarioService.GetScenarioAsync(session.ScenarioId);
+                            if (commitScenario is not null)
+                            {
+                                var allowed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                                foreach (var c in commitScenario.Characters)
+                                    if (!string.IsNullOrWhiteSpace(c.Name)) allowed.Add(c.Name);
+                                if (!string.IsNullOrWhiteSpace(session.PersonaName))
+                                    allowed.Add(session.PersonaName);
+                                commitAllowedIds = allowed;
+                            }
+                        }
+
+                        var commitSummaries = await _encounterSummaryService.GenerateTemplatesAsync(commitTransitionEvent, v2State, commitAllowedIds, cancellationToken);
+                        foreach (var summary in commitSummaries)
+                        {
+                            await _encounterSummaryService.SaveAsync(summary, cancellationToken);
+                            v2State.EncounterSummaries.Add(summary);
+                        }
+
+                        if (_backgroundJobQueue is not null && _memoryOptions?.Value.EnableLlmSummaryEnhancement == true)
+                        {
+                            foreach (var summary in commitSummaries)
+                            {
+                                _backgroundJobQueue.Enqueue(
+                                    BackgroundJobTypes.EncounterSummaryEnhancement,
+                                    System.Text.Json.JsonSerializer.Serialize(new EncounterSummaryJobPayload
+                                    {
+                                        SessionId   = session.Id,
+                                        CycleIndex  = v2State.CycleIndex,
+                                        SummaryId   = summary.Id,
+                                        SummaryType = summary.SummaryType.ToString()
+                                    }),
+                                    dedupeKey: $"enc-summary:{session.Id}:{summary.Id}");
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -2989,7 +3188,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 var completedScenarioId = v2State.ActiveScenarioId;
 
                 var statsBefore = v2State.CharacterSnapshots
-                    .Select(s => new { s.CharacterId, s.Desire, s.Restraint, s.Tension, s.Connection })
+                    .Select(s => new { s.CharacterId, s.Desire, s.Restraint, Tension = s.RuntimeEncounterStats?.GetValueOrDefault("Tension") ?? 50, Connection = s.RuntimeEncounterStats?.GetValueOrDefault("Connection") ?? 50 })
                     .ToList();
 
                 v2State = await _scenarioLifecycleService.ExecuteResetAsync(
@@ -3007,7 +3206,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 v2State.CurrentPhase = DreamGenClone.Domain.RolePlay.NarrativePhase.BuildUp;
 
                 var statsAfter = v2State.CharacterSnapshots
-                    .Select(s => new { s.CharacterId, s.Desire, s.Restraint, s.Tension, s.Connection })
+                    .Select(s => new { s.CharacterId, s.Desire, s.Restraint, Tension = s.RuntimeEncounterStats?.GetValueOrDefault("Tension") ?? 50, Connection = s.RuntimeEncounterStats?.GetValueOrDefault("Connection") ?? 50 })
                     .ToList();
 
                 var themeScoresBefore = session.AdaptiveState.ThemeScores
@@ -4930,8 +5129,8 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
             if (Math.Abs(snapshot.Desire - old.Desire) >= threshold
                 || Math.Abs(snapshot.Restraint - old.Restraint) >= threshold
-                || Math.Abs(snapshot.Tension - old.Tension) >= threshold
-                || Math.Abs(snapshot.Connection - old.Connection) >= threshold
+                || Math.Abs((snapshot.RuntimeEncounterStats?.GetValueOrDefault("Tension") ?? 50) - (old.RuntimeEncounterStats?.GetValueOrDefault("Tension") ?? 50)) >= threshold
+                || Math.Abs((snapshot.RuntimeEncounterStats?.GetValueOrDefault("Connection") ?? 50) - (old.RuntimeEncounterStats?.GetValueOrDefault("Connection") ?? 50)) >= threshold
                 || Math.Abs(snapshot.Dominance - old.Dominance) >= threshold
                 || Math.Abs(snapshot.Loyalty - old.Loyalty) >= threshold
                 || Math.Abs(snapshot.SelfRespect - old.SelfRespect) >= threshold)

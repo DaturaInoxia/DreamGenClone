@@ -98,22 +98,20 @@ public sealed class ScenarioLifecycleGateProfileTests
                     CharacterId = "char-1",
                     Desire = desire,
                     Restraint = restraint,
-                    Tension = 50,
-                    Connection = 50,
                     Dominance = 50,
                     Loyalty = 50,
-                    SelfRespect = 50
+                    SelfRespect = 50,
+                    RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 50, ["Connection"] = 50 }
                 },
                 new CharacterStatProfileV2
                 {
                     CharacterId = "char-2",
                     Desire = desire,
                     Restraint = restraint,
-                    Tension = 55,
-                    Connection = 52,
                     Dominance = 49,
                     Loyalty = 50,
-                    SelfRespect = 51
+                    SelfRespect = 51,
+                    RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 55, ["Connection"] = 52 }
                 }
             ]
         };

@@ -239,8 +239,6 @@ public sealed class SceneWritingDirectivePromptTests
             VariantId: null,
             AverageDesire: 80,
             AverageRestraint: 30,
-            AverageTension: 70,
-            AverageConnection: 60,
             AverageDominance: 50,
             AverageLoyalty: 50,
             SelectedWillingnessProfileId: null,
@@ -269,8 +267,6 @@ public sealed class SceneWritingDirectivePromptTests
             VariantId: null,
             AverageDesire: 80,
             AverageRestraint: 30,
-            AverageTension: 70,
-            AverageConnection: 60,
             AverageDominance: 50,
             AverageLoyalty: 50,
             SelectedWillingnessProfileId: null,
@@ -298,8 +294,6 @@ public sealed class SceneWritingDirectivePromptTests
                 VariantId: null,
                 AverageDesire: 60,
                 AverageRestraint: 40,
-                AverageTension: 50,
-                AverageConnection: 50,
                 AverageDominance: 50,
                 AverageLoyalty: 50,
                 SelectedWillingnessProfileId: null,
@@ -350,8 +344,6 @@ public sealed class SceneWritingDirectivePromptTests
             VariantId: null,
             AverageDesire: 80,
             AverageRestraint: 30,
-            AverageTension: 70,
-            AverageConnection: 60,
             AverageDominance: 50,
             AverageLoyalty: 50,
             SelectedWillingnessProfileId: null,
@@ -401,6 +393,7 @@ public sealed class SceneWritingDirectivePromptTests
         public Task<IReadOnlyDictionary<string, string>> GenerateFramesAsync(
             IReadOnlyDictionary<string, string> characterEncounterProfileIds,
             IReadOnlyList<ScenarioCharacter> characters,
+            IReadOnlyDictionary<string, CharacterStatProfileV2>? characterRuntimeStats = null,
             CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyDictionary<string, string>>(new Dictionary<string, string>());
     }
