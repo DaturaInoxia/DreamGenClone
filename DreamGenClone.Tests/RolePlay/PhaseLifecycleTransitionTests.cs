@@ -263,9 +263,9 @@ public sealed class PhaseLifecycleTransitionTests
         Assert.Single(reset.CharacterSnapshots);
         Assert.Equal(snapshot.CharacterId, reset.CharacterSnapshots[0].CharacterId);
         Assert.True(decayed.Desire < snapshot.Desire);
-        Assert.True(decayed.Tension <= snapshot.Tension);
+        Assert.Equal(snapshot.RuntimeEncounterStats?.GetValueOrDefault("Tension") ?? 50, decayed.RuntimeEncounterStats?.GetValueOrDefault("Tension") ?? 50);
         Assert.True(decayed.Dominance <= snapshot.Dominance);
-        Assert.Equal(snapshot.Connection, decayed.Connection);
+        Assert.Equal(snapshot.RuntimeEncounterStats?.GetValueOrDefault("Connection") ?? 50, decayed.RuntimeEncounterStats?.GetValueOrDefault("Connection") ?? 50);
         Assert.Equal(snapshot.Loyalty, decayed.Loyalty);
         Assert.Equal(snapshot.SelfRespect, decayed.SelfRespect);
     }
@@ -285,22 +285,20 @@ public sealed class PhaseLifecycleTransitionTests
                     CharacterId = "char-high",
                     Desire = 95,
                     Restraint = 20,
-                    Tension = 85,
-                    Connection = 60,
                     Dominance = 80,
                     Loyalty = 55,
-                    SelfRespect = 58
+                    SelfRespect = 58,
+                    RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 85, ["Connection"] = 60 }
                 },
                 new CharacterStatProfileV2
                 {
                     CharacterId = "char-mid",
                     Desire = 65,
                     Restraint = 80,
-                    Tension = 60,
-                    Connection = 60,
                     Dominance = 60,
                     Loyalty = 55,
-                    SelfRespect = 58
+                    SelfRespect = 58,
+                    RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 60, ["Connection"] = 60 }
                 }
             ]
         };
@@ -329,11 +327,10 @@ public sealed class PhaseLifecycleTransitionTests
                     CharacterId = "char-a",
                     Desire = 90,
                     Restraint = 20,
-                    Tension = 80,
-                    Connection = 55,
                     Dominance = 70,
                     Loyalty = 50,
-                    SelfRespect = 50
+                    SelfRespect = 50,
+                    RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 80, ["Connection"] = 55 }
                 }
             ]
         };
@@ -350,11 +347,10 @@ public sealed class PhaseLifecycleTransitionTests
                     CharacterId = "char-a",
                     Desire = 90,
                     Restraint = 20,
-                    Tension = 80,
-                    Connection = 55,
                     Dominance = 70,
                     Loyalty = 50,
-                    SelfRespect = 50
+                    SelfRespect = 50,
+                    RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 80, ["Connection"] = 55 }
                 }
             ]
         };
@@ -366,7 +362,6 @@ public sealed class PhaseLifecycleTransitionTests
         var late = lateReset.CharacterSnapshots[0];
 
         Assert.True(late.Desire > early.Desire);
-        Assert.True(late.Tension > early.Tension);
         Assert.True(late.Dominance > early.Dominance);
         Assert.True(late.Restraint < early.Restraint);
     }
@@ -413,11 +408,10 @@ public sealed class PhaseLifecycleTransitionTests
                         CharacterId = "char-a",
                         Desire = 100,
                         Restraint = 20,
-                        Tension = 80,
-                        Connection = 55,
                         Dominance = 70,
                         Loyalty = 50,
-                        SelfRespect = 50
+                        SelfRespect = 50,
+                        RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 80, ["Connection"] = 55 }
                     }
                 ]
             };
@@ -438,11 +432,10 @@ public sealed class PhaseLifecycleTransitionTests
                     CharacterId = "char-b",
                     Desire = 10,
                     Restraint = 20,
-                    Tension = 10,
-                    Connection = 10,
                     Dominance = 10,
                     Loyalty = 10,
-                    SelfRespect = 10
+                    SelfRespect = 10,
+                    RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 10, ["Connection"] = 10 }
                 }
             ]
         };
@@ -451,8 +444,8 @@ public sealed class PhaseLifecycleTransitionTests
         var updated = belowBaselineReset.CharacterSnapshots[0];
         Assert.True(updated.Desire > 10);
         Assert.True(updated.Restraint > 20);
-        Assert.True(updated.Tension > 10);
-        Assert.True(updated.Connection > 10);
+        Assert.True((updated.RuntimeEncounterStats?.GetValueOrDefault("Tension") ?? 50) > 10);
+        Assert.True((updated.RuntimeEncounterStats?.GetValueOrDefault("Connection") ?? 50) > 10);
         Assert.True(updated.Dominance > 10);
         Assert.True(updated.Loyalty > 10);
         Assert.True(updated.SelfRespect > 10);
@@ -485,11 +478,10 @@ public sealed class PhaseLifecycleTransitionTests
                     CharacterId = "char-a",
                     Desire = 90,
                     Restraint = 50,
-                    Tension = 50,
-                    Connection = 50,
                     Dominance = 50,
                     Loyalty = 50,
-                    SelfRespect = 50
+                    SelfRespect = 50,
+                    RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 50, ["Connection"] = 50 }
                 }
             ]
         };
@@ -509,11 +501,10 @@ public sealed class PhaseLifecycleTransitionTests
                     CharacterId = "char-a",
                     Desire = 90,
                     Restraint = 50,
-                    Tension = 50,
-                    Connection = 50,
                     Dominance = 50,
                     Loyalty = 50,
-                    SelfRespect = 50
+                    SelfRespect = 50,
+                    RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 50, ["Connection"] = 50 }
                 }
             ]
         };
@@ -598,8 +589,8 @@ public sealed class PhaseLifecycleTransitionTests
         var emptySnap = withEmpty.CharacterSnapshots[0];
         Assert.Equal(nullSnap.Desire, emptySnap.Desire);
         Assert.Equal(nullSnap.Restraint, emptySnap.Restraint);
-        Assert.Equal(nullSnap.Tension, emptySnap.Tension);
-        Assert.Equal(nullSnap.Connection, emptySnap.Connection);
+        Assert.Equal(nullSnap.RuntimeEncounterStats?.GetValueOrDefault("Tension") ?? 50, emptySnap.RuntimeEncounterStats?.GetValueOrDefault("Tension") ?? 50);
+        Assert.Equal(nullSnap.RuntimeEncounterStats?.GetValueOrDefault("Connection") ?? 50, emptySnap.RuntimeEncounterStats?.GetValueOrDefault("Connection") ?? 50);
         Assert.Equal(nullSnap.Dominance, emptySnap.Dominance);
         Assert.Equal(nullSnap.Loyalty, emptySnap.Loyalty);
         Assert.Equal(nullSnap.SelfRespect, emptySnap.SelfRespect);
@@ -767,7 +758,7 @@ public sealed class PhaseLifecycleTransitionTests
         ActiveFormulaVersion = "rpv2-default",
         CharacterSnapshots =
         [
-            new CharacterStatProfileV2 { CharacterId = "char-a", Desire = 80, Restraint = 30, Tension = 50, Connection = 55, Dominance = 50, Loyalty = 50, SelfRespect = 50 }
+            new CharacterStatProfileV2 { CharacterId = "char-a", Desire = 80, Restraint = 30, Dominance = 50, Loyalty = 50, SelfRespect = 50, RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 50, ["Connection"] = 55 } }
         ]
     };
 

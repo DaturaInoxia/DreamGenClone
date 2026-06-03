@@ -44,6 +44,8 @@ Auto-generated from all feature plans. Last updated: 2026-03-17
 - In-memory only (singleton `ConcurrentDictionary`); no SQLite for tracker state — exception documented in FR-015 with rationale (027-prompt-queue-continue)
 - C# 12 / .NET 9 + Blazor Server (DreamGenClone.Web), SQLite via Microsoft.Data.Sqlite, Serilog, IOptions<T> configuration pattern, IBackgroundJobHandler infrastructure (001-session-memory-context)
 - SQLite — new `RolePlayV2EncounterSummaries` table + additive `Sessions` column (001-session-memory-context)
+- C# / .NET 9 + Blazor Server, SQLite (raw ADO.NET), xUnit, FluentAssertions, Serilog (001-stat-char-text-drift)
+- SQLite — `DreamGenClone.Web/data/dreamgenclone.dev.db`; no schema change (new data serialises in existing `CharacterSnapshotsJson` JSON column) (001-stat-char-text-drift)
 
 - C# / .NET 9 (`net9.0`) + ASP.NET Core Blazor Server, `Microsoft.Data.Sqlite`, `Microsoft.Extensions.*`, Serilog (`Serilog.AspNetCore`, `Serilog.Settings.Configuration`, sinks/enrichers) (001-roleplay-session-screens)
 
@@ -64,9 +66,9 @@ tests/
 C# / .NET 9 (`net9.0`): Follow standard conventions
 
 ## Recent Changes
+- 001-stat-char-text-drift: Added C# / .NET 9 + Blazor Server, SQLite (raw ADO.NET), xUnit, FluentAssertions, Serilog
 - 001-session-memory-context: Added C# 12 / .NET 9 + Blazor Server (DreamGenClone.Web), SQLite via Microsoft.Data.Sqlite, Serilog, IOptions<T> configuration pattern, IBackgroundJobHandler infrastructure
 - 027-prompt-queue-continue: Added C# 13 / .NET 9 + Blazor Server (ASP.NET Core 9), `System.Collections.Concurrent`, `System.Threading`, Serilog
-- 027-prompt-queue-continue: Added [e.g., Python 3.11, Swift 5.9, Rust 1.75 or NEEDS CLARIFICATION] + [e.g., FastAPI, UIKit, LLVM or NEEDS CLARIFICATION]
 
 
 <!-- MANUAL ADDITIONS START -->

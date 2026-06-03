@@ -34,7 +34,7 @@
         <span class="text-muted">›</span>
         <span class="badge @(_currentStep == 2 ? "bg-primary" : _currentStep > 2 ? "bg-success" : "bg-secondary") fs-6 px-3 py-2">2 — Themes</span>
         <span class="text-muted">›</span>
-        <span class="badge @(_currentStep == 3 ? "bg-primary" : "bg-secondary") fs-6 px-3 py-2">3 — Persona &amp; Stats</span>
+        <span class="badge @(_currentStep == 3 ? "bg-primary" : "bg-secondary") fs-6 px-3 py-2">3 — Persona &amp; Profiles</span>
     </div>
 
     <!-- ═══════════════════════════════════════════════════ STEP 1 ══ -->
@@ -166,14 +166,20 @@
                         </select>
                     </div>
                     <div class="col-12 col-md-2">
-                        <label class="form-label">Role</label>
-                        <select class="form-select" @bind="_personaRole">
+                        <label class="form-label">Role <span class="text-danger">*</span></label>
+                        <select class="form-select @(_showStep3Validation && string.Equals(_personaRole, CharacterRoleCatalog.Unknown, StringComparison.OrdinalIgnoreCase) ? "is-invalid" : "")"
+                                value="@_personaRole"
+                                @onchange="OnPersonaRoleChanged">
                             <option value="Unknown">Unknown</option>
                             @foreach (var r in CharacterRoleCatalog.CharacterRoleOptions)
                             {
                                 <option value="@r">@r</option>
                             }
                         </select>
+                        @if (_showStep3Validation && string.Equals(_personaRole, CharacterRoleCatalog.Unknown, StringComparison.OrdinalIgnoreCase))
+                        {
+                            <div class="invalid-feedback d-block">Select a role.</div>
+                        }
                     </div>
                     <div class="col-12">
                         <label class="form-label">Description</label>
@@ -187,33 +193,29 @@
                     </div>
                 </div>
 
-                <!-- Persona starting stats -->
+                <!-- Persona stat profile (required) -->
                 <div class="mt-3">
-                    <div class="small fw-semibold text-muted mb-1">Starting Stats</div>
-                    <div class="d-flex flex-wrap gap-2 mb-2">
-                        @foreach (var statName in AdaptiveStatCatalog.CanonicalStatNames)
-                        {
-                            <div class="input-group input-group-sm" style="width: 190px;">
-                                <span class="input-group-text" style="min-width: 110px;">@statName</span>
-                                <input type="number"
-                                       class="form-control"
-                                       min="0"
-                                       max="100"
-                                       value="@GetPersonaStat(statName)"
-                                       @onchange="@(e => SetPersonaStat(statName, e.Value?.ToString()))" />
-                            </div>
-                        }
-                    </div>
-                    <div class="input-group input-group-sm mb-1" style="max-width: 480px;">
-                        <select class="form-select" @bind="_personaStatProfileId">
-                            <option value="">(Select Stat Profile)</option>
+                    <label class="form-label fw-semibold">Stat Profile <span class="text-danger">*</span></label>
+                    @if (string.Equals(_personaRole, CharacterRoleCatalog.Unknown, StringComparison.OrdinalIgnoreCase))
+                    {
+                        <div class="text-muted small">Select a Role above to see applicable profiles.</div>
+                    }
+                    else
+                    {
+                        <select class="form-select @(_showStep3Validation && string.IsNullOrWhiteSpace(_personaStatProfileId) ? "is-invalid" : "")"
+                                value="@_personaStatProfileId"
+                                @onchange="OnPersonaStatProfileChanged">
+                            <option value="">(select a profile)</option>
                             @foreach (var p in GetApplicableCharacterProfiles(_personaRole))
                             {
-                                <option value="@p.Id">@p.Name (@CharacterRoleCatalog.Normalize(p.TargetRole))</option>
+                                <option value="@p.Id">@p.Name</option>
                             }
                         </select>
-                        <button class="btn btn-outline-primary" type="button" @onclick="ApplyPersonaStatProfile">Apply</button>
-                    </div>
+                        @if (_showStep3Validation && string.IsNullOrWhiteSpace(_personaStatProfileId))
+                        {
+                            <div class="invalid-feedback d-block">A stat profile is required.</div>
+                        }
+                    }
                 </div>
             </div>
         </div>
@@ -234,30 +236,21 @@
                 @if (cs.IsExpanded)
                 {
                     <div class="card-body">
-                        <div class="d-flex flex-wrap gap-2 mb-2">
-                            @foreach (var statName in AdaptiveStatCatalog.CanonicalStatNames)
-                            {
-                                <div class="input-group input-group-sm" style="width: 190px;">
-                                    <span class="input-group-text" style="min-width: 110px;">@statName</span>
-                                    <input type="number"
-                                           class="form-control"
-                                           min="0"
-                                           max="100"
-                                           value="@cs.Stats.GetValueOrDefault(statName, AdaptiveStatCatalog.DefaultValue)"
-                                           @onchange="@(e => SetCharacterStat(cs, statName, e.Value?.ToString()))" />
-                                </div>
-                            }
-                        </div>
-                        <div class="input-group input-group-sm" style="max-width: 480px;">
-                            <select class="form-select" value="@cs.SelectedStatProfileId"
-                                    @onchange="@(e => cs.SelectedStatProfileId = e.Value?.ToString() ?? string.Empty)">
-                                <option value="">(Select Character Profile)</option>
+                        <div class="mb-1">
+                            <label class="form-label fw-semibold mb-1">Stat Profile <span class="text-danger">*</span></label>
+                            <select class="form-select @(_showStep3Validation && string.IsNullOrWhiteSpace(cs.SelectedStatProfileId) ? "is-invalid" : "")"
+                                    value="@cs.SelectedStatProfileId"
+                                    @onchange="@(e => OnCharacterStatProfileChanged(cs, e.Value?.ToString()))">
+                                <option value="">(select a profile)</option>
                                 @foreach (var p in GetApplicableCharacterProfiles(cs.Role))
                                 {
-                                    <option value="@p.Id">@p.Name (@CharacterRoleCatalog.Normalize(p.TargetRole))</option>
+                                    <option value="@p.Id">@p.Name</option>
                                 }
                             </select>
-                            <button class="btn btn-outline-primary" type="button" @onclick="@(() => ApplyCharacterStatProfile(cs))">Apply</button>
+                            @if (_showStep3Validation && string.IsNullOrWhiteSpace(cs.SelectedStatProfileId))
+                            {
+                                <div class="invalid-feedback d-block">A stat profile is required.</div>
+                            }
                         </div>
                     </div>
                 }
@@ -355,6 +348,8 @@
     private readonly List<TemplateDefinition> _personaTemplates = [];
     private readonly List<CharacterProfile> _characterProfiles = [];
     private readonly Dictionary<string, string> _characterEncounterProfileIds = new(StringComparer.OrdinalIgnoreCase);
+
+    private bool _showStep3Validation;
 
     private bool CanGoNext => _currentStep == 1
         ? !string.IsNullOrWhiteSpace(_newSessionScenarioId)
@@ -512,6 +507,27 @@
         }
     }
 
+    private void OnPersonaRoleChanged(ChangeEventArgs e)
+    {
+        _personaRole = e.Value?.ToString() ?? CharacterRoleCatalog.Unknown;
+        // Clear profile selection when role changes — profiles are role-filtered
+        _personaStatProfileId = string.Empty;
+        _personaStats.Clear();
+        _characterEncounterProfileIds.Remove("__persona__");
+    }
+
+    private void OnPersonaStatProfileChanged(ChangeEventArgs e)
+    {
+        _personaStatProfileId = e.Value?.ToString() ?? string.Empty;
+        ApplyPersonaStatProfile();
+    }
+
+    private void OnCharacterStatProfileChanged(CharacterEditState cs, string? profileId)
+    {
+        cs.SelectedStatProfileId = profileId ?? string.Empty;
+        ApplyCharacterStatProfile(cs);
+    }
+
     // ── Persona helpers ────────────────────────────────────────────
 
     private void OnPersonaTemplateChanged(ChangeEventArgs e)
@@ -578,17 +594,6 @@
         OrgasmicCapacity = src.OrgasmicCapacity,
     };
 
-    private int GetPersonaStat(string statName) =>
-        _personaStats.TryGetValue(statName, out var v) ? v : AdaptiveStatCatalog.DefaultValue;
-
-    private void SetPersonaStat(string statName, string? raw)
-    {
-        if (int.TryParse(raw, out var v))
-        {
-            _personaStats[statName] = Math.Clamp(v, 0, 100);
-        }
-    }
-
     private void ApplyPersonaStatProfile()
     {
         if (string.IsNullOrWhiteSpace(_personaStatProfileId))
@@ -618,14 +623,6 @@
     }
 
     // ── Character stat helpers ─────────────────────────────────────
-
-    private static void SetCharacterStat(CharacterEditState cs, string statName, string? raw)
-    {
-        if (int.TryParse(raw, out var v))
-        {
-            cs.Stats[statName] = Math.Clamp(v, 0, 100);
-        }
-    }
 
     private void ApplyCharacterStatProfile(CharacterEditState cs)
     {
@@ -664,11 +661,13 @@
 
     private async Task CreateSessionAsync()
     {
+        _showStep3Validation = true;
         _statusMessage = string.Empty;
 
-        if (string.IsNullOrWhiteSpace(_newSessionTitle))
+        if (string.Equals(_personaRole, CharacterRoleCatalog.Unknown, StringComparison.OrdinalIgnoreCase)
+            || string.IsNullOrWhiteSpace(_personaStatProfileId)
+            || _characterEditStates.Any(cs => string.IsNullOrWhiteSpace(cs.SelectedStatProfileId)))
         {
-            _statusMessage = "Session title is required.";
             return;
         }
 

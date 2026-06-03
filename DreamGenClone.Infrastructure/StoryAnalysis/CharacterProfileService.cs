@@ -55,6 +55,10 @@ public sealed class CharacterProfileService : ICharacterProfileService
     public async Task SaveAsync(CharacterProfile profile, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(profile);
+
+        // Strip any non-canonical keys (e.g. legacy Tension/Connection) before validation.
+        profile.CharacterStats = AdaptiveStatCatalog.NormalizeComplete(profile.CharacterStats);
+
         ValidateStats(profile);
 
         profile.UpdatedUtc = DateTime.UtcNow;
@@ -157,8 +161,8 @@ public sealed class CharacterProfileService : ICharacterProfileService
                 UpdatedUtc = now,
                 CharacterStats = new Dictionary<string, int>
                 {
-                    ["Desire"] = desire, ["Restraint"] = restraint, ["Tension"] = tension,
-                    ["Connection"] = connection, ["Dominance"] = dominance, ["Loyalty"] = loyalty,
+                    ["Desire"] = desire, ["Restraint"] = restraint,
+                    ["Dominance"] = dominance, ["Loyalty"] = loyalty,
                     ["SelfRespect"] = selfRespect
                 },
                 EncounterStats = new Dictionary<string, int>
@@ -183,8 +187,8 @@ public sealed class CharacterProfileService : ICharacterProfileService
                 UpdatedUtc = now,
                 CharacterStats = new Dictionary<string, int>
                 {
-                    ["Desire"] = desire, ["Restraint"] = restraint, ["Tension"] = tension,
-                    ["Connection"] = connection, ["Dominance"] = dominance, ["Loyalty"] = loyalty,
+                    ["Desire"] = desire, ["Restraint"] = restraint,
+                    ["Dominance"] = dominance, ["Loyalty"] = loyalty,
                     ["SelfRespect"] = selfRespect
                 },
                 EncounterStats = new Dictionary<string, int>
@@ -208,8 +212,8 @@ public sealed class CharacterProfileService : ICharacterProfileService
                 UpdatedUtc = now,
                 CharacterStats = new Dictionary<string, int>
                 {
-                    ["Desire"] = desire, ["Restraint"] = restraint, ["Tension"] = tension,
-                    ["Connection"] = connection, ["Dominance"] = dominance, ["Loyalty"] = loyalty,
+                    ["Desire"] = desire, ["Restraint"] = restraint,
+                    ["Dominance"] = dominance, ["Loyalty"] = loyalty,
                     ["SelfRespect"] = selfRespect
                 },
                 EncounterStats = new Dictionary<string, int>

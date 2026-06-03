@@ -80,9 +80,39 @@ public sealed class AdaptiveScenarioState
         _characterStats = new Dictionary<string, CharacterStatProfileV2>(StringComparer.OrdinalIgnoreCase);
         foreach (var snap in CharacterSnapshots)
             _characterStats[snap.CharacterId] = snap;
+
+        // Rebuild CharacterRoles from the persisted CharacterRole field on each snapshot.
+        CharacterRoles.Clear();
+        foreach (var snap in CharacterSnapshots)
+        {
+            if (!string.IsNullOrWhiteSpace(snap.CharacterId) && !string.IsNullOrWhiteSpace(snap.CharacterRole))
+                CharacterRoles[snap.CharacterId] = snap.CharacterRole;
+        }
+
+        // Seed RuntimeEncounterStats at baseline 50 for any character that has a role but
+        // no encounter stats yet. This ensures the behavioral dimensions panel is populated
+        // on session load rather than waiting for the first semantic stat mutation.
+        foreach (var snap in CharacterSnapshots)
+        {
+            if (!string.IsNullOrWhiteSpace(snap.CharacterRole)
+                && snap.RuntimeEncounterStats is not { Count: > 0 })
+            {
+                var dims = DreamGenClone.Domain.StoryAnalysis.BehavioralDimensionCatalog.GetDimensions(snap.CharacterRole);
+                if (dims.Count > 0)
+                    snap.RuntimeEncounterStats = dims.ToDictionary(d => d.Name, _ => 50, StringComparer.OrdinalIgnoreCase);
+            }
+        }
     }
 
     public ThemeMachineSessionSnapshot? ThemeMachineSnapshot { get; set; }
+
+    /// <summary>
+    /// Maps characterId (actorKey) → role label (e.g. "Wife", "Husband", "OtherMan").
+    /// Used by StatToDimensionMappings to look up drift rules during stat mutation.
+    /// Populated by RebindEncounterProfile (T024) when encounter profiles are bound.
+    /// Entries missing from this dict result in a no-op drift (empty rule set).
+    /// </summary>
+    public Dictionary<string, string> CharacterRoles { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// BeatCode of the current sub-beat cursor during Climax phase, e.g. "1a", "8g".

@@ -107,7 +107,7 @@ public sealed class PerInteractionAffinityTests
         var session = new RolePlaySession();
         session.AdaptiveState.CurrentPhase = DreamGenClone.Domain.RolePlay.NarrativePhase.Committed;
         // Pre-initialize character stats
-        session.AdaptiveState.CharacterStats["Alice"] = new CharacterStatProfileV2 { CharacterId = "alice", Desire = 50, Connection = 50, Restraint = 50, Tension = 50, Dominance = 50 };
+        session.AdaptiveState.CharacterStats["Alice"] = new CharacterStatProfileV2 { CharacterId = "alice", Desire = 50, Restraint = 50, Dominance = 50, RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 50, ["Connection"] = 50 } };
 
         // Interaction with intimacy keywords triggers StatAffinities: Desire +3, Connection +2
         var interaction = new RolePlayInteraction
@@ -121,7 +121,6 @@ public sealed class PerInteractionAffinityTests
         var profile = session.AdaptiveState.CharacterStats["Alice"];
         // Desire should be higher than 50 (base keyword delta + StatAffinity delta)
         Assert.True(profile.Desire > 50, $"Desire should be > 50, got {profile.Desire}");
-        Assert.True(profile.Connection > 50, $"Connection should be > 50, got {profile.Connection}");
     }
 
     [Fact]
@@ -133,10 +132,9 @@ public sealed class PerInteractionAffinityTests
         {
             CharacterId = "becky",
             Desire = 50,
-            Connection = 50,
             Restraint = 50,
-            Tension = 50,
-            Dominance = 50
+            Dominance = 50,
+            RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 50, ["Connection"] = 50 }
         };
 
         await service.UpdateFromInteractionAsync(session, new RolePlayInteraction

@@ -19,11 +19,10 @@ public static class RolePlayAcceptanceFixtureData
                     CharacterId = "char-a",
                     Desire = desire,
                     Restraint = restraint,
-                    Tension = tension,
-                    Connection = 50,
                     Dominance = 50,
                     Loyalty = 50,
-                    SelfRespect = 50
+                    SelfRespect = 50,
+                    RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = tension, ["Connection"] = 50 }
                 }
             ]
         };

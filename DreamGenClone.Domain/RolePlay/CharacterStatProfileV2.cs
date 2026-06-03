@@ -5,8 +5,6 @@ public sealed class CharacterStatProfileV2
     public string CharacterId { get; set; } = string.Empty;
     public int Desire { get; set; }
     public int Restraint { get; set; }
-    public int Tension { get; set; }
-    public int Connection { get; set; }
     public int Dominance { get; set; }
     public int Loyalty { get; set; }
     public int SelfRespect { get; set; }
@@ -28,4 +26,17 @@ public sealed class CharacterStatProfileV2
     public DateTime? LastStatDeltaUpdatedUtc { get; set; }
 
     public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;
+
+    /// <summary>
+    /// Per-character mutable encounter dimension values that evolve during play via stat drift.
+    /// Null until the first stat delta fires. Persisted in CharacterSnapshotsJson.
+    /// </summary>
+    public Dictionary<string, int>? RuntimeEncounterStats { get; set; }
+
+    /// <summary>
+    /// The character's narrative role (e.g. "Wife", "Husband", "The Other Man").
+    /// Persisted in CharacterSnapshotsJson so CharacterRoles can be rebuilt on session load
+    /// without requiring a separate column or extra data at runtime.
+    /// </summary>
+    public string? CharacterRole { get; set; }
 }

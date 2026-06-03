@@ -186,8 +186,6 @@ public sealed class AdaptiveScenarioStateV2RoundTripTests
                         CharacterId = "char-a",
                         Desire = 8,
                         Restraint = 3,
-                        Tension = 5,
-                        Connection = 6,
                         Dominance = 4,
                         Loyalty = 7,
                         SelfRespect = 5,
@@ -195,7 +193,8 @@ public sealed class AdaptiveScenarioStateV2RoundTripTests
                         UpdatedUtc = nowUtc,
                         BaselineStats = { ["Desire"] = 2, ["Restraint"] = 6 },
                         LastStatDeltas = { ["Desire"] = 2, ["Restraint"] = -1 },
-                        LastStatDeltaUpdatedUtc = nowUtc
+                        LastStatDeltaUpdatedUtc = nowUtc,
+                        RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 5, ["Connection"] = 6 }
                     }
                 }
             };

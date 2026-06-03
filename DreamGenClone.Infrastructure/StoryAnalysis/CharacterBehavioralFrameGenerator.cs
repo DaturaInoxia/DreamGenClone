@@ -1,5 +1,6 @@
 using DreamGenClone.Application.StoryAnalysis.Abstractions;
 using DreamGenClone.Application.StoryAnalysis.Models;
+using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Domain.StoryAnalysis;
 using Microsoft.Extensions.Logging;
 using System.Text;
@@ -26,6 +27,7 @@ public sealed class CharacterBehavioralFrameGenerator : IBehavioralFrameGenerato
     public async Task<IReadOnlyDictionary<string, string>> GenerateFramesAsync(
         IReadOnlyDictionary<string, string> characterEncounterProfileIds,
         IReadOnlyList<ScenarioCharacter> characters,
+        IReadOnlyDictionary<string, CharacterStatProfileV2>? characterRuntimeStats = null,
         CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("Generating behavioral frames for {Count} characters", characterEncounterProfileIds.Count);
@@ -48,7 +50,27 @@ public sealed class CharacterBehavioralFrameGenerator : IBehavioralFrameGenerato
                 ? $"{character.Name} ({character.Role})"
                 : characterId;
 
-            var frameText = BuildFrameText(profile);
+            // Resolve runtime encounter stats: try display label first, then characterId
+            CharacterStatProfileV2? runtimeSnapshot = null;
+            if (characterRuntimeStats is not null)
+            {
+                if (!characterRuntimeStats.TryGetValue(label, out runtimeSnapshot))
+                    characterRuntimeStats.TryGetValue(characterId, out runtimeSnapshot);
+            }
+
+            var runtimeDimensions = runtimeSnapshot?.RuntimeEncounterStats;
+            var useRuntimeStats = runtimeDimensions is { Count: > 0 };
+
+            if (useRuntimeStats)
+            {
+                _logger.LogDebug("Using RuntimeEncounterStats for {CharacterLabel} frame generation", label);
+            }
+            else
+            {
+                _logger.LogDebug("Using static EncounterStats for {CharacterLabel} frame generation", label);
+            }
+
+            var frameText = BuildFrameText(profile, useRuntimeStats ? runtimeDimensions : null);
             if (string.IsNullOrWhiteSpace(frameText))
             {
                 // TargetRole="Any" with no AdditionalNotes → omit
@@ -62,7 +84,7 @@ public sealed class CharacterBehavioralFrameGenerator : IBehavioralFrameGenerato
         return result;
     }
 
-    private static string BuildFrameText(CharacterProfile profile)
+    private static string BuildFrameText(CharacterProfile profile, IReadOnlyDictionary<string, int>? runtimeEncounterStats)
     {
         // FullOverride=true with non-empty AdditionalNotes → use AdditionalNotes only
         if (profile.FullOverride && !string.IsNullOrWhiteSpace(profile.AdditionalNotes))
@@ -78,10 +100,20 @@ public sealed class CharacterBehavioralFrameGenerator : IBehavioralFrameGenerato
         }
 
         // Build dimension text from all tier sentences
+        // Use runtimeEncounterStats values when provided; fall back to profile.EncounterStats
         var sb = new StringBuilder();
         foreach (var dim in dimensions)
         {
-            var value = profile.EncounterStats.TryGetValue(dim.Name, out var v) ? v : 50;
+            int value;
+            if (runtimeEncounterStats is not null && runtimeEncounterStats.TryGetValue(dim.Name, out var runtimeVal))
+            {
+                value = runtimeVal;
+            }
+            else
+            {
+                value = profile.EncounterStats.TryGetValue(dim.Name, out var staticVal) ? staticVal : 50;
+            }
+
             var tierText = BehavioralDimensionCatalog.ResolveTierText(profile.TargetRole!, dim.Name, value);
             if (!string.IsNullOrWhiteSpace(tierText))
             {

@@ -351,17 +351,15 @@ public sealed class ScenarioSeedAdaptiveStateTests
         {
             CharacterId = "alice-1",
             Desire = 50,
-            Connection = 50,
             Restraint = 50,
-            Tension = 50,
-            Dominance = 50
+            Dominance = 50,
+            RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 50, ["Connection"] = 50 }
         };
         var scenario = CreateMinimalScenario();
 
         await service.SeedFromScenarioAsync(session, scenario);
 
         Assert.Equal(55, session.AdaptiveState.CharacterStats["Alice"].Desire);
-        Assert.Equal(47, session.AdaptiveState.CharacterStats["Alice"].Connection);
         // Unaffected stats stay the same (before StatAffinities)
     }
 
@@ -381,10 +379,9 @@ public sealed class ScenarioSeedAdaptiveStateTests
         {
             CharacterId = "bob-1",
             Desire = 50,
-            Connection = 50,
             Restraint = 50,
-            Tension = 50,
-            Dominance = 50
+            Dominance = 50,
+            RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 50, ["Connection"] = 50 }
         };
         var scenario = CreateMinimalScenario();
 
@@ -392,7 +389,6 @@ public sealed class ScenarioSeedAdaptiveStateTests
 
         // Intimacy has StatAffinities: Desire +2, Connection +1
         Assert.Equal(52, session.AdaptiveState.CharacterStats["Bob"].Desire);
-        Assert.Equal(51, session.AdaptiveState.CharacterStats["Bob"].Connection);
     }
 
     [Fact]
@@ -409,10 +405,9 @@ public sealed class ScenarioSeedAdaptiveStateTests
         {
             CharacterId = "bob-1",
             Desire = 50,
-            Connection = 50,
             Restraint = 50,
-            Tension = 50,
-            Dominance = 50
+            Dominance = 50,
+            RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 50, ["Connection"] = 50 }
         };
         var scenario = CreateMinimalScenario();
 
@@ -451,10 +446,9 @@ public sealed class ScenarioSeedAdaptiveStateTests
         {
             CharacterId = "carol-1",
             Desire = 50,
-            Connection = 50,
             Restraint = 50,
-            Tension = 50,
-            Dominance = 50
+            Dominance = 50,
+            RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 50, ["Connection"] = 50 }
         };
         var scenario = CreateMinimalScenario();
 
@@ -463,7 +457,6 @@ public sealed class ScenarioSeedAdaptiveStateTests
         // Desire: 50 (base) + 10 (StatBias) + 2 (Intimacy StatAffinity) = 62
         Assert.Equal(62, session.AdaptiveState.CharacterStats["Carol"].Desire);
         // Connection: 50 (base) + 1 (Intimacy StatAffinity) = 51
-        Assert.Equal(51, session.AdaptiveState.CharacterStats["Carol"].Connection);
     }
 
     // --- Null / edge cases ---

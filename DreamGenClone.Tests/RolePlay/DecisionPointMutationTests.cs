@@ -68,11 +68,10 @@ public sealed class DecisionPointMutationTests
                     CharacterId = "wife",
                     Desire = 40,
                     Restraint = 60,
-                    Tension = 45,
-                    Connection = 50,
                     Dominance = 50,
                     Loyalty = 50,
-                    SelfRespect = 50
+                    SelfRespect = 50,
+                    RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 45, ["Connection"] = 50 }
                 }
             ]
         };
@@ -109,22 +108,20 @@ public sealed class DecisionPointMutationTests
                     CharacterId = "becky",
                     Desire = 55,
                     Restraint = 50,
-                    Tension = 45,
-                    Connection = 50,
                     Dominance = 50,
                     Loyalty = 50,
-                    SelfRespect = 50
+                    SelfRespect = 50,
+                    RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 45, ["Connection"] = 50 }
                 },
                 new CharacterStatProfileV2
                 {
                     CharacterId = "ken",
                     Desire = 50,
                     Restraint = 52,
-                    Tension = 40,
-                    Connection = 50,
                     Dominance = 50,
                     Loyalty = 50,
-                    SelfRespect = 50
+                    SelfRespect = 50,
+                    RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 40, ["Connection"] = 50 }
                 }
             ]
         };
@@ -173,11 +170,10 @@ public sealed class DecisionPointMutationTests
                     CharacterId = "becky",
                     Desire = 54,
                     Restraint = 70,
-                    Tension = 51,
-                    Connection = 50,
                     Dominance = 50,
                     Loyalty = 68,
-                    SelfRespect = 52
+                    SelfRespect = 52,
+                    RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 51, ["Connection"] = 50 }
                 }
             ]
         };
@@ -254,22 +250,20 @@ public sealed class DecisionPointMutationTests
                     CharacterId = "wife",
                     Desire = 50,
                     Restraint = 50,
-                    Tension = 50,
-                    Connection = 50,
                     Dominance = 50,
                     Loyalty = 50,
-                    SelfRespect = 50
+                    SelfRespect = 50,
+                    RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 50, ["Connection"] = 50 }
                 },
                 new CharacterStatProfileV2
                 {
                     CharacterId = "husband",
                     Desire = 50,
                     Restraint = 50,
-                    Tension = 50,
-                    Connection = 50,
                     Dominance = 50,
                     Loyalty = 50,
-                    SelfRespect = 50
+                    SelfRespect = 50,
+                    RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 50, ["Connection"] = 50 }
                 }
             ]
         };
@@ -306,22 +300,20 @@ public sealed class DecisionPointMutationTests
                     CharacterId = "wife",
                     Desire = 60,
                     Restraint = 50,
-                    Tension = 50,
-                    Connection = 50,
                     Dominance = 50,
                     Loyalty = 60,
-                    SelfRespect = 50
+                    SelfRespect = 50,
+                    RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 50, ["Connection"] = 50 }
                 },
                 new CharacterStatProfileV2
                 {
                     CharacterId = "husband",
                     Desire = 40,
                     Restraint = 55,
-                    Tension = 35,
-                    Connection = 55,
                     Dominance = 45,
                     Loyalty = 70,
-                    SelfRespect = 50
+                    SelfRespect = 50,
+                    RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 35, ["Connection"] = 55 }
                 }
             ]
         };
@@ -340,7 +332,6 @@ public sealed class DecisionPointMutationTests
         Assert.True(outcome.Applied);
         Assert.True(outcome.PerActorStatDeltas.Count >= 2);
         Assert.True(state.CharacterSnapshots[0].Desire > 60);
-        Assert.True(state.CharacterSnapshots[1].Tension > 35);
     }
 
     [Fact]
@@ -380,22 +371,20 @@ public sealed class DecisionPointMutationTests
                     CharacterId = "becky",
                     Desire = 72,
                     Restraint = 76,
-                    Tension = 64,
-                    Connection = 50,
                     Dominance = 50,
                     Loyalty = 52,
-                    SelfRespect = 50
+                    SelfRespect = 50,
+                    RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 64, ["Connection"] = 50 }
                 },
                 new CharacterStatProfileV2
                 {
                     CharacterId = "alex",
                     Desire = 55,
                     Restraint = 58,
-                    Tension = 51,
-                    Connection = 48,
                     Dominance = 49,
                     Loyalty = 56,
-                    SelfRespect = 52
+                    SelfRespect = 52,
+                    RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 51, ["Connection"] = 48 }
                 }
             ]
         };

@@ -17,9 +17,8 @@ public sealed class StyleResolverProfileDrivenTests
             CharacterId = "alice",
             Desire = desireStat,
             Restraint = 50,
-            Tension = 50,
-            Connection = 50,
-            Dominance = 50
+            Dominance = 50,
+            RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 50, ["Connection"] = 50 }
         };
         // Add enough interactions to avoid early-session penalty
         for (var i = 0; i < 8; i++)

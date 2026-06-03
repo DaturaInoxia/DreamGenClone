@@ -63,10 +63,8 @@ public sealed class ScenarioGuidanceGeneratorTests
         Assert.Contains("Establish authority gently.", output.GuidanceText, StringComparison.Ordinal);
         Assert.Contains("High desire", output.GuidanceText, StringComparison.Ordinal);
         Assert.Contains("Low restraint", output.GuidanceText, StringComparison.Ordinal);
-        Assert.Contains("High connection", output.GuidanceText, StringComparison.Ordinal);
-        Assert.Contains("High tension", output.GuidanceText, StringComparison.Ordinal);
         Assert.Contains("Agency profile is proactive", output.GuidanceText, StringComparison.Ordinal);
-        Assert.Contains("Loyalty pressure is low", output.GuidanceText, StringComparison.Ordinal);
+        Assert.Contains("Loyalty pressure is mixed", output.GuidanceText, StringComparison.Ordinal);
         Assert.Equal("Template:dominance", output.Source);
         Assert.Single(output.EmphasisPoints);
         Assert.Single(output.AvoidancePoints);

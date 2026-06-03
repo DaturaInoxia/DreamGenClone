@@ -98,11 +98,10 @@ public sealed class RolePlayAdaptiveStateServiceTests
                         CharacterId = "becky",
                             Desire = 90,
                             Restraint = 20,
-                            Tension = 30,
-                            Connection = 50,
                             Dominance = 50,
                             Loyalty = 50,
-                            SelfRespect = 50
+                            SelfRespect = 50,
+                            RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 30, ["Connection"] = 50 }
                     }]
             }
         };
@@ -134,11 +133,10 @@ public sealed class RolePlayAdaptiveStateServiceTests
                         CharacterId = "alex",
                             Desire = 25,
                             Restraint = 90,
-                            Tension = 40,
-                            Connection = 50,
                             Dominance = 50,
                             Loyalty = 50,
-                            SelfRespect = 50
+                            SelfRespect = 50,
+                            RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 40, ["Connection"] = 50 }
                     }]
             }
         };
@@ -171,11 +169,10 @@ public sealed class RolePlayAdaptiveStateServiceTests
                         CharacterId = "alex",
                             Desire = 95,
                             Restraint = 10,
-                            Tension = 20,
-                            Connection = 50,
                             Dominance = 50,
                             Loyalty = 50,
-                            SelfRespect = 50
+                            SelfRespect = 50,
+                            RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 20, ["Connection"] = 50 }
                     }]
             }
         };
@@ -215,11 +212,10 @@ public sealed class RolePlayAdaptiveStateServiceTests
                         CharacterId = "becky",
                             Desire = 90,
                             Restraint = 20,
-                            Tension = 30,
-                            Connection = 50,
                             Dominance = 50,
                             Loyalty = 50,
-                            SelfRespect = 50
+                            SelfRespect = 50,
+                            RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 30, ["Connection"] = 50 }
                     }]
             }
         };
@@ -252,11 +248,10 @@ public sealed class RolePlayAdaptiveStateServiceTests
                         CharacterId = "alex",
                             Desire = 60,
                             Restraint = 50,
-                            Tension = 50,
-                            Connection = 50,
                             Dominance = 50,
                             Loyalty = 50,
-                            SelfRespect = 50
+                            SelfRespect = 50,
+                            RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 50, ["Connection"] = 50 }
                     }]
             }
         };
@@ -295,11 +290,10 @@ public sealed class RolePlayAdaptiveStateServiceTests
                         CharacterId = "alex",
                             Desire = 90,
                             Restraint = 20,
-                            Tension = 30,
-                            Connection = 50,
                             Dominance = 50,
                             Loyalty = 50,
-                            SelfRespect = 50
+                            SelfRespect = 50,
+                            RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 30, ["Connection"] = 50 }
                     }]
             }
         };
@@ -331,11 +325,10 @@ public sealed class RolePlayAdaptiveStateServiceTests
                         CharacterId = "alex",
                             Desire = 62,
                             Restraint = 48,
-                            Tension = 62,
-                            Connection = 50,
                             Dominance = 50,
                             Loyalty = 50,
-                            SelfRespect = 50
+                            SelfRespect = 50,
+                            RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 62, ["Connection"] = 50 }
                     }]
             }
         };
@@ -443,11 +436,10 @@ public sealed class RolePlayAdaptiveStateServiceTests
                         CharacterId = "becky",
                             Desire = 50,
                             Restraint = 50,
-                            Tension = 50,
-                            Connection = 50,
                             Dominance = 50,
                             Loyalty = 50,
-                            SelfRespect = 50
+                            SelfRespect = 50,
+                            RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 50, ["Connection"] = 50 }
                     }]
             }
         };

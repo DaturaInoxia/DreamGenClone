@@ -95,7 +95,7 @@ public sealed class RolePlaySessionLifecycleTests
                 ],
                 CharacterSnapshots =
                 [
-                    new CharacterStatProfileV2 { CharacterId = "char-a", Desire = 60, Restraint = 45, Tension = 58, Connection = 55, Dominance = 50, Loyalty = 60, SelfRespect = 50 }
+                    new CharacterStatProfileV2 { CharacterId = "char-a", Desire = 60, Restraint = 45, Dominance = 50, Loyalty = 60, SelfRespect = 50, RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 58, ["Connection"] = 55 } }
                 ]
             };
 
@@ -1460,8 +1460,7 @@ public sealed class RolePlaySessionLifecycleTests
                         CharacterId = x.CharacterId,
                         Desire = x.Desire,
                         Restraint = x.Restraint,
-                        Tension = x.Tension,
-                        Connection = x.Connection,
+                        RuntimeEncounterStats = x.RuntimeEncounterStats != null ? new Dictionary<string, int>(x.RuntimeEncounterStats) : null,
                         Dominance = x.Dominance,
                         Loyalty = x.Loyalty,
                         SelfRespect = x.SelfRespect,

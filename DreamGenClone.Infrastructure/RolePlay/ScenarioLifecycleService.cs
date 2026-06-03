@@ -291,8 +291,8 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
                         {
                             StatRow("Desire", before.Desire, after.Desire),
                             StatRow("Restraint", before.Restraint, after.Restraint),
-                            StatRow("Tension", before.Tension, after.Tension),
-                            StatRow("Connection", before.Connection, after.Connection),
+                            StatRow("Tension", before.RuntimeEncounterStats?.GetValueOrDefault("Tension") ?? 50, after.RuntimeEncounterStats?.GetValueOrDefault("Tension") ?? 50),
+                            StatRow("Connection", before.RuntimeEncounterStats?.GetValueOrDefault("Connection") ?? 50, after.RuntimeEncounterStats?.GetValueOrDefault("Connection") ?? 50),
                             StatRow("Dominance", before.Dominance, after.Dominance),
                             StatRow("Loyalty", before.Loyalty, after.Loyalty),
                             StatRow("SelfRespect", before.SelfRespect, after.SelfRespect)
@@ -349,11 +349,15 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
             CharacterId = snapshot.CharacterId,
             Desire = MoveTowardBaseline(snapshot.Desire, ResolveBaseline("Desire"), EffectivePull("Desire")),
             Restraint = MoveTowardBaseline(snapshot.Restraint, ResolveBaseline("Restraint"), EffectivePull("Restraint")),
-            Tension = MoveTowardBaseline(snapshot.Tension, ResolveBaseline("Tension"), EffectivePull("Tension")),
-            Connection = MoveTowardBaseline(snapshot.Connection, ResolveBaseline("Connection"), EffectivePull("Connection")),
             Dominance = MoveTowardBaseline(snapshot.Dominance, ResolveBaseline("Dominance"), EffectivePull("Dominance")),
             Loyalty = MoveTowardBaseline(snapshot.Loyalty, ResolveBaseline("Loyalty"), EffectivePull("Loyalty")),
             SelfRespect = MoveTowardBaseline(snapshot.SelfRespect, ResolveBaseline("SelfRespect"), EffectivePull("SelfRespect")),
+            RuntimeEncounterStats = snapshot.RuntimeEncounterStats is null ? null
+                : snapshot.RuntimeEncounterStats
+                    .ToDictionary(
+                        kvp => kvp.Key,
+                        kvp => MoveTowardBaseline(kvp.Value, ResolveBaseline(kvp.Key), EffectivePull(kvp.Key)),
+                        StringComparer.OrdinalIgnoreCase),
             SnapshotUtc = DateTime.UtcNow
         };
     }
@@ -477,12 +481,18 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
 
     private static decimal GetAverageStat(AdaptiveScenarioState state, Func<CharacterStatProfileV2, int> selector)
     {
-        if (state.CharacterSnapshots.Count == 0)
+        // Only scenario-bound characters (those with a CharacterRole) contribute to averages.
+        // Incidental characters mentioned in narrative have no role and must not affect gating.
+        var tracked = state.CharacterSnapshots
+            .Where(x => !string.IsNullOrEmpty(x.CharacterRole))
+            .ToList();
+
+        if (tracked.Count == 0)
         {
             return 50m;
         }
 
-        return (decimal)state.CharacterSnapshots.Average(x => selector(x));
+        return (decimal)tracked.Average(x => selector(x));
     }
 
     private static int GetPhaseOrder(NarrativePhase phase)

@@ -3,8 +3,10 @@ using System.Text.Json.Serialization;
 using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Application.StoryAnalysis;
 using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Domain.StoryAnalysis;
 using DreamGenClone.Infrastructure.Logging;
 using Microsoft.Extensions.Logging;
+using NarrativePhase = DreamGenClone.Domain.RolePlay.NarrativePhase;
 
 namespace DreamGenClone.Infrastructure.RolePlay;
 
@@ -576,7 +578,7 @@ public sealed class DecisionPointService : IDecisionPointService
             return applied;
         }
 
-        ApplyDeltas(target, deltas);
+        ApplyDeltas(target, deltas, state);
         applied[target.CharacterId] = new Dictionary<string, int>(deltas, StringComparer.OrdinalIgnoreCase);
         return applied;
     }
@@ -597,7 +599,7 @@ public sealed class DecisionPointService : IDecisionPointService
                 continue;
             }
 
-            ApplyDeltas(target, actorDeltas);
+            ApplyDeltas(target, actorDeltas, state);
             applied[target.CharacterId] = new Dictionary<string, int>(actorDeltas, StringComparer.OrdinalIgnoreCase);
         }
 
@@ -816,7 +818,7 @@ public sealed class DecisionPointService : IDecisionPointService
                 magnitude += 2;
             }
 
-            if (actor.Tension >= 60)
+            if ((actor.RuntimeEncounterStats?.GetValueOrDefault("Tension") ?? 50) >= 60)
             {
                 magnitude += 2;
             }
@@ -836,11 +838,16 @@ public sealed class DecisionPointService : IDecisionPointService
             string.Equals(x.CharacterId, actorId, StringComparison.OrdinalIgnoreCase));
     }
 
-    private static void ApplyDeltas(CharacterStatProfileV2 profile, IReadOnlyDictionary<string, int> deltas)
+    private static void ApplyDeltas(CharacterStatProfileV2 profile, IReadOnlyDictionary<string, int> deltas, AdaptiveScenarioState state)
     {
         foreach (var (stat, delta) in deltas)
         {
             CharacterStatProfileV2Accessor.ApplyDelta(profile, stat, delta);
+            if (delta != 0 && state.CharacterRoles.TryGetValue(profile.CharacterId, out var role))
+            {
+                profile.RuntimeEncounterStats ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                StatToDimensionMappings.ApplyDelta(profile.RuntimeEncounterStats, role, stat, delta);
+            }
         }
     }
 

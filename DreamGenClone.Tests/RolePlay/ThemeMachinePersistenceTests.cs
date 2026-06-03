@@ -29,7 +29,7 @@ public sealed class ThemeMachinePersistenceTests
                 InteractionCountInPhase = 1,
                 CharacterSnapshots =
                 [
-                    new CharacterStatProfileV2 { CharacterId = "char-1", Desire = 60, Restraint = 40, Tension = 55, Connection = 50, Dominance = 50, Loyalty = 50, SelfRespect = 50 }
+                    new CharacterStatProfileV2 { CharacterId = "char-1", Desire = 60, Restraint = 40, Dominance = 50, Loyalty = 50, SelfRespect = 50, RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 55, ["Connection"] = 50 } }
                 ]
             });
 
@@ -85,7 +85,7 @@ public sealed class ThemeMachinePersistenceTests
                 InteractionCountInPhase = 1,
                 CharacterSnapshots =
                 [
-                    new CharacterStatProfileV2 { CharacterId = "char-1", Desire = 60, Restraint = 40, Tension = 55, Connection = 50, Dominance = 50, Loyalty = 50, SelfRespect = 50 }
+                    new CharacterStatProfileV2 { CharacterId = "char-1", Desire = 60, Restraint = 40, Dominance = 50, Loyalty = 50, SelfRespect = 50, RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 55, ["Connection"] = 50 } }
                 ]
             });
 

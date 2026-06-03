@@ -441,6 +441,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         List<string> scenarioGoals = [];
         List<string> scenarioConflicts = [];
         List<string> scenarioNarrativeGuidelines = [];
+        List<string> scenarioWorldRules = [];
         IReadOnlyList<ScenarioCharacter>? scenarioCharacters = null;
 
         if (!string.IsNullOrWhiteSpace(session.ScenarioId))
@@ -523,10 +524,14 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
 
                 if (scenario.Setting.WorldRules.Count > 0)
                 {
+                    scenarioWorldRules = scenario.Setting.WorldRules
+                        .Where(x => !string.IsNullOrWhiteSpace(x))
+                        .Select(x => x.Trim())
+                        .ToList();
                     sb.AppendLine("- World Rules:");
-                    foreach (var rule in scenario.Setting.WorldRules.Where(x => !string.IsNullOrWhiteSpace(x)))
+                    foreach (var rule in scenarioWorldRules)
                     {
-                        sb.AppendLine($"  - {rule.Trim()}");
+                        sb.AppendLine($"  - {rule}");
                     }
                 }
 
@@ -778,34 +783,35 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             .Take(6)
             .ToList();
 
+        // Only scenario-bound characters (those with a CharacterRole) contribute to stat averages.
+        var trackedStatsForGuidance = session.AdaptiveState.CharacterStats.Values
+            .Where(x => !string.IsNullOrEmpty(x.CharacterRole))
+            .ToList();
         var guidanceContext = await _scenarioGuidanceContextFactory.CreateAsync(
             new ScenarioGuidanceInput(
                 SessionId: session.Id,
                 CurrentPhase: currentPhase,
                 ActiveScenarioId: activeScenarioId,
                 VariantId: session.AdaptiveState.ActiveVariantId,
-                AverageDesire: session.AdaptiveState.CharacterStats.Count == 0
+                AverageDesire: trackedStatsForGuidance.Count == 0
                     ? 50
-                    : session.AdaptiveState.CharacterStats.Values.Average(x => CharacterStatProfileV2Accessor.GetStatOrDefault(x, "Desire", 50)),
-                AverageRestraint: session.AdaptiveState.CharacterStats.Count == 0
+                    : trackedStatsForGuidance.Average(x => CharacterStatProfileV2Accessor.GetStatOrDefault(x, "Desire", 50)),
+                AverageRestraint: trackedStatsForGuidance.Count == 0
                     ? 50
-                    : session.AdaptiveState.CharacterStats.Values.Average(x => CharacterStatProfileV2Accessor.GetStatOrDefault(x, "Restraint", 50)),
-                AverageTension: session.AdaptiveState.CharacterStats.Count == 0
+                    : trackedStatsForGuidance.Average(x => CharacterStatProfileV2Accessor.GetStatOrDefault(x, "Restraint", 50)),
+                AverageDominance: trackedStatsForGuidance.Count == 0
                     ? 50
-                    : session.AdaptiveState.CharacterStats.Values.Average(x => CharacterStatProfileV2Accessor.GetStatOrDefault(x, "Tension", 50)),
-                AverageConnection: session.AdaptiveState.CharacterStats.Count == 0
+                    : trackedStatsForGuidance.Average(x => CharacterStatProfileV2Accessor.GetStatOrDefault(x, "Dominance", 50)),
+                AverageLoyalty: trackedStatsForGuidance.Count == 0
                     ? 50
-                    : session.AdaptiveState.CharacterStats.Values.Average(x => CharacterStatProfileV2Accessor.GetStatOrDefault(x, "Connection", 50)),
-                AverageDominance: session.AdaptiveState.CharacterStats.Count == 0
-                    ? 50
-                    : session.AdaptiveState.CharacterStats.Values.Average(x => CharacterStatProfileV2Accessor.GetStatOrDefault(x, "Dominance", 50)),
-                AverageLoyalty: session.AdaptiveState.CharacterStats.Count == 0
-                    ? 50
-                    : session.AdaptiveState.CharacterStats.Values.Average(x => CharacterStatProfileV2Accessor.GetStatOrDefault(x, "Loyalty", 50)),
+                    : trackedStatsForGuidance.Average(x => CharacterStatProfileV2Accessor.GetStatOrDefault(x, "Loyalty", 50)),
                 SelectedWillingnessProfileId: session.AdaptiveState.SelectedWillingnessProfileId,
                 CharacterEncounterProfileIds: session.AdaptiveState.CharacterEncounterProfileIds,
                 Characters: BuildCharactersWithPersona(scenarioCharacters, session),
-                SuppressedScenarioIds: suppressedScenarioIds),
+                SuppressedScenarioIds: suppressedScenarioIds,
+                CharacterRuntimeStats: session.AdaptiveState.CharacterStats.Count > 0
+                    ? session.AdaptiveState.CharacterStats
+                    : null),
             cancellationToken);
 
         var framingGuards = RolePlayAssistantPrompts.BuildFramingGuards(currentPhase, activeScenarioId);
@@ -1194,11 +1200,22 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         foreach (var (label, frameText) in guidanceContext.CharacterBehavioralFrames)
         {
             sb.AppendLine($"HARD CONSTRAINT — enforce in this response: {label} behavioral frame: {frameText}");
+            if (guidanceContext.CharacterStatStateTexts.TryGetValue(label, out var statStateText))
+            {
+                sb.AppendLine($"HARD CONSTRAINT — enforce in this response: {label} current state: {statStateText}");
+            }
         }
 
         foreach (var themeConstraint in activeThemeHardConstraints)
         {
             sb.AppendLine($"HARD CONSTRAINT — enforce in this response: {themeConstraint}");
+        }
+
+        // Re-inject scenario world rules immediately before the writing directive so they carry
+        // the same end-of-prompt authority as behavioral frames and theme constraints.
+        foreach (var rule in scenarioWorldRules)
+        {
+            sb.AppendLine($"HARD CONSTRAINT — scenario rule (must not be violated): {rule}");
         }
 
         if (intent == PromptIntent.Narrative)
@@ -1604,15 +1621,19 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             return;
         }
 
-        if (session.AdaptiveState.CharacterStats.Count == 0)
+        // Only scenario-bound characters (those with a CharacterRole) contribute to stat averages.
+        var trackedStatsForEscalation = session.AdaptiveState.CharacterStats.Values
+            .Where(x => !string.IsNullOrEmpty(x.CharacterRole))
+            .ToList();
+        if (trackedStatsForEscalation.Count == 0)
         {
             return;
         }
 
         var actorStats = ResolvePromptActorStats(session, actorName);
-        var desire = ResolveStat(actorStats, "Desire", session.AdaptiveState.CharacterStats.Values.Average(x => CharacterStatProfileV2Accessor.GetStatOrDefault(x, "Desire", 50)));
-        var restraint = ResolveStat(actorStats, "Restraint", session.AdaptiveState.CharacterStats.Values.Average(x => CharacterStatProfileV2Accessor.GetStatOrDefault(x, "Restraint", 50)));
-        var tension = ResolveStat(actorStats, "Tension", session.AdaptiveState.CharacterStats.Values.Average(x => CharacterStatProfileV2Accessor.GetStatOrDefault(x, "Tension", 50)));
+        var desire = ResolveStat(actorStats, "Desire", trackedStatsForEscalation.Average(x => CharacterStatProfileV2Accessor.GetStatOrDefault(x, "Desire", 50)));
+        var restraint = ResolveStat(actorStats, "Restraint", trackedStatsForEscalation.Average(x => CharacterStatProfileV2Accessor.GetStatOrDefault(x, "Restraint", 50)));
+        var tension = ResolveStat(actorStats, "Tension", trackedStatsForEscalation.Average(x => CharacterStatProfileV2Accessor.GetStatOrDefault(x, "Tension", 50)));
 
         var isLatePhase = phase is "Approaching" or "Climax";
         if (!isLatePhase)
@@ -1728,13 +1749,16 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
 
         try
         {
-            var stats = session.AdaptiveState.CharacterStats;
-            var avgDesire = stats.Count == 0 ? 50.0
-                : stats.Values.Average(x => CharacterStatProfileV2Accessor.GetStatOrDefault(x, "Desire", 50));
-            var avgDominance = stats.Count == 0 ? 50.0
-                : stats.Values.Average(x => CharacterStatProfileV2Accessor.GetStatOrDefault(x, "Dominance", 50));
-            var otherManDominance = stats.Count == 0 ? avgDominance
-                : stats.Values.Average(x =>
+            // Only scenario-bound characters (those with a CharacterRole) contribute to stat averages.
+            var trackedStatsForPositions = session.AdaptiveState.CharacterStats.Values
+                .Where(x => !string.IsNullOrEmpty(x.CharacterRole))
+                .ToList();
+            var avgDesire = trackedStatsForPositions.Count == 0 ? 50.0
+                : trackedStatsForPositions.Average(x => CharacterStatProfileV2Accessor.GetStatOrDefault(x, "Desire", 50));
+            var avgDominance = trackedStatsForPositions.Count == 0 ? 50.0
+                : trackedStatsForPositions.Average(x => CharacterStatProfileV2Accessor.GetStatOrDefault(x, "Dominance", 50));
+            var otherManDominance = trackedStatsForPositions.Count == 0 ? avgDominance
+                : trackedStatsForPositions.Average(x =>
                 {
                     var allStats = CharacterStatProfileV2Accessor.GetAllStats(x);
                     if (allStats.TryGetValue("OtherManDominance", out var d)) return (double)d;

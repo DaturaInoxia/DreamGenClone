@@ -20,8 +20,8 @@ public sealed class RolePlaySessionBaseStatInitializationTests
             "Test Profile",
             new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
             {
-                ["Connection"] = 30,
-                ["Tension"] = 60
+                ["Desire"] = 30,
+                ["Restraint"] = 60
             });
 
         var scenario = new Scenario
@@ -36,7 +36,7 @@ public sealed class RolePlaySessionBaseStatInitializationTests
                     Name = "Alice",
                     BaseStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
                     {
-                        ["Connection"] = 80
+                        ["Desire"] = 80
                     }
                 }
             ]
@@ -49,8 +49,8 @@ public sealed class RolePlaySessionBaseStatInitializationTests
         var session = await service.CreateSessionAsync("Base Stats", scenario.Id);
 
         var aliceProfile = session.AdaptiveState.CharacterStats["Alice"];
-        Assert.Equal(80, aliceProfile.Connection);
-        Assert.Equal(60, aliceProfile.Tension);
+        Assert.Equal(80, aliceProfile.Desire);
+        Assert.Equal(60, aliceProfile.Restraint);
     }
 
     [Fact]
@@ -98,7 +98,7 @@ public sealed class RolePlaySessionBaseStatInitializationTests
                     Name = "Alice",
                     BaseStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
                     {
-                        ["Jealousy"] = 22
+                        ["Desire"] = 22
                     }
                 }
             ]
@@ -111,7 +111,7 @@ public sealed class RolePlaySessionBaseStatInitializationTests
         var session = await service.CreateSessionAsync("Character Only", scenario.Id);
 
         var profile = session.AdaptiveState.CharacterStats["Alice"];
-        Assert.Equal(22, profile.Tension);
+        Assert.Equal(22, profile.Desire);
     }
 
     [Fact]
@@ -133,11 +133,10 @@ public sealed class RolePlaySessionBaseStatInitializationTests
                     CharacterId = "char-1",
                     Desire = 73,
                     Restraint = 85,
-                    Tension = 23,
-                    Connection = 85,
                     Dominance = 90,
                     Loyalty = 15,
-                    SelfRespect = 90
+                    SelfRespect = 90,
+                    RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 23, ["Connection"] = 85 }
                 }
             ]
         };
@@ -155,8 +154,8 @@ public sealed class RolePlaySessionBaseStatInitializationTests
         var syncedProfile = session.AdaptiveState.CharacterStats["char-1"];
         Assert.Equal(73, syncedProfile.Desire);
         Assert.Equal(85, syncedProfile.Restraint);
-        Assert.Equal(23, syncedProfile.Tension);
-        Assert.Equal(85, syncedProfile.Connection);
+        Assert.Equal(23, syncedProfile.RuntimeEncounterStats?.GetValueOrDefault("Tension") ?? 50);
+        Assert.Equal(85, syncedProfile.RuntimeEncounterStats?.GetValueOrDefault("Connection") ?? 50);
         Assert.Equal(90, syncedProfile.Dominance);
         Assert.Equal(15, syncedProfile.Loyalty);
         Assert.Equal(90, syncedProfile.SelfRespect);
