@@ -28,6 +28,11 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
     private const int NarrativeQuotedBlockHardViolationThreshold = 4;
     private const double NarrativeQuotedTextRatioRetryThreshold = 0.20;
 
+    // Number of non-excluded interactions during which other characters are suppressed from
+    // narrative focus, allowing the persona-partner relationship to be established first.
+    // Other characters remain in the scene but unnamed and unaddressed until this threshold is passed.
+    private const int OpeningPeripheralTurnCount = 6;
+
     private static readonly Regex QuotedBlockRegex = new("\"[^\"\\r\\n]{2,}\"", RegexOptions.Compiled);
     private static readonly Regex FirstPersonLeakRegex = new("\\b(I|me|my|mine|myself)\\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex CharacterInteriorityRegex = new("\\b[A-Z][a-zA-Z'-]{1,}\\s+(thought|felt|wondered|remembered|realized|decided|knew)\\b", RegexOptions.Compiled);
@@ -430,6 +435,13 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         if (_enableLocationServices && !string.IsNullOrWhiteSpace(session.AdaptiveState.CurrentSceneLocation))
         {
             sb.AppendLine($"HARD CONSTRAINT — Scene Location: The current scene is at \"{NarrativeLocationLabel(session.AdaptiveState.CurrentSceneLocation)}\". Do not move any character to a different location without writing an explicit transition in the narration. Do not jump to a new place between responses.");
+        }
+        else
+        {
+            // Always enforce location continuity even when the location service is not active.
+            // The physical setting must not change silently between turns; any movement must be
+            // written as an explicit narrative transition within this response.
+            sb.AppendLine("HARD CONSTRAINT — Location Continuity: The physical setting established in the previous response must be maintained in this response. Do not silently relocate any character to a different place. If a character moves, write the transition explicitly in the narration.");
         }
 
         string scenarioStyle = string.Empty;
@@ -1087,6 +1099,20 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         AppendEscalationGuidance(sb, session, actorName, currentPhase, intent);
         await AppendPositionListAsync(sb, session, currentPhase, intent, cancellationToken);
 
+        // B-049: Pacing injection — during non-intimate phases, encourage natural time progression
+        // so not every interaction is moment-by-moment. Suppressed during intimate phases where
+        // the Scene Presence Contract requires staying present.
+        if (currentPhase is "BuildUp" or "Reset" && intent != PromptIntent.Instruction)
+        {
+            sb.AppendLine("Scene Pacing Contract:");
+            sb.AppendLine("- Time may advance naturally between interactions — not every turn needs to follow the previous one moment-by-moment.");
+            sb.AppendLine("- When appropriate, move the scene forward by minutes or hours: e.g. 'Later that evening...', 'After dinner...', 'The next morning...'.");
+            sb.AppendLine("- Use time advances sparingly and naturally — they should feel like organic scene transitions, not abrupt jumps.");
+            sb.AppendLine("- Do NOT use time-skip transitions that bypass or summarize intimate encounters, emotional confrontations, or pivotal character moments.");
+            sb.AppendLine("- A time advance is appropriate when the previous scene beat has resolved and a new context (location, activity, time of day) moves the story forward.");
+            _logger.LogDebug("PacingContract: injected for Phase={Phase} SessionId={SessionId}", currentPhase, session.Id);
+        }
+
         // Scene Presence Contract — fires at Emotional+ in all non-BuildUp phases.
         // Uses scenePresenceScale (pre-Narrative-override) so Narrative also receives this contract
         // even though its effectiveStyleLabel is forced to Atmospheric.
@@ -1155,7 +1181,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                 var isEpisodic = RolePlayAssistantPrompts.IsEpisodicBeatStyle(activeTheme, currentPhase);
                 sb.AppendLine(isEpisodic
                     ? "This is a brief, urgent encounter — explicit and heated, not slow or romantic. Let the scene flow naturally through this beat and advance across the next 2-3 beats as urgency drives escalation. Be explicit: name body parts, describe movements and sensations directly. Each encounter must be MORE physically advanced than the previous one — escalating across disappearances toward full intercourse. Override: the 'advance only one stage per response' and 'multiple turns per stage' rules do NOT apply here — a rushed episode covers multiple stages. Close at a natural stopping point (they return to the social space). The next encounter resumes from the next beat."
-                    : "Do not skip ahead — write this beat, then advance one beat when complete.");
+                    : "Do not skip ahead — write this beat, then advance one beat when complete. Each beat should have a natural arc: build-up, peak, resolution. When the physical act has been sufficiently explored for this stage, resolve it and move on. Do not stretch a single beat past its natural length. The encounter should feel like a series of distinct, satisfying moments.");
             }
         }
 
@@ -1218,6 +1244,23 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             sb.AppendLine($"HARD CONSTRAINT — scenario rule (must not be violated): {rule}");
         }
 
+        // Opening peripheral constraint: during the first N turns, suppress other characters
+        // from narrative focus so the persona-partner relationship is established before introducing them.
+        // Other characters are present in the scene but must not be named or focused on.
+        // Applies to both Narrative and Message turns so the constraint holds across all generated content.
+        var openingInteractionCount = session.Interactions.Count(i => !i.IsExcluded);
+        if (intent == PromptIntent.Narrative || intent == PromptIntent.Message)
+        {
+            if (openingInteractionCount <= OpeningPeripheralTurnCount)
+            {
+                sb.AppendLine("HARD CONSTRAINT — Opening Peripheral Focus: Other characters are present in this scene but must remain peripheral background presence only. " +
+                    "They are NOT the focus of any character's attention, thoughts, or dialogue. Do not refer to them by name in this passage.");
+                _logger.LogDebug(
+                    "PeripheralConstraint: injected for turn {Turn} of {Threshold} SessionId={SessionId}",
+                    openingInteractionCount, OpeningPeripheralTurnCount, session.Id);
+            }
+        }
+
         if (intent == PromptIntent.Narrative)
         {
             if (string.Equals(currentPhase, "Climax", StringComparison.OrdinalIgnoreCase))
@@ -1235,6 +1278,19 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                     "HARD CONSTRAINT: Do not write departure scenes, farewells, or any narrative framing that concludes the story's time frame. The Climax phase is ongoing — sustain the scene within the encounter's moment. " +
                     $"Match the established tone ({styleHint}). Write at least 300 words.");
             }
+            else if (openingInteractionCount == 0)
+            {
+                // Opening narrative — use the extended word target to match the couple-focused opening prompt.
+                sb.AppendLine($"Write the opening narrative passage as an omniscient narrator in THIRD PERSON. " +
+                    $"Refer to {personaName} by name — NEVER use \"I\" or first person. " +
+                    "Describe the following: (1) spatial layout — where the persona and their partner are, and how they are positioned in the environment; " +
+                    "(2) lighting, temperature, sounds, and sensory atmosphere; " +
+                    "(3) their positions and body language relative to each other and the space; " +
+                    "(4) externally observable actions, movements, and the emotional texture between them. " +
+                    "HARD CONSTRAINT — Include zero quoted speech. Include one brief spoken fragment only if it is absolutely required for scene continuity and cannot be omitted. " +
+                    "Do not write back-and-forth dialogue. Do not write character inner thoughts or feelings. " +
+                    $"Match the established tone ({styleHint}). Write 300–500 words.");
+            }
             else
             {
                 sb.AppendLine($"Write the next narrative passage as an omniscient narrator in THIRD PERSON. " +
@@ -1246,7 +1302,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                     "Your priority is the physical scene and environment — where characters are, how they are positioned, what surrounds them, what sounds and sensory details exist. " +
                     "HARD CONSTRAINT — Include zero quoted speech. Include one brief spoken fragment only if it is absolutely required for scene continuity and cannot be omitted. " +
                     "Do not write back-and-forth dialogue. Do not write character inner thoughts or feelings. " +
-                    $"Match the established tone ({styleHint}). Output 100-300 words.");
+                    $"Match the established tone ({styleHint}). Write at least 200 words; target 250-400 words.");
             }
         }
         else

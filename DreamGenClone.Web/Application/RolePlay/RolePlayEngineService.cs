@@ -349,7 +349,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                     session.SelectedRPThemeProfileId = scenario.DefaultRPThemeProfileId;
                 }
 
-                var resolvedBaseStats = AdaptiveStatCatalog.NormalizePartial(scenario.ResolvedBaseStats);
+                var resolvedBaseStats = AdaptiveStatCatalog.NormalizeComplete(scenario.ResolvedBaseStats);
                 if (!string.IsNullOrWhiteSpace(scenario.BaseStatProfileId))
                 {
                     var baseStatProfile = await _characterProfileService.GetAsync(scenario.BaseStatProfileId, cancellationToken);
@@ -378,7 +378,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                     }
 
                     var mergedStats = new Dictionary<string, int>(resolvedBaseStats, StringComparer.OrdinalIgnoreCase);
-                    var normalizedCharacterOverrides = AdaptiveStatCatalog.NormalizePartial(character.BaseStats);
+                    var normalizedCharacterOverrides = AdaptiveStatCatalog.NormalizeComplete(character.BaseStats);
                     foreach (var (statName, statValue) in normalizedCharacterOverrides)
                     {
                         mergedStats[statName] = statValue;
@@ -387,7 +387,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                     // Apply wizard-provided starting stat overrides for this character.
                     if (request.CharacterStatOverrides.TryGetValue(character.Id, out var wizardStatOverrides))
                     {
-                        var normalizedWizardOverrides = AdaptiveStatCatalog.NormalizePartial(wizardStatOverrides);
+                        var normalizedWizardOverrides = AdaptiveStatCatalog.NormalizeComplete(wizardStatOverrides);
                         foreach (var (statName, statValue) in normalizedWizardOverrides)
                         {
                             mergedStats[statName] = statValue;
@@ -1993,7 +1993,29 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         var currentSceneLocation = _enableLocationServices
             ? session.AdaptiveState.CurrentSceneLocation
             : null;
-        var ordered = sceneCharacterNames
+
+        // B-049: Count all non-system interactions (Npc, You, Custom) to decide whether OtherMan is eligible.
+        // Using only Npc type caused a chicken-and-egg: Dean never got turns so the count never reached threshold.
+        var totalInteractions = session.Interactions.Count(i =>
+            i.InteractionType != InteractionType.System && !i.IsExcluded);
+
+        // Hard-exclude OtherMan for the first 6 interactions so Husband+Wife establish first.
+        // With batchSize=2 (Ken+Becky per turn), 3 turns = 6 interactions → Dean eligible on turn 4.
+        var eligibleCharacterNames = sceneCharacterNames.Where(name =>
+        {
+            session.AdaptiveState.CharacterStats.TryGetValue(name, out var statProfile);
+            var role = statProfile?.CharacterRole;
+            if (totalInteractions < 6 && string.Equals(role, "OtherMan", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogDebug(
+                    "OverflowActor: excluding OtherMan {ActorName} at interaction offset {Offset} for SessionId={SessionId}",
+                    name, totalInteractions, session.Id);
+                return false;
+            }
+            return true;
+        }).ToList();
+
+        var ordered = eligibleCharacterNames
             .Select((name, scenarioOrder) => new
             {
                 Name = name,
@@ -2022,17 +2044,15 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             }
         }
 
-        if (autoAllowedActors.Contains(ContinueAsActor.You)
-            && ShouldIncludePersonaInAutoRotation(session, personaName, currentSceneLocation))
+        if (autoAllowedActors.Contains(ContinueAsActor.You))
         {
-            var insertIndex = session.SceneContinueBatchSize <= 1
-                ? 0
-                : Math.Min(actors.Count, 1);
+            // Persona is always a candidate — treated as a full character in the rotation.
             var personaInScene = IsActorInCurrentScene(session, personaName, currentSceneLocation);
             var personaReason = personaInScene
-                ? "Persona auto candidate (in-scene; injected into mixed rotation)."
-                : "Persona auto candidate (out-of-scene allowed by recency context).";
-            actors.Insert(insertIndex, new OverflowActorCandidate(ContinueAsActor.You, personaName, personaReason));
+                ? "Persona auto candidate (in-scene)."
+                : "Persona auto candidate (not in scene but always included).";
+            // Insert at position 0 so persona leads the batch.
+            actors.Insert(0, new OverflowActorCandidate(ContinueAsActor.You, personaName, personaReason));
         }
 
         if (actors.Count == 0)
@@ -2206,7 +2226,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
     private async Task SeedAdaptiveStateFromScenarioAsync(RolePlaySession session, DreamGenClone.Web.Domain.Scenarios.Scenario scenario, CancellationToken cancellationToken)
     {
-        var resolvedBaseStats = AdaptiveStatCatalog.NormalizePartial(scenario.ResolvedBaseStats);
+        var resolvedBaseStats = AdaptiveStatCatalog.NormalizeComplete(scenario.ResolvedBaseStats);
         if (!string.IsNullOrWhiteSpace(scenario.BaseStatProfileId))
         {
             var baseStatProfile = await _characterProfileService.GetAsync(scenario.BaseStatProfileId, cancellationToken);
@@ -2366,11 +2386,27 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
     private async Task<string> BuildOpeningNarrativePromptAsync(RolePlaySession session, CancellationToken cancellationToken)
     {
-        const string basePrompt = "Set the opening scene. Establish the setting, atmosphere, and the characters present. Describe the environment and the initial situation the characters find themselves in.";
+        // B-049: Opening scene uses the data model to identify the natural couple
+        // (persona + spouse character) without hardcoding names or roles.
+        // The opening is exclusively about the persona and their partner — 300–500 words,
+        // drawing on their character profiles for history, dynamic, and tonal foreshadowing.
+        // Other characters remain peripheral and unnamed throughout the opening.
+        const string basePrompt =
+            "Write the opening narrative for this scene. " +
+            "This opening is exclusively about the persona and their partner — focus entirely on their interaction with each other. " +
+            "Describe what the persona is doing, what their partner observes about them, their immediate environment and atmosphere, " +
+            "and any history between them that can be inferred from their character profiles. " +
+            "Include the physical and emotional dynamic between them — whether it feels passionate, familiar, routine, or quietly strained — " +
+            "drawing from their personalities, backgrounds, and histories as described in their profiles. " +
+            "Weave in subtle, tonal foreshadowing through body language, atmosphere, and emotional texture. Do not state any subtext explicitly. " +
+            "Other characters may be present in the scene but must remain peripheral background presence only. " +
+            "Do not refer to them by name or bring them into any character's attention, thoughts, or dialogue. " +
+            "Write 300–500 words.";
 
         if (string.IsNullOrWhiteSpace(session.ScenarioId))
         {
-            return basePrompt + " In the opening paragraph, explicitly state where the scene is happening and where key characters are in relation to each other.";
+            _logger.LogDebug("BuildOpeningNarrative: no scenario, using base prompt for SessionId={SessionId}", session.Id);
+            return basePrompt + " In the opening paragraph, ground the scene in a specific, clear location.";
         }
 
         var scenario = await _scenarioService.GetScenarioAsync(session.ScenarioId);
@@ -2382,14 +2418,53 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             .Take(8)
             .ToList() ?? [];
 
-        if (locationNames.Count == 0)
+        var personaName = string.IsNullOrWhiteSpace(session.PersonaName) ? "You" : session.PersonaName.Trim();
+        var npcCharacters = scenario?.Characters
+            .Where(c => !string.IsNullOrWhiteSpace(c.Name))
+            .ToList() ?? [];
+
+        // Resolve the spouse character from the data model: the NPC whose RelationTargetId
+        // points to the persona (or whose Role is the "partner" role to the persona).
+        // A character linked to the persona via RelationTargetId is the persona's spouse.
+        var spouseCharacter = npcCharacters.FirstOrDefault(c =>
+            !string.IsNullOrWhiteSpace(c.RelationTargetId) &&
+            string.Equals(c.RelationTargetId.Trim(), personaName, StringComparison.OrdinalIgnoreCase));
+
+        // Build the couple grounding clause: persona + spouse, if data supports it.
+        // This expands the base directive with character-specific context: shared history,
+        // physical/emotional dynamic, and layered tonal subtext drawn from their profiles.
+        var coupleClause = string.Empty;
+        if (spouseCharacter is not null)
         {
-            return basePrompt + " In the opening paragraph, explicitly state where the scene is happening and where key characters are in relation to each other.";
+            var spouseName = spouseCharacter.Name!.Trim();
+            coupleClause =
+                $" The scene opens with {personaName} and {spouseName} together." +
+                $" {personaName} is the persona character; {spouseName} is their partner." +
+                $" Ground the opening in their direct interaction with each other." +
+                $" Use both characters' profile descriptions — personalities, backgrounds, physical traits, and histories — to infer their shared history and the texture of their relationship." +
+                $" Portray their physical and emotional dynamic authentically from what the profiles suggest: it may be warm, complicated, quietly distant, or something that has simply settled into habit." +
+                $" Include their sex life as part of that texture — let the writing convey, through body language, sensory detail, and emotional atmosphere, whether desire between them is alive, faded, or quietly suppressed." +
+                $" Do not state any of this explicitly. Let tone, behavior, and physical presence carry the subtext.";
+            _logger.LogDebug(
+                "BuildOpeningNarrative: couple guidance for SessionId={SessionId}, Persona={PersonaName}, Spouse={SpouseName}",
+                session.Id, personaName, spouseName);
+        }
+        else
+        {
+            _logger.LogDebug(
+                "BuildOpeningNarrative: no relation-target spouse found for SessionId={SessionId}, Persona={PersonaName}",
+                session.Id, personaName);
         }
 
-        return basePrompt
+        if (locationNames.Count == 0)
+        {
+            return basePrompt + coupleClause
+                + " In the opening paragraph, explicitly state where the scene is happening and where key characters are in relation to each other."
+                + " Keep this grounding natural and immersive, not bullet points.";
+        }
+
+        return basePrompt + coupleClause
             + $" In the first paragraph, explicitly ground the scene in one clear location using one of these names: {string.Join(", ", locationNames)}."
-            + " Also establish where the major characters are relative to each other (for example beside, across, near the doorway, across the room)."
             + " Keep this grounding natural and immersive, not bullet points.";
     }
 
@@ -2407,8 +2482,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
         if (string.Equals(session.AdaptiveState.CurrentPhase.ToString(), "Climax", StringComparison.OrdinalIgnoreCase))
         {
-            return "Write an omniscient narrative description of the full scene as it stands this turn. Describe the physical moment, setting, character positions, sensations, and atmosphere in explicit detail. All participants have already described this same moment from their own perspectives — your role is to close the turn with a rich, omniscient account of what is happening right now. Do not advance the scene beyond what the characters have already established."
-                + " Write at least 300 words. Use direct, explicit language.";
+            return "Write an omniscient narrative description of the full scene as it stands this turn. Describe the physical moment, setting, character positions, sensations, and atmosphere in explicit detail. All participants have already described this same moment from their own perspectives — your role is to close the turn with a rich, omniscient account of what is happening right now. Do not advance the scene beyond what the characters have already established. Use direct, explicit language.";
         }
 
         return lastInteraction.InteractionType switch

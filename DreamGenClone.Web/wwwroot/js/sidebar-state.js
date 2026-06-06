@@ -30,10 +30,11 @@ window.navGroupToggle = function (headerEl) {
 };
 
 function _applyStoredNavState() {
-    // Sidebar collapsed state
+    // Sidebar collapsed state — default to collapsed on first visit
     var page = document.querySelector('.page');
     if (page) {
-        var sidebarCollapsed = localStorage.getItem('sidebar-collapsed') === '1';
+        var stored = localStorage.getItem('sidebar-collapsed');
+        var sidebarCollapsed = stored !== null ? stored === '1' : true;
         page.classList.toggle('sidebar-collapsed', sidebarCollapsed);
         var btn = document.querySelector('.sidebar-toggle-btn');
         if (btn) btn.textContent = sidebarCollapsed ? '\u203a' : '\u2039';

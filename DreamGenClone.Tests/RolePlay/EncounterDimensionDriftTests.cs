@@ -20,10 +20,10 @@ public sealed class EncounterDimensionDriftTests
 
         StatToDimensionMappings.ApplyDelta(stats, "Wife", "Desire", +10);
 
-        // Exhibitionism: +0.30 × 10 = +3 → 53
-        Assert.Equal(53, stats["Exhibitionism"]);
-        // DiscoveryCaution: -0.20 × 10 = -2 → 48
-        Assert.Equal(48, stats["DiscoveryCaution"]);
+        // Exhibitionism: +0.90 × 10 = +9 → 59
+        Assert.Equal(59, stats["Exhibitionism"]);
+        // DiscoveryCaution: -0.60 × 10 = -6 → 44
+        Assert.Equal(44, stats["DiscoveryCaution"]);
     }
 
     // ── Wife — Restraint drift ──────────────────────────────────────────────────────────────
@@ -40,12 +40,12 @@ public sealed class EncounterDimensionDriftTests
 
         StatToDimensionMappings.ApplyDelta(stats, "Wife", "Restraint", +10);
 
-        // DiscoveryCaution: +0.30 × 10 = +3 → 53
-        Assert.Equal(53, stats["DiscoveryCaution"]);
-        // Exhibitionism: -0.20 × 10 = -2 → 48
-        Assert.Equal(48, stats["Exhibitionism"]);
-        // PostEncounterGuilt: +0.15 × 10 = +1.5 → Round → +2 → 52
-        Assert.Equal(52, stats["PostEncounterGuilt"]);
+        // DiscoveryCaution: +0.90 × 10 = +9 → 59
+        Assert.Equal(59, stats["DiscoveryCaution"]);
+        // Exhibitionism: -0.60 × 10 = -6 → 44
+        Assert.Equal(44, stats["Exhibitionism"]);
+        // PostEncounterGuilt: +0.45 × 10 = +4.5 → Round → +4 → 54
+        Assert.Equal(54, stats["PostEncounterGuilt"]);
     }
 
     // ── Clamp at floor (0) ──────────────────────────────────────────────────────────────────
@@ -58,7 +58,7 @@ public sealed class EncounterDimensionDriftTests
             ["Exhibitionism"] = 2,
         };
 
-        // Desire -10 → Exhibitionism: +0.30 × -10 = -3 → 2 - 3 = -1, clamped to 0
+        // Desire -10 → Exhibitionism: +0.90 × -10 = -9 → 2 - 9 = -7, clamped to 0
         StatToDimensionMappings.ApplyDelta(stats, "Wife", "Desire", -10);
 
         Assert.Equal(0, stats["Exhibitionism"]);
@@ -74,7 +74,7 @@ public sealed class EncounterDimensionDriftTests
             ["Exhibitionism"] = 98,
         };
 
-        // Desire +10 → Exhibitionism: +0.30 × 10 = +3 → 98 + 3 = 101, clamped to 100
+        // Desire +10 → Exhibitionism: +0.90 × 10 = +9 → 98 + 9 = 107, clamped to 100
         StatToDimensionMappings.ApplyDelta(stats, "Wife", "Desire", +10);
 
         Assert.Equal(100, stats["Exhibitionism"]);
@@ -134,14 +134,14 @@ public sealed class EncounterDimensionDriftTests
 
         StatToDimensionMappings.ApplyDelta(stats, "Husband", "Dominance", +10);
 
-        // Acceptance:    -0.35 × 10 = -3.5 → Math.Round(-3.5, ToEven) = -4 → 50 + (-4) = 46
-        Assert.Equal(46, stats["Acceptance"]);
-        // Voyeurism:     -0.25 × 10 = -2.5 → Math.Round(-2.5, ToEven) = -2 → 50 + (-2) = 48
-        Assert.Equal(48, stats["Voyeurism"]);
-        // Participation: -0.20 × 10 = -2.0 → Math.Round(-2.0) = -2 → 50 + (-2) = 48
-        Assert.Equal(48, stats["Participation"]);
-        // Encouragement: -0.25 × 10 = -2.5 → Math.Round(-2.5, ToEven) = -2 → 50 + (-2) = 48
-        Assert.Equal(48, stats["Encouragement"]);
+        // Acceptance:    -1.05 × 10 = -10.5 → Math.Round(-10.5, ToEven) = -10 → 50 + (-10) = 40
+        Assert.Equal(40, stats["Acceptance"]);
+        // Voyeurism:     -0.75 × 10 = -7.5 → Math.Round(-7.5, ToEven) = -8 → 50 + (-8) = 42
+        Assert.Equal(42, stats["Voyeurism"]);
+        // Participation: -0.60 × 10 = -6.0 → Math.Round(-6.0) = -6 → 50 + (-6) = 44
+        Assert.Equal(44, stats["Participation"]);
+        // Encouragement: -0.75 × 10 = -7.5 → Math.Round(-7.5, ToEven) = -8 → 50 + (-8) = 42
+        Assert.Equal(42, stats["Encouragement"]);
     }
 
     // ── Husband — Dominance -8 × 6 cumulative drift ────────────────────────────────────────
@@ -159,12 +159,12 @@ public sealed class EncounterDimensionDriftTests
             StatToDimensionMappings.ApplyDelta(stats, "Husband", "Dominance", -8);
 
         // Per iteration Dominance=-8:
-        // Acceptance: -0.35 × -8 = 2.8 → Math.Round(2.8) = 3 → +3 per step → 50+18 = 68
+        // Acceptance: -1.05 × -8 = 8.4 → Math.Round(8.4) = 8 → +8 per step → 50+48 = 98
         Assert.True(stats["Acceptance"] > 50, $"Acceptance should be > 50 but was {stats["Acceptance"]}");
-        // Voyeurism: -0.25 × -8 = 2.0 → +2 per step → 50+12 = 62
+        // Voyeurism: -0.75 × -8 = 6.0 → Math.Round(6.0) = 6 → +6 per step → 50+36 = 86
         Assert.True(stats["Voyeurism"] > 50, $"Voyeurism should be > 50 but was {stats["Voyeurism"]}");
-        Assert.Equal(68, stats["Acceptance"]);
-        Assert.Equal(62, stats["Voyeurism"]);
+        Assert.Equal(98, stats["Acceptance"]);
+        Assert.Equal(86, stats["Voyeurism"]);
     }
 
     // ── Profile rebind resets RuntimeEncounterStats ────────────────────────────────────────

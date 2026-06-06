@@ -7161,7 +7161,6 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
     private string? _deleteAlternativeConfirmId;
     private string? _infoPopupInteractionId;
     private string? _semanticDetailInteractionId;
-    private string _semanticDetailTab = "interaction"; // "interaction" | "totals"
     private readonly Dictionary<string, string> _editSnapshots = new();
     private readonly Dictionary<string, string> _editContent = new();
     private string? _retryMenuInteractionId;
@@ -7219,7 +7218,6 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
     private void ShowSemanticDetail(string interactionId)
     {
         _semanticDetailInteractionId = interactionId;
-        _semanticDetailTab = "interaction";
     }
 
     private void CloseSemanticDetail()
@@ -8062,26 +8060,57 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
                             var sdLabel = GetSemanticStatusLabel(sdState.Status);
                             var sdBadgeClass = GetSemanticStatusBadgeClass(sdState.Status);
                             var sdDetail = TryParseSemanticDetail(sdState.ResultJson);
-                            var sdThemeDeltas = _session.AdaptiveState.SemanticDeltaBreakdowns
-                                .Where(d => string.Equals(d.InteractionId, _semanticDetailInteractionId, StringComparison.OrdinalIgnoreCase))
-                                .OrderByDescending(d => Math.Abs(d.AppliedDelta))
-                                .ToList();
-                            var sdStatDeltas = _session.AdaptiveState.SemanticStatDeltaBreakdowns
-                                .Where(d => string.Equals(d.InteractionId, _semanticDetailInteractionId, StringComparison.OrdinalIgnoreCase))
-                                .OrderBy(d => d.CharacterId).ThenBy(d => d.StatName)
-                                .ToList();
+                            var sdEventStatRows = new List<SemanticEventStatRow>();
+                            if (sdDetail is not null)
+                            {
+                                var statMappings = _activeRpTheme?.SemanticStatMappings ?? [];
+                                foreach (var ev in sdDetail.InferredEvents)
+                                {
+                                    var matched = statMappings
+                                        .Where(m => string.Equals(m.EventId, ev.EventId, StringComparison.OrdinalIgnoreCase))
+                                        .GroupBy(m => m.TargetStat, StringComparer.OrdinalIgnoreCase)
+                                        .Select(g =>
+                                        {
+                                            var net = g.Sum(m =>
+                                                string.Equals(m.Direction, "decrease", StringComparison.OrdinalIgnoreCase)
+                                                    ? -Math.Abs(m.Delta)
+                                                    : m.Delta);
+                                            return (TargetStat: g.Key, NetDelta: net);
+                                        })
+                                        .Where(x => x.NetDelta != 0)
+                                        .ToList();
+
+                                    if (matched.Count == 0)
+                                    {
+                                        matched.Add(("—", 0m));
+                                    }
+
+                                    for (int i = 0; i < matched.Count; i++)
+                                    {
+                                        sdEventStatRows.Add(new SemanticEventStatRow
+                                        {
+                                            EventId = ev.EventId,
+                                            Confidence = ev.Confidence,
+                                            ActorName = ev.ActorName,
+                                            TargetCharacterName = ev.TargetCharacterName,
+                                            EvidenceSpan = ev.EvidenceSpan,
+                                            TargetStat = matched[i].TargetStat,
+                                            Delta = matched[i].NetDelta,
+                                            IsFirstOfEvent = i == 0
+                                        });
+                                    }
+                                }
+                            }
                             <div class="rw-modal-overlay" @onclick="CloseSemanticDetail">
                                 <div class="rw-modal rw-modal-semantic" @onclick:stopPropagation>
                                     <div class="rw-modal-header">
                                         Semantic Analysis
                                         <span class="@sdBadgeClass" style="float:right;margin-top:-2px;">@sdLabel</span>
                                     </div>
-                                    @* Tab bar *@
+                                    @*└─ Tab bar ──*@
                                     <div class="rw-semantic-tabs">
-                                        <button class="rw-semantic-tab @(_semanticDetailTab == "interaction" ? "rw-semantic-tab-active" : "")"
-                                                @onclick="@(() => _semanticDetailTab = "interaction")">Interaction</button>
-                                        <button class="rw-semantic-tab @(_semanticDetailTab == "totals" ? "rw-semantic-tab-active" : "")"
-                                                @onclick="@(() => _semanticDetailTab = "totals")">Totals</button>
+                                        <button class="rw-semantic-tab rw-semantic-tab-active"
+                                                @onclick="@(() => { })">Interaction</button>
                                     </div>
                                     <div class="rw-modal-body rw-modal-body-scroll">
                                         @if (sdState.Status == SemanticAnalysisStatus.Error)
@@ -8090,125 +8119,73 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
                                                 <strong>Error:</strong> @(sdState.ErrorMessage ?? "Unknown error")
                                             </div>
                                         }
-                                        @if (_semanticDetailTab == "interaction")
+                                        @if (sdDetail is not null)
                                         {
-                                            @* ── Interaction tab ── *@
-                                            @if (sdDetail is not null)
-                                            {
-                                                <div class="rw-info-grid" style="margin-bottom:12px;">
-                                                    <div class="rw-info-row"><span class="rw-info-label">Actor</span><span class="rw-info-value">@sdDetail.ActorName</span></div>
-                                                    <div class="rw-info-row"><span class="rw-info-label">Analyzed</span><span class="rw-info-value">@sdDetail.CompletedUtc.ToString("yyyy-MM-dd HH:mm:ss")</span></div>
-                                                    <div class="rw-info-row"><span class="rw-info-label">Events matched</span><span class="rw-info-value">@sdDetail.InferredEventCount</span></div>
-                                                    <div class="rw-info-row"><span class="rw-info-label">Context turns</span><span class="rw-info-value">@sdDetail.ContextTurnsCount</span></div>
-                                                </div>
-                                                @if (sdDetail.InferredEvents.Count > 0)
-                                                {
-                                                    <table class="rw-semantic-event-table">
-                                                        <thead>
-                                                            <tr class="rw-semantic-event-header">
-                                                                <th>Event</th>
-                                                                <th>Conf.</th>
-                                                                <th>Actors</th>
-                                                                <th>Evidence</th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody>
-                                                            @foreach (var ev in sdDetail.InferredEvents)
-                                                            {
-                                                                <tr class="rw-semantic-event-row">
-                                                                    <td class="rw-semantic-event-id">@ev.EventId</td>
-                                                                    <td class="rw-semantic-event-conf">@ev.Confidence.ToString("P0")</td>
-                                                                    <td class="rw-semantic-event-actors">
-                                                                        @if (!string.IsNullOrWhiteSpace(ev.ActorName))
-                                                                        {
-                                                                            <span>@ev.ActorName</span>
-                                                                        }
-                                                                        @if (!string.IsNullOrWhiteSpace(ev.TargetCharacterName))
-                                                                        {
-                                                                            <span class="rw-semantic-event-target">→ @ev.TargetCharacterName</span>
-                                                                        }
-                                                                    </td>
-                                                                    <td class="rw-semantic-event-evidence">@(ev.EvidenceSpan ?? "—")</td>
-                                                                </tr>
-                                                            }
-                                                        </tbody>
-                                                    </table>
-                                                }
-                                                else
-                                                {
-                                                    <div class="rw-semantic-detail-empty">No semantic events matched for this interaction.</div>
-                                                }
-                                            }
-                                            else if (sdState.Status == SemanticAnalysisStatus.Complete)
-                                            {
-                                                <div class="rw-semantic-detail-empty">Event details are not available for this record.</div>
-                                            }
-                                            else if (sdState.Status == SemanticAnalysisStatus.Analyzing)
-                                            {
-                                                <div class="rw-semantic-detail-empty">Analysis is still in progress…</div>
-                                            }
-                                        }
-                                        else
-                                        {
-                                            @* ── Totals tab ── *@
-                                            @if (sdThemeDeltas.Count > 0)
-                                            {
-                                                <div class="rw-semantic-totals-section-label">Theme score</div>
-                                                <table class="rw-semantic-event-table" style="margin-bottom:16px;">
-                                                    <thead>
-                                                        <tr class="rw-semantic-event-header">
-                                                            <th>Theme</th>
-                                                            <th>Score</th>
-                                                            <th>Δ Applied</th>
-                                                            <th>Δ Raw</th>
-                                                            <th>Capped</th>
-                                                            <th>Suppressed</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody>
-                                                        @foreach (var td in sdThemeDeltas)
-                                                        {
-                                                            var isPositive = td.AppliedDelta > 0;
-                                                            var isSuppressed = td.SuppressedDelta != 0;
-                                                            _session.AdaptiveState.ThemeScores.TryGetValue(td.ThemeId, out var themeScore);
-                                                            <tr class="rw-semantic-event-row">
-                                                                <td class="rw-semantic-event-id">@td.ThemeId</td>
-                                                                <td class="rw-semantic-totals-num">@(themeScore is not null ? themeScore.Score.ToString("0.##") : "—")</td>
-                                                                <td class="rw-semantic-totals-num @(isPositive ? "rw-totals-pos" : "rw-totals-neg")">@td.AppliedDelta.ToString("+0.##;-0.##;0")</td>
-                                                                <td class="rw-semantic-totals-num">@td.RawDelta.ToString("+0.##;-0.##;0")</td>
-                                                                <td class="rw-semantic-totals-num">@(td.CappedDelta != 0 ? td.CappedDelta.ToString("+0.##;-0.##;0") : "—")</td>
-                                                                <td class="rw-semantic-totals-num @(isSuppressed ? "rw-totals-suppressed" : "")">@(isSuppressed ? td.SuppressedDelta.ToString("0.##") : "—")</td>
-                                                            </tr>
-                                                        }
-                                                    </tbody>
-                                                </table>
-                                            }
-                                            <div class="rw-semantic-totals-section-label">Character stats</div>
-                                            @if (sdStatDeltas.Count > 0)
+                                            <div class="rw-info-grid" style="margin-bottom:12px;">
+                                                <div class="rw-info-row"><span class="rw-info-label">Actor</span><span class="rw-info-value">@sdDetail.ActorName</span></div>
+                                                <div class="rw-info-row"><span class="rw-info-label">Analyzed</span><span class="rw-info-value">@sdDetail.CompletedUtc.ToString("yyyy-MM-dd HH:mm:ss")</span></div>
+                                                <div class="rw-info-row"><span class="rw-info-label">Events matched</span><span class="rw-info-value">@sdDetail.InferredEventCount</span></div>
+                                                <div class="rw-info-row"><span class="rw-info-label">Context turns</span><span class="rw-info-value">@sdDetail.ContextTurnsCount</span></div>
+                                            </div>
+                                            @if (sdDetail.InferredEvents.Count > 0)
                                             {
                                                 <table class="rw-semantic-event-table">
                                                     <thead>
                                                         <tr class="rw-semantic-event-header">
-                                                            <th>Character</th>
+                                                            <th>Event</th>
+                                                            <th>Conf.</th>
+                                                            <th>Actors</th>
                                                             <th>Stat</th>
-                                                            <th>Δ Applied</th>
-                                                            <th>Capped</th>
-                                                            <th>Suppressed</th>
-                                                            <th>Reason</th>
+                                                            <th>Δ</th>
+                                                            <th>Evidence</th>
                                                         </tr>
                                                     </thead>
                                                     <tbody>
-                                                        @foreach (var sd in sdStatDeltas)
+                                                        @foreach (var row in sdEventStatRows)
                                                         {
-                                                            var sdIsPositive = sd.AppliedDelta > 0;
-                                                            var sdIsSuppressed = sd.SuppressedDelta != 0;
+                                                            var deltaClass = row.Delta > 0 ? "rw-semantic-event-delta-pos"
+                                                                : row.Delta < 0 ? "rw-semantic-event-delta-neg"
+                                                                : "rw-semantic-event-delta-zero";
+                                                            var deltaFmt = row.TargetStat == "—" ? "—"
+                                                                : row.Delta.ToString("+0.#;-0.#;0", CultureInfo.InvariantCulture);
                                                             <tr class="rw-semantic-event-row">
-                                                                <td class="rw-semantic-event-actors">@sd.CharacterId</td>
-                                                                <td class="rw-semantic-event-id">@sd.StatName</td>
-                                                                <td class="rw-semantic-totals-num @(sdIsPositive ? "rw-totals-pos" : "rw-totals-neg")">@sd.AppliedDelta.ToString("+0.##;-0.##;0")</td>
-                                                                <td class="rw-semantic-totals-num">@(sd.CappedDelta != 0 ? sd.CappedDelta.ToString("+0.##;-0.##;0") : "—")</td>
-                                                                <td class="rw-semantic-totals-num @(sdIsSuppressed ? "rw-totals-suppressed" : "")">@(sdIsSuppressed ? sd.SuppressedDelta.ToString("0.##") : "—")</td>
-                                                                <td class="rw-semantic-event-evidence">@(sd.SuppressionReasonCode ?? sd.ReasonCode ?? "—")</td>
+                                                                <td class="rw-semantic-event-id">
+                                                                    @if (row.IsFirstOfEvent)
+                                                                    {
+                                                                        @row.EventId
+                                                                    }
+                                                                    else
+                                                                    {
+                                                                        <span class="rw-semantic-event-id-repeat">↳</span>
+                                                                    }
+                                                                </td>
+                                                                <td class="rw-semantic-event-conf">
+                                                                    @if (row.IsFirstOfEvent)
+                                                                    {
+                                                                        @row.Confidence.ToString("P0")
+                                                                    }
+                                                                </td>
+                                                                <td class="rw-semantic-event-actors">
+                                                                    @if (row.IsFirstOfEvent)
+                                                                    {
+                                                                        if (!string.IsNullOrWhiteSpace(row.ActorName))
+                                                                        {
+                                                                            <span>@row.ActorName</span>
+                                                                        }
+                                                                        if (!string.IsNullOrWhiteSpace(row.TargetCharacterName))
+                                                                        {
+                                                                            <span class="rw-semantic-event-target">→ @row.TargetCharacterName</span>
+                                                                        }
+                                                                    }
+                                                                </td>
+                                                                <td class="rw-semantic-event-stat">@row.TargetStat</td>
+                                                                <td class="rw-semantic-event-delta @deltaClass">@deltaFmt</td>
+                                                                <td class="rw-semantic-event-evidence">
+                                                                    @if (row.IsFirstOfEvent)
+                                                                    {
+                                                                        @(row.EvidenceSpan ?? "—")
+                                                                    }
+                                                                </td>
                                                             </tr>
                                                         }
                                                     </tbody>
@@ -8216,12 +8193,16 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
                                             }
                                             else
                                             {
-                                                <div class="rw-semantic-detail-empty">No character stat changes recorded for this interaction. Stat history accumulates from the next semantic run onwards.</div>
+                                                <div class="rw-semantic-detail-empty">No semantic events matched for this interaction.</div>
                                             }
-                                            @if (sdThemeDeltas.Count == 0 && sdStatDeltas.Count == 0)
-                                            {
-                                                <div class="rw-semantic-detail-empty">No delta totals recorded for this interaction.</div>
-                                            }
+                                        }
+                                        else if (sdState.Status == SemanticAnalysisStatus.Complete)
+                                        {
+                                            <div class="rw-semantic-detail-empty">Event details are not available for this record.</div>
+                                        }
+                                        else if (sdState.Status == SemanticAnalysisStatus.Analyzing)
+                                        {
+                                            <div class="rw-semantic-detail-empty">Analysis is still in progress…</div>
                                         }
                                     </div>
                                     <div class="rw-modal-actions">
@@ -10134,6 +10115,18 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
         public string? ActorName { get; set; }
         public string? TargetCharacterName { get; set; }
         public string? EvidenceSpan { get; set; }
+    }
+
+    private sealed class SemanticEventStatRow
+    {
+        public string EventId { get; set; } = string.Empty;
+        public decimal Confidence { get; set; }
+        public string? ActorName { get; set; }
+        public string? TargetCharacterName { get; set; }
+        public string? EvidenceSpan { get; set; }
+        public string TargetStat { get; set; } = string.Empty;
+        public decimal Delta { get; set; }
+        public bool IsFirstOfEvent { get; set; }
     }
 
     private static readonly System.Text.Json.JsonSerializerOptions _semanticDetailJsonOptions = new()

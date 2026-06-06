@@ -941,7 +941,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
                                 $"{DreamGenClone.Domain.RolePlay.RPSemanticDiagnosticReasonCodes.ConfidenceOutOfRange}: confidence {confidence.ToString(CultureInfo.InvariantCulture)} for event '{eventId}' is outside configured stat range [{mapping.ConfidenceMin.ToString(CultureInfo.InvariantCulture)}, {mapping.ConfidenceMax.ToString(CultureInfo.InvariantCulture)}].");
                         }
 
-                        pendingStat.Add((eventId, confidence, mapping, scopedTargetCharacterId));
+                        pendingStat.Add((eventId, confidence, mapping, defaultTargetCharacterId));
                     }
                 }
             }

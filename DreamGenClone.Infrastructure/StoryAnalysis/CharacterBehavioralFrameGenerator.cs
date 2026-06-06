@@ -50,12 +50,17 @@ public sealed class CharacterBehavioralFrameGenerator : IBehavioralFrameGenerato
                 ? $"{character.Name} ({character.Role})"
                 : characterId;
 
-            // Resolve runtime encounter stats: try display label first, then characterId
+            // Resolve runtime encounter stats: try display label first, then characterId, then bare character name.
+            // CharacterStats is keyed by character name ("Becky"), not label ("Becky (Wife)") or character GUID.
             CharacterStatProfileV2? runtimeSnapshot = null;
             if (characterRuntimeStats is not null)
             {
-                if (!characterRuntimeStats.TryGetValue(label, out runtimeSnapshot))
-                    characterRuntimeStats.TryGetValue(characterId, out runtimeSnapshot);
+                if (!characterRuntimeStats.TryGetValue(label, out runtimeSnapshot)
+                    && !characterRuntimeStats.TryGetValue(characterId, out runtimeSnapshot)
+                    && character is not null)
+                {
+                    characterRuntimeStats.TryGetValue(character.Name, out runtimeSnapshot);
+                }
             }
 
             var runtimeDimensions = runtimeSnapshot?.RuntimeEncounterStats;

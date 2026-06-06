@@ -20,24 +20,24 @@ public static class StatToDimensionMappings
 {
     private static readonly IReadOnlyList<DimensionDriftRule> WifeRules =
     [
-        new("Desire",      "Wife", "Exhibitionism",      +0.30, 0, 100),
-        new("Desire",      "Wife", "DiscoveryCaution",   -0.20, 0, 100),
-        new("Restraint",   "Wife", "DiscoveryCaution",   +0.30, 0, 100),
-        new("Restraint",   "Wife", "Exhibitionism",      -0.20, 0, 100),
-        new("Restraint",   "Wife", "PostEncounterGuilt", +0.15, 0, 100),
-        new("SelfRespect", "Wife", "DiscoveryCaution",   +0.20, 0, 100),
-        new("Loyalty",     "Wife", "EmotionalEngagement",+0.20, 0, 100),
-        new("Loyalty",     "Wife", "PostEncounterGuilt", +0.25, 0, 100),
+        new("Desire",      "Wife", "Exhibitionism",      +0.90, 0, 100),
+        new("Desire",      "Wife", "DiscoveryCaution",   -0.60, 0, 100),
+        new("Restraint",   "Wife", "DiscoveryCaution",   +0.90, 0, 100),
+        new("Restraint",   "Wife", "Exhibitionism",      -0.60, 0, 100),
+        new("Restraint",   "Wife", "PostEncounterGuilt", +0.45, 0, 100),
+        new("SelfRespect", "Wife", "DiscoveryCaution",   +0.60, 0, 100),
+        new("Loyalty",     "Wife", "EmotionalEngagement",+0.60, 0, 100),
+        new("Loyalty",     "Wife", "PostEncounterGuilt", +0.75, 0, 100),
     ];
 
     private static readonly IReadOnlyList<DimensionDriftRule> HusbandRules =
     [
-        new("Dominance",   "Husband", "Acceptance",    -0.35, 0, 100),
-        new("Dominance",   "Husband", "Voyeurism",     -0.25, 0, 100),
-        new("Dominance",   "Husband", "Participation", -0.20, 0, 100),
-        new("Dominance",   "Husband", "Encouragement", -0.25, 0, 100),
-        new("SelfRespect", "Husband", "Acceptance",    -0.20, 0, 100),
-        new("SelfRespect", "Husband", "Encouragement", -0.20, 0, 100),
+        new("Dominance",   "Husband", "Acceptance",    -1.05, 0, 100),
+        new("Dominance",   "Husband", "Voyeurism",     -0.75, 0, 100),
+        new("Dominance",   "Husband", "Participation", -0.60, 0, 100),
+        new("Dominance",   "Husband", "Encouragement", -0.75, 0, 100),
+        new("SelfRespect", "Husband", "Acceptance",    -0.60, 0, 100),
+        new("SelfRespect", "Husband", "Encouragement", -0.60, 0, 100),
     ];
 
     /// <summary>

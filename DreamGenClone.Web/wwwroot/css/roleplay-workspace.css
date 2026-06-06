@@ -2061,7 +2061,7 @@ article:has(.rw-shell) {
 /* ─── Semantic Detail Modal ─── */
 
 .rw-modal-semantic {
-    width: min(92vw, 600px);
+    width: min(96vw, 1100px);
     max-height: calc(100vh - 40px);
     display: flex;
     flex-direction: column;
@@ -2070,8 +2070,9 @@ article:has(.rw-shell) {
 .rw-modal-semantic .rw-modal-body {
     flex: 1 1 auto;
     min-height: 0;
-    max-height: 60vh;
+    max-height: 80vh;
     overflow-y: auto;
+    overflow-x: auto;
 }
 
 .rw-semantic-detail-error {
@@ -2092,6 +2093,7 @@ article:has(.rw-shell) {
 
 .rw-semantic-event-table {
     width: 100%;
+    min-width: 800px;
     border-collapse: collapse;
     font-size: 12px;
 }
@@ -2105,10 +2107,11 @@ article:has(.rw-shell) {
     letter-spacing: 0.04em;
     padding: 4px 8px 6px;
     border-bottom: 1px solid #333;
+    white-space: nowrap;
 }
 
 .rw-semantic-event-row td {
-    padding: 5px 8px;
+    padding: 6px 8px;
     border-bottom: 1px solid #252525;
     vertical-align: top;
     color: #c8c8c8;
@@ -2122,16 +2125,23 @@ article:has(.rw-shell) {
     font-family: monospace;
     color: #86b7ff !important;
     white-space: nowrap;
+    min-width: 120px;
+}
+
+.rw-semantic-event-id-repeat {
+    color: #555;
 }
 
 .rw-semantic-event-conf {
     white-space: nowrap;
     color: #7bdc9a !important;
     font-weight: 600;
+    min-width: 48px;
 }
 
 .rw-semantic-event-actors {
     white-space: nowrap;
+    min-width: 80px;
 }
 
 .rw-semantic-event-target {
@@ -2143,8 +2153,28 @@ article:has(.rw-shell) {
     color: #999 !important;
     font-style: italic;
     word-break: break-word;
-    max-width: 200px;
+    min-width: 200px;
+    max-width: 350px;
 }
+
+.rw-semantic-event-stat {
+    color: #d4a574 !important;
+    font-size: 0.9em;
+    font-weight: 600;
+    white-space: nowrap;
+    min-width: 80px;
+}
+
+.rw-semantic-event-delta {
+    text-align: center;
+    font-weight: 600;
+    font-size: 0.9em;
+    min-width: 36px;
+}
+
+.rw-semantic-event-delta-pos { color: #4caf50; }
+.rw-semantic-event-delta-neg { color: #f44336; }
+.rw-semantic-event-delta-zero { color: #666; }
 
 /* ── Semantic modal tabs ── */
 .rw-semantic-tabs {
