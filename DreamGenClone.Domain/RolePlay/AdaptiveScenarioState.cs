@@ -12,7 +12,9 @@ public sealed class AdaptiveScenarioState
     public int CycleIndex { get; set; }
     public string ActiveFormulaVersion { get; set; } = string.Empty;
     public string? SelectedWillingnessProfileId { get; set; }
+    public string? SelectedResistanceProfileId { get; set; }
     public string? SelectedNarrativeGateProfileId { get; set; }
+    public int MotivationScore { get; set; }
 
     /// <summary>
     /// Maps characterId → CharacterProfile.Id for encounter behavioral profile bindings.

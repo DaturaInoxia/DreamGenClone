@@ -1156,9 +1156,17 @@ article:has(.rw-shell) {
     padding-bottom: 2px;
 }
 
+.rw-adaptive-panel .rw-phase-guidance-scroll {
+    max-height: 200px;
+    overflow-y: auto;
+}
+
 .rw-adaptive-panel .rw-settings-info-row.rw-settings-info-row-guidance > span {
     color: #edf3ff;
     padding-left: 10px;
+    text-transform: none;
+    font-size: 11px;
+    letter-spacing: normal;
 }
 
 .rw-adaptive-panel .rw-adaptive-note {

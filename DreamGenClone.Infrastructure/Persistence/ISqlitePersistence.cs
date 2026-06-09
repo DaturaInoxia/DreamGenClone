@@ -73,6 +73,13 @@ public interface ISqlitePersistence
     Task<List<StatWillingnessProfile>> LoadAllStatWillingnessProfilesAsync(CancellationToken cancellationToken = default);
     Task<bool> DeleteStatWillingnessProfileAsync(string id, CancellationToken cancellationToken = default);
 
+    // Stat resistance profile operations
+    Task SaveStatResistanceProfileAsync(StatResistanceProfile profile, CancellationToken cancellationToken = default);
+    Task<StatResistanceProfile?> LoadStatResistanceProfileAsync(string id, CancellationToken cancellationToken = default);
+    Task<StatResistanceProfile?> LoadDefaultStatResistanceProfileAsync(CancellationToken cancellationToken = default);
+    Task<List<StatResistanceProfile>> LoadAllStatResistanceProfilesAsync(CancellationToken cancellationToken = default);
+    Task<bool> DeleteStatResistanceProfileAsync(string id, CancellationToken cancellationToken = default);
+
     // Narrative gate profile operations
     Task SaveNarrativeGateProfileAsync(NarrativeGateProfile profile, CancellationToken cancellationToken = default);
     Task<NarrativeGateProfile?> LoadNarrativeGateProfileAsync(string id, CancellationToken cancellationToken = default);

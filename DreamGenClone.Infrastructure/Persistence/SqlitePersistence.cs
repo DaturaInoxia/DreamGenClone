@@ -182,6 +182,20 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 UpdatedUtc TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS StatResistanceProfiles (
+                Id TEXT PRIMARY KEY,
+                Name TEXT NOT NULL,
+                Description TEXT NOT NULL,
+                TargetStatName TEXT NOT NULL DEFAULT 'Loyalty',
+                IsDefault INTEGER NOT NULL DEFAULT 0,
+                ThresholdsJson TEXT NOT NULL DEFAULT '[]',
+                CreatedUtc TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS IX_StatResistanceProfiles_Name
+                ON StatResistanceProfiles (Name);
+
             CREATE TABLE IF NOT EXISTS NarrativeGateProfiles (
                 Id TEXT PRIMARY KEY,
                 Name TEXT NOT NULL,
@@ -3327,6 +3341,150 @@ public sealed class SqlitePersistence : ISqlitePersistence
     // --- Husband awareness profile persistence ---
 
     // --- Narrative gate profile persistence ---
+    // --- Stat resistance profile persistence ---
+
+    public async Task SaveStatResistanceProfileAsync(StatResistanceProfile profile, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO StatResistanceProfiles (Id, Name, Description, TargetStatName, IsDefault, ThresholdsJson, CreatedUtc, UpdatedUtc)
+            VALUES (@id, @name, @description, @targetStatName, @isDefault, @thresholdsJson, @createdUtc, @updatedUtc)
+            ON CONFLICT(Id) DO UPDATE SET
+                Name = @name,
+                Description = @description,
+                TargetStatName = @targetStatName,
+                IsDefault = @isDefault,
+                ThresholdsJson = @thresholdsJson,
+                UpdatedUtc = @updatedUtc;
+            """;
+
+        command.Parameters.AddWithValue("@id", profile.Id);
+        command.Parameters.AddWithValue("@name", profile.Name);
+        command.Parameters.AddWithValue("@description", profile.Description);
+        command.Parameters.AddWithValue("@targetStatName", profile.TargetStatName);
+        command.Parameters.AddWithValue("@isDefault", profile.IsDefault ? 1 : 0);
+        command.Parameters.AddWithValue("@thresholdsJson", JsonSerializer.Serialize(profile.Thresholds));
+        command.Parameters.AddWithValue("@createdUtc", profile.CreatedUtc.ToString("O"));
+        command.Parameters.AddWithValue("@updatedUtc", DateTime.UtcNow.ToString("O"));
+
+        await command.ExecuteNonQueryAsync(cancellationToken);
+
+        if (profile.IsDefault)
+        {
+            var resetDefaults = connection.CreateCommand();
+            resetDefaults.CommandText = "UPDATE StatResistanceProfiles SET IsDefault = 0 WHERE Id <> @id";
+            resetDefaults.Parameters.AddWithValue("@id", profile.Id);
+            await resetDefaults.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        _logger.LogInformation("Stat resistance profile persisted: {ProfileId}, Name={Name}", profile.Id, profile.Name);
+    }
+
+    public async Task<StatResistanceProfile?> LoadStatResistanceProfileAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT Id, Name, Description, TargetStatName, IsDefault, ThresholdsJson, CreatedUtc, UpdatedUtc FROM StatResistanceProfiles WHERE Id = @id";
+        command.Parameters.AddWithValue("@id", id);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return ReadStatResistanceProfile(reader);
+    }
+
+    public async Task<StatResistanceProfile?> LoadDefaultStatResistanceProfileAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT Id, Name, Description, TargetStatName, IsDefault, ThresholdsJson, CreatedUtc, UpdatedUtc FROM StatResistanceProfiles WHERE IsDefault = 1 LIMIT 1";
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (await reader.ReadAsync(cancellationToken))
+        {
+            return ReadStatResistanceProfile(reader);
+        }
+
+        var fallback = connection.CreateCommand();
+        fallback.CommandText = "SELECT Id, Name, Description, TargetStatName, IsDefault, ThresholdsJson, CreatedUtc, UpdatedUtc FROM StatResistanceProfiles ORDER BY UpdatedUtc DESC LIMIT 1";
+        await using var fallbackReader = await fallback.ExecuteReaderAsync(cancellationToken);
+        if (await fallbackReader.ReadAsync(cancellationToken))
+        {
+            return ReadStatResistanceProfile(fallbackReader);
+        }
+
+        return null;
+    }
+
+    public async Task<List<StatResistanceProfile>> LoadAllStatResistanceProfilesAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT Id, Name, Description, TargetStatName, IsDefault, ThresholdsJson, CreatedUtc, UpdatedUtc FROM StatResistanceProfiles ORDER BY Name";
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+
+        var results = new List<StatResistanceProfile>();
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            results.Add(ReadStatResistanceProfile(reader));
+        }
+
+        return results;
+    }
+
+    public async Task<bool> DeleteStatResistanceProfileAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM StatResistanceProfiles WHERE Id = @id";
+        command.Parameters.AddWithValue("@id", id);
+
+        var rows = await command.ExecuteNonQueryAsync(cancellationToken);
+        _logger.LogInformation("Stat resistance profile deletion attempted: {ProfileId}, RowsAffected={RowsAffected}", id, rows);
+        return rows > 0;
+    }
+
+    private static StatResistanceProfile ReadStatResistanceProfile(SqliteDataReader reader)
+    {
+        List<ResistanceThreshold>? thresholds = null;
+        try
+        {
+            thresholds = JsonSerializer.Deserialize<List<ResistanceThreshold>>(reader.GetString(5));
+        }
+        catch
+        {
+            thresholds = null;
+        }
+
+        return new StatResistanceProfile
+        {
+            Id = reader.GetString(0),
+            Name = reader.GetString(1),
+            Description = reader.GetString(2),
+            TargetStatName = reader.GetString(3),
+            IsDefault = reader.GetInt32(4) == 1,
+            Thresholds = thresholds ?? [],
+            CreatedUtc = DateTime.TryParse(reader.GetString(6), out var created) ? created : DateTime.UtcNow,
+            UpdatedUtc = DateTime.TryParse(reader.GetString(7), out var updated) ? updated : DateTime.UtcNow
+        };
+    }
+
+
 
     public async Task SaveNarrativeGateProfileAsync(NarrativeGateProfile profile, CancellationToken cancellationToken = default)
     {

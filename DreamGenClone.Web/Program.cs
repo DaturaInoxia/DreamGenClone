@@ -149,6 +149,7 @@ builder.Services.AddScoped<ICharacterStatPresetImportService, CharacterStatPrese
 builder.Services.AddScoped<IStatKeywordCategoryService, StatKeywordCategoryService>();
 builder.Services.AddScoped<IBaseStatProfileService, BaseStatProfileService>();
 builder.Services.AddScoped<IStatWillingnessProfileService, StatWillingnessProfileService>();
+builder.Services.AddScoped<IStatResistanceProfileService, StatResistanceProfileService>();
 builder.Services.AddScoped<INarrativeGateProfileService, NarrativeGateProfileService>();
 builder.Services.AddScoped<IHusbandAwarenessProfileService, HusbandAwarenessProfileService>();
 builder.Services.AddScoped<ICharacterProfileService, CharacterProfileService>();

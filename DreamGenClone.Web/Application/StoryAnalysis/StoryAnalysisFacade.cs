@@ -18,6 +18,7 @@ public sealed class StoryAnalysisFacade
     private readonly ISteeringProfileService _steeringProfileService;
     private readonly IBaseStatProfileService _baseStatProfileService;
     private readonly IStatWillingnessProfileService _statWillingnessProfileService;
+    private readonly IStatResistanceProfileService _statResistanceProfileService;
     private readonly INarrativeGateProfileService _narrativeGateProfileService;
     private readonly IHusbandAwarenessProfileService _husbandAwarenessProfileService;
     private readonly ICharacterProfileService _characterProfileService;
@@ -42,6 +43,7 @@ public sealed class StoryAnalysisFacade
         ISteeringProfileService styleProfileService,
         IBaseStatProfileService baseStatProfileService,
         IStatWillingnessProfileService statWillingnessProfileService,
+        IStatResistanceProfileService statResistanceProfileService,
         INarrativeGateProfileService narrativeGateProfileService,
         IHusbandAwarenessProfileService husbandAwarenessProfileService,
         ICharacterProfileService characterProfileService,
@@ -65,6 +67,7 @@ public sealed class StoryAnalysisFacade
         _steeringProfileService = styleProfileService;
         _baseStatProfileService = baseStatProfileService;
         _statWillingnessProfileService = statWillingnessProfileService;
+        _statResistanceProfileService = statResistanceProfileService;
         _narrativeGateProfileService = narrativeGateProfileService;
         _husbandAwarenessProfileService = husbandAwarenessProfileService;
         _characterProfileService = characterProfileService;
@@ -346,6 +349,14 @@ public sealed class StoryAnalysisFacade
 
     public Task<bool> DeleteStatWillingnessProfileAsync(string id, CancellationToken cancellationToken = default)
         => _statWillingnessProfileService.DeleteAsync(id, cancellationToken);
+
+    // Stat Resistance Profiles
+    public Task<StatResistanceProfile> SaveStatResistanceProfileAsync(StatResistanceProfile profile, CancellationToken ct = default)
+        => _statResistanceProfileService.SaveAsync(profile, ct);
+    public Task<List<StatResistanceProfile>> ListStatResistanceProfilesAsync(CancellationToken ct = default)
+        => _statResistanceProfileService.ListAsync(ct);
+    public Task<bool> DeleteStatResistanceProfileAsync(string id, CancellationToken ct = default)
+        => _statResistanceProfileService.DeleteAsync(id, ct);
 
     // Narrative Gate Profiles
     public Task<NarrativeGateProfile> SaveNarrativeGateProfileAsync(NarrativeGateProfile profile, CancellationToken cancellationToken = default)

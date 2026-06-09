@@ -1,4 +1,4 @@
-﻿@page "/roleplay/workspace/{sessionId}"
+@page "/roleplay/workspace/{sessionId}"
 @rendermode InteractiveServer
 
 @using DreamGenClone.Web.Application.RolePlay
@@ -171,6 +171,7 @@
     private List<TemplateDefinition> _characterLikeTemplates = [];
     private List<RoleDefinition> _roleDefinitions = [];
     private List<StatWillingnessProfile> _willingnessProfiles = [];
+    private List<StatResistanceProfile> _resistanceProfiles = [];
     private List<CharacterProfile> _characterProfiles = [];
     private readonly Dictionary<string, string?> _scenarioCharacterProfileSelectionById = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, IntensityProfile> _intensityProfilesById = new(StringComparer.OrdinalIgnoreCase);
@@ -1278,6 +1279,7 @@
             _steeringProfiles = [];
             _baseStatProfiles = [];
             _willingnessProfiles = [];
+            _resistanceProfiles = [];
             _characterProfiles = [];
             _intensityProfilesById = new(StringComparer.OrdinalIgnoreCase);
             return;
@@ -1301,6 +1303,10 @@
             .ToList();
 
         _willingnessProfiles = (await StoryAnalysisFacade.ListStatWillingnessProfilesAsync())
+            .OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        _resistanceProfiles = (await StoryAnalysisFacade.ListStatResistanceProfilesAsync())
             .OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
@@ -1556,6 +1562,59 @@
 
         var match = _willingnessProfiles.FirstOrDefault(x => string.Equals(x.Id, selectedId, StringComparison.OrdinalIgnoreCase));
         return match?.Name ?? selectedId;
+    }
+
+    private int GetMotScore()
+        => _session?.AdaptiveState?.MotivationScore ?? 0;
+
+    private int GetEffLoyalty(CharacterStatProfileV2 profile)
+    {
+        var loyalty = GetCharacterStatValue(profile, "Loyalty");
+        return Math.Max(loyalty - GetMotScore(), 0);
+    }
+
+    private string GetResProfileName()
+    {
+        var selectedId = _session?.AdaptiveState?.SelectedResistanceProfileId;
+        if (string.IsNullOrWhiteSpace(selectedId))
+        {
+            var defaultProfile = _resistanceProfiles.FirstOrDefault(p => p.IsDefault);
+            return defaultProfile?.Name ?? "(none)";
+        }
+        return _resistanceProfiles.FirstOrDefault(x => string.Equals(x.Id, selectedId, StringComparison.OrdinalIgnoreCase))?.Name ?? selectedId;
+    }
+
+    private string GetResBand(CharacterStatProfileV2 profile)
+    {
+        var (_, level) = ResolveResistanceThreshold(profile);
+        return level;
+    }
+
+    private string GetBandText(CharacterStatProfileV2 profile)
+    {
+        var (threshold, _) = ResolveResistanceThreshold(profile);
+        return threshold?.Description ?? threshold?.PromptDirective ?? "-";
+    }
+
+    private (ResistanceThreshold? Threshold, string Level) ResolveResistanceThreshold(CharacterStatProfileV2 profile)
+    {
+        var selectedId = _session?.AdaptiveState?.SelectedResistanceProfileId;
+        StatResistanceProfile? resistanceProfile;
+        if (string.IsNullOrWhiteSpace(selectedId))
+        {
+            resistanceProfile = _resistanceProfiles.FirstOrDefault(p => p.IsDefault);
+        }
+        else
+        {
+            resistanceProfile = _resistanceProfiles.FirstOrDefault(x => string.Equals(x.Id, selectedId, StringComparison.OrdinalIgnoreCase));
+        }
+        if (resistanceProfile is null) return (null, "-");
+        var effLoyalty = GetEffLoyalty(profile);
+        var threshold = resistanceProfile.Thresholds
+            .Where(t => effLoyalty >= t.MinValue && effLoyalty <= t.MaxValue)
+            .OrderBy(t => t.SortOrder)
+            .FirstOrDefault();
+        return (threshold, threshold?.ResistanceLevel ?? "-");
     }
 
     private IReadOnlyList<V2RolePlay.ThemeScoreState> GetAdaptiveOverrideThemes()
@@ -4992,6 +5051,7 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
         // and submit it manually with Continue rather than executing immediately.
         _nextPhasePopupOpen = false;
         _nextPhaseOptionError = string.Empty;
+        _selectedIntent = PromptIntent.Instruction;
         _promptText = commandText;
         _nextPhaseOptions.Clear();
         _selectedNextPhaseOption = string.Empty;
@@ -5981,7 +6041,8 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
 
         _steerPopupOpen = false;
         _steerOptionError = string.Empty;
-        _promptText = string.IsNullOrWhiteSpace(selectedOption) ? "/steer" : $"/steer {selectedOption}";
+        _selectedIntent = PromptIntent.Instruction;
+        _promptText = selectedOption;
         _steerOptionPages.Clear();
         _steerPageIndex = 0;
         _selectedSteerOption = string.Empty;
@@ -6351,6 +6412,7 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
 
         _finishPopupOpen = false;
         _finishOptionError = string.Empty;
+        _selectedIntent = PromptIntent.Instruction;
         _promptText = promptText;
         _finishOptionPages.Clear();
         _finishPageIndex = 0;
@@ -9496,10 +9558,12 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
                                 @if (hasActiveScenario && phaseGuidanceLines.Count > 0)
                                 {
                                     <div class="rw-settings-info-row rw-settings-info-row-block rw-settings-info-row-heading mt-1"><span>Phase Guidance (@currentPhaseEnum)</span></div>
+                                    <div class="rw-phase-guidance-scroll">
                                     @foreach (var guidanceLine in phaseGuidanceLines)
                                     {
                                         <div class="rw-settings-info-row rw-settings-info-row-block rw-settings-info-row-guidance"><span>@guidanceLine</span></div>
                                     }
+                                    </div>
                                 }
 
                                 <div class="rw-collapsible-section" style="margin-top:10px;">
@@ -9791,8 +9855,40 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
                                                     @{
                                                         var charRole = ResolveCharacterRole(actorStats.CharacterId);
                                                     }
+                                                    @if (string.Equals(charRole, "Wife", StringComparison.OrdinalIgnoreCase))
+                                                    {
+                                                        <div class="rw-stat-prompt-section">
+                                                            <div class="rw-stat-prompt-heading">Motivation / Resistance</div>
+                                                            <div class="rw-stat-prompt-row">
+                                                                <span class="rw-stat-prompt-name">Profile</span>
+                                                                <span class="rw-stat-prompt-text">@GetResProfileName()</span>
+                                                            </div>
+                                                            <div class="rw-stat-prompt-row">
+                                                                <span class="rw-stat-prompt-name">Loyalty</span>
+                                                                <span class="rw-stat-prompt-text">@GetCharacterStatValue(actorStats, "Loyalty")</span>
+                                                            </div>
+                                                            <div class="rw-stat-prompt-row">
+                                                                <span class="rw-stat-prompt-name">Motivation Score</span>
+                                                                <span class="rw-stat-prompt-text">@GetMotScore()</span>
+                                                            </div>
+                                                            <div class="rw-stat-prompt-row">
+                                                                <span class="rw-stat-prompt-name">Eff. Loyalty</span>
+                                                                <span class="rw-stat-prompt-text">@GetEffLoyalty(actorStats) (Loyalty − Motivation)</span>
+                                                            </div>
+                                                            <div class="rw-stat-prompt-row">
+                                                                <span class="rw-stat-prompt-name">Band</span>
+                                                                <span class="rw-stat-prompt-text">@GetResBand(actorStats)</span>
+                                                            </div>
+                                                            <div class="rw-stat-prompt-row">
+                                                                <span class="rw-stat-prompt-name">Band Text</span>
+                                                                <span class="rw-stat-prompt-text">@GetBandText(actorStats)</span>
+                                                            </div>
+                                                        </div>
+                                                    }
                                                     <div class="rw-stat-prompt-section">
-                                                        <div class="rw-stat-prompt-heading">Stat Prompt Texts</div>
+                                                        <div class="rw-stat-prompt-heading" @onclick='() => ToggleAdaptiveSection("sp-"+actorStats.CharacterId)' style="cursor:pointer;display:flex;align-items:center;gap:6px;"><span class="rw-collapsible-chevron @(IsAdaptiveSectionExpanded("sp-"+actorStats.CharacterId)?"is-open":"")">&#8250;</span> Stat Prompt Texts</div>
+                                                        @if (IsAdaptiveSectionExpanded("sp-"+actorStats.CharacterId))
+                                                        {
                                                         @foreach (var pStatName in AdaptiveStatCatalog.CanonicalStatNames)
                                                         {
                                                             var pValue = GetCharacterStatValue(actorStats, pStatName);
@@ -9808,6 +9904,7 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
                                                                     <span class="rw-stat-prompt-text">@pText</span>
                                                                 }
                                                             </div>
+                                                        }
                                                         }
                                                     </div>
                                                     @{
@@ -9852,6 +9949,21 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
                                                                 </div>
                                                             }
                                                         </div>
+                                                        <div class="rw-stat-prompt-section">
+                                                            <div class="rw-stat-prompt-heading" @onclick='() => ToggleAdaptiveSection("bd-"+actorStats.CharacterId)' style="cursor:pointer;display:flex;align-items:center;gap:6px;"><span class="rw-collapsible-chevron @(IsAdaptiveSectionExpanded("bd-"+actorStats.CharacterId)?"is-open":"")">&#8250;</span> Behavioral Prompt Texts</div>
+                                                            @if (IsAdaptiveSectionExpanded("bd-"+actorStats.CharacterId))
+                                                            {
+                                                                @foreach (var bdProm in bDims)
+                                                                {
+                                                                    var bdVal = actorStats.RuntimeEncounterStats?.TryGetValue(bdProm.Name, out var bdv) == true ? bdv : 50;
+                                                                    var bdTier = BehavioralDimensionCatalog.ResolveTierText(actorStats.CharacterRole!, bdProm.Name, bdVal);
+                                                                    <div class="rw-stat-prompt-row">
+                                                                        <span class="rw-stat-prompt-name">@bdProm.Name (@bdVal)</span>
+                                                                        <span class="rw-stat-prompt-text">@bdTier</span>
+                                                                    </div>
+                                                                }
+                                                            }
+                                                        </div>
                                                     }
                                                     @{
                                                         var charMemory = (_v2State?.EncounterSummaries ?? [])
@@ -9862,7 +9974,9 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
                                                     @if (charMemory.Count > 0)
                                                     {
                                                         <div class="rw-char-memory-section">
-                                                            <div class="rw-char-memory-heading">Memory (@charMemory.Count)</div>
+                                                            <div class="rw-char-memory-heading" @onclick='() => ToggleAdaptiveSection("cm-"+actorStats.CharacterId)' style="cursor:pointer;display:flex;align-items:center;gap:6px;"><span class="rw-collapsible-chevron @(IsAdaptiveSectionExpanded("cm-"+actorStats.CharacterId)?"is-open":""))">&#8250;</span> Memory (@charMemory.Count)</div>
+                                                            @if (IsAdaptiveSectionExpanded("cm-"+actorStats.CharacterId))
+                                                            {
                                                             @foreach (var mem in charMemory)
                                                             {
                                                                 <div class="rw-char-memory-entry @(mem.SummaryType == DreamGenClone.Domain.RolePlay.EncounterSummaryType.ArcCompletion ? "rw-char-memory-arc" : "rw-char-memory-milestone")">
@@ -9877,6 +9991,7 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
                                                                     </div>
                                                                     <div class="rw-char-memory-text">@mem.ActiveSummary</div>
                                                                 </div>
+                                                            }
                                                             }
                                                         </div>
                                                     }

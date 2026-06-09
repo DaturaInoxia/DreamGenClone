@@ -3290,8 +3290,9 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
                 // ExecuteResetAsync returned a new AdaptiveScenarioState instance — v2State is now a
                 // different object than session.AdaptiveState. Copy the semi-reset theme state (penalty/
-                // bonus scores, cooldowns, observer mode setup) from the old session.AdaptiveState into
-                // v2State so it survives the cycle boundary and is correctly persisted.
+                // bonus scores, cooldowns, observer mode setup) and character profile bindings from the
+                // old session.AdaptiveState into v2State so they survive the cycle boundary and are
+                // correctly persisted.
                 v2State.ThemeScores = session.AdaptiveState.ThemeScores;
                 v2State.PrimaryThemeId = session.AdaptiveState.PrimaryThemeId;
                 v2State.SecondaryThemeId = session.AdaptiveState.SecondaryThemeId;
@@ -3299,6 +3300,10 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 v2State.ObservedTurnCount = session.AdaptiveState.ObservedTurnCount;
                 v2State.SelectionMinimumTurns = session.AdaptiveState.SelectionMinimumTurns;
                 v2State.RecentEvidence = session.AdaptiveState.RecentEvidence;
+                // Preserve character profile bindings so the Adaptive panel continues to show
+                // the correct "BASELINE CHARACTER" label after cycle reset.
+                v2State.CharacterEncounterProfileIds = session.AdaptiveState.CharacterEncounterProfileIds;
+                v2State.CharacterRoles = session.AdaptiveState.CharacterRoles;
 
                 var themeScoresAfter = session.AdaptiveState.ThemeScores
                     .ToDictionary(kvp => kvp.Key, kvp => kvp.Value.Score);
