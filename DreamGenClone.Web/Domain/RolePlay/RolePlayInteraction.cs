@@ -44,4 +44,11 @@ public sealed class RolePlayInteraction
 
     /// <summary>Max tokens setting used during generation.</summary>
     public int? GeneratedMaxTokens { get; set; }
+
+    /// <summary>
+    /// Model's reasoning/chain-of-thought output (e.g. DeepSeek reasoning_content,
+    /// OpenAI o-series, Anthropic thinking). Null when the model does not provide reasoning
+    /// or when the interaction was user-authored.
+    /// </summary>
+    public string? ReasoningContent { get; set; }
 }

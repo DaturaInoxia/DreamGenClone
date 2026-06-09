@@ -780,6 +780,19 @@ public sealed class RolePlayContinuationNarrativeValidationTests
         public Task<string> GenerateAsync(string systemMessage, string userMessage, ResolvedModel resolved, CancellationToken cancellationToken = default)
             => Task.FromResult("unused");
 
+
+        public async Task<(string Content, string? Reasoning)> GenerateWithReasoningAsync(string prompt, ResolvedModel resolved, CancellationToken cancellationToken = default)
+        {
+            var content = await GenerateAsync(prompt, resolved, cancellationToken);
+            return (content, null);
+        }
+
+        public async Task<(string Content, string? Reasoning)> StreamGenerateWithReasoningAsync(string prompt, ResolvedModel resolved, Func<string, Task> onChunk, CancellationToken cancellationToken = default)
+        {
+            var content = await StreamGenerateAsync(prompt, resolved, onChunk, cancellationToken);
+            return (content, null);
+        }
+
         public async Task<string> StreamGenerateAsync(string prompt, ResolvedModel resolved, Func<string, Task> onChunk, CancellationToken cancellationToken = default)
         {
             var content = await GenerateAsync(prompt, resolved, cancellationToken);
@@ -798,6 +811,7 @@ public sealed class RolePlayContinuationNarrativeValidationTests
 
         public Task<(bool Success, string Message)> CheckModelHealthAsync(string providerBaseUrl, string chatCompletionsPath, int timeoutSeconds, string? decryptedApiKey, string modelIdentifier, CancellationToken cancellationToken = default)
             => Task.FromResult((true, "ok"));
+
     }
 
     private sealed class StubModelResolutionService : IModelResolutionService

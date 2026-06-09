@@ -60,6 +60,9 @@
             <button type="button" class="nav-link @GetTabClass("willingness")" @onclick='() => _activeTab = "willingness"'>Willingness</button>
         </li>
         <li class="nav-item" role="presentation">
+            <button type="button" class="nav-link @GetTabClass("resistance")" @onclick='() => _activeTab = "resistance"'>Resistance</button>
+        </li>
+        <li class="nav-item" role="presentation">
             <button type="button" class="nav-link @GetTabClass("narrative-gates")" @onclick='() => _activeTab = "narrative-gates"'>Narrative Gate Values</button>
         </li>
         <li class="nav-item" role="presentation">
@@ -1858,6 +1861,84 @@
             </div>
         </div>
     }
+    else if (_activeTab == "resistance")
+    {
+        <div class="row g-4">
+            <div class="col-lg-3">
+                <div class="card">
+                    <div class="card-header d-flex align-items-center justify-content-between">
+                        <span>Resistance Profiles</span>
+                        <button class="btn btn-sm btn-primary" @onclick="StartCreateResistanceProfile">+ New</button>
+                    </div>
+                    <div class="list-group list-group-flush" style="max-height:500px;overflow-y:auto;">
+                        @if (_resistanceProfiles.Count > 0)
+                        {
+                            @foreach (var profile in _resistanceProfiles)
+                            {
+                                <button type="button"
+                                    class="list-group-item list-group-item-action text-start @(string.Equals(profile.Id, _selectedResistanceProfileId, StringComparison.OrdinalIgnoreCase) ? "active" : "")"
+                                    @onclick="() => SelectResistanceProfile(profile.Id)">
+                                    <strong>@profile.Name</strong>
+                                    @if (profile.IsDefault)
+                                    {
+                                        <span class="badge bg-info ms-1">default</span>
+                                    }
+                                    <small class="d-block @(string.Equals(profile.Id, _selectedResistanceProfileId, StringComparison.OrdinalIgnoreCase) ? "text-light" : "text-muted")">Target: @profile.TargetStatName</small>
+                                </button>
+                            }
+                        }
+                        else
+                        {
+                            <p class="text-muted mb-0">No resistance profiles found.</p>
+                        }
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-9">
+                <div class="card">
+                    <div class="card-header">
+                        <strong>@(_selectedResistanceProfileId is null ? "Create Resistance Profile" : "Edit Resistance Profile")</strong>
+                    </div>
+                    <div class="card-body">
+                        @if (_selectedResistanceProfileId is not null)
+                        {
+                            <button class="btn btn-sm btn-outline-danger float-end" @onclick="DeleteResistanceProfile">Delete</button>
+                        }
+                        <div class="mb-3">
+                            <label class="form-label">Name</label>
+                            <input type="text" class="form-control" @bind="_resistanceFormName" placeholder="Profile name" />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Target Stat</label>
+                            <input type="text" class="form-control" @bind="_resistanceFormTargetStat" placeholder="Loyalty" />
+                            <div class="form-text">Canonical stat name used to resolve the resistance band (e.g. Loyalty, Restraint).</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Description</label>
+                            <textarea class="form-control" rows="2" @bind="_resistanceFormDescription" placeholder="What this resistance profile represents"></textarea>
+                        </div>
+                        <div class="mb-3 form-check">
+                            <input type="checkbox" class="form-check-input" @bind="_resistanceFormIsDefault" id="resistanceIsDefault" />
+                            <label class="form-check-label" for="resistanceIsDefault">Set as default profile</label>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Thresholds JSON</label>
+                            <textarea class="form-control font-monospace" rows="8" @bind="_resistanceThresholdsJson" placeholder='[{"SortOrder":1,"MinValue":0,"MaxValue":20,"ResistanceLevel":"Strict","Description":"Firm boundaries","PromptDirective":"...","ExampleScenarios":[]}]'></textarea>
+                            <div class="form-text">Format: array of objects with SortOrder, MinValue, MaxValue, ResistanceLevel, Description, PromptDirective, ExampleScenarios.</div>
+                        </div>
+                        @if (!string.IsNullOrEmpty(_resistanceError))
+                        {
+                            <div class="text-danger mt-3 small">@_resistanceError</div>
+                        }
+                        <div class="d-flex flex-wrap gap-2 mt-3">
+                            <button class="btn btn-primary" @onclick="SaveResistanceProfile" disabled="@_isBusy">@(_selectedResistanceProfileId is null ? "Create Profile" : "Save Changes")</button>
+                            <button class="btn btn-outline-secondary" @onclick="StartCreateResistanceProfile" disabled="@_isBusy">Reset</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
     else if (_activeTab == "narrative-gates")
     {
         <div class="row g-4">
@@ -3050,6 +3131,15 @@
     private string _willingnessThresholdsJson = "[]";
     private string? _willingnessError;
 
+    private List<StatResistanceProfile> _resistanceProfiles = [];
+    private string? _selectedResistanceProfileId;
+    private string _resistanceFormName = string.Empty;
+    private string _resistanceFormDescription = string.Empty;
+    private string _resistanceFormTargetStat = "Loyalty";
+    private bool _resistanceFormIsDefault;
+    private string _resistanceThresholdsJson = "[]";
+    private string? _resistanceError;
+
     private List<NarrativeGateProfile> _narrativeGateProfiles = [];
     private string? _selectedNarrativeGateProfileId;
     private string _narrativeGateFormName = string.Empty;
@@ -3175,6 +3265,15 @@
             StartCreateWillingnessProfile();
         }
 
+        if (_selectedResistanceProfileId is null && _resistanceProfiles.Count > 0)
+        {
+            SelectResistanceProfile(_resistanceProfiles[0].Id);
+        }
+        else if (_selectedResistanceProfileId is null && _resistanceProfiles.Count == 0)
+        {
+            StartCreateResistanceProfile();
+        }
+
         if (_selectedNarrativeGateProfileId is null && _narrativeGateProfiles.Count > 0)
         {
             SelectNarrativeGateProfile(_narrativeGateProfiles[0].Id);
@@ -3230,6 +3329,7 @@
         OnCharProfileRoleFilterChanged();
         _scenarioDefinitions = (await Facade.ListScenarioDefinitionsAsync(includeDisabled: true)).ToList();
         _willingnessProfiles = await Facade.ListStatWillingnessProfilesAsync();
+        _resistanceProfiles = await Facade.ListStatResistanceProfilesAsync();
         _narrativeGateProfiles = await Facade.ListNarrativeGateProfilesAsync();
         _roleDefinitions = await Facade.ListRoleDefinitionsAsync();
         _backgroundCharacterProfiles = await Facade.ListBackgroundCharacterProfilesAsync();
@@ -4994,6 +5094,114 @@
         catch (Exception ex)
         {
             _willingnessError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private void StartCreateResistanceProfile()
+    {
+        _selectedResistanceProfileId = null;
+        _resistanceFormName = string.Empty;
+        _resistanceFormDescription = string.Empty;
+        _resistanceFormTargetStat = "Loyalty";
+        _resistanceFormIsDefault = false;
+        _resistanceThresholdsJson = "[]";
+        _resistanceError = null;
+    }
+
+    private void SelectResistanceProfile(string profileId)
+    {
+        var profile = _resistanceProfiles.FirstOrDefault(x => x.Id == profileId);
+        if (profile is null)
+        {
+            return;
+        }
+
+        _selectedResistanceProfileId = profile.Id;
+        _resistanceFormName = profile.Name;
+        _resistanceFormDescription = profile.Description;
+        _resistanceFormTargetStat = profile.TargetStatName;
+        _resistanceFormIsDefault = profile.IsDefault;
+        _resistanceThresholdsJson = System.Text.Json.JsonSerializer.Serialize(profile.Thresholds, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+        _resistanceError = null;
+    }
+
+    private async Task SaveResistanceProfile()
+    {
+        _resistanceError = null;
+
+        List<ResistanceThreshold>? thresholds;
+        try
+        {
+            thresholds = System.Text.Json.JsonSerializer.Deserialize<List<ResistanceThreshold>>(_resistanceThresholdsJson);
+        }
+        catch (Exception ex)
+        {
+            _resistanceError = $"Threshold JSON is invalid: {ex.Message}";
+            return;
+        }
+
+        if (thresholds is null)
+        {
+            _resistanceError = "Threshold JSON cannot be empty.";
+            return;
+        }
+
+        var profile = new StatResistanceProfile
+        {
+            Id = _selectedResistanceProfileId ?? Guid.NewGuid().ToString(),
+            Name = _resistanceFormName,
+            Description = _resistanceFormDescription,
+            TargetStatName = _resistanceFormTargetStat,
+            IsDefault = _resistanceFormIsDefault,
+            Thresholds = thresholds
+        };
+
+        _isBusy = true;
+        try
+        {
+            var saved = await Facade.SaveStatResistanceProfileAsync(profile);
+            await ReloadAsync();
+            SelectResistanceProfile(saved.Id);
+        }
+        catch (Exception ex)
+        {
+            _resistanceError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task DeleteResistanceProfile()
+    {
+        if (_selectedResistanceProfileId is null)
+        {
+            return;
+        }
+
+        _resistanceError = null;
+        _isBusy = true;
+        try
+        {
+            await Facade.DeleteStatResistanceProfileAsync(_selectedResistanceProfileId);
+            await ReloadAsync();
+            if (_resistanceProfiles.Count > 0)
+            {
+                SelectResistanceProfile(_resistanceProfiles[0].Id);
+            }
+            else
+            {
+                StartCreateResistanceProfile();
+            }
+        }
+        catch (Exception ex)
+        {
+            _resistanceError = ex.Message;
         }
         finally
         {

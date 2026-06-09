@@ -1567,6 +1567,27 @@
     private int GetMotScore()
         => _session?.AdaptiveState?.MotivationScore ?? 0;
 
+    private (int Score, int Att, int Intim, int Sr, int Ppl) ComputeMotivationDetail()
+    {
+        if (_v2State?.CharacterSnapshots is null)
+            return (0, 50, 50, 50, 50);
+
+        var wifeStats = _v2State.CharacterSnapshots.FirstOrDefault(s =>
+            string.Equals(s.CharacterRole, "Wife", StringComparison.OrdinalIgnoreCase));
+        var husbandStats = _v2State.CharacterSnapshots.FirstOrDefault(s =>
+            string.Equals(s.CharacterRole, "Husband", StringComparison.OrdinalIgnoreCase));
+        var otherManStats = _v2State.CharacterSnapshots.FirstOrDefault(s =>
+            string.Equals(s.CharacterRole, "OtherMan", StringComparison.OrdinalIgnoreCase));
+
+        var att = husbandStats?.RuntimeEncounterStats?.TryGetValue("Attentiveness", out var a) == true ? a : 50;
+        var intim = husbandStats?.RuntimeEncounterStats?.TryGetValue("IntimacyAvailability", out var i) == true ? i : 50;
+        var sr = wifeStats is not null ? GetCharacterStatValue(wifeStats, "SelfRespect") : 50;
+        var ppl = otherManStats?.RuntimeEncounterStats?.TryGetValue("PersistencePastLimits", out var p) == true ? p : 50;
+
+        var score = (int)Math.Round(((100 - att) + (100 - intim) + (100 - sr) + ppl) / 4.0, MidpointRounding.AwayFromZero);
+        return (score, att, intim, sr, ppl);
+    }
+
     private int GetEffLoyalty(CharacterStatProfileV2 profile)
     {
         var loyalty = GetCharacterStatValue(profile, "Loyalty");
@@ -7222,6 +7243,7 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
     private string? _deleteConfirmInteractionId;
     private string? _deleteAlternativeConfirmId;
     private string? _infoPopupInteractionId;
+    private string _infoPopupTab = "info";
     private string? _semanticDetailInteractionId;
     private readonly Dictionary<string, string> _editSnapshots = new();
     private readonly Dictionary<string, string> _editContent = new();
@@ -7270,11 +7292,18 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
     private void ShowInteractionInfo(string interactionId)
     {
         _infoPopupInteractionId = interactionId;
+        _infoPopupTab = "info";
     }
 
-    private void CloseInteractionInfo()
+    
+
+    private void SetInfoTab() => _infoPopupTab = "info";
+
+    private void SetReasoningTab() => _infoPopupTab = "reasoning";
+private void CloseInteractionInfo()
     {
         _infoPopupInteractionId = null;
+        _infoPopupTab = "info";
     }
 
     private void ShowSemanticDetail(string interactionId)
@@ -8017,8 +8046,19 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
                         {
                             <div class="rw-modal-overlay" @onclick="CloseInteractionInfo">
                                 <div class="rw-modal rw-modal-info" @onclick:stopPropagation>
-                                    <div class="rw-modal-header">Interaction Info</div>
+                                    <div class="rw-modal-header">
+                                        <span class="rw-modal-title">Interaction Info</span>
+                                        <div class="rw-modal-tabs">
+                                            <button class="rw-tab @(_infoPopupTab == "info" ? "rw-tab-active" : "")" @onclick="SetInfoTab">Info</button>
+                                            @if (!string.IsNullOrWhiteSpace(infoInteraction.ReasoningContent))
+                                            {
+                                                <button class="rw-tab @(_infoPopupTab == "reasoning" ? "rw-tab-active" : "")" @onclick="SetReasoningTab">Reasoning</button>
+                                            }
+                                        </div>
+                                    </div>
                                     <div class="rw-modal-body">
+                                        @if (_infoPopupTab == "info")
+                                        {
                                         <div class="rw-info-grid">
                                             <div class="rw-info-row"><span class="rw-info-label">ID</span><span class="rw-info-value rw-info-value-mono">@infoInteraction.Id</span></div>
                                             <div class="rw-info-row"><span class="rw-info-label">Actor</span><span class="rw-info-value">@infoInteraction.ActorName</span></div>
@@ -8104,6 +8144,11 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
                                             <div class="rw-info-row"><span class="rw-info-label">Pinned</span><span class="rw-info-value">@(infoInteraction.IsPinned ? "Yes" : "No")</span></div>
                                             <div class="rw-info-row"><span class="rw-info-label">Hidden</span><span class="rw-info-value">@(infoInteraction.IsHidden ? "Yes" : "No")</span></div>
                                         </div>
+                                        }
+                                        @if (_infoPopupTab == "reasoning" && !string.IsNullOrWhiteSpace(infoInteraction.ReasoningContent))
+                                        {
+                                            <div class="rw-info-value-mono" style="white-space: pre-wrap; max-height: 60vh; overflow-y: auto; font-size: 0.85em; color: #b0b0b0;">@infoInteraction.ReasoningContent</div>
+                                        }
                                     </div>
                                     <div class="rw-modal-actions">
                                         <button class="rw-btn rw-btn-secondary" @onclick="CloseInteractionInfo">Close</button>
@@ -9857,6 +9902,9 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
                                                     }
                                                     @if (string.Equals(charRole, "Wife", StringComparison.OrdinalIgnoreCase))
                                                     {
+                            var motDetail = ComputeMotivationDetail();
+                            var rawLoyalty = GetCharacterStatValue(actorStats, "Loyalty");
+                            var effLoyalty = GetEffLoyalty(actorStats);
                                                         <div class="rw-stat-prompt-section">
                                                             <div class="rw-stat-prompt-heading">Motivation / Resistance</div>
                                                             <div class="rw-stat-prompt-row">
@@ -9865,15 +9913,15 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
                                                             </div>
                                                             <div class="rw-stat-prompt-row">
                                                                 <span class="rw-stat-prompt-name">Loyalty</span>
-                                                                <span class="rw-stat-prompt-text">@GetCharacterStatValue(actorStats, "Loyalty")</span>
+                                                                <span class="rw-stat-prompt-text">@rawLoyalty</span>
                                                             </div>
                                                             <div class="rw-stat-prompt-row">
                                                                 <span class="rw-stat-prompt-name">Motivation Score</span>
-                                                                <span class="rw-stat-prompt-text">@GetMotScore()</span>
+                                                                <span class="rw-stat-prompt-text">@motDetail.Score</span>
                                                             </div>
                                                             <div class="rw-stat-prompt-row">
                                                                 <span class="rw-stat-prompt-name">Eff. Loyalty</span>
-                                                                <span class="rw-stat-prompt-text">@GetEffLoyalty(actorStats) (Loyalty − Motivation)</span>
+                                                                <span class="rw-stat-prompt-text">@effLoyalty (Loyalty − Motivation)</span>
                                                             </div>
                                                             <div class="rw-stat-prompt-row">
                                                                 <span class="rw-stat-prompt-name">Band</span>
@@ -9883,6 +9931,36 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
                                                                 <span class="rw-stat-prompt-name">Band Text</span>
                                                                 <span class="rw-stat-prompt-text">@GetBandText(actorStats)</span>
                                                             </div>
+                                                            <div class="rw-stat-prompt-heading" @onclick='() => ToggleAdaptiveSection("mot-"+actorStats.CharacterId)' style="cursor:pointer;display:flex;align-items:center;gap:6px;margin-top:8px;"><span class="rw-collapsible-chevron @(IsAdaptiveSectionExpanded("mot-"+actorStats.CharacterId)?"is-open":"")">&#8250;</span> Formula Details</div>
+                                                            @if (IsAdaptiveSectionExpanded("mot-"+actorStats.CharacterId))
+                                                            {
+                                                                <div class="rw-stat-prompt-section" style="padding-left:10px;border-left:2px solid #444;margin-top:4px;">
+                                                                    <div class="rw-stat-prompt-row">
+                                                                        <span class="rw-stat-prompt-name">Husband Attentiveness</span>
+                                                                        <span class="rw-stat-prompt-text">@motDetail.Att</span>
+                                                                    </div>
+                                                                    <div class="rw-stat-prompt-row">
+                                                                        <span class="rw-stat-prompt-name">Husband IntimacyAvailability</span>
+                                                                        <span class="rw-stat-prompt-text">@motDetail.Intim</span>
+                                                                    </div>
+                                                                    <div class="rw-stat-prompt-row">
+                                                                        <span class="rw-stat-prompt-name">Wife SelfRespect</span>
+                                                                        <span class="rw-stat-prompt-text">@motDetail.Sr</span>
+                                                                    </div>
+                                                                    <div class="rw-stat-prompt-row">
+                                                                        <span class="rw-stat-prompt-name">OtherMan PersistencePastLimits</span>
+                                                                        <span class="rw-stat-prompt-text">@motDetail.Ppl</span>
+                                                                    </div>
+                                                                    <div class="rw-stat-prompt-row">
+                                                                        <span class="rw-stat-prompt-name">Formula</span>
+                                                                        <span class="rw-stat-prompt-text">((100−@motDetail.Att) + (100−@motDetail.Intim) + (100−@motDetail.Sr) + @motDetail.Ppl) / 4 = @motDetail.Score</span>
+                                                                    </div>
+                                                                    <div class="rw-stat-prompt-row">
+                                                                        <span class="rw-stat-prompt-name">Effective Loyalty</span>
+                                                                        <span class="rw-stat-prompt-text">min(@rawLoyalty + @motDetail.Score, 100) = @effLoyalty</span>
+                                                                    </div>
+                                                                </div>
+                                                            }
                                                         </div>
                                                     }
                                                     <div class="rw-stat-prompt-section">

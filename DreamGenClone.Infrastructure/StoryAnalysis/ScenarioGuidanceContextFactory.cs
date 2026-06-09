@@ -50,9 +50,11 @@ public sealed class ScenarioGuidanceContextFactory : IScenarioGuidanceContextFac
                 AverageDominance = input.AverageDominance,
                 AverageLoyalty = input.AverageLoyalty,
                 SelectedWillingnessProfileId = input.SelectedWillingnessProfileId,
+                SelectedResistanceProfileId = input.SelectedResistanceProfileId,
                 CharacterEncounterProfileIds = input.CharacterEncounterProfileIds,
                 Characters = input.Characters,
-                SuppressedScenarioIds = input.SuppressedScenarioIds
+                SuppressedScenarioIds = input.SuppressedScenarioIds,
+                CharacterRuntimeStats = input.CharacterRuntimeStats
             },
             cancellationToken);
 

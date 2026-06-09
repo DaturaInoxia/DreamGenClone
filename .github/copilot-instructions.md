@@ -43,6 +43,12 @@ These rules are mandatory for all coding tasks in this repository.
 - duplicated configuration-source resolution logic across services.
 - hidden recovery paths that alter RP behavior without explicit configured data.
 
+## Razor Editing Rules
+
+When editing or creating `.razor`, `.razor.cs`, or `.razor.css` files, follow the rules in [`.github/instructions/razor-editing.instructions.md`](instructions/razor-editing.instructions.md). These rules enforce full-context reads, anti-hallucination constraints, Razor grammar reminders, a self-validation checklist, and diff-only / micro-step workflows. They are mandatory for all models editing Razor files in this repository.
+
+For this project's Razor style conventions and patterns, see [`.github/razor-style-reference.md`](razor-style-reference.md).
+
 ## DB Query Tool
 
 A permanent .NET 9 console project lives at `artifacts/tmp/dbquery/dbquery.csproj` (part of the solution under `artifacts > tmp`).

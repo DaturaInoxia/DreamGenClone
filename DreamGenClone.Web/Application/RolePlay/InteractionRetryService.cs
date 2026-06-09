@@ -45,9 +45,9 @@ public sealed class InteractionRetryService : IInteractionRetryService
 
         var prompt = await BuildRetryPromptAsync(session, active, null, cancellationToken);
         var resolved = await ResolveModelAsync(session, sessionModelId: null, cancellationToken);
-        var output = await _completionClient.GenerateAsync(prompt, resolved, cancellationToken);
+        var (output, reasoningContent) = await _completionClient.GenerateWithReasoningAsync(prompt, resolved, cancellationToken);
 
-        var alternative = CreateAlternative(original, session, active.InteractionType, active.ActorName, output, resolved, "Retry");
+        var alternative = CreateAlternative(original, session, active.InteractionType, active.ActorName, output, reasoningContent, resolved, "Retry");
 
         _logger.LogInformation(
             "Retry created alternative {AlternativeIndex} for interaction {InteractionId} in session {SessionId}",
@@ -67,9 +67,9 @@ public sealed class InteractionRetryService : IInteractionRetryService
 
         var prompt = await BuildRetryPromptAsync(session, active, null, cancellationToken);
         var resolved = await ResolveModelAsync(session, modelId, cancellationToken);
-        var output = await _completionClient.GenerateAsync(prompt, resolved, cancellationToken);
+        var (output, reasoningContent) = await _completionClient.GenerateWithReasoningAsync(prompt, resolved, cancellationToken);
 
-        var alternative = CreateAlternative(original, session, active.InteractionType, active.ActorName, output, resolved, "RetryWithModel");
+        var alternative = CreateAlternative(original, session, active.InteractionType, active.ActorName, output, reasoningContent, resolved, "RetryWithModel");
 
         _logger.LogInformation(
             "RetryWithModel created alternative {AlternativeIndex} for interaction {InteractionId} using model {ModelId} in session {SessionId}",
@@ -105,9 +105,9 @@ public sealed class InteractionRetryService : IInteractionRetryService
 
         var prompt = await BuildRetryPromptAsync(session, original, $"Rewrite as character: {actorName}", cancellationToken);
         var resolved = await ResolveModelAsync(session, sessionModelId: null, cancellationToken);
-        var output = await _completionClient.GenerateAsync(prompt, resolved, cancellationToken);
+        var (output, reasoningContent) = await _completionClient.GenerateWithReasoningAsync(prompt, resolved, cancellationToken);
 
-        var alternative = CreateAlternative(original, session, interactionType, actorName, output, resolved, "RetryAs");
+        var alternative = CreateAlternative(original, session, interactionType, actorName, output, reasoningContent, resolved, "RetryAs");
 
         _logger.LogInformation(
             "RetryAs created alternative {AlternativeIndex} as {ActorName} for interaction {InteractionId} in session {SessionId}",
@@ -126,9 +126,9 @@ public sealed class InteractionRetryService : IInteractionRetryService
 
         var prompt = await BuildRetryPromptAsync(session, active, "Rewrite the following interaction to be significantly longer and more detailed, expanding on descriptions, dialogue, and atmosphere.", cancellationToken);
         var resolved = await ResolveModelAsync(session, sessionModelId: null, cancellationToken);
-        var output = await _completionClient.GenerateAsync(prompt, resolved, cancellationToken);
+        var (output, reasoningContent) = await _completionClient.GenerateWithReasoningAsync(prompt, resolved, cancellationToken);
 
-        var alternative = CreateAlternative(original, session, active.InteractionType, active.ActorName, output, resolved, "MakeLonger");
+        var alternative = CreateAlternative(original, session, active.InteractionType, active.ActorName, output, reasoningContent, resolved, "MakeLonger");
 
         _logger.LogInformation(
             "MakeLonger created alternative {AlternativeIndex} for interaction {InteractionId} in session {SessionId}",
@@ -147,9 +147,9 @@ public sealed class InteractionRetryService : IInteractionRetryService
 
         var prompt = await BuildRetryPromptAsync(session, active, "Rewrite the following interaction to be shorter and more concise, keeping only the essential content.", cancellationToken);
         var resolved = await ResolveModelAsync(session, sessionModelId: null, cancellationToken);
-        var output = await _completionClient.GenerateAsync(prompt, resolved, cancellationToken);
+        var (output, reasoningContent) = await _completionClient.GenerateWithReasoningAsync(prompt, resolved, cancellationToken);
 
-        var alternative = CreateAlternative(original, session, active.InteractionType, active.ActorName, output, resolved, "MakeShorter");
+        var alternative = CreateAlternative(original, session, active.InteractionType, active.ActorName, output, reasoningContent, resolved, "MakeShorter");
 
         _logger.LogInformation(
             "MakeShorter created alternative {AlternativeIndex} for interaction {InteractionId} in session {SessionId}",
@@ -174,9 +174,9 @@ public sealed class InteractionRetryService : IInteractionRetryService
 
         var prompt = await BuildRetryPromptAsync(session, active, $"Rewrite instruction: {instruction.Trim()}", cancellationToken);
         var resolved = await ResolveModelAsync(session, sessionModelId: null, cancellationToken);
-        var output = await _completionClient.GenerateAsync(prompt, resolved, cancellationToken);
+        var (output, reasoningContent) = await _completionClient.GenerateWithReasoningAsync(prompt, resolved, cancellationToken);
 
-        var alternative = CreateAlternative(original, session, active.InteractionType, active.ActorName, output, resolved, "AskToRewrite");
+        var alternative = CreateAlternative(original, session, active.InteractionType, active.ActorName, output, reasoningContent, resolved, "AskToRewrite");
 
         _logger.LogInformation(
             "AskToRewrite created alternative {AlternativeIndex} for interaction {InteractionId} in session {SessionId}",
@@ -204,6 +204,7 @@ public sealed class InteractionRetryService : IInteractionRetryService
         InteractionType interactionType,
         string actorName,
         string output,
+        string? reasoningContent,
         ResolvedModel resolvedModel,
         string command)
     {
@@ -228,7 +229,8 @@ public sealed class InteractionRetryService : IInteractionRetryService
             GeneratedByProvider = resolvedModel.ProviderName,
             GeneratedTemperature = resolvedModel.Temperature,
             GeneratedTopP = resolvedModel.TopP,
-            GeneratedMaxTokens = resolvedModel.MaxTokens
+            GeneratedMaxTokens = resolvedModel.MaxTokens,
+            ReasoningContent = reasoningContent
         };
 
         original.ActiveAlternativeIndex = nextIndex;

@@ -178,11 +178,21 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
 
         var stopwatch = Stopwatch.StartNew();
         string output;
+        string? reasoningContent = null;
         try
         {
-            output = onChunk is null
-                ? await _completionClient.GenerateAsync(prompt, resolved, cancellationToken)
-                : await _completionClient.StreamGenerateAsync(prompt, resolved, onChunk, cancellationToken);
+            if (onChunk is null)
+            {
+                var (content, reasoning) = await _completionClient.GenerateWithReasoningAsync(prompt, resolved, cancellationToken);
+                output = content;
+                reasoningContent = reasoning;
+            }
+            else
+            {
+                var (content, reasoning) = await _completionClient.StreamGenerateWithReasoningAsync(prompt, resolved, onChunk, cancellationToken);
+                output = content;
+                reasoningContent = reasoning;
+            }
         }
         catch (Exception ex)
         {
@@ -222,6 +232,8 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             {
                 output,
                 outputLength = output.Length,
+                reasoningContent,
+                reasoningLength = reasoningContent?.Length ?? 0,
                 durationMs = stopwatch.ElapsedMilliseconds
             })
         }, cancellationToken);
@@ -250,7 +262,8 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             GeneratedByProvider = resolved.ProviderName,
             GeneratedTemperature = resolved.Temperature,
             GeneratedTopP = resolved.TopP,
-            GeneratedMaxTokens = resolved.MaxTokens
+            GeneratedMaxTokens = resolved.MaxTokens,
+            ReasoningContent = reasoningContent
         };
 
         await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
@@ -823,7 +836,8 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                 SuppressedScenarioIds: suppressedScenarioIds,
                 CharacterRuntimeStats: session.AdaptiveState.CharacterStats.Count > 0
                     ? session.AdaptiveState.CharacterStats
-                    : null),
+                    : null,
+                SelectedResistanceProfileId: session.AdaptiveState.SelectedResistanceProfileId),
             cancellationToken);
 
         var framingGuards = RolePlayAssistantPrompts.BuildFramingGuards(currentPhase, activeScenarioId);
@@ -1551,6 +1565,17 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         }
     }
 
+        private static string? ResolveSteerDirective(RolePlaySession session, string promptText, PromptIntent intent)
+    {
+        if (intent == PromptIntent.Instruction
+            && TryExtractSteerDirective(promptText, out var directive))
+        {
+            return directive;
+        }
+
+        return null;
+    }
+
     private static bool TryExtractSteerDirective(string promptText, out string directive)
     {
         directive = string.Empty;
@@ -1614,30 +1639,6 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         sb.AppendLine("- Characters react naturally to the new setting; do not recap prior events.");
         sb.AppendLine($"- Maintain narrative phase continuity: current phase is {currentPhase}.");
         sb.AppendLine("- After the time-skip opening, continue the narrative from the new moment forward as normal.");
-    }
-
-    private static string? ResolveSteerDirective(RolePlaySession session, string promptText, PromptIntent intent)
-    {
-        if (intent == PromptIntent.Instruction
-            && TryExtractSteerDirective(promptText, out var currentDirective))
-        {
-            return currentDirective;
-        }
-
-        foreach (var interaction in session.Interactions.AsEnumerable().Reverse())
-        {
-            if (!string.Equals(interaction.ActorName, "Instruction", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            if (TryExtractSteerDirective(interaction.Content, out var historicalDirective))
-            {
-                return historicalDirective;
-            }
-        }
-
-        return null;
     }
 
     private static string ResolvePromptActorLabel(RolePlaySession session, string? actorIdOrName)

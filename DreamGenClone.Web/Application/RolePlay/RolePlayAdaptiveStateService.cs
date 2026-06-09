@@ -1228,12 +1228,18 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             ? profiles.FirstOrDefault(x => string.Equals(x.Id, session.SelectedIntensityProfileId, StringComparison.OrdinalIgnoreCase))
             : null;
         // Intro/Atmospheric is not a valid character intensity baseline (it is filtered from the
-        // UI dropdown). Treat it as null so the adaptive profile (currentProfile) is used instead.
+        // UI dropdown). Treat it as null so the Emotional anchor is used instead.
         if (selectedProfile?.Intensity == IntensityLevel.Intro)
         {
             selectedProfile = null;
         }
-        var phaseBaselineSourceProfile = selectedProfile ?? currentProfile;
+        // Anchor to the lowest non-Intro profile (Emotional, level 1) when no selected profile
+        // exists. Using currentProfile as fallback causes a ratchet effect where each transition
+        // raises the baseline — BuildUp would climb Atmospheric→Emotional→Suggestive→Sensual→
+        // Erotic→Hardcore in a handful of interactions instead of staying stable per phase.
+        var phaseBaselineSourceProfile = selectedProfile
+            ?? profiles.FirstOrDefault(p => p.Intensity == IntensityLevel.Emotional)
+            ?? currentProfile;
         // Phase ladder: Observer/Reset = base, BuildUp = base+1, Committed = base+2,
         // Approaching = base+3, Climax = base+4. Floor and ceiling clamp the result.
         var phaseStep = session.AdaptiveState.CurrentPhase switch

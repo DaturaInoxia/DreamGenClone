@@ -67,6 +67,13 @@ public sealed class SemanticEventInferenceServiceTests
 
         public Task<(bool Success, string Message)> CheckModelHealthAsync(string providerBaseUrl, string chatCompletionsPath, int timeoutSeconds, string? decryptedApiKey, string modelIdentifier, CancellationToken cancellationToken = default)
             => Task.FromResult((true, "OK"));
+
+        public Task<(string Content, string? Reasoning)> GenerateWithReasoningAsync(string prompt, ResolvedModel resolved, CancellationToken cancellationToken = default)
+            => Task.FromResult<(string, string?)>(("{\"events\":[]}", null));
+
+        public Task<(string Content, string? Reasoning)> StreamGenerateWithReasoningAsync(string prompt, ResolvedModel resolved, Func<string, Task> onChunk, CancellationToken cancellationToken = default)
+            => Task.FromResult<(string, string?)>(("{\"events\":[]}", null));
+
     }
 
     private static SemanticEventInferenceRequest MakeRequest() => new()

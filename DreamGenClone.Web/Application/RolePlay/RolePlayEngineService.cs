@@ -3833,6 +3833,33 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 UpdatedUtc = x.UpdatedUtc
             })
             .ToList();
+        // CharacterSnapshots: carry forward the V2-persisted values so stat deltas applied by
+        // the background semantic analysis (ApplyInferredSemanticEvidenceAsync) are not
+        // overwritten by the stale PayloadJson baseline when the foreground pipeline saves.
+        // Must deep-copy to avoid shared-reference side effects between the V2 store and the
+        // in-memory session state.
+        mapped.CharacterSnapshots = previousState.CharacterSnapshots
+            .Select(s => new DreamGenClone.Domain.RolePlay.CharacterStatProfileV2
+            {
+                CharacterId = s.CharacterId,
+                Desire = s.Desire,
+                Restraint = s.Restraint,
+                Dominance = s.Dominance,
+                Loyalty = s.Loyalty,
+                SelfRespect = s.SelfRespect,
+                SnapshotUtc = s.SnapshotUtc,
+                BaselineStats = new Dictionary<string, int>(s.BaselineStats, StringComparer.OrdinalIgnoreCase),
+                LastStatDeltas = new Dictionary<string, int>(s.LastStatDeltas, StringComparer.OrdinalIgnoreCase),
+                LastStatDeltaUpdatedUtc = s.LastStatDeltaUpdatedUtc,
+                UpdatedUtc = s.UpdatedUtc,
+                RuntimeEncounterStats = s.RuntimeEncounterStats is not null
+                    ? new Dictionary<string, int>(s.RuntimeEncounterStats, StringComparer.OrdinalIgnoreCase)
+                    : null,
+                CharacterRole = s.CharacterRole
+            })
+            .ToList();
+        mapped.RebuildCharacterStatsCache();
+
         mapped.CurrentBeatCode = previousState.CurrentBeatCode;
         mapped.TurnsInCurrentBeat = previousState.TurnsInCurrentBeat;
         mapped.ThemeMachineSnapshot = previousState.ThemeMachineSnapshot is null

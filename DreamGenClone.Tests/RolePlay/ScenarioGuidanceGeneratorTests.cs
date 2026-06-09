@@ -146,8 +146,8 @@ public sealed class ScenarioGuidanceGeneratorTests
                 }
             ]),
             NullLogger<ScenarioGuidanceGenerator>.Instance,
-            willingnessService,
-            husbandService);
+            statWillingnessProfileService: willingnessService,
+            husbandAwarenessProfileService: husbandService);
 
         var output = await service.GenerateGuidanceAsync(new ScenarioGuidanceRequest
         {

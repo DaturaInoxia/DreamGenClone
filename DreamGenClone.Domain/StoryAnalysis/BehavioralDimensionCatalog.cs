@@ -59,6 +59,18 @@ public static class BehavioralDimensionCatalog
             "He accepts moderate risk; he would manage it rather than stop the encounter.",
             "He is comfortable with significant exposure risk and does not let it interfere."),
 
+        new("Attentiveness", "Husband",
+            "He is emotionally distant and disengaged — she feels invisible and emotionally neglected in the relationship.",
+            "He is intermittently attentive and mostly takes her for granted — he notices little about her inner state.",
+            "He is generally present and engaged — he notices when something is off and makes an effort to connect.",
+            "He is deeply attentive — he actively nurtures the emotional connection and makes her feel seen and valued."),
+
+        new("IntimacyAvailability", "Husband",
+            "He is sexually unavailable — the relationship is effectively a dead bedroom with no physical intimacy.",
+            "He is sporadically available — intimacy is routine, infrequent, and she does not feel desired by him.",
+            "He is generally available and engaged in physical intimacy when the opportunity arises.",
+            "He is actively passionate — he pursues her physically and makes her feel wanted and desired."),
+
         // ── Wife ─────────────────────────────────────────────────────────────────────────────
         new("DiscoveryCaution", "Wife",
             "She makes no effort to conceal this encounter — she may be loud, unconcerned about being heard, and takes no precautions.",
@@ -83,6 +95,18 @@ public static class BehavioralDimensionCatalog
             "She is slightly subdued but recovers quickly and acts normally.",
             "She is noticeably off — her manner with her husband has visible tells; she is either more solicitous than usual or quieter, and she steers away from anything that could invite scrutiny.",
             "She cannot fully compose herself — she over-compensates with her husband, avoids sustained eye contact, or goes quiet; anyone paying attention would notice something happened."),
+
+        new("BoundaryFirmness", "Wife",
+            "She firmly enforces her stated limits — she will not be argued or pressured past them under any circumstances.",
+            "She holds her boundaries most of the time, but persistent pressure can cause her to soften or reconsider.",
+            "She states her limits weakly and gives in quickly when challenged — her boundaries are more suggestion than rule.",
+            "She does not enforce any limits — she is fully open to whatever happens and does not resist escalation."),
+
+        new("SeductionReceptivity", "Wife",
+            "She is immune to persistent pursuit — pressure or flattery does not affect her stance or draw her in.",
+            "She is mildly flattered by attention but her feelings and decisions do not change because of it.",
+            "She is susceptible to persistent pursuit — sustained attention chips away at her resolve over time.",
+            "She is highly receptive to seduction — pursuit draws her in quickly and she responds eagerly to attention."),
 
         // ── OtherMan ─────────────────────────────────────────────────────────────────────────
         new("HusbandAwareness", "OtherMan",
