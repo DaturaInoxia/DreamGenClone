@@ -254,6 +254,22 @@ public sealed class InteractionRetryService : IInteractionRetryService
         {
             sb.AppendLine($"POV Persona ({session.PersonaName}):");
             sb.AppendLine(session.PersonaDescription.Trim());
+            var personaAppearance = PhysicalAttributesFormatter.FormatBlock(
+                session.PersonaPhysicalAttributes, session.PersonaGender);
+            if (!string.IsNullOrEmpty(personaAppearance))
+            {
+                sb.AppendLine(personaAppearance);
+            }
+
+            // Inject intimate behavioral self-awareness text for persona
+            if (session.PersonaPhysicalAttributes is not null)
+            {
+                var selfAwareness = IntimateBehavioralTextBuilder.BuildSelfAwarenessText(
+                    session.PersonaPhysicalAttributes, session.PersonaGender,
+                    awarenessLevel: null, session.PersonaName);
+                if (!string.IsNullOrEmpty(selfAwareness))
+                    sb.AppendLine(selfAwareness);
+            }
         }
         else if (session.PersonaName != "You")
         {
@@ -290,6 +306,11 @@ public sealed class InteractionRetryService : IInteractionRetryService
                 sb.AppendLine($"- Description: {scenario.Description}");
                 sb.AppendLine($"- Plot: {scenario.Plot.Description}");
                 sb.AppendLine($"- Setting: {scenario.Setting.WorldDescription}");
+                if (!string.IsNullOrWhiteSpace(scenario.Setting?.TimeFrame))
+                {
+                    sb.AppendLine($"- Time Frame: {scenario.Setting.TimeFrame.Trim()}");
+                    sb.AppendLine("- Time Span Reminder: This entire story takes place within the time frame above. Scenes may skip forward in time; a new response does not have to be the immediate continuation of the last moment.");
+                }
                 sb.AppendLine($"- Narrative: {scenario.Narrative.ProseStyle} / {scenario.Narrative.NarrativeTone}");
 
                 if (scenario.Plot.Goals.Count > 0)
@@ -359,10 +380,21 @@ public sealed class InteractionRetryService : IInteractionRetryService
                             ? "(no description)"
                             : character.Description.Trim();
                         sb.AppendLine($"  {character.Name!.Trim()}{roleText}{relationSuffix}: {description}");
-                        var charAppearance = PhysicalAttributesFormatter.FormatBlock(character.PhysicalAttributes);
+                        var charAppearance = PhysicalAttributesFormatter.FormatBlock(
+                            character.PhysicalAttributes, character.Gender);
                         if (!string.IsNullOrEmpty(charAppearance))
                         {
                             sb.AppendLine($"    {charAppearance}");
+                        }
+
+                        // Inject intimate behavioral self-awareness text for character
+                        if (character.PhysicalAttributes is not null)
+                        {
+                            var selfAwareness = IntimateBehavioralTextBuilder.BuildSelfAwarenessText(
+                                character.PhysicalAttributes, character.Gender,
+                                awarenessLevel: null, character.Name);
+                            if (!string.IsNullOrEmpty(selfAwareness))
+                                sb.AppendLine($"    {selfAwareness}");
                         }
                     }
                 }

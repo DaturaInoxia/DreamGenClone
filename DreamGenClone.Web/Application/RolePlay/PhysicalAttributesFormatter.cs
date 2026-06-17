@@ -8,8 +8,11 @@ internal static class PhysicalAttributesFormatter
     /// <summary>
     /// Returns a compact, single-line labelled appearance string for prompt injection,
     /// or <see cref="string.Empty"/> when <paramref name="attrs"/> is null or all fields are absent.
+    /// When <paramref name="gender"/> is "Male", Intimate — Female fields are skipped.
+    /// When <paramref name="gender"/> is "Female", Intimate — Male fields are skipped.
+    /// When null or "Unknown", all fields are included (backward compat).
     /// </summary>
-    internal static string FormatBlock(PhysicalAttributes? attrs)
+    internal static string FormatBlock(PhysicalAttributes? attrs, string? gender = null)
     {
         if (attrs is null) return string.Empty;
 
@@ -48,17 +51,26 @@ internal static class PhysicalAttributesFormatter
         Append(sb, "Sexual skill", attrs.SexualSkill);
         Append(sb, "Oral skill", attrs.OralSkill);
 
-        // ── Intimate — male ──────────────────────────────────────────────────
-        Append(sb, "Endowment", BuildEndowmentDescription(attrs.EndowmentLength, attrs.EndowmentGirth));
-        Append(sb, "Stamina", attrs.Stamina);
-        Append(sb, "Recovery", attrs.Recovery);
-        Append(sb, "Ejaculation", attrs.EjaculationIntensity);
+        var isMale = string.Equals(gender, "Male", StringComparison.OrdinalIgnoreCase);
+        var isFemale = string.Equals(gender, "Female", StringComparison.OrdinalIgnoreCase);
 
-        // ── Intimate — female ────────────────────────────────────────────────
-        Append(sb, "Vaginal tightness", attrs.VaginalTightness);
-        Append(sb, "Sensitivity", attrs.Sensitivity);
-        Append(sb, "Lubrication", attrs.Lubrication);
-        Append(sb, "Orgasmic capacity", attrs.OrgasmicCapacity);
+        // ── Intimate — male (skip when gender is Female) ─────────────────────
+        if (!isFemale)
+        {
+            Append(sb, "Endowment", BuildEndowmentDescription(attrs.EndowmentLength, attrs.EndowmentGirth));
+            Append(sb, "Stamina", attrs.Stamina);
+            Append(sb, "Recovery", attrs.Recovery);
+            Append(sb, "Ejaculation", attrs.EjaculationIntensity);
+        }
+
+        // ── Intimate — female (skip when gender is Male) ─────────────────────
+        if (!isMale)
+        {
+            Append(sb, "Vaginal tightness", attrs.VaginalTightness);
+            Append(sb, "Sensitivity", attrs.Sensitivity);
+            Append(sb, "Lubrication", attrs.Lubrication);
+            Append(sb, "Orgasmic capacity", attrs.OrgasmicCapacity);
+        }
 
         if (sb.Length == 0) return string.Empty;
 
@@ -81,7 +93,7 @@ internal static class PhysicalAttributesFormatter
     /// Appends a sensation note for notably large, notably small, or strongly asymmetric combinations.
     /// Returns empty string when both inputs are absent.
     /// </summary>
-    private static string? BuildEndowmentDescription(string? length, string? girth)
+    internal static string? BuildEndowmentDescription(string? length, string? girth)
     {
         var hasLength = !string.IsNullOrWhiteSpace(length);
         var hasGirth  = !string.IsNullOrWhiteSpace(girth);

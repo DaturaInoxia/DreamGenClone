@@ -23,6 +23,23 @@ public static class RolePlayAssistantPrompts
             .ToList();
     }
 
+    public static IReadOnlyList<string> GetThemePhaseDirectiveLines(
+        RPTheme? activeTheme,
+        string phase)
+    {
+        if (activeTheme is null || activeTheme.PhaseGuidance.Count == 0)
+        {
+            return [];
+        }
+
+        return activeTheme.PhaseGuidance
+            .Where(x => string.Equals(x.Phase.ToString(), phase, StringComparison.OrdinalIgnoreCase))
+            .Where(x => !string.IsNullOrWhiteSpace(x.DirectiveText))
+            .Select(x => x.DirectiveText.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
     public static bool IsEpisodicBeatStyle(RPTheme? activeTheme, string phase)
     {
         if (activeTheme is null) return false;
@@ -122,10 +139,10 @@ public static class RolePlayAssistantPrompts
 
         foreach (var (label, frameText) in guidance.CharacterBehavioralFrames)
         {
-            promptBuilder.AppendLine($"HARD CONSTRAINT — {label} behavioral frame (authoritative, overrides all theme notes and guidance): {frameText}");
+            promptBuilder.AppendLine($"HARD CONSTRAINT — {label} behavioral frame (authoritative character state): {frameText}");
             if (guidance.CharacterStatStateTexts.TryGetValue(label, out var statStateText))
             {
-                promptBuilder.AppendLine($"HARD CONSTRAINT — {label} current state (authoritative, overrides all theme notes and guidance): {statStateText}");
+                promptBuilder.AppendLine($"HARD CONSTRAINT — {label} current state (authoritative): {statStateText}");
             }
         }
 
@@ -133,7 +150,7 @@ public static class RolePlayAssistantPrompts
         {
             if (!guidance.CharacterBehavioralFrames.ContainsKey(label))
             {
-                promptBuilder.AppendLine($"HARD CONSTRAINT — {label} current state (authoritative, overrides all theme notes and guidance): {statStateText}");
+                promptBuilder.AppendLine($"HARD CONSTRAINT — {label} current state (authoritative): {statStateText}");
             }
         }
 

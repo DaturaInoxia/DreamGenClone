@@ -20,6 +20,19 @@ public sealed record BehavioralDimension(
 /// </summary>
 public static class BehavioralDimensionCatalog
 {
+    /// <summary>
+    /// All unique behavioral dimension names across all roles. Used to validate and resolve
+    /// dimension references in Fit Rule clauses and other systems.
+    /// </summary>
+    public static readonly IReadOnlySet<string> AllDimensionNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "Awareness", "Acceptance", "Voyeurism", "Participation", "Encouragement",
+        "RiskTolerance", "Attentiveness", "IntimacyAvailability",
+        "DiscoveryCaution", "Exhibitionism", "EmotionalEngagement", "PostEncounterGuilt",
+        "BoundaryFirmness", "SeductionReceptivity",
+        "HusbandAwareness", "MarriageContextUse", "DiscoveryRisk", "PersistencePastLimits",
+    };
+
     private static readonly IReadOnlyList<BehavioralDimension> AllDimensions =
     [
         // ── Husband ──────────────────────────────────────────────────────────────────────────
@@ -73,7 +86,7 @@ public static class BehavioralDimensionCatalog
 
         // ── Wife ─────────────────────────────────────────────────────────────────────────────
         new("DiscoveryCaution", "Wife",
-            "She makes no effort to conceal this encounter — she may be loud, unconcerned about being heard, and takes no precautions.",
+            "She does not care if caught — she is reckless, may be loud, and takes few meaningful precautions.",
             "She is mildly cautious but is not actively managing discovery risk.",
             "She is careful — she keeps noise down, is aware of time, and would quickly adjust if risk increased.",
             "She is highly vigilant — managing every sensory detail, checking for sounds, and would stop immediately at any sign of detection."),

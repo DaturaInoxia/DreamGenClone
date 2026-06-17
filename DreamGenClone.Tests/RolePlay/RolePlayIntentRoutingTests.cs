@@ -185,7 +185,10 @@ public sealed class RolePlayIntentRoutingTests
             PromptIntent intent,
             string promptText,
             Func<string, Task>? onChunk = null,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            int? turnIndex = null,
+            int? positionInTurn = null,
+            int? turnActorCount = null)
         {
             ContinueCallCount++;
             LastIntent = intent;
@@ -215,7 +218,9 @@ public sealed class RolePlayIntentRoutingTests
             RolePlaySession session,
             string actorName,
             string promptText,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            int? turnIndex = null,
+            int? turnActorCount = null)
         {
             return Task.FromResult(new RolePlayInteraction
             {

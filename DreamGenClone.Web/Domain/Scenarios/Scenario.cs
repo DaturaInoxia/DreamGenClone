@@ -125,6 +125,14 @@ public class Scenario
     }
 
     /// <summary>
+    /// Default starting location ID — the location where the scenario's opening
+    /// narrative should ground the scene. When set, the opening prompt uses this
+    /// as the sole location anchor instead of listing all available locations.
+    /// If null, the opening prompt falls back to listing all location names.
+    /// </summary>
+    public string? DefaultStartingLocationId { get; set; }
+
+    /// <summary>
     /// Default intensity profile to use when creating sessions from this scenario.
     /// </summary>
     public string? DefaultIntensityProfileId { get; set; }

@@ -375,7 +375,8 @@ public sealed partial class RPThemeService : IRPThemeService
                     Id = Guid.NewGuid().ToString("N"),
                     ThemeId = newThemeId,
                     Phase = guidance.Phase,
-                    GuidanceText = guidance.GuidanceText
+                    GuidanceText = guidance.GuidanceText,
+                    DirectiveText = guidance.DirectiveText
                 })
                 .ToList(),
             GuidancePoints = sourceTheme.GuidancePoints
@@ -2569,11 +2570,12 @@ public sealed partial class RPThemeService : IRPThemeService
         {
             await using var cmd = connection.CreateCommand();
             cmd.Transaction = tx;
-            cmd.CommandText = "INSERT INTO RPThemePhaseGuidance (Id, ThemeId, Phase, GuidanceText) VALUES ($id, $themeId, $phase, $guidanceText)";
+            cmd.CommandText = "INSERT INTO RPThemePhaseGuidance (Id, ThemeId, Phase, GuidanceText, DirectiveText) VALUES ($id, $themeId, $phase, $guidanceText, $directiveText)";
             cmd.Parameters.AddWithValue("$id", string.IsNullOrWhiteSpace(guidance.Id) ? Guid.NewGuid().ToString("N") : guidance.Id);
             cmd.Parameters.AddWithValue("$themeId", theme.Id);
             cmd.Parameters.AddWithValue("$phase", guidance.Phase.ToString());
             cmd.Parameters.AddWithValue("$guidanceText", guidance.GuidanceText);
+            cmd.Parameters.AddWithValue("$directiveText", guidance.DirectiveText ?? string.Empty);
             await cmd.ExecuteNonQueryAsync(cancellationToken);
         }
 
@@ -3614,7 +3616,7 @@ public sealed partial class RPThemeService : IRPThemeService
     {
         var list = new List<RPThemePhaseGuidance>();
         await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, ThemeId, Phase, GuidanceText FROM RPThemePhaseGuidance WHERE ThemeId = $themeId";
+        command.CommandText = "SELECT Id, ThemeId, Phase, GuidanceText, DirectiveText FROM RPThemePhaseGuidance WHERE ThemeId = $themeId";
         command.Parameters.AddWithValue("$themeId", themeId);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
@@ -3631,7 +3633,8 @@ public sealed partial class RPThemeService : IRPThemeService
                 Id = reader.GetString(0),
                 ThemeId = reader.GetString(1),
                 Phase = parsedPhase,
-                GuidanceText = reader.GetString(3)
+                GuidanceText = reader.GetString(3),
+                DirectiveText = reader.IsDBNull(4) ? string.Empty : reader.GetString(4)
             });
         }
 

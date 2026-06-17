@@ -11,7 +11,10 @@ public interface IRolePlayContinuationService
         PromptIntent intent,
         string promptText,
         Func<string, Task>? onChunk = null,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        int? turnIndex = null,
+        int? positionInTurn = null,
+        int? turnActorCount = null);
 
     Task<ContinueAsResult> ContinueBatchAsync(
         RolePlaySession session,
@@ -25,5 +28,7 @@ public interface IRolePlayContinuationService
         RolePlaySession session,
         string actorName,
         string promptText,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        int? turnIndex = null,
+        int? turnActorCount = null);
 }

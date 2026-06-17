@@ -168,6 +168,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     private readonly ISemanticInteractionAnalysisRepository? _semanticInteractionAnalysisRepository;
     private readonly IEncounterSummaryService? _encounterSummaryService;
     private readonly IOptions<RolePlayMemoryOptions>? _memoryOptions;
+    private readonly IStatWillingnessProfileService? _statWillingnessProfileService;
 
     public RolePlayEngineService(
         IRolePlayContinuationService continuationService,
@@ -203,7 +204,8 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         ISemanticBackgroundJobQueue? backgroundJobQueue = null,
         ISemanticInteractionAnalysisRepository? semanticInteractionAnalysisRepository = null,
         IEncounterSummaryService? encounterSummaryService = null,
-        IOptions<RolePlayMemoryOptions>? memoryOptions = null)
+        IOptions<RolePlayMemoryOptions>? memoryOptions = null,
+        IStatWillingnessProfileService? statWillingnessProfileService = null)
     {
         _continuationService = continuationService;
         _behaviorModeService = behaviorModeService;
@@ -250,6 +252,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         _semanticInteractionAnalysisRepository = semanticInteractionAnalysisRepository;
         _encounterSummaryService = encounterSummaryService;
         _memoryOptions = memoryOptions;
+        _statWillingnessProfileService = statWillingnessProfileService;
     }
 
     public Task<RolePlaySession> CreateSessionAsync(
@@ -509,6 +512,16 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             var dims = BehavioralDimensionCatalog.GetDimensions(block.CharacterRole);
             if (dims.Count > 0)
                 block.RuntimeEncounterStats = dims.ToDictionary(d => d.Name, _ => 50, StringComparer.OrdinalIgnoreCase);
+        }
+
+        // Assign the default willingness profile for new sessions.
+        if (string.IsNullOrWhiteSpace(session.AdaptiveState.SelectedWillingnessProfileId) && _statWillingnessProfileService is not null)
+        {
+            var defaultWillingness = await _statWillingnessProfileService.GetDefaultAsync(cancellationToken);
+            if (defaultWillingness is not null)
+            {
+                session.AdaptiveState.SelectedWillingnessProfileId = defaultWillingness.Id;
+            }
         }
 
         // Propagate the session ID into AdaptiveState (required by SaveAdaptiveStateAsync) and
@@ -1143,15 +1156,50 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 explicitClimaxCompletionRequested);
         }
 
-        // /completeclimax: transition Climax -> Reset via the pipeline FIRST, then generate
-        // the directive narrative under Reset phase guidelines. Only triggered when phase is
-        // still Climax — if the session is not in Climax the finish-move narrative is skipped
+        // /completeclimax: generate the finish-move narrative under Climax phase FIRST,
+        // then transition Climax -> Reset. Only triggered when phase is still Climax —
+        // if the session is not in Climax the finish-move narrative is skipped
         // and the standard pipeline path handles the interaction instead.
         bool pipelinesAlreadyRan = false;
         if (explicitClimaxCompletionRequested
             && phaseBeforePipeline == NarrativePhase.Climax)
         {
-            // Step 1: advance phase to Reset before generating any narrative.
+            // Step 1: generate multi-actor finish-move responses in Climax phase context.
+            // Each scene character responds to the directive, then narrative closes the turn.
+            TryExtractClimaxCompletionDirective(submission.PromptText, out var completionDirective);
+            if (string.IsNullOrWhiteSpace(completionDirective))
+            {
+                completionDirective = "Write the final beat of the climax — close the moment decisively and resolve the immediate tension. End the scene cleanly.";
+            }
+
+            var sceneActors = await ResolveSceneContinueActorsAsync(session, cancellationToken);
+            var batchSize = Math.Max(1, Math.Min(session.SceneContinueBatchSize, sceneActors.Count));
+            var finalClimaxInteraction = default(RolePlayInteraction);
+
+            for (var i = 0; i < batchSize; i++)
+            {
+                var candidate = sceneActors[i];
+                await AlignPromptNarrativeStateWithV2Async(session, cancellationToken);
+                var actorInteraction = await _continuationService.ContinueAsync(
+                    session, candidate.Actor, candidate.Name, PromptIntent.Message,
+                    completionDirective, onChunk, cancellationToken);
+
+                session.Interactions.Add(actorInteraction);
+                outputInteractionIds.Add(actorInteraction.Id);
+                session.AdaptiveState = await UpdateAdaptiveStateWithSemanticDiagnosticsAsync(session, actorInteraction, cancellationToken);
+                finalClimaxInteraction = actorInteraction;
+            }
+
+            // Narrative close under Climax writing rules.
+            await AlignPromptNarrativeStateWithV2Async(session, cancellationToken);
+            var narrativeInteraction = await _continuationService.ContinueNarrativeAsync(
+                session, "Narrative", completionDirective, cancellationToken);
+            session.Interactions.Add(narrativeInteraction);
+            outputInteractionIds.Add(narrativeInteraction.Id);
+            session.AdaptiveState = await UpdateAdaptiveStateWithSemanticDiagnosticsAsync(session, narrativeInteraction, cancellationToken);
+            finalClimaxInteraction = narrativeInteraction;
+
+            // Step 2: advance phase to Reset AFTER the climax completion is written.
             await RunRolePlayV2PipelinesAsync(
                 session,
                 DecisionTrigger.InteractionStart,
@@ -1159,25 +1207,6 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 explicitClimaxCompletionRequested: true,
                 manualPhaseAdvanceTarget);
             pipelinesAlreadyRan = true;
-
-            // Step 2: generate the finish-move narrative in Reset phase context using the
-            // player's persona so the interaction is attributed correctly.
-            TryExtractClimaxCompletionDirective(submission.PromptText, out var completionDirective);
-            if (string.IsNullOrWhiteSpace(completionDirective))
-            {
-                completionDirective = "Write the final beat of the climax — close the moment decisively and resolve the immediate tension. End the scene cleanly.";
-            }
-
-            var personaName = string.IsNullOrWhiteSpace(session.PersonaName) ? null : session.PersonaName;
-            var finalClimaxInteraction = await _continuationService.ContinueNarrativeAsync(
-                session,
-                personaName ?? "Narrative",
-                completionDirective,
-                cancellationToken);
-
-            session.Interactions.Add(finalClimaxInteraction);
-            outputInteractionIds.Add(finalClimaxInteraction.Id);
-            session.AdaptiveState = await UpdateAdaptiveStateWithSemanticDiagnosticsAsync(session, finalClimaxInteraction, cancellationToken);
 
             await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
             {
@@ -1188,11 +1217,12 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 ActorName = finalClimaxInteraction.ActorName,
                 ModelIdentifier = finalClimaxInteraction.GeneratedByModelId,
                 ProviderName = finalClimaxInteraction.GeneratedByProvider,
-                Summary = "Finish-move narrative generated in Reset phase after Climax -> Reset transition.",
+                Summary = $"Finish-move generated with {batchSize} scene actor(s) + narrative in Climax phase before Climax -> Reset transition.",
                 MetadataJson = JsonSerializer.Serialize(new
                 {
                     directive = completionDirective,
-                    phaseAtGeneration = session.AdaptiveState.CurrentPhase.ToString(),
+                    phaseAtGeneration = "Climax",
+                    actorCount = batchSize,
                     interactionId = finalClimaxInteraction.Id,
                     activeScenarioId = activeScenarioBeforePipeline
                 })
@@ -1302,6 +1332,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         var outputInteractionIds = new List<string>();
 
         var isOverflowContinue = request.TriggeredBy == SubmissionSource.MainOverflowContinue;
+        int? turnActorCount = null;  // set in overflow path, used by narrative call
 
         // --- OPENING NARRATIVE ---
         // If no interactions yet, always generate a scene-setting narrative FIRST
@@ -1352,6 +1383,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             var sceneActors = await ResolveSceneContinueActorsAsync(session, cancellationToken);
 
             var batchSize = Math.Max(1, Math.Min(session.SceneContinueBatchSize, sceneActors.Count));
+            turnActorCount = batchSize;
             await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
             {
                 SessionId = session.Id,
@@ -1380,18 +1412,22 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 var candidate = sceneActors[i];
                 var actor = candidate.Actor;
                 var actorName = candidate.Name;
+                var positionInTurn = i + 1; // 1-based
                 var isClimaxPhase = string.Equals(session.AdaptiveState.CurrentPhase.ToString(), "Climax", StringComparison.OrdinalIgnoreCase);
                 var promptText = isClimaxPhase
                     ? (i == 0
-                        ? "You are the first to respond this turn. Advance the scene naturally from where it left off — escalate physical intimacy, deepen the act, or progress to the next beat as continuity allows. Describe the moment from your character's perspective with explicit physical and sensory detail. Establish this turn's scene clearly so other participants can react to the same moment."
-                        : "Describe the same scene moment your turn-partner just established, from your own perspective. Match and deepen the physical moment they set — give your character's sensations, reactions, and dialogue for that exact beat. Do not advance to a new act or jump ahead of what has already been established this turn.")
+                        ? "Advance the scene naturally from where it left off."
+                        : "Describe this same moment from your character's perspective.")
                     : (i == 0
                         ? "Continue the scene naturally with the next character response."
                         : "Continue the conversation naturally, building on the previous response.");
 
                 await AlignPromptNarrativeStateWithV2Async(session, cancellationToken);
                 var interaction = await _continuationService.ContinueAsync(
-                    session, actor, actorName, PromptIntent.Message, promptText, onChunk, cancellationToken);
+                    session, actor, actorName, PromptIntent.Message, promptText, onChunk, cancellationToken,
+                    turnIndex: persistedTurn.TurnIndex,
+                    positionInTurn: positionInTurn,
+                    turnActorCount: batchSize);
 
                 result.ParticipantOutputs.Add(interaction);
                 // Append to session so next iteration's prompt sees this interaction
@@ -1461,7 +1497,9 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 session,
                 "Narrative",
                 narrativePrompt,
-                cancellationToken);
+                cancellationToken,
+                turnIndex: persistedTurn.TurnIndex,
+                turnActorCount: turnActorCount);
             result.NarrativeOutput = narrative;
             session.Interactions.Add(narrative);
             outputInteractionIds.Add(narrative.Id);
@@ -2051,8 +2089,30 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             var personaReason = personaInScene
                 ? "Persona auto candidate (in-scene)."
                 : "Persona auto candidate (not in scene but always included).";
-            // Insert at position 0 so persona leads the batch.
-            actors.Insert(0, new OverflowActorCandidate(ContinueAsActor.You, personaName, personaReason));
+
+            if (totalInteractions < 6)
+            {
+                // Initial setup: persona leads to establish husband-wife dynamic
+                actors.Insert(0, new OverflowActorCandidate(ContinueAsActor.You, personaName,
+                    "Persona auto candidate (initial lead for scenario setup)."));
+            }
+            else
+            {
+                // Persona every other turn to reduce repetition when oblivious.
+                // Even ObservedTurnCount → include; odd → skip (narrative still closes turn).
+                var includePersona = session.AdaptiveState.ObservedTurnCount % 2 == 0;
+                if (includePersona)
+                {
+                    actors.Add(new OverflowActorCandidate(ContinueAsActor.You, personaName,
+                        "Persona auto candidate (last before narrative, even turn)."));
+                }
+                else
+                {
+                    _logger.LogDebug(
+                        "OverflowActor: skipping persona {PersonaName} on turn {TurnCount} for SessionId={SessionId}",
+                        personaName, session.AdaptiveState.ObservedTurnCount, session.Id);
+                }
+            }
         }
 
         if (actors.Count == 0)
@@ -2410,6 +2470,15 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         }
 
         var scenario = await _scenarioService.GetScenarioAsync(session.ScenarioId);
+
+        // Use the first scenario Opening when available — this provides data-driven
+        // contextual guidance for the opening narrative (e.g. "arriving at the party
+        // and putting things away in the guest room"). When no Opening is defined,
+        // fall back to listing all location names for the model to choose from.
+        string? openingText = scenario?.Openings
+            ?.FirstOrDefault(o => !string.IsNullOrWhiteSpace(o.Text))
+            ?.Text?.Trim();
+
         var locationNames = scenario?.Locations
             .Select(x => x.Name)
             .Where(x => !string.IsNullOrWhiteSpace(x))
@@ -2456,14 +2525,55 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 session.Id, personaName);
         }
 
+        // Build scenario context block: Plot Description, World Description, Time Frame.
+        // This gives the model the essential scenario setting context that the regular
+        // continuation prompt (BuildPromptAsync) also injects on every turn.
+        var scenarioContext = string.Empty;
+        if (scenario is not null)
+        {
+            var ctx = new StringBuilder();
+            if (!string.IsNullOrWhiteSpace(scenario.Description))
+                ctx.Append($" Setting: {scenario.Description.Trim()}");
+            if (!string.IsNullOrWhiteSpace(scenario.Plot?.Description))
+                ctx.Append($" Plot: {scenario.Plot.Description.Trim()}");
+            if (!string.IsNullOrWhiteSpace(scenario.Setting?.WorldDescription))
+                ctx.Append($" World: {scenario.Setting.WorldDescription.Trim()}");
+            if (!string.IsNullOrWhiteSpace(scenario.Setting?.TimeFrame))
+            {
+                ctx.Append($" Time Frame: {scenario.Setting.TimeFrame.Trim()}");
+                ctx.Append(" The entire story takes place within this time frame — scenes may skip forward in time; a new response does not have to be the immediate continuation of the last moment.");
+            }
+
+            if (ctx.Length > 0)
+                scenarioContext = ctx.ToString();
+        }
+
+        if (!string.IsNullOrWhiteSpace(openingText))
+        {
+            // When a scenario Opening is defined, use it as contextual guidance for
+            // the opening narrative. The Opening text describes the starting situation
+            // (e.g. arriving at the party) and may reference a specific location.
+            return basePrompt + coupleClause
+                + $"\n\nScenario Context:{scenarioContext}"
+                + $"\nOpening: {openingText}"
+                + " Ground the opening in the location and situation described above."
+                + " Describe the atmosphere, the immediate surroundings, and their interaction."
+                + " Remember: other characters may be present at this location but must remain"
+                + " peripheral background presence only — do not name them or bring them into"
+                + " the characters' focus."
+                + " Keep this grounding natural and immersive, not bullet points.";
+        }
+
         if (locationNames.Count == 0)
         {
             return basePrompt + coupleClause
+                + $"\n\nScenario Context:{scenarioContext}"
                 + " In the opening paragraph, explicitly state where the scene is happening and where key characters are in relation to each other."
                 + " Keep this grounding natural and immersive, not bullet points.";
         }
 
         return basePrompt + coupleClause
+            + $"\n\nScenario Context:{scenarioContext}"
             + $" In the first paragraph, explicitly ground the scene in one clear location using one of these names: {string.Join(", ", locationNames)}."
             + " Keep this grounding natural and immersive, not bullet points.";
     }

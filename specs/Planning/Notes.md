@@ -1,16 +1,14 @@
+show the text from the wife willignness band in the Wife Role character adaptive panel.
+
 The Steer command Apply Steer needs to ensure the continuation is at instruction and not on Message or Narrative by character, also the /steer can be removed from the text it has not affect.
 
+The steer prompts provided when the husband is close by and in line of sight are not believable, they need to have more defined limitations with the physical world and line of sight, not sure what specifically needs to change
+
+The steer commands sometimes are generated for the Persona character, and are phrased incorrectly
 
 
 
 When the rp workspace page is opened the left menu bar is always expanded, it should to the opposite and auto collapse
-
-Done - Analyse the rp enging and the themeinfidelity-public-facade-v3
-and  and its data and offer opinions on how to make the rp interactions skip time more often naturally, to end beats without having to be given directions, to occasionally fade to black (never fade to black during or over a sex scene though), to skip time so that not every beat is exactly after then next one in time, also for all themes or the rp engine how to ensure the first few or starting interactions focus on the husband and wife role, how there character profiles interact with each other to setup the initial scenario and scene, currently the other man is almost always in the beginning, the husband role and wife role do not interact much, generally want more interactions between husband and wife when appropriate without breaking the engine flow.
-
-
-
-The steer prompts provided when the husband is close by and in line of sight are not believable, they need to have more defined limitations with the physical world and line of sight, not sure what specifically needs to change
 
 
 multiple otherman role should be in competition for Beckys affection, the otherman role should never take the ovberveer or follow with the husband role, the otherman is 
@@ -33,8 +31,6 @@ the theme is meant to emphasize the duality of the wife role, how she can go and
 Memory update - memory needs to shorter and more concise, only the sex interactions occurred with, location,  positions, where the male ejaculated need to be remembered.  The memory should be recalled on occasion to ensure repeat scenarios are kept to a minimum.
 
 
-
-under the Behavioral Dimensions add the Behavioral Prompt Texts, the sections should be collapsible collapsed by default.
 
 When a resistant wife thinks she should go back to her husband, when resistance is high enough she should, currently the wife thinks it but then does not.  The otherman role will need to chase her in his scenario.  I do no want this a hard coded prompt thing it should be in the data somewhere. 
 

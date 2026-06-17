@@ -59,7 +59,10 @@ internal static class RolePlayTestFactory
             PromptIntent intent,
             string promptText,
             Func<string, Task>? onChunk = null,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            int? turnIndex = null,
+            int? positionInTurn = null,
+            int? turnActorCount = null)
         {
             return Task.FromResult(new RolePlayInteraction
             {
@@ -117,7 +120,9 @@ internal static class RolePlayTestFactory
             RolePlaySession session,
             string actorName,
             string promptText,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            int? turnIndex = null,
+            int? turnActorCount = null)
         {
             return Task.FromResult(new RolePlayInteraction
             {

@@ -251,6 +251,7 @@ public sealed class RPThemePhaseGuidance
     public string ThemeId { get; set; } = string.Empty;
     public NarrativePhase Phase { get; set; } = NarrativePhase.BuildUp;
     public string GuidanceText { get; set; } = string.Empty;
+    public string DirectiveText { get; set; } = string.Empty;
 }
 
 public sealed class RPThemeGuidancePoint

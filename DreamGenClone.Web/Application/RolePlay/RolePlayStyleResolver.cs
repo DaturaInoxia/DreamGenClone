@@ -15,7 +15,7 @@ public static class RolePlayStyleResolver
         SteeringProfile? styleProfile = null,
         IReadOnlyList<ThemePreference>? themePreferences = null)
     {
-        var selectedScale = NormalizeCharacterScale(baseIntensityLevel.HasValue ? (int)baseIntensityLevel.Value : 2);
+        var selectedScale = NormalizeCharacterScale(baseIntensityLevel.HasValue ? (int)baseIntensityLevel.Value : 1);
         var adaptiveScale = NormalizeCharacterScale(adaptiveIntensityLevel.HasValue ? (int)adaptiveIntensityLevel.Value : selectedScale);
         var baseScale = session.IsIntensityManuallyPinned ? selectedScale : adaptiveScale;
         var reasonParts = new List<string>

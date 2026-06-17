@@ -104,7 +104,10 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         PromptIntent intent,
         string promptText,
         Func<string, Task>? onChunk = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        int? turnIndex = null,
+        int? positionInTurn = null,
+        int? turnActorCount = null)
     {
         await ValidateDirectiveTextAsync(session, promptText, cancellationToken);
 
@@ -114,7 +117,8 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             ? null
             : await _diagnosticsService.GetSnapshotAsync(session.Id, correlationId, cancellationToken);
 
-        var prompt = await BuildPromptAsync(session, actor, customActorName, intent, promptText, cancellationToken);
+        var prompt = await BuildPromptAsync(session, actor, customActorName, intent, promptText, cancellationToken,
+            turnIndex, positionInTurn, turnActorCount);
         if (diagnostics is not null)
         {
             prompt = $"[V2 Diagnostics: candidates={diagnostics.CandidateEvaluations.Count}, transitions={diagnostics.TransitionEvents.Count}, decisions={diagnostics.DecisionPoints.Count}]\n{prompt}";
@@ -294,7 +298,9 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         RolePlaySession session,
         string actorName,
         string promptText,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        int? turnIndex = null,
+        int? turnActorCount = null)
     {
         var narrativePrompt = string.IsNullOrWhiteSpace(promptText)
             ? "Move the role-play story forward with scene description and tone."
@@ -308,7 +314,10 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             actorName,
             PromptIntent.Narrative,
             narrativePrompt,
-            cancellationToken);
+            cancellationToken,
+            turnIndex,
+            positionInTurn: null,
+            turnActorCount);
 
         var settings = _modelSettingsService.GetSettings(session.Id);
         var resolved = await _modelResolver.ResolveAsync(
@@ -421,26 +430,90 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         string? customActorName,
         PromptIntent intent,
         string promptText,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int? turnIndex = null,
+        int? positionInTurn = null,
+        int? turnActorCount = null)
     {
         var sb = new StringBuilder();
         sb.AppendLine("You are continuing an interactive role-play scene.");
         sb.AppendLine($"Behavior mode: {session.BehaviorMode}");
 
+        // ── Turn Context block ──
+        if (turnIndex.HasValue && turnActorCount.HasValue)
+        {
+            sb.AppendLine();
+            if (positionInTurn.HasValue)
+            {
+                sb.AppendLine($"Turn Context: turn {turnIndex.Value}, response {positionInTurn.Value} of {turnActorCount.Value}");
+                sb.AppendLine($"- {turnActorCount.Value} character responses this turn, in sequence, then a narrative close.");
+
+                if (positionInTurn.Value == 1)
+                {
+                    sb.AppendLine("- You are first this turn. Establish the scene beat — advance from where the previous turn left off.");
+                    if (turnActorCount.Value > 1)
+                        sb.AppendLine($"- The other {turnActorCount.Value - 1} character(s) will describe this same moment from their perspectives after you.");
+                    sb.AppendLine("- Do not leave the beat unresolved — give it clear shape so others can react to it.");
+                }
+                else if (positionInTurn.Value == turnActorCount.Value)
+                {
+                    // Persona (last before narrative): neutral continuation — they may
+                    // or may not be witnessing the active scene beat.
+                    sb.AppendLine("- Continue from your character's perspective — what you observe, feel, or what occupies your attention in this moment.");
+                    sb.AppendLine("- The narrative closes the turn after your response.");
+                }
+                else
+                {
+                    sb.AppendLine("- Describe the same scene beat established this turn, from your character's perspective.");
+                    sb.AppendLine("- Give your sensations, reactions, dialogue, and internal experience of this exact moment.");
+                    sb.AppendLine("- Do NOT advance to a new act, position, or story beat.");
+                }
+            }
+            else
+            {
+                // Narrative
+                sb.AppendLine($"Turn Context: turn {turnIndex.Value}, narrative close");
+                sb.AppendLine($"- All {turnActorCount.Value} character responses for this turn are complete.");
+                sb.AppendLine("- Write an omniscient account: setting, character positions, sensations, atmosphere.");
+                sb.AppendLine("- Synthesize character perspectives into a rich, unified picture.");
+                sb.AppendLine("- Do NOT advance the scene beyond what the characters established this turn.");
+            }
+        }
+
         // Include POV persona
+        var hasAnyIntimateAttributes = false;
         if (!string.IsNullOrWhiteSpace(session.PersonaDescription))
         {
             sb.AppendLine($"POV Persona ({session.PersonaName}):");
             sb.AppendLine(session.PersonaDescription.Trim());
-            var personaAppearance = PhysicalAttributesFormatter.FormatBlock(session.PersonaPhysicalAttributes);
+            var personaAppearance = PhysicalAttributesFormatter.FormatBlock(
+                session.PersonaPhysicalAttributes, session.PersonaGender);
             if (!string.IsNullOrEmpty(personaAppearance))
             {
                 sb.AppendLine(personaAppearance);
+            }
+
+            // Inject intimate behavioral self-awareness text for persona
+            if (session.PersonaPhysicalAttributes is not null)
+            {
+                hasAnyIntimateAttributes = true;
+                var awarenessLevel = ResolvePersonaAwarenessLevel(session);
+                var selfAwareness = IntimateBehavioralTextBuilder.BuildSelfAwarenessText(
+                    session.PersonaPhysicalAttributes, session.PersonaGender,
+                    awarenessLevel, session.PersonaName);
+                if (!string.IsNullOrEmpty(selfAwareness))
+                    sb.AppendLine(selfAwareness);
             }
         }
         else if (session.PersonaName != "You")
         {
             sb.AppendLine($"POV Persona: {session.PersonaName}");
+        }
+
+        // Inject global behavioral rules when intimate attributes are configured
+        if (hasAnyIntimateAttributes)
+        {
+            sb.AppendLine(IntimateBehavioralTextBuilder.BuildBehavioralRules());
         }
 
         // Inject scene location lock at the top — before scenario and interaction history —
@@ -634,11 +707,17 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                                 ? string.Empty
                                 : $" [Relation: {relationText}]";
                             sb.AppendLine($"  {character.Name}{roleText}{relationSuffix}: {character.Description?.Trim() ?? "(no description)"}");
-                            var charAppearance = PhysicalAttributesFormatter.FormatBlock(character.PhysicalAttributes);
+                            var charAppearance = PhysicalAttributesFormatter.FormatBlock(
+                                character.PhysicalAttributes, character.Gender);
                             if (!string.IsNullOrEmpty(charAppearance))
                             {
                                 sb.AppendLine($"    {charAppearance}");
                             }
+
+                            // Inject intimate behavioral texts for this character
+                            InjectCharacterBehavioralTexts(sb, character, scenario.Characters, session);
+                            if (character.PhysicalAttributes is not null)
+                                hasAnyIntimateAttributes = true;
                         }
                     }
                 }
@@ -697,7 +776,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             }
         }
 
-        sb.AppendLine("Recent interaction history:");
+        sb.AppendLine("Recent interaction history — exact scene continuity. Session Memory below = summarized past events for long-term context:");
         var contextView = session.GetContextView();
         var windowSize = Math.Max(12, session.ContextWindowSize);
         foreach (var interaction in contextView.TakeLast(windowSize))
@@ -1074,15 +1153,6 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         // NPC       = 3rd person external (dialogue + observable behavior only)
         var personaName = string.IsNullOrWhiteSpace(session.PersonaName) ? "You" : session.PersonaName;
         var (effectiveStyleLabel, effectiveStyleReason) = RolePlayStyleResolver.ResolveEffectiveStyle(session, baseIntensityLevel, adaptiveIntensityLevel);
-        // Capture the real resolved scale before Narrative forces it to Atmospheric — used for Scene Presence Contract threshold check.
-        var scenePresenceScale = RolePlayStyleResolver.ParseBoundScale(effectiveStyleLabel);
-        if (intent == PromptIntent.Narrative)
-        {
-            effectiveStyleLabel = IntensityLadder.GetLabel(IntensityLevel.Intro);
-            effectiveStyleReason = string.IsNullOrWhiteSpace(effectiveStyleReason)
-                ? "narrative-forced-atmospheric"
-                : $"{effectiveStyleReason}, narrative-forced-atmospheric";
-        }
 
         var resolvedIntensityDescription = string.Empty;
         IntensityProfile? resolvedProfile = null;
@@ -1110,7 +1180,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         sb.AppendLine("- Phase Guidance specifies WHAT scene actions and beats must occur; the intensity contract specifies HOW they are written.");
         sb.AppendLine("- Do not de-escalate below the resolved intensity level unless safety constraints require it.");
         sb.AppendLine($"Manual Intensity Pin: {(session.IsIntensityManuallyPinned ? "ON (resolved follows selected)" : "OFF (adaptive mode)")}");
-        AppendEscalationGuidance(sb, session, actorName, currentPhase, intent);
+        AppendEscalationGuidance(sb, session, actorName, currentPhase, intent, positionInTurn, turnActorCount);
         await AppendPositionListAsync(sb, session, currentPhase, intent, cancellationToken);
 
         // B-049: Pacing injection — during non-intimate phases, encourage natural time progression
@@ -1128,11 +1198,9 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         }
 
         // Scene Presence Contract — fires at Emotional+ in all non-BuildUp phases.
-        // Uses scenePresenceScale (pre-Narrative-override) so Narrative also receives this contract
-        // even though its effectiveStyleLabel is forced to Atmospheric.
         // PURPOSE: intimate scenes (any level — kissing, touching, sexual) must be written in full;
         // the model must NOT fade to black or use time-skip transitions past them.
-        var presenceCheckScale = scenePresenceScale ?? resolvedScale;
+        var presenceCheckScale = resolvedScale;
         if (presenceCheckScale.HasValue && presenceCheckScale.Value >= (int)IntensityLevel.Emotional && currentPhase != "BuildUp" && intent != PromptIntent.Instruction)
         {
             sb.AppendLine("Scene Presence Contract:");
@@ -1289,6 +1357,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                     "(6) rhythm and motion. " +
                     "Write as a detailed physical account of what is occurring right now — positions, contact, sensation, and movement. " +
                     "HARD CONSTRAINT — Include zero quoted speech. Do not write any dialogue in this passage. " +
+                    "HARD CONSTRAINT — Do not advance the scene beyond what the characters have already established in their responses this turn. Synthesize what occurred — describe positions, sensations, and atmosphere — but do not introduce new actions, new positions, or new story beats. " +
                     "HARD CONSTRAINT: Do not write departure scenes, farewells, or any narrative framing that concludes the story's time frame. The Climax phase is ongoing — sustain the scene within the encounter's moment. " +
                     $"Match the established tone ({styleHint}). Write at least 300 words.");
             }
@@ -1303,6 +1372,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                     "(4) externally observable actions, movements, and the emotional texture between them. " +
                     "HARD CONSTRAINT — Include zero quoted speech. Include one brief spoken fragment only if it is absolutely required for scene continuity and cannot be omitted. " +
                     "Do not write back-and-forth dialogue. Do not write character inner thoughts or feelings. " +
+                    "HARD CONSTRAINT — Do not advance the scene beyond what the characters have already established in their responses this turn. Synthesize and describe, do not introduce new actions. " +
                     $"Match the established tone ({styleHint}). Write 300–500 words.");
             }
             else
@@ -1316,6 +1386,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                     "Your priority is the physical scene and environment — where characters are, how they are positioned, what surrounds them, what sounds and sensory details exist. " +
                     "HARD CONSTRAINT — Include zero quoted speech. Include one brief spoken fragment only if it is absolutely required for scene continuity and cannot be omitted. " +
                     "Do not write back-and-forth dialogue. Do not write character inner thoughts or feelings. " +
+                    "HARD CONSTRAINT — Do not advance the scene beyond what the characters have already established in their responses this turn. Synthesize and describe, do not introduce new actions. " +
                     $"Match the established tone ({styleHint}). Write at least 200 words; target 250-400 words.");
             }
         }
@@ -1516,10 +1587,27 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             var phaseGuidance = RolePlayAssistantPrompts.GetThemePhaseGuidanceLines(activeTheme, currentPhase);
             if (phaseGuidance.Count > 0)
             {
-                sb.AppendLine($"- Apply theme phase guidance for {currentPhase}:");
+                sb.AppendLine($"- Phase context ({currentPhase}):");
                 foreach (var line in phaseGuidance)
                 {
-                    sb.AppendLine($"  - {line}");
+                    sb.AppendLine($"  {line}");
+                }
+            }
+
+            var phaseDirectives = RolePlayAssistantPrompts.GetThemePhaseDirectiveLines(activeTheme, currentPhase);
+            if (phaseDirectives.Count > 0)
+            {
+                foreach (var directive in phaseDirectives)
+                {
+                    sb.AppendLine($"PHASE DIRECTIVE — {currentPhase}: {directive}");
+                }
+            }
+            else if (phaseGuidance.Count > 0)
+            {
+                // Fallback: no DirectiveText set — use GuidanceText as directive
+                foreach (var line in phaseGuidance)
+                {
+                    sb.AppendLine($"PHASE DIRECTIVE — {currentPhase}: {line}");
                 }
             }
 
@@ -1671,7 +1759,9 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         RolePlaySession session,
         string actorName,
         string phase,
-        PromptIntent intent)
+        PromptIntent intent,
+        int? positionInTurn = null,
+        int? turnActorCount = null)
     {
         if (intent == PromptIntent.Instruction)
         {
@@ -1695,6 +1785,19 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         var isLatePhase = phase is "Approaching" or "Climax";
         if (!isLatePhase)
         {
+            return;
+        }
+
+        var isFirstInTurn = !positionInTurn.HasValue || positionInTurn.Value == 1;
+
+        if (!isFirstInTurn && phase == "Climax")
+        {
+            // Position > 1 (including persona): deepen the established moment, do not advance
+            sb.AppendLine("Scene Deepening Guidance:");
+            sb.AppendLine("- Deepen the physical moment already established this turn — give richer sensory detail, internal reaction, and physical sensation for the same act.");
+            sb.AppendLine("- Do NOT advance to a new beat or position. Stay on the exact act that was established by the first responder.");
+            sb.AppendLine("- Vary your character's specific sensation, thought, or reaction to add depth to the moment.");
+            sb.AppendLine("- Write explicit physical description matching the established act — name body parts, movements, and sensations.");
             return;
         }
 
@@ -2110,5 +2213,155 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         int DialogueAttributionCount,
         int FirstPersonLeakCount,
         int CharacterInteriorityCount);
+
+    // ── Intimate behavioral text injection helpers ──────────────────────────
+
+    private static void InjectCharacterBehavioralTexts(
+        StringBuilder sb,
+        DreamGenClone.Web.Domain.Scenarios.Character character,
+        System.Collections.Generic.IReadOnlyList<DreamGenClone.Web.Domain.Scenarios.Character> allCharacters,
+        RolePlaySession session)
+    {
+        if (character.PhysicalAttributes is null) return;
+
+        // 1. Self-awareness text for every character with intimate attributes
+        var selfAwareness = IntimateBehavioralTextBuilder.BuildSelfAwarenessText(
+            character.PhysicalAttributes, character.Gender, awarenessLevel: null, character.Name);
+        if (!string.IsNullOrEmpty(selfAwareness))
+            sb.AppendLine($"    {selfAwareness}");
+
+        // 2. Partner perspective: for female characters related to male persona/character
+        var isFemale = string.Equals(character.Gender, "Female", StringComparison.OrdinalIgnoreCase);
+        if (!isFemale || session.PersonaPhysicalAttributes is null) return;
+
+        var personaIsMale = string.Equals(session.PersonaGender, "Male", StringComparison.OrdinalIgnoreCase);
+        if (!personaIsMale) return;
+
+        // Check if this female character is related to the male persona
+        var hasRelationToPersona = HasRelationToPersona(character, session, allCharacters);
+        if (!hasRelationToPersona) return;
+
+        // Partner perspective: this female character → persona
+        var partnerPerspective = IntimateBehavioralTextBuilder.BuildPartnerPerspectiveText(
+            session.PersonaPhysicalAttributes, session.PersonaGender,
+            character.PhysicalAttributes, character.Gender,
+            session.PersonaName, character.Name!);
+        if (!string.IsNullOrEmpty(partnerPerspective))
+            sb.AppendLine($"    {partnerPerspective}");
+
+        // 3. Partner perspective + comparison: for other male characters in scene
+        var otherMales = allCharacters
+            .Where(c => c != character
+                && string.Equals(c.Gender, "Male", StringComparison.OrdinalIgnoreCase)
+                && c.PhysicalAttributes is not null
+                && HasAnyIntimateFields(c.PhysicalAttributes))
+            .ToList();
+
+        string? firstOtherMaleName = null;
+        DreamGenClone.Domain.Templates.PhysicalAttributes? firstOtherMaleAttrs = null;
+
+        foreach (var otherMale in otherMales)
+        {
+            // Gate: only inject partner perspective if they've shared encounter history
+            if (!IntimateBehavioralTextBuilder.HasSharedEncounterHistory(
+                    character.Id, otherMale.Id,
+                    session.AdaptiveState.EncounterSummaries,
+                    session.PersonaName))
+                continue;
+
+            var otherPerspective = IntimateBehavioralTextBuilder.BuildPartnerPerspectiveText(
+                otherMale.PhysicalAttributes!, otherMale.Gender,
+                character.PhysicalAttributes, character.Gender,
+                otherMale.Name!, character.Name!);
+            if (!string.IsNullOrEmpty(otherPerspective))
+                sb.AppendLine($"    {otherPerspective}");
+
+            if (firstOtherMaleName is null)
+            {
+                firstOtherMaleName = otherMale.Name;
+                firstOtherMaleAttrs = otherMale.PhysicalAttributes;
+            }
+        }
+
+        // 4. Comparison text: when there are two male partners
+        if (firstOtherMaleName is not null && firstOtherMaleAttrs is not null)
+        {
+            var comparison = IntimateBehavioralTextBuilder.BuildComparisonText(
+                session.PersonaPhysicalAttributes, session.PersonaName,
+                firstOtherMaleAttrs, firstOtherMaleName,
+                character.PhysicalAttributes, character.Name!);
+            if (!string.IsNullOrEmpty(comparison))
+                sb.AppendLine($"    {comparison}");
+        }
+    }
+
+    private static bool HasRelationToPersona(
+        DreamGenClone.Web.Domain.Scenarios.Character character,
+        RolePlaySession session,
+        System.Collections.Generic.IReadOnlyList<DreamGenClone.Web.Domain.Scenarios.Character> allCharacters)
+    {
+        // Direct relation: character's RelationTargetId points to persona
+        if (!string.IsNullOrWhiteSpace(character.RelationTargetId))
+        {
+            // Check if the target is the persona (by name match or special token)
+            if (string.Equals(character.RelationTargetId, session.PersonaName, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        // Role-based: Wife role character and Husband role persona
+        var charRole = CharacterRoleCatalog.Normalize(character.Role);
+        var personaRole = CharacterRoleCatalog.Normalize(session.PersonaRole);
+        if (string.Equals(charRole, "Wife", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(personaRole, "Husband", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return false;
+    }
+
+    private static int? ResolvePersonaAwarenessLevel(RolePlaySession session)
+    {
+        // Try to find a CharacterEncounterProfileId for the persona by matching name or role
+        foreach (var kvp in session.AdaptiveState.CharacterEncounterProfileIds)
+        {
+            if (string.Equals(kvp.Key, session.PersonaName, StringComparison.OrdinalIgnoreCase))
+                return ResolveAwarenessFromProfileId(kvp.Value);
+        }
+
+        // Fallback: match by persona role
+        foreach (var kvp in session.AdaptiveState.CharacterEncounterProfileIds)
+        {
+            if (string.Equals(kvp.Key, session.PersonaRole, StringComparison.OrdinalIgnoreCase))
+                return ResolveAwarenessFromProfileId(kvp.Value);
+        }
+
+        return null;
+    }
+
+    private static int? ResolveAwarenessFromProfileId(string? profileId)
+    {
+        // Awareness is derived from CharacterProfile dimensions.
+        // Without ICharacterProfileService injected into static helpers,
+        // we return null. The caller handles null by omitting awareness framing.
+        // Future enhancement: wire up ICharacterProfileService for full resolution.
+        return null;
+    }
+
+    private static bool HasAnyIntimateFields(DreamGenClone.Domain.Templates.PhysicalAttributes attrs)
+    {
+        return !string.IsNullOrWhiteSpace(attrs.Scent)
+            || !string.IsNullOrWhiteSpace(attrs.SexualDrive)
+            || !string.IsNullOrWhiteSpace(attrs.SexualConfidence)
+            || !string.IsNullOrWhiteSpace(attrs.SexualSkill)
+            || !string.IsNullOrWhiteSpace(attrs.OralSkill)
+            || !string.IsNullOrWhiteSpace(attrs.EndowmentLength)
+            || !string.IsNullOrWhiteSpace(attrs.EndowmentGirth)
+            || !string.IsNullOrWhiteSpace(attrs.Stamina)
+            || !string.IsNullOrWhiteSpace(attrs.Recovery)
+            || !string.IsNullOrWhiteSpace(attrs.EjaculationIntensity)
+            || !string.IsNullOrWhiteSpace(attrs.VaginalTightness)
+            || !string.IsNullOrWhiteSpace(attrs.Sensitivity)
+            || !string.IsNullOrWhiteSpace(attrs.Lubrication)
+            || !string.IsNullOrWhiteSpace(attrs.OrgasmicCapacity);
+    }
 
 }

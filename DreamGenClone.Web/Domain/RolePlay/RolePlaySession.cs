@@ -65,7 +65,7 @@ public sealed class RolePlaySession
     public int TurnTakingThreshold { get; set; } = 4;
 
     /// <summary>Number of recent interactions to include in prompt context window.</summary>
-    public int ContextWindowSize { get; set; } = 30;
+    public int ContextWindowSize { get; set; } = 12;
 
     /// <summary>Persisted session model override ID (null = use function default).</summary>
     public string? SessionModelId { get; set; }
