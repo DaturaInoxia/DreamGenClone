@@ -63,7 +63,9 @@ public sealed class SemanticEventInferenceService : ISemanticEventInferenceServi
             "Output ONLY strict JSON. Never include markdown. " +
             "Schema: {\"events\":[{\"eventId\":\"id\",\"confidence\":0.0,\"actorName\":\"name\",\"targetCharacterName\":\"name\",\"evidenceSpan\":\"text\"}]}. " +
             "Rules: Use ONLY event IDs from allowedEventIds. If no event applies, return {\"events\":[]}. " +
-            "confidence must be decimal in [0,1].";
+            "confidence must be decimal in [0,1]. " +
+            "An event ID signals that its defined semantics are present — not merely that surface-level keywords match. " +
+            "For high-confidence detection (>=0.8), the interaction must clearly and unequivocally demonstrate the defined event meaning.";
 
         var allowedJson = JsonSerializer.Serialize(request.AllowedEventIds, JsonOptions);
         var contextJson = JsonSerializer.Serialize(request.ContextTurns, JsonOptions);
@@ -74,6 +76,12 @@ public sealed class SemanticEventInferenceService : ISemanticEventInferenceServi
             $"allowedEventIds={allowedJson}\n" +
             $"contextTurns={contextJson}\n" +
             $"interactionText={request.InteractionText}";
+
+        if (request.EventDescriptions is { Count: > 0 })
+        {
+            var descJson = JsonSerializer.Serialize(request.EventDescriptions, JsonOptions);
+            userMessage += $"\neventDescriptions={descJson}";
+        }
 
         _logger?.LogInformation(
             "SemanticInference REQUEST SessionId={SessionId} InteractionId={InteractionId} Actor={Actor} Model={Provider}/{ModelId} AllowedEventIdsCount={AllowedCount} ContextTurns={ContextTurnsCount} InteractionTextLen={TextLen}\n--- SYSTEM ---\n{System}\n--- USER ---\n{User}",

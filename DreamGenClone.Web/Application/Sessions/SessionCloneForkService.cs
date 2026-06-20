@@ -138,7 +138,8 @@ public sealed class SessionCloneForkService : ISessionCloneForkService
             InteractionType = interaction.InteractionType,
             ActorName = interaction.ActorName,
             Content = interaction.Content,
-            CreatedAt = interaction.CreatedAt
+            CreatedAt = interaction.CreatedAt,
+            NarrativePhaseAtCreation = interaction.NarrativePhaseAtCreation
         };
     }
 

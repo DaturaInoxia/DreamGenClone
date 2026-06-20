@@ -1,0 +1,143 @@
+@using DreamGenClone.Domain.StoryAnalysis
+@using DreamGenClone.Application.StoryAnalysis
+
+@* Compact, collapsible display of a CharacterProfile's full details.
+   All sub-sections collapsed by default; consumer owns the collapse state. *@
+<div class="profile-detail-display">
+
+    @* Profile Description *@
+    <div class="mb-2 border rounded p-2">
+        <div class="d-flex justify-content-between align-items-center">
+            <span class="small fw-semibold text-muted">Profile Description</span>
+            <button class="btn btn-sm btn-link py-0" @onclick="@(() => State.DescriptionExpanded = !State.DescriptionExpanded)">
+                @(State.DescriptionExpanded ? "▼" : "▶")
+            </button>
+        </div>
+        @if (State.DescriptionExpanded)
+        {
+            @if (string.IsNullOrWhiteSpace(Profile.Description))
+            {
+                <div class="small text-muted fst-italic">(no description)</div>
+            }
+            else
+            {
+                <div class="small">@Profile.Description</div>
+            }
+        }
+    </div>
+
+    @* Character Stats (canonical adaptive stats) *@
+    <div class="mb-2 border rounded p-2">
+        <div class="d-flex justify-content-between align-items-center">
+            <span class="small fw-semibold text-muted">Character Stats</span>
+            <button class="btn btn-sm btn-link py-0" @onclick="@(() => State.CharacterStatsExpanded = !State.CharacterStatsExpanded)">
+                @(State.CharacterStatsExpanded ? "▼" : "▶")
+            </button>
+        </div>
+        @if (State.CharacterStatsExpanded)
+        {
+            var stats = AdaptiveStatCatalog.CanonicalStatNames
+                .Where(n => Profile.CharacterStats.TryGetValue(n, out var _))
+                .ToList();
+            @if (stats.Count == 0)
+            {
+                <div class="small text-muted fst-italic">(no character stats)</div>
+            }
+            else
+            {
+                <div class="row g-1 mt-1">
+                    @foreach (var statName in stats)
+                    {
+                        var value = Profile.CharacterStats[statName];
+                        <div class="col-6 col-md-4">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span class="small text-muted text-truncate" title="@statName">@statName</span>
+                                <span class="small fw-semibold">@value</span>
+                            </div>
+                            <div class="progress" style="height: 4px;">
+                                <div class="progress-bar" role="progressbar" style="width: @(value)%;"></div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        }
+    </div>
+
+    @* Behaviour Stats / Encounter Dimensions *@
+    @{
+        var dimensions = BehavioralDimensionCatalog.GetDimensions(Profile.TargetRole);
+        var hasEncounterStats = Profile.EncounterStats is { Count: > 0 };
+    }
+    @if (dimensions.Count > 0 && hasEncounterStats)
+    {
+        <div class="mb-2 border rounded p-2">
+            <div class="d-flex justify-content-between align-items-center">
+                <span class="small fw-semibold text-muted">Behaviour Stats (@dimensions.Count dimensions)</span>
+                <button class="btn btn-sm btn-link py-0" @onclick="@(() => State.BehaviourStatsExpanded = !State.BehaviourStatsExpanded)">
+                    @(State.BehaviourStatsExpanded ? "▼" : "▶")
+                </button>
+            </div>
+            @if (State.BehaviourStatsExpanded)
+            {
+                <div class="mt-1" style="max-height: 280px; overflow-y: auto;">
+                    @foreach (var dim in dimensions)
+                    {
+                        var hasValue = Profile.EncounterStats.TryGetValue(dim.Name, out var dimValue);
+                        if (!hasValue) { continue; }
+                        var tierText = BehavioralDimensionCatalog.ResolveTierText(Profile.TargetRole, dim.Name, dimValue);
+                        <div class="mb-2">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span class="small fw-semibold text-truncate" title="@dim.Name">@dim.Name</span>
+                                <span class="small">@dimValue</span>
+                            </div>
+                            <div class="progress mb-1" style="height: 4px;">
+                                <div class="progress-bar bg-info" role="progressbar" style="width: @(dimValue)%;"></div>
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(tierText))
+                            {
+                                <div class="small text-muted">@tierText</div>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    }
+
+    @* Additional Notes *@
+    @if (!string.IsNullOrWhiteSpace(Profile.AdditionalNotes) || Profile.FullOverride)
+    {
+        <div class="mb-2 border rounded p-2">
+            <div class="d-flex justify-content-between align-items-center">
+                <span class="small fw-semibold text-muted">
+                    Additional Notes
+                    @if (Profile.FullOverride)
+                    {
+                        <span class="badge bg-warning text-dark ms-1">Full Override</span>
+                    }
+                </span>
+                <button class="btn btn-sm btn-link py-0" @onclick="@(() => State.AdditionalNotesExpanded = !State.AdditionalNotesExpanded)">
+                    @(State.AdditionalNotesExpanded ? "▼" : "▶")
+                </button>
+            </div>
+            @if (State.AdditionalNotesExpanded)
+            {
+                @if (string.IsNullOrWhiteSpace(Profile.AdditionalNotes))
+                {
+                    <div class="small text-muted fst-italic">(no additional notes)</div>
+                }
+                else
+                {
+                    <div class="small">@Profile.AdditionalNotes</div>
+                }
+            }
+        </div>
+    }
+
+</div>
+
+@code {
+    [Parameter] public CharacterProfile? Profile { get; set; }
+    [Parameter] public ProfileDetailCollapseState State { get; set; } = new();
+}

@@ -3,6 +3,7 @@ using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Infrastructure.Configuration;
 using DreamGenClone.Web.Application.BackgroundJobs;
 using DreamGenClone.Web.Application.Sessions;
+using DreamGenClone.Web.Domain.RolePlay;
 using Microsoft.Extensions.Options;
 
 
@@ -145,6 +146,18 @@ public sealed class SemanticInteractionAnalysisJobHandler : IBackgroundJobHandle
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
                 .ToList();
+
+            // Multi-encounter Climax: exclude `encounter-completed` from the async job.
+            // That event is owned by the sync detection path (TryDetectEncounterBoundaryAsync
+            // in the engine), which runs inline so the counter advances before the next prompt.
+            if (allowedEventIds.Contains("encounter-completed", StringComparer.OrdinalIgnoreCase)
+                && await IsMultiEncounterClimaxActiveAsync(session))
+            {
+                allowedEventIds = allowedEventIds
+                    .Where(x => !string.Equals(x, "encounter-completed", StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                _logger.LogDebug("Excluded encounter-completed from async semantic job (multi-encounter active): SessionId={SessionId}", session.Id);
+            }
 
             if (allowedEventIds.Count == 0)
             {
@@ -330,6 +343,19 @@ public sealed class SemanticInteractionAnalysisJobHandler : IBackgroundJobHandle
 
             throw;
         }
+    }
+
+    private async Task<bool> IsMultiEncounterClimaxActiveAsync(RolePlaySession session)
+    {
+        var activeThemeId = session.AdaptiveState.ActiveScenarioId;
+        if (string.IsNullOrWhiteSpace(activeThemeId) || _rpThemeService is null) return false;
+        if (session.AdaptiveState.CurrentPhase != DreamGenClone.Domain.RolePlay.NarrativePhase.Climax) return false;
+        try
+        {
+            var theme = await _rpThemeService.GetThemeAsync(activeThemeId, CancellationToken.None);
+            return RolePlayAssistantPrompts.IsMultiEncounterClimax(theme, "Climax");
+        }
+        catch (Exception ex) { _logger.LogDebug(ex, "IsMultiEncounterClimaxActive: could not load theme {ThemeId}", activeThemeId); return false; }
     }
 
     private sealed class SemanticInteractionAnalysisResult

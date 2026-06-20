@@ -13,6 +13,14 @@ public sealed class SemanticEventInferenceRequest
     public required IReadOnlyList<string> ContextTurns { get; init; }
 
     public required IReadOnlyList<string> AllowedEventIds { get; init; }
+
+    /// <summary>
+    /// Optional human-readable descriptions for each event ID. When provided, each
+    /// entry is included in the inference prompt so the model understands what the
+    /// event ID means rather than guessing from the ID string alone. Used by the
+    /// sync encounter-boundary detection path to disambiguate precise event semantics.
+    /// </summary>
+    public IReadOnlyDictionary<string, string>? EventDescriptions { get; init; }
 }
 
 public sealed class SemanticEventInferenceResult

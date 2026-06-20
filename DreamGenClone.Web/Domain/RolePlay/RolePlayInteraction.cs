@@ -12,6 +12,14 @@ public sealed class RolePlayInteraction
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
+    /// <summary>
+    /// Snapshot of the session's <see cref="DreamGenClone.Domain.RolePlay.NarrativePhase"/>
+    /// at the moment this interaction was created. Null for interactions persisted before
+    /// this field was introduced. Used by the Interaction Info UI to show which phase the
+    /// interaction belonged to when it was generated.
+    /// </summary>
+    public DreamGenClone.Domain.RolePlay.NarrativePhase? NarrativePhaseAtCreation { get; set; }
+
     public bool IsExcluded { get; set; }
 
     public bool IsHidden { get; set; }

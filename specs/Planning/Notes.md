@@ -1,15 +1,11 @@
-show the text from the wife willignness band in the Wife Role character adaptive panel.
+
+
 
 The Steer command Apply Steer needs to ensure the continuation is at instruction and not on Message or Narrative by character, also the /steer can be removed from the text it has not affect.
 
 The steer prompts provided when the husband is close by and in line of sight are not believable, they need to have more defined limitations with the physical world and line of sight, not sure what specifically needs to change
 
 The steer commands sometimes are generated for the Persona character, and are phrased incorrectly
-
-
-
-When the rp workspace page is opened the left menu bar is always expanded, it should to the opposite and auto collapse
-
 
 multiple otherman role should be in competition for Beckys affection, the otherman role should never take the ovberveer or follow with the husband role, the otherman is 
 
@@ -18,18 +14,7 @@ All themes or rp engine
 There needs to be more natural progression of time and time skips, it will do it some time, but most iteractions are always immediately after each other in time, it needs to be smart about it and not skip time in the middle of an encounter, but currently the wife will reject the other man, next interaction he tries again, there should be a time jump or a character focus move, or something, the rp engine needs to take into account the Scenarios Time Frame and try to adhere  to it and adapt to it. If the time frame stats several hours vs over several months there should be an obvious differenct in the time shifts that can happen.  If no time frame is in the scenario a long running time frame is assumed, this means the scenario is a real life day to day type time frame which could span days, months, or years in the narrative.
 
 
-
-infidelity-brief-disappearance
-
-in any phase after an encounter and the return to husband, there needs to be more passage of time, more interactions between husband and wife and other background characters, currently it reads like they finish an act, then 2 minutes later go again
-
-the theme is meant to emphasize the duality of the wife role, how she can go and sneak away with another man, then return to the husband like nothing has happened, the interactions and internal and external thougths are important,
-
-
-
-
 Memory update - memory needs to shorter and more concise, only the sex interactions occurred with, location,  positions, where the male ejaculated need to be remembered.  The memory should be recalled on occasion to ensure repeat scenarios are kept to a minimum.
-
 
 
 When a resistant wife thinks she should go back to her husband, when resistance is high enough she should, currently the wife thinks it but then does not.  The otherman role will need to chase her in his scenario.  I do no want this a hard coded prompt thing it should be in the data somewhere. 
@@ -49,73 +34,6 @@ There are no other characters or background people being mentioned even in passi
 The Husband persona (Ken) has detailed Intimate — Male physical attributes populated (below-average endowment, quick stamina, low skill, shy confidence). These should cause the model to generate scenes where the Wife is underwhelmed/unsatisfied during intimacy. However, the model is generating romantic, intense encounters instead — suggesting the attribute data is either not reaching the prompt or not being sufficiently emphasized for the model to act on.
 
 ---
-
-## Data Inventory
-
-### Persona: Ken (Husband) — POV Character
-```
-Source: Sessions.PayloadJson → $.personaPhysicalAttributes
-Gender: Male | Role: Husband | Age: 51
-
-Intimate — Male:
-  EndowmentLength: "Below average length"
-  EndowmentGirth:  "Slender"
-  → Combined: "a below-average length, slender cock — below average in size; modest sensation"
-  Stamina:            "Quick — rarely lasts long"
-  Recovery:           "Very slow — needs significant time"
-  EjaculationIntensity: "Below average"
-
-Intimate — Shared:
-  SexualSkill:      "Below average — lacks technique"
-  SexualDrive:      "Low — rarely initiates"
-  SexualConfidence: "Shyly submissive"
-  OralSkill:        "Below average"
-  Scent:            "Neutral"
-```
-
-### Character: Becky (Wife) — Scenario Character
-```
-Source: Scenarios.PayloadJson → $.Characters[0].PhysicalAttributes
-Gender: Female | Role: Wife | Age: 50 | Attractiveness: 7/10
-
-Intimate — Female:
-  VaginalTightness:  "Extremely tight"
-  Sensitivity:       "Highly sensitive"
-  Lubrication:       "Very wet — gets soaked quickly"
-  OrgasmicCapacity:  "Multi-orgasmic and easily triggered"
-
-Intimate — Shared:
-  SexualSkill:      "Skilled — above average with good technique"
-  SexualDrive:      "High — regularly eager"
-  SexualConfidence: "Passively receptive"
-  OralSkill:        "Skilled"
-```
-
-### Character: Dean (Other Man) — Scenario Character
-```
-Source: Scenarios.PayloadJson → $.Characters[1].PhysicalAttributes
-Gender: Male | Role: Unknown | Age: 45 | Attractiveness: 10/10
-
-Intimate — Male:
-  EndowmentLength: "Long"
-  EndowmentGirth:  "Thick"
-  → Combined: "a long, thick cock — well above average in every dimension; would feel noticeably filling and deeply penetrating"
-  Stamina:            "Tireless — can go for hours"
-  Recovery:           "Near-instant — ready again almost immediately"
-  EjaculationIntensity: "Massive — forceful and copious"
-
-Intimate — Shared:
-  SexualSkill:      "Virtuoso — instinctively reads every response"
-  SexualDrive:      "Insatiable — desires constantly"
-  SexualConfidence: "Confidently assertive"
-  OralSkill:        "Exceptional — utterly skilled"
-  Scent:            "Intoxicatingly musky"
-```
-
----
-
-## Code Path Analysis
-
 ### How Attributes Flow Into Prompts
 
 ```
@@ -125,35 +43,6 @@ Database (Sessions.PayloadJson / Scenarios.PayloadJson)
   → PhysicalAttributesFormatter.FormatBlock()
   → Injected into prompt text
   → LLM
-```
-
-### Prompt Construction — `RolePlayContinuationService.BuildPromptAsync()` (line 418–750)
-
-Two injection points:
-
-1. **POV Persona** (lines 430–443):
-```csharp
-if (!string.IsNullOrWhiteSpace(session.PersonaDescription))
-{
-    sb.AppendLine($"POV Persona ({session.PersonaName}):");
-    sb.AppendLine(session.PersonaDescription.Trim());
-    var personaAppearance = PhysicalAttributesFormatter.FormatBlock(
-        session.PersonaPhysicalAttributes);  // ← SHOULD include Ken's intimate data
-    if (!string.IsNullOrEmpty(personaAppearance))
-        sb.AppendLine(personaAppearance);
-}
-```
-
-2. **Scenario Characters** (lines 622–643):
-```csharp
-foreach (var character in scenario.Characters)
-{
-    sb.AppendLine($"  {character.Name}{roleText}{relationSuffix}: {description}");
-    var charAppearance = PhysicalAttributesFormatter.FormatBlock(
-        character.PhysicalAttributes);  // ← Becky and Dean's attributes
-    if (!string.IsNullOrEmpty(charAppearance))
-        sb.AppendLine($"    {charAppearance}");
-}
 ```
 
 ### `PhysicalAttributesFormatter.FormatBlock()` — NO Gender Filtering
@@ -170,8 +59,6 @@ Only null/empty fields are skipped. Since Ken's female attributes are null and m
 ## Findings
 
 ### Finding 1: `InteractionRetryService` Missing Persona Physical Attributes ⚠️ BUG
-
-**File:** `DreamGenClone.Web/Application/RolePlay/InteractionRetryService.cs` (lines 252–260)
 
 The retry prompt builder includes `session.PersonaDescription` but does **NOT** call `PhysicalAttributesFormatter.FormatBlock(session.PersonaPhysicalAttributes)`. Compare:
 

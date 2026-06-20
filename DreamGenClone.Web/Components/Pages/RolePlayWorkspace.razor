@@ -48,6 +48,7 @@
 @inject ISemanticInteractionAnalysisRepository SemanticInteractionAnalysisRepository
 @inject IRolePlayStateRepository RolePlayStateRepository
 @inject IRolePlaySubmissionTracker _tracker
+@inject IRolePlayAutoCompleteService AutoCompleteService
 @implements IAsyncDisposable
 @using System.Globalization
 @using System.Diagnostics
@@ -58,6 +59,9 @@
 @code {
     [Parameter]
     public string sessionId { get; set; } = string.Empty;
+
+    [SupplyParameterFromQuery]
+    public int? autocomplete { get; set; }
 
     private RolePlaySession? _session;
     // Phase 3b (additive parallel): V2 adaptive state loaded alongside V1.
@@ -80,6 +84,16 @@
     // Settings panel
     private BehaviorMode _selectedBehaviorMode = BehaviorMode.TakeTurns;
     private string _activeSettingsTab = "settings";
+
+    // Auto-Complete
+    private bool _autoCompleteRunning;
+    private int _autoCompleteMaxTurns = 50;
+    private AutoCompleteState? _autoCompleteState;
+    private CancellationTokenSource? _autoCompleteCts;
+    private PeriodicTimer? _autoCompletePollTimer;
+    private bool _autoCompletePendingStart;
+    private int _autoCompletePendingMaxTurns;
+
     private bool _adaptiveDiagnosticsExpanded;
     private bool _adaptiveCharacterStatsExpanded;
     private readonly HashSet<string> _expandedAdaptiveSections = new(StringComparer.OrdinalIgnoreCase);
@@ -253,6 +267,15 @@
     {
         await LoadSessionAsync();
         await QueryTrackerOnMountAsync();
+
+        // Handle auto-complete query parameter from create wizard
+        if (autocomplete.HasValue && autocomplete.Value > 0)
+        {
+            var maxTurns = autocomplete.Value;
+            autocomplete = null;
+            _autoCompletePendingStart = true;
+            _autoCompletePendingMaxTurns = maxTurns;
+        }
     }
 
     // T018: Reconnect to any in-flight or failed background submission when the component mounts
@@ -7270,6 +7293,35 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
         return result;
     }
 
+    private bool IsFirstInteractionForPhaseInCycle(RolePlayInteraction interaction, int? cycleIndex = null)
+    {
+        if (_session is null || interaction.NarrativePhaseAtCreation is null)
+            return false;
+
+        var targetPhase = interaction.NarrativePhaseAtCreation.Value;
+
+        // Track phases seen so far in the session
+        var phasesSeen = new HashSet<NarrativePhase>();
+
+        foreach (var existingInteraction in _session.Interactions)
+        {
+            if (existingInteraction.NarrativePhaseAtCreation is null)
+                continue;
+
+            var existingPhase = existingInteraction.NarrativePhaseAtCreation.Value;
+
+            // If we've reached the target interaction, check if its phase was already seen
+            if (string.Equals(existingInteraction.Id, interaction.Id, StringComparison.OrdinalIgnoreCase))
+            {
+                return !phasesSeen.Contains(targetPhase);
+            }
+
+            phasesSeen.Add(existingPhase);
+        }
+
+        return false;
+    }
+
     private async Task ToggleFlagAsync(string interactionId, InteractionFlag flag)
     {
         if (_session is null) return;
@@ -7687,6 +7739,59 @@ private void CloseInteractionInfo()
         : "(none)";
 
     private string ShellStyle => $"--rw-settings-width: {_workspaceSettings.SettingsPanelWidth}px;";
+
+    // â”€â”€ Auto-Complete â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+    private async Task StartAutoCompleteAsync(int maxTurns)
+    {
+        if (_autoCompleteRunning || _session is null) return;
+
+        _autoCompleteRunning = true;
+        _autoCompleteMaxTurns = maxTurns;
+        _autoCompleteState = null;
+        _autoCompleteCts = new CancellationTokenSource();
+        _activeSettingsTab = "autocomplete";
+
+        var options = new AutoCompleteOptions { MaxTurns = maxTurns };
+        var task = AutoCompleteService.RunAsync(sessionId, options, _autoCompleteCts.Token);
+
+        _ = StartAutoCompletePollingAsync(task);
+    }
+
+    private async Task StartAutoCompletePollingAsync(Task<AutoCompleteState> runTask)
+    {
+        _autoCompletePollTimer?.Dispose();
+        _autoCompletePollTimer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+        try
+        {
+            while (await _autoCompletePollTimer.WaitForNextTickAsync())
+            {
+                _autoCompleteState = AutoCompleteService.GetState(sessionId);
+                await InvokeAsync(StateHasChanged);
+
+                if (_autoCompleteState?.Status != AutoCompleteStatus.Running)
+                {
+                    break;
+                }
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (ObjectDisposedException) { }
+
+        _autoCompleteState = AutoCompleteService.GetState(sessionId);
+        _autoCompleteRunning = false;
+        _autoCompleteCts?.Dispose();
+        _autoCompleteCts = null;
+        _autoCompletePollTimer?.Dispose();
+        _autoCompletePollTimer = null;
+
+        try { await InvokeAsync(StateHasChanged); } catch { }
+    }
+
+    private void CancelAutoComplete()
+    {
+        _autoCompleteCts?.Cancel();
+    }
 }
 
 <PageTitle>Role-Play Workspace</PageTitle>
@@ -7765,53 +7870,68 @@ private void CloseInteractionInfo()
                                             <span class="rw-flag-icon rw-flag-pinned" title="This interaction is pinned for AI context retention">&#x1F4CC;</span>
                                         }
                                     </div>
-                                    <div class="rw-interaction-toolbar">
-                                        @{
-                                            var semanticStatus = GetSemanticInteractionAnalysisState(interactionId);
-                                        }
-                                        @if (semanticStatus is not null && semanticStatus.Status != SemanticAnalysisStatus.Idle)
+                                    <div class="rw-interaction-header-right">
+                                        <div class="rw-interaction-toolbar">
+                                            @{
+                                                var semanticStatus = GetSemanticInteractionAnalysisState(interactionId);
+                                            }
+                                            @if (semanticStatus is not null && semanticStatus.Status != SemanticAnalysisStatus.Idle)
+                                            {
+                                                var semanticLabel = GetSemanticStatusLabel(semanticStatus.Status);
+                                                var semanticTitle = semanticStatus.Status == SemanticAnalysisStatus.Error
+                                                    ? $"Semantic analysis failed: {semanticStatus.ErrorMessage ?? "Unknown error"}"
+                                                    : $"Semantic analysis status: {semanticLabel}";
+                                                var semanticBtnClass = GetSemanticToolbarBtnClass(semanticStatus.Status);
+                                                <button class="rw-toolbar-btn @semanticBtnClass" title="@semanticTitle" @onclick="@(() => ShowSemanticDetail(interactionId))">
+                                                    <svg class="rw-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                                                </button>
+                                            }
+                                            @if (_editContent.ContainsKey(interactionId))
+                                            {
+                                                @* Edit-mode toolbar: Delete | ? Kebab | Undo | Save | Cancel *@
+                                                <button class="rw-toolbar-btn rw-toolbar-btn-danger" title="Delete interaction"
+                                                        @onclick="@(() => ShowDeleteConfirmation(interactionId))">
+                                                    <svg class="rw-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                                                </button>
+                                                <button class="rw-toolbar-btn" data-kebab-btn="@interactionId" title="More options" @onclick="@(() => ToggleKebabMenu(interactionId))">
+                                                    <svg class="rw-icon" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
+                                                </button>
+                                                <button class="rw-toolbar-btn" title="Undo changes" @onclick="@(() => UndoEdit(interactionId))">
+                                                    <svg class="rw-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+                                                </button>
+                                                <button class="rw-toolbar-btn" title="Save edit" @onclick="@(() => SaveEditAsync(interactionId))">
+                                                    <svg class="rw-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+                                                </button>
+                                                <button class="rw-toolbar-btn" title="Cancel edit" @onclick="@(() => CancelEdit(interactionId))">
+                                                    <svg class="rw-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                                                </button>
+                                            }
+                                            else
+                                            {
+                                                @* Default toolbar: Retry | Edit | Info *@
+                                                <button class="rw-toolbar-btn" data-retry-btn="@interactionId" title="Retry / Regenerate" @onclick="@(() => ToggleRetryMenu(interactionId))">
+                                                    <svg class="rw-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/><path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14"/></svg>
+                                                </button>
+                                                <button class="rw-toolbar-btn" title="Edit interaction" @onclick="@(() => StartEdit(interactionId, interaction.Content))">
+                                                    <svg class="rw-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                                                </button>
+                                                <button class="rw-toolbar-btn" title="Generation info" @onclick="@(() => ShowInteractionInfo(interactionId))">
+                                                    <svg class="rw-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                                                </button>
+                                            }
+                                        </div>
+                                        @if (IsFirstInteractionForPhaseInCycle(interaction))
                                         {
-                                            var semanticLabel = GetSemanticStatusLabel(semanticStatus.Status);
-                                            var semanticTitle = semanticStatus.Status == SemanticAnalysisStatus.Error
-                                                ? $"Semantic analysis failed: {semanticStatus.ErrorMessage ?? "Unknown error"}"
-                                                : $"Semantic analysis status: {semanticLabel}";
-                                            var semanticBtnClass = GetSemanticToolbarBtnClass(semanticStatus.Status);
-                                            <button class="rw-toolbar-btn @semanticBtnClass" title="@semanticTitle" @onclick="@(() => ShowSemanticDetail(interactionId))">
-                                                <svg class="rw-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-                                            </button>
-                                        }
-                                        @if (_editContent.ContainsKey(interactionId))
-                                        {
-                                            @* Edit-mode toolbar: Delete | ? Kebab | Undo | Save | Cancel *@
-                                            <button class="rw-toolbar-btn rw-toolbar-btn-danger" title="Delete interaction"
-                                                    @onclick="@(() => ShowDeleteConfirmation(interactionId))">
-                                                <svg class="rw-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-                                            </button>
-                                            <button class="rw-toolbar-btn" data-kebab-btn="@interactionId" title="More options" @onclick="@(() => ToggleKebabMenu(interactionId))">
-                                                <svg class="rw-icon" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
-                                            </button>
-                                            <button class="rw-toolbar-btn" title="Undo changes" @onclick="@(() => UndoEdit(interactionId))">
-                                                <svg class="rw-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
-                                            </button>
-                                            <button class="rw-toolbar-btn" title="Save edit" @onclick="@(() => SaveEditAsync(interactionId))">
-                                                <svg class="rw-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
-                                            </button>
-                                            <button class="rw-toolbar-btn" title="Cancel edit" @onclick="@(() => CancelEdit(interactionId))">
-                                                <svg class="rw-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                                            </button>
-                                        }
-                                        else
-                                        {
-                                            @* Default toolbar: Retry | Edit | Info *@
-                                            <button class="rw-toolbar-btn" data-retry-btn="@interactionId" title="Retry / Regenerate" @onclick="@(() => ToggleRetryMenu(interactionId))">
-                                                <svg class="rw-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/><path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14"/></svg>
-                                            </button>
-                                            <button class="rw-toolbar-btn" title="Edit interaction" @onclick="@(() => StartEdit(interactionId, interaction.Content))">
-                                                <svg class="rw-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                                            </button>
-                                            <button class="rw-toolbar-btn" title="Generation info" @onclick="@(() => ShowInteractionInfo(interactionId))">
-                                                <svg class="rw-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-                                            </button>
+                                            var phaseClass = interaction.NarrativePhaseAtCreation?.ToString().ToLower() switch
+                                            {
+                                                "buildup" => "rw-phase-badge-buildup",
+                                                "committed" => "rw-phase-badge-committed",
+                                                "approaching" => "rw-phase-badge-approaching",
+                                                "climax" => "rw-phase-badge-climax",
+                                                "reset" => "rw-phase-badge-reset",
+                                                _ => "rw-phase-badge-reset"
+                                            };
+                                            <span class="rw-phase-badge @phaseClass" title="Phase: @interaction.NarrativePhaseAtCreation">@interaction.NarrativePhaseAtCreation</span>
                                         }
                                     </div>
                                 </div>
@@ -8061,6 +8181,12 @@ private void CloseInteractionInfo()
                                         {
                                         <div class="rw-info-grid">
                                             <div class="rw-info-row"><span class="rw-info-label">ID</span><span class="rw-info-value rw-info-value-mono">@infoInteraction.Id</span></div>
+                                            @{
+                                                var infoPhaseAtCreation = infoInteraction.NarrativePhaseAtCreation?.ToString() ?? "—";
+                                                var infoInteractionNumber = _session!.Interactions.IndexOf(infoInteraction) + 1;
+                                            }
+                                            <div class="rw-info-row"><span class="rw-info-label">Phase at Creation</span><span class="rw-info-value">@infoPhaseAtCreation</span></div>
+                                            <div class="rw-info-row"><span class="rw-info-label">Interaction #</span><span class="rw-info-value">@infoInteractionNumber</span></div>
                                             <div class="rw-info-row"><span class="rw-info-label">Actor</span><span class="rw-info-value">@infoInteraction.ActorName</span></div>
                                             <div class="rw-info-row"><span class="rw-info-label">Type</span><span class="rw-info-value">@infoInteraction.InteractionType</span></div>
                                             <div class="rw-info-row"><span class="rw-info-label">Created</span><span class="rw-info-value">@infoInteraction.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss")</span></div>
@@ -8915,6 +9041,10 @@ private void CloseInteractionInfo()
             <button class="rw-settings-tab @(_activeSettingsTab == "adaptive" ? "is-active" : "")"
                     @onclick="OnAdaptiveTabClickAsync">
                 Adaptive
+            </button>
+            <button class="rw-settings-tab @(_activeSettingsTab == "autocomplete" ? "is-active" : "")"
+                    @onclick="@(() => _activeSettingsTab = "autocomplete")">
+                Auto-Complete
             </button>
         </div>
 
@@ -10253,6 +10383,67 @@ private void CloseInteractionInfo()
                         }
                     </div>
 
+                </div>
+            }
+
+            @if (_activeSettingsTab == "autocomplete")
+            {
+                <div class="rw-settings-content">
+                    <div class="rw-settings-section">
+                        <div class="rw-settings-section-label">Auto-Complete</div>
+                        <p class="text-muted small mb-2">Runs default continuations in a loop until max turns or all themes complete.</p>
+
+                        @if (_autoCompleteState?.Status == AutoCompleteStatus.Running)
+                        {
+                            <div class="mb-3">
+                                <div class="d-flex justify-content-between mb-1">
+                                    <span class="small">Turn @_autoCompleteState.CurrentTurn / @_autoCompleteState.MaxTurns</span>
+                                    <span class="small">@_autoCompleteState.CurrentActivity</span>
+                                </div>
+                                <div class="progress" style="height:6px">
+                                    <div class="progress-bar progress-bar-striped progress-bar-animated" style="width:@((int)((double)_autoCompleteState.CurrentTurn / _autoCompleteState.MaxTurns * 100))%"></div>
+                                </div>
+                                <div class="small text-muted mt-1">Themes: @_autoCompleteState.ThemesCompleted / @_autoCompleteState.TotalThemes</div>
+                            </div>
+                            <button class="btn btn-sm btn-outline-danger" @onclick="CancelAutoComplete">Cancel</button>
+                        }
+                        else if (_autoCompleteState?.Status == AutoCompleteStatus.Completed)
+                        {
+                            <div class="alert alert-success small mb-2">
+                                <strong>Done</strong>
+                            </div>
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => _autoCompleteState = null)">Clear</button>
+                        }
+                        else if (_autoCompleteState?.Status == AutoCompleteStatus.Cancelled)
+                        {
+                            <div class="alert alert-warning small mb-2">
+                                <strong>Cancelled</strong> after @_autoCompleteState.CurrentTurn turns.
+                            </div>
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => _autoCompleteState = null)">Clear</button>
+                        }
+                        else
+                        {
+                            <div class="row g-2 align-items-end">
+                                <div class="col-auto">
+                                    <label class="form-label small">Max Turns</label>
+                                    <input type="number" class="form-control form-control-sm" style="width:100px" min="1" step="1" @bind="_autoCompleteMaxTurns" />
+                                </div>
+                                <div class="col-auto">
+                                    <button class="btn btn-sm btn-primary" @onclick="@(() => StartAutoCompleteAsync(_autoCompleteMaxTurns))" disabled="@(_autoCompleteRunning)">
+                                        Start Auto-Complete
+                                    </button>
+                                </div>
+                            </div>
+                        }
+
+                        @if (_autoCompleteState?.RecentLog.Count > 0)
+                        {
+                            <div class="mt-3">
+                                <div class="rw-settings-section-label">Log</div>
+                                <pre class="small text-muted mb-0" style="max-height:200px;overflow-y:auto;white-space:pre-wrap;font-size:11px">@string.Join("\n", _autoCompleteState.RecentLog)</pre>
+                            </div>
+                        }
+                    </div>
                 </div>
             }
         }

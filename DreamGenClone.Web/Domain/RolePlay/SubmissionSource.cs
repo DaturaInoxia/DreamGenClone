@@ -5,5 +5,6 @@ public enum SubmissionSource
     SendButton = 1,
     PlusButton = 2,
     ContinueAsPopupContinue = 3,
-    MainOverflowContinue = 4
+    MainOverflowContinue = 4,
+    AutoComplete = 5
 }

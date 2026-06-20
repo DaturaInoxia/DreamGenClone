@@ -128,6 +128,23 @@ public sealed class AdaptiveScenarioState
     /// </summary>
     public int TurnsInCurrentBeat { get; set; }
 
+    // ---- Multi-encounter Climax state -----------------------------------------------------
+    // Only meaningful when CurrentPhase is Climax AND the active theme has
+    // [ClimaxMode:multi-encounter] in its Climax phase guidance. Dormant (0) for all other
+    // themes and phases. Drives cross-encounter escalation language in the prompt.
+    /// <summary>
+    /// 1-based index of the active encounter within a multi-encounter Climax phase.
+    /// 0 = not in multi-encounter Climax (dormant). Incremented when the sync
+    /// encounter-completed semantic detection fires.
+    /// </summary>
+    public int CurrentEncounterNumber { get; set; }
+
+    /// <summary>
+    /// Number of interactions generated in the current encounter since it started.
+    /// Reset to 0 when CurrentEncounterNumber advances.
+    /// </summary>
+    public int InteractionsInCurrentEncounter { get; set; }
+
     // ---- V2 theme tracker -----------------------------------------------------------------
     /// <summary>Per-theme score state. Hydrated from <c>RolePlayV2ThemeScores</c>.</summary>
     public Dictionary<string, ThemeScoreState> ThemeScores { get; set; }

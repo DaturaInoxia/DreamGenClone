@@ -230,7 +230,8 @@ public sealed class InteractionRetryService : IInteractionRetryService
             GeneratedTemperature = resolvedModel.Temperature,
             GeneratedTopP = resolvedModel.TopP,
             GeneratedMaxTokens = resolvedModel.MaxTokens,
-            ReasoningContent = reasoningContent
+            ReasoningContent = reasoningContent,
+            NarrativePhaseAtCreation = session.AdaptiveState.CurrentPhase
         };
 
         original.ActiveAlternativeIndex = nextIndex;

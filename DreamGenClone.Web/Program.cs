@@ -84,6 +84,7 @@ builder.Services.AddScoped<IRolePlayAssistantService, RolePlayAssistantService>(
 builder.Services.AddScoped<IScenarioAssistantService, ScenarioAssistantService>();
 builder.Services.AddScoped<RolePlayPromptComposer>();
 builder.Services.AddScoped<IRolePlayEngineService, RolePlayEngineService>();
+builder.Services.AddScoped<IRolePlayAutoCompleteService, RolePlayAutoCompleteService>();
 builder.Services.AddScoped<IRolePlayContinuationService, RolePlayContinuationService>();
 builder.Services.AddScoped<IRolePlayAdaptiveStateService, RolePlayAdaptiveStateService>();
 builder.Services.AddScoped<ISemanticEventInferenceService, SemanticEventInferenceService>();

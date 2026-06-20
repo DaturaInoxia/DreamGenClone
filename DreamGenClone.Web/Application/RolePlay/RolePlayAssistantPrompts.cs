@@ -56,6 +56,40 @@ public static class RolePlayAssistantPrompts
             .Any(x => x.GuidanceText.Contains("[ClimaxMode:quick-finish]", StringComparison.OrdinalIgnoreCase));
     }
 
+    /// <summary>
+    /// Detects the [ClimaxMode:multi-encounter] phase-guidance marker. When true, the Climax
+    /// phase is paced as multiple discrete encounters whose boundaries are detected by the
+    /// sync encounter-completed semantic inference call. Theme-scoped — dormant for themes
+    /// without the marker.
+    /// </summary>
+    public static bool IsMultiEncounterClimax(RPTheme? activeTheme, string phase)
+    {
+        if (activeTheme is null) return false;
+        return activeTheme.PhaseGuidance
+            .Where(x => string.Equals(x.Phase.ToString(), phase, StringComparison.OrdinalIgnoreCase))
+            .Any(x => x.GuidanceText.Contains("[ClimaxMode:multi-encounter]", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Validates that a theme does not declare both [ClimaxMode:multi-encounter] and
+    /// [ClimaxMode:quick-finish] in the same phase — they are mutually exclusive pacing modes.
+    /// Throws InvalidOperationException with an explicit diagnostic if both are present.
+    /// </summary>
+    public static void EnsureClimaxModeMutualExclusion(RPTheme? activeTheme, string phase)
+    {
+        if (activeTheme is null) return;
+        var phaseGuidance = activeTheme.PhaseGuidance
+            .Where(x => string.Equals(x.Phase.ToString(), phase, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        var hasMulti = phaseGuidance.Any(x => x.GuidanceText.Contains("[ClimaxMode:multi-encounter]", StringComparison.OrdinalIgnoreCase));
+        var hasQuick = phaseGuidance.Any(x => x.GuidanceText.Contains("[ClimaxMode:quick-finish]", StringComparison.OrdinalIgnoreCase));
+        if (hasMulti && hasQuick)
+        {
+            throw new InvalidOperationException(
+                $"ClimaxModeConflict: theme '{activeTheme.Id}' phase '{phase}' declares both [ClimaxMode:multi-encounter] and [ClimaxMode:quick-finish]. These are mutually exclusive pacing modes — remove one.");
+        }
+    }
+
     public static bool AllowsWithinTimeframeTimeShift(RPTheme? activeTheme, string phase)
     {
         if (activeTheme is null) return false;
@@ -212,8 +246,6 @@ public static class RolePlayAssistantPrompts
             {
                 guards.Add("Every turn must advance the scene to a new beat. Do not repeat the same physical act, position, or sensation that was the focus of the immediately preceding turn.");
                 guards.Add("Within each stage of physical intimacy, vary position, tempo, who is the focus, and specific sensations each turn. Same stage is fine — same description is forbidden.");
-                guards.Add("Male orgasm/ejaculation is controlled by the configured Climax->Reset InteractionsSinceCommitment narrative gate: blocked gate means no male orgasm; passed gate allows male orgasm when continuity supports it. /endclimax still controls explicit phase completion.");
-                guards.Add("Do not write departure scenes, farewells, scenario-close transitions (e.g. 'the truck drove away', 'the weekend was over', 'she headed home'), or any narrative framing that concludes the story's time frame. The Climax phase continues until /endclimax is received — hold the story within the encounter's moment.");
             }
         }
 
