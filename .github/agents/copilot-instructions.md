@@ -66,9 +66,9 @@ tests/
 C# / .NET 9 (`net9.0`): Follow standard conventions
 
 ## Recent Changes
+- 001-fix-climax-timeskip: Added C# / .NET 9 + Blazor Server, Microsoft.Data.Sqlite, Serilog
 - 001-stat-char-text-drift: Added C# / .NET 9 + Blazor Server, SQLite (raw ADO.NET), xUnit, FluentAssertions, Serilog
 - 001-session-memory-context: Added C# 12 / .NET 9 + Blazor Server (DreamGenClone.Web), SQLite via Microsoft.Data.Sqlite, Serilog, IOptions<T> configuration pattern, IBackgroundJobHandler infrastructure
-- 027-prompt-queue-continue: Added C# 13 / .NET 9 + Blazor Server (ASP.NET Core 9), `System.Collections.Concurrent`, `System.Threading`, Serilog
 
 
 <!-- MANUAL ADDITIONS START -->

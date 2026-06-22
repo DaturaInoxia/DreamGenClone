@@ -219,6 +219,19 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         return EncounterCompletionKeywords.Any(k => lower.Contains(k));
     }
 
+    /// <summary>
+    /// Checks the last <paramref name="windowSize"/> interactions for a user-typed
+    /// Instruction (ActorName="Instruction" AND GeneratedByCommand is null/empty).
+    /// Used to skip engine time-skip injection when the user has already steered.
+    /// </summary>
+    private static bool HasRecentUserInstruction(RolePlaySession session, int windowSize)
+    {
+        return session.Interactions
+            .TakeLast(windowSize)
+            .Any(x => string.Equals(x.ActorName, "Instruction", StringComparison.OrdinalIgnoreCase)
+                && string.IsNullOrWhiteSpace(x.GeneratedByCommand));
+    }
+
     // ---- End encounter participation helpers ------------------------------------------------
 
     public RolePlayEngineService(
@@ -1481,59 +1494,54 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             }, cancellationToken);
 
             // Multi-encounter Climax: when TimeSkipPending is set (detection just fired),
-            // reset the counter so the time-skip block below sees InteractionsInCurrentEncounter == 0.
+            // reset the counter so the time-skip check below sees InteractionsInCurrentEncounter == 0.
             var isClimaxPhase = string.Equals(session.AdaptiveState.CurrentPhase.ToString(), "Climax", StringComparison.OrdinalIgnoreCase);
             if (isClimaxPhase && session.AdaptiveState.TimeSkipPending)
             {
                 session.AdaptiveState.InteractionsInCurrentEncounter = 0;
-                session.AdaptiveState.TimeSkipPending = false;
             }
 
-            // Multi-encounter Climax: when a new encounter starts (counter just advanced,
-            // InteractionsInCurrentEncounter == 0), inject an Instruction interaction FIRST.
-            // This establishes the new time/context before any scene actor responds,
-            // so the model has a fresh scene frame to work from rather than continuing
-            // from the previous encounter's last moment.
-            RolePlayInteraction? injectedTimeSkipInstruction = null;
-            if (isClimaxPhase
+            // Multi-encounter Climax: determine if the time-skip directive should be injected
+            // into the first overflow actor's prompt this turn. One-shot: no Instruction
+            // interaction is created, so "Active Instruction (persistent)" re-injection cannot
+            // loop it across turns. Uses PromptIntent.Instruction for maximum authority.
+            var timeSkipActive = isClimaxPhase
                 && session.AdaptiveState.CurrentEncounterNumber > 1
                 && session.AdaptiveState.InteractionsInCurrentEncounter == 0
-                && _rpThemeService is not null
-                && !string.IsNullOrWhiteSpace(session.AdaptiveState.ActiveScenarioId))
+                && session.AdaptiveState.TimeSkipPending
+                && !HasRecentUserInstruction(session, windowSize: 3);
+
+            if (timeSkipActive)
             {
-                RPTheme? theme = null;
-                try { theme = await _rpThemeService.GetThemeAsync(session.AdaptiveState.ActiveScenarioId, cancellationToken); }
-                catch (Exception ex) { _logger.LogDebug(ex, "MultiEncounter time-skip: could not load theme"); }
-
-                if (theme is not null && RolePlayAssistantPrompts.IsMultiEncounterClimax(theme, "Climax"))
+                session.AdaptiveState.TimeSkipPending = false;
+                await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
                 {
-                    var timeSkipDirective = $"Close the current encounter naturally. Then advance time to a new moment — a different day or time, a new context, a new circumstance. Establish ordinary life before encounter #{session.AdaptiveState.CurrentEncounterNumber}.";
-                    var timeSkipInstruction = new RolePlayInteraction
+                    SessionId = session.Id,
+                    EventKind = "MultiEncounterTimeSkipDirectiveInjected",
+                    Severity = "Info",
+                    ActorName = "Instruction",
+                    Summary = $"Time-skip directive injected into first actor for encounter #{session.AdaptiveState.CurrentEncounterNumber}.",
+                    MetadataJson = JsonSerializer.Serialize(new
                     {
-                        InteractionType = InteractionType.System,
-                        ActorName = "Instruction",
-                        Content = timeSkipDirective,
-                        NarrativePhaseAtCreation = session.AdaptiveState.CurrentPhase
-                    };
-                    session.Interactions.Add(timeSkipInstruction);
-                    outputInteractionIds.Add(timeSkipInstruction.Id);
-                    await UpdateStateAndDetectEncounterAsync(session, timeSkipInstruction, cancellationToken);
-
-                    await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+                        encounterNumber = session.AdaptiveState.CurrentEncounterNumber
+                    })
+                }, cancellationToken);
+            }
+            else if (isClimaxPhase && session.AdaptiveState.TimeSkipPending && HasRecentUserInstruction(session, windowSize: 3))
+            {
+                // User Instruction is active — skip injection this turn, keep TimeSkipPending for retry.
+                await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+                {
+                    SessionId = session.Id,
+                    EventKind = "MultiEncounterTimeSkipSkippedDueToUserInstruction",
+                    Severity = "Info",
+                    ActorName = "Instruction",
+                    Summary = "Time-skip directive skipped due to active user Instruction. Will retry next turn.",
+                    MetadataJson = JsonSerializer.Serialize(new
                     {
-                        SessionId = session.Id,
-                        InteractionId = timeSkipInstruction.Id,
-                        EventKind = "MultiEncounterInstructionInjected",
-                        Severity = "Info",
-                        ActorName = "Instruction",
-                        Summary = $"Multi-encounter instruction injected for new encounter #{session.AdaptiveState.CurrentEncounterNumber}.",
-                        MetadataJson = JsonSerializer.Serialize(new
-                        {
-                            encounterNumber = session.AdaptiveState.CurrentEncounterNumber,
-                            directive = timeSkipDirective
-                        })
-                    }, cancellationToken);
-                }
+                        encounterNumber = session.AdaptiveState.CurrentEncounterNumber
+                    })
+                }, cancellationToken);
             }
 
             for (var i = 0; i < batchSize; i++)
@@ -1545,15 +1553,24 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
                 // Multi-encounter Climax: adjust the per-position prompt to reflect encounter state.
                 string promptText;
+                PromptIntent actorIntent = PromptIntent.Message;
                 if (isClimaxPhase)
                 {
                     if (i == 0)
                     {
-                        var isNewEncounterStart = session.AdaptiveState.CurrentEncounterNumber > 0
-                            && session.AdaptiveState.InteractionsInCurrentEncounter == 0;
-                        promptText = isNewEncounterStart
-                            ? "Continue the scene naturally."
-                            : "Continue the current encounter naturally from where it left off.";
+                        if (timeSkipActive)
+                        {
+                            promptText = "Close the current encounter naturally. Then advance time to a new moment — a different day or time, a new context, a new circumstance. Establish ordinary life.";
+                            actorIntent = PromptIntent.Instruction;
+                        }
+                        else
+                        {
+                            var isNewEncounterStart = session.AdaptiveState.CurrentEncounterNumber > 0
+                                && session.AdaptiveState.InteractionsInCurrentEncounter == 0;
+                            promptText = isNewEncounterStart
+                                ? "Continue the scene naturally."
+                                : "Continue the current encounter naturally from where it left off.";
+                        }
                     }
                     else
                     {
@@ -1569,7 +1586,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
                 await AlignPromptNarrativeStateWithV2Async(session, cancellationToken);
                 var interaction = await _continuationService.ContinueAsync(
-                    session, actor, actorName, PromptIntent.Message, promptText, onChunk, cancellationToken,
+                    session, actor, actorName, actorIntent, promptText, onChunk, cancellationToken,
                     turnIndex: persistedTurn.TurnIndex,
                     positionInTurn: positionInTurn,
                     turnActorCount: batchSize);
@@ -2370,6 +2387,8 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     private async Task UpdateStateAndDetectEncounterAsync(RolePlaySession session, RolePlayInteraction interaction, CancellationToken cancellationToken)
     {
         _logger.LogInformation("UpdateStateAndDetectEncounterAsync: called SessionId={SessionId} Actor={Actor} Enc={Enc} Ixns={Ixns}", session.Id, interaction.ActorName, session.AdaptiveState.CurrentEncounterNumber, session.AdaptiveState.InteractionsInCurrentEncounter);
+
+        interaction.NarrativePhaseAtCreation = session.AdaptiveState.CurrentPhase;
 
         session.AdaptiveState = await UpdateAdaptiveStateWithSemanticDiagnosticsAsync(session, interaction, cancellationToken);
 
