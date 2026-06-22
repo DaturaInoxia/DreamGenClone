@@ -145,6 +145,15 @@ public sealed class AdaptiveScenarioState
     /// </summary>
     public int InteractionsInCurrentEncounter { get; set; }
 
+    /// <summary>
+    /// Set to true when TryDetectEncounterBoundaryAsync advances CurrentEncounterNumber.
+    /// Signals the overflow block in ContinueAsAsync to generate a Narrative time-skip on
+    /// the next Continue click. Cleared after the time-skip is generated. Survives the
+    /// pipeline increment that would otherwise overwrite InteractionsInCurrentEncounter.
+    /// Dormant (false) for all themes without [ClimaxMode:multi-encounter].
+    /// </summary>
+    public bool TimeSkipPending { get; set; }
+
     // ---- V2 theme tracker -----------------------------------------------------------------
     /// <summary>Per-theme score state. Hydrated from <c>RolePlayV2ThemeScores</c>.</summary>
     public Dictionary<string, ThemeScoreState> ThemeScores { get; set; }
@@ -199,6 +208,37 @@ public sealed class AdaptiveScenarioState
     /// Populated at session load; updated in-memory when new summaries are written.
     /// </summary>
     public List<EncounterSummaryRecord> EncounterSummaries { get; set; } = [];
+
+    // ---- Encounter participation tracking ---------------------------------------------------
+    /// <summary>
+    /// Per-character encounter participation state. Keyed by character name (actorName).
+    /// Tracks whether each character is actively in a sexual encounter, used by boundary
+    /// detection, prompt building, gates, and other modules. Sync (heuristic) and async
+    /// (LLM-confirmed) tiers.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public Dictionary<string, CharacterEncounterState> CharacterEncounterStates { get; set; }
+        = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Set to true when encounter boundary state changes (CurrentEncounterNumber,
+    /// InteractionsInCurrentEncounter, TimeSkipPending) are made in-memory but not yet
+    /// persisted. Flushed at turn completion on success; discarded on turn failure.
+    /// Not serialized — always starts false on load.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsStateDirty { get; set; }
+
+    // ---- Encounter participation helper -----------------------------------------------------
+    /// <summary>
+    /// Returns true if the named character is flagged as actively in an encounter
+    /// (sync heuristic tier). Safe to call from any module.
+    /// </summary>
+    public bool IsCharacterHavingSex(string characterName)
+    {
+        return CharacterEncounterStates.TryGetValue(characterName, out var state)
+            && state.IsHavingSex;
+    }
 }
 
 public sealed class CharacterLocationState
@@ -219,4 +259,24 @@ public sealed class CharacterLocationPerceptionState
     public bool IsInProximity { get; set; }
     public string KnowledgeSource { get; set; } = "unknown";
     public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;
+}
+
+/// <summary>
+/// Per-character encounter participation state. Two-tier: sync heuristic (IsHavingSex)
+/// is available immediately for boundary detection and prompts; async LLM-confirmed
+/// (IsHavingSexConfirmed) is authoritative for scoring and analytics.
+/// </summary>
+public sealed class CharacterEncounterState
+{
+    /// <summary>Sync heuristic — true when character interaction contains sexual/erotic content.</summary>
+    public bool IsHavingSex { get; set; }
+
+    /// <summary>Async LLM-confirmed — true when the semantic job detects active-in-encounter.</summary>
+    public bool IsHavingSexConfirmed { get; set; }
+
+    /// <summary>Which encounter number this participation belongs to.</summary>
+    public int EncounterNumber { get; set; }
+
+    /// <summary>UTC timestamp when the character entered the encounter.</summary>
+    public DateTime? EnteredEncounterUtc { get; set; }
 }

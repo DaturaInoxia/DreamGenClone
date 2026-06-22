@@ -267,8 +267,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             GeneratedTemperature = resolved.Temperature,
             GeneratedTopP = resolved.TopP,
             GeneratedMaxTokens = resolved.MaxTokens,
-            ReasoningContent = reasoningContent,
-            NarrativePhaseAtCreation = session.AdaptiveState.CurrentPhase
+            ReasoningContent = reasoningContent
         };
 
         await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
@@ -342,8 +341,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             GeneratedByProvider = resolved.ProviderName,
             GeneratedTemperature = resolved.Temperature,
             GeneratedTopP = resolved.TopP,
-            GeneratedMaxTokens = resolved.MaxTokens,
-            NarrativePhaseAtCreation = session.AdaptiveState.CurrentPhase
+            GeneratedMaxTokens = resolved.MaxTokens
         };
     }
 
@@ -404,8 +402,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                 GeneratedByProvider = narrativeResolved.ProviderName,
                 GeneratedTemperature = narrativeResolved.Temperature,
                 GeneratedTopP = narrativeResolved.TopP,
-                GeneratedMaxTokens = narrativeResolved.MaxTokens,
-                NarrativePhaseAtCreation = session.AdaptiveState.CurrentPhase
+                GeneratedMaxTokens = narrativeResolved.MaxTokens
             };
         }
 
@@ -457,21 +454,19 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                     if (turnActorCount.Value > 1)
                         sb.AppendLine($"- The other {turnActorCount.Value - 1} character(s) will describe this same moment from their perspectives after you.");
                     sb.AppendLine("- Do not leave the beat unresolved — give it clear shape so others can react to it.");
-                    var phaseForBeatCheck = session.AdaptiveState.CurrentPhase.ToString();
-                    if (phaseForBeatCheck is "Committed" or "Approaching" or "Climax")
-                    {
-                        sb.AppendLine("- The beat you establish is a single exposure moment. Stay in that one moment — do not introduce multiple exposures, time jumps, or additional scene beats within this turn.");
-                    }
                 }
                 else if (positionInTurn.Value == turnActorCount.Value)
                 {
+                    // Persona (last before narrative): neutral continuation — they may
+                    // or may not be witnessing the active scene beat.
                     sb.AppendLine("- Continue from your character's perspective — what you observe, feel, or what occupies your attention in this moment.");
                     sb.AppendLine("- The narrative closes the turn after your response.");
                 }
                 else
                 {
-                    sb.AppendLine("HARD CONSTRAINT — Same beat: You are describing the exact same moment the first character established this turn. Do not change the time, location, event, or introduce a new exposure. Describe only that specific moment from your character's perspective.");
+                    sb.AppendLine("- Describe the same scene beat established this turn, from your character's perspective.");
                     sb.AppendLine("- Give your sensations, reactions, dialogue, and internal experience of this exact moment.");
+                    sb.AppendLine("- Do NOT advance to a new act, position, or story beat.");
                 }
             }
             else
@@ -947,61 +942,6 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             var maxThemeHardConstraints = Math.Clamp(session.MaxThemeAIGuidanceNotes, 1, 10);
             activeThemeHardConstraints = [.. RolePlayAssistantPrompts.GetThemeHardConstraintLines(activeTheme, maxThemeHardConstraints)];
             RolePlayAssistantPrompts.AppendThemeHardConstraints(sb, activeTheme, maxThemeHardConstraints);
-
-            // Inject phase guidance context and directive into all prompt types (not just steer)
-            if (activeTheme is not null)
-            {
-                var phaseGuidance = RolePlayAssistantPrompts.GetThemePhaseGuidanceLines(activeTheme, currentPhase);
-                if (phaseGuidance.Count > 0)
-                {
-                    sb.AppendLine($"- Phase context ({currentPhase}):");
-                    foreach (var line in phaseGuidance)
-                    {
-                        sb.AppendLine($"  {line}");
-                    }
-                }
-
-                var phaseDirectives = RolePlayAssistantPrompts.GetThemePhaseDirectiveLines(activeTheme, currentPhase);
-                if (phaseDirectives.Count > 0)
-                {
-                    foreach (var directive in phaseDirectives)
-                    {
-                        sb.AppendLine($"PHASE DIRECTIVE — {currentPhase}: {directive}");
-                    }
-                }
-                else if (phaseGuidance.Count > 0)
-                {
-                    foreach (var line in phaseGuidance)
-                    {
-                        sb.AppendLine($"PHASE DIRECTIVE — {currentPhase}: {line}");
-                    }
-                }
-            }
-
-            // Multi-encounter Climax context: inject encounter number + interaction count so the
-            // model knows which encounter it's in and can escalate across encounters. Theme-scoped
-            // via [ClimaxMode:multi-encounter] marker — dormant for all other themes.
-            if (activeTheme is not null
-                && string.Equals(currentPhase, "Climax", StringComparison.OrdinalIgnoreCase)
-                && RolePlayAssistantPrompts.IsMultiEncounterClimax(activeTheme, currentPhase)
-                && session.AdaptiveState.CurrentEncounterNumber > 0
-                && intent != PromptIntent.Instruction)
-            {
-                var encounterNum = session.AdaptiveState.CurrentEncounterNumber;
-                var interactionsInEncounter = session.AdaptiveState.InteractionsInCurrentEncounter;
-                sb.AppendLine("Encounter Context:");
-                sb.AppendLine($"- You are in encounter #{encounterNum} of the Climax phase.");
-                sb.AppendLine($"- {interactionsInEncounter} interaction(s) have occurred in this encounter so far.");
-                sb.AppendLine("- Each encounter is a discrete event separated by ordinary life. When an encounter reaches its peak (orgasm, spent, the moment passes), close it naturally. The next encounter begins in a new context, escalated from where this one ended.");
-                if (encounterNum > 1)
-                {
-                    sb.AppendLine($"- Escalation: encounter #{encounterNum} should start further along than encounter #{encounterNum - 1} — she is bolder, the tension is sharper, the boundary has already been crossed.");
-                }
-                if (interactionsInEncounter == 0)
-                {
-                    sb.AppendLine("- This is the first interaction of a new encounter — establish the new context (time, place, circumstance) before the exposure begins.");
-                }
-            }
 
             if (session.UseThemeAIGuidanceNotesInPrompt)
             {
@@ -1647,48 +1587,10 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             var phaseGuidance = RolePlayAssistantPrompts.GetThemePhaseGuidanceLines(activeTheme, currentPhase);
             if (phaseGuidance.Count > 0)
             {
-                sb.AppendLine($"- Phase context ({currentPhase}):");
+                sb.AppendLine($"- Apply theme phase guidance for {currentPhase}:");
                 foreach (var line in phaseGuidance)
                 {
-                    sb.AppendLine($"  {line}");
-                }
-            }
-
-            var phaseDirectives = RolePlayAssistantPrompts.GetThemePhaseDirectiveLines(activeTheme, currentPhase);
-            if (phaseDirectives.Count > 0)
-            {
-                foreach (var directive in phaseDirectives)
-                {
-                    sb.AppendLine($"PHASE DIRECTIVE — {currentPhase}: {directive}");
-                }
-            }
-            else if (phaseGuidance.Count > 0)
-            {
-                // Fallback: no DirectiveText set — use GuidanceText as directive
-                foreach (var line in phaseGuidance)
-                {
-                    sb.AppendLine($"PHASE DIRECTIVE — {currentPhase}: {line}");
-                }
-            }
-
-            // Multi-encounter Climax context for steer path — same injection as BuildPromptAsync.
-            if (string.Equals(currentPhase, "Climax", StringComparison.OrdinalIgnoreCase)
-                && RolePlayAssistantPrompts.IsMultiEncounterClimax(activeTheme, currentPhase)
-                && session.AdaptiveState.CurrentEncounterNumber > 0)
-            {
-                var encounterNum = session.AdaptiveState.CurrentEncounterNumber;
-                var interactionsInEncounter = session.AdaptiveState.InteractionsInCurrentEncounter;
-                sb.AppendLine("Encounter Context:");
-                sb.AppendLine($"- You are in encounter #{encounterNum} of the Climax phase.");
-                sb.AppendLine($"- {interactionsInEncounter} interaction(s) have occurred in this encounter so far.");
-                sb.AppendLine("- Each encounter is a discrete event separated by ordinary life. When an encounter reaches its peak (orgasm, spent, the moment passes), close it naturally. The next encounter begins in a new context, escalated from where this one ended.");
-                if (encounterNum > 1)
-                {
-                    sb.AppendLine($"- Escalation: encounter #{encounterNum} should start further along than encounter #{encounterNum - 1} — she is bolder, the tension is sharper, the boundary has already been crossed.");
-                }
-                if (interactionsInEncounter == 0)
-                {
-                    sb.AppendLine("- This is the first interaction of a new encounter — establish the new context (time, place, circumstance) before the exposure begins.");
+                    sb.AppendLine($"  - {line}");
                 }
             }
 

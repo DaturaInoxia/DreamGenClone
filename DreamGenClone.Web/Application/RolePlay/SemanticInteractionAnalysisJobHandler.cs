@@ -1,5 +1,6 @@
 using System.Text.Json;
 using DreamGenClone.Application.RolePlay;
+using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Infrastructure.Configuration;
 using DreamGenClone.Web.Application.BackgroundJobs;
 using DreamGenClone.Web.Application.Sessions;
@@ -235,6 +236,54 @@ public sealed class SemanticInteractionAnalysisJobHandler : IBackgroundJobHandle
                 interaction,
                 inferredSignals,
                 cancellationToken);
+
+            // ---- Separate active-in-encounter inference (independent of theme analysis) ----
+            // Runs as its own LLM call so it cannot interfere with theme/stat semantic events.
+            try
+            {
+                var activeResult = await _inferenceService.InferAsync(new SemanticEventInferenceRequest
+                {
+                    SessionId = session.Id,
+                    InteractionId = interaction.Id,
+                    ActorName = string.IsNullOrWhiteSpace(interaction.ActorName) ? payload.CharacterId : interaction.ActorName,
+                    InteractionText = interaction.Content ?? string.Empty,
+                    ContextTurns = contextTurns,
+                    AllowedEventIds = ["active-in-encounter"],
+                    EventDescriptions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["active-in-encounter"] = "The actor is engaged in or witnessing sexual or erotic activity — explicit or subtle. Includes: intercourse, foreplay, orgasm, aftermath; exhibitionism (down-blouse, revealing clothing, flashing, posing); voyeurism (watching, noticing someone undressed, staring); suggestive physical contact (brushing against, lingering touch, proximity charged with tension); flirtation with sexual undertones; being the target of another character's sexual attention or advances."
+                    }
+                }, cancellationToken);
+
+                if (activeResult.Success)
+                {
+                    var activeEvent = activeResult.Events
+                        .FirstOrDefault(x => string.Equals(x.EventId, "active-in-encounter", StringComparison.OrdinalIgnoreCase));
+                    if (activeEvent is not null)
+                    {
+                        var confirmedActor = string.IsNullOrWhiteSpace(activeEvent.ActorName)
+                            ? payload.CharacterId
+                            : activeEvent.ActorName;
+                        if (!session.AdaptiveState.CharacterEncounterStates.TryGetValue(confirmedActor, out var encState))
+                        {
+                            encState = new CharacterEncounterState();
+                            session.AdaptiveState.CharacterEncounterStates[confirmedActor] = encState;
+                        }
+                        encState.IsHavingSexConfirmed = true;
+                        encState.EncounterNumber = session.AdaptiveState.CurrentEncounterNumber;
+                        encState.EnteredEncounterUtc ??= DateTime.UtcNow;
+                        _logger.LogDebug(
+                            "active-in-encounter confirmed for {Actor} in session {SessionId} interaction {InteractionId}",
+                            confirmedActor, payload.SessionId, payload.InteractionId);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex,
+                    "active-in-encounter inference failed (non-fatal) SessionId={SessionId} InteractionId={InteractionId}",
+                    payload.SessionId, payload.InteractionId);
+            }
 
             // Persist ONLY the adaptive-state slice to V2 tables. Background semantic analysis
             // must never write the session blob (PayloadJson) because doing so would overwrite

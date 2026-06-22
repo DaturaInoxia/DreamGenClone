@@ -230,7 +230,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 CurrentBeatCode, TurnsInCurrentBeat,
                 CompletedScenarios, InteractionsSinceCommitment, InteractionsInApproaching, ScenarioCommitmentTimeUtc,
                 SemanticStepSucceeded, SemanticDeltaBreakdownsJson, SemanticStatDeltaBreakdownsJson,
-                CurrentEncounterNumber, InteractionsInCurrentEncounter,
+                CurrentEncounterNumber, InteractionsInCurrentEncounter, TimeSkipPending,
                 UpdatedUtc)
             VALUES (
                 $sessionId, $activeScenarioId, $currentPhase, $interactionCountInPhase, $consecutiveLeadCount,
@@ -242,7 +242,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 $currentBeatCode, $turnsInCurrentBeat,
                 $completedScenarios, $interactionsSinceCommitment, $interactionsInApproaching, $scenarioCommitmentTimeUtc,
                 $semanticStepSucceeded, $semanticDeltaBreakdownsJson, $semanticStatDeltaBreakdownsJson,
-                $currentEncounterNumber, $interactionsInCurrentEncounter,
+                $currentEncounterNumber, $interactionsInCurrentEncounter, $timeSkipPending,
                 $updatedUtc)
             ON CONFLICT(SessionId) DO UPDATE SET
                 ActiveScenarioId = excluded.ActiveScenarioId,
@@ -277,6 +277,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 SemanticStatDeltaBreakdownsJson = excluded.SemanticStatDeltaBreakdownsJson,
                 CurrentEncounterNumber = excluded.CurrentEncounterNumber,
                 InteractionsInCurrentEncounter = excluded.InteractionsInCurrentEncounter,
+                TimeSkipPending = excluded.TimeSkipPending,
                 UpdatedUtc = excluded.UpdatedUtc;
             """;
 
@@ -321,6 +322,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
         command.Parameters.AddWithValue("$semanticStatDeltaBreakdownsJson", JsonSerializer.Serialize(state.SemanticStatDeltaBreakdowns));
         command.Parameters.AddWithValue("$currentEncounterNumber", state.CurrentEncounterNumber);
         command.Parameters.AddWithValue("$interactionsInCurrentEncounter", state.InteractionsInCurrentEncounter);
+        command.Parameters.AddWithValue("$timeSkipPending", state.TimeSkipPending ? 1 : 0);
         command.Parameters.AddWithValue("$updatedUtc", nowUtc.ToString("O"));
         await command.ExecuteNonQueryAsync(cancellationToken);
 
@@ -515,7 +517,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                               CompletedScenarios, InteractionsSinceCommitment, InteractionsInApproaching, ScenarioCommitmentTimeUtc,
                               SemanticStepSucceeded, SemanticDeltaBreakdownsJson, SemanticStatDeltaBreakdownsJson,
                               CharacterEncounterProfileIdsJson,
-                              CurrentEncounterNumber, InteractionsInCurrentEncounter
+                              CurrentEncounterNumber, InteractionsInCurrentEncounter, TimeSkipPending
             FROM RolePlayV2AdaptiveStates
             WHERE SessionId = $sessionId;
             """;
@@ -585,7 +587,8 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                     JsonSerializer.Deserialize<Dictionary<string, string>>(reader.GetString(31)) ?? [],
                     StringComparer.OrdinalIgnoreCase),
             CurrentEncounterNumber = reader.IsDBNull(32) ? 0 : reader.GetInt32(32),
-            InteractionsInCurrentEncounter = reader.IsDBNull(33) ? 0 : reader.GetInt32(33)
+            InteractionsInCurrentEncounter = reader.IsDBNull(33) ? 0 : reader.GetInt32(33),
+            TimeSkipPending = reader.IsDBNull(34) ? false : reader.GetInt32(34) != 0
         };
         await reader.CloseAsync();
 
@@ -1010,6 +1013,12 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
         {
             await using var add = connection.CreateCommand();
             add.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN InteractionsInCurrentEncounter INTEGER NOT NULL DEFAULT 0";
+            await add.ExecuteNonQueryAsync(cancellationToken);
+        }
+        if (!await HasColumnAsync(connection, "RolePlayV2AdaptiveStates", "TimeSkipPending", cancellationToken))
+        {
+            await using var add = connection.CreateCommand();
+            add.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN TimeSkipPending INTEGER NOT NULL DEFAULT 0";
             await add.ExecuteNonQueryAsync(cancellationToken);
         }
 
