@@ -15,7 +15,8 @@ public sealed record ScenarioGuidanceInput(
     IReadOnlyDictionary<string, string> CharacterEncounterProfileIds,
     IReadOnlyList<ScenarioCharacter> Characters,
     IReadOnlyList<string> SuppressedScenarioIds,
-    IReadOnlyDictionary<string, CharacterStatProfileV2>? CharacterRuntimeStats = null);
+    IReadOnlyDictionary<string, CharacterStatProfileV2>? CharacterRuntimeStats = null,
+    string? SelectedResistanceProfileId = null);
 
 public sealed record ScenarioGuidanceContext(
     string Phase,

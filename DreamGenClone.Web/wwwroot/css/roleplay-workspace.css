@@ -239,6 +239,12 @@ article:has(.rw-shell) {
     margin-bottom: 3px;
 }
 
+.rw-interaction-header-right {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
 .rw-actor-name {
     font-size: 11px;
     font-weight: 600;
@@ -1156,9 +1162,17 @@ article:has(.rw-shell) {
     padding-bottom: 2px;
 }
 
+.rw-adaptive-panel .rw-phase-guidance-scroll {
+    max-height: 200px;
+    overflow-y: auto;
+}
+
 .rw-adaptive-panel .rw-settings-info-row.rw-settings-info-row-guidance > span {
     color: #edf3ff;
     padding-left: 10px;
+    text-transform: none;
+    font-size: 11px;
+    letter-spacing: normal;
 }
 
 .rw-adaptive-panel .rw-adaptive-note {
@@ -1693,6 +1707,48 @@ article:has(.rw-shell) {
 .rw-toolbar-btn-semantic-error:hover {
     background: #5a2222;
     color: #ffbbbb;
+}
+
+/* ─── Phase Badge ─── */
+
+.rw-phase-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 20px;
+    padding: 0 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.rw-phase-badge-buildup {
+    background: #1a3a5c;
+    color: #7bb8e8;
+}
+
+.rw-phase-badge-committed {
+    background: #1a4a3a;
+    color: #7bdca0;
+}
+
+.rw-phase-badge-approaching {
+    background: #4a3a1a;
+    color: #e8c87b;
+}
+
+.rw-phase-badge-climax {
+    background: #4a1a2a;
+    color: #e87b9a;
+}
+
+.rw-phase-badge-reset {
+    background: #3a3a3a;
+    color: #b8b8b8;
 }
 
 .rw-semantic-status {

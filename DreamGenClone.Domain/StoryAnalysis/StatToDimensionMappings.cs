@@ -14,7 +14,7 @@ public sealed record DimensionDriftRule(
 
 /// <summary>
 /// Static catalog of all stat-to-encounter-dimension drift rules.
-/// Wife has 8 rules; Husband has 6 rules; OtherMan has none.
+/// Wife has 13 rules; Husband has 6 rules; OtherMan has none.
 /// </summary>
 public static class StatToDimensionMappings
 {
@@ -28,6 +28,11 @@ public static class StatToDimensionMappings
         new("SelfRespect", "Wife", "DiscoveryCaution",   +0.60, 0, 100),
         new("Loyalty",     "Wife", "EmotionalEngagement",+0.60, 0, 100),
         new("Loyalty",     "Wife", "PostEncounterGuilt", +0.75, 0, 100),
+        new("Restraint",   "Wife", "BoundaryFirmness",   +0.90, 0, 100),
+        new("Loyalty",     "Wife", "BoundaryFirmness",   +0.75, 0, 100),
+        new("SelfRespect", "Wife", "BoundaryFirmness",   +0.60, 0, 100),
+        new("Restraint",   "Wife", "SeductionReceptivity",-0.60, 0, 100),
+        new("Desire",      "Wife", "SeductionReceptivity",+0.45, 0, 100),
     ];
 
     private static readonly IReadOnlyList<DimensionDriftRule> HusbandRules =

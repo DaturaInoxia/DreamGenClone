@@ -84,6 +84,7 @@ builder.Services.AddScoped<IRolePlayAssistantService, RolePlayAssistantService>(
 builder.Services.AddScoped<IScenarioAssistantService, ScenarioAssistantService>();
 builder.Services.AddScoped<RolePlayPromptComposer>();
 builder.Services.AddScoped<IRolePlayEngineService, RolePlayEngineService>();
+builder.Services.AddScoped<IRolePlayAutoCompleteService, RolePlayAutoCompleteService>();
 builder.Services.AddScoped<IRolePlayContinuationService, RolePlayContinuationService>();
 builder.Services.AddScoped<IRolePlayAdaptiveStateService, RolePlayAdaptiveStateService>();
 builder.Services.AddScoped<ISemanticEventInferenceService, SemanticEventInferenceService>();
@@ -149,6 +150,7 @@ builder.Services.AddScoped<ICharacterStatPresetImportService, CharacterStatPrese
 builder.Services.AddScoped<IStatKeywordCategoryService, StatKeywordCategoryService>();
 builder.Services.AddScoped<IBaseStatProfileService, BaseStatProfileService>();
 builder.Services.AddScoped<IStatWillingnessProfileService, StatWillingnessProfileService>();
+builder.Services.AddScoped<IStatResistanceProfileService, StatResistanceProfileService>();
 builder.Services.AddScoped<INarrativeGateProfileService, NarrativeGateProfileService>();
 builder.Services.AddScoped<IHusbandAwarenessProfileService, HusbandAwarenessProfileService>();
 builder.Services.AddScoped<ICharacterProfileService, CharacterProfileService>();

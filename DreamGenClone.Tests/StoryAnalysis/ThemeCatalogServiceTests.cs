@@ -255,6 +255,11 @@ public sealed class ThemeCatalogServiceTests
         public Task<StatWillingnessProfile?> LoadDefaultStatWillingnessProfileAsync(CancellationToken ct = default) => throw new NotImplementedException();
         public Task<List<StatWillingnessProfile>> LoadAllStatWillingnessProfilesAsync(CancellationToken ct = default) => throw new NotImplementedException();
         public Task<bool> DeleteStatWillingnessProfileAsync(string id, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task SaveStatResistanceProfileAsync(StatResistanceProfile profile, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<StatResistanceProfile?> LoadStatResistanceProfileAsync(string id, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<StatResistanceProfile?> LoadDefaultStatResistanceProfileAsync(CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<List<StatResistanceProfile>> LoadAllStatResistanceProfilesAsync(CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<bool> DeleteStatResistanceProfileAsync(string id, CancellationToken ct = default) => throw new NotImplementedException();
         public Task SaveNarrativeGateProfileAsync(NarrativeGateProfile profile, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<NarrativeGateProfile?> LoadNarrativeGateProfileAsync(string id, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<NarrativeGateProfile?> LoadDefaultNarrativeGateProfileAsync(CancellationToken ct = default) => throw new NotImplementedException();

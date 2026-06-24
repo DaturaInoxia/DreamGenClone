@@ -28,9 +28,11 @@ public sealed class ScenarioGuidanceRequest
     public double AverageDominance { get; init; } = 50;
     public double AverageLoyalty { get; init; } = 50;
     public string? SelectedWillingnessProfileId { get; init; }
+    public string? SelectedResistanceProfileId { get; init; }
     public IReadOnlyDictionary<string, string> CharacterEncounterProfileIds { get; init; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
     public IReadOnlyList<ScenarioCharacter> Characters { get; init; } = [];
     public IReadOnlyList<string> SuppressedScenarioIds { get; init; } = [];
+    public IReadOnlyDictionary<string, CharacterStatProfileV2>? CharacterRuntimeStats { get; init; }
 }
 
 public sealed class ScenarioGuidanceOutput

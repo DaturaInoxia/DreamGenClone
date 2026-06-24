@@ -37,4 +37,10 @@ public class Character
     public CharacterPerspectiveMode PerspectiveMode { get; set; } = CharacterPerspectiveMode.ThirdPersonExternalOnly;
 
     public DreamGenClone.Domain.Templates.PhysicalAttributes? PhysicalAttributes { get; set; }
+
+    /// <summary>
+    /// Optional default CharacterProfile (encounter profile) ID pre-selected
+    /// when creating an RP session from this scenario. Can be overridden in the wizard.
+    /// </summary>
+    public string? DefaultEncounterProfileId { get; set; }
 }

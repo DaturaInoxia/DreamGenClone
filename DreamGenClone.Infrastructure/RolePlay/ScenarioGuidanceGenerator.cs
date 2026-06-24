@@ -3,6 +3,7 @@ using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Application.StoryAnalysis;
 using DreamGenClone.Application.Templates;
 using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Domain.StoryAnalysis;
 using DreamGenClone.Domain.Templates;
 using Microsoft.Extensions.Logging;
 
@@ -17,6 +18,7 @@ public sealed class ScenarioGuidanceGenerator : IScenarioGuidanceGenerator
 
     private readonly ITemplateService _templateService;
     private readonly IStatWillingnessProfileService? _statWillingnessProfileService;
+    private readonly IStatResistanceProfileService? _statResistanceProfileService;
     private readonly IHusbandAwarenessProfileService? _husbandAwarenessProfileService;
     private readonly ILogger<ScenarioGuidanceGenerator> _logger;
 
@@ -24,11 +26,13 @@ public sealed class ScenarioGuidanceGenerator : IScenarioGuidanceGenerator
         ITemplateService templateService,
         ILogger<ScenarioGuidanceGenerator> logger,
         IStatWillingnessProfileService? statWillingnessProfileService = null,
+        IStatResistanceProfileService? statResistanceProfileService = null,
         IHusbandAwarenessProfileService? husbandAwarenessProfileService = null)
     {
         _templateService = templateService;
         _logger = logger;
         _statWillingnessProfileService = statWillingnessProfileService;
+        _statResistanceProfileService = statResistanceProfileService;
         _husbandAwarenessProfileService = husbandAwarenessProfileService;
     }
 
@@ -66,6 +70,12 @@ public sealed class ScenarioGuidanceGenerator : IScenarioGuidanceGenerator
         if (!string.IsNullOrWhiteSpace(willingnessInterpretation))
         {
             guidanceText = $"{guidanceText} {willingnessInterpretation}";
+        }
+
+        var resistanceInterpretation = await BuildResistanceInterpretationAsync(request, cancellationToken);
+        if (!string.IsNullOrWhiteSpace(resistanceInterpretation))
+        {
+            guidanceText = $"{guidanceText} {resistanceInterpretation}";
         }
 
         return new ScenarioGuidanceOutput
@@ -250,6 +260,92 @@ public sealed class ScenarioGuidanceGenerator : IScenarioGuidanceGenerator
             : $" Examples: {string.Join(", ", threshold.ExampleScenarios)}.";
 
         return $"Willingness band '{threshold.ExplicitnessLevel}' ({threshold.MinValue}-{threshold.MaxValue}) from {targetStat}={roundedDesire}: {threshold.PromptGuideline}.{examples}";
+    }
+
+    private async Task<string> BuildResistanceInterpretationAsync(ScenarioGuidanceRequest request, CancellationToken cancellationToken)
+    {
+        if (_statResistanceProfileService is null)
+        {
+            return string.Empty;
+        }
+
+        var selectedId = request.SelectedResistanceProfileId;
+        StatResistanceProfile? profile;
+        if (string.IsNullOrWhiteSpace(selectedId))
+        {
+            profile = (await _statResistanceProfileService.ListAsync(cancellationToken))
+                .FirstOrDefault(p => p.IsDefault);
+        }
+        else
+        {
+            profile = await _statResistanceProfileService.GetAsync(selectedId, cancellationToken);
+        }
+
+        if (profile is null || profile.Thresholds.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        // Resolve target stat value
+        var targetStat = string.IsNullOrWhiteSpace(profile.TargetStatName)
+            ? "Loyalty"
+            : profile.TargetStatName.Trim();
+
+        var statValue = ResolveAverageForStat(request, targetStat);
+        var roundedStat = (int)Math.Round(statValue, MidpointRounding.AwayFromZero);
+
+        // T023: compute motivation score from behavioral dimensions
+        var motivationScore = ComputeMotivationScore(request);
+        var effectiveStat = Math.Min(roundedStat + motivationScore, 100);
+
+        var threshold = profile.Thresholds
+            .OrderBy(x => x.SortOrder)
+            .ThenBy(x => x.MinValue)
+            .FirstOrDefault(x => effectiveStat >= x.MinValue && effectiveStat <= x.MaxValue);
+
+        if (threshold is null)
+        {
+            return string.Empty;
+        }
+
+        var examples = threshold.ExampleScenarios.Count == 0
+            ? string.Empty
+            : $" Examples: {string.Join(", ", threshold.ExampleScenarios)}.";
+
+        return $"Resistance band '{threshold.ResistanceLevel}' ({threshold.MinValue}-{threshold.MaxValue}) from {targetStat}={roundedStat} (effective={effectiveStat}, motivation={motivationScore}): {threshold.Description}.{examples}";
+    }
+
+    private int ComputeMotivationScore(ScenarioGuidanceRequest request)
+    {
+        // Resolve per-character RuntimeEncounterStat values.
+        // Default to 50 (neutral) when a character role or stat is not found.
+        var stats = request.CharacterRuntimeStats;
+        if (stats is null || stats.Count == 0)
+        {
+            return 0;
+        }
+
+        // Find characters by role
+        var wifeStats = stats.Values.FirstOrDefault(s =>
+            string.Equals(s.CharacterRole, "Wife", StringComparison.OrdinalIgnoreCase));
+        var husbandStats = stats.Values.FirstOrDefault(s =>
+            string.Equals(s.CharacterRole, "Husband", StringComparison.OrdinalIgnoreCase));
+        var otherManStats = stats.Values.FirstOrDefault(s =>
+            string.Equals(s.CharacterRole, "OtherMan", StringComparison.OrdinalIgnoreCase));
+
+        // Resolve dimension values (default 50 = neutral)
+        var attentiveness = husbandStats?.RuntimeEncounterStats?.TryGetValue("Attentiveness", out var att) == true
+            ? att : 50;
+        var intimacyAvailability = husbandStats?.RuntimeEncounterStats?.TryGetValue("IntimacyAvailability", out var ia) == true
+            ? ia : 50;
+        var selfRespect = wifeStats?.RuntimeEncounterStats?.TryGetValue("SelfRespect", out var sr) == true
+            ? sr : 50;
+        var persistencePastLimits = otherManStats?.RuntimeEncounterStats?.TryGetValue("PersistencePastLimits", out var ppl) == true
+            ? ppl : 50;
+
+        // Formula: ((100−Attentiveness) + (100−IntimacyAvailability) + (100−SelfRespect) + PersistencePastLimits) / 4
+        var score = ((100 - attentiveness) + (100 - intimacyAvailability) + (100 - selfRespect) + persistencePastLimits) / 4.0;
+        return (int)Math.Round(score, MidpointRounding.AwayFromZero);
     }
 
     private static double ResolveAverageForStat(ScenarioGuidanceRequest request, string statName)

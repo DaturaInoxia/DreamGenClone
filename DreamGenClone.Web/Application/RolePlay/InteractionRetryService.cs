@@ -45,9 +45,9 @@ public sealed class InteractionRetryService : IInteractionRetryService
 
         var prompt = await BuildRetryPromptAsync(session, active, null, cancellationToken);
         var resolved = await ResolveModelAsync(session, sessionModelId: null, cancellationToken);
-        var output = await _completionClient.GenerateAsync(prompt, resolved, cancellationToken);
+        var (output, reasoningContent) = await _completionClient.GenerateWithReasoningAsync(prompt, resolved, cancellationToken);
 
-        var alternative = CreateAlternative(original, session, active.InteractionType, active.ActorName, output, resolved, "Retry");
+        var alternative = CreateAlternative(original, session, active.InteractionType, active.ActorName, output, reasoningContent, resolved, "Retry");
 
         _logger.LogInformation(
             "Retry created alternative {AlternativeIndex} for interaction {InteractionId} in session {SessionId}",
@@ -67,9 +67,9 @@ public sealed class InteractionRetryService : IInteractionRetryService
 
         var prompt = await BuildRetryPromptAsync(session, active, null, cancellationToken);
         var resolved = await ResolveModelAsync(session, modelId, cancellationToken);
-        var output = await _completionClient.GenerateAsync(prompt, resolved, cancellationToken);
+        var (output, reasoningContent) = await _completionClient.GenerateWithReasoningAsync(prompt, resolved, cancellationToken);
 
-        var alternative = CreateAlternative(original, session, active.InteractionType, active.ActorName, output, resolved, "RetryWithModel");
+        var alternative = CreateAlternative(original, session, active.InteractionType, active.ActorName, output, reasoningContent, resolved, "RetryWithModel");
 
         _logger.LogInformation(
             "RetryWithModel created alternative {AlternativeIndex} for interaction {InteractionId} using model {ModelId} in session {SessionId}",
@@ -105,9 +105,9 @@ public sealed class InteractionRetryService : IInteractionRetryService
 
         var prompt = await BuildRetryPromptAsync(session, original, $"Rewrite as character: {actorName}", cancellationToken);
         var resolved = await ResolveModelAsync(session, sessionModelId: null, cancellationToken);
-        var output = await _completionClient.GenerateAsync(prompt, resolved, cancellationToken);
+        var (output, reasoningContent) = await _completionClient.GenerateWithReasoningAsync(prompt, resolved, cancellationToken);
 
-        var alternative = CreateAlternative(original, session, interactionType, actorName, output, resolved, "RetryAs");
+        var alternative = CreateAlternative(original, session, interactionType, actorName, output, reasoningContent, resolved, "RetryAs");
 
         _logger.LogInformation(
             "RetryAs created alternative {AlternativeIndex} as {ActorName} for interaction {InteractionId} in session {SessionId}",
@@ -126,9 +126,9 @@ public sealed class InteractionRetryService : IInteractionRetryService
 
         var prompt = await BuildRetryPromptAsync(session, active, "Rewrite the following interaction to be significantly longer and more detailed, expanding on descriptions, dialogue, and atmosphere.", cancellationToken);
         var resolved = await ResolveModelAsync(session, sessionModelId: null, cancellationToken);
-        var output = await _completionClient.GenerateAsync(prompt, resolved, cancellationToken);
+        var (output, reasoningContent) = await _completionClient.GenerateWithReasoningAsync(prompt, resolved, cancellationToken);
 
-        var alternative = CreateAlternative(original, session, active.InteractionType, active.ActorName, output, resolved, "MakeLonger");
+        var alternative = CreateAlternative(original, session, active.InteractionType, active.ActorName, output, reasoningContent, resolved, "MakeLonger");
 
         _logger.LogInformation(
             "MakeLonger created alternative {AlternativeIndex} for interaction {InteractionId} in session {SessionId}",
@@ -147,9 +147,9 @@ public sealed class InteractionRetryService : IInteractionRetryService
 
         var prompt = await BuildRetryPromptAsync(session, active, "Rewrite the following interaction to be shorter and more concise, keeping only the essential content.", cancellationToken);
         var resolved = await ResolveModelAsync(session, sessionModelId: null, cancellationToken);
-        var output = await _completionClient.GenerateAsync(prompt, resolved, cancellationToken);
+        var (output, reasoningContent) = await _completionClient.GenerateWithReasoningAsync(prompt, resolved, cancellationToken);
 
-        var alternative = CreateAlternative(original, session, active.InteractionType, active.ActorName, output, resolved, "MakeShorter");
+        var alternative = CreateAlternative(original, session, active.InteractionType, active.ActorName, output, reasoningContent, resolved, "MakeShorter");
 
         _logger.LogInformation(
             "MakeShorter created alternative {AlternativeIndex} for interaction {InteractionId} in session {SessionId}",
@@ -174,9 +174,9 @@ public sealed class InteractionRetryService : IInteractionRetryService
 
         var prompt = await BuildRetryPromptAsync(session, active, $"Rewrite instruction: {instruction.Trim()}", cancellationToken);
         var resolved = await ResolveModelAsync(session, sessionModelId: null, cancellationToken);
-        var output = await _completionClient.GenerateAsync(prompt, resolved, cancellationToken);
+        var (output, reasoningContent) = await _completionClient.GenerateWithReasoningAsync(prompt, resolved, cancellationToken);
 
-        var alternative = CreateAlternative(original, session, active.InteractionType, active.ActorName, output, resolved, "AskToRewrite");
+        var alternative = CreateAlternative(original, session, active.InteractionType, active.ActorName, output, reasoningContent, resolved, "AskToRewrite");
 
         _logger.LogInformation(
             "AskToRewrite created alternative {AlternativeIndex} for interaction {InteractionId} in session {SessionId}",
@@ -204,6 +204,7 @@ public sealed class InteractionRetryService : IInteractionRetryService
         InteractionType interactionType,
         string actorName,
         string output,
+        string? reasoningContent,
         ResolvedModel resolvedModel,
         string command)
     {
@@ -228,7 +229,9 @@ public sealed class InteractionRetryService : IInteractionRetryService
             GeneratedByProvider = resolvedModel.ProviderName,
             GeneratedTemperature = resolvedModel.Temperature,
             GeneratedTopP = resolvedModel.TopP,
-            GeneratedMaxTokens = resolvedModel.MaxTokens
+            GeneratedMaxTokens = resolvedModel.MaxTokens,
+            ReasoningContent = reasoningContent,
+            NarrativePhaseAtCreation = session.AdaptiveState.CurrentPhase
         };
 
         original.ActiveAlternativeIndex = nextIndex;
@@ -252,6 +255,22 @@ public sealed class InteractionRetryService : IInteractionRetryService
         {
             sb.AppendLine($"POV Persona ({session.PersonaName}):");
             sb.AppendLine(session.PersonaDescription.Trim());
+            var personaAppearance = PhysicalAttributesFormatter.FormatBlock(
+                session.PersonaPhysicalAttributes, session.PersonaGender);
+            if (!string.IsNullOrEmpty(personaAppearance))
+            {
+                sb.AppendLine(personaAppearance);
+            }
+
+            // Inject intimate behavioral self-awareness text for persona
+            if (session.PersonaPhysicalAttributes is not null)
+            {
+                var selfAwareness = IntimateBehavioralTextBuilder.BuildSelfAwarenessText(
+                    session.PersonaPhysicalAttributes, session.PersonaGender,
+                    awarenessLevel: null, session.PersonaName);
+                if (!string.IsNullOrEmpty(selfAwareness))
+                    sb.AppendLine(selfAwareness);
+            }
         }
         else if (session.PersonaName != "You")
         {
@@ -288,6 +307,11 @@ public sealed class InteractionRetryService : IInteractionRetryService
                 sb.AppendLine($"- Description: {scenario.Description}");
                 sb.AppendLine($"- Plot: {scenario.Plot.Description}");
                 sb.AppendLine($"- Setting: {scenario.Setting.WorldDescription}");
+                if (!string.IsNullOrWhiteSpace(scenario.Setting?.TimeFrame))
+                {
+                    sb.AppendLine($"- Time Frame: {scenario.Setting.TimeFrame.Trim()}");
+                    sb.AppendLine("- Time Span Reminder: This entire story takes place within the time frame above. Scenes may skip forward in time; a new response does not have to be the immediate continuation of the last moment.");
+                }
                 sb.AppendLine($"- Narrative: {scenario.Narrative.ProseStyle} / {scenario.Narrative.NarrativeTone}");
 
                 if (scenario.Plot.Goals.Count > 0)
@@ -357,10 +381,21 @@ public sealed class InteractionRetryService : IInteractionRetryService
                             ? "(no description)"
                             : character.Description.Trim();
                         sb.AppendLine($"  {character.Name!.Trim()}{roleText}{relationSuffix}: {description}");
-                        var charAppearance = PhysicalAttributesFormatter.FormatBlock(character.PhysicalAttributes);
+                        var charAppearance = PhysicalAttributesFormatter.FormatBlock(
+                            character.PhysicalAttributes, character.Gender);
                         if (!string.IsNullOrEmpty(charAppearance))
                         {
                             sb.AppendLine($"    {charAppearance}");
+                        }
+
+                        // Inject intimate behavioral self-awareness text for character
+                        if (character.PhysicalAttributes is not null)
+                        {
+                            var selfAwareness = IntimateBehavioralTextBuilder.BuildSelfAwarenessText(
+                                character.PhysicalAttributes, character.Gender,
+                                awarenessLevel: null, character.Name);
+                            if (!string.IsNullOrEmpty(selfAwareness))
+                                sb.AppendLine($"    {selfAwareness}");
                         }
                     }
                 }

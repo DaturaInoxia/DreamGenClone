@@ -1,8 +1,10 @@
 using System.Text.Json;
 using DreamGenClone.Application.RolePlay;
+using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Infrastructure.Configuration;
 using DreamGenClone.Web.Application.BackgroundJobs;
 using DreamGenClone.Web.Application.Sessions;
+using DreamGenClone.Web.Domain.RolePlay;
 using Microsoft.Extensions.Options;
 
 
@@ -146,6 +148,18 @@ public sealed class SemanticInteractionAnalysisJobHandler : IBackgroundJobHandle
                 .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
+            // Multi-encounter Climax: exclude `encounter-completed` from the async job.
+            // That event is owned by the sync detection path (TryDetectEncounterBoundaryAsync
+            // in the engine), which runs inline so the counter advances before the next prompt.
+            if (allowedEventIds.Contains("encounter-completed", StringComparer.OrdinalIgnoreCase)
+                && await IsMultiEncounterClimaxActiveAsync(session))
+            {
+                allowedEventIds = allowedEventIds
+                    .Where(x => !string.Equals(x, "encounter-completed", StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                _logger.LogDebug("Excluded encounter-completed from async semantic job (multi-encounter active): SessionId={SessionId}", session.Id);
+            }
+
             if (allowedEventIds.Count == 0)
             {
                 throw new InvalidOperationException("MissingSemanticConfiguration: session themes have no enabled semantic event mappings.");
@@ -222,6 +236,54 @@ public sealed class SemanticInteractionAnalysisJobHandler : IBackgroundJobHandle
                 interaction,
                 inferredSignals,
                 cancellationToken);
+
+            // ---- Separate active-in-encounter inference (independent of theme analysis) ----
+            // Runs as its own LLM call so it cannot interfere with theme/stat semantic events.
+            try
+            {
+                var activeResult = await _inferenceService.InferAsync(new SemanticEventInferenceRequest
+                {
+                    SessionId = session.Id,
+                    InteractionId = interaction.Id,
+                    ActorName = string.IsNullOrWhiteSpace(interaction.ActorName) ? payload.CharacterId : interaction.ActorName,
+                    InteractionText = interaction.Content ?? string.Empty,
+                    ContextTurns = contextTurns,
+                    AllowedEventIds = ["active-in-encounter"],
+                    EventDescriptions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["active-in-encounter"] = "The actor is engaged in or witnessing sexual or erotic activity — explicit or subtle. Includes: intercourse, foreplay, orgasm, aftermath; exhibitionism (down-blouse, revealing clothing, flashing, posing); voyeurism (watching, noticing someone undressed, staring); suggestive physical contact (brushing against, lingering touch, proximity charged with tension); flirtation with sexual undertones; being the target of another character's sexual attention or advances."
+                    }
+                }, cancellationToken);
+
+                if (activeResult.Success)
+                {
+                    var activeEvent = activeResult.Events
+                        .FirstOrDefault(x => string.Equals(x.EventId, "active-in-encounter", StringComparison.OrdinalIgnoreCase));
+                    if (activeEvent is not null)
+                    {
+                        var confirmedActor = string.IsNullOrWhiteSpace(activeEvent.ActorName)
+                            ? payload.CharacterId
+                            : activeEvent.ActorName;
+                        if (!session.AdaptiveState.CharacterEncounterStates.TryGetValue(confirmedActor, out var encState))
+                        {
+                            encState = new CharacterEncounterState();
+                            session.AdaptiveState.CharacterEncounterStates[confirmedActor] = encState;
+                        }
+                        encState.IsHavingSexConfirmed = true;
+                        encState.EncounterNumber = session.AdaptiveState.CurrentEncounterNumber;
+                        encState.EnteredEncounterUtc ??= DateTime.UtcNow;
+                        _logger.LogDebug(
+                            "active-in-encounter confirmed for {Actor} in session {SessionId} interaction {InteractionId}",
+                            confirmedActor, payload.SessionId, payload.InteractionId);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex,
+                    "active-in-encounter inference failed (non-fatal) SessionId={SessionId} InteractionId={InteractionId}",
+                    payload.SessionId, payload.InteractionId);
+            }
 
             // Persist ONLY the adaptive-state slice to V2 tables. Background semantic analysis
             // must never write the session blob (PayloadJson) because doing so would overwrite
@@ -330,6 +392,19 @@ public sealed class SemanticInteractionAnalysisJobHandler : IBackgroundJobHandle
 
             throw;
         }
+    }
+
+    private async Task<bool> IsMultiEncounterClimaxActiveAsync(RolePlaySession session)
+    {
+        var activeThemeId = session.AdaptiveState.ActiveScenarioId;
+        if (string.IsNullOrWhiteSpace(activeThemeId) || _rpThemeService is null) return false;
+        if (session.AdaptiveState.CurrentPhase != DreamGenClone.Domain.RolePlay.NarrativePhase.Climax) return false;
+        try
+        {
+            var theme = await _rpThemeService.GetThemeAsync(activeThemeId, CancellationToken.None);
+            return RolePlayAssistantPrompts.IsMultiEncounterClimax(theme, "Climax");
+        }
+        catch (Exception ex) { _logger.LogDebug(ex, "IsMultiEncounterClimaxActive: could not load theme {ThemeId}", activeThemeId); return false; }
     }
 
     private sealed class SemanticInteractionAnalysisResult

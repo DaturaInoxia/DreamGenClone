@@ -143,7 +143,8 @@ public sealed class RolePlayBranchService : IRolePlayBranchService
             CreatedAt = active.CreatedAt,
             IsExcluded = active.IsExcluded,
             IsHidden = active.IsHidden,
-            IsPinned = active.IsPinned
+            IsPinned = active.IsPinned,
+            NarrativePhaseAtCreation = active.NarrativePhaseAtCreation
         };
     }
 
@@ -157,7 +158,8 @@ public sealed class RolePlayBranchService : IRolePlayBranchService
             CreatedAt = interaction.CreatedAt,
             IsExcluded = interaction.IsExcluded,
             IsHidden = interaction.IsHidden,
-            IsPinned = interaction.IsPinned
+            IsPinned = interaction.IsPinned,
+            NarrativePhaseAtCreation = interaction.NarrativePhaseAtCreation
         };
     }
 }

@@ -23,6 +23,23 @@ public static class RolePlayAssistantPrompts
             .ToList();
     }
 
+    public static IReadOnlyList<string> GetThemePhaseDirectiveLines(
+        RPTheme? activeTheme,
+        string phase)
+    {
+        if (activeTheme is null || activeTheme.PhaseGuidance.Count == 0)
+        {
+            return [];
+        }
+
+        return activeTheme.PhaseGuidance
+            .Where(x => string.Equals(x.Phase.ToString(), phase, StringComparison.OrdinalIgnoreCase))
+            .Where(x => !string.IsNullOrWhiteSpace(x.DirectiveText))
+            .Select(x => x.DirectiveText.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
     public static bool IsEpisodicBeatStyle(RPTheme? activeTheme, string phase)
     {
         if (activeTheme is null) return false;
@@ -37,6 +54,68 @@ public static class RolePlayAssistantPrompts
         return activeTheme.PhaseGuidance
             .Where(x => string.Equals(x.Phase.ToString(), phase, StringComparison.OrdinalIgnoreCase))
             .Any(x => x.GuidanceText.Contains("[ClimaxMode:quick-finish]", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Detects the [ClimaxMode:multi-encounter] phase-guidance marker. When true, the Climax
+    /// phase is paced as multiple discrete encounters whose boundaries are detected by the
+    /// sync encounter-completed semantic inference call. Theme-scoped — dormant for themes
+    /// without the marker.
+    /// </summary>
+    public static bool IsMultiEncounterClimax(RPTheme? activeTheme, string phase)
+    {
+        if (activeTheme is null) return false;
+        return activeTheme.PhaseGuidance
+            .Where(x => string.Equals(x.Phase.ToString(), phase, StringComparison.OrdinalIgnoreCase))
+            .Any(x => x.GuidanceText.Contains("[ClimaxMode:multi-encounter]", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Validates that a theme does not declare both [ClimaxMode:multi-encounter] and
+    /// [ClimaxMode:quick-finish] in the same phase — they are mutually exclusive pacing modes.
+    /// Throws InvalidOperationException with an explicit diagnostic if both are present.
+    /// </summary>
+    public static void EnsureClimaxModeMutualExclusion(RPTheme? activeTheme, string phase)
+    {
+        if (activeTheme is null) return;
+        var phaseGuidance = activeTheme.PhaseGuidance
+            .Where(x => string.Equals(x.Phase.ToString(), phase, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        var hasMulti = phaseGuidance.Any(x => x.GuidanceText.Contains("[ClimaxMode:multi-encounter]", StringComparison.OrdinalIgnoreCase));
+        var hasQuick = phaseGuidance.Any(x => x.GuidanceText.Contains("[ClimaxMode:quick-finish]", StringComparison.OrdinalIgnoreCase));
+        if (hasMulti && hasQuick)
+        {
+            throw new InvalidOperationException(
+                $"ClimaxModeConflict: theme '{activeTheme.Id}' phase '{phase}' declares both [ClimaxMode:multi-encounter] and [ClimaxMode:quick-finish]. These are mutually exclusive pacing modes — remove one.");
+        }
+    }
+
+    /// <summary>
+    /// Returns the pacing mode declared by [Pacing:slow], [Pacing:medium], or [Pacing:fast]
+    /// in the theme's phase guidance for the given phase. Returns null if no marker is present.
+    /// When no marker is present, no scene writing directive is injected.
+    /// </summary>
+    public static string? GetPacingMode(RPTheme? activeTheme, string phase)
+    {
+        if (activeTheme is null || activeTheme.PhaseGuidance.Count == 0)
+            return null;
+
+        var guidanceTexts = activeTheme.PhaseGuidance
+            .Where(x => string.Equals(x.Phase.ToString(), phase, StringComparison.OrdinalIgnoreCase))
+            .Select(x => x.GuidanceText)
+            .Where(x => !string.IsNullOrWhiteSpace(x));
+
+        foreach (var text in guidanceTexts)
+        {
+            if (text.Contains("[Pacing:fast]", StringComparison.OrdinalIgnoreCase))
+                return "fast";
+            if (text.Contains("[Pacing:medium]", StringComparison.OrdinalIgnoreCase))
+                return "medium";
+            if (text.Contains("[Pacing:slow]", StringComparison.OrdinalIgnoreCase))
+                return "slow";
+        }
+
+        return null;
     }
 
     public static bool AllowsWithinTimeframeTimeShift(RPTheme? activeTheme, string phase)
@@ -122,10 +201,10 @@ public static class RolePlayAssistantPrompts
 
         foreach (var (label, frameText) in guidance.CharacterBehavioralFrames)
         {
-            promptBuilder.AppendLine($"HARD CONSTRAINT — {label} behavioral frame (authoritative, overrides all theme notes and guidance): {frameText}");
+            promptBuilder.AppendLine($"HARD CONSTRAINT — {label} behavioral frame (authoritative character state): {frameText}");
             if (guidance.CharacterStatStateTexts.TryGetValue(label, out var statStateText))
             {
-                promptBuilder.AppendLine($"HARD CONSTRAINT — {label} current state (authoritative, overrides all theme notes and guidance): {statStateText}");
+                promptBuilder.AppendLine($"HARD CONSTRAINT — {label} current state (authoritative): {statStateText}");
             }
         }
 
@@ -133,7 +212,7 @@ public static class RolePlayAssistantPrompts
         {
             if (!guidance.CharacterBehavioralFrames.ContainsKey(label))
             {
-                promptBuilder.AppendLine($"HARD CONSTRAINT — {label} current state (authoritative, overrides all theme notes and guidance): {statStateText}");
+                promptBuilder.AppendLine($"HARD CONSTRAINT — {label} current state (authoritative): {statStateText}");
             }
         }
 
@@ -172,6 +251,15 @@ public static class RolePlayAssistantPrompts
             guards.Add("Do not pivot to a competing scenario unless the user explicitly overrides.");
         }
 
+        if (phase is "Committed" or "Approaching")
+        {
+            if (activeTheme is not null && AllowsWithinTimeframeTimeShift(activeTheme, phase))
+            {
+                guards.Add("Each turn should advance to a different time and/or location than the previous turn. Do not remain in the same scene setting for consecutive turns.");
+                guards.Add("If the previous turn was in one setting (e.g. the trailer), the next turn must be in a different setting (e.g. the shower, hiking trails, fire pit, beach, or other location within the established time frame).");
+            }
+        }
+
         if (phase == "Climax")
         {
             var isQuickFinishClimax = IsQuickFinishClimaxMode(activeTheme, phase);
@@ -195,8 +283,6 @@ public static class RolePlayAssistantPrompts
             {
                 guards.Add("Every turn must advance the scene to a new beat. Do not repeat the same physical act, position, or sensation that was the focus of the immediately preceding turn.");
                 guards.Add("Within each stage of physical intimacy, vary position, tempo, who is the focus, and specific sensations each turn. Same stage is fine — same description is forbidden.");
-                guards.Add("Male orgasm/ejaculation is controlled by the configured Climax->Reset InteractionsSinceCommitment narrative gate: blocked gate means no male orgasm; passed gate allows male orgasm when continuity supports it. /endclimax still controls explicit phase completion.");
-                guards.Add("Do not write departure scenes, farewells, scenario-close transitions (e.g. 'the truck drove away', 'the weekend was over', 'she headed home'), or any narrative framing that concludes the story's time frame. The Climax phase continues until /endclimax is received — hold the story within the encounter's moment.");
             }
         }
 

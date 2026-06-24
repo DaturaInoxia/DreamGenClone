@@ -4,6 +4,7 @@
 @using DreamGenClone.Application.RolePlay
 @using DreamGenClone.Application.StoryAnalysis
 @using DreamGenClone.Domain.RolePlay
+@using DreamGenClone.Web.Application.RolePlay
 @using DreamGenClone.Web.Application.StoryAnalysis
 @using DreamGenClone.Infrastructure.Configuration
 @using Microsoft.Extensions.Options
@@ -691,15 +692,16 @@
                     <table class="table table-sm align-middle">
                         <thead>
                             <tr>
-                                <th style="width: 180px;">Phase</th>
+                                <th style="width: 160px;">Phase</th>
                                 <th>Guidance Text</th>
+                                <th>Directive Text</th>
                                 <th style="width: 120px;">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
                             @if (_theme.PhaseGuidance.Count == 0)
                             {
-                                <tr><td colspan="3" class="text-muted">No phase guidance yet.</td></tr>
+                                <tr><td colspan="4" class="text-muted">No phase guidance yet.</td></tr>
                             }
                             else
                             {
@@ -717,6 +719,9 @@
                                         </td>
                                         <td>
                                             <textarea class="form-control form-control-sm rp-phase-guidance-editor" rows="4" @bind="_theme.PhaseGuidance[rowIndex].GuidanceText"></textarea>
+                                        </td>
+                                        <td>
+                                            <textarea class="form-control form-control-sm rp-phase-directive-editor" rows="3" @bind="_theme.PhaseGuidance[rowIndex].DirectiveText" placeholder="Short imperative. Injected as PHASE DIRECTIVE with authority."></textarea>
                                         </td>
                                         <td><button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => RemovePhaseGuidance(rowIndex)">Remove</button></td>
                                     </tr>
@@ -1135,6 +1140,11 @@
         min-height: 7rem;
         resize: vertical;
     }
+
+    .rp-theme-detail-page .rp-phase-directive-editor {
+        min-height: 5rem;
+        resize: vertical;
+    }
 </style>
 
 @code {
@@ -1305,6 +1315,14 @@
         {
             NormalizeTheme();
 
+            // Validate ClimaxMode mutual exclusion — fail fast before persisting.
+            // A theme cannot declare both [ClimaxMode:multi-encounter] and [ClimaxMode:quick-finish]
+            // in the same phase; they are mutually exclusive pacing modes.
+            foreach (var phaseGroup in _theme.PhaseGuidance.GroupBy(x => x.Phase.ToString(), StringComparer.OrdinalIgnoreCase))
+            {
+                RolePlayAssistantPrompts.EnsureClimaxModeMutualExclusion(_theme, phaseGroup.Key);
+            }
+
             var saved = await RPThemeService.SaveThemeAsync(_theme);
             _theme = saved;
             _status = "Theme saved.";
@@ -1464,7 +1482,7 @@
             "Keywords" => "Currently not used by active RP Engine scoring gates. Maintained as model/context metadata and for future retrieval/filtering workflows.",
             "Stat Affinities" => "Used by RP Engine candidate fit scoring and adaptive nudges. Affinity values align theme pressure against stat movements.",
             "Reset Decay Overrides" => "Applied during the Reset phase when this theme's arc ends. Set a stat's recovery to 0% to make arc-earned changes permanent (e.g. Corruption locking in Desire gains). Set to 100% (default) for full recovery toward baseline. Partial values produce proportional recovery. Stats with no override always use the global decay schedule.",
-            "Phase Guidance" => "Used by RP Engine prompt construction by narrative phase. These entries shape phase-specific writing direction.",
+            "Phase Guidance" => "Injected into the RP prompt per narrative phase. Guidance Text is descriptive context (the arc, the vibe). Directive Text is imperative and injected with PHASE DIRECTIVE authority — the model treats it as a writing instruction rather than flavor text. If Directive Text is empty, Guidance Text is used as the directive.",
             "Guidance Points" => "Used by model prompt assembly. Emphasis/Avoidance points become concise instruction bullets per phase.",
             "Fit Rules" => "Used by RP Engine candidate gating/scoring. Character Role and RoleWeight scope weighting to specific participants; clauses enforce stat-level constraints.",
             "Narrative Gate Values" => "Used by RP lifecycle transitions for RP Theme subsystem sessions. Values are stored on this theme as a detached copy and control phase transitions such as BuildUp->Committed, Committed->Approaching, Approaching->Climax, Climax->Reset, and Reset->BuildUp.",
@@ -2436,7 +2454,8 @@
                 Id = string.IsNullOrWhiteSpace(x.Id) ? Guid.NewGuid().ToString("N") : x.Id,
                 ThemeId = _theme.Id,
                 Phase = x.Phase,
-                GuidanceText = (x.GuidanceText ?? string.Empty).Trim()
+                GuidanceText = (x.GuidanceText ?? string.Empty).Trim(),
+                DirectiveText = (x.DirectiveText ?? string.Empty).Trim()
             })
             .ToList();
 

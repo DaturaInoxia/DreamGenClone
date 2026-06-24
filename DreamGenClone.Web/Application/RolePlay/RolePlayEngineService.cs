@@ -1,4 +1,4 @@
-﻿using DreamGenClone.Web.Application.Scenarios;
+using DreamGenClone.Web.Application.Scenarios;
 using DreamGenClone.Web.Application.Sessions;
 using DreamGenClone.Web.Domain.RolePlay;
 using Microsoft.Extensions.Logging;
@@ -168,6 +168,71 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     private readonly ISemanticInteractionAnalysisRepository? _semanticInteractionAnalysisRepository;
     private readonly IEncounterSummaryService? _encounterSummaryService;
     private readonly IOptions<RolePlayMemoryOptions>? _memoryOptions;
+    private readonly IStatWillingnessProfileService? _statWillingnessProfileService;
+    private readonly ISemanticEventInferenceService? _semanticEventInferenceService;
+
+    // ---- Encounter participation: keyword heuristic (Change 1: sync tier) --------------------
+    private static readonly string[] SexualActivityKeywords = new[]
+    {
+        // Explicit
+        "orgasm", "climax", "cock", "cunt", "pussy", "thrust", "stroke", "cum", "come",
+        "fuck", "penetrat", "inside", "slide in", "moan", "groan", "gasp", "shudder",
+        "spasm", "pulse", "drip", "wet", "slick", "swollen", "erect", "hard", "stiff",
+        "finger", "tongue", "lick", "suck", "taste", "grind", "buck", "ride", "pound",
+        "slam", "ejaculat", "semen", "pre-cum", "load", "spurt", "arous", "quiver"
+    };
+
+    private static readonly string[] SubtleSexualActivityKeywords = new[]
+    {
+        // Exhibitionism / voyeurism / subtle erotic
+        "blouse", "cleavage", "reveal", "flash", "expose", "brush", "graze", "linger",
+        "stare", "watch", "glance", "notice", "press against", "proximity", "tension",
+        "charged", "undress", "strip", "bare", "naked", "skin", "curve", "outline",
+        "silhouette", "down-blouse", "unbutton", "unzip", "loosen", "slip off",
+        "slide down", "show off", "display", "pose", "peek", "glimpse", "ogle",
+        "eye", "look", "stare", "gaze", "study", "trace", "roam", "wander",
+        "skim", "slide", "pull", "tug", "hitch", "adjust", "shift"
+    };
+
+    private static readonly string[] EncounterCompletionKeywords = new[]
+    {
+        // Orgasm signals
+        "orgasm", "climax", "come", "came", "cum", "release", "spent", "afterglow",
+        "subside", "fade", "pulse", "spasm",
+        // Interruption signals
+        "interrupt", "startle", "freeze", "caught", "walk in", "separate", "hide",
+        "slip away", "pull out", "withdraw"
+    };
+
+    private static bool HasSexualActivityContent(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return false;
+        var lower = text.ToLowerInvariant();
+        return SexualActivityKeywords.Any(k => lower.Contains(k))
+            || SubtleSexualActivityKeywords.Any(k => lower.Contains(k));
+    }
+
+    private static bool ContainsEncounterCompletionKeywords(string? evidenceSpan)
+    {
+        if (string.IsNullOrWhiteSpace(evidenceSpan)) return false;
+        var lower = evidenceSpan.ToLowerInvariant();
+        return EncounterCompletionKeywords.Any(k => lower.Contains(k));
+    }
+
+    /// <summary>
+    /// Checks the last <paramref name="windowSize"/> interactions for a user-typed
+    /// Instruction (ActorName="Instruction" AND GeneratedByCommand is null/empty).
+    /// Used to skip engine time-skip injection when the user has already steered.
+    /// </summary>
+    private static bool HasRecentUserInstruction(RolePlaySession session, int windowSize)
+    {
+        return session.Interactions
+            .TakeLast(windowSize)
+            .Any(x => string.Equals(x.ActorName, "Instruction", StringComparison.OrdinalIgnoreCase)
+                && string.IsNullOrWhiteSpace(x.GeneratedByCommand));
+    }
+
+    // ---- End encounter participation helpers ------------------------------------------------
 
     public RolePlayEngineService(
         IRolePlayContinuationService continuationService,
@@ -203,7 +268,9 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         ISemanticBackgroundJobQueue? backgroundJobQueue = null,
         ISemanticInteractionAnalysisRepository? semanticInteractionAnalysisRepository = null,
         IEncounterSummaryService? encounterSummaryService = null,
-        IOptions<RolePlayMemoryOptions>? memoryOptions = null)
+        IOptions<RolePlayMemoryOptions>? memoryOptions = null,
+        IStatWillingnessProfileService? statWillingnessProfileService = null,
+        ISemanticEventInferenceService? semanticEventInferenceService = null)
     {
         _continuationService = continuationService;
         _behaviorModeService = behaviorModeService;
@@ -250,6 +317,8 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         _semanticInteractionAnalysisRepository = semanticInteractionAnalysisRepository;
         _encounterSummaryService = encounterSummaryService;
         _memoryOptions = memoryOptions;
+        _statWillingnessProfileService = statWillingnessProfileService;
+        _semanticEventInferenceService = semanticEventInferenceService;
     }
 
     public Task<RolePlaySession> CreateSessionAsync(
@@ -341,7 +410,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 if (request.ThemeSelections.Count > 0)
                 {
                     session.SessionThemeSelections = request.ThemeSelections.ToList();
-                    // SelectedRPThemeProfileId intentionally left null — SeedFromScenarioAsync uses
+                    // SelectedRPThemeProfileId intentionally left null � SeedFromScenarioAsync uses
                     // the SessionThemeSelections branch when selections are present.
                 }
                 else
@@ -443,7 +512,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
         // Apply wizard-provided persona stat overrides after template seeding.
         // The overrides represent the user's explicit profile choice, so update BOTH the
-        // current stats and the baseline — the baseline identifies which stat profile the
+        // current stats and the baseline � the baseline identifies which stat profile the
         // session "started from" in the Adaptive panel display.
         if (request.PersonaStatOverrides.Count > 0
             && session.AdaptiveState.CharacterStats.TryGetValue(session.PersonaName, out var personaBlock))
@@ -509,6 +578,16 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             var dims = BehavioralDimensionCatalog.GetDimensions(block.CharacterRole);
             if (dims.Count > 0)
                 block.RuntimeEncounterStats = dims.ToDictionary(d => d.Name, _ => 50, StringComparer.OrdinalIgnoreCase);
+        }
+
+        // Assign the default willingness profile for new sessions.
+        if (string.IsNullOrWhiteSpace(session.AdaptiveState.SelectedWillingnessProfileId) && _statWillingnessProfileService is not null)
+        {
+            var defaultWillingness = await _statWillingnessProfileService.GetDefaultAsync(cancellationToken);
+            if (defaultWillingness is not null)
+            {
+                session.AdaptiveState.SelectedWillingnessProfileId = defaultWillingness.Id;
+            }
         }
 
         // Propagate the session ID into AdaptiveState (required by SaveAdaptiveStateAsync) and
@@ -753,7 +832,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             session.Status = RolePlaySessionStatus.InProgress;
             session.ModifiedAt = DateTime.UtcNow;
 
-            session.AdaptiveState = await UpdateAdaptiveStateWithSemanticDiagnosticsAsync(session, interaction, cancellationToken);
+            await UpdateStateAndDetectEncounterAsync(session, interaction, cancellationToken);
             await RunRolePlayV2PipelinesAsync(
                 session,
                 DecisionTrigger.InteractionStart,
@@ -795,6 +874,11 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         }
         finally
         {
+            if (turnSucceeded && session.AdaptiveState.IsStateDirty)
+            {
+                await _stateRepository.SaveAdaptiveStateAsync(session.AdaptiveState, cancellationToken);
+                session.AdaptiveState.IsStateDirty = false;
+            }
             await _stateRepository.CompleteTurnAsync(
                 session.Id,
                 persistedTurn.TurnId,
@@ -855,7 +939,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             outputInteractionIds.Add(interaction.Id);
             session.Status = RolePlaySessionStatus.InProgress;
             session.ModifiedAt = DateTime.UtcNow;
-            session.AdaptiveState = await UpdateAdaptiveStateWithSemanticDiagnosticsAsync(session, interaction, cancellationToken);
+            await UpdateStateAndDetectEncounterAsync(session, interaction, cancellationToken);
             await RunRolePlayV2PipelinesAsync(session, DecisionTrigger.InteractionStart, cancellationToken);
             // Flush the pending session save to DB before enqueueing the semantic analysis job.
             // The job handler loads the session from DB; if we only queue the save (debounced 1s),
@@ -900,6 +984,11 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         }
         finally
         {
+            if (turnSucceeded && session.AdaptiveState.IsStateDirty)
+            {
+                await _stateRepository.SaveAdaptiveStateAsync(session.AdaptiveState, cancellationToken);
+                session.AdaptiveState.IsStateDirty = false;
+            }
             await _stateRepository.CompleteTurnAsync(
                 session.Id,
                 persistedTurn.TurnId,
@@ -1017,7 +1106,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
             session.Interactions.Add(userPromptInteraction);
             outputInteractionIds.Add(userPromptInteraction.Id);
-            session.AdaptiveState = await UpdateAdaptiveStateWithSemanticDiagnosticsAsync(session, userPromptInteraction, cancellationToken);
+            await UpdateStateAndDetectEncounterAsync(session, userPromptInteraction, cancellationToken);
 
             if (submission.SubmittedVia == SubmissionSource.PlusButton)
             {
@@ -1038,7 +1127,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
                 session.Interactions.Add(interaction);
                 outputInteractionIds.Add(interaction.Id);
-                session.AdaptiveState = await UpdateAdaptiveStateWithSemanticDiagnosticsAsync(session, interaction, cancellationToken);
+                await UpdateStateAndDetectEncounterAsync(session, interaction, cancellationToken);
             }
         }
 
@@ -1046,14 +1135,14 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         {
             session.Interactions.Add(interaction);
             outputInteractionIds.Add(interaction.Id);
-            session.AdaptiveState = await UpdateAdaptiveStateWithSemanticDiagnosticsAsync(session, interaction, cancellationToken);
+            await UpdateStateAndDetectEncounterAsync(session, interaction, cancellationToken);
         }
 
         session.Status = RolePlaySessionStatus.InProgress;
         session.BehaviorMode = submission.BehaviorModeAtSubmit;
         session.ModifiedAt = DateTime.UtcNow;
 
-        // Reset turn tracking when user submits any message — it's no longer "their turn"
+        // Reset turn tracking when user submits any message � it's no longer "their turn"
         if (submission.Intent != PromptIntent.Instruction)
         {
             session.ConsecutiveNpcTurns = 0;
@@ -1111,6 +1200,11 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 })
             }, cancellationToken);
 
+            if (session.AdaptiveState.IsStateDirty)
+            {
+                await _stateRepository.SaveAdaptiveStateAsync(session.AdaptiveState, cancellationToken);
+                session.AdaptiveState.IsStateDirty = false;
+            }
             await _stateRepository.CompleteTurnAsync(
                 session.Id,
                 persistedTurn.TurnId,
@@ -1143,15 +1237,50 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 explicitClimaxCompletionRequested);
         }
 
-        // /completeclimax: transition Climax -> Reset via the pipeline FIRST, then generate
-        // the directive narrative under Reset phase guidelines. Only triggered when phase is
-        // still Climax — if the session is not in Climax the finish-move narrative is skipped
+        // /completeclimax: generate the finish-move narrative under Climax phase FIRST,
+        // then transition Climax -> Reset. Only triggered when phase is still Climax �
+        // if the session is not in Climax the finish-move narrative is skipped
         // and the standard pipeline path handles the interaction instead.
         bool pipelinesAlreadyRan = false;
         if (explicitClimaxCompletionRequested
             && phaseBeforePipeline == NarrativePhase.Climax)
         {
-            // Step 1: advance phase to Reset before generating any narrative.
+            // Step 1: generate multi-actor finish-move responses in Climax phase context.
+            // Each scene character responds to the directive, then narrative closes the turn.
+            TryExtractClimaxCompletionDirective(submission.PromptText, out var completionDirective);
+            if (string.IsNullOrWhiteSpace(completionDirective))
+            {
+                completionDirective = "Write the final beat of the climax � close the moment decisively and resolve the immediate tension. End the scene cleanly.";
+            }
+
+            var sceneActors = await ResolveSceneContinueActorsAsync(session, cancellationToken);
+            var batchSize = Math.Max(1, Math.Min(session.SceneContinueBatchSize, sceneActors.Count));
+            var finalClimaxInteraction = default(RolePlayInteraction);
+
+            for (var i = 0; i < batchSize; i++)
+            {
+                var candidate = sceneActors[i];
+                await AlignPromptNarrativeStateWithV2Async(session, cancellationToken);
+                var actorInteraction = await _continuationService.ContinueAsync(
+                    session, candidate.Actor, candidate.Name, PromptIntent.Message,
+                    completionDirective, onChunk, cancellationToken);
+
+                session.Interactions.Add(actorInteraction);
+                outputInteractionIds.Add(actorInteraction.Id);
+                await UpdateStateAndDetectEncounterAsync(session, actorInteraction, cancellationToken);
+                finalClimaxInteraction = actorInteraction;
+            }
+
+            // Narrative close under Climax writing rules.
+            await AlignPromptNarrativeStateWithV2Async(session, cancellationToken);
+            var narrativeInteraction = await _continuationService.ContinueNarrativeAsync(
+                session, "Narrative", completionDirective, cancellationToken);
+            session.Interactions.Add(narrativeInteraction);
+            outputInteractionIds.Add(narrativeInteraction.Id);
+            await UpdateStateAndDetectEncounterAsync(session, narrativeInteraction, cancellationToken);
+            finalClimaxInteraction = narrativeInteraction;
+
+            // Step 2: advance phase to Reset AFTER the climax completion is written.
             await RunRolePlayV2PipelinesAsync(
                 session,
                 DecisionTrigger.InteractionStart,
@@ -1159,25 +1288,6 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 explicitClimaxCompletionRequested: true,
                 manualPhaseAdvanceTarget);
             pipelinesAlreadyRan = true;
-
-            // Step 2: generate the finish-move narrative in Reset phase context using the
-            // player's persona so the interaction is attributed correctly.
-            TryExtractClimaxCompletionDirective(submission.PromptText, out var completionDirective);
-            if (string.IsNullOrWhiteSpace(completionDirective))
-            {
-                completionDirective = "Write the final beat of the climax — close the moment decisively and resolve the immediate tension. End the scene cleanly.";
-            }
-
-            var personaName = string.IsNullOrWhiteSpace(session.PersonaName) ? null : session.PersonaName;
-            var finalClimaxInteraction = await _continuationService.ContinueNarrativeAsync(
-                session,
-                personaName ?? "Narrative",
-                completionDirective,
-                cancellationToken);
-
-            session.Interactions.Add(finalClimaxInteraction);
-            outputInteractionIds.Add(finalClimaxInteraction.Id);
-            session.AdaptiveState = await UpdateAdaptiveStateWithSemanticDiagnosticsAsync(session, finalClimaxInteraction, cancellationToken);
 
             await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
             {
@@ -1188,11 +1298,12 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 ActorName = finalClimaxInteraction.ActorName,
                 ModelIdentifier = finalClimaxInteraction.GeneratedByModelId,
                 ProviderName = finalClimaxInteraction.GeneratedByProvider,
-                Summary = "Finish-move narrative generated in Reset phase after Climax -> Reset transition.",
+                Summary = $"Finish-move generated with {batchSize} scene actor(s) + narrative in Climax phase before Climax -> Reset transition.",
                 MetadataJson = JsonSerializer.Serialize(new
                 {
                     directive = completionDirective,
-                    phaseAtGeneration = session.AdaptiveState.CurrentPhase.ToString(),
+                    phaseAtGeneration = "Climax",
+                    actorCount = batchSize,
                     interactionId = finalClimaxInteraction.Id,
                     activeScenarioId = activeScenarioBeforePipeline
                 })
@@ -1241,6 +1352,11 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             }
         }
 
+        if (session.AdaptiveState.IsStateDirty)
+        {
+            await _stateRepository.SaveAdaptiveStateAsync(session.AdaptiveState, cancellationToken);
+            session.AdaptiveState.IsStateDirty = false;
+        }
         await _stateRepository.CompleteTurnAsync(
             session.Id,
             persistedTurn.TurnId,
@@ -1302,6 +1418,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         var outputInteractionIds = new List<string>();
 
         var isOverflowContinue = request.TriggeredBy == SubmissionSource.MainOverflowContinue;
+        int? turnActorCount = null;  // set in overflow path, used by narrative call
 
         // --- OPENING NARRATIVE ---
         // If no interactions yet, always generate a scene-setting narrative FIRST
@@ -1318,12 +1435,12 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             result.NarrativeOutput = openingNarrative;
             session.Interactions.Add(openingNarrative);
             outputInteractionIds.Add(openingNarrative.Id);
-            session.AdaptiveState = await UpdateAdaptiveStateWithSemanticDiagnosticsAsync(session, openingNarrative, cancellationToken);
+            await UpdateStateAndDetectEncounterAsync(session, openingNarrative, cancellationToken);
         }
 
         if (selectedIdentityOptions.Count > 0)
         {
-            // Explicit identity selections — generate sequentially, accumulating context
+            // Explicit identity selections � generate sequentially, accumulating context
             foreach (var option in selectedIdentityOptions)
             {
                 var actorName = ResolveOptionActorName(option, request.CustomIdentityName);
@@ -1341,7 +1458,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 // Add to session immediately so the next generation sees this in its context
                 session.Interactions.Add(interaction);
                 outputInteractionIds.Add(interaction.Id);
-                session.AdaptiveState = await UpdateAdaptiveStateWithSemanticDiagnosticsAsync(session, interaction, cancellationToken);
+                await UpdateStateAndDetectEncounterAsync(session, interaction, cancellationToken);
             }
         }
         else if (isOverflowContinue)
@@ -1352,6 +1469,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             var sceneActors = await ResolveSceneContinueActorsAsync(session, cancellationToken);
 
             var batchSize = Math.Max(1, Math.Min(session.SceneContinueBatchSize, sceneActors.Count));
+            turnActorCount = batchSize;
             await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
             {
                 SessionId = session.Id,
@@ -1375,29 +1493,109 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 })
             }, cancellationToken);
 
+            // Multi-encounter Climax: when TimeSkipPending is set (detection just fired),
+            // reset the counter so the time-skip check below sees InteractionsInCurrentEncounter == 0.
+            var isClimaxPhase = string.Equals(session.AdaptiveState.CurrentPhase.ToString(), "Climax", StringComparison.OrdinalIgnoreCase);
+            if (isClimaxPhase && session.AdaptiveState.TimeSkipPending)
+            {
+                session.AdaptiveState.InteractionsInCurrentEncounter = 0;
+            }
+
+            // Multi-encounter Climax: determine if the time-skip directive should be injected
+            // into the first overflow actor's prompt this turn. One-shot: no Instruction
+            // interaction is created, so "Active Instruction (persistent)" re-injection cannot
+            // loop it across turns. Uses PromptIntent.Instruction for maximum authority.
+            var timeSkipActive = isClimaxPhase
+                && session.AdaptiveState.CurrentEncounterNumber > 1
+                && session.AdaptiveState.InteractionsInCurrentEncounter == 0
+                && session.AdaptiveState.TimeSkipPending
+                && !HasRecentUserInstruction(session, windowSize: 3);
+
+            if (timeSkipActive)
+            {
+                session.AdaptiveState.TimeSkipPending = false;
+                await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+                {
+                    SessionId = session.Id,
+                    EventKind = "MultiEncounterTimeSkipDirectiveInjected",
+                    Severity = "Info",
+                    ActorName = "Instruction",
+                    Summary = $"Time-skip directive injected into first actor for encounter #{session.AdaptiveState.CurrentEncounterNumber}.",
+                    MetadataJson = JsonSerializer.Serialize(new
+                    {
+                        encounterNumber = session.AdaptiveState.CurrentEncounterNumber
+                    })
+                }, cancellationToken);
+            }
+            else if (isClimaxPhase && session.AdaptiveState.TimeSkipPending && HasRecentUserInstruction(session, windowSize: 3))
+            {
+                // User Instruction is active — skip injection this turn, keep TimeSkipPending for retry.
+                await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+                {
+                    SessionId = session.Id,
+                    EventKind = "MultiEncounterTimeSkipSkippedDueToUserInstruction",
+                    Severity = "Info",
+                    ActorName = "Instruction",
+                    Summary = "Time-skip directive skipped due to active user Instruction. Will retry next turn.",
+                    MetadataJson = JsonSerializer.Serialize(new
+                    {
+                        encounterNumber = session.AdaptiveState.CurrentEncounterNumber
+                    })
+                }, cancellationToken);
+            }
+
             for (var i = 0; i < batchSize; i++)
             {
                 var candidate = sceneActors[i];
                 var actor = candidate.Actor;
                 var actorName = candidate.Name;
-                var isClimaxPhase = string.Equals(session.AdaptiveState.CurrentPhase.ToString(), "Climax", StringComparison.OrdinalIgnoreCase);
-                var promptText = isClimaxPhase
-                    ? (i == 0
-                        ? "You are the first to respond this turn. Advance the scene naturally from where it left off — escalate physical intimacy, deepen the act, or progress to the next beat as continuity allows. Describe the moment from your character's perspective with explicit physical and sensory detail. Establish this turn's scene clearly so other participants can react to the same moment."
-                        : "Describe the same scene moment your turn-partner just established, from your own perspective. Match and deepen the physical moment they set — give your character's sensations, reactions, and dialogue for that exact beat. Do not advance to a new act or jump ahead of what has already been established this turn.")
-                    : (i == 0
+                var positionInTurn = i + 1; // 1-based
+
+                // Multi-encounter Climax: adjust the per-position prompt to reflect encounter state.
+                string promptText;
+                PromptIntent actorIntent = PromptIntent.Message;
+                if (isClimaxPhase)
+                {
+                    if (i == 0)
+                    {
+                        if (timeSkipActive)
+                        {
+                            promptText = "Close the current encounter naturally. Then advance time to a new moment — a different day or time, a new context, a new circumstance. Establish ordinary life.";
+                            actorIntent = PromptIntent.Instruction;
+                        }
+                        else
+                        {
+                            var isNewEncounterStart = session.AdaptiveState.CurrentEncounterNumber > 0
+                                && session.AdaptiveState.InteractionsInCurrentEncounter == 0;
+                            promptText = isNewEncounterStart
+                                ? "Continue the scene naturally."
+                                : "Continue the current encounter naturally from where it left off.";
+                        }
+                    }
+                    else
+                    {
+                        promptText = "Describe this same moment from your character's perspective.";
+                    }
+                }
+                else
+                {
+                    promptText = i == 0
                         ? "Continue the scene naturally with the next character response."
-                        : "Continue the conversation naturally, building on the previous response.");
+                        : "Continue the conversation naturally, building on the previous response.";
+                }
 
                 await AlignPromptNarrativeStateWithV2Async(session, cancellationToken);
                 var interaction = await _continuationService.ContinueAsync(
-                    session, actor, actorName, PromptIntent.Message, promptText, onChunk, cancellationToken);
+                    session, actor, actorName, actorIntent, promptText, onChunk, cancellationToken,
+                    turnIndex: persistedTurn.TurnIndex,
+                    positionInTurn: positionInTurn,
+                    turnActorCount: batchSize);
 
                 result.ParticipantOutputs.Add(interaction);
                 // Append to session so next iteration's prompt sees this interaction
                 session.Interactions.Add(interaction);
                 outputInteractionIds.Add(interaction.Id);
-                session.AdaptiveState = await UpdateAdaptiveStateWithSemanticDiagnosticsAsync(session, interaction, cancellationToken);
+                await UpdateStateAndDetectEncounterAsync(session, interaction, cancellationToken);
             }
         }
         else
@@ -1418,7 +1616,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             result.ParticipantOutputs.Add(interaction);
             session.Interactions.Add(interaction);
             outputInteractionIds.Add(interaction.Id);
-            session.AdaptiveState = await UpdateAdaptiveStateWithSemanticDiagnosticsAsync(session, interaction, cancellationToken);
+            await UpdateStateAndDetectEncounterAsync(session, interaction, cancellationToken);
         }
 
         // --- AUTO-NARRATIVE ---
@@ -1461,11 +1659,13 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 session,
                 "Narrative",
                 narrativePrompt,
-                cancellationToken);
+                cancellationToken,
+                turnIndex: persistedTurn.TurnIndex,
+                turnActorCount: turnActorCount);
             result.NarrativeOutput = narrative;
             session.Interactions.Add(narrative);
             outputInteractionIds.Add(narrative.Id);
-            session.AdaptiveState = await UpdateAdaptiveStateWithSemanticDiagnosticsAsync(session, narrative, cancellationToken);
+            await UpdateStateAndDetectEncounterAsync(session, narrative, cancellationToken);
         }
 
         // --- TURN-TAKING ENFORCEMENT ---
@@ -1498,6 +1698,11 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         }
         _autoSaveCoordinator.QueueRolePlaySessionSave(session, "roleplay-continueas-v2-processed");
 
+        if (session.AdaptiveState.IsStateDirty)
+        {
+            await _stateRepository.SaveAdaptiveStateAsync(session.AdaptiveState, cancellationToken);
+            session.AdaptiveState.IsStateDirty = false;
+        }
         await _stateRepository.CompleteTurnAsync(
             session.Id,
             persistedTurn.TurnId,
@@ -1973,7 +2178,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
         if (sceneCharacterNames.Count == 0 && !autoAllowedActors.Contains(ContinueAsActor.You))
         {
-            // No scenario characters — fall back to default single actor
+            // No scenario characters � fall back to default single actor
             var fallback = ResolveDefaultContinueActor(session);
             actors.Add(new OverflowActorCandidate(
                 fallback,
@@ -1999,17 +2204,18 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         var totalInteractions = session.Interactions.Count(i =>
             i.InteractionType != InteractionType.System && !i.IsExcluded);
 
-        // Hard-exclude OtherMan for the first 6 interactions so Husband+Wife establish first.
-        // With batchSize=2 (Ken+Becky per turn), 3 turns = 6 interactions → Dean eligible on turn 4.
+        // Hard-exclude OtherMan during the opening period (first 3 turns) so Husband+Wife establish first.
+        // Opening period is measured in complete turns via ObservedTurnCount.
+        // With OpeningPeriodTurnCount=3: Dean eligible from turn 4.
         var eligibleCharacterNames = sceneCharacterNames.Where(name =>
         {
             session.AdaptiveState.CharacterStats.TryGetValue(name, out var statProfile);
             var role = statProfile?.CharacterRole;
-            if (totalInteractions < 6 && string.Equals(role, "OtherMan", StringComparison.OrdinalIgnoreCase))
+            if (session.AdaptiveState.CurrentPhase == NarrativePhase.Opening && string.Equals(role, "OtherMan", StringComparison.OrdinalIgnoreCase))
             {
                 _logger.LogDebug(
-                    "OverflowActor: excluding OtherMan {ActorName} at interaction offset {Offset} for SessionId={SessionId}",
-                    name, totalInteractions, session.Id);
+                    "OverflowActor: excluding OtherMan {ActorName} at turn count {TurnCount} for SessionId={SessionId}",
+                    name, session.AdaptiveState.ObservedTurnCount, session.Id);
                 return false;
             }
             return true;
@@ -2046,13 +2252,35 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
         if (autoAllowedActors.Contains(ContinueAsActor.You))
         {
-            // Persona is always a candidate — treated as a full character in the rotation.
+            // Persona is always a candidate � treated as a full character in the rotation.
             var personaInScene = IsActorInCurrentScene(session, personaName, currentSceneLocation);
             var personaReason = personaInScene
                 ? "Persona auto candidate (in-scene)."
                 : "Persona auto candidate (not in scene but always included).";
-            // Insert at position 0 so persona leads the batch.
-            actors.Insert(0, new OverflowActorCandidate(ContinueAsActor.You, personaName, personaReason));
+
+            if (session.AdaptiveState.CurrentPhase == NarrativePhase.Opening)
+            {
+                // Opening period: persona leads to establish husband-wife dynamic
+                actors.Insert(0, new OverflowActorCandidate(ContinueAsActor.You, personaName,
+                    "Persona auto candidate (initial lead during opening period)."));
+            }
+            else
+            {
+                // Persona every other turn to reduce repetition when oblivious.
+                // Even ObservedTurnCount ? include; odd ? skip (narrative still closes turn).
+                var includePersona = session.AdaptiveState.ObservedTurnCount % 2 == 0;
+                if (includePersona)
+                {
+                    actors.Add(new OverflowActorCandidate(ContinueAsActor.You, personaName,
+                        "Persona auto candidate (last before narrative, even turn)."));
+                }
+                else
+                {
+                    _logger.LogDebug(
+                        "OverflowActor: skipping persona {PersonaName} on turn {TurnCount} for SessionId={SessionId}",
+                        personaName, session.AdaptiveState.ObservedTurnCount, session.Id);
+                }
+            }
         }
 
         if (actors.Count == 0)
@@ -2122,7 +2350,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
     private async Task RebuildAdaptiveStateInternalAsync(RolePlaySession session, CancellationToken cancellationToken)
     {
-        // Preserve encounter profile selections before discarding adaptive state —
+        // Preserve encounter profile selections before discarding adaptive state �
         // CharacterEncounterProfileIds is stored on AdaptiveState and would be lost on reset.
         var savedEncounterProfileIds = new Dictionary<string, string>(
             session.AdaptiveState.CharacterEncounterProfileIds, StringComparer.OrdinalIgnoreCase);
@@ -2156,6 +2384,46 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             session.AdaptiveState.SecondaryThemeId ?? "(none)");
     }
 
+
+    private async Task UpdateStateAndDetectEncounterAsync(RolePlaySession session, RolePlayInteraction interaction, CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("UpdateStateAndDetectEncounterAsync: called SessionId={SessionId} Actor={Actor} Enc={Enc} Ixns={Ixns}", session.Id, interaction.ActorName, session.AdaptiveState.CurrentEncounterNumber, session.AdaptiveState.InteractionsInCurrentEncounter);
+
+        interaction.NarrativePhaseAtCreation = session.AdaptiveState.CurrentPhase;
+
+        session.AdaptiveState = await UpdateAdaptiveStateWithSemanticDiagnosticsAsync(session, interaction, cancellationToken);
+
+        // Multi-encounter Climax: per-interaction counter increment.
+        // The pipeline-scoped increment in RunRolePlayV2PipelinesAsync is additive
+        // but may not fire every turn; this ensures the running encounter count is
+        // always current when TryDetectEncounterBoundaryAsync inspects it.
+        if (session.AdaptiveState.CurrentEncounterNumber > 0
+            && session.AdaptiveState.CurrentPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.Climax)
+        {
+            session.AdaptiveState.InteractionsInCurrentEncounter++;
+        }
+
+        // ---- Encounter participation tracking (Change 1: sync heuristic) -----------------
+        // Only track character actors (Npc, User, Custom) — System interactions
+        // (Narrative, Instruction) describe the scene but are not encounter participants.
+        var actorName = interaction.ActorName;
+        if (!string.IsNullOrWhiteSpace(actorName)
+            && interaction.InteractionType != InteractionType.System
+            && HasSexualActivityContent(interaction.Content))
+        {
+            if (!session.AdaptiveState.CharacterEncounterStates.TryGetValue(actorName, out var encState))
+            {
+                encState = new CharacterEncounterState();
+                session.AdaptiveState.CharacterEncounterStates[actorName] = encState;
+            }
+            encState.IsHavingSex = true;
+            encState.EncounterNumber = session.AdaptiveState.CurrentEncounterNumber;
+            encState.EnteredEncounterUtc ??= DateTime.UtcNow;
+        }
+
+        await TryDetectEncounterBoundaryAsync(session, interaction, session.AdaptiveState, cancellationToken);
+    }
+
     private async Task<AdaptiveScenarioState> UpdateAdaptiveStateWithSemanticDiagnosticsAsync(
         RolePlaySession session,
         RolePlayInteraction interaction,
@@ -2163,10 +2431,10 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     {
         if (!_enableAdaptiveStateUpdates)
         {
-            // ⛔ DO NOT "FIX" THIS — EnableAdaptiveStateUpdates=false IS INTENTIONAL AND PERMANENT.
+            // ? DO NOT "FIX" THIS � EnableAdaptiveStateUpdates=false IS INTENTIONAL AND PERMANENT.
             // The old inline keyword/regex adaptive-state path was REPLACED by the Semantic Engine.
             // All stat deltas now come from the async Semantic Engine pipeline (SemanticInferredEvidenceApplied
-            // events via ApplyInferredSemanticEvidenceAsync → ApplySemanticEvidenceAsync).
+            // events via ApplyInferredSemanticEvidenceAsync ? ApplySemanticEvidenceAsync).
             // AdaptiveStateUpdateSkipped in the debug log is EXPECTED. It is not a bug.
             // If RuntimeEncounterStats are not seeding, the bug is in ApplySemanticEvidenceAsync,
             // not here. Do not change this flag.
@@ -2355,21 +2623,21 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             .ToList();
 
         if (recent.Count == 0)
-            return true; // Opening scene — always narrate
+            return true; // Opening scene � always narrate
 
         var lastInteraction = recent[^1];
 
-        // Narrate after a user action (Ken stepped away → describe what happens)
+        // Narrate after a user action (Ken stepped away ? describe what happens)
         if (lastInteraction.InteractionType == InteractionType.User)
             return true;
 
-        // Narrate after an instruction (scene direction → describe the result)
+        // Narrate after an instruction (scene direction ? describe the result)
         if (lastInteraction.InteractionType == InteractionType.System && lastInteraction.ActorName == "Instruction")
             return true;
 
         // Count consecutive character messages without narrative.
-        // Include User-type interactions (persona auto-generated in a batch) — these are not
-        // manual user submissions (that case is caught above when lastInteraction.User → return true).
+        // Include User-type interactions (persona auto-generated in a batch) � these are not
+        // manual user submissions (that case is caught above when lastInteraction.User ? return true).
         // Only stop at System interactions (Narrative, Instruction, etc.).
         var consecutiveMessages = 0;
         for (var i = recent.Count - 1; i >= 0; i--)
@@ -2388,20 +2656,20 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     {
         // B-049: Opening scene uses the data model to identify the natural couple
         // (persona + spouse character) without hardcoding names or roles.
-        // The opening is exclusively about the persona and their partner — 300–500 words,
+        // The opening is exclusively about the persona and their partner � 300�500 words,
         // drawing on their character profiles for history, dynamic, and tonal foreshadowing.
         // Other characters remain peripheral and unnamed throughout the opening.
         const string basePrompt =
             "Write the opening narrative for this scene. " +
-            "This opening is exclusively about the persona and their partner — focus entirely on their interaction with each other. " +
+            "This opening is exclusively about the persona and their partner � focus entirely on their interaction with each other. " +
             "Describe what the persona is doing, what their partner observes about them, their immediate environment and atmosphere, " +
             "and any history between them that can be inferred from their character profiles. " +
-            "Include the physical and emotional dynamic between them — whether it feels passionate, familiar, routine, or quietly strained — " +
+            "Include the physical and emotional dynamic between them � whether it feels passionate, familiar, routine, or quietly strained � " +
             "drawing from their personalities, backgrounds, and histories as described in their profiles. " +
             "Weave in subtle, tonal foreshadowing through body language, atmosphere, and emotional texture. Do not state any subtext explicitly. " +
             "Other characters may be present in the scene but must remain peripheral background presence only. " +
             "Do not refer to them by name or bring them into any character's attention, thoughts, or dialogue. " +
-            "Write 300–500 words.";
+            "Write 300�500 words.";
 
         if (string.IsNullOrWhiteSpace(session.ScenarioId))
         {
@@ -2410,6 +2678,15 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         }
 
         var scenario = await _scenarioService.GetScenarioAsync(session.ScenarioId);
+
+        // Use the first scenario Opening when available � this provides data-driven
+        // contextual guidance for the opening narrative (e.g. "arriving at the party
+        // and putting things away in the guest room"). When no Opening is defined,
+        // fall back to listing all location names for the model to choose from.
+        string? openingText = scenario?.Openings
+            ?.FirstOrDefault(o => !string.IsNullOrWhiteSpace(o.Text))
+            ?.Text?.Trim();
+
         var locationNames = scenario?.Locations
             .Select(x => x.Name)
             .Where(x => !string.IsNullOrWhiteSpace(x))
@@ -2441,9 +2718,9 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 $" The scene opens with {personaName} and {spouseName} together." +
                 $" {personaName} is the persona character; {spouseName} is their partner." +
                 $" Ground the opening in their direct interaction with each other." +
-                $" Use both characters' profile descriptions — personalities, backgrounds, physical traits, and histories — to infer their shared history and the texture of their relationship." +
+                $" Use both characters' profile descriptions � personalities, backgrounds, physical traits, and histories � to infer their shared history and the texture of their relationship." +
                 $" Portray their physical and emotional dynamic authentically from what the profiles suggest: it may be warm, complicated, quietly distant, or something that has simply settled into habit." +
-                $" Include their sex life as part of that texture — let the writing convey, through body language, sensory detail, and emotional atmosphere, whether desire between them is alive, faded, or quietly suppressed." +
+                $" Include their sex life as part of that texture � let the writing convey, through body language, sensory detail, and emotional atmosphere, whether desire between them is alive, faded, or quietly suppressed." +
                 $" Do not state any of this explicitly. Let tone, behavior, and physical presence carry the subtext.";
             _logger.LogDebug(
                 "BuildOpeningNarrative: couple guidance for SessionId={SessionId}, Persona={PersonaName}, Spouse={SpouseName}",
@@ -2456,14 +2733,55 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 session.Id, personaName);
         }
 
+        // Build scenario context block: Plot Description, World Description, Time Frame.
+        // This gives the model the essential scenario setting context that the regular
+        // continuation prompt (BuildPromptAsync) also injects on every turn.
+        var scenarioContext = string.Empty;
+        if (scenario is not null)
+        {
+            var ctx = new StringBuilder();
+            if (!string.IsNullOrWhiteSpace(scenario.Description))
+                ctx.Append($" Setting: {scenario.Description.Trim()}");
+            if (!string.IsNullOrWhiteSpace(scenario.Plot?.Description))
+                ctx.Append($" Plot: {scenario.Plot.Description.Trim()}");
+            if (!string.IsNullOrWhiteSpace(scenario.Setting?.WorldDescription))
+                ctx.Append($" World: {scenario.Setting.WorldDescription.Trim()}");
+            if (!string.IsNullOrWhiteSpace(scenario.Setting?.TimeFrame))
+            {
+                ctx.Append($" Time Frame: {scenario.Setting.TimeFrame.Trim()}");
+                ctx.Append(" The entire story takes place within this time frame � scenes may skip forward in time; a new response does not have to be the immediate continuation of the last moment.");
+            }
+
+            if (ctx.Length > 0)
+                scenarioContext = ctx.ToString();
+        }
+
+        if (!string.IsNullOrWhiteSpace(openingText))
+        {
+            // When a scenario Opening is defined, use it as contextual guidance for
+            // the opening narrative. The Opening text describes the starting situation
+            // (e.g. arriving at the party) and may reference a specific location.
+            return basePrompt + coupleClause
+                + $"\n\nScenario Context:{scenarioContext}"
+                + $"\nOpening: {openingText}"
+                + " Ground the opening in the location and situation described above."
+                + " Describe the atmosphere, the immediate surroundings, and their interaction."
+                + " Remember: other characters may be present at this location but must remain"
+                + " peripheral background presence only � do not name them or bring them into"
+                + " the characters' focus."
+                + " Keep this grounding natural and immersive, not bullet points.";
+        }
+
         if (locationNames.Count == 0)
         {
             return basePrompt + coupleClause
+                + $"\n\nScenario Context:{scenarioContext}"
                 + " In the opening paragraph, explicitly state where the scene is happening and where key characters are in relation to each other."
                 + " Keep this grounding natural and immersive, not bullet points.";
         }
 
         return basePrompt + coupleClause
+            + $"\n\nScenario Context:{scenarioContext}"
             + $" In the first paragraph, explicitly ground the scene in one clear location using one of these names: {string.Join(", ", locationNames)}."
             + " Keep this grounding natural and immersive, not bullet points.";
     }
@@ -2482,7 +2800,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
         if (string.Equals(session.AdaptiveState.CurrentPhase.ToString(), "Climax", StringComparison.OrdinalIgnoreCase))
         {
-            return "Write an omniscient narrative description of the full scene as it stands this turn. Describe the physical moment, setting, character positions, sensations, and atmosphere in explicit detail. All participants have already described this same moment from their own perspectives — your role is to close the turn with a rich, omniscient account of what is happening right now. Do not advance the scene beyond what the characters have already established. Use direct, explicit language.";
+            return "Write an omniscient narrative description of the full scene as it stands this turn. Describe the physical moment, setting, character positions, sensations, and atmosphere in explicit detail. All participants have already described this same moment from their own perspectives � your role is to close the turn with a rich, omniscient account of what is happening right now. Do not advance the scene beyond what the characters have already established. Use direct, explicit language.";
         }
 
         return lastInteraction.InteractionType switch
@@ -2553,7 +2871,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         }
     }
 
-    // Schema compatibility check removed — there is only one session schema now.
+    // Schema compatibility check removed � there is only one session schema now.
     private static Task ValidateSessionCompatibilityOrThrowAsync(RolePlaySession session, CancellationToken cancellationToken)
         => Task.CompletedTask;
 
@@ -2899,10 +3217,6 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             {
                 // Observation window guard: do not select a scenario while the theme tracker is
                 // still in its configured observation window (ObservedTurnCount <= SelectionMinimumTurns).
-                // The backfill path below handles first-scenario assignment once the observation
-                // window expires. Without this guard, a low InteractionsSinceCommitment threshold on
-                // the configured gate profile would allow the commit gate to fire before the minimum
-                // observation turns have elapsed — bypassing the SelectionMinimumTurns setting.
                 var fsInObservationWindow = session.AdaptiveState.SelectionMinimumTurns > 0
                     && session.AdaptiveState.ObservedTurnCount <= session.AdaptiveState.SelectionMinimumTurns;
 
@@ -2967,7 +3281,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
                 v2State.ActiveScenarioId = commitResult.ScenarioId;
                 // Only advance/reset to Committed when entering a fresh arc from BuildUp or Reset.
-                // Do NOT revert an already-advanced phase (Approaching, Climax) back to Committed —
+                // Do NOT revert an already-advanced phase (Approaching, Climax) back to Committed �
                 // that would undo any /nextphase advances the user has already made.
                 if (enteringArc)
                 {
@@ -2976,9 +3290,9 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                     // Reset phase interaction cadence only when a new arc is entered.
                     v2State.InteractionCountInPhase = 0;
 
-                    // Write the BuildUp→Committed transition event and encounter summary records.
+                    // Write the BuildUp?Committed transition event and encounter summary records.
                     // This transition happens via the commit gate (not the lifecycle service), so we
-                    // must create the event here — no TransitionEvent flows through the lifecycle path.
+                    // must create the event here � no TransitionEvent flows through the lifecycle path.
                     var commitTransitionEvent = new DreamGenClone.Domain.RolePlay.NarrativePhaseTransitionEvent
                     {
                         TransitionId = Guid.NewGuid().ToString("N"),
@@ -3043,7 +3357,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
         // BuildUp always needs a selected scenario/theme even before commit gates allow phase promotion.
         // However, while the theme tracker is still in its observation period (configured per profile via
-        // ThemeSelectionTurnsPerTheme), do not backfill — we have not observed enough turns yet to pick.
+        // ThemeSelectionTurnsPerTheme), do not backfill � we have not observed enough turns yet to pick.
         if (v2State.CurrentPhase == NarrativePhase.BuildUp
             && string.IsNullOrWhiteSpace(v2State.ActiveScenarioId))
         {
@@ -3115,6 +3429,40 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             ? (commitResult.SelectedEvaluation?.FitScore ?? activeScenarioEvaluation?.FitScore ?? 0m)
             : (activeScenarioEvaluation?.FitScore ?? 0m);
 
+        // Opening → BuildUp transition: when the opening period completes (ObservedTurnCount
+        // exceeds OpeningPeriodTurnCount), advance from Opening to BuildUp phase.
+        // This is a turn-count-based transition, not a gate evaluation — during Opening no theme
+        // is selected so there are no metrics to gate against.
+        if (v2State.CurrentPhase == NarrativePhase.Opening
+            && session.AdaptiveState.ObservedTurnCount > 3)
+        {
+            _logger.LogInformation(
+                "RolePlayV2 Opening period transition: SessionId={SessionId} ObservedTurnCount={ObservedTurns} Transitioning to BuildUp",
+                session.Id, session.AdaptiveState.ObservedTurnCount);
+            await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+            {
+                SessionId = session.Id,
+                EventKind = "OpeningPeriodTransition",
+                Severity = "Info",
+                Summary = $"Opening period completed at turn {session.AdaptiveState.ObservedTurnCount}, transitioning to BuildUp.",
+                MetadataJson = System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    observedTurnCount = session.AdaptiveState.ObservedTurnCount,
+                    interactionCountInPhase = v2State.InteractionCountInPhase
+                })
+            }, cancellationToken);
+            v2State.CurrentPhase = NarrativePhase.BuildUp;
+            v2State.InteractionCountInPhase = 0;
+        }
+        else
+        {
+            _logger.LogDebug(
+                "RolePlayV2 Opening period check: SessionId={SessionId} CurrentPhase={Phase} ObservedTurnCount={ObservedTurns} Condition={Condition}",
+                session.Id, v2State.CurrentPhase, session.AdaptiveState.ObservedTurnCount,
+                v2State.CurrentPhase == NarrativePhase.Opening
+                && session.AdaptiveState.ObservedTurnCount > 3);
+        }
+
         var lifecycle = await _scenarioLifecycleService.EvaluateTransitionAsync(
             v2State,
             new LifecycleInputs
@@ -3178,7 +3526,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 {
                     // Build an allowlist of characters that belong to the scenario and persona.
                     // CharacterSnapshots may contain names extracted from narrative text that are
-                    // not actual scenario participants — filter those out.
+                    // not actual scenario participants � filter those out.
                     IReadOnlySet<string>? allowedCharacterIds = null;
                     if (!string.IsNullOrWhiteSpace(session.ScenarioId))
                     {
@@ -3206,7 +3554,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                     if (summaries.Count > 0)
                     {
                         _logger.LogInformation(
-                            "Encounter summaries written: {Count} records for session {SessionId} cycle {CycleIndex} transition {FromPhase}→{ToPhase}",
+                            "Encounter summaries written: {Count} records for session {SessionId} cycle {CycleIndex} transition {FromPhase}?{ToPhase}",
                             summaries.Count, session.Id, v2State.CycleIndex,
                             lifecycle.TransitionEvent.FromPhase, lifecycle.TransitionEvent.ToPhase);
                     }
@@ -3228,7 +3576,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                                 dedupeKey: $"enc-summary:{session.Id}:{summary.Id}");
                         }
                         _logger.LogInformation(
-                            "Enqueued {Count} encounter summary enhancement job(s) for session {SessionId} cycle {CycleIndex} transition {FromPhase}→{ToPhase}",
+                            "Enqueued {Count} encounter summary enhancement job(s) for session {SessionId} cycle {CycleIndex} transition {FromPhase}?{ToPhase}",
                             summaries.Count, session.Id, v2State.CycleIndex,
                             lifecycle.TransitionEvent.FromPhase, lifecycle.TransitionEvent.ToPhase);
                     }
@@ -3243,7 +3591,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                     SessionId = session.Id,
                     EventKind = "ClimaxToResetTransition",
                     Severity = "Info",
-                    Summary = "Climax → Reset phase transition. Active scenario and theme preserved.",
+                    Summary = "Climax ? Reset phase transition. Active scenario and theme preserved.",
                     MetadataJson = JsonSerializer.Serialize(new
                     {
                         fromPhase = transitionSourcePhase.ToString(),
@@ -3258,7 +3606,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             if (transitionSourcePhase == DreamGenClone.Domain.RolePlay.NarrativePhase.Reset
                 && lifecycle.TargetPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.BuildUp)
             {
-                // Reset → BuildUp: apply stat decay, theme score penalties, and successor bonuses.
+                // Reset ? BuildUp: apply stat decay, theme score penalties, and successor bonuses.
                 var completedScenarioId = v2State.ActiveScenarioId;
 
                 var statsBefore = v2State.CharacterSnapshots
@@ -3276,7 +3624,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                             StringComparer.OrdinalIgnoreCase),
                     await ResolveThemeStatDecayScaleOverridesAsync(completedScenarioId, cancellationToken),
                     cancellationToken);
-                // ExecuteResetAsync sets CurrentPhase = Reset and increments CycleIndex — restore BuildUp.
+                // ExecuteResetAsync sets CurrentPhase = Reset and increments CycleIndex � restore BuildUp.
                 v2State.CurrentPhase = DreamGenClone.Domain.RolePlay.NarrativePhase.BuildUp;
 
                 var statsAfter = v2State.CharacterSnapshots
@@ -3288,10 +3636,11 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
                 await ApplyThemeSemiResetAsync(session.AdaptiveState, completedScenarioId, cancellationToken);
 
-                // ExecuteResetAsync returned a new AdaptiveScenarioState instance — v2State is now a
+                // ExecuteResetAsync returned a new AdaptiveScenarioState instance � v2State is now a
                 // different object than session.AdaptiveState. Copy the semi-reset theme state (penalty/
-                // bonus scores, cooldowns, observer mode setup) from the old session.AdaptiveState into
-                // v2State so it survives the cycle boundary and is correctly persisted.
+                // bonus scores, cooldowns, observer mode setup) and character profile bindings from the
+                // old session.AdaptiveState into v2State so they survive the cycle boundary and are
+                // correctly persisted.
                 v2State.ThemeScores = session.AdaptiveState.ThemeScores;
                 v2State.PrimaryThemeId = session.AdaptiveState.PrimaryThemeId;
                 v2State.SecondaryThemeId = session.AdaptiveState.SecondaryThemeId;
@@ -3299,6 +3648,10 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 v2State.ObservedTurnCount = session.AdaptiveState.ObservedTurnCount;
                 v2State.SelectionMinimumTurns = session.AdaptiveState.SelectionMinimumTurns;
                 v2State.RecentEvidence = session.AdaptiveState.RecentEvidence;
+                // Preserve character profile bindings so the Adaptive panel continues to show
+                // the correct "BASELINE CHARACTER" label after cycle reset.
+                v2State.CharacterEncounterProfileIds = session.AdaptiveState.CharacterEncounterProfileIds;
+                v2State.CharacterRoles = session.AdaptiveState.CharacterRoles;
 
                 var themeScoresAfter = session.AdaptiveState.ThemeScores
                     .ToDictionary(kvp => kvp.Key, kvp => kvp.Value.Score);
@@ -3308,7 +3661,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                     SessionId = session.Id,
                     EventKind = "ResetToObserverTransition",
                     Severity = "Info",
-                    Summary = $"Reset → Observer (BuildUp). Stat decay applied. Theme penalties/bonuses applied. ActiveScenarioId cleared. CompletedScenario={completedScenarioId ?? "(none)"}",
+                    Summary = $"Reset ? Observer (BuildUp). Stat decay applied. Theme penalties/bonuses applied. ActiveScenarioId cleared. CompletedScenario={completedScenarioId ?? "(none)"}",
                     MetadataJson = JsonSerializer.Serialize(new
                     {
                         completedScenarioId,
@@ -3636,7 +3989,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                  && _climaxBeatRepository != null)
         {
             // Still in Climax with new interactions: advance cursor by ONE beat if
-            // threshold met. Multi-hop advancement is intentionally disabled — pacing
+            // threshold met. Multi-hop advancement is intentionally disabled � pacing
             // should walk the beat sheet one step at a time, even if multiple turns
             // batched into a single pipeline run.
             var beforeBeatCode = v2State.CurrentBeatCode;
@@ -3736,7 +4089,32 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             }, cancellationToken);
         }
 
-        // Refresh evaluation watermark so generatedSinceLastEval only counts interactions
+        
+        // ---- Multi-encounter Climax lifecycle -----------------------------------------------
+        // Theme-scoped via [ClimaxMode:multi-encounter] marker. Dormant for all other themes.
+        var isMultiEncounterClimax = RolePlayAssistantPrompts.IsMultiEncounterClimax(beatCursorTheme, "Climax");
+
+        if (isMultiEncounterClimax
+            && finalPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.Climax
+            && priorPhase != DreamGenClone.Domain.RolePlay.NarrativePhase.Climax)
+        {
+            await EnsureEncounterCompletedMappingAsync(beatCursorTheme!, session.Id, cancellationToken);
+            v2State.CurrentEncounterNumber = 1;
+            v2State.InteractionsInCurrentEncounter = 0;
+            _logger.LogInformation("MultiEncounterClimax initialized: SessionId={SessionId} ThemeId={ThemeId} EncounterNumber=1", session.Id, v2State.ActiveScenarioId);
+            await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord { SessionId = session.Id, EventKind = "MultiEncounterClimaxInitialized", Severity = "Info", Summary = $"Multi-encounter Climax initialized (theme={v2State.ActiveScenarioId}, encounter=1)", MetadataJson = JsonSerializer.Serialize(new { themeId = v2State.ActiveScenarioId, encounterNumber = 1, priorPhase = priorPhase?.ToString(), finalPhase = finalPhase.ToString() }) }, cancellationToken);
+        }
+        else if (isMultiEncounterClimax && finalPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.Climax && priorPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.Climax && generatedSinceLastEval > 0)
+        {
+            v2State.InteractionsInCurrentEncounter += generatedSinceLastEval;
+        }
+        else if (finalPhase != DreamGenClone.Domain.RolePlay.NarrativePhase.Climax && v2State.CurrentEncounterNumber != 0)
+        {
+            v2State.CurrentEncounterNumber = 0;
+            v2State.InteractionsInCurrentEncounter = 0;
+            _logger.LogInformation("MultiEncounterClimax cleared: SessionId={SessionId} (left Climax phase)", session.Id);
+        }
+// Refresh evaluation watermark so generatedSinceLastEval only counts interactions
         // created after this pipeline execution.
         v2State.LastEvaluationUtc = DateTime.UtcNow;
 
@@ -3765,7 +4143,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         }
         else
         {
-            // V2 ThemeSelectionRule is authoritative. PayloadJson can lag — e.g. retaining
+            // V2 ThemeSelectionRule is authoritative. PayloadJson can lag � e.g. retaining
             // "Observing" after the background job has advanced the tracker to
             // "ActiveScenarioLock". Using the stale PayloadJson value makes isObservingWindow=true,
             // which nulls ActiveScenarioId and triggers false scenario re-selection on every
@@ -3775,7 +4153,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             // observation window, do not restore ActiveScenarioId from the V2 snapshot.
             // The snapshot may hold the just-completed scenario from the previous cycle
             // (saved before ExecuteResetAsync cleared it). Restoring it here would defeat the
-            // Reset→Observer→BuildUp re-selection flow. The reset pipeline explicitly writes
+            // Reset?Observer?BuildUp re-selection flow. The reset pipeline explicitly writes
             // ThemeSelectionRule="Observing" into V2 (line ~2956), so V2 is correct for that case.
             if (!string.IsNullOrWhiteSpace(previousState.ThemeSelectionRule))
                 mapped.ThemeSelectionRule = previousState.ThemeSelectionRule;
@@ -3798,7 +4176,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         mapped.SelectedNarrativeGateProfileId = previousState.SelectedNarrativeGateProfileId ?? mapped.SelectedNarrativeGateProfileId;
         // PhaseOverride fields are authoritative in the V2 live store (RolePlayV2AdaptiveStates).
         // null is a valid cleared state (set by ClearPhaseOverrideLock). Do NOT fall back to the
-        // session payload here — it may be stale and would re-activate a cleared floor override.
+        // session payload here � it may be stale and would re-activate a cleared floor override.
         mapped.PhaseOverrideFloor = previousState.PhaseOverrideFloor;
         mapped.PhaseOverrideScenarioId = previousState.PhaseOverrideScenarioId;
         mapped.PhaseOverrideCycleIndex = previousState.PhaseOverrideCycleIndex;
@@ -3828,6 +4206,33 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 UpdatedUtc = x.UpdatedUtc
             })
             .ToList();
+        // CharacterSnapshots: carry forward the V2-persisted values so stat deltas applied by
+        // the background semantic analysis (ApplyInferredSemanticEvidenceAsync) are not
+        // overwritten by the stale PayloadJson baseline when the foreground pipeline saves.
+        // Must deep-copy to avoid shared-reference side effects between the V2 store and the
+        // in-memory session state.
+        mapped.CharacterSnapshots = previousState.CharacterSnapshots
+            .Select(s => new DreamGenClone.Domain.RolePlay.CharacterStatProfileV2
+            {
+                CharacterId = s.CharacterId,
+                Desire = s.Desire,
+                Restraint = s.Restraint,
+                Dominance = s.Dominance,
+                Loyalty = s.Loyalty,
+                SelfRespect = s.SelfRespect,
+                SnapshotUtc = s.SnapshotUtc,
+                BaselineStats = new Dictionary<string, int>(s.BaselineStats, StringComparer.OrdinalIgnoreCase),
+                LastStatDeltas = new Dictionary<string, int>(s.LastStatDeltas, StringComparer.OrdinalIgnoreCase),
+                LastStatDeltaUpdatedUtc = s.LastStatDeltaUpdatedUtc,
+                UpdatedUtc = s.UpdatedUtc,
+                RuntimeEncounterStats = s.RuntimeEncounterStats is not null
+                    ? new Dictionary<string, int>(s.RuntimeEncounterStats, StringComparer.OrdinalIgnoreCase)
+                    : null,
+                CharacterRole = s.CharacterRole
+            })
+            .ToList();
+        mapped.RebuildCharacterStatsCache();
+
         mapped.CurrentBeatCode = previousState.CurrentBeatCode;
         mapped.TurnsInCurrentBeat = previousState.TurnsInCurrentBeat;
         mapped.ThemeMachineSnapshot = previousState.ThemeMachineSnapshot is null
@@ -4072,6 +4477,90 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             successorTrackerItem.Breakdown.SuccessorCausalityBoost += (double)successor.ScoreBoost;
             successorTrackerItem.Intensity = ResolveResetIntensity(successorTrackerItem.Score);
         }
+    }
+
+    private async Task EnsureEncounterCompletedMappingAsync(RPTheme theme, string sessionId, CancellationToken cancellationToken)
+    {
+        if (_rpThemeService is null)
+            throw new InvalidOperationException($"MissingEncounterCompletedMapping: cannot verify encounter-completed mapping for theme '{theme.Id}' (session '{sessionId}') — IRPThemeService is unavailable.");
+        var hasMapping = theme.SemanticEventMappings.Any(x => string.Equals(x.EventId, "encounter-completed", StringComparison.OrdinalIgnoreCase));
+        if (!hasMapping)
+        {
+            var reloaded = await _rpThemeService.GetThemeAsync(theme.Id, cancellationToken);
+            hasMapping = reloaded?.SemanticEventMappings.Any(x => string.Equals(x.EventId, "encounter-completed", StringComparison.OrdinalIgnoreCase)) ?? false;
+            if (!hasMapping)
+                throw new InvalidOperationException($"MissingEncounterCompletedMapping: theme '{theme.Id}' has [ClimaxMode:multi-encounter] in its Climax phase guidance but no 'encounter-completed' semantic event mapping. Add an encounter-completed mapping to the theme before using multi-encounter mode.");
+        }
+    }
+
+    private async Task TryDetectEncounterBoundaryAsync(RolePlaySession session, RolePlayInteraction interaction, AdaptiveScenarioState state, CancellationToken cancellationToken)
+    {
+        if (state.CurrentPhase != DreamGenClone.Domain.RolePlay.NarrativePhase.Climax) { _logger.LogDebug("TryDetectEncounterBoundary: skipped — not in Climax (phase={Phase}) SessionId={SessionId}", state.CurrentPhase, session.Id); return; }
+        if (state.CurrentEncounterNumber <= 0) { _logger.LogDebug("TryDetectEncounterBoundary: skipped — CurrentEncounterNumber={Enc} SessionId={SessionId}", state.CurrentEncounterNumber, session.Id); return; }
+        if (_semanticEventInferenceService is null || _rpThemeService is null) { _logger.LogDebug("TryDetectEncounterBoundary: skipped — service(s) null (inference={HasInf} theme={HasTheme}) SessionId={SessionId}", _semanticEventInferenceService is not null, _rpThemeService is not null, session.Id); return; }
+        if (string.IsNullOrWhiteSpace(state.ActiveScenarioId)) { _logger.LogDebug("TryDetectEncounterBoundary: skipped — no ActiveScenarioId SessionId={SessionId}", session.Id); return; }
+
+        // ---- Gate: only detect boundaries for characters actively in the encounter ----
+        var actorName = string.IsNullOrWhiteSpace(interaction.ActorName) ? "Unknown" : interaction.ActorName;
+        if (!state.IsCharacterHavingSex(actorName))
+        {
+            _logger.LogDebug("TryDetectEncounterBoundary: skipped — {Actor} not flagged IsHavingSex SessionId={SessionId} Encounter={Enc} IxnsInEnc={Ixns}", actorName, session.Id, state.CurrentEncounterNumber, state.InteractionsInCurrentEncounter);
+            return;
+        }
+
+        RPTheme? theme = null;
+        try { theme = await _rpThemeService.GetThemeAsync(state.ActiveScenarioId, cancellationToken); }
+        catch (Exception ex) { _logger.LogDebug(ex, "TryDetectEncounterBoundary: could not load theme {ThemeId}", state.ActiveScenarioId); }
+        if (theme is null || !RolePlayAssistantPrompts.IsMultiEncounterClimax(theme, "Climax")) { _logger.LogDebug("TryDetectEncounterBoundary: skipped — theme null or not multi-encounter SessionId={SessionId}", session.Id); return; }
+        var mapping = theme.SemanticEventMappings.FirstOrDefault(x => string.Equals(x.EventId, "encounter-completed", StringComparison.OrdinalIgnoreCase));
+        if (mapping is null) { _logger.LogWarning("TryDetectEncounterBoundary: theme {ThemeId} has [ClimaxMode:multi-encounter] but no encounter-completed mapping", theme.Id); return; }
+        var cwSize = Math.Max(12, session.ContextWindowSize);
+        var ixIdx = session.Interactions.FindIndex(x => string.Equals(x.Id, interaction.Id, StringComparison.OrdinalIgnoreCase));
+        var ctxStart = ixIdx >= 0 ? Math.Max(0, ixIdx - cwSize) : Math.Max(0, session.Interactions.Count - cwSize);
+        var ctxEnd = ixIdx >= 0 ? ixIdx : session.Interactions.Count;
+        var ctx = session.Interactions.Skip(ctxStart).Take(Math.Max(0, ctxEnd - ctxStart)).Where(x => !x.IsExcluded).Select(x => $"[{x.InteractionType}] {x.ActorName}: {x.Content}").ToList();
+        SemanticEventInferenceResult inf;
+        try
+        {
+            inf = await _semanticEventInferenceService.InferAsync(new SemanticEventInferenceRequest { SessionId = session.Id, InteractionId = interaction.Id, ActorName = actorName, InteractionText = interaction.Content ?? string.Empty, ContextTurns = ctx, AllowedEventIds = ["encounter-completed"], EventDescriptions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["encounter-completed"] = "The CURRENT sexual encounter has reached its natural conclusion — either through climax (orgasm has occurred, bodies are spent, the tension has released and the scene settles into afterglow) OR through interruption (someone is about to walk in, the risk becomes too high, they are startled apart, they hear a sound and freeze — the encounter is cut short and they must separate or hide). Do NOT detect during mid-encounter escalation or at the moment of orgasm itself. Do NOT detect if sexual activity within the same encounter is still ongoing or building. Only detect when the encounter is clearly over — whether finished or interrupted." } }, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "TryDetectEncounterBoundary: inference failed SessionId={SessionId}", session.Id);
+            await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord { SessionId = session.Id, InteractionId = interaction.Id, EventKind = "EncounterBoundaryDetectionFailed", Severity = "Warn", ActorName = interaction.ActorName, Summary = $"Detection failed: {ex.GetType().Name}: {ex.Message}", MetadataJson = JsonSerializer.Serialize(new { error = ex.Message, encounterNumberBefore = state.CurrentEncounterNumber }) }, cancellationToken);
+            return;
+        }
+        if (!inf.Success) { _logger.LogWarning("TryDetectEncounterBoundary: inference non-success SessionId={SessionId}", session.Id); return; }
+        var detected = inf.Events.FirstOrDefault(x => string.Equals(x.EventId, "encounter-completed", StringComparison.OrdinalIgnoreCase) && x.Confidence >= mapping.ConfidenceMin && x.Confidence <= mapping.ConfidenceMax);
+        if (detected is null) { _logger.LogDebug("TryDetectEncounterBoundary: no detection SessionId={SessionId} Encounter={EncounterNumber}", session.Id, state.CurrentEncounterNumber); await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord { SessionId = session.Id, InteractionId = interaction.Id, EventKind = "EncounterBoundaryNoDetection", Severity = "Debug", ActorName = interaction.ActorName, Summary = $"No encounter-completed detected (encounter {state.CurrentEncounterNumber}, {state.InteractionsInCurrentEncounter} interactions)", MetadataJson = JsonSerializer.Serialize(new { encounterNumber = state.CurrentEncounterNumber, interactionsInEncounter = state.InteractionsInCurrentEncounter }) }, cancellationToken); return; }
+        const int minIxns = 4;
+        if (state.InteractionsInCurrentEncounter < minIxns) { _logger.LogDebug("TryDetectEncounterBoundary: below minimum encounter length ({Current}/{Min}) SessionId={SessionId}", state.InteractionsInCurrentEncounter, minIxns, session.Id); await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord { SessionId = session.Id, InteractionId = interaction.Id, EventKind = "EncounterBoundaryBelowMin", Severity = "Debug", ActorName = interaction.ActorName, Summary = $"Below minimum encounter length ({state.InteractionsInCurrentEncounter}/{minIxns})", MetadataJson = JsonSerializer.Serialize(new { encounterNumber = state.CurrentEncounterNumber, interactionsInEncounter = state.InteractionsInCurrentEncounter, minRequired = minIxns }) }, cancellationToken); return; }
+
+        // ---- Keyword hard-gate: validate evidence span (skip for Instruction/System) ----
+        if (interaction.InteractionType != InteractionType.System)
+        {
+            if (!ContainsEncounterCompletionKeywords(detected.EvidenceSpan))
+            {
+                _logger.LogWarning(
+                    "TryDetectEncounterBoundary: rejected — evidence span lacks orgasm/interruption keywords. SessionId={SessionId} Actor={Actor} Confidence={Conf} EvidenceSpan=\"{Span}\"",
+                    session.Id, actorName, detected.Confidence, detected.EvidenceSpan);
+                return;
+            }
+        }
+
+        var before = state.CurrentEncounterNumber;
+        state.CurrentEncounterNumber++;
+        state.InteractionsInCurrentEncounter = 0;
+        state.TimeSkipPending = true;
+
+        // ---- Clear encounter participant set on boundary advance ----
+        state.CharacterEncounterStates.Clear();
+
+        // ---- Deferred persistence: mark dirty, flush at turn completion ----
+        state.IsStateDirty = true;
+
+        _logger.LogInformation("EncounterBoundaryAdvanced: SessionId={SessionId} {Before} -> {After} (conf={Conf})", session.Id, before, state.CurrentEncounterNumber, detected.Confidence);
+        await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord { SessionId = session.Id, InteractionId = interaction.Id, EventKind = "EncounterBoundaryAdvanced", Severity = "Info", ActorName = interaction.ActorName, Summary = $"Encounter boundary advanced: {before} -> {state.CurrentEncounterNumber} (conf={detected.Confidence})", MetadataJson = JsonSerializer.Serialize(new { encounterNumberBefore = before, encounterNumberAfter = state.CurrentEncounterNumber, confidence = detected.Confidence, evidenceSpan = detected.EvidenceSpan, themeId = theme.Id }) }, cancellationToken);
     }
 
     private static bool IsClimaxCompletionRequested(RolePlaySession session)
@@ -4949,7 +5438,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             return null;
         }
 
-        // Climax exits ONLY via /endclimax — /nextphase is intentionally blocked here.
+        // Climax exits ONLY via /endclimax � /nextphase is intentionally blocked here.
         return currentPhase switch
         {
             NarrativePhase.BuildUp => NarrativePhase.Committed,
@@ -7070,7 +7559,7 @@ Requirements:
 
         var personaName = string.IsNullOrWhiteSpace(session.PersonaName) ? "You" : session.PersonaName.Trim();
 
-        // Skip re-seeding if the persona block was already correctly seeded — indicated by
+        // Skip re-seeding if the persona block was already correctly seeded � indicated by
         // a non-empty BaselineStats. BaselineStats is populated only during correct seeding;
         // blocks created via EnsurePersonaCharacterState (when template had no BaseStats at
         // session creation) have empty BaselineStats and will be re-seeded here on each load
@@ -7179,7 +7668,7 @@ Requirements:
                 Theme = theme,
                 // PenalizedScore drives ordering only; uses full composite score.
                 PenalizedScore = ApplyCompletedScenarioPenalty(theme.ThemeId, NormalizeThemeScore(theme.Score)),
-                // NarrativeEvidenceScore uses only interaction evidence — excludes ChoiceSignal
+                // NarrativeEvidenceScore uses only interaction evidence � excludes ChoiceSignal
                 // (preference, already in PreferencePriorityScore) and ScenarioPhaseSignal
                 // (scenario keyword fit, not user narrative behaviour).
                 // ApplyRepeatPenalty will apply the completion penalty when building candidates.
@@ -7191,7 +7680,7 @@ Requirements:
 
         // Per-session theme selections: build candidates using tracker score (no repeat penalty)
         // as NarrativeEvidenceScore and tier-based priority as PreferencePriorityScore.
-        // Repeat penalties must NOT apply here — the user explicitly chose to play these themes
+        // Repeat penalties must NOT apply here � the user explicitly chose to play these themes
         // and penalties would prevent second arcs from ever reaching the commit gate.
         if (_rpThemeService is not null && session.SessionThemeSelections.Count > 0)
         {
@@ -7225,9 +7714,9 @@ Requirements:
                     };
 
                     // NarrativeEvidenceScore uses only the InteractionEvidenceSignal component of the
-                    // tracker breakdown — the organic signal that grows through user interaction choices.
-                    // Excludes ChoiceSignal (preference already in PreferencePriorityScore — Bug 1 fix)
-                    // and ScenarioPhaseSignal (scenario keyword fit, not narrative buildup — Bug 2 fix).
+                    // tracker breakdown � the organic signal that grows through user interaction choices.
+                    // Excludes ChoiceSignal (preference already in PreferencePriorityScore � Bug 1 fix)
+                    // and ScenarioPhaseSignal (scenario keyword fit, not narrative buildup � Bug 2 fix).
                     // Fallback is 0 (no evidence yet); PreferencePriorityScore carries tier weight.
                     // v2State.ThemeScores holds the live V2-synced values; session.AdaptiveState may be stale.
                     var trackerScore = selectedTrackerItem is not null

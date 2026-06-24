@@ -9,6 +9,7 @@
 @using DreamGenClone.Web.Domain.RolePlay
 @using DreamGenClone.Web.Domain.Scenarios
 @using DreamGenClone.Application.StoryAnalysis
+@using DreamGenClone.Application.StoryAnalysis.Abstractions
 @using DreamGenClone.Domain.StoryAnalysis
 @using DreamGenClone.Domain.Templates
 
@@ -18,6 +19,7 @@
 @inject StoryAnalysisFacade StoryAnalysisFacade
 @inject IScenarioAssistantService ScenarioAssistant
 @inject IRPThemeService RPThemeService
+@inject ICharacterProfileService CharacterProfileService
 @inject NavigationManager Navigation
 
 <PageTitle>Scenario Editor - DreamGenClone</PageTitle>
@@ -194,7 +196,7 @@
                             <label class="form-label">Default Character State Profile</label>
                             <select class="form-select" @bind="CurrentScenario.BaseStatProfileId">
                                 <option value="">(None)</option>
-                                @foreach (var profile in BaseStatProfiles)
+                                @foreach (var profile in CharacterProfiles)
                                 {
                                     <option value="@profile.Id">@profile.Name</option>
                                 }
@@ -339,29 +341,13 @@
                                                     </div>
                                                     <div class="mt-2">
                                                         <div class="small text-muted mb-1">Character Stat Profile</div>
-                                                        <div class="input-group input-group-sm mb-2" style="max-width: 520px;">
-                                                            <select class="form-select" value="@GetCharacterProfileSelection(character)" @onchange="@(e => SetCharacterProfileSelection(character, e.Value?.ToString()))">
-                                                                <option value="">(Select Profile)</option>
-                                                                @foreach (var profile in GetApplicableBaseStatProfiles(character))
-                                                                {
-                                                                    <option value="@profile.Id">@profile.Name (@CharacterGenderCatalog.NormalizeForProfile(profile.TargetGender) / @CharacterRoleCatalog.Normalize(profile.TargetRole))</option>
-                                                                }
-                                                            </select>
-                                                            <button class="btn btn-outline-primary" type="button" @onclick="@(() => ApplyCharacterProfile(character))">Apply</button>
-                                                        </div>
-                                                        <div class="small text-muted mb-1">Character State Overrides (applied after scenario profile defaults at session start)</div>
-                                                        @foreach (var statName in BaseStatNames)
-                                                        {
-                                                            <div class="input-group input-group-sm mb-1">
-                                                                <span class="input-group-text" style="min-width: 140px;">@statName</span>
-                                                                <input type="number"
-                                                                       class="form-control"
-                                                                       min="0"
-                                                                       max="100"
-                                                                       value="@GetCharacterStat(character, statName)"
-                                                                       @onchange="@(e => SetCharacterStat(character, statName, e.Value?.ToString()))" />
-                                                            </div>
-                                                        }
+                                                        <select class="form-select form-select-sm" style="max-width: 520px;" value="@GetCharacterProfileSelection(character)" @onchange="@(e => SetCharacterProfileSelection(character, e.Value?.ToString()))">
+                                                            <option value="">(Select Profile)</option>
+                                                            @foreach (var profile in GetApplicableCharacterProfiles(character))
+                                                            {
+                                                                <option value="@profile.Id">@profile.Name (@CharacterGenderCatalog.NormalizeForProfile(profile.TargetGender) / @CharacterRoleCatalog.Normalize(profile.TargetRole))</option>
+                                                            }
+                                                        </select>
                                                     </div>
                                                     <div class="mt-3">
                                                         <PhysicalAttributesEditor
@@ -670,11 +656,10 @@
         ("Erotic", "Erotic"),
         ("Hardcore", "Hardcore")
     ];
-    private List<BaseStatProfile> BaseStatProfiles = [];
+    private List<CharacterProfile> CharacterProfiles = [];
     private List<RoleDefinition> RoleDefinitions = [];
     private List<TemplateDefinition> CharacterLikeTemplates = [];
     private readonly Dictionary<string, string?> _characterProfileSelectionById = new(StringComparer.OrdinalIgnoreCase);
-    private static readonly string[] BaseStatNames = GetBaseStatNames();
     
     protected override async Task OnInitializedAsync()
     {
@@ -685,7 +670,7 @@
             .ToList();
         ToneProfiles = await StoryAnalysisFacade.ListIntensityProfilesAsync();
         StyleProfiles = await StoryAnalysisFacade.ListSteeringProfilesAsync();
-        BaseStatProfiles = await StoryAnalysisFacade.ListBaseStatProfilesAsync();
+        CharacterProfiles = (await CharacterProfileService.GetAllAsync()).ToList();
         RoleDefinitions = await StoryAnalysisFacade.ListRoleDefinitionsAsync();
         CharacterLikeTemplates = (await TemplateService.GetAllAsync())
             .Where(x => IsCharacterLikeTemplate(x.TemplateType))
@@ -711,6 +696,18 @@
 
         EnsureBaseStatsInitialized();
         InitializeAssistantChatsFromScenario();
+
+        // Restore saved per-character profile selection from persisted field.
+        if (CurrentScenario is not null)
+        {
+            foreach (var character in CurrentScenario.Characters)
+            {
+                if (!string.IsNullOrWhiteSpace(character.DefaultEncounterProfileId))
+                {
+                    _characterProfileSelectionById[character.Id] = character.DefaultEncounterProfileId;
+                }
+            }
+        }
     }
 
     private static string[] GetBaseStatNames()
@@ -1433,11 +1430,23 @@
         }
     }
 
-    private IEnumerable<BaseStatProfile> GetApplicableBaseStatProfiles(Character character)
+    private IEnumerable<CharacterProfile> GetApplicableCharacterProfiles(Character character)
     {
-        return BaseStatProfiles.Where(profile =>
-            CharacterGenderCatalog.IsProfileApplicableToCharacter(profile.TargetGender, character.Gender)
-            && CharacterRoleCatalog.IsProfileApplicableToCharacter(profile.TargetRole, character.Role));
+        return CharacterProfiles.Where(profile =>
+        {
+            // When character gender/role is Unknown, skip that filter dimension
+            // so all profiles are visible for selection.
+            var normalizedCharGender = CharacterGenderCatalog.NormalizeForCharacter(character.Gender);
+            var normalizedCharRole = CharacterRoleCatalog.Normalize(character.Role);
+
+            bool genderMatch = string.Equals(normalizedCharGender, CharacterGenderCatalog.Unknown, StringComparison.OrdinalIgnoreCase)
+                || CharacterGenderCatalog.IsProfileApplicableToCharacter(profile.TargetGender, character.Gender);
+
+            bool roleMatch = string.Equals(normalizedCharRole, CharacterRoleCatalog.Unknown, StringComparison.OrdinalIgnoreCase)
+                || CharacterRoleCatalog.IsProfileApplicableToCharacter(profile.TargetRole, character.Role);
+
+            return genderMatch && roleMatch;
+        });
     }
 
     private string GetCharacterProfileSelection(Character character)
@@ -1453,6 +1462,7 @@
     private void SetCharacterProfileSelection(Character character, string? profileId)
     {
         _characterProfileSelectionById[character.Id] = string.IsNullOrWhiteSpace(profileId) ? null : profileId;
+        character.DefaultEncounterProfileId = string.IsNullOrWhiteSpace(profileId) ? null : profileId;
     }
 
     private void ApplyCharacterProfile(Character character)
@@ -1463,7 +1473,7 @@
             return;
         }
 
-        var profile = BaseStatProfiles.FirstOrDefault(x =>
+        var profile = CharacterProfiles.FirstOrDefault(x =>
             string.Equals(x.Id, selectedProfileId, StringComparison.OrdinalIgnoreCase)
             && CharacterGenderCatalog.IsProfileApplicableToCharacter(x.TargetGender, character.Gender)
             && CharacterRoleCatalog.IsProfileApplicableToCharacter(x.TargetRole, character.Role));
@@ -1472,9 +1482,10 @@
             return;
         }
 
-        character.BaseStats = AdaptiveStatCatalog.NormalizeComplete(profile.DefaultStats);
+        character.BaseStats = AdaptiveStatCatalog.NormalizeComplete(profile.CharacterStats);
         character.Gender = CharacterGenderCatalog.NormalizeForCharacter(profile.TargetGender);
         character.Role = CharacterRoleCatalog.Normalize(profile.TargetRole);
+        character.DefaultEncounterProfileId = selectedProfileId;
     }
     
     private void AddLocation(string name, string? templateId, string? description)
@@ -1580,10 +1591,10 @@
             return;
         }
 
-        var profile = await StoryAnalysisFacade.GetBaseStatProfileAsync(CurrentScenario.BaseStatProfileId);
+        var profile = await CharacterProfileService.GetAsync(CurrentScenario.BaseStatProfileId);
         CurrentScenario.ResolvedBaseStats = profile is null
             ? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
-            : AdaptiveStatCatalog.NormalizeComplete(profile.DefaultStats);
+            : AdaptiveStatCatalog.NormalizeComplete(profile.CharacterStats);
     }
 
     private void EnsureBaseStatsInitialized()
@@ -1603,27 +1614,6 @@
     {
         character.Gender = CharacterGenderCatalog.NormalizeForCharacter(character.Gender);
         character.BaseStats = AdaptiveStatCatalog.NormalizeComplete(character.BaseStats);
-    }
-
-    private static int GetCharacterStat(Character character, string statName)
-    {
-        if (!character.BaseStats.TryGetValue(statName, out var value))
-        {
-            value = 50;
-            character.BaseStats[statName] = value;
-        }
-
-        return value;
-    }
-
-    private static void SetCharacterStat(Character character, string statName, string? rawValue)
-    {
-        if (!int.TryParse(rawValue, out var value))
-        {
-            value = 50;
-        }
-
-        character.BaseStats[statName] = Math.Clamp(value, 0, 100);
     }
 
     private ScenarioAssistantContext BuildAssistantContext(Scenario scenario, string? sessionId = null, ScenarioAssistantTarget? target = null)

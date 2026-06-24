@@ -181,19 +181,9 @@
                             <div class="invalid-feedback d-block">Select a role.</div>
                         }
                     </div>
-                    <div class="col-12">
-                        <label class="form-label">Description</label>
-                        <textarea class="form-control" rows="2" @bind="_personaDescription"></textarea>
-                    </div>
-                    <div class="col-12 mt-2">
-                        <PhysicalAttributesEditor
-                            Attributes="@_personaPhysicalAttributes"
-                            AttributesChanged="@(attrs => _personaPhysicalAttributes = attrs)"
-                            Gender="@_personaGender" />
-                    </div>
                 </div>
 
-                <!-- Persona stat profile (required) -->
+                <!-- Persona Stat Profile (moved out of Persona Details) -->
                 <div class="mt-3">
                     <label class="form-label fw-semibold">Stat Profile <span class="text-danger">*</span></label>
                     @if (string.Equals(_personaRole, CharacterRoleCatalog.Unknown, StringComparison.OrdinalIgnoreCase))
@@ -216,8 +206,65 @@
                             <div class="invalid-feedback d-block">A stat profile is required.</div>
                         }
                     }
+
+                    @* Profile detail display (Task 2.2) *@
+                    @if (_selectedPersonaProfile is not null)
+                    {
+                        <div class="mt-2 border rounded p-2 bg-dark text-light">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <span class="small fw-semibold">Profile Details — @_selectedPersonaProfile.Name</span>
+                            </div>
+                            <ProfileDetailDisplay Profile="@_selectedPersonaProfile"
+                                                  State="@_personaProfileDetailState" />
+                        </div>
+                    }
                 </div>
             </div>
+        </div>
+
+        <!-- Persona Details (collapsible, collapsed by default) -->
+        <div class="card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center py-2">
+                <span class="fw-semibold">Persona Details</span>
+                <button class="btn btn-sm btn-link py-0" @onclick="@(() => _personaDetailsExpanded = !_personaDetailsExpanded)">
+                    @(_personaDetailsExpanded ? "▼" : "▶")
+                </button>
+            </div>
+            @if (_personaDetailsExpanded)
+            {
+                <div class="card-body">
+                    <!-- Description sub-section -->
+                    <div class="mb-3 border rounded p-2">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <span class="small fw-semibold text-muted">Description</span>
+                            <button class="btn btn-sm btn-link py-0" @onclick="@(() => _personaDescriptionExpanded = !_personaDescriptionExpanded)">
+                                @(_personaDescriptionExpanded ? "▼" : "▶")
+                            </button>
+                        </div>
+                        @if (_personaDescriptionExpanded)
+                        {
+                            <textarea class="form-control form-control-sm" rows="2" @bind="_personaDescription"></textarea>
+                        }
+                    </div>
+
+                    <!-- Physical Attributes sub-section -->
+                    <div class="mb-3 border rounded p-2">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <span class="small fw-semibold text-muted">Physical Attributes</span>
+                            <button class="btn btn-sm btn-link py-0" @onclick="@(() => _personaPhysicalAttributesExpanded = !_personaPhysicalAttributesExpanded)">
+                                @(_personaPhysicalAttributesExpanded ? "▼" : "▶")
+                            </button>
+                        </div>
+                        @if (_personaPhysicalAttributesExpanded)
+                        {
+                            <PhysicalAttributesEditor
+                                Attributes="@_personaPhysicalAttributes"
+                                AttributesChanged="@(attrs => _personaPhysicalAttributes = attrs)"
+                                Gender="@_personaGender" />
+                        }
+                    </div>
+                </div>
+            }
         </div>
 
         <!-- Character stat overrides -->
@@ -230,7 +277,7 @@
                         <span class="text-muted small ms-1">(@cs.Gender / @cs.Role)</span>
                     </span>
                     <button class="btn btn-sm btn-link py-0" @onclick="@(() => cs.IsExpanded = !cs.IsExpanded)">
-                        @(cs.IsExpanded ? "Collapse" : "Expand")
+                        @(cs.IsExpanded ? "▼" : "▶")
                     </button>
                 </div>
                 @if (cs.IsExpanded)
@@ -252,6 +299,17 @@
                                 <div class="invalid-feedback d-block">A stat profile is required.</div>
                             }
                         </div>
+
+                        @if (cs.SelectedProfile is not null)
+                        {
+                            <div class="mt-2 border rounded p-2 bg-dark text-light">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <span class="small fw-semibold">Profile Details — @cs.SelectedProfile.Name</span>
+                                </div>
+                                <ProfileDetailDisplay Profile="@cs.SelectedProfile"
+                                                      State="@cs.ProfileDetailState" />
+                            </div>
+                        }
                     </div>
                 }
             </div>
@@ -271,6 +329,19 @@
         }
         else
         {
+            <div class="border rounded p-2 mb-3">
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="autoCompleteCheck" @bind="_autoCompleteEnabled" />
+                    <label class="form-check-label" for="autoCompleteCheck">Auto-complete after session creation</label>
+                </div>
+                @if (_autoCompleteEnabled)
+                {
+                    <div class="mt-2">
+                        <label class="form-label small">Max Turns</label>
+                        <input type="number" class="form-control form-control-sm" style="width:100px" min="1" step="1" @bind="_autoCompleteMaxTurns" />
+                    </div>
+                }
+            </div>
             <button class="btn btn-success" @onclick="CreateSessionAsync" disabled="@_isCreating">
                 @(_isCreating ? "Creating…" : "Create Session")
             </button>
@@ -299,6 +370,8 @@
         public Dictionary<string, int> Stats { get; set; } = new(StringComparer.OrdinalIgnoreCase);
         public string SelectedStatProfileId { get; set; } = string.Empty;
         public bool IsExpanded { get; set; } = true;
+        public CharacterProfile? SelectedProfile { get; set; }
+        public ProfileDetailCollapseState ProfileDetailState { get; set; } = new();
     }
 
     private static readonly (string Label, string Value)[] TierOptions =
@@ -327,6 +400,13 @@
         _newSessionScenarioId = e.Value?.ToString() ?? string.Empty;
         var selected = _scenarios.FirstOrDefault(s => s.Id == _newSessionScenarioId);
         if (selected is not null) _newSessionTitle = selected.Name ?? string.Empty;
+
+        // Reset step data if scenario changes, so new scenario data is loaded
+        if (_step2DataLoaded || _step3DataLoaded)
+        {
+            _step2DataLoaded = false;
+            _step3DataLoaded = false;
+        }
     }
 
     // Step 2
@@ -349,7 +429,25 @@
     private readonly List<CharacterProfile> _characterProfiles = [];
     private readonly Dictionary<string, string> _characterEncounterProfileIds = new(StringComparer.OrdinalIgnoreCase);
 
+    // Persona Details collapsible section state (all collapsed by default)
+    private bool _personaDetailsExpanded;
+    private bool _personaDescriptionExpanded;
+    private bool _personaPhysicalAttributesExpanded;
+    private bool _personaStatProfileExpanded;
+
+    // Selected persona profile + its detail collapse state
+    private CharacterProfile? _selectedPersonaProfile;
+    private readonly ProfileDetailCollapseState _personaProfileDetailState = new();
+
+    // Auto-Complete
+    private bool _autoCompleteEnabled;
+    private int _autoCompleteMaxTurns = 50;
+
     private bool _showStep3Validation;
+
+    // Track whether each step's data has been loaded to preserve user changes
+    private bool _step2DataLoaded;
+    private bool _step3DataLoaded;
 
     private bool CanGoNext => _currentStep == 1
         ? !string.IsNullOrWhiteSpace(_newSessionScenarioId)
@@ -374,13 +472,15 @@
     private async Task GoNextAsync()
     {
         _statusMessage = string.Empty;
-        if (_currentStep == 1)
+        if (_currentStep == 1 && !_step2DataLoaded)
         {
             await LoadStep2DataAsync();
+            _step2DataLoaded = true;
         }
-        else if (_currentStep == 2)
+        else if (_currentStep == 2 && !_step3DataLoaded)
         {
             await LoadStep3DataAsync();
+            _step3DataLoaded = true;
         }
         _currentStep++;
     }
@@ -464,6 +564,13 @@
         _personaTemplates.Clear();
         _personaTemplates.AddRange(await TemplateService.GetAllAsync(TemplateType.Persona));
 
+        // Auto-select the first persona template if there's only one
+        if (_personaTemplates.Count == 1)
+        {
+            _newPersonaTemplateId = _personaTemplates[0].Id.ToString();
+            OnPersonaTemplateChanged(new ChangeEventArgs { Value = _newPersonaTemplateId });
+        }
+
         _characterProfiles.Clear();
         _characterProfiles.AddRange(await CharacterProfileService.GetAllAsync());
         _characterEncounterProfileIds.Clear();
@@ -496,14 +603,23 @@
                 mergedStats.TryAdd(statName, AdaptiveStatCatalog.DefaultValue);
             }
 
-            _characterEditStates.Add(new CharacterEditState
+            var editState = new CharacterEditState
             {
                 CharacterId = character.Id,
                 CharacterName = character.Name!.Trim(),
                 Gender = character.Gender,
                 Role = character.Role,
                 Stats = mergedStats,
-            });
+                SelectedStatProfileId = character.DefaultEncounterProfileId ?? string.Empty,
+            };
+            
+            // Apply the selected profile to load profile details and stats
+            if (!string.IsNullOrWhiteSpace(editState.SelectedStatProfileId))
+            {
+                ApplyCharacterStatProfile(editState);
+            }
+            
+            _characterEditStates.Add(editState);
         }
     }
 
@@ -513,18 +629,21 @@
         // Clear profile selection when role changes — profiles are role-filtered
         _personaStatProfileId = string.Empty;
         _personaStats.Clear();
+        _selectedPersonaProfile = null;
         _characterEncounterProfileIds.Remove("__persona__");
     }
 
     private void OnPersonaStatProfileChanged(ChangeEventArgs e)
     {
         _personaStatProfileId = e.Value?.ToString() ?? string.Empty;
+        _selectedPersonaProfile = null;
         ApplyPersonaStatProfile();
     }
 
     private void OnCharacterStatProfileChanged(CharacterEditState cs, string? profileId)
     {
         cs.SelectedStatProfileId = profileId ?? string.Empty;
+        cs.SelectedProfile = null;
         ApplyCharacterStatProfile(cs);
     }
 
@@ -598,6 +717,7 @@
     {
         if (string.IsNullOrWhiteSpace(_personaStatProfileId))
         {
+            _selectedPersonaProfile = null;
             return;
         }
 
@@ -607,6 +727,7 @@
 
         if (profile is null)
         {
+            _selectedPersonaProfile = null;
             return;
         }
 
@@ -617,6 +738,7 @@
         }
 
         _personaRole = CharacterRoleCatalog.Normalize(profile.TargetRole);
+        _selectedPersonaProfile = profile;
 
         // Store the persona's profile selection so the workspace can restore it on load.
         _characterEncounterProfileIds["__persona__"] = profile.Id;
@@ -628,6 +750,7 @@
     {
         if (string.IsNullOrWhiteSpace(cs.SelectedStatProfileId))
         {
+            cs.SelectedProfile = null;
             return;
         }
 
@@ -637,6 +760,7 @@
 
         if (profile is null)
         {
+            cs.SelectedProfile = null;
             return;
         }
 
@@ -647,6 +771,7 @@
         }
 
         cs.Role = CharacterRoleCatalog.Normalize(profile.TargetRole);
+        cs.SelectedProfile = profile;
         _characterEncounterProfileIds[cs.CharacterId] = profile.Id;
     }
 
@@ -713,7 +838,14 @@
 
             var created = await RolePlayEngine.CreateSessionAsync(request);
             Logger.LogInformation("Created role-play session {SessionId} from wizard", created.Id);
-            Navigation.NavigateTo(RolePlayRoutes.Sessions);
+            if (_autoCompleteEnabled)
+            {
+                Navigation.NavigateTo($"{RolePlayRoutes.GetWorkspace(created.Id)}?autocomplete={_autoCompleteMaxTurns}");
+            }
+            else
+            {
+                Navigation.NavigateTo(RolePlayRoutes.Sessions);
+            }
         }
         catch (Exception ex)
         {

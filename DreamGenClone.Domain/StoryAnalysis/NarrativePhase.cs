@@ -2,9 +2,10 @@ namespace DreamGenClone.Domain.StoryAnalysis;
 
 public enum NarrativePhase
 {
-    BuildUp = 0,
-    Committed = 1,
-    Approaching = 2,
-    Climax = 3,
-    Reset = 4
+    Opening = 0,
+    BuildUp = 1,
+    Committed = 2,
+    Approaching = 3,
+    Climax = 4,
+    Reset = 5
 }

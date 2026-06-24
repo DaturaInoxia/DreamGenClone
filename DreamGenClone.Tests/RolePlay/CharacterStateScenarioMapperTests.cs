@@ -175,7 +175,7 @@ public sealed class CharacterStateScenarioMapperTests
             SessionId = "s1",
             CharacterSnapshots =
             [
-                new CharacterStatProfileV2 { CharacterId = "alpha", Desire = 45, Dominance = 50, Restraint = 40, Loyalty = 50, SelfRespect = 50, RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 60, ["Connection"] = 50 } }
+                new CharacterStatProfileV2 { CharacterId = "alpha", Desire = 45, Dominance = 50, Restraint = 40, Loyalty = 50, SelfRespect = 50, RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Exhibitionism"] = 60 } }
             ]
         };
 
@@ -193,7 +193,7 @@ public sealed class CharacterStateScenarioMapperTests
                     StatThresholds = new Dictionary<string, StatThresholdSpecification>(StringComparer.OrdinalIgnoreCase)
                     {
                         ["desire"] = new StatThresholdSpecification { MinimumValue = 50 },
-                        ["tension"] = new StatThresholdSpecification { MinimumValue = 55 }
+                        ["exhibitionism"] = new StatThresholdSpecification { MinimumValue = 55 }
                     }
                 }
             ]
@@ -213,6 +213,6 @@ public sealed class CharacterStateScenarioMapperTests
         Assert.True(fit.ClauseEvaluations.TryGetValue("wife", out var clauses));
         Assert.NotNull(clauses);
         Assert.Contains(clauses, x => x.StartsWith("FAIL desire", StringComparison.OrdinalIgnoreCase));
-        Assert.Contains(clauses, x => x.StartsWith("PASS tension", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(clauses, x => x.StartsWith("PASS exhibitionism", StringComparison.OrdinalIgnoreCase));
     }
 }

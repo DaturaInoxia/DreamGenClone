@@ -267,7 +267,7 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
                     if (statDecayScaleOverrides is not null
                         && statDecayScaleOverrides.TryGetValue(statName, out var scale))
                     {
-                        return statPull * Math.Clamp(scale, 0m, 1m);
+                        return Math.Clamp(scale, 0m, 1m);
                     }
                     return statPull;
                 }
@@ -339,7 +339,7 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
             if (statDecayScaleOverrides is not null
                 && statDecayScaleOverrides.TryGetValue(statName, out var scale))
             {
-                return statPull * Math.Clamp(scale, 0m, 1m);
+                return Math.Clamp(scale, 0m, 1m);
             }
             return statPull;
         }
