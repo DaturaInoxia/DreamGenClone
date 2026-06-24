@@ -1866,6 +1866,24 @@ public sealed class SqlitePersistence : ISqlitePersistence
 
         await MarkLegacyMigrationsCompleteAsync(connection, cancellationToken);
 
+        // 001-opening-period: add OpeningGuidanceText column to Scenarios table
+        var checkOpeningGuidanceColumn = connection.CreateCommand();
+        checkOpeningGuidanceColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('Scenarios') WHERE name='OpeningGuidanceText'";
+        var hasOpeningGuidanceColumn = Convert.ToInt64(await checkOpeningGuidanceColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasOpeningGuidanceColumn)
+        {
+            var alterOpeningGuidance = connection.CreateCommand();
+            alterOpeningGuidance.CommandText = "ALTER TABLE Scenarios ADD COLUMN OpeningGuidanceText TEXT NULL";
+            await alterOpeningGuidance.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("001-opening-period: Added OpeningGuidanceText column to Scenarios table");
+
+            // Seed all existing scenarios with default opening-period guidance text
+            var seedOpeningGuidance = connection.CreateCommand();
+            seedOpeningGuidance.CommandText = "UPDATE Scenarios SET OpeningGuidanceText = 'Focus on the couple''s relationship and their current life together. Include a brief sense of their intimate life from her point of view — the rhythm of it, what she feels about it, what she wants or doesn''t get — grounding these details in the character profiles and their descriptions. Describe their routines, interactions, and daily rhythms. Establish the setting, mood, and any relevant history. Other characters remain in the background.'";
+            await seedOpeningGuidance.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("001-opening-period: Seeded OpeningGuidanceText on all existing scenarios");
+        }
+
     AfterLegacyMigrations:
 
         // Seed Model Manager tables on first run (empty Providers table)

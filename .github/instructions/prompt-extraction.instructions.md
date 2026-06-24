@@ -9,6 +9,12 @@ applyTo: '**/*.py,**/*.md,**/*.txt'
 
 Every prompt sent to the LLM is logged as a `PromptBuilt` event in the `RolePlayDebugEvents` table. The full prompt text is stored in the `MetadataJson` column under the `prompt` key — up to ~85KB per prompt.
 
+## Output Directory
+
+**All extracted prompts MUST be saved to `specs/debug/`** — this is the single, permanent location. Create a subfolder per session using the session short ID.
+
+Example: `specs/debug/prompts_89df/` for session `89dfe0ab-...`
+
 ## Quick Command
 
 Use Python with sqlite3 directly against `DreamGenClone.Web/data/dreamgenclone.dev.db`:
@@ -37,10 +43,19 @@ The `PromptBuilt` event does NOT store the interaction ID directly. To match a p
 
 ## Saving a Prompt to Disk
 
+All prompt files MUST be saved under `specs/debug/prompts_{session_short_id}/`.
+
 ```python
 import sqlite3, json, os
 
+REPO_ROOT = os.path.dirname(__file__)  # adjust as needed
+OUTPUT_DIR = os.path.join(REPO_ROOT, "specs", "debug")
+
 sid = "session-guid"
+short_sid = sid[:8]  # e.g. "89dfe0ab"
+session_dir = os.path.join(OUTPUT_DIR, f"prompts_{short_sid}")
+os.makedirs(session_dir, exist_ok=True)
+
 c = sqlite3.connect("DreamGenClone.Web/data/dreamgenclone.dev.db")
 
 # Get the interaction details
@@ -73,12 +88,13 @@ for e in evt:
 if best_evt:
     meta = json.loads(best_evt[2])
     prompt = meta.get("prompt", "")
-    # Save to file
     short_id = target_id[:8]
-    fname = f"prompt_{short_id}_[{target_idx}]ActorName_{created_time}.txt"
-    with open(fname, "w", encoding="utf-8") as f:
+    safe_time = target_ct.replace(":", "-").replace(" ", "_")[:20]
+    fname = f"prompt_{short_id}_[{target_idx}]ActorName_{safe_time}.txt"
+    fpath = os.path.join(session_dir, fname)
+    with open(fpath, "w", encoding="utf-8") as f:
         f.write(prompt)
-    print(f"Saved {fname} ({len(prompt)} chars)")
+    print(f"Saved {fpath} ({len(prompt)} chars)")
 ```
 
 ## Key Notes

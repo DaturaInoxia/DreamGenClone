@@ -5,7 +5,7 @@ public sealed class AdaptiveScenarioState
     public string SessionId { get; set; } = string.Empty;
     public string? ActiveScenarioId { get; set; }
     public string? ActiveVariantId { get; set; }
-    public NarrativePhase CurrentPhase { get; set; } = NarrativePhase.BuildUp;
+    public NarrativePhase CurrentPhase { get; set; } = NarrativePhase.Opening;
     public int InteractionCountInPhase { get; set; }
     public int ConsecutiveLeadCount { get; set; }
     public DateTime LastEvaluationUtc { get; set; } = DateTime.UtcNow;

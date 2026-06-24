@@ -46,6 +46,8 @@ Auto-generated from all feature plans. Last updated: 2026-03-17
 - SQLite — new `RolePlayV2EncounterSummaries` table + additive `Sessions` column (001-session-memory-context)
 - C# / .NET 9 + Blazor Server, SQLite (raw ADO.NET), xUnit, FluentAssertions, Serilog (001-stat-char-text-drift)
 - SQLite — `DreamGenClone.Web/data/dreamgenclone.dev.db`; no schema change (new data serialises in existing `CharacterSnapshotsJson` JSON column) (001-stat-char-text-drift)
+- C# / .NET 9 + ASP.NET Core, Microsoft.Data.Sqlite, Serilog, System.Text.Json (001-opening-period)
+- SQLite (via `DreamGenClone.Infrastructure/Persistence/SqlitePersistence.cs`) (001-opening-period)
 
 - C# / .NET 9 (`net9.0`) + ASP.NET Core Blazor Server, `Microsoft.Data.Sqlite`, `Microsoft.Extensions.*`, Serilog (`Serilog.AspNetCore`, `Serilog.Settings.Configuration`, sinks/enrichers) (001-roleplay-session-screens)
 
@@ -66,9 +68,9 @@ tests/
 C# / .NET 9 (`net9.0`): Follow standard conventions
 
 ## Recent Changes
+- 001-opening-period: Added C# / .NET 9 + ASP.NET Core, Microsoft.Data.Sqlite, Serilog, System.Text.Json
 - 001-fix-climax-timeskip: Added C# / .NET 9 + Blazor Server, Microsoft.Data.Sqlite, Serilog
 - 001-stat-char-text-drift: Added C# / .NET 9 + Blazor Server, SQLite (raw ADO.NET), xUnit, FluentAssertions, Serilog
-- 001-session-memory-context: Added C# 12 / .NET 9 + Blazor Server (DreamGenClone.Web), SQLite via Microsoft.Data.Sqlite, Serilog, IOptions<T> configuration pattern, IBackgroundJobHandler infrastructure
 
 
 <!-- MANUAL ADDITIONS START -->

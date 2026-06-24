@@ -28,10 +28,18 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
     private const int NarrativeQuotedBlockHardViolationThreshold = 4;
     private const double NarrativeQuotedTextRatioRetryThreshold = 0.20;
 
-    // Number of non-excluded interactions during which other characters are suppressed from
+    // Number of complete turns during which other characters are suppressed from
     // narrative focus, allowing the persona-partner relationship to be established first.
     // Other characters remain in the scene but unnamed and unaddressed until this threshold is passed.
-    private const int OpeningPeripheralTurnCount = 6;
+    private const int OpeningPeriodTurnCount = 3;
+
+    // Default opening-period guidance text, seeded into all scenarios.
+    // Used as fallback when a scenario's OpeningGuidanceText is null.
+    private const string DefaultOpeningGuidanceText = "Focus on the couple's relationship and their current life together. " +
+        "Include a brief sense of their intimate life from her point of view \u2014 the rhythm of it, what she feels about it, " +
+        "what she wants or doesn\u2019t get \u2014 grounding these details in the character profiles and their descriptions. " +
+        "Describe their routines, interactions, and daily rhythms. Establish the setting, mood, and any relevant history. " +
+        "Other characters remain in the background.";
 
     private static readonly Regex QuotedBlockRegex = new("\"[^\"\\r\\n]{2,}\"", RegexOptions.Compiled);
     private static readonly Regex FirstPersonLeakRegex = new("\\b(I|me|my|mine|myself)\\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -919,14 +927,13 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                 SelectedResistanceProfileId: session.AdaptiveState.SelectedResistanceProfileId),
             cancellationToken);
 
-        var framingGuards = RolePlayAssistantPrompts.BuildFramingGuards(currentPhase, activeScenarioId);
-        RolePlayAssistantPrompts.AppendScenarioGuidance(sb, guidanceContext, framingGuards);
+        var isOpeningPeriod = session.AdaptiveState.CurrentPhase == NarrativePhase.Opening;
 
         RPTheme? activeTheme = null;
         var activeThemeHardConstraints = Array.Empty<string>();
 
-        if (_rpThemeService is not null
-            && !string.IsNullOrWhiteSpace(activeScenarioId))
+        // Load the active theme before building framing guards so theme-aware guards can apply.
+        if (!isOpeningPeriod && _rpThemeService is not null && !string.IsNullOrWhiteSpace(activeScenarioId))
         {
             try
             {
@@ -934,7 +941,40 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "Unable to load RP theme AI guidance notes for active scenario/theme {ThemeId} in session {SessionId}.", activeScenarioId, session.Id);
+                _logger.LogDebug(ex, "Unable to load RP theme for framing guards {ThemeId} in session {SessionId}.", activeScenarioId, session.Id);
+            }
+        }
+
+        var framingGuards = isOpeningPeriod
+            ? Array.Empty<string>()
+            : RolePlayAssistantPrompts.BuildFramingGuards(currentPhase, activeScenarioId, activeTheme);
+        RolePlayAssistantPrompts.AppendScenarioGuidance(sb, guidanceContext, framingGuards);
+
+        if (isOpeningPeriod)
+        {
+            // Opening period: suppress ALL theme/phase guidance and inject opening guidance instead.
+            // The observer candidate menu is also suppressed during the opening period.
+            var openingGuidance = await LoadScenarioOpeningGuidanceAsync(session, cancellationToken)
+                ?? DefaultOpeningGuidanceText;
+            sb.AppendLine("HARD CONSTRAINT — Opening Period Direction:");
+            sb.AppendLine($"- {openingGuidance}");
+            _logger.LogInformation(
+                "OpeningPeriod: injected opening guidance for turn {Turn} SessionId={SessionId}",
+                session.AdaptiveState.ObservedTurnCount, session.Id);
+        }
+        else if (_rpThemeService is not null
+            && !string.IsNullOrWhiteSpace(activeScenarioId))
+        {
+            if (activeTheme is null)
+            {
+                try
+                {
+                    activeTheme = await _rpThemeService.GetThemeAsync(activeScenarioId, cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Unable to load RP theme AI guidance notes for active scenario/theme {ThemeId} in session {SessionId}.", activeScenarioId, session.Id);
+                }
             }
 
             AppendActiveThemeContract(sb, activeTheme, currentPhase);
@@ -984,7 +1024,8 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         }
         else if (_includeCandidateMenuWhileObserving
             && _rpThemeService is not null
-            && string.IsNullOrWhiteSpace(activeScenarioId))
+            && string.IsNullOrWhiteSpace(activeScenarioId)
+            && !isOpeningPeriod)
         {
             await AppendObservingCandidateMenuAsync(sb, session, currentPhase, cancellationToken);
         }
@@ -1203,10 +1244,10 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         var presenceCheckScale = resolvedScale;
         if (presenceCheckScale.HasValue && presenceCheckScale.Value >= (int)IntensityLevel.Emotional && currentPhase != "BuildUp" && intent != PromptIntent.Instruction)
         {
-            sb.AppendLine("Scene Presence Contract:");
+            sb.AppendLine("HARD CONSTRAINT — Scene Presence Contract:");
             sb.AppendLine("- Any intimate physical encounter — kissing, touching, caressing, or sexual activity — occurring in the current moment must be described in full in this response. Do not fade to black. Do not summarize what happened with a single sentence.");
             sb.AppendLine("- Do not write time-skip transitions that bypass an intimate scene in progress: e.g. 'the door closed behind her', 'an hour later', 'when it was over'. Stay present inside the encounter.");
-            sb.AppendLine("- ONE RESPONSE = ONE SCENE MOMENT. Do not write the intimate encounter AND the return-to-public-space (e.g. returning to the husband, re-entering the room, the couple scene after) within the same response. Write through the encounter and stop. The return belongs in a subsequent turn.");
+            sb.AppendLine("- Do not write time-skip transitions in the middle of a response. Write through the full response — one response covers one beat or scene from beginning to end. Time-skipping, scene resets, or setting up a new location belongs in a subsequent turn.");
             sb.AppendLine("- The Resolved Intensity controls HOW explicitly you write the encounter (vocabulary, anatomical detail), not WHETHER you write it.");
             sb.AppendLine("- At lower intensity levels: use evocative, sensory, emotionally resonant language — describe physical contact, sensation, and reactions without graphic anatomy.");
         }
@@ -1222,8 +1263,26 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             }
             else
             {
-                _logger.LogDebug("Scene Writing Directive source: static, scale={Scale}", resolvedScale.Value);
-                sb.Append(GetStaticSceneDirective());
+                // Pacing is controlled by theme phase guidance markers — no marker means no directive.
+                var pacingMode = RolePlayAssistantPrompts.GetPacingMode(activeTheme, currentPhase);
+                switch (pacingMode)
+                {
+                    case "slow":
+                        _logger.LogDebug("Scene Writing Directive source: pacing-marker=slow, scale={Scale}", resolvedScale.Value);
+                        sb.Append(GetStaticSceneDirective());
+                        break;
+                    case "medium":
+                        _logger.LogDebug("Scene Writing Directive source: pacing-marker=medium, scale={Scale}", resolvedScale.Value);
+                        sb.Append(GetMediumPaceDirective());
+                        break;
+                    case "fast":
+                        _logger.LogDebug("Scene Writing Directive source: pacing-marker=fast, scale={Scale}", resolvedScale.Value);
+                        sb.Append(GetFastPaceDirective());
+                        break;
+                    default:
+                        _logger.LogDebug("Scene Writing Directive source: none (no pacing marker), scale={Scale}", resolvedScale.Value);
+                        break;
+                }
             }
         }
 
@@ -1326,23 +1385,6 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             sb.AppendLine($"HARD CONSTRAINT — scenario rule (must not be violated): {rule}");
         }
 
-        // Opening peripheral constraint: during the first N turns, suppress other characters
-        // from narrative focus so the persona-partner relationship is established before introducing them.
-        // Other characters are present in the scene but must not be named or focused on.
-        // Applies to both Narrative and Message turns so the constraint holds across all generated content.
-        var openingInteractionCount = session.Interactions.Count(i => !i.IsExcluded);
-        if (intent == PromptIntent.Narrative || intent == PromptIntent.Message)
-        {
-            if (openingInteractionCount <= OpeningPeripheralTurnCount)
-            {
-                sb.AppendLine("HARD CONSTRAINT — Opening Peripheral Focus: Other characters are present in this scene but must remain peripheral background presence only. " +
-                    "They are NOT the focus of any character's attention, thoughts, or dialogue. Do not refer to them by name in this passage.");
-                _logger.LogDebug(
-                    "PeripheralConstraint: injected for turn {Turn} of {Threshold} SessionId={SessionId}",
-                    openingInteractionCount, OpeningPeripheralTurnCount, session.Id);
-            }
-        }
-
         if (intent == PromptIntent.Narrative)
         {
             if (string.Equals(currentPhase, "Climax", StringComparison.OrdinalIgnoreCase))
@@ -1359,9 +1401,10 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                     "HARD CONSTRAINT — Include zero quoted speech. Do not write any dialogue in this passage. " +
                     "HARD CONSTRAINT — Do not advance the scene beyond what the characters have already established in their responses this turn. Synthesize what occurred — describe positions, sensations, and atmosphere — but do not introduce new actions, new positions, or new story beats. " +
                     "HARD CONSTRAINT: Do not write departure scenes, farewells, or any narrative framing that concludes the story's time frame. The Climax phase is ongoing — sustain the scene within the encounter's moment. " +
-                    $"Match the established tone ({styleHint}). Write at least 300 words.");
+                    $"Match the established tone ({styleHint}). " +
+                    "HARD CONSTRAINT — Maximum 500 words. Write 300-500 words. Do not exceed 500 words.");
             }
-            else if (openingInteractionCount == 0)
+            else if (session.Interactions.Count(i => !i.IsExcluded) == 0)
             {
                 // Opening narrative — use the extended word target to match the couple-focused opening prompt.
                 sb.AppendLine($"Write the opening narrative passage as an omniscient narrator in THIRD PERSON. " +
@@ -1373,7 +1416,8 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                     "HARD CONSTRAINT — Include zero quoted speech. Include one brief spoken fragment only if it is absolutely required for scene continuity and cannot be omitted. " +
                     "Do not write back-and-forth dialogue. Do not write character inner thoughts or feelings. " +
                     "HARD CONSTRAINT — Do not advance the scene beyond what the characters have already established in their responses this turn. Synthesize and describe, do not introduce new actions. " +
-                    $"Match the established tone ({styleHint}). Write 300–500 words.");
+                    $"Match the established tone ({styleHint}). " +
+                    "HARD CONSTRAINT — Maximum 500 words. Write 300–500 words. Do not exceed 500 words.");
             }
             else
             {
@@ -1387,7 +1431,8 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                     "HARD CONSTRAINT — Include zero quoted speech. Include one brief spoken fragment only if it is absolutely required for scene continuity and cannot be omitted. " +
                     "Do not write back-and-forth dialogue. Do not write character inner thoughts or feelings. " +
                     "HARD CONSTRAINT — Do not advance the scene beyond what the characters have already established in their responses this turn. Synthesize and describe, do not introduce new actions. " +
-                    $"Match the established tone ({styleHint}). Write at least 200 words; target 250-400 words.");
+                    $"Match the established tone ({styleHint}). " +
+                    "HARD CONSTRAINT — Maximum 500 words. Write 300-500 words. Do not exceed 500 words.");
             }
         }
         else
@@ -1403,6 +1448,28 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         }
 
         return sb.ToString();
+    }
+
+    private async Task<string?> LoadScenarioOpeningGuidanceAsync(
+        RolePlaySession session,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var scenarioId = session.ScenarioId;
+            if (string.IsNullOrWhiteSpace(scenarioId) || _scenarioService is null)
+            {
+                return null;
+            }
+
+            var scenario = await _scenarioService.GetScenarioAsync(scenarioId);
+            return scenario?.OpeningGuidanceText;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Unable to load opening guidance text for session {SessionId}", session.Id);
+            return null;
+        }
     }
 
     private async Task AppendObservingCandidateMenuAsync(
@@ -1538,7 +1605,22 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             sb.AppendLine($"- Required Phase Constraints ({phase}) — these directives are hard requirements for this response:");
             foreach (var line in phaseGuidance)
             {
-                sb.AppendLine($"  - {line}");
+                sb.AppendLine($"  HARD CONSTRAINT: {line}");
+            }
+        }
+
+        var phaseDirectives = activeTheme.PhaseGuidance
+            .Where(x => string.Equals(x.Phase.ToString(), phase, StringComparison.OrdinalIgnoreCase))
+            .Where(x => !string.IsNullOrWhiteSpace(x.DirectiveText))
+            .OrderBy(x => x.DirectiveText, StringComparer.OrdinalIgnoreCase)
+            .Select(x => x.DirectiveText.Trim())
+            .ToList();
+        if (phaseDirectives.Count > 0)
+        {
+            sb.AppendLine($"- Phase Directives ({phase}) — these are hard requirements for this response:");
+            foreach (var line in phaseDirectives)
+            {
+                sb.AppendLine($"  HARD CONSTRAINT: {line}");
             }
         }
 
@@ -1813,7 +1895,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
     private static string GetStaticSceneDirective()
     {
         return """
-            Scene Writing Directive:
+            HARD CONSTRAINT — Scene Writing Directive:
             Progression Contract:
             - Read the last interaction. Identify what physical act or beat was just described.
             - This response MUST move to a different beat, position, or sensation. Writing the same act or physical focus as the previous response is explicitly forbidden.
@@ -1836,6 +1918,68 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             Pacing and Urgency:
             - Narrative urgency is expressed through action intensity, breathless dialogue, and emotional tone. It does NOT abbreviate the writing or skip stages.
             - Even a hurried encounter spans multiple full beats. The characters may be rushed; the prose remains detailed.
+            Continuity Awareness:
+            - Use direct, explicit language appropriate to the resolved intensity level.
+            """;
+    }
+
+    private static string GetMediumPaceDirective()
+    {
+        return """
+            HARD CONSTRAINT — Scene Writing Directive:
+            Progression Contract:
+            - Read the last interaction. Identify what physical act or beat was just described.
+            - This response MUST move to a different beat, position, or sensation. Writing the same act or physical focus as the previous response is explicitly forbidden.
+            - You may stay in the same broad stage of intimacy, but every response must shift something concrete: angle, who is leading, position, tempo, or body focus.
+            Physical Escalation Sequence — follow this order unless established context requires otherwise:
+              Stage 1 — Clothed contact: touching, groping, kissing mouth/neck, hands roaming over clothing
+              Stage 2 — Undressing: removing clothes; kissing, licking, and sucking bare skin (chest, nipples, stomach)
+              Stage 3 — Intimate touch: bare hands on private areas; stroking, rubbing, fingering
+              Stage 4 — Sustained manual: handjob, fingering, grinding, mutual stimulation
+              Stage 5 — Oral (initial): first oral contact; light, exploratory, teasing
+              Stage 6 — Oral (building): sustained oral; rhythm established; hands involved
+              Stage 7 — Oral (intense): full oral, peak arousal, close to edge
+              Stage 8 — Penetrative: only after Stages 5-7 have been visited
+            Rules:
+            - Advance at most one stage per response. Do not skip multiple stages at once.
+            - You may advance through 2 stages in a single response if the scene momentum supports it — but do not skip more than 2.
+            - Do not revisit an earlier stage once it has been passed unless the characters explicitly reset.
+            Response Length:
+            - Write at least 300 words for each Climax-phase response.
+            Pacing and Urgency:
+            - Maintain a natural, moderate pace. Advance through the escalation sequence at a steady clip.
+            - The scene should feel like it has momentum without feeling rushed.
+            Continuity Awareness:
+            - Use direct, explicit language appropriate to the resolved intensity level.
+            """;
+    }
+
+    private static string GetFastPaceDirective()
+    {
+        return """
+            HARD CONSTRAINT — Scene Writing Directive:
+            Progression Contract:
+            - Read the last interaction. Identify what physical act or beat was just described.
+            - This response MUST move to a different beat, position, or sensation. Writing the same act or physical focus as the previous response is explicitly forbidden.
+            - You may stay in the same broad stage of intimacy, but every response must shift something concrete: angle, who is leading, position, tempo, or body focus.
+            Physical Escalation Sequence — follow this order unless established context requires otherwise:
+              Stage 1 — Clothed contact: touching, groping, kissing mouth/neck, hands roaming over clothing
+              Stage 2 — Undressing: removing clothes; kissing, licking, and sucking bare skin (chest, nipples, stomach)
+              Stage 3 — Intimate touch: bare hands on private areas; stroking, rubbing, fingering
+              Stage 4 — Sustained manual: handjob, fingering, grinding, mutual stimulation
+              Stage 5 — Oral (initial): first oral contact; light, exploratory, teasing
+              Stage 6 — Oral (building): sustained oral; rhythm established; hands involved
+              Stage 7 — Oral (intense): full oral, peak arousal, close to edge
+              Stage 8 — Penetrative: only after Stages 5-7 have been visited
+            Rules:
+            - Advance through multiple stages per response — do not limit to one stage. You can cover 2-4 stages in a single response.
+            - Do not revisit an earlier stage once it has been passed unless the characters explicitly reset.
+            - The 'one stage per response' rule is suspended. Move the scene forward briskly.
+            Response Length:
+            - Write at least 250 words for each Climax-phase response. Let the scene breadth fill the length.
+            Pacing and Urgency:
+            - Fast pacing: compress multiple beats into one response. Advance through intimacy stages quickly.
+            - The scene should feel urgent and accelerated — cover more story ground per response.
             Continuity Awareness:
             - Use direct, explicit language appropriate to the resolved intensity level.
             """;

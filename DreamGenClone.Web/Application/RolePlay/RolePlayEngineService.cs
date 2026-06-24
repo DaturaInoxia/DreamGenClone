@@ -2204,17 +2204,18 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         var totalInteractions = session.Interactions.Count(i =>
             i.InteractionType != InteractionType.System && !i.IsExcluded);
 
-        // Hard-exclude OtherMan for the first 6 interactions so Husband+Wife establish first.
-        // With batchSize=2 (Ken+Becky per turn), 3 turns = 6 interactions ? Dean eligible on turn 4.
+        // Hard-exclude OtherMan during the opening period (first 3 turns) so Husband+Wife establish first.
+        // Opening period is measured in complete turns via ObservedTurnCount.
+        // With OpeningPeriodTurnCount=3: Dean eligible from turn 4.
         var eligibleCharacterNames = sceneCharacterNames.Where(name =>
         {
             session.AdaptiveState.CharacterStats.TryGetValue(name, out var statProfile);
             var role = statProfile?.CharacterRole;
-            if (totalInteractions < 6 && string.Equals(role, "OtherMan", StringComparison.OrdinalIgnoreCase))
+            if (session.AdaptiveState.CurrentPhase == NarrativePhase.Opening && string.Equals(role, "OtherMan", StringComparison.OrdinalIgnoreCase))
             {
                 _logger.LogDebug(
-                    "OverflowActor: excluding OtherMan {ActorName} at interaction offset {Offset} for SessionId={SessionId}",
-                    name, totalInteractions, session.Id);
+                    "OverflowActor: excluding OtherMan {ActorName} at turn count {TurnCount} for SessionId={SessionId}",
+                    name, session.AdaptiveState.ObservedTurnCount, session.Id);
                 return false;
             }
             return true;
@@ -2257,11 +2258,11 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 ? "Persona auto candidate (in-scene)."
                 : "Persona auto candidate (not in scene but always included).";
 
-            if (totalInteractions < 6)
+            if (session.AdaptiveState.CurrentPhase == NarrativePhase.Opening)
             {
-                // Initial setup: persona leads to establish husband-wife dynamic
+                // Opening period: persona leads to establish husband-wife dynamic
                 actors.Insert(0, new OverflowActorCandidate(ContinueAsActor.You, personaName,
-                    "Persona auto candidate (initial lead for scenario setup)."));
+                    "Persona auto candidate (initial lead during opening period)."));
             }
             else
             {
@@ -3216,10 +3217,6 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             {
                 // Observation window guard: do not select a scenario while the theme tracker is
                 // still in its configured observation window (ObservedTurnCount <= SelectionMinimumTurns).
-                // The backfill path below handles first-scenario assignment once the observation
-                // window expires. Without this guard, a low InteractionsSinceCommitment threshold on
-                // the configured gate profile would allow the commit gate to fire before the minimum
-                // observation turns have elapsed � bypassing the SelectionMinimumTurns setting.
                 var fsInObservationWindow = session.AdaptiveState.SelectionMinimumTurns > 0
                     && session.AdaptiveState.ObservedTurnCount <= session.AdaptiveState.SelectionMinimumTurns;
 
@@ -3431,6 +3428,40 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         var lifecycleFitScore = commitApplied
             ? (commitResult.SelectedEvaluation?.FitScore ?? activeScenarioEvaluation?.FitScore ?? 0m)
             : (activeScenarioEvaluation?.FitScore ?? 0m);
+
+        // Opening → BuildUp transition: when the opening period completes (ObservedTurnCount
+        // exceeds OpeningPeriodTurnCount), advance from Opening to BuildUp phase.
+        // This is a turn-count-based transition, not a gate evaluation — during Opening no theme
+        // is selected so there are no metrics to gate against.
+        if (v2State.CurrentPhase == NarrativePhase.Opening
+            && session.AdaptiveState.ObservedTurnCount > 3)
+        {
+            _logger.LogInformation(
+                "RolePlayV2 Opening period transition: SessionId={SessionId} ObservedTurnCount={ObservedTurns} Transitioning to BuildUp",
+                session.Id, session.AdaptiveState.ObservedTurnCount);
+            await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+            {
+                SessionId = session.Id,
+                EventKind = "OpeningPeriodTransition",
+                Severity = "Info",
+                Summary = $"Opening period completed at turn {session.AdaptiveState.ObservedTurnCount}, transitioning to BuildUp.",
+                MetadataJson = System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    observedTurnCount = session.AdaptiveState.ObservedTurnCount,
+                    interactionCountInPhase = v2State.InteractionCountInPhase
+                })
+            }, cancellationToken);
+            v2State.CurrentPhase = NarrativePhase.BuildUp;
+            v2State.InteractionCountInPhase = 0;
+        }
+        else
+        {
+            _logger.LogDebug(
+                "RolePlayV2 Opening period check: SessionId={SessionId} CurrentPhase={Phase} ObservedTurnCount={ObservedTurns} Condition={Condition}",
+                session.Id, v2State.CurrentPhase, session.AdaptiveState.ObservedTurnCount,
+                v2State.CurrentPhase == NarrativePhase.Opening
+                && session.AdaptiveState.ObservedTurnCount > 3);
+        }
 
         var lifecycle = await _scenarioLifecycleService.EvaluateTransitionAsync(
             v2State,

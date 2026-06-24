@@ -12,6 +12,14 @@ public class Scenario
     public string Id { get; set; } = Guid.NewGuid().ToString();
     public string? Name { get; set; }
     public string? Description { get; set; }
+
+    /// <summary>
+    /// Opening-period guidance text injected into the LLM prompt during the first 3 turns
+    /// of a new session. When null, the engine uses the DefaultOpeningGuidanceText constant.
+    /// </summary>
+    [JsonInclude]
+    [JsonPropertyName("OpeningGuidanceText")]
+    public string? OpeningGuidanceText { get; set; }
     
     /// <summary>
     /// Plot component including conflicts and goals.

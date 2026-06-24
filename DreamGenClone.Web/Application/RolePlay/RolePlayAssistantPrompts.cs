@@ -90,6 +90,34 @@ public static class RolePlayAssistantPrompts
         }
     }
 
+    /// <summary>
+    /// Returns the pacing mode declared by [Pacing:slow], [Pacing:medium], or [Pacing:fast]
+    /// in the theme's phase guidance for the given phase. Returns null if no marker is present.
+    /// When no marker is present, no scene writing directive is injected.
+    /// </summary>
+    public static string? GetPacingMode(RPTheme? activeTheme, string phase)
+    {
+        if (activeTheme is null || activeTheme.PhaseGuidance.Count == 0)
+            return null;
+
+        var guidanceTexts = activeTheme.PhaseGuidance
+            .Where(x => string.Equals(x.Phase.ToString(), phase, StringComparison.OrdinalIgnoreCase))
+            .Select(x => x.GuidanceText)
+            .Where(x => !string.IsNullOrWhiteSpace(x));
+
+        foreach (var text in guidanceTexts)
+        {
+            if (text.Contains("[Pacing:fast]", StringComparison.OrdinalIgnoreCase))
+                return "fast";
+            if (text.Contains("[Pacing:medium]", StringComparison.OrdinalIgnoreCase))
+                return "medium";
+            if (text.Contains("[Pacing:slow]", StringComparison.OrdinalIgnoreCase))
+                return "slow";
+        }
+
+        return null;
+    }
+
     public static bool AllowsWithinTimeframeTimeShift(RPTheme? activeTheme, string phase)
     {
         if (activeTheme is null) return false;
@@ -221,6 +249,15 @@ public static class RolePlayAssistantPrompts
         {
             guards.Add($"Keep all major beats aligned to '{activeScenarioId}'.");
             guards.Add("Do not pivot to a competing scenario unless the user explicitly overrides.");
+        }
+
+        if (phase is "Committed" or "Approaching")
+        {
+            if (activeTheme is not null && AllowsWithinTimeframeTimeShift(activeTheme, phase))
+            {
+                guards.Add("Each turn should advance to a different time and/or location than the previous turn. Do not remain in the same scene setting for consecutive turns.");
+                guards.Add("If the previous turn was in one setting (e.g. the trailer), the next turn must be in a different setting (e.g. the shower, hiking trails, fire pit, beach, or other location within the established time frame).");
+            }
         }
 
         if (phase == "Climax")
