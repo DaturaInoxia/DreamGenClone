@@ -146,13 +146,15 @@ public sealed class AdaptiveScenarioState
     public int InteractionsInCurrentEncounter { get; set; }
 
     /// <summary>
-    /// Set to true when TryDetectEncounterBoundaryAsync advances CurrentEncounterNumber.
-    /// Signals the overflow block in ContinueAsAsync to generate a Narrative time-skip on
-    /// the next Continue click. Cleared after the time-skip is generated. Survives the
-    /// pipeline increment that would otherwise overwrite InteractionsInCurrentEncounter.
-    /// Dormant (false) for all themes without [ClimaxMode:multi-encounter].
+    /// Current phase of the two-phase multi-encounter time-skip:
+    /// None = no time-skip pending (normal flow).
+    /// CloseScene = "Close the current encounter naturally." directive pending.
+    /// AdvanceTime = "Advance time to a new moment..." directive pending.
+    /// Set to CloseScene when TryDetectEncounterBoundaryAsync advances CurrentEncounterNumber.
+    /// Transitioned by the overflow block in ContinueAsAsync.
+    /// Dormant (None) for all themes without [ClimaxMode:multi-encounter].
     /// </summary>
-    public bool TimeSkipPending { get; set; }
+    public TimeSkipPhase CurrentTimeSkipPhase { get; set; }
 
     // ---- V2 theme tracker -----------------------------------------------------------------
     /// <summary>Per-theme score state. Hydrated from <c>RolePlayV2ThemeScores</c>.</summary>
@@ -222,7 +224,7 @@ public sealed class AdaptiveScenarioState
 
     /// <summary>
     /// Set to true when encounter boundary state changes (CurrentEncounterNumber,
-    /// InteractionsInCurrentEncounter, TimeSkipPending) are made in-memory but not yet
+    /// InteractionsInCurrentEncounter, CurrentTimeSkipPhase) are made in-memory but not yet
     /// persisted. Flushed at turn completion on success; discarded on turn failure.
     /// Not serialized — always starts false on load.
     /// </summary>
@@ -278,5 +280,22 @@ public sealed class CharacterEncounterState
     public int EncounterNumber { get; set; }
 
     /// <summary>UTC timestamp when the character entered the encounter.</summary>
+    public DateTime EnteredUtc { get; set; } = DateTime.UtcNow;
+
+    /// <summary>UTC timestamp when this encounter state was last updated.</summary>
     public DateTime? EnteredEncounterUtc { get; set; }
+}
+
+/// <summary>
+/// Two-phase time-skip state for multi-encounter Climax mode. Replaces the
+/// legacy single-boolean TimeSkipPending flag with explicit sequential phases.
+/// </summary>
+public enum TimeSkipPhase
+{
+    /// <summary>No time-skip pending — normal continuation flow.</summary>
+    None = 0,
+    /// <summary>Close-scene directive pending. Will inject "Close the current encounter naturally."</summary>
+    CloseScene = 1,
+    /// <summary>Advance-time directive pending. Will inject "Advance time to a new moment..."</summary>
+    AdvanceTime = 2
 }
