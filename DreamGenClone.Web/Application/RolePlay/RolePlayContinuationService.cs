@@ -35,11 +35,16 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
 
     // Default opening-period guidance text, seeded into all scenarios.
     // Used as fallback when a scenario's OpeningGuidanceText is null.
-    private const string DefaultOpeningGuidanceText = "Focus on the couple's relationship and their current life together. " +
+    private const string DefaultOpeningGuidanceText = "Introduce the persona and the key characters naturally through their actions, " +
+        "dialogue, and environment. Briefly describe their physical appearance and presence \u2014 grounded in what\u2019s visible " +
+        "and observable in the moment. Ground their personalities and relationships in the unfolding scene without info-dumping. " +
         "Include a brief sense of their intimate life from her point of view \u2014 the rhythm of it, what she feels about it, " +
-        "what she wants or doesn\u2019t get \u2014 grounding these details in the character profiles and their descriptions. " +
-        "Describe their routines, interactions, and daily rhythms. Establish the setting, mood, and any relevant history. " +
-        "Other characters remain in the background.";
+        "what she wants or doesn\u2019t get \u2014 grounding these details in the character profiles and descriptions. " +
+        "Present the current relationship and dynamics as a settled reality \u2014 describe them plainly as they are, " +
+        "without characters positioning to alter them or dwelling on how this situation came to be. " +
+        "Weave in the scenario's Plot Description, Conflicts, and Goals \u2014 establish the central tensions and what\u2019s at stake, " +
+        "and foreshadow the narrative arc through subtle cues in the setting, character interactions, and internal responses. " +
+        "Establish the setting, mood, and any relevant history. Other characters remain in the background.";
 
     private static readonly Regex QuotedBlockRegex = new("\"[^\"\\r\\n]{2,}\"", RegexOptions.Compiled);
     private static readonly Regex FirstPersonLeakRegex = new("\\b(I|me|my|mine|myself)\\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -1238,51 +1243,34 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             _logger.LogDebug("PacingContract: injected for Phase={Phase} SessionId={SessionId}", currentPhase, session.Id);
         }
 
-        // Scene Presence Contract — fires at Emotional+ in all non-BuildUp phases.
-        // PURPOSE: intimate scenes (any level — kissing, touching, sexual) must be written in full;
-        // the model must NOT fade to black or use time-skip transitions past them.
-        var presenceCheckScale = resolvedScale;
-        if (presenceCheckScale.HasValue && presenceCheckScale.Value >= (int)IntensityLevel.Emotional && currentPhase != "BuildUp" && intent != PromptIntent.Instruction)
+        var sanitizedDirective = PromptSanitizer.SanitizeSceneDirective(resolvedProfile?.SceneDirective);
+        if (!string.IsNullOrEmpty(sanitizedDirective))
         {
-            sb.AppendLine("HARD CONSTRAINT — Scene Presence Contract:");
-            sb.AppendLine("- Any intimate physical encounter — kissing, touching, caressing, or sexual activity — occurring in the current moment must be described in full in this response. Do not fade to black. Do not summarize what happened with a single sentence.");
-            sb.AppendLine("- Do not write time-skip transitions that bypass an intimate scene in progress: e.g. 'the door closed behind her', 'an hour later', 'when it was over'. Stay present inside the encounter.");
-            sb.AppendLine("- Do not write time-skip transitions in the middle of a response. Write through the full response — one response covers one beat or scene from beginning to end. Time-skipping, scene resets, or setting up a new location belongs in a subsequent turn.");
-            sb.AppendLine("- The Resolved Intensity controls HOW explicitly you write the encounter (vocabulary, anatomical detail), not WHETHER you write it.");
-            sb.AppendLine("- At lower intensity levels: use evocative, sensory, emotionally resonant language — describe physical contact, sensation, and reactions without graphic anatomy.");
+            _logger.LogDebug("Scene Writing Directive source: profile-configured, scale={Scale}", resolvedScale);
+            sb.AppendLine("Scene Writing Directive:");
+            sb.AppendLine(sanitizedDirective);
         }
-
-        if (resolvedScale.HasValue && resolvedScale.Value >= (int)IntensityLevel.Explicit && currentPhase != "BuildUp" && intent != PromptIntent.Instruction)
+        else
         {
-            var sanitizedDirective = PromptSanitizer.SanitizeSceneDirective(resolvedProfile?.SceneDirective);
-            if (!string.IsNullOrEmpty(sanitizedDirective))
+            // Pacing is controlled by theme phase guidance markers — no marker means no directive.
+            var pacingMode = RolePlayAssistantPrompts.GetPacingMode(activeTheme, currentPhase);
+            switch (pacingMode)
             {
-                _logger.LogDebug("Scene Writing Directive source: profile-configured, scale={Scale}", resolvedScale.Value);
-                sb.AppendLine("Scene Writing Directive:");
-                sb.AppendLine(sanitizedDirective);
-            }
-            else
-            {
-                // Pacing is controlled by theme phase guidance markers — no marker means no directive.
-                var pacingMode = RolePlayAssistantPrompts.GetPacingMode(activeTheme, currentPhase);
-                switch (pacingMode)
-                {
-                    case "slow":
-                        _logger.LogDebug("Scene Writing Directive source: pacing-marker=slow, scale={Scale}", resolvedScale.Value);
-                        sb.Append(GetStaticSceneDirective());
-                        break;
-                    case "medium":
-                        _logger.LogDebug("Scene Writing Directive source: pacing-marker=medium, scale={Scale}", resolvedScale.Value);
-                        sb.Append(GetMediumPaceDirective());
-                        break;
-                    case "fast":
-                        _logger.LogDebug("Scene Writing Directive source: pacing-marker=fast, scale={Scale}", resolvedScale.Value);
-                        sb.Append(GetFastPaceDirective());
-                        break;
-                    default:
-                        _logger.LogDebug("Scene Writing Directive source: none (no pacing marker), scale={Scale}", resolvedScale.Value);
-                        break;
-                }
+                case "slow":
+                    _logger.LogDebug("Scene Writing Directive source: pacing-marker=slow");
+                    sb.Append(GetStaticSceneDirective());
+                    break;
+                case "medium":
+                    _logger.LogDebug("Scene Writing Directive source: pacing-marker=medium");
+                    sb.Append(GetMediumPaceDirective());
+                    break;
+                case "fast":
+                    _logger.LogDebug("Scene Writing Directive source: pacing-marker=fast");
+                    sb.Append(GetFastPaceDirective());
+                    break;
+                default:
+                    _logger.LogDebug("Scene Writing Directive source: none (no pacing marker)");
+                    break;
             }
         }
 
@@ -1895,93 +1883,27 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
     private static string GetStaticSceneDirective()
     {
         return """
-            HARD CONSTRAINT — Scene Writing Directive:
-            Progression Contract:
-            - Read the last interaction. Identify what physical act or beat was just described.
-            - This response MUST move to a different beat, position, or sensation. Writing the same act or physical focus as the previous response is explicitly forbidden.
-            - You may stay in the same broad stage of intimacy, but every response must shift something concrete: angle, who is leading, position, tempo, or body focus.
-            Physical Escalation Sequence — follow this order unless established context requires otherwise:
-              Stage 1 — Clothed contact: touching, groping, kissing mouth/neck, hands roaming over clothing
-              Stage 2 — Undressing: removing clothes; kissing, licking, and sucking bare skin (chest, nipples, stomach)
-              Stage 3 — Intimate touch: bare hands on private areas; stroking, rubbing, fingering
-              Stage 4 — Sustained manual: handjob, fingering, grinding, mutual stimulation
-              Stage 5 — Oral (initial): first oral contact; light, exploratory, teasing
-              Stage 6 — Oral (building): sustained oral; rhythm established; hands involved
-              Stage 7 — Oral (intense): full oral, peak arousal, close to edge
-              Stage 8 — Penetrative: only after Stages 5-7 have been visited
-            Rules:
-            - Advance at most one stage per response. Do not skip multiple stages at once.
-            - Do not revisit an earlier stage once it has been passed unless the characters explicitly reset.
-            - Do not rush through stages in one response — each stage earns multiple turns of deepening.
-            Response Length:
-            - Write at least 350 words for each Climax-phase response. Fill that length with explicit physical and sensory detail — no filler repetition.
             Pacing and Urgency:
-            - Narrative urgency is expressed through action intensity, breathless dialogue, and emotional tone. It does NOT abbreviate the writing or skip stages.
-            - Even a hurried encounter spans multiple full beats. The characters may be rushed; the prose remains detailed.
-            Continuity Awareness:
-            - Use direct, explicit language appropriate to the resolved intensity level.
+            - Slow pacing: focus on one beat per response.
+            - Savor the moment with detailed sensory and emotional depth.
             """;
     }
 
     private static string GetMediumPaceDirective()
     {
         return """
-            HARD CONSTRAINT — Scene Writing Directive:
-            Progression Contract:
-            - Read the last interaction. Identify what physical act or beat was just described.
-            - This response MUST move to a different beat, position, or sensation. Writing the same act or physical focus as the previous response is explicitly forbidden.
-            - You may stay in the same broad stage of intimacy, but every response must shift something concrete: angle, who is leading, position, tempo, or body focus.
-            Physical Escalation Sequence — follow this order unless established context requires otherwise:
-              Stage 1 — Clothed contact: touching, groping, kissing mouth/neck, hands roaming over clothing
-              Stage 2 — Undressing: removing clothes; kissing, licking, and sucking bare skin (chest, nipples, stomach)
-              Stage 3 — Intimate touch: bare hands on private areas; stroking, rubbing, fingering
-              Stage 4 — Sustained manual: handjob, fingering, grinding, mutual stimulation
-              Stage 5 — Oral (initial): first oral contact; light, exploratory, teasing
-              Stage 6 — Oral (building): sustained oral; rhythm established; hands involved
-              Stage 7 — Oral (intense): full oral, peak arousal, close to edge
-              Stage 8 — Penetrative: only after Stages 5-7 have been visited
-            Rules:
-            - Advance at most one stage per response. Do not skip multiple stages at once.
-            - You may advance through 2 stages in a single response if the scene momentum supports it — but do not skip more than 2.
-            - Do not revisit an earlier stage once it has been passed unless the characters explicitly reset.
-            Response Length:
-            - Write at least 300 words for each Climax-phase response.
             Pacing and Urgency:
-            - Maintain a natural, moderate pace. Advance through the escalation sequence at a steady clip.
-            - The scene should feel like it has momentum without feeling rushed.
-            Continuity Awareness:
-            - Use direct, explicit language appropriate to the resolved intensity level.
+            - Medium pacing: cover one to two beats per response.
+            - Let the scene breathe without dragging.
             """;
     }
 
     private static string GetFastPaceDirective()
     {
         return """
-            HARD CONSTRAINT — Scene Writing Directive:
-            Progression Contract:
-            - Read the last interaction. Identify what physical act or beat was just described.
-            - This response MUST move to a different beat, position, or sensation. Writing the same act or physical focus as the previous response is explicitly forbidden.
-            - You may stay in the same broad stage of intimacy, but every response must shift something concrete: angle, who is leading, position, tempo, or body focus.
-            Physical Escalation Sequence — follow this order unless established context requires otherwise:
-              Stage 1 — Clothed contact: touching, groping, kissing mouth/neck, hands roaming over clothing
-              Stage 2 — Undressing: removing clothes; kissing, licking, and sucking bare skin (chest, nipples, stomach)
-              Stage 3 — Intimate touch: bare hands on private areas; stroking, rubbing, fingering
-              Stage 4 — Sustained manual: handjob, fingering, grinding, mutual stimulation
-              Stage 5 — Oral (initial): first oral contact; light, exploratory, teasing
-              Stage 6 — Oral (building): sustained oral; rhythm established; hands involved
-              Stage 7 — Oral (intense): full oral, peak arousal, close to edge
-              Stage 8 — Penetrative: only after Stages 5-7 have been visited
-            Rules:
-            - Advance through multiple stages per response — do not limit to one stage. You can cover 2-4 stages in a single response.
-            - Do not revisit an earlier stage once it has been passed unless the characters explicitly reset.
-            - The 'one stage per response' rule is suspended. Move the scene forward briskly.
-            Response Length:
-            - Write at least 250 words for each Climax-phase response. Let the scene breadth fill the length.
             Pacing and Urgency:
-            - Fast pacing: compress multiple beats into one response. Advance through intimacy stages quickly.
-            - The scene should feel urgent and accelerated — cover more story ground per response.
-            Continuity Awareness:
-            - Use direct, explicit language appropriate to the resolved intensity level.
+            - Fast pacing: compress multiple beats into one response.
+            - Cover more story ground per response.
             """;
     }
 
