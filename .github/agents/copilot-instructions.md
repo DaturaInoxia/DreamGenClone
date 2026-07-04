@@ -50,6 +50,8 @@ Auto-generated from all feature plans. Last updated: 2026-03-17
 - SQLite (via `DreamGenClone.Infrastructure/Persistence/SqlitePersistence.cs`) (001-opening-period)
 - C# 13 / .NET 9 + ASP.NET Core (Blazor), Microsoft.Data.Sqlite, Serilog (001-split-time-skip)
 - SQLite (existing `RolePlayV2AdaptiveStates` table) (001-split-time-skip)
+- C# 12, .NET 9 + ASP.NET Core (Blazor), Serilog, Entity Framework Core (SQLite), existing domain models under `DreamGenClone.*` projects (001-prompt-injection-refactor)
+- SQLite via EF Core (existing `DreamGenClone.Web/data/dreamgenclone.dev.db`) — themes, sessions, guidance prose persisted in DB (001-prompt-injection-refactor)
 
 - C# / .NET 9 (`net9.0`) + ASP.NET Core Blazor Server, `Microsoft.Data.Sqlite`, `Microsoft.Extensions.*`, Serilog (`Serilog.AspNetCore`, `Serilog.Settings.Configuration`, sinks/enrichers) (001-roleplay-session-screens)
 
@@ -70,9 +72,9 @@ tests/
 C# / .NET 9 (`net9.0`): Follow standard conventions
 
 ## Recent Changes
+- 001-prompt-injection-refactor: Added C# 12, .NET 9 + ASP.NET Core (Blazor), Serilog, Entity Framework Core (SQLite), existing domain models under `DreamGenClone.*` projects
 - 001-split-time-skip: Added C# 13 / .NET 9 + ASP.NET Core (Blazor), Microsoft.Data.Sqlite, Serilog
 - 001-opening-period: Added C# / .NET 9 + ASP.NET Core, Microsoft.Data.Sqlite, Serilog, System.Text.Json
-- 001-fix-climax-timeskip: Added C# / .NET 9 + Blazor Server, Microsoft.Data.Sqlite, Serilog
 
 
 <!-- MANUAL ADDITIONS START -->

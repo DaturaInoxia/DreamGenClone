@@ -750,6 +750,7 @@ public sealed class RolePlayContinuationNarrativeValidationTests
             new NullSteeringProfileService(),
             new StubScenarioGuidanceContextFactory(),
             debugSink,
+                new SceneDirectionCoordinator([], NullLogger<SceneDirectionCoordinator>.Instance),
                 NullLogger<RolePlayContinuationService>.Instance,
                 diagnosticsService: null,
                 rpThemeService: rpThemeService);
@@ -889,7 +890,6 @@ public sealed class RolePlayContinuationNarrativeValidationTests
             int approachingPhaseOffset,
             int climaxPhaseOffset,
             int resetPhaseOffset,
-            string sceneDirective = "",
             CancellationToken cancellationToken = default)
             => throw new NotImplementedException();
 
@@ -909,7 +909,6 @@ public sealed class RolePlayContinuationNarrativeValidationTests
             int approachingPhaseOffset,
             int climaxPhaseOffset,
             int resetPhaseOffset,
-            string sceneDirective = "",
             CancellationToken cancellationToken = default)
             => Task.FromResult<IntensityProfile?>(null);
 

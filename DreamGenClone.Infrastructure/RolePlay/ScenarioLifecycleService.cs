@@ -498,6 +498,7 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
     private static int GetPhaseOrder(NarrativePhase phase)
         => phase switch
         {
+            NarrativePhase.Opening => -1,
             NarrativePhase.BuildUp => 0,
             NarrativePhase.Committed => 1,
             NarrativePhase.Approaching => 2,

@@ -19,6 +19,7 @@ using DreamGenClone.Web.Application.Export;
 using DreamGenClone.Web.Application.Import;
 using DreamGenClone.Web.Application.Models;
 using DreamGenClone.Web.Application.RolePlay;
+using DreamGenClone.Web.Application.RolePlay.Injectors;
 using DreamGenClone.Web.Application.Scenarios;
 using DreamGenClone.Web.Application.Sessions;
 using DreamGenClone.Web.Application.StoryParser;
@@ -117,6 +118,21 @@ builder.Services.AddScoped<IThemeMachineResolutionService, ThemeMachineResolutio
 builder.Services.AddScoped<IThemeMachineEvaluator, ThemeMachineEvaluator>();
 builder.Services.AddScoped<IRPThemeService, RPThemeService>();
 builder.Services.AddScoped<IRolePlayStateRepository, RolePlayStateRepository>();
+
+// B-052: SceneDirectionCoordinator + prompt injectors
+builder.Services.AddScoped<SceneDirectionCoordinator>();
+builder.Services.AddScoped<IPromptInjector, TurnContextInjector>();
+builder.Services.AddScoped<IPromptInjector, TimeLocationInjector>();
+builder.Services.AddScoped<IPromptInjector, BehavioralFrameInjector>();
+builder.Services.AddScoped<IPromptInjector, ThemeContractInjector>();
+builder.Services.AddScoped<IPromptInjector, ThemeAIGuidanceInjector>();
+builder.Services.AddScoped<IPromptInjector, IntensityContractInjector>();
+builder.Services.AddScoped<IPromptInjector, EscalationInjector>();
+builder.Services.AddScoped<IPromptInjector, SceneTimeDirectionInjector>();
+builder.Services.AddScoped<IPromptInjector, ScenePresenceInjector>();
+builder.Services.AddScoped<IPromptInjector, PositionListInjector>();
+builder.Services.AddScoped<IPromptInjector, BeatStageInjector>();
+builder.Services.AddScoped<IPromptInjector, FinalDirectiveInjector>();
 builder.Services.AddScoped<IEncounterSummaryService, EncounterSummaryService>();
 builder.Services.AddScoped<ISemanticInteractionAnalysisRepository, SemanticInteractionAnalysisRepository>();
 builder.Services.AddScoped<IRolePlayDiagnosticsRepository, RolePlayDiagnosticsRepository>();

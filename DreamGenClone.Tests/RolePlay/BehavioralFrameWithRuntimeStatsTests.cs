@@ -152,12 +152,12 @@ public sealed class BehavioralFrameWithRuntimeStatsTests
         RolePlayAssistantPrompts.AppendScenarioGuidance(builder, guidance, framingGuards: []);
         var text = builder.ToString();
 
-        // Assert: behavioral frame HARD CONSTRAINT
-        Assert.Contains("HARD CONSTRAINT — Sarah (Wife) behavioral frame (authoritative", text, StringComparison.Ordinal);
+        // Assert: behavioral frame CHARACTER TENDENCY
+        Assert.Contains("CHARACTER TENDENCY — Sarah (Wife) behavioral frame (yields to theme contract", text, StringComparison.Ordinal);
         Assert.Contains("Sarah shows exploratory curiosity.", text, StringComparison.Ordinal);
 
-        // Assert: stat state text HARD CONSTRAINT
-        Assert.Contains("HARD CONSTRAINT — Sarah (Wife) current state (authoritative", text, StringComparison.Ordinal);
+        // Assert: stat state text CHARACTER TENDENCY
+        Assert.Contains("CHARACTER TENDENCY — Sarah (Wife) current state (yields to theme contract", text, StringComparison.Ordinal);
         Assert.Contains("Sarah's desire is at a peak, eager and uninhibited.", text, StringComparison.Ordinal);
     }
 
@@ -181,7 +181,7 @@ public sealed class BehavioralFrameWithRuntimeStatsTests
         var text = builder.ToString();
 
         // Behavioral frame injected
-        Assert.Contains("HARD CONSTRAINT — Sarah (Wife) behavioral frame", text, StringComparison.Ordinal);
+        Assert.Contains("CHARACTER TENDENCY — Sarah (Wife) behavioral frame", text, StringComparison.Ordinal);
 
         // No stat state text injected
         Assert.DoesNotContain("current state (authoritative", text, StringComparison.Ordinal);

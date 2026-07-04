@@ -28,23 +28,10 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
     private const int NarrativeQuotedBlockHardViolationThreshold = 4;
     private const double NarrativeQuotedTextRatioRetryThreshold = 0.20;
 
-    // Number of complete turns during which other characters are suppressed from
+    // Number of non-excluded interactions during which other characters are suppressed from
     // narrative focus, allowing the persona-partner relationship to be established first.
     // Other characters remain in the scene but unnamed and unaddressed until this threshold is passed.
-    private const int OpeningPeriodTurnCount = 3;
-
-    // Default opening-period guidance text, seeded into all scenarios.
-    // Used as fallback when a scenario's OpeningGuidanceText is null.
-    private const string DefaultOpeningGuidanceText = "Introduce the persona and the key characters naturally through their actions, " +
-        "dialogue, and environment. Briefly describe their physical appearance and presence \u2014 grounded in what\u2019s visible " +
-        "and observable in the moment. Ground their personalities and relationships in the unfolding scene without info-dumping. " +
-        "Include a brief sense of their intimate life from her point of view \u2014 the rhythm of it, what she feels about it, " +
-        "what she wants or doesn\u2019t get \u2014 grounding these details in the character profiles and descriptions. " +
-        "Present the current relationship and dynamics as a settled reality \u2014 describe them plainly as they are, " +
-        "without characters positioning to alter them or dwelling on how this situation came to be. " +
-        "Weave in the scenario's Plot Description, Conflicts, and Goals \u2014 establish the central tensions and what\u2019s at stake, " +
-        "and foreshadow the narrative arc through subtle cues in the setting, character interactions, and internal responses. " +
-        "Establish the setting, mood, and any relevant history. Other characters remain in the background.";
+    private const int OpeningPeripheralTurnCount = 6;
 
     private static readonly Regex QuotedBlockRegex = new("\"[^\"\\r\\n]{2,}\"", RegexOptions.Compiled);
     private static readonly Regex FirstPersonLeakRegex = new("\\b(I|me|my|mine|myself)\\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -68,6 +55,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
     private readonly bool _enableLocationServices;
     private readonly bool _includeCandidateMenuWhileObserving;
     private readonly IOptions<RolePlayMemoryOptions>? _memoryOptions;
+    private readonly SceneDirectionCoordinator _coordinator;
     private readonly ILogger<RolePlayContinuationService> _logger;
 
     public RolePlayContinuationService(
@@ -81,6 +69,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         ISteeringProfileService styleProfileService,
         IScenarioGuidanceContextFactory scenarioGuidanceContextFactory,
         IRolePlayDebugEventSink debugEventSink,
+        SceneDirectionCoordinator coordinator,
         ILogger<RolePlayContinuationService> logger,
         IRolePlayDiagnosticsService? diagnosticsService = null,
         IRPThemeService? rpThemeService = null,
@@ -100,6 +89,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         _steeringProfileService = styleProfileService;
         _scenarioGuidanceContextFactory = scenarioGuidanceContextFactory;
         _debugEventSink = debugEventSink;
+        _coordinator = coordinator;
         _rpThemeService = rpThemeService;
         _diagnosticsService = diagnosticsService;
         _climaxBeatRepository = climaxBeatRepository;
@@ -280,7 +270,8 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             GeneratedTemperature = resolved.Temperature,
             GeneratedTopP = resolved.TopP,
             GeneratedMaxTokens = resolved.MaxTokens,
-            ReasoningContent = reasoningContent
+            ReasoningContent = reasoningContent,
+            NarrativePhaseAtCreation = session.AdaptiveState.CurrentPhase
         };
 
         await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
@@ -316,7 +307,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         int? turnActorCount = null)
     {
         var narrativePrompt = string.IsNullOrWhiteSpace(promptText)
-            ? "Move the role-play story forward with scene description and tone."
+            ? "Synthesize the scene with vivid narrative description."
             : promptText;
 
         await ValidateDirectiveTextAsync(session, narrativePrompt, cancellationToken);
@@ -354,7 +345,8 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             GeneratedByProvider = resolved.ProviderName,
             GeneratedTemperature = resolved.Temperature,
             GeneratedTopP = resolved.TopP,
-            GeneratedMaxTokens = resolved.MaxTokens
+            GeneratedMaxTokens = resolved.MaxTokens,
+            NarrativePhaseAtCreation = session.AdaptiveState.CurrentPhase
         };
     }
 
@@ -383,7 +375,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         if (includeNarrative)
         {
             var narrativePrompt = string.IsNullOrWhiteSpace(promptText)
-                ? "Move the role-play story forward with scene description and tone."
+                ? "Synthesize the scene with vivid narrative description."
                 : promptText;
 
             await ValidateDirectiveTextAsync(session, narrativePrompt, cancellationToken);
@@ -415,7 +407,8 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                 GeneratedByProvider = narrativeResolved.ProviderName,
                 GeneratedTemperature = narrativeResolved.Temperature,
                 GeneratedTopP = narrativeResolved.TopP,
-                GeneratedMaxTokens = narrativeResolved.MaxTokens
+                GeneratedMaxTokens = narrativeResolved.MaxTokens,
+                NarrativePhaseAtCreation = session.AdaptiveState.CurrentPhase
             };
         }
 
@@ -900,6 +893,28 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             .Take(6)
             .ToList();
 
+        // ── Theme guidance MUST appear BEFORE behavioral frames ─────────────────
+        // Theme contract is the highest steering rank directive. Character behavioral
+        // frames and stat state texts describe tendencies, not requirements — the theme
+        // contract overrides them when they conflict.
+        RPTheme? activeTheme = null;
+        var activeThemeHardConstraints = Array.Empty<string>();
+
+        if (_rpThemeService is not null
+            && !string.IsNullOrWhiteSpace(activeScenarioId))
+        {
+            try
+            {
+                activeTheme = await _rpThemeService.GetThemeAsync(activeScenarioId, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Unable to load RP theme AI guidance notes for active scenario/theme {ThemeId} in session {SessionId}.", activeScenarioId, session.Id);
+            }
+
+            AppendActiveThemeContract(sb, activeTheme, currentPhase);
+        }
+
         // Only scenario-bound characters (those with a CharacterRole) contribute to stat averages.
         var trackedStatsForGuidance = session.AdaptiveState.CharacterStats.Values
             .Where(x => !string.IsNullOrEmpty(x.CharacterRole))
@@ -932,58 +947,12 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                 SelectedResistanceProfileId: session.AdaptiveState.SelectedResistanceProfileId),
             cancellationToken);
 
-        var isOpeningPeriod = session.AdaptiveState.CurrentPhase == NarrativePhase.Opening;
+        RolePlayAssistantPrompts.AppendScenarioGuidance(sb, guidanceContext, []);
 
-        RPTheme? activeTheme = null;
-        var activeThemeHardConstraints = Array.Empty<string>();
-
-        // Load the active theme before building framing guards so theme-aware guards can apply.
-        if (!isOpeningPeriod && _rpThemeService is not null && !string.IsNullOrWhiteSpace(activeScenarioId))
+        if (_rpThemeService is not null
+            && !string.IsNullOrWhiteSpace(activeScenarioId)
+            && activeTheme is not null)
         {
-            try
-            {
-                activeTheme = await _rpThemeService.GetThemeAsync(activeScenarioId, cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Unable to load RP theme for framing guards {ThemeId} in session {SessionId}.", activeScenarioId, session.Id);
-            }
-        }
-
-        var framingGuards = isOpeningPeriod
-            ? Array.Empty<string>()
-            : RolePlayAssistantPrompts.BuildFramingGuards(currentPhase, activeScenarioId, activeTheme);
-        RolePlayAssistantPrompts.AppendScenarioGuidance(sb, guidanceContext, framingGuards);
-
-        if (isOpeningPeriod)
-        {
-            // Opening period: suppress ALL theme/phase guidance and inject opening guidance instead.
-            // The observer candidate menu is also suppressed during the opening period.
-            var openingGuidance = await LoadScenarioOpeningGuidanceAsync(session, cancellationToken)
-                ?? DefaultOpeningGuidanceText;
-            sb.AppendLine("HARD CONSTRAINT — Opening Period Direction:");
-            sb.AppendLine($"- {openingGuidance}");
-            _logger.LogInformation(
-                "OpeningPeriod: injected opening guidance for turn {Turn} SessionId={SessionId}",
-                session.AdaptiveState.ObservedTurnCount, session.Id);
-        }
-        else if (_rpThemeService is not null
-            && !string.IsNullOrWhiteSpace(activeScenarioId))
-        {
-            if (activeTheme is null)
-            {
-                try
-                {
-                    activeTheme = await _rpThemeService.GetThemeAsync(activeScenarioId, cancellationToken);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogDebug(ex, "Unable to load RP theme AI guidance notes for active scenario/theme {ThemeId} in session {SessionId}.", activeScenarioId, session.Id);
-                }
-            }
-
-            AppendActiveThemeContract(sb, activeTheme, currentPhase);
-
             var maxThemeHardConstraints = Math.Clamp(session.MaxThemeAIGuidanceNotes, 1, 10);
             activeThemeHardConstraints = [.. RolePlayAssistantPrompts.GetThemeHardConstraintLines(activeTheme, maxThemeHardConstraints)];
             RolePlayAssistantPrompts.AppendThemeHardConstraints(sb, activeTheme, maxThemeHardConstraints);
@@ -1029,8 +998,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         }
         else if (_includeCandidateMenuWhileObserving
             && _rpThemeService is not null
-            && string.IsNullOrWhiteSpace(activeScenarioId)
-            && !isOpeningPeriod)
+            && string.IsNullOrWhiteSpace(activeScenarioId))
         {
             await AppendObservingCandidateMenuAsync(sb, session, currentPhase, cancellationToken);
         }
@@ -1193,6 +1161,11 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             }
         }
 
+        // SceneDirectionCoordinator: marker-driven behavioral directives
+        var sceneDirection = SceneDirectionResolver.Resolve(currentPhase, activeTheme, ClimaxSubPhase.None, intent);
+        var ctx = new PromptInjectionContext { Session = session, SceneDirection = sceneDirection, Phase = currentPhase, Intent = intent, PositionInTurn = positionInTurn, TurnActorCount = turnActorCount, ActorName = actorName, ActiveTheme = activeTheme, ActorStats = ResolvePromptActorStats(session, actorName), PhaseGuidanceLines = RolePlayAssistantPrompts.GetThemePhaseGuidanceLines(activeTheme, currentPhase), PhaseDirectiveLines = RolePlayAssistantPrompts.GetThemePhaseDirectiveLines(activeTheme, currentPhase), AiGuidanceNotes = activeTheme?.AIGenerationNotes ?? [], ThemeHardConstraintLines = activeThemeHardConstraints };
+        sb.Append(_coordinator.BuildPrompt(ctx));
+
         // Three distinct interaction types with different POV rules:
         // Narrative = 3rd person omniscient storyteller setting scenes
         // Persona   = 1st person POV ("I felt...", "I watched...")
@@ -1226,55 +1199,8 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         sb.AppendLine("- Phase Guidance specifies WHAT scene actions and beats must occur; the intensity contract specifies HOW they are written.");
         sb.AppendLine("- Do not de-escalate below the resolved intensity level unless safety constraints require it.");
         sb.AppendLine($"Manual Intensity Pin: {(session.IsIntensityManuallyPinned ? "ON (resolved follows selected)" : "OFF (adaptive mode)")}");
-        AppendEscalationGuidance(sb, session, actorName, currentPhase, intent, positionInTurn, turnActorCount);
         await AppendPositionListAsync(sb, session, currentPhase, intent, cancellationToken);
-
-        // B-049: Pacing injection — during non-intimate phases, encourage natural time progression
-        // so not every interaction is moment-by-moment. Suppressed during intimate phases where
-        // the Scene Presence Contract requires staying present.
-        if (currentPhase is "BuildUp" or "Reset" && intent != PromptIntent.Instruction)
-        {
-            sb.AppendLine("Scene Pacing Contract:");
-            sb.AppendLine("- Time may advance naturally between interactions — not every turn needs to follow the previous one moment-by-moment.");
-            sb.AppendLine("- When appropriate, move the scene forward by minutes or hours: e.g. 'Later that evening...', 'After dinner...', 'The next morning...'.");
-            sb.AppendLine("- Use time advances sparingly and naturally — they should feel like organic scene transitions, not abrupt jumps.");
-            sb.AppendLine("- Do NOT use time-skip transitions that bypass or summarize intimate encounters, emotional confrontations, or pivotal character moments.");
-            sb.AppendLine("- A time advance is appropriate when the previous scene beat has resolved and a new context (location, activity, time of day) moves the story forward.");
-            _logger.LogDebug("PacingContract: injected for Phase={Phase} SessionId={SessionId}", currentPhase, session.Id);
-        }
-
-        var sanitizedDirective = PromptSanitizer.SanitizeSceneDirective(resolvedProfile?.SceneDirective);
-        if (!string.IsNullOrEmpty(sanitizedDirective))
-        {
-            _logger.LogDebug("Scene Writing Directive source: profile-configured, scale={Scale}", resolvedScale);
-            sb.AppendLine("Scene Writing Directive:");
-            sb.AppendLine(sanitizedDirective);
-        }
-        else
-        {
-            // Pacing is controlled by theme phase guidance markers — no marker means no directive.
-            var pacingMode = RolePlayAssistantPrompts.GetPacingMode(activeTheme, currentPhase);
-            switch (pacingMode)
-            {
-                case "slow":
-                    _logger.LogDebug("Scene Writing Directive source: pacing-marker=slow");
-                    sb.Append(GetStaticSceneDirective());
-                    break;
-                case "medium":
-                    _logger.LogDebug("Scene Writing Directive source: pacing-marker=medium");
-                    sb.Append(GetMediumPaceDirective());
-                    break;
-                case "fast":
-                    _logger.LogDebug("Scene Writing Directive source: pacing-marker=fast");
-                    sb.Append(GetFastPaceDirective());
-                    break;
-                default:
-                    _logger.LogDebug("Scene Writing Directive source: none (no pacing marker)");
-                    break;
-            }
-        }
-
-        var styleHint = string.IsNullOrWhiteSpace(scenarioStyle)
+var styleHint = string.IsNullOrWhiteSpace(scenarioStyle)
             ? effectiveStyleLabel
             : $"{scenarioStyle} | effective mode: {effectiveStyleLabel}";
 
@@ -1284,6 +1210,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         // catalog meaningful and correctly paced. Themes without the tag do not use the beat sheet.
         if (string.Equals(currentPhase, "Climax", StringComparison.OrdinalIgnoreCase)
             && intent != PromptIntent.Instruction
+            && intent != PromptIntent.Narrative
             && !string.IsNullOrWhiteSpace(session.AdaptiveState.CurrentBeatCode)
             && _climaxBeatRepository is not null
             && RolePlayAssistantPrompts.IsEpisodicBeatStyle(activeTheme, currentPhase))
@@ -1354,10 +1281,10 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
 
         foreach (var (label, frameText) in guidanceContext.CharacterBehavioralFrames)
         {
-            sb.AppendLine($"HARD CONSTRAINT — enforce in this response: {label} behavioral frame: {frameText}");
+            sb.AppendLine($"CHARACTER TENDENCY — enforce in this response: {label} behavioral frame (yields to theme contract): {frameText}");
             if (guidanceContext.CharacterStatStateTexts.TryGetValue(label, out var statStateText))
             {
-                sb.AppendLine($"HARD CONSTRAINT — enforce in this response: {label} current state: {statStateText}");
+                sb.AppendLine($"CHARACTER TENDENCY — enforce in this response: {label} current state (yields to theme contract): {statStateText}");
             }
         }
 
@@ -1371,6 +1298,23 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         foreach (var rule in scenarioWorldRules)
         {
             sb.AppendLine($"HARD CONSTRAINT — scenario rule (must not be violated): {rule}");
+        }
+
+        // Opening peripheral constraint: during the first N turns, suppress other characters
+        // from narrative focus so the persona-partner relationship is established before introducing them.
+        // Other characters are present in the scene but must not be named or focused on.
+        // Applies to both Narrative and Message turns so the constraint holds across all generated content.
+        var openingInteractionCount = session.Interactions.Count(i => !i.IsExcluded);
+        if (intent == PromptIntent.Narrative || intent == PromptIntent.Message)
+        {
+            if (openingInteractionCount <= OpeningPeripheralTurnCount)
+            {
+                sb.AppendLine("HARD CONSTRAINT — Opening Peripheral Focus: Other characters are present in this scene but must remain peripheral background presence only. " +
+                    "They are NOT the focus of any character's attention, thoughts, or dialogue. Do not refer to them by name in this passage.");
+                _logger.LogDebug(
+                    "PeripheralConstraint: injected for turn {Turn} of {Threshold} SessionId={SessionId}",
+                    openingInteractionCount, OpeningPeripheralTurnCount, session.Id);
+            }
         }
 
         if (intent == PromptIntent.Narrative)
@@ -1389,10 +1333,9 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                     "HARD CONSTRAINT — Include zero quoted speech. Do not write any dialogue in this passage. " +
                     "HARD CONSTRAINT — Do not advance the scene beyond what the characters have already established in their responses this turn. Synthesize what occurred — describe positions, sensations, and atmosphere — but do not introduce new actions, new positions, or new story beats. " +
                     "HARD CONSTRAINT: Do not write departure scenes, farewells, or any narrative framing that concludes the story's time frame. The Climax phase is ongoing — sustain the scene within the encounter's moment. " +
-                    $"Match the established tone ({styleHint}). " +
-                    "HARD CONSTRAINT — Maximum 500 words. Write 300-500 words. Do not exceed 500 words.");
+                    $"Match the established tone ({styleHint}). Write at least 300 words.");
             }
-            else if (session.Interactions.Count(i => !i.IsExcluded) == 0)
+            else if (openingInteractionCount == 0)
             {
                 // Opening narrative — use the extended word target to match the couple-focused opening prompt.
                 sb.AppendLine($"Write the opening narrative passage as an omniscient narrator in THIRD PERSON. " +
@@ -1404,8 +1347,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                     "HARD CONSTRAINT — Include zero quoted speech. Include one brief spoken fragment only if it is absolutely required for scene continuity and cannot be omitted. " +
                     "Do not write back-and-forth dialogue. Do not write character inner thoughts or feelings. " +
                     "HARD CONSTRAINT — Do not advance the scene beyond what the characters have already established in their responses this turn. Synthesize and describe, do not introduce new actions. " +
-                    $"Match the established tone ({styleHint}). " +
-                    "HARD CONSTRAINT — Maximum 500 words. Write 300–500 words. Do not exceed 500 words.");
+                    $"Match the established tone ({styleHint}). Write 300–500 words.");
             }
             else
             {
@@ -1419,8 +1361,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                     "HARD CONSTRAINT — Include zero quoted speech. Include one brief spoken fragment only if it is absolutely required for scene continuity and cannot be omitted. " +
                     "Do not write back-and-forth dialogue. Do not write character inner thoughts or feelings. " +
                     "HARD CONSTRAINT — Do not advance the scene beyond what the characters have already established in their responses this turn. Synthesize and describe, do not introduce new actions. " +
-                    $"Match the established tone ({styleHint}). " +
-                    "HARD CONSTRAINT — Maximum 500 words. Write 300-500 words. Do not exceed 500 words.");
+                    $"Match the established tone ({styleHint}). Write at least 200 words; target 250-400 words.");
             }
         }
         else
@@ -1436,28 +1377,6 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         }
 
         return sb.ToString();
-    }
-
-    private async Task<string?> LoadScenarioOpeningGuidanceAsync(
-        RolePlaySession session,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            var scenarioId = session.ScenarioId;
-            if (string.IsNullOrWhiteSpace(scenarioId) || _scenarioService is null)
-            {
-                return null;
-            }
-
-            var scenario = await _scenarioService.GetScenarioAsync(scenarioId);
-            return scenario?.OpeningGuidanceText;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Unable to load opening guidance text for session {SessionId}", session.Id);
-            return null;
-        }
     }
 
     private async Task AppendObservingCandidateMenuAsync(
@@ -1593,22 +1512,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             sb.AppendLine($"- Required Phase Constraints ({phase}) — these directives are hard requirements for this response:");
             foreach (var line in phaseGuidance)
             {
-                sb.AppendLine($"  HARD CONSTRAINT: {line}");
-            }
-        }
-
-        var phaseDirectives = activeTheme.PhaseGuidance
-            .Where(x => string.Equals(x.Phase.ToString(), phase, StringComparison.OrdinalIgnoreCase))
-            .Where(x => !string.IsNullOrWhiteSpace(x.DirectiveText))
-            .OrderBy(x => x.DirectiveText, StringComparer.OrdinalIgnoreCase)
-            .Select(x => x.DirectiveText.Trim())
-            .ToList();
-        if (phaseDirectives.Count > 0)
-        {
-            sb.AppendLine($"- Phase Directives ({phase}) — these are hard requirements for this response:");
-            foreach (var line in phaseDirectives)
-            {
-                sb.AppendLine($"  HARD CONSTRAINT: {line}");
+                sb.AppendLine($"  - {line}");
             }
         }
 
@@ -1624,7 +1528,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             sb.AppendLine($"- Key Emphasis ({phase}): {string.Join(" | ", keyEmphasis)}");
         }
 
-        sb.AppendLine("- Treat this theme description as a primary scene contract for the next response.");
+        sb.AppendLine("- STEERING RANK: This theme contract is the highest-ranking directive in this prompt. Character behavioral frames and stat state texts describe tendencies, not requirements — the theme contract overrides them when they conflict.");
         sb.AppendLine("- If multiple continuations are possible, choose the one that best matches this theme description while preserving continuity and safety constraints.");
     }
 
@@ -1805,106 +1709,6 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         }
 
         return token;
-    }
-
-    private static void AppendEscalationGuidance(
-        StringBuilder sb,
-        RolePlaySession session,
-        string actorName,
-        string phase,
-        PromptIntent intent,
-        int? positionInTurn = null,
-        int? turnActorCount = null)
-    {
-        if (intent == PromptIntent.Instruction)
-        {
-            return;
-        }
-
-        // Only scenario-bound characters (those with a CharacterRole) contribute to stat averages.
-        var trackedStatsForEscalation = session.AdaptiveState.CharacterStats.Values
-            .Where(x => !string.IsNullOrEmpty(x.CharacterRole))
-            .ToList();
-        if (trackedStatsForEscalation.Count == 0)
-        {
-            return;
-        }
-
-        var actorStats = ResolvePromptActorStats(session, actorName);
-        var desire = ResolveStat(actorStats, "Desire", trackedStatsForEscalation.Average(x => CharacterStatProfileV2Accessor.GetStatOrDefault(x, "Desire", 50)));
-        var restraint = ResolveStat(actorStats, "Restraint", trackedStatsForEscalation.Average(x => CharacterStatProfileV2Accessor.GetStatOrDefault(x, "Restraint", 50)));
-        var tension = ResolveStat(actorStats, "Tension", trackedStatsForEscalation.Average(x => CharacterStatProfileV2Accessor.GetStatOrDefault(x, "Tension", 50)));
-
-        var isLatePhase = phase is "Approaching" or "Climax";
-        if (!isLatePhase)
-        {
-            return;
-        }
-
-        var isFirstInTurn = !positionInTurn.HasValue || positionInTurn.Value == 1;
-
-        if (!isFirstInTurn && phase == "Climax")
-        {
-            // Position > 1 (including persona): deepen the established moment, do not advance
-            sb.AppendLine("Scene Deepening Guidance:");
-            sb.AppendLine("- Deepen the physical moment already established this turn — give richer sensory detail, internal reaction, and physical sensation for the same act.");
-            sb.AppendLine("- Do NOT advance to a new beat or position. Stay on the exact act that was established by the first responder.");
-            sb.AppendLine("- Vary your character's specific sensation, thought, or reaction to add depth to the moment.");
-            sb.AppendLine("- Write explicit physical description matching the established act — name body parts, movements, and sensations.");
-            return;
-        }
-
-        sb.AppendLine("Escalation Guidance:");
-        sb.AppendLine("- Advance the scene with clear forward momentum; avoid repeating only hesitant or reset beats.");
-
-        if (desire >= 70 || tension >= 60)
-        {
-            sb.AppendLine("- Show concrete progression in physical intimacy this turn when continuity allows (not just verbal tension). ");
-        }
-
-        if (restraint <= 55 || (desire >= 75 && tension >= 60))
-        {
-            sb.AppendLine("- Do not keep the scene at fully-clothed distance if continuity already supports escalation; progress to a more intimate state.");
-        }
-
-        if (phase == "Climax")
-        {
-            sb.AppendLine("- Every turn must advance to a new beat. Do not describe the same physical act or position that was the focus of the previous turn.");
-            sb.AppendLine("- Vary who is the focus, the position, the tempo, or the specific sensation each turn. Repetition of the same scene state is explicitly forbidden.");
-            sb.AppendLine("- You may remain in the same overall stage of intimacy (e.g. still oral), but every turn must shift something concrete: angle, position, who is leading, intensity, or body focus.");
-            sb.AppendLine("- Write explicit physical description — name body parts, movements, and sensations specifically.");
-            sb.AppendLine("- Urgency and narrative pressure should appear in character energy, dialogue, and pacing — not in abbreviating the scene.");
-            sb.AppendLine("- If in-narrative time pressure exists, use it to raise intensity of description, not to rush to conclusion.");
-            sb.AppendLine("- Do not imply or skip ahead to a post-scene state; remain in the physical moment.");
-            sb.AppendLine("- Write at least 350 words this turn. Fill the length with explicit physical and sensory detail specific to the current act and position.");
-        }
-    }
-
-    private static string GetStaticSceneDirective()
-    {
-        return """
-            Pacing and Urgency:
-            - Slow pacing: focus on one beat per response.
-            - Savor the moment with detailed sensory and emotional depth.
-            """;
-    }
-
-    private static string GetMediumPaceDirective()
-    {
-        return """
-            Pacing and Urgency:
-            - Medium pacing: cover one to two beats per response.
-            - Let the scene breathe without dragging.
-            """;
-    }
-
-    private static string GetFastPaceDirective()
-    {
-        return """
-            Pacing and Urgency:
-            - Fast pacing: compress multiple beats into one response.
-            - Cover more story ground per response.
-            """;
     }
 
     private static Dictionary<string, int>? ResolvePromptActorStats(RolePlaySession session, string actorName)

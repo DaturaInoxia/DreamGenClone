@@ -38,27 +38,6 @@ public sealed class RolePlayContinuationScenarioGuidanceTests
     }
 
     [Fact]
-    public void AppendScenarioGuidance_IncludesExclusionAndGuards()
-    {
-        var builder = new StringBuilder();
-        var guidance = new ScenarioGuidanceContext(
-            Phase: "Climax",
-            ActiveScenarioId: "dominance",
-            GuidanceText: "Deliver culmination",
-            ExcludedScenarioIds: ["infidelity", "voyeurism"],
-            CharacterBehavioralFrames: new Dictionary<string, string>(),
-            CharacterStatStateTexts: new Dictionary<string, string>());
-
-        var guards = RolePlayAssistantPrompts.BuildFramingGuards("Climax", "dominance");
-        RolePlayAssistantPrompts.AppendScenarioGuidance(builder, guidance, guards);
-
-        var text = builder.ToString();
-        Assert.Contains("Active Scenario: dominance", text, StringComparison.Ordinal);
-        Assert.Contains("Exclude contradictory framing for: infidelity, voyeurism", text, StringComparison.Ordinal);
-        Assert.Contains("Do not pivot to a competing scenario", text, StringComparison.Ordinal);
-    }
-
-    [Fact]
     public void AppendThemeAIGuidance_AddsSoftWeightedHints()
     {
         var builder = new StringBuilder();
