@@ -48,14 +48,6 @@ public static class RolePlayAssistantPrompts
             .Any(x => x.GuidanceText.Contains("[BeatStyle:episodic]", StringComparison.OrdinalIgnoreCase));
     }
 
-    public static bool IsQuickFinishClimaxMode(RPTheme? activeTheme, string phase)
-    {
-        if (activeTheme is null) return false;
-        return activeTheme.PhaseGuidance
-            .Where(x => string.Equals(x.Phase.ToString(), phase, StringComparison.OrdinalIgnoreCase))
-            .Any(x => x.GuidanceText.Contains("[ClimaxMode:quick-finish]", StringComparison.OrdinalIgnoreCase));
-    }
-
     /// <summary>
     /// Detects the [ClimaxMode:multi-encounter] phase-guidance marker. When true, the Climax
     /// phase is paced as multiple discrete encounters whose boundaries are detected by the
@@ -116,17 +108,6 @@ public static class RolePlayAssistantPrompts
         }
 
         return null;
-    }
-
-    public static bool AllowsWithinTimeframeTimeShift(RPTheme? activeTheme, string phase)
-    {
-        if (activeTheme is null) return false;
-        return activeTheme.PhaseGuidance
-            .Where(x => string.Equals(x.Phase.ToString(), phase, StringComparison.OrdinalIgnoreCase))
-            .Any(x =>
-                x.GuidanceText.Contains("[TimeShift:within-timeframe]", StringComparison.OrdinalIgnoreCase)
-                || x.GuidanceText.Contains("Responses may skip forward within the time frame", StringComparison.OrdinalIgnoreCase)
-                || x.GuidanceText.Contains("a new response does not have to be the immediate next moment", StringComparison.OrdinalIgnoreCase));
     }
 
     public static IReadOnlyList<RPThemeAIGuidanceNote> GetPhaseRelevantThemeAIGuidanceNotes(
@@ -201,10 +182,10 @@ public static class RolePlayAssistantPrompts
 
         foreach (var (label, frameText) in guidance.CharacterBehavioralFrames)
         {
-            promptBuilder.AppendLine($"HARD CONSTRAINT — {label} behavioral frame (authoritative character state): {frameText}");
+            promptBuilder.AppendLine($"CHARACTER TENDENCY — {label} behavioral frame (yields to theme contract): {frameText}");
             if (guidance.CharacterStatStateTexts.TryGetValue(label, out var statStateText))
             {
-                promptBuilder.AppendLine($"HARD CONSTRAINT — {label} current state (authoritative): {statStateText}");
+                promptBuilder.AppendLine($"CHARACTER TENDENCY — {label} current state (yields to theme contract): {statStateText}");
             }
         }
 
@@ -212,7 +193,7 @@ public static class RolePlayAssistantPrompts
         {
             if (!guidance.CharacterBehavioralFrames.ContainsKey(label))
             {
-                promptBuilder.AppendLine($"HARD CONSTRAINT — {label} current state (authoritative): {statStateText}");
+                promptBuilder.AppendLine($"CHARACTER TENDENCY — {label} current state (yields to theme contract): {statStateText}");
             }
         }
 
@@ -225,68 +206,6 @@ public static class RolePlayAssistantPrompts
         {
             promptBuilder.AppendLine($"- Guard: {guard}");
         }
-    }
-
-    public static IReadOnlyList<string> BuildFramingGuards(string phase, string? activeScenarioId)
-        => BuildFramingGuards(phase, activeScenarioId, activeTheme: null);
-
-    public static IReadOnlyList<string> BuildFramingGuards(string phase, string? activeScenarioId, RPTheme? activeTheme)
-    {
-        var guards = new List<string>();
-
-        if (string.IsNullOrWhiteSpace(activeScenarioId))
-        {
-            return guards;
-        }
-
-        if (phase == "BuildUp")
-        {
-            guards.Add("This is the BuildUp phase — tension and anticipation only. Do not write explicit sexual acts, physical consummation, or explicit physical contact of a sexual nature.");
-            guards.Add("Characters may flirt, exchange glances, build emotional tension, and suggestively interact, but all explicit escalation must be withheld until the scene advances past this phase.");
-        }
-
-        if (phase is "Committed" or "Approaching" or "Climax")
-        {
-            guards.Add($"Keep all major beats aligned to '{activeScenarioId}'.");
-            guards.Add("Do not pivot to a competing scenario unless the user explicitly overrides.");
-        }
-
-        if (phase is "Committed" or "Approaching")
-        {
-            if (activeTheme is not null && AllowsWithinTimeframeTimeShift(activeTheme, phase))
-            {
-                guards.Add("Each turn should advance to a different time and/or location than the previous turn. Do not remain in the same scene setting for consecutive turns.");
-                guards.Add("If the previous turn was in one setting (e.g. the trailer), the next turn must be in a different setting (e.g. the shower, hiking trails, fire pit, beach, or other location within the established time frame).");
-            }
-        }
-
-        if (phase == "Climax")
-        {
-            var isQuickFinishClimax = IsQuickFinishClimaxMode(activeTheme, phase);
-
-            guards.Add("Deliver high-intensity culmination consistent with established relational dynamics.");
-            guards.Add("Write with explicit positional and sensory detail; name body parts and movements specifically.");
-            guards.Add("Narrative urgency (time pressure, risk of interruption) must increase writing intensity, not truncate scene length.");
-
-            if (isQuickFinishClimax)
-            {
-                guards.Add("QUICK-FINISH CLIMAX MODE: Resolve the finale as urgent, frantic, and quick-release focused without reducing explicit detail.");
-                guards.Add("Urgency is conveyed through tone, pacing pressure, and interruption risk — not by shortening the scene into vague or minimal content.");
-                guards.Add("The encounter may span multiple turns/interactions with rich explicit detail before completion, but keep one primary position/focal act rather than running a full beat-sheet tour.");
-                guards.Add("All explicit contact must remain plausibly hidden from the husband and nearby guests in the moment; maintain believable concealment and deniability.");
-                guards.Add("Do not write overtly visible acts in open view (for example obvious neck-kissing, openly exposed groping, or other unmistakable public signals) when husband/bystanders are in direct line of sight.");
-                guards.Add("Choose one completion position (oral or penetrative sex) for the encounter, sustain it with explicit sensory detail, then return immediately to social composure.");
-                guards.Add("If close-proximity oral/penetrative completion is plausible, keep it nearby. Otherwise, a brief sneak-off to a secluded spot is allowed for rapid release, followed by immediate return.");
-                guards.Add("Do not force beat/sub-beat progression or multi-position variation in this finale.");
-            }
-            else
-            {
-                guards.Add("Every turn must advance the scene to a new beat. Do not repeat the same physical act, position, or sensation that was the focus of the immediately preceding turn.");
-                guards.Add("Within each stage of physical intimacy, vary position, tempo, who is the focus, and specific sensations each turn. Same stage is fine — same description is forbidden.");
-            }
-        }
-
-        return guards;
     }
 
     public static void AppendThemeAIGuidance(

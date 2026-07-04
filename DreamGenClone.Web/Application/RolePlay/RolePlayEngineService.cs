@@ -28,6 +28,21 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 {
     private static readonly TimeSpan DecisionPointContextCooldown = TimeSpan.FromMinutes(5);
     private const int ManualOverrideSelectionLockInteractions = 8;
+    private const int OpeningPeriodTurnCount = 3;
+
+    private void EnsureOpeningToBuildUpTransition(RolePlaySession session)
+    {
+        if (session.AdaptiveState.CurrentPhase == NarrativePhase.Opening
+            && session.AdaptiveState.ObservedTurnCount > OpeningPeriodTurnCount)
+        {
+            session.AdaptiveState.CurrentPhase = NarrativePhase.BuildUp;
+            session.AdaptiveState.InteractionCountInPhase = 0;
+            _logger.LogInformation(
+                "RolePlayV2 Opening→BuildUp transition: SessionId={SessionId} ObservedTurnCount={ObservedTurns}",
+                session.Id,
+                session.AdaptiveState.ObservedTurnCount);
+        }
+    }
 
     private static readonly string[] GenericLocationNames =
     [
@@ -217,19 +232,6 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         if (string.IsNullOrWhiteSpace(evidenceSpan)) return false;
         var lower = evidenceSpan.ToLowerInvariant();
         return EncounterCompletionKeywords.Any(k => lower.Contains(k));
-    }
-
-    /// <summary>
-    /// Checks the last <paramref name="windowSize"/> interactions for a user-typed
-    /// Instruction (ActorName="Instruction" AND GeneratedByCommand is null/empty).
-    /// Used to skip engine time-skip injection when the user has already steered.
-    /// </summary>
-    private static bool HasRecentUserInstruction(RolePlaySession session, int windowSize)
-    {
-        return session.Interactions
-            .TakeLast(windowSize)
-            .Any(x => string.Equals(x.ActorName, "Instruction", StringComparison.OrdinalIgnoreCase)
-                && string.IsNullOrWhiteSpace(x.GeneratedByCommand));
     }
 
     // ---- End encounter participation helpers ------------------------------------------------
@@ -821,6 +823,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             null,
             cancellationToken);
         session.AdaptiveState.ObservedTurnCount++;
+        EnsureOpeningToBuildUpTransition(session);
 
         var outputInteractionIds = new List<string>();
         var turnSucceeded = false;
@@ -921,6 +924,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             null,
             cancellationToken);
         session.AdaptiveState.ObservedTurnCount++;
+        EnsureOpeningToBuildUpTransition(session);
 
         var outputInteractionIds = new List<string>();
         var turnSucceeded = false;
@@ -1065,6 +1069,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             null,
             cancellationToken);
         session.AdaptiveState.ObservedTurnCount++;
+        EnsureOpeningToBuildUpTransition(session);
         var outputInteractionIds = new List<string>();
 
         var route = _promptRouter.Resolve(submission.Intent);
@@ -1415,6 +1420,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             null,
             cancellationToken);
         session.AdaptiveState.ObservedTurnCount++;
+        EnsureOpeningToBuildUpTransition(session);
         var outputInteractionIds = new List<string>();
 
         var isOverflowContinue = request.TriggeredBy == SubmissionSource.MainOverflowContinue;
@@ -1493,92 +1499,100 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 })
             }, cancellationToken);
 
-            // Multi-encounter Climax: when a time-skip phase is pending (detection just fired
-            // or mid-transition), reset the counter so the gate check below sees
-            // InteractionsInCurrentEncounter == 0 for the CloseScene phase.
+            // Multi-encounter Climax: when TimeSkipPending is set (detection just fired),
+            // reset the counter so the time-skip block below sees InteractionsInCurrentEncounter == 0.
             var isClimaxPhase = string.Equals(session.AdaptiveState.CurrentPhase.ToString(), "Climax", StringComparison.OrdinalIgnoreCase);
-            var timeSkipPhase = isClimaxPhase
-                ? session.AdaptiveState.CurrentTimeSkipPhase
-                : TimeSkipPhase.None;
-
-            // Reset the counter for BOTH phases so the per-interaction increment starts clean.
-            // The pipeline-batch increment (line ~4110) is gated separately on phase == None.
-            if (timeSkipPhase != TimeSkipPhase.None)
+            if (isClimaxPhase && session.AdaptiveState.CurrentTimeSkipPhase != TimeSkipPhase.None)
             {
                 session.AdaptiveState.InteractionsInCurrentEncounter = 0;
+                session.AdaptiveState.CurrentTimeSkipPhase = TimeSkipPhase.None;
             }
 
-            // Multi-encounter Climax: determine if the time-skip directive should be injected
-            // into the first overflow actor's prompt this turn. One-shot: no Instruction
-            // interaction is created, so "Active Instruction (persistent)" re-injection cannot
-            // loop it across turns. Uses PromptIntent.Instruction for maximum authority.
-            // Gate logic — phase-specific:
-            //   CloseScene: requires InteractionsInCurrentEncounter == 0 (don't re-fire mid-encounter)
-            //   AdvanceTime: gates ONLY on phase != None + encounter > 1 + no user instruction
-            //                (the counter is unreliable here due to the CloseScene turn's increment)
-            var timeSkipShouldFire = timeSkipPhase != TimeSkipPhase.None
-                && session.AdaptiveState.CurrentEncounterNumber > 1
-                && !HasRecentUserInstruction(session, windowSize: 3)
-                && (timeSkipPhase == TimeSkipPhase.AdvanceTime
-                    || session.AdaptiveState.InteractionsInCurrentEncounter == 0);
-
-            if (timeSkipShouldFire)
+            // Multi-encounter Climax: when a new encounter starts (counter just advanced,
+            // InteractionsInCurrentEncounter == 0), inject an Instruction interaction FIRST.
+            // This establishes the new time/context before any scene actor responds,
+            // so the model has a fresh scene frame to work from rather than continuing
+            // from the previous encounter's last moment.
+            RolePlayInteraction? injectedTimeSkipInstruction = null;
+            if (isClimaxPhase
+                && session.AdaptiveState.CurrentEncounterNumber > 0
+                && session.AdaptiveState.InteractionsInCurrentEncounter == 0
+                && _rpThemeService is not null
+                && !string.IsNullOrWhiteSpace(session.AdaptiveState.ActiveScenarioId))
             {
-                // Mark dirty so the phase transition persists even if pipeline save is refactored.
-                session.AdaptiveState.IsStateDirty = true;
+                RPTheme? theme = null;
+                try { theme = await _rpThemeService.GetThemeAsync(session.AdaptiveState.ActiveScenarioId, cancellationToken); }
+                catch (Exception ex) { _logger.LogDebug(ex, "MultiEncounter time-skip: could not load theme"); }
 
-                if (timeSkipPhase == TimeSkipPhase.CloseScene)
+                if (theme is not null && RolePlayAssistantPrompts.IsMultiEncounterClimax(theme, "Climax"))
                 {
-                    // Phase transitions to AdvanceTime — will fire on the NEXT Continue turn.
-                    session.AdaptiveState.CurrentTimeSkipPhase = TimeSkipPhase.AdvanceTime;
+                    // Build location and environment hints from the scenario definition.
+                    var locationHint = "";
+                    var envHint = "";
+                    try
+                    {
+                        var scenario = await _scenarioService.GetScenarioAsync(session.ScenarioId);
+                        if (scenario is not null)
+                        {
+                            var locations = scenario.Locations?
+                                .Where(l => !string.IsNullOrWhiteSpace(l.Name))
+                                .Select(l => l.Name!.Trim())
+                                .Distinct(StringComparer.OrdinalIgnoreCase)
+                                .ToList() ?? [];
+                            if (locations.Count > 0)
+                            {
+                                locationHint = $" Choose from available locations: {string.Join(", ", locations)}.";
+                            }
+
+                            var envDetails = scenario.Setting?.EnvironmentalDetails?
+                                .Where(d => !string.IsNullOrWhiteSpace(d))
+                                .Select(d => d.Trim())
+                                .Distinct(StringComparer.OrdinalIgnoreCase)
+                                .ToList() ?? [];
+                            if (!string.IsNullOrWhiteSpace(scenario.Setting?.TimeFrame))
+                                envDetails.Insert(0, scenario.Setting!.TimeFrame!.Trim());
+                            if (envDetails.Count > 0)
+                            {
+                                envHint = $" Environmental context: {string.Join("; ", envDetails.Take(4))}.";
+                            }
+                        }
+                    }
+                    catch (Exception ex) { _logger.LogDebug(ex, "MultiEncounter time-skip: could not load scenario for location hints"); }
+
+                    var timeSkipDirective = $"Close the current encounter naturally." +
+                        locationHint + envHint +
+                        $" Then advance time to a new moment — a different time of day, a new context, a new circumstance. Establish ordinary life before encounter #{session.AdaptiveState.CurrentEncounterNumber} begins.";
+                    var timeSkipInstruction = new RolePlayInteraction
+                    {
+                        InteractionType = InteractionType.System,
+                        ActorName = "Instruction",
+                        Content = timeSkipDirective,
+                        NarrativePhaseAtCreation = session.AdaptiveState.CurrentPhase
+                    };
+                    injectedTimeSkipInstruction = timeSkipInstruction;
+                    // Add to session.Interactions so BuildPromptAsync's "Active Instruction
+                    // (persistent)" re-injection picks it up for this turn's overflow actors.
+                    // Mark IsExcluded after the turn completes so it does not leak into
+                    // subsequent turns and cause NPCs to auto-insert scene breaks.
+                    session.Interactions.Add(timeSkipInstruction);
+                    outputInteractionIds.Add(timeSkipInstruction.Id);
+                    await UpdateStateAndDetectEncounterAsync(session, timeSkipInstruction, cancellationToken);
+
                     await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
                     {
                         SessionId = session.Id,
-                        EventKind = "MultiEncounterTimeSkipCloseSceneInjected",
+                        InteractionId = timeSkipInstruction.Id,
+                        EventKind = "MultiEncounterInstructionInjected",
                         Severity = "Info",
                         ActorName = "Instruction",
-                        Summary = $"Close-scene directive injected into first actor for encounter #{session.AdaptiveState.CurrentEncounterNumber}.",
+                        Summary = $"Multi-encounter instruction injected for new encounter #{session.AdaptiveState.CurrentEncounterNumber}.",
                         MetadataJson = JsonSerializer.Serialize(new
                         {
                             encounterNumber = session.AdaptiveState.CurrentEncounterNumber,
-                            phase = "CloseScene"
+                            directive = timeSkipDirective
                         })
                     }, cancellationToken);
                 }
-                else // AdvanceTime
-                {
-                    session.AdaptiveState.CurrentTimeSkipPhase = TimeSkipPhase.None;
-                    await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
-                    {
-                        SessionId = session.Id,
-                        EventKind = "MultiEncounterTimeSkipAdvanceTimeInjected",
-                        Severity = "Info",
-                        ActorName = "Instruction",
-                        Summary = $"Advance-time directive injected into first actor for encounter #{session.AdaptiveState.CurrentEncounterNumber}.",
-                        MetadataJson = JsonSerializer.Serialize(new
-                        {
-                            encounterNumber = session.AdaptiveState.CurrentEncounterNumber,
-                            phase = "AdvanceTime"
-                        })
-                    }, cancellationToken);
-                }
-            }
-            else if (timeSkipPhase != TimeSkipPhase.None && HasRecentUserInstruction(session, windowSize: 3))
-            {
-                // User Instruction is active — skip injection this turn, keep phase for retry.
-                await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
-                {
-                    SessionId = session.Id,
-                    EventKind = "MultiEncounterTimeSkipSkippedDueToUserInstruction",
-                    Severity = "Info",
-                    ActorName = "Instruction",
-                    Summary = "Time-skip directive skipped due to active user Instruction. Will retry next turn.",
-                    MetadataJson = JsonSerializer.Serialize(new
-                    {
-                        encounterNumber = session.AdaptiveState.CurrentEncounterNumber,
-                        phase = timeSkipPhase.ToString()
-                    })
-                }, cancellationToken);
             }
 
             for (var i = 0; i < batchSize; i++)
@@ -1590,33 +1604,15 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
                 // Multi-encounter Climax: adjust the per-position prompt to reflect encounter state.
                 string promptText;
-                PromptIntent actorIntent = PromptIntent.Message;
                 if (isClimaxPhase)
                 {
                     if (i == 0)
                     {
-                        if (timeSkipShouldFire && timeSkipPhase == TimeSkipPhase.CloseScene)
-                        {
-                            promptText = "Close the current encounter naturally.";
-                            actorIntent = PromptIntent.Instruction;
-                        }
-                        else if (timeSkipShouldFire && timeSkipPhase == TimeSkipPhase.AdvanceTime)
-                        {
-                            promptText = "Advance time to a new moment — a different day or time, a new context, a new circumstance. Establish ordinary life.";
-                            actorIntent = PromptIntent.Instruction;
-                        }
-                        else
-                        {
-                            // isNewEncounterStart must NOT fire during an AdvanceTime retry
-                            // (when injection was skipped due to user instruction). The scene was
-                            // already closed by the CloseScene turn; "continue the scene" is wrong.
-                            var isNewEncounterStart = session.AdaptiveState.CurrentEncounterNumber > 0
-                                && session.AdaptiveState.InteractionsInCurrentEncounter == 0
-                                && session.AdaptiveState.CurrentTimeSkipPhase == TimeSkipPhase.None;
-                            promptText = isNewEncounterStart
-                                ? "Continue the scene naturally."
-                                : "Continue the current encounter naturally from where it left off.";
-                        }
+                        var isNewEncounterStart = session.AdaptiveState.CurrentEncounterNumber > 0
+                            && session.AdaptiveState.InteractionsInCurrentEncounter == 0;
+                        promptText = isNewEncounterStart
+                            ? "Begin a new encounter — a discrete event in a new context, escalated from the previous encounter. Establish the new time, place, and circumstance before the exposure begins."
+                            : "Continue the current encounter naturally from where it left off.";
                     }
                     else
                     {
@@ -1632,7 +1628,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
                 await AlignPromptNarrativeStateWithV2Async(session, cancellationToken);
                 var interaction = await _continuationService.ContinueAsync(
-                    session, actor, actorName, actorIntent, promptText, onChunk, cancellationToken,
+                    session, actor, actorName, PromptIntent.Message, promptText, onChunk, cancellationToken,
                     turnIndex: persistedTurn.TurnIndex,
                     positionInTurn: positionInTurn,
                     turnActorCount: batchSize);
@@ -1642,6 +1638,13 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 session.Interactions.Add(interaction);
                 outputInteractionIds.Add(interaction.Id);
                 await UpdateStateAndDetectEncounterAsync(session, interaction, cancellationToken);
+            }
+
+            // Exclude the time-skip instruction after this turn completes so it does not
+            // persist into subsequent turns via "Active Instruction (persistent)" re-injection.
+            if (injectedTimeSkipInstruction is not null)
+            {
+                injectedTimeSkipInstruction.IsExcluded = true;
             }
         }
         else
@@ -2250,18 +2253,17 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         var totalInteractions = session.Interactions.Count(i =>
             i.InteractionType != InteractionType.System && !i.IsExcluded);
 
-        // Hard-exclude OtherMan during the opening period (first 3 turns) so Husband+Wife establish first.
-        // Opening period is measured in complete turns via ObservedTurnCount.
-        // With OpeningPeriodTurnCount=3: Dean eligible from turn 4.
+        // Hard-exclude OtherMan for the first 6 interactions so Husband+Wife establish first.
+        // With batchSize=2 (Ken+Becky per turn), 3 turns = 6 interactions ? Dean eligible on turn 4.
         var eligibleCharacterNames = sceneCharacterNames.Where(name =>
         {
             session.AdaptiveState.CharacterStats.TryGetValue(name, out var statProfile);
             var role = statProfile?.CharacterRole;
-            if (session.AdaptiveState.CurrentPhase == NarrativePhase.Opening && string.Equals(role, "OtherMan", StringComparison.OrdinalIgnoreCase))
+            if (totalInteractions < 6 && string.Equals(role, "OtherMan", StringComparison.OrdinalIgnoreCase))
             {
                 _logger.LogDebug(
-                    "OverflowActor: excluding OtherMan {ActorName} at turn count {TurnCount} for SessionId={SessionId}",
-                    name, session.AdaptiveState.ObservedTurnCount, session.Id);
+                    "OverflowActor: excluding OtherMan {ActorName} at interaction offset {Offset} for SessionId={SessionId}",
+                    name, totalInteractions, session.Id);
                 return false;
             }
             return true;
@@ -2304,11 +2306,11 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 ? "Persona auto candidate (in-scene)."
                 : "Persona auto candidate (not in scene but always included).";
 
-            if (session.AdaptiveState.CurrentPhase == NarrativePhase.Opening)
+            if (totalInteractions < 6)
             {
-                // Opening period: persona leads to establish husband-wife dynamic
+                // Initial setup: persona leads to establish husband-wife dynamic
                 actors.Insert(0, new OverflowActorCandidate(ContinueAsActor.You, personaName,
-                    "Persona auto candidate (initial lead during opening period)."));
+                    "Persona auto candidate (initial lead for scenario setup)."));
             }
             else
             {
@@ -2433,10 +2435,6 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
     private async Task UpdateStateAndDetectEncounterAsync(RolePlaySession session, RolePlayInteraction interaction, CancellationToken cancellationToken)
     {
-        _logger.LogInformation("UpdateStateAndDetectEncounterAsync: called SessionId={SessionId} Actor={Actor} Enc={Enc} Ixns={Ixns}", session.Id, interaction.ActorName, session.AdaptiveState.CurrentEncounterNumber, session.AdaptiveState.InteractionsInCurrentEncounter);
-
-        interaction.NarrativePhaseAtCreation = session.AdaptiveState.CurrentPhase;
-
         session.AdaptiveState = await UpdateAdaptiveStateWithSemanticDiagnosticsAsync(session, interaction, cancellationToken);
 
         // Multi-encounter Climax: per-interaction counter increment.
@@ -2930,6 +2928,22 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     {
         var previousV2State = await _stateRepository.LoadAdaptiveStateAsync(session.Id, cancellationToken);
         var v2State = HydrateV2State(session, previousV2State);
+
+        // Opening → BuildUp: the opening period runs for the first 3 turns with husband-wife
+        // guidance. After ObservedTurnCount exceeds OpeningPeriodTurnCount, advance to BuildUp
+        // where the observer or theme guidance pipeline takes over.
+        // Must run immediately after Hydrate, before any downstream code reads or overwrites CurrentPhase.
+        if (v2State.CurrentPhase == NarrativePhase.Opening
+            && session.AdaptiveState.ObservedTurnCount > OpeningPeriodTurnCount)
+        {
+            v2State.CurrentPhase = NarrativePhase.BuildUp;
+            v2State.InteractionCountInPhase = 0;
+            _logger.LogInformation(
+                "RolePlayV2 Opening→BuildUp transition: SessionId={SessionId} ObservedTurnCount={ObservedTurns}",
+                session.Id,
+                session.AdaptiveState.ObservedTurnCount);
+        }
+
         if (!_enableLocationServices)
         {
             ClearLocationState(v2State);
@@ -3263,6 +3277,10 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             {
                 // Observation window guard: do not select a scenario while the theme tracker is
                 // still in its configured observation window (ObservedTurnCount <= SelectionMinimumTurns).
+                // The backfill path below handles first-scenario assignment once the observation
+                // window expires. Without this guard, a low InteractionsSinceCommitment threshold on
+                // the configured gate profile would allow the commit gate to fire before the minimum
+                // observation turns have elapsed � bypassing the SelectionMinimumTurns setting.
                 var fsInObservationWindow = session.AdaptiveState.SelectionMinimumTurns > 0
                     && session.AdaptiveState.ObservedTurnCount <= session.AdaptiveState.SelectionMinimumTurns;
 
@@ -3474,40 +3492,6 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         var lifecycleFitScore = commitApplied
             ? (commitResult.SelectedEvaluation?.FitScore ?? activeScenarioEvaluation?.FitScore ?? 0m)
             : (activeScenarioEvaluation?.FitScore ?? 0m);
-
-        // Opening → BuildUp transition: when the opening period completes (ObservedTurnCount
-        // exceeds OpeningPeriodTurnCount), advance from Opening to BuildUp phase.
-        // This is a turn-count-based transition, not a gate evaluation — during Opening no theme
-        // is selected so there are no metrics to gate against.
-        if (v2State.CurrentPhase == NarrativePhase.Opening
-            && session.AdaptiveState.ObservedTurnCount > 3)
-        {
-            _logger.LogInformation(
-                "RolePlayV2 Opening period transition: SessionId={SessionId} ObservedTurnCount={ObservedTurns} Transitioning to BuildUp",
-                session.Id, session.AdaptiveState.ObservedTurnCount);
-            await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
-            {
-                SessionId = session.Id,
-                EventKind = "OpeningPeriodTransition",
-                Severity = "Info",
-                Summary = $"Opening period completed at turn {session.AdaptiveState.ObservedTurnCount}, transitioning to BuildUp.",
-                MetadataJson = System.Text.Json.JsonSerializer.Serialize(new
-                {
-                    observedTurnCount = session.AdaptiveState.ObservedTurnCount,
-                    interactionCountInPhase = v2State.InteractionCountInPhase
-                })
-            }, cancellationToken);
-            v2State.CurrentPhase = NarrativePhase.BuildUp;
-            v2State.InteractionCountInPhase = 0;
-        }
-        else
-        {
-            _logger.LogDebug(
-                "RolePlayV2 Opening period check: SessionId={SessionId} CurrentPhase={Phase} ObservedTurnCount={ObservedTurns} Condition={Condition}",
-                session.Id, v2State.CurrentPhase, session.AdaptiveState.ObservedTurnCount,
-                v2State.CurrentPhase == NarrativePhase.Opening
-                && session.AdaptiveState.ObservedTurnCount > 3);
-        }
 
         var lifecycle = await _scenarioLifecycleService.EvaluateTransitionAsync(
             v2State,
@@ -4150,7 +4134,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             _logger.LogInformation("MultiEncounterClimax initialized: SessionId={SessionId} ThemeId={ThemeId} EncounterNumber=1", session.Id, v2State.ActiveScenarioId);
             await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord { SessionId = session.Id, EventKind = "MultiEncounterClimaxInitialized", Severity = "Info", Summary = $"Multi-encounter Climax initialized (theme={v2State.ActiveScenarioId}, encounter=1)", MetadataJson = JsonSerializer.Serialize(new { themeId = v2State.ActiveScenarioId, encounterNumber = 1, priorPhase = priorPhase?.ToString(), finalPhase = finalPhase.ToString() }) }, cancellationToken);
         }
-        else if (isMultiEncounterClimax && finalPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.Climax && priorPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.Climax && generatedSinceLastEval > 0 && v2State.CurrentTimeSkipPhase == TimeSkipPhase.None)
+        else if (isMultiEncounterClimax && finalPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.Climax && priorPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.Climax && generatedSinceLastEval > 0)
         {
             v2State.InteractionsInCurrentEncounter += generatedSinceLastEval;
         }
@@ -4398,15 +4382,6 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         {
             session.AdaptiveState.EncounterSummaries = snapshot.EncounterSummaries;
         }
-
-        // Intentionally NOT synced from DB snapshot:
-        //   - CurrentTimeSkipPhase
-        //   - CurrentEncounterNumber
-        //   - InteractionsInCurrentEncounter
-        // These are in-memory turn-scoped values mutated by the overflow loop and
-        // TryDetectEncounterBoundaryAsync. Syncing them here would clobber the phase
-        // mid-loop (e.g., reset AdvanceTime back to CloseScene if the DB hasn't been
-        // persisted yet).
     }
 
     private static void SyncSessionAdaptiveStateFromV2(
@@ -4550,23 +4525,22 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
     private async Task TryDetectEncounterBoundaryAsync(RolePlaySession session, RolePlayInteraction interaction, AdaptiveScenarioState state, CancellationToken cancellationToken)
     {
-        if (state.CurrentPhase != DreamGenClone.Domain.RolePlay.NarrativePhase.Climax) { _logger.LogDebug("TryDetectEncounterBoundary: skipped — not in Climax (phase={Phase}) SessionId={SessionId}", state.CurrentPhase, session.Id); return; }
-        if (state.CurrentEncounterNumber <= 0) { _logger.LogDebug("TryDetectEncounterBoundary: skipped — CurrentEncounterNumber={Enc} SessionId={SessionId}", state.CurrentEncounterNumber, session.Id); return; }
-        if (_semanticEventInferenceService is null || _rpThemeService is null) { _logger.LogDebug("TryDetectEncounterBoundary: skipped — service(s) null (inference={HasInf} theme={HasTheme}) SessionId={SessionId}", _semanticEventInferenceService is not null, _rpThemeService is not null, session.Id); return; }
-        if (string.IsNullOrWhiteSpace(state.ActiveScenarioId)) { _logger.LogDebug("TryDetectEncounterBoundary: skipped — no ActiveScenarioId SessionId={SessionId}", session.Id); return; }
+        if (state.CurrentPhase != DreamGenClone.Domain.RolePlay.NarrativePhase.Climax) return;
+        if (state.CurrentEncounterNumber <= 0) return;
+        if (_semanticEventInferenceService is null || _rpThemeService is null) return;
+        if (string.IsNullOrWhiteSpace(state.ActiveScenarioId)) return;
 
         // ---- Gate: only detect boundaries for characters actively in the encounter ----
         var actorName = string.IsNullOrWhiteSpace(interaction.ActorName) ? "Unknown" : interaction.ActorName;
         if (!state.IsCharacterHavingSex(actorName))
         {
-            _logger.LogDebug("TryDetectEncounterBoundary: skipped — {Actor} not flagged IsHavingSex SessionId={SessionId} Encounter={Enc} IxnsInEnc={Ixns}", actorName, session.Id, state.CurrentEncounterNumber, state.InteractionsInCurrentEncounter);
-            return;
+            return; // Character not in encounter — skip LLM call entirely
         }
 
         RPTheme? theme = null;
         try { theme = await _rpThemeService.GetThemeAsync(state.ActiveScenarioId, cancellationToken); }
         catch (Exception ex) { _logger.LogDebug(ex, "TryDetectEncounterBoundary: could not load theme {ThemeId}", state.ActiveScenarioId); }
-        if (theme is null || !RolePlayAssistantPrompts.IsMultiEncounterClimax(theme, "Climax")) { _logger.LogDebug("TryDetectEncounterBoundary: skipped — theme null or not multi-encounter SessionId={SessionId}", session.Id); return; }
+        if (theme is null || !RolePlayAssistantPrompts.IsMultiEncounterClimax(theme, "Climax")) return;
         var mapping = theme.SemanticEventMappings.FirstOrDefault(x => string.Equals(x.EventId, "encounter-completed", StringComparison.OrdinalIgnoreCase));
         if (mapping is null) { _logger.LogWarning("TryDetectEncounterBoundary: theme {ThemeId} has [ClimaxMode:multi-encounter] but no encounter-completed mapping", theme.Id); return; }
         var cwSize = Math.Max(12, session.ContextWindowSize);
@@ -4587,9 +4561,9 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         }
         if (!inf.Success) { _logger.LogWarning("TryDetectEncounterBoundary: inference non-success SessionId={SessionId}", session.Id); return; }
         var detected = inf.Events.FirstOrDefault(x => string.Equals(x.EventId, "encounter-completed", StringComparison.OrdinalIgnoreCase) && x.Confidence >= mapping.ConfidenceMin && x.Confidence <= mapping.ConfidenceMax);
-        if (detected is null) { _logger.LogDebug("TryDetectEncounterBoundary: no detection SessionId={SessionId} Encounter={EncounterNumber}", session.Id, state.CurrentEncounterNumber); await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord { SessionId = session.Id, InteractionId = interaction.Id, EventKind = "EncounterBoundaryNoDetection", Severity = "Debug", ActorName = interaction.ActorName, Summary = $"No encounter-completed detected (encounter {state.CurrentEncounterNumber}, {state.InteractionsInCurrentEncounter} interactions)", MetadataJson = JsonSerializer.Serialize(new { encounterNumber = state.CurrentEncounterNumber, interactionsInEncounter = state.InteractionsInCurrentEncounter }) }, cancellationToken); return; }
+        if (detected is null) { _logger.LogDebug("TryDetectEncounterBoundary: no detection SessionId={SessionId} Encounter={EncounterNumber}", session.Id, state.CurrentEncounterNumber); return; }
         const int minIxns = 4;
-        if (state.InteractionsInCurrentEncounter < minIxns) { _logger.LogDebug("TryDetectEncounterBoundary: below minimum encounter length ({Current}/{Min}) SessionId={SessionId}", state.InteractionsInCurrentEncounter, minIxns, session.Id); await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord { SessionId = session.Id, InteractionId = interaction.Id, EventKind = "EncounterBoundaryBelowMin", Severity = "Debug", ActorName = interaction.ActorName, Summary = $"Below minimum encounter length ({state.InteractionsInCurrentEncounter}/{minIxns})", MetadataJson = JsonSerializer.Serialize(new { encounterNumber = state.CurrentEncounterNumber, interactionsInEncounter = state.InteractionsInCurrentEncounter, minRequired = minIxns }) }, cancellationToken); return; }
+        if (state.InteractionsInCurrentEncounter < minIxns) { _logger.LogDebug("TryDetectEncounterBoundary: below minimum encounter length ({Current}/{Min}) SessionId={SessionId}", state.InteractionsInCurrentEncounter, minIxns, session.Id); return; }
 
         // ---- Keyword hard-gate: validate evidence span (skip for Instruction/System) ----
         if (interaction.InteractionType != InteractionType.System)
@@ -5635,6 +5609,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     private static int GetPhaseOrder(DreamGenClone.Domain.RolePlay.NarrativePhase phase)
         => phase switch
         {
+            DreamGenClone.Domain.RolePlay.NarrativePhase.Opening => -1,
             DreamGenClone.Domain.RolePlay.NarrativePhase.BuildUp => 0,
             DreamGenClone.Domain.RolePlay.NarrativePhase.Committed => 1,
             DreamGenClone.Domain.RolePlay.NarrativePhase.Approaching => 2,

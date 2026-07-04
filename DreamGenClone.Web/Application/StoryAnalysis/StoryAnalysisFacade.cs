@@ -238,7 +238,6 @@ public sealed class StoryAnalysisFacade
         int approachingPhaseOffset,
         int climaxPhaseOffset,
         int resetPhaseOffset,
-        string sceneDirective = "",
         CancellationToken cancellationToken = default)
         => _intensityProfileService.CreateAsync(
             name,
@@ -249,7 +248,6 @@ public sealed class StoryAnalysisFacade
             approachingPhaseOffset,
             climaxPhaseOffset,
             resetPhaseOffset,
-            sceneDirective,
             cancellationToken);
 
     public Task<List<IntensityProfile>> ListIntensityProfilesAsync(CancellationToken cancellationToken = default)
@@ -268,7 +266,6 @@ public sealed class StoryAnalysisFacade
         int approachingPhaseOffset,
         int climaxPhaseOffset,
         int resetPhaseOffset,
-        string sceneDirective = "",
         CancellationToken cancellationToken = default)
         => _intensityProfileService.UpdateAsync(
             id,
@@ -280,7 +277,6 @@ public sealed class StoryAnalysisFacade
             approachingPhaseOffset,
             climaxPhaseOffset,
             resetPhaseOffset,
-            sceneDirective,
             cancellationToken);
 
     public Task<bool> DeleteIntensityProfileAsync(string id, CancellationToken cancellationToken = default)

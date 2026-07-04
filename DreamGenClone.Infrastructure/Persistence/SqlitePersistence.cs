@@ -1174,17 +1174,6 @@ public sealed class SqlitePersistence : ISqlitePersistence
             _logger.LogInformation("Migrated ToneProfiles table: added phase offset columns");
         }
 
-        var ensureToneSceneDirective = connection.CreateCommand();
-        ensureToneSceneDirective.CommandText = "SELECT COUNT(*) FROM pragma_table_info('ToneProfiles') WHERE name='SceneDirective'";
-        var hasToneSceneDirectiveAlways = Convert.ToInt64(await ensureToneSceneDirective.ExecuteScalarAsync(cancellationToken)) > 0;
-        if (!hasToneSceneDirectiveAlways)
-        {
-            var alterToneSceneDirective = connection.CreateCommand();
-            alterToneSceneDirective.CommandText = "ALTER TABLE ToneProfiles ADD COLUMN SceneDirective TEXT NOT NULL DEFAULT ''";
-            await alterToneSceneDirective.ExecuteNonQueryAsync(cancellationToken);
-            _logger.LogInformation("Migrated ToneProfiles table: added SceneDirective column");
-        }
-
         // Always ensure RPFinishingMoveMatrixRows has WifeReceptivity column.
         var ensureFinishingMoveWifeReceptivityColumn = connection.CreateCommand();
         ensureFinishingMoveWifeReceptivityColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RPFinishingMoveMatrixRows') WHERE name='WifeReceptivity'";
@@ -2838,34 +2827,9 @@ public sealed class SqlitePersistence : ISqlitePersistence
         await connection.OpenAsync(cancellationToken);
 
         var hasPhaseOffsets = await HasTonePhaseOffsetColumnsAsync(connection, cancellationToken);
-        var hasSceneDirective = hasPhaseOffsets && await HasToneSceneDirectiveColumnAsync(connection, cancellationToken);
 
         string commandText;
-        if (hasSceneDirective)
-        {
-            commandText = """
-                INSERT INTO ToneProfiles (
-                    Id, Name, Description, Intensity,
-                    BuildUpPhaseOffset, CommittedPhaseOffset, ApproachingPhaseOffset, ClimaxPhaseOffset, ResetPhaseOffset,
-                    SceneDirective, CreatedUtc, UpdatedUtc)
-                VALUES (
-                    $id, $name, $description, $intensity,
-                    $buildUpPhaseOffset, $committedPhaseOffset, $approachingPhaseOffset, $climaxPhaseOffset, $resetPhaseOffset,
-                    $sceneDirective, $createdUtc, $updatedUtc)
-                ON CONFLICT(Id) DO UPDATE SET
-                    Name = $name,
-                    Description = $description,
-                    Intensity = $intensity,
-                    BuildUpPhaseOffset = $buildUpPhaseOffset,
-                    CommittedPhaseOffset = $committedPhaseOffset,
-                    ApproachingPhaseOffset = $approachingPhaseOffset,
-                    ClimaxPhaseOffset = $climaxPhaseOffset,
-                    ResetPhaseOffset = $resetPhaseOffset,
-                    SceneDirective = $sceneDirective,
-                    UpdatedUtc = $updatedUtc;
-                """;
-        }
-        else if (hasPhaseOffsets)
+        if (hasPhaseOffsets)
         {
             commandText = """
                 INSERT INTO ToneProfiles (
@@ -2914,10 +2878,6 @@ public sealed class SqlitePersistence : ISqlitePersistence
             command.Parameters.AddWithValue("$climaxPhaseOffset", profile.ClimaxPhaseOffset);
             command.Parameters.AddWithValue("$resetPhaseOffset", profile.ResetPhaseOffset);
         }
-        if (hasSceneDirective)
-        {
-            command.Parameters.AddWithValue("$sceneDirective", profile.SceneDirective);
-        }
         command.Parameters.AddWithValue("$createdUtc", profile.CreatedUtc.ToString("O"));
         command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
 
@@ -2931,14 +2891,11 @@ public sealed class SqlitePersistence : ISqlitePersistence
         await connection.OpenAsync(cancellationToken);
 
         var hasPhaseOffsets = await HasTonePhaseOffsetColumnsAsync(connection, cancellationToken);
-        var hasSceneDirective = hasPhaseOffsets && await HasToneSceneDirectiveColumnAsync(connection, cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = hasSceneDirective
-            ? "SELECT Id, Name, Description, Intensity, BuildUpPhaseOffset, CommittedPhaseOffset, ApproachingPhaseOffset, ClimaxPhaseOffset, ResetPhaseOffset, CreatedUtc, UpdatedUtc, SceneDirective FROM ToneProfiles WHERE Id = $id"
-            : hasPhaseOffsets
-                ? "SELECT Id, Name, Description, Intensity, BuildUpPhaseOffset, CommittedPhaseOffset, ApproachingPhaseOffset, ClimaxPhaseOffset, ResetPhaseOffset, CreatedUtc, UpdatedUtc FROM ToneProfiles WHERE Id = $id"
-                : "SELECT Id, Name, Description, Intensity, CreatedUtc, UpdatedUtc FROM ToneProfiles WHERE Id = $id";
+        command.CommandText = hasPhaseOffsets
+            ? "SELECT Id, Name, Description, Intensity, BuildUpPhaseOffset, CommittedPhaseOffset, ApproachingPhaseOffset, ClimaxPhaseOffset, ResetPhaseOffset, CreatedUtc, UpdatedUtc FROM ToneProfiles WHERE Id = $id"
+            : "SELECT Id, Name, Description, Intensity, CreatedUtc, UpdatedUtc FROM ToneProfiles WHERE Id = $id";
         command.Parameters.AddWithValue("$id", id);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -2947,7 +2904,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
             return null;
         }
 
-        return ReadToneProfile(reader, hasPhaseOffsets, hasSceneDirective);
+        return ReadToneProfile(reader, hasPhaseOffsets);
     }
 
     public async Task<List<IntensityProfile>> LoadAllToneProfilesAsync(CancellationToken cancellationToken = default)
@@ -2956,20 +2913,17 @@ public sealed class SqlitePersistence : ISqlitePersistence
         await connection.OpenAsync(cancellationToken);
 
         var hasPhaseOffsets = await HasTonePhaseOffsetColumnsAsync(connection, cancellationToken);
-        var hasSceneDirective = hasPhaseOffsets && await HasToneSceneDirectiveColumnAsync(connection, cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = hasSceneDirective
-            ? "SELECT Id, Name, Description, Intensity, BuildUpPhaseOffset, CommittedPhaseOffset, ApproachingPhaseOffset, ClimaxPhaseOffset, ResetPhaseOffset, CreatedUtc, UpdatedUtc, SceneDirective FROM ToneProfiles ORDER BY Name"
-            : hasPhaseOffsets
-                ? "SELECT Id, Name, Description, Intensity, BuildUpPhaseOffset, CommittedPhaseOffset, ApproachingPhaseOffset, ClimaxPhaseOffset, ResetPhaseOffset, CreatedUtc, UpdatedUtc FROM ToneProfiles ORDER BY Name"
-                : "SELECT Id, Name, Description, Intensity, CreatedUtc, UpdatedUtc FROM ToneProfiles ORDER BY Name";
+        command.CommandText = hasPhaseOffsets
+            ? "SELECT Id, Name, Description, Intensity, BuildUpPhaseOffset, CommittedPhaseOffset, ApproachingPhaseOffset, ClimaxPhaseOffset, ResetPhaseOffset, CreatedUtc, UpdatedUtc FROM ToneProfiles ORDER BY Name"
+            : "SELECT Id, Name, Description, Intensity, CreatedUtc, UpdatedUtc FROM ToneProfiles ORDER BY Name";
 
         var results = new List<IntensityProfile>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
-            results.Add(ReadToneProfile(reader, hasPhaseOffsets, hasSceneDirective));
+            results.Add(ReadToneProfile(reader, hasPhaseOffsets));
         }
 
         return results;
@@ -2989,7 +2943,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
         return rowsAffected > 0;
     }
 
-    private static IntensityProfile ReadToneProfile(SqliteDataReader reader, bool hasPhaseOffsets, bool hasSceneDirective)
+    private static IntensityProfile ReadToneProfile(SqliteDataReader reader, bool hasPhaseOffsets)
     {
         var createdColumnIndex = hasPhaseOffsets ? 9 : 4;
         var updatedColumnIndex = hasPhaseOffsets ? 10 : 5;
@@ -3008,17 +2962,8 @@ public sealed class SqlitePersistence : ISqlitePersistence
             ClimaxPhaseOffset = hasPhaseOffsets ? reader.GetInt32(7) : 2,
             ResetPhaseOffset = hasPhaseOffsets ? reader.GetInt32(8) : -1,
             CreatedUtc = DateTime.TryParse(reader.GetString(createdColumnIndex), out var created) ? created : DateTime.UtcNow,
-            UpdatedUtc = DateTime.TryParse(reader.GetString(updatedColumnIndex), out var updated) ? updated : DateTime.UtcNow,
-            SceneDirective = hasSceneDirective && !reader.IsDBNull(11) ? reader.GetString(11) : string.Empty
+            UpdatedUtc = DateTime.TryParse(reader.GetString(updatedColumnIndex), out var updated) ? updated : DateTime.UtcNow
         };
-    }
-
-    private static async Task<bool> HasToneSceneDirectiveColumnAsync(SqliteConnection connection, CancellationToken cancellationToken)
-    {
-        var check = connection.CreateCommand();
-        check.CommandText = "SELECT COUNT(*) FROM pragma_table_info('ToneProfiles') WHERE name='SceneDirective'";
-        var count = Convert.ToInt64(await check.ExecuteScalarAsync(cancellationToken));
-        return count == 1;
     }
 
     private static async Task<bool> HasTonePhaseOffsetColumnsAsync(SqliteConnection connection, CancellationToken cancellationToken)

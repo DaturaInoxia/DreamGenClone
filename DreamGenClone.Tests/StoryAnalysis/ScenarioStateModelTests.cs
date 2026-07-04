@@ -5,11 +5,11 @@ namespace DreamGenClone.Tests.StoryAnalysis;
 public sealed class ScenarioStateModelTests
 {
     [Fact]
-    public void RolePlayAdaptiveState_DefaultsToBuildUpAndEmptyHistory()
+    public void RolePlayAdaptiveState_DefaultsToOpeningAndEmptyHistory()
     {
         var state = new AdaptiveScenarioState();
 
-        Assert.Equal(NarrativePhase.BuildUp, state.CurrentPhase);
+        Assert.Equal(NarrativePhase.Opening, state.CurrentPhase);
         Assert.Equal(0, state.CompletedScenarios);
         Assert.Empty(state.ScenarioHistory);
         Assert.Null(state.ActiveScenarioId);

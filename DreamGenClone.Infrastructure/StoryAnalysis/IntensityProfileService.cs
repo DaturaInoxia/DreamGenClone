@@ -45,7 +45,6 @@ public sealed class IntensityProfileService : IIntensityProfileService
         int approachingPhaseOffset,
         int climaxPhaseOffset,
         int resetPhaseOffset,
-        string sceneDirective = "",
         CancellationToken cancellationToken = default)
     {
         await EnsureDefaultProfilesAsync(cancellationToken);
@@ -78,11 +77,6 @@ public sealed class IntensityProfileService : IIntensityProfileService
             throw new InvalidOperationException($"An intensity profile already exists for level '{intensity}'. Exactly one profile per intensity level is supported.");
         }
 
-        if ((sceneDirective?.Trim().Length ?? 0) > 2000)
-        {
-            throw new ArgumentException("Scene directive cannot exceed 2000 characters.", nameof(sceneDirective));
-        }
-
         var profile = new IntensityProfile
         {
             Name = trimmedName,
@@ -93,7 +87,6 @@ public sealed class IntensityProfileService : IIntensityProfileService
             ApproachingPhaseOffset = approachingPhaseOffset,
             ClimaxPhaseOffset = climaxPhaseOffset,
             ResetPhaseOffset = resetPhaseOffset,
-            SceneDirective = sceneDirective?.Trim() ?? string.Empty,
             CreatedUtc = DateTime.UtcNow,
             UpdatedUtc = DateTime.UtcNow
         };
@@ -123,7 +116,6 @@ public sealed class IntensityProfileService : IIntensityProfileService
         int approachingPhaseOffset,
         int climaxPhaseOffset,
         int resetPhaseOffset,
-        string sceneDirective = "",
         CancellationToken cancellationToken = default)
     {
         await EnsureDefaultProfilesAsync(cancellationToken);
@@ -158,11 +150,6 @@ public sealed class IntensityProfileService : IIntensityProfileService
             throw new InvalidOperationException("Atmospheric is narrative-only and cannot be used as a character intensity profile.");
         }
 
-        if ((sceneDirective?.Trim().Length ?? 0) > 2000)
-        {
-            throw new ArgumentException("Scene directive cannot exceed 2000 characters.", nameof(sceneDirective));
-        }
-
         existing.Name = trimmedName;
         existing.Description = description?.Trim() ?? string.Empty;
         existing.Intensity = intensity;
@@ -171,7 +158,6 @@ public sealed class IntensityProfileService : IIntensityProfileService
         existing.ApproachingPhaseOffset = approachingPhaseOffset;
         existing.ClimaxPhaseOffset = climaxPhaseOffset;
         existing.ResetPhaseOffset = resetPhaseOffset;
-        existing.SceneDirective = sceneDirective?.Trim() ?? string.Empty;
         existing.UpdatedUtc = DateTime.UtcNow;
 
         await _persistence.SaveToneProfileAsync(existing, cancellationToken);
