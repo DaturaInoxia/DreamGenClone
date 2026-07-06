@@ -45,7 +45,7 @@ public sealed class EscalationInjector : IPromptInjector
                 case ScenePacing.Fast:
                     sb.AppendLine("- This is a fast-paced scene. Cover more story ground per response — advance through the full arc of this moment.");
                     sb.AppendLine("- Compress multiple beats into each response. Do not write only one beat when multiple beats fit naturally.");
-                    sb.AppendLine("- If an encounter reaches its natural conclusion (orgasm, resolution, or scene end), advance to a new time or setting afterwards.");
+                    sb.AppendLine("- If a beat reaches its natural conclusion, advance to the next time or setting. Do not advance through multiple separate times within a single response.");
                     break;
                 default: // Medium
                     sb.AppendLine("- Advance the scene with forward momentum.");

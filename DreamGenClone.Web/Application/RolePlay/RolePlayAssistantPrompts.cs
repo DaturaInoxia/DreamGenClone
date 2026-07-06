@@ -63,6 +63,23 @@ public static class RolePlayAssistantPrompts
     }
 
     /// <summary>
+    /// Detects the [Aftermath:husband-contrast] phase-guidance marker (B-056).
+    /// When true, encounter boundaries in the phase trigger an AftermathCoupleInteraction
+    /// closure turn: the wife gets dressed, returns to the normal setting, interacts with
+    /// her husband, and acts normal — the contrast between secret reality and ordinary
+    /// performance is the narrative point. Works in any non-Reset phase; Reset is explicitly
+    /// excluded (out of scope per spec).
+    /// </summary>
+    public static bool IsAftermathHusbandContrast(RPTheme? activeTheme, string phase)
+    {
+        if (activeTheme is null) return false;
+        if (string.Equals(phase, "Reset", StringComparison.OrdinalIgnoreCase)) return false;
+        return activeTheme.PhaseGuidance
+            .Where(x => string.Equals(x.Phase.ToString(), phase, StringComparison.OrdinalIgnoreCase))
+            .Any(x => x.GuidanceText.Contains("[Aftermath:husband-contrast]", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
     /// Validates that a theme does not declare both [ClimaxMode:multi-encounter] and
     /// [ClimaxMode:quick-finish] in the same phase — they are mutually exclusive pacing modes.
     /// Throws InvalidOperationException with an explicit diagnostic if both are present.

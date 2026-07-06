@@ -54,6 +54,21 @@ public sealed class RolePlayInteraction
     public int? GeneratedMaxTokens { get; set; }
 
     /// <summary>
+    /// Set to true when this interaction's content triggered the sync heuristic
+    /// (HasSexualActivityContent) — meaning the character was flagged as being in
+    /// a sexual/erotic scene at the time this interaction was generated.
+    /// Null for interactions that were not evaluated (legacy data).
+    /// </summary>
+    public bool? WasInSexScene { get; set; }
+
+    /// <summary>
+    /// Set to true when this interaction triggered an encounter-completed boundary
+    /// detection that advanced the encounter counter and set a time-skip phase.
+    /// Null for interactions that were not evaluated or did not trigger detection.
+    /// </summary>
+    public bool? WasEncounterBoundaryDetected { get; set; }
+
+    /// <summary>
     /// Model's reasoning/chain-of-thought output (e.g. DeepSeek reasoning_content,
     /// OpenAI o-series, Anthropic thinking). Null when the model does not provide reasoning
     /// or when the interaction was user-authored.

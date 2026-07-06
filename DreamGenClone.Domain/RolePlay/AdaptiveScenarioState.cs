@@ -224,12 +224,32 @@ public sealed class AdaptiveScenarioState
 
     /// <summary>
     /// Set to true when encounter boundary state changes (CurrentEncounterNumber,
-    /// InteractionsInCurrentEncounter, CurrentTimeSkipPhase) are made in-memory but not yet
-    /// persisted. Flushed at turn completion on success; discarded on turn failure.
-    /// Not serialized — always starts false on load.
+    /// InteractionsInCurrentEncounter, CurrentTimeSkipPhase, LastEncounterEvidenceSpan)
+    /// are made in-memory but not yet persisted. Flushed at turn completion on success;
+    /// discarded on turn failure. Not serialized — always starts false on load.
     /// </summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public bool IsStateDirty { get; set; }
+
+    // ---- Last encounter evidence span (B-056 aftermath closure) ---------------------------
+    /// <summary>
+    /// Verbatim evidence-span text captured at encounter-boundary detection time
+    /// and persisted in the LastEncounterEvidenceSpan TEXT column. Used by the
+    /// HusbandAftermathInjector (priority 85) to construct the wife-husband contrast
+    /// directive ("You just {EvidenceSpan}. Get dressed, return to the normal setting...").
+    ///
+    /// Lifecycle:
+    ///   - Set by TryDetectEncounterBoundaryAsync when an encounter boundary fires AND
+    ///     the [Aftermath:husband-contrast] theme marker is present.
+    ///   - Persists across the CloseScene leg (if any) until the AftermathCoupleInteraction
+    ///     leg consumes it via the injector.
+    ///   - Restored on HydrateV2State session reload.
+    ///   - NULL is valid (represents "no aftermath context captured yet"); the injector
+    ///     falls back to "had an intimate encounter with another man" when null.
+    ///
+    /// Dirty-flag contract: mutations MUST set IsStateDirty = true.
+    /// </summary>
+    public string? LastEncounterEvidenceSpan { get; set; }
 
     // ---- Encounter participation helper -----------------------------------------------------
     /// <summary>
@@ -287,15 +307,26 @@ public sealed class CharacterEncounterState
 }
 
 /// <summary>
-/// Two-phase time-skip state for multi-encounter Climax mode. Replaces the
-/// legacy single-boolean TimeSkipPending flag with explicit sequential phases.
+/// Time-skip state for multi-encounter Climax / aftermath transitions.
+/// Primary flow (multi-encounter only): None → CloseScene → AdvanceTime → None.
+/// With aftermath marker: CloseScene transitions to AftermathCoupleInteraction
+/// (then to AdvanceTime → None). Aftermath-only (no multi-encounter marker):
+/// None → AftermathCoupleInteraction → None.
 /// </summary>
 public enum TimeSkipPhase
 {
     /// <summary>No time-skip pending — normal continuation flow.</summary>
     None = 0,
-    /// <summary>Close-scene directive pending. Will inject "Close the current encounter naturally."</summary>
+    /// <summary>Close-scene directive pending. Will inject closure directive.</summary>
     CloseScene = 1,
     /// <summary>Advance-time directive pending. Will inject "Advance time to a new moment..."</summary>
-    AdvanceTime = 2
+    AdvanceTime = 2,
+    /// <summary>
+    /// Wife-husband aftermath closure directive pending (B-056 [Aftermath:husband-contrast]).
+    /// Fires between CloseScene and AdvanceTime in multi-encounter Climax flows,
+    /// or standalone in any non-Reset phase where the aftermath marker is present.
+    /// The wife gets dressed, returns to the normal setting, and interacts with
+    /// her husband while concealing what happened.
+    /// </summary>
+    AftermathCoupleInteraction = 3
 }
