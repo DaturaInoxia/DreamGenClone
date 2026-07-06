@@ -54,6 +54,7 @@ public sealed class SceneTimeDirectionInjector : IPromptInjector
                 case ScenePacing.Fast:
                     sb.AppendLine("- Compress multiple beats. Time must advance significantly — cover more story ground.");
                     sb.AppendLine("- Use clear transitions. Do not remain in the same time frame across consecutive responses.");
+                    sb.AppendLine("- Do not skip through multiple separate times within a single response.");
                     break;
                 default: // Medium
                     sb.AppendLine("- Cover one to two beats per response.");

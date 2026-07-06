@@ -231,6 +231,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 CompletedScenarios, InteractionsSinceCommitment, InteractionsInApproaching, ScenarioCommitmentTimeUtc,
                 SemanticStepSucceeded, SemanticDeltaBreakdownsJson, SemanticStatDeltaBreakdownsJson,
                 CurrentEncounterNumber, InteractionsInCurrentEncounter, TimeSkipPending, CurrentTimeSkipPhase,
+                LastEncounterEvidenceSpan,
                 UpdatedUtc)
             VALUES (
                 $sessionId, $activeScenarioId, $currentPhase, $interactionCountInPhase, $consecutiveLeadCount,
@@ -243,6 +244,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 $completedScenarios, $interactionsSinceCommitment, $interactionsInApproaching, $scenarioCommitmentTimeUtc,
                 $semanticStepSucceeded, $semanticDeltaBreakdownsJson, $semanticStatDeltaBreakdownsJson,
                 $currentEncounterNumber, $interactionsInCurrentEncounter, $timeSkipPending, $currentTimeSkipPhase,
+                $lastEncounterEvidenceSpan,
                 $updatedUtc)
             ON CONFLICT(SessionId) DO UPDATE SET
                 ActiveScenarioId = excluded.ActiveScenarioId,
@@ -279,6 +281,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 InteractionsInCurrentEncounter = excluded.InteractionsInCurrentEncounter,
                 TimeSkipPending = excluded.TimeSkipPending,
                 CurrentTimeSkipPhase = excluded.CurrentTimeSkipPhase,
+                LastEncounterEvidenceSpan = excluded.LastEncounterEvidenceSpan,
                 UpdatedUtc = excluded.UpdatedUtc;
             """;
 
@@ -325,6 +328,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
         command.Parameters.AddWithValue("$interactionsInCurrentEncounter", state.InteractionsInCurrentEncounter);
         command.Parameters.AddWithValue("$timeSkipPending", 0); // retired — always write 0
         command.Parameters.AddWithValue("$currentTimeSkipPhase", (int)state.CurrentTimeSkipPhase);
+        command.Parameters.AddWithValue("$lastEncounterEvidenceSpan", state.LastEncounterEvidenceSpan ?? (object)DBNull.Value);
         command.Parameters.AddWithValue("$updatedUtc", nowUtc.ToString("O"));
         await command.ExecuteNonQueryAsync(cancellationToken);
 
@@ -519,7 +523,8 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                               CompletedScenarios, InteractionsSinceCommitment, InteractionsInApproaching, ScenarioCommitmentTimeUtc,
                               SemanticStepSucceeded, SemanticDeltaBreakdownsJson, SemanticStatDeltaBreakdownsJson,
                               CharacterEncounterProfileIdsJson,
-                              CurrentEncounterNumber, InteractionsInCurrentEncounter, TimeSkipPending, CurrentTimeSkipPhase
+                              CurrentEncounterNumber, InteractionsInCurrentEncounter, TimeSkipPending, CurrentTimeSkipPhase,
+                              LastEncounterEvidenceSpan
             FROM RolePlayV2AdaptiveStates
             WHERE SessionId = $sessionId;
             """;
@@ -594,7 +599,8 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
             // Otherwise fall back to legacy TimeSkipPending at ordinal 34 (1 = CloseScene).
             CurrentTimeSkipPhase = reader.IsDBNull(35)
                 ? (reader.IsDBNull(34) ? TimeSkipPhase.None : (reader.GetInt32(34) != 0 ? TimeSkipPhase.CloseScene : TimeSkipPhase.None))
-                : (TimeSkipPhase)reader.GetInt32(35)
+                : (TimeSkipPhase)reader.GetInt32(35),
+            LastEncounterEvidenceSpan = reader.IsDBNull(36) ? null : reader.GetString(36)
         };
         await reader.CloseAsync();
 
@@ -1037,6 +1043,15 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
             await using var backfill = connection.CreateCommand();
             backfill.CommandText = "UPDATE RolePlayV2AdaptiveStates SET CurrentTimeSkipPhase = 1 WHERE TimeSkipPending = 1";
             await backfill.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        // B-056 Aftermath closure: evidence span captured at encounter-boundary detection,
+        // consumed by HusbandAftermathInjector to construct the wife-husband contrast directive.
+        if (!await HasColumnAsync(connection, "RolePlayV2AdaptiveStates", "LastEncounterEvidenceSpan", cancellationToken))
+        {
+            await using var add = connection.CreateCommand();
+            add.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN LastEncounterEvidenceSpan TEXT";
+            await add.ExecuteNonQueryAsync(cancellationToken);
         }
 
         // Phase 1 (B-038) additive child tables for V1→V2 unification.

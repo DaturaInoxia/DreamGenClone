@@ -48,9 +48,23 @@ public sealed class ScenarioGuidanceGenerator : IScenarioGuidanceGenerator
         var template = await ResolveTemplateAsync(request, cancellationToken);
         if (template is null)
         {
+            var fallbackText = BuildFallbackGuidance(request.CurrentPhase, request.ActiveScenarioId);
+
+            var fallbackWillingness = await BuildWillingnessInterpretationAsync(request, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(fallbackWillingness))
+            {
+                fallbackText = $"{fallbackText} {fallbackWillingness}";
+            }
+
+            var fallbackResistance = await BuildResistanceInterpretationAsync(request, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(fallbackResistance))
+            {
+                fallbackText = $"{fallbackText} {fallbackResistance}";
+            }
+
             return new ScenarioGuidanceOutput
             {
-                GuidanceText = BuildFallbackGuidance(request.CurrentPhase, request.ActiveScenarioId),
+                GuidanceText = fallbackText,
                 CharacterBehavioralFrames = characterBehavioralFrames,
                 Source = "Fallback"
             };

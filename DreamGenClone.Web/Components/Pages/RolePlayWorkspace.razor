@@ -8269,6 +8269,14 @@ private void CloseInteractionInfo()
                                             <div class="rw-info-row"><span class="rw-info-label">Excluded</span><span class="rw-info-value">@(infoInteraction.IsExcluded ? "Yes" : "No")</span></div>
                                             <div class="rw-info-row"><span class="rw-info-label">Pinned</span><span class="rw-info-value">@(infoInteraction.IsPinned ? "Yes" : "No")</span></div>
                                             <div class="rw-info-row"><span class="rw-info-label">Hidden</span><span class="rw-info-value">@(infoInteraction.IsHidden ? "Yes" : "No")</span></div>
+                                            @if (infoInteraction.WasInSexScene.HasValue)
+                                            {
+                                                <div class="rw-info-row"><span class="rw-info-label">In Sex Scene</span><span class="rw-info-value">@(infoInteraction.WasInSexScene.Value ? "Yes" : "No")</span></div>
+                                            }
+                                            @if (infoInteraction.WasEncounterBoundaryDetected.HasValue)
+                                            {
+                                                <div class="rw-info-row"><span class="rw-info-label">Encounter Boundary</span><span class="rw-info-value">@(infoInteraction.WasEncounterBoundaryDetected.Value ? "Yes" : "No")</span></div>
+                                            }
                                         </div>
                                         }
                                         @if (_infoPopupTab == "reasoning" && !string.IsNullOrWhiteSpace(infoInteraction.ReasoningContent))

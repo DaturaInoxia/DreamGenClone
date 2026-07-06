@@ -24,7 +24,8 @@ public sealed class FinalDirectiveInjector : IPromptInjector
         switch (context.Intent)
         {
             case PromptIntent.Message:
-                sb.AppendLine("Continue from your character's perspective.");
+                sb.AppendLine("- Continue from your character's perspective — only what they can see, hear, smell, or otherwise perceive.");
+                sb.AppendLine("- Do not describe events, locations, or internal states your character does not directly observe.");
                 break;
             case PromptIntent.Narrative:
                 sb.AppendLine("- Write an omniscient account: setting, character positions, sensations, atmosphere.");
@@ -39,8 +40,12 @@ public sealed class FinalDirectiveInjector : IPromptInjector
                 break;
         }
 
-        // End-of-prompt pacing reinforcement — highest authority position
-        if (context.Intent == PromptIntent.Message && context.SceneDirection.Pacing == ScenePacing.Fast)
+        // End-of-prompt pacing reinforcement — highest authority position.
+        // B-056: Suppress Fast Pacing HC during AftermathCoupleInteraction — the aftermath
+        // closure turn needs narrative room; a Fast Pacing HC would race past the closure.
+        if (context.Intent == PromptIntent.Message
+            && context.SceneDirection.Pacing == ScenePacing.Fast
+            && context.Session.AdaptiveState.CurrentTimeSkipPhase != TimeSkipPhase.AftermathCoupleInteraction)
         {
             sb.AppendLine();
             sb.AppendLine("HARD CONSTRAINT — Fast Pacing Directive:");

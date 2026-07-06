@@ -131,6 +131,7 @@ builder.Services.AddScoped<IPromptInjector, EscalationInjector>();
 builder.Services.AddScoped<IPromptInjector, SceneTimeDirectionInjector>();
 builder.Services.AddScoped<IPromptInjector, ScenePresenceInjector>();
 builder.Services.AddScoped<IPromptInjector, PositionListInjector>();
+builder.Services.AddScoped<IPromptInjector, HusbandAftermathInjector>();
 builder.Services.AddScoped<IPromptInjector, BeatStageInjector>();
 builder.Services.AddScoped<IPromptInjector, FinalDirectiveInjector>();
 builder.Services.AddScoped<IEncounterSummaryService, EncounterSummaryService>();
