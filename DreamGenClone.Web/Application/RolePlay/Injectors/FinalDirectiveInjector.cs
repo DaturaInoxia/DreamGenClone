@@ -51,7 +51,7 @@ public sealed class FinalDirectiveInjector : IPromptInjector
             sb.AppendLine("HARD CONSTRAINT — Fast Pacing Directive:");
             sb.AppendLine("- This is a fast-paced scene. Cover more story ground per response — compress multiple beats into one.");
             sb.AppendLine("- Do not fixate on a single beat. Advance through the full arc of the current moment toward its natural resolution.");
-            sb.AppendLine("- If the previous response already described a sexual act, advance to a new act, position, or time. Do not repeat.");
+            sb.AppendLine("- If the current encounter has reached its natural conclusion, you may advance through the encounter's full arc. Do not skip ahead mid-scene; stay in the moment until the encounter resolves.");
         }
 
         return sb.ToString();

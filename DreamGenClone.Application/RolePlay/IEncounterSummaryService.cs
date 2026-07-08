@@ -27,6 +27,26 @@ public interface IEncounterSummaryService
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Generates EncounterCompletion template summaries for every allowed character at the
+    /// moment of an encounter-boundary detection (universal — any phase). Stores the encounter
+    /// sequence number, the raw detection evidence span, and the inclusive interaction-list
+    /// index range of the encounter that just ended. Does NOT persist.
+    ///
+    /// When <paramref name="allowedCharacterIds"/> is non-null, only those characters are
+    /// included; pass CharacterSnapshots keys for NPCs + persona. Returns empty list if
+    /// <paramref name="allowedCharacterIds"/> is null or empty (no character list to write).
+    /// </summary>
+    Task<IReadOnlyList<EncounterSummaryRecord>> GenerateEncounterCompletionTemplatesAsync(
+        AdaptiveScenarioState v2State,
+        int encounterNumber,
+        string detectionEvidence,
+        int startInteractionIndex,
+        int endInteractionIndex,
+        IReadOnlyDictionary<string, string>? characterInteractionsTexts = null,
+        IReadOnlySet<string>? allowedCharacterIds = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Persists a single EncounterSummaryRecord to RolePlayV2EncounterSummaries.
     /// TemplateSummary must not be null or empty.
     /// </summary>

@@ -17,7 +17,8 @@ public sealed class SessionMemoryInjectionTests
         List<EncounterSummaryRecord> summaries,
         int effectiveMilestones,
         int effectiveArcCompletions,
-        int currentCycleIndex)
+        int currentCycleIndex,
+        int effectiveEncounterCompletions = 5)
     {
         var method = typeof(RolePlayContinuationService)
             .GetMethod("InjectSessionMemoryBlock",
@@ -25,7 +26,7 @@ public sealed class SessionMemoryInjectionTests
             ?? throw new InvalidOperationException("InjectSessionMemoryBlock not found via reflection");
 
         var sb = new StringBuilder();
-        method.Invoke(null, [sb, summaries, effectiveMilestones, effectiveArcCompletions, currentCycleIndex]);
+        method.Invoke(null, [sb, summaries, effectiveMilestones, effectiveArcCompletions, effectiveEncounterCompletions, currentCycleIndex]);
         return sb.ToString();
     }
 

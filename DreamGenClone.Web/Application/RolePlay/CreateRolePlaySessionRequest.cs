@@ -59,4 +59,18 @@ public sealed class CreateRolePlaySessionRequest
     /// default is used.
     /// </summary>
     public int? MaxMilestonesToInject { get; init; }
+
+    /// <summary>
+    /// Optional per-session override for the maximum number of ArcCompletion entries (prior arcs)
+    /// to inject. When null, the global <c>RolePlayMemoryOptions.MaxArcCompletionsToInject</c>
+    /// default is used.
+    /// </summary>
+    public int? MaxArcCompletionsToInject { get; init; }
+
+    /// <summary>
+    /// Optional per-session override for the maximum number of EncounterCompletion entries
+    /// (encounter-boundary memories for the current arc) to inject. When null, the global
+    /// <c>RolePlayMemoryOptions.MaxEncounterCompletionsToInject</c> default is used.
+    /// </summary>
+    public int? MaxEncounterCompletionsToInject { get; init; }
 }

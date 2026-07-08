@@ -40,7 +40,15 @@ public sealed class SessionService : ISessionService
         // blob always contains up-to-date character data (CharacterStats is [JsonIgnore]).
         session.AdaptiveState.SyncCharacterSnapshots();
         var payloadJson = JsonSerializer.Serialize(session, JsonOptions);
-        return SaveRolePlayAsync(session.Id, session.Title, payloadJson, null, session.MaxMilestonesToInject, cancellationToken);
+        return SaveRolePlayAsync(
+            session.Id,
+            session.Title,
+            payloadJson,
+            null,
+            session.MaxMilestonesToInject,
+            session.MaxArcCompletionsToInject,
+            session.MaxEncounterCompletionsToInject,
+            cancellationToken);
     }
 
     public async Task<StorySession?> LoadStorySessionAsync(string sessionId, CancellationToken cancellationToken = default)
@@ -202,7 +210,7 @@ public sealed class SessionService : ISessionService
         _logger.LogInformation(SessionLogEvents.PersistedSession, "Persisted session {SessionId} as {SessionType}", id, sessionType);
     }
 
-    private async Task SaveRolePlayAsync(string id, string name, string payloadJson, string? adaptiveStateJson, int? maxMilestonesToInject, CancellationToken cancellationToken)
+    private async Task SaveRolePlayAsync(string id, string name, string payloadJson, string? adaptiveStateJson, int? maxMilestonesToInject, int? maxArcCompletionsToInject, int? maxEncounterCompletionsToInject, CancellationToken cancellationToken)
     {
         await using var connection = new SqliteConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
@@ -212,14 +220,16 @@ public sealed class SessionService : ISessionService
         {
             command.Transaction = tx;
             command.CommandText = """
-                INSERT INTO Sessions (Id, SessionType, Name, PayloadJson, AdaptiveStateJson, MaxMilestonesToInject, UpdatedUtc)
-                VALUES ($id, $sessionType, $name, $payloadJson, $adaptiveStateJson, $maxMilestonesToInject, $updatedUtc)
+                INSERT INTO Sessions (Id, SessionType, Name, PayloadJson, AdaptiveStateJson, MaxMilestonesToInject, MaxArcCompletionsToInject, MaxEncounterCompletionsToInject, UpdatedUtc)
+                VALUES ($id, $sessionType, $name, $payloadJson, $adaptiveStateJson, $maxMilestonesToInject, $maxArcCompletionsToInject, $maxEncounterCompletionsToInject, $updatedUtc)
                 ON CONFLICT(Id) DO UPDATE SET
                     SessionType = excluded.SessionType,
                     Name = excluded.Name,
                     PayloadJson = excluded.PayloadJson,
                     AdaptiveStateJson = excluded.AdaptiveStateJson,
                     MaxMilestonesToInject = excluded.MaxMilestonesToInject,
+                    MaxArcCompletionsToInject = excluded.MaxArcCompletionsToInject,
+                    MaxEncounterCompletionsToInject = excluded.MaxEncounterCompletionsToInject,
                     UpdatedUtc = excluded.UpdatedUtc;
                 """;
 
@@ -229,6 +239,8 @@ public sealed class SessionService : ISessionService
             command.Parameters.AddWithValue("$payloadJson", payloadJson);
             command.Parameters.AddWithValue("$adaptiveStateJson", (object?)adaptiveStateJson ?? DBNull.Value);
             command.Parameters.AddWithValue("$maxMilestonesToInject", (object?)maxMilestonesToInject ?? DBNull.Value);
+            command.Parameters.AddWithValue("$maxArcCompletionsToInject", (object?)maxArcCompletionsToInject ?? DBNull.Value);
+            command.Parameters.AddWithValue("$maxEncounterCompletionsToInject", (object?)maxEncounterCompletionsToInject ?? DBNull.Value);
             command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
 
             await command.ExecuteNonQueryAsync(cancellationToken);

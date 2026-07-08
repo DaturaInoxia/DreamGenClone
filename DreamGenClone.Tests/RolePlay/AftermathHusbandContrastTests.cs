@@ -212,12 +212,25 @@ public sealed class AftermathHusbandContrastTests
     }
 
     [Fact]
-    public void HusbandAftermathInjector_BuildText_ReferencesEvidenceSpan()
+    public void HusbandAftermathInjector_BuildText_ReferencesEncounterCompletionSummary()
     {
+        // B-058 Phase 5.1: the injector now reads from the most recent EncounterCompletion
+        // summary in the current arc (prefer LlmSummary, fall back to TemplateSummary).
         var injector = new HusbandAftermathInjector();
         var session = new RolePlaySession();
         session.AdaptiveState.CurrentTimeSkipPhase = TimeSkipPhase.AftermathCoupleInteraction;
-        session.AdaptiveState.LastEncounterEvidenceSpan = "just had passionate sex with another man in the bathroom";
+        session.AdaptiveState.CycleIndex = 0;
+        session.AdaptiveState.EncounterSummaries.Add(new EncounterSummaryRecord
+        {
+            SessionId = session.Id,
+            CharacterId = "Anna",
+            SummaryType = EncounterSummaryType.EncounterCompletion,
+            CycleIndex = 0,
+            EncounterNumber = 1,
+            DetectionEvidence = "raw evidence passage",
+            TemplateSummary = "Anna's summary of the encounter prose",
+            LlmSummary = "Anna and Marcus had passionate sex in the bathroom — he entered her from behind and finished inside her."
+        });
 
         var context = new PromptInjectionContext
         {
@@ -229,17 +242,84 @@ public sealed class AftermathHusbandContrastTests
         };
 
         var text = injector.BuildText(context);
-        Assert.Contains("just had passionate sex with another man in the bathroom", text);
+        Assert.Contains("Anna and Marcus had passionate sex in the bathroom", text);
         Assert.Contains("husband", text, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public void HusbandAftermathInjector_BuildText_FallbackWhenEvidenceNull()
+    public void HusbandAftermathInjector_BuildText_FallsBackToTemplateWhenLlmMissing()
     {
         var injector = new HusbandAftermathInjector();
         var session = new RolePlaySession();
         session.AdaptiveState.CurrentTimeSkipPhase = TimeSkipPhase.AftermathCoupleInteraction;
-        session.AdaptiveState.LastEncounterEvidenceSpan = null;
+        session.AdaptiveState.CycleIndex = 0;
+        session.AdaptiveState.EncounterSummaries.Add(new EncounterSummaryRecord
+        {
+            SessionId = session.Id,
+            CharacterId = "Anna",
+            SummaryType = EncounterSummaryType.EncounterCompletion,
+            CycleIndex = 0,
+            EncounterNumber = 1,
+            DetectionEvidence = "raw evidence passage",
+            TemplateSummary = "Anna — encounter 1 of arc 1. Scene: bathroom. Detection evidence: raw evidence passage"
+        });
+
+        var context = new PromptInjectionContext
+        {
+            Session = session,
+            SceneDirection = new SceneDirection(),
+            Phase = "Climax",
+            ActorName = "Anna",
+            Intent = PromptIntent.Message
+        };
+
+        var text = injector.BuildText(context);
+        Assert.Contains("encounter 1 of arc 1", text);
+        Assert.Contains("husband", text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void HusbandAftermathInjector_BuildText_FallbackToDetectionEvidenceWhenBothMissing()
+    {
+        var injector = new HusbandAftermathInjector();
+        var session = new RolePlaySession();
+        session.AdaptiveState.CurrentTimeSkipPhase = TimeSkipPhase.AftermathCoupleInteraction;
+        session.AdaptiveState.CycleIndex = 0;
+        session.AdaptiveState.EncounterSummaries.Add(new EncounterSummaryRecord
+        {
+            SessionId = session.Id,
+            CharacterId = "Anna",
+            SummaryType = EncounterSummaryType.EncounterCompletion,
+            CycleIndex = 0,
+            EncounterNumber = 1,
+            DetectionEvidence = "raw detection evidence passage",
+            TemplateSummary = string.Empty,
+            LlmSummary = null
+        });
+
+        var context = new PromptInjectionContext
+        {
+            Session = session,
+            SceneDirection = new SceneDirection(),
+            Phase = "Climax",
+            ActorName = "Anna",
+            Intent = PromptIntent.Message
+        };
+
+        var text = injector.BuildText(context);
+        Assert.Contains("raw detection evidence passage", text);
+    }
+
+    [Fact]
+    public void HusbandAftermathInjector_BuildText_StaticFallbackWhenNoEncounterCompletionRecord()
+    {
+        // B-058 Phase 5.1: when no EncounterCompletion summary exists yet for the arc
+        // (enrichment job not processed or record dropped), the injector falls back to the
+        // static phrase.
+        var injector = new HusbandAftermathInjector();
+        var session = new RolePlaySession();
+        session.AdaptiveState.CurrentTimeSkipPhase = TimeSkipPhase.AftermathCoupleInteraction;
+        session.AdaptiveState.CycleIndex = 0;
 
         var context = new PromptInjectionContext
         {
@@ -252,7 +332,7 @@ public sealed class AftermathHusbandContrastTests
 
         var text = injector.BuildText(context);
         Assert.Contains("had an intimate encounter with another man", text);
-        Assert.DoesNotContain("You just .", text); // no empty evidence trailing dot
+        Assert.Contains("husband", text, StringComparison.OrdinalIgnoreCase);
     }
 
     // ---- US3: Fast Pacing HC suppression ----
@@ -295,38 +375,57 @@ public sealed class AftermathHusbandContrastTests
     // ---- US3: Actor filter ----
 
     [Fact]
-    public void LastEncounterEvidenceSpan_Survives_Set_Get_Cycle()
+    public void LastEncounterEndInteractionIndex_RuntimeField_Survives_Set_Get_Cycle()
     {
+        // B-058 Phase 2.1: the runtime-only LastEncounterEndInteractionIndex field replaces
+        // the persisted LastEncounterEvidenceSpan for staging the encounter's end index.
         var state = new AdaptiveScenarioState
         {
-            LastEncounterEvidenceSpan = "just kissed him passionately"
+            LastEncounterEndInteractionIndex = 42
         };
-        Assert.Equal("just kissed him passionately", state.LastEncounterEvidenceSpan);
+        Assert.Equal(42, state.LastEncounterEndInteractionIndex);
 
-        state.LastEncounterEvidenceSpan = null;
-        Assert.Null(state.LastEncounterEvidenceSpan);
+        state.LastEncounterEndInteractionIndex = 0;
+        Assert.Equal(0, state.LastEncounterEndInteractionIndex);
     }
 
     [Fact]
     public void FullStateMachine_ThreeLeg_Flow_Completes()
     {
         // Simulate the full CloseScene → AftermathCoupleInteraction → AdvanceTime → None chain.
+        // B-058 Phase 5.3: the encounter-context payload now lives on an EncounterCompletion
+        // summary (added here at the start to simulate the detection-time hook).
         var state = new AdaptiveScenarioState
         {
             CurrentPhase = DreamGenClone.Domain.RolePlay.NarrativePhase.Climax,
             CurrentEncounterNumber = 2,
             CurrentTimeSkipPhase = TimeSkipPhase.CloseScene,
-            LastEncounterEvidenceSpan = "just climaxed with another man"
+            CurrentEncounterStartInteractionIndex = 5,
+            LastEncounterEndInteractionIndex = 17
         };
+        state.EncounterSummaries.Add(new EncounterSummaryRecord
+        {
+            SummaryType = EncounterSummaryType.EncounterCompletion,
+            CycleIndex = 0,
+            EncounterNumber = 2,
+            DetectionEvidence = "just climaxed with another man",
+            TemplateSummary = "Anna — encounter 2 of arc 1. Scene: bedroom."
+        });
 
         // Leg 1: CloseScene
         Assert.Equal(TimeSkipPhase.CloseScene, state.CurrentTimeSkipPhase);
         state.CurrentTimeSkipPhase = TimeSkipPhase.AftermathCoupleInteraction;
         state.IsStateDirty = true;
 
-        // Leg 2: AftermathCoupleInteraction
+        // Leg 2: AftermathCoupleInteraction — HusbandAftermathInjector reads the summary above.
         Assert.Equal(TimeSkipPhase.AftermathCoupleInteraction, state.CurrentTimeSkipPhase);
-        Assert.Equal("just climaxed with another man", state.LastEncounterEvidenceSpan);
+        var memory = state.EncounterSummaries
+            .Where(s => s.SummaryType == EncounterSummaryType.EncounterCompletion
+                     && s.CycleIndex == state.CycleIndex)
+            .OrderByDescending(s => s.OccurredUtc)
+            .FirstOrDefault();
+        Assert.NotNull(memory);
+        Assert.Equal("just climaxed with another man", memory!.DetectionEvidence);
         state.CurrentTimeSkipPhase = TimeSkipPhase.AdvanceTime;
         state.IsStateDirty = true;
 
@@ -350,8 +449,11 @@ public sealed class AftermathHusbandContrastTests
         state.IsStateDirty = true;
         Assert.True(state.IsStateDirty);
 
-        state.LastEncounterEvidenceSpan = "evidence text";
-        state.IsStateDirty = true;
+        // B-058 Phase 5.3: LastEncounterEvidenceSpan removed; mutation of the start-index
+        // tracker (runtime-only field) does not require setting IsStateDirty because the
+        // field is [JsonIgnore] and not persisted. The state machine flow above still sets
+        // IsStateDirty on each transition for consistency with the persisted flow.
+        state.CurrentEncounterStartInteractionIndex = 7;
         Assert.True(state.IsStateDirty);
     }
 

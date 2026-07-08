@@ -8,7 +8,7 @@
 
 ## TL;DR
 
-Add `EncounterCompletion` as a new `SummaryType` written at every encounter boundary detection within Climax (not just at Climax→Reset). Each entry captures encounter number, interaction range (start→end indices), detection evidence, positions, and stats — with async LLM enrichment generating prose suitable for internal dialogue recall. Then bridge B-056's aftermath injector to consume these enriched summaries instead of the raw ephemeral evidence span. Finally, gate the wife's awareness of another man's intimate attributes behind whether an `EncounterCompletion` exists (pre-encounter = attraction without knowledge; post-encounter = full perspective + comparison). Fix two B-041 gaps (per-session arc cap, dedicated enrichment model) along the way.
+Add `EncounterCompletion` as a new `SummaryType` written at every encounter boundary detection in any phase (not just at Climax→Reset). Each entry captures encounter number, interaction range (start→end indices), detection evidence, positions, and stats — with async LLM enrichment generating prose suitable for internal dialogue recall. Then bridge B-056's aftermath injector to consume these enriched summaries instead of the raw ephemeral evidence span. Finally, gate the wife's awareness of another man's intimate attributes behind whether an `EncounterCompletion` exists (pre-encounter = attraction without knowledge; post-encounter = full perspective + comparison). Fix two B-041 gaps (per-session arc cap, dedicated enrichment model) along the way.
 
 **Upstream dependencies**: B-041 (session memory), B-056 (wife-husband aftermath, implemented)
 **Downstream consumers**: `IntimateBehavioralTextBuilder` knowledge gating, `HusbandAftermathInjector`, `RolePlayContinuationService`
@@ -56,7 +56,7 @@ Full working system with:
 ## Design Decisions
 
 1. **New memory type**: `EncounterCompletion` — a new `SummaryType` alongside `PhaseMilestone` and `ArcCompletion`
-2. **When written**: At each encounter boundary detection within Climax (not just at Climax→Reset)
+2. **When written**: At each encounter boundary detection in any phase (universal, not just at Climax→Reset) — this aligns with B-057 Part B's universal encounter tracking model
 3. **Generation**: Synchronous template + async LLM enrichment (same pattern as ArcCompletion)
 4. **Interaction-range tracking**: Use interaction list indices (`StartInteractionIndex`, `EndInteractionIndex`) since interactions are stored as `List<RolePlayInteraction>` inline in `Sessions.PayloadJson` with no sequential ID column
 5. **LLM enrichment**: Feed the actual interactions in the range (not `TakeLast(30)`) to the LLM with a dedicated prompt covering who, where, acts, positions, orgasms
@@ -147,7 +147,7 @@ Interactions are stored as `List<RolePlayInteraction>` inline in `Sessions.Paylo
 
 | File | Change |
 |---|---|
-| `DreamGenClone.Web/Application/RolePlay/RolePlayEngineService.cs` | In the detection-success branch of `UpdateStateAndDetectEncounterAsync` (where `state.CurrentEncounterNumber` gets incremented and `state.LastEncounterEvidenceSpan` is set currently): (1) Compute `endIdx = session.Interactions.Count - 1` (2) Call a new method (or extend existing `GenerateTemplatesAsync`) that creates `EncounterCompletion` rows with `StartInteractionIndex = v2State.CurrentEncounterStartInteractionIndex`, `EndInteractionIndex = endIdx`, `EncounterNumber = v2State.CurrentEncounterNumber`, and `DetectionEvidence = detected.EvidenceSpan`. (3) Save records to DB and append to `v2State.EncounterSummaries`. This is a **new hook point** — distinct from the lifecycle-transition hook (Climax→Reset arc completions) and the BuildUp→Committed gate. |
+| `DreamGenClone.Web/Application/RolePlay/RolePlayEngineService.cs` | In the detection-success branch of `UpdateStateAndDetectEncounterAsync` (where `state.CurrentEncounterNumber` gets incremented and `state.LastEncounterEvidenceSpan` is set currently): (1) Compute `endIdx = session.Interactions.Count - 1` (2) Call a new method (or extend existing `GenerateTemplatesAsync`) that creates `EncounterCompletion` rows with `StartInteractionIndex = v2State.CurrentEncounterStartInteractionIndex`, `EndInteractionIndex = endIdx`, `EncounterNumber = v2State.CurrentEncounterNumber`, and `DetectionEvidence = detected.EvidenceSpan`. (3) Save records to DB and append to `v2State.EncounterSummaries`. This is a **new hook point** — distinct from the lifecycle-transition hook (Climax→Reset arc completions) and the BuildUp→Committed gate. **No phase check needed** — encounter detection fires universally across all phases per B-057 Part B, and EncounterCompletion is written for every detection regardless of phase. |
 
 #### Step 2.5 — IEncounterSummaryService changes for EncounterCompletion
 

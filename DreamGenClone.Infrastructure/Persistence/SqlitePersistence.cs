@@ -777,6 +777,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 CharacterLocationPerceptionsJson TEXT NOT NULL DEFAULT '[]',
                 CharacterSnapshotsJson TEXT NOT NULL,
                 ThemeMachineSnapshotJson TEXT NULL,
+                GlobalEncounterCount INTEGER NOT NULL DEFAULT 0,
                 UpdatedUtc TEXT NOT NULL
             );
 
@@ -1011,6 +1012,10 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 ToPhase                     TEXT NOT NULL,
                 OccurredUtc                 TEXT NOT NULL,
                 InteractionCountInPhase     INTEGER NOT NULL DEFAULT 0,
+                EncounterNumber             INTEGER NOT NULL DEFAULT 0,
+                DetectionEvidence           TEXT NULL,
+                StartInteractionIndex       INTEGER NOT NULL DEFAULT 0,
+                EndInteractionIndex         INTEGER NOT NULL DEFAULT 0,
                 SceneLocation               TEXT NULL,
                 ActiveThemeId               TEXT NULL,
                 FinishingMoveId             TEXT NULL,
@@ -1230,6 +1235,49 @@ public sealed class SqlitePersistence : ISqlitePersistence
             alterMaxMilestonesToInject.CommandText = "ALTER TABLE Sessions ADD COLUMN MaxMilestonesToInject INTEGER NULL";
             await alterMaxMilestonesToInject.ExecuteNonQueryAsync(cancellationToken);
             _logger.LogInformation("Migrated Sessions table: added MaxMilestonesToInject column");
+        }
+
+        // B-058 Phase 1.2: per-session overrides for arc/encounter completion injection caps.
+        var sessionOverrideColumns = new (string Column, string Ddl)[]
+        {
+            ("MaxArcCompletionsToInject", "ALTER TABLE Sessions ADD COLUMN MaxArcCompletionsToInject INTEGER NULL"),
+            ("MaxEncounterCompletionsToInject", "ALTER TABLE Sessions ADD COLUMN MaxEncounterCompletionsToInject INTEGER NULL"),
+        };
+        foreach (var (column, ddl) in sessionOverrideColumns)
+        {
+            var checkCmd = connection.CreateCommand();
+            checkCmd.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('Sessions') WHERE name='{column}'";
+            var present = Convert.ToInt64(await checkCmd.ExecuteScalarAsync(cancellationToken)) > 0;
+            if (!present)
+            {
+                var alter = connection.CreateCommand();
+                alter.CommandText = ddl;
+                await alter.ExecuteNonQueryAsync(cancellationToken);
+                _logger.LogInformation("Migrated Sessions table: added {Column} column", column);
+            }
+        }
+
+        // B-058 Phase 1.1/2.1: additive columns on RolePlayV2EncounterSummaries for
+        // EncounterCompletion tracking (encounter number, detection evidence, interaction range).
+        var encounterSummaryColumns = new (string Column, string Ddl)[]
+        {
+            ("EncounterNumber", "ALTER TABLE RolePlayV2EncounterSummaries ADD COLUMN EncounterNumber INTEGER NOT NULL DEFAULT 0"),
+            ("DetectionEvidence", "ALTER TABLE RolePlayV2EncounterSummaries ADD COLUMN DetectionEvidence TEXT NULL"),
+            ("StartInteractionIndex", "ALTER TABLE RolePlayV2EncounterSummaries ADD COLUMN StartInteractionIndex INTEGER NOT NULL DEFAULT 0"),
+            ("EndInteractionIndex", "ALTER TABLE RolePlayV2EncounterSummaries ADD COLUMN EndInteractionIndex INTEGER NOT NULL DEFAULT 0"),
+        };
+        foreach (var (column, ddl) in encounterSummaryColumns)
+        {
+            var checkCmd = connection.CreateCommand();
+            checkCmd.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('RolePlayV2EncounterSummaries') WHERE name='{column}'";
+            var present = Convert.ToInt64(await checkCmd.ExecuteScalarAsync(cancellationToken)) > 0;
+            if (!present)
+            {
+                var alter = connection.CreateCommand();
+                alter.CommandText = ddl;
+                await alter.ExecuteNonQueryAsync(cancellationToken);
+                _logger.LogInformation("Migrated RolePlayV2EncounterSummaries table: added {Column} column", column);
+            }
         }
 
         // V2 unification (B-038): additive columns on RolePlayV2AdaptiveStates for fields previously

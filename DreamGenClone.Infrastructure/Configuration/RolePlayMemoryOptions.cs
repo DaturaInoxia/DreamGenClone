@@ -19,6 +19,21 @@ public sealed class RolePlayMemoryOptions
     public int MaxArcCompletionsToInject { get; init; } = 10;
 
     /// <summary>
+    /// Maximum number of EncounterCompletion entries (most recent encounter-boundary
+    /// memories within the current arc) to inject. Written at every encounter
+    /// boundary detection (any phase) and enriched by the LLM pipeline.
+    /// Default: 5.
+    /// </summary>
+    public int MaxEncounterCompletionsToInject { get; init; } = 5;
+
+    /// <summary>
+    /// Dedicated model slot used by EncounterSummaryJobHandler for the LLM enrichment of
+    /// ArcCompletion and EncounterCompletion summaries. Must match a slot registered in the
+    /// model manager. Default: "roleplay-summary-enhancement".
+    /// </summary>
+    public string SummaryEnhancementModelSlot { get; init; } = "roleplay-summary-enhancement";
+
+    /// <summary>
     /// When true, the EncounterSummaryJobHandler will call the LLM to generate
     /// per-character intimate act prose for ArcCompletion entries.
     /// When false, only TemplateSummary is used for all entries.
