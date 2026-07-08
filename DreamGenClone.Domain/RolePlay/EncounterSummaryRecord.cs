@@ -2,8 +2,9 @@ namespace DreamGenClone.Domain.RolePlay;
 
 public enum EncounterSummaryType
 {
-    PhaseMilestone,   // Template-only; written at every non-ArcCompletion transition
-    ArcCompletion     // LLM-enriched; written at Climax→Reset
+    PhaseMilestone,        // Template-only; written at every non-ArcCompletion transition
+    ArcCompletion,        // LLM-enriched; written at Climax→Reset
+    EncounterCompletion   // LLM-enriched; written at every encounter boundary detection (any phase)
 }
 
 public sealed class EncounterSummaryRecord
@@ -29,6 +30,36 @@ public sealed class EncounterSummaryRecord
 
     /// <summary>How many interactions occurred in FromPhase before this transition.</summary>
     public int InteractionCountInPhase { get; set; }
+
+    /// <summary>
+    /// Encounter sequence number for <see cref="EncounterSummaryType.EncounterCompletion"/> rows
+    /// (1-based index within the session, stamped from
+    /// <see cref="AdaptiveScenarioState.GlobalEncounterCount"/> at detection time).
+    /// Default 0 for other summary types.
+    /// </summary>
+    public int EncounterNumber { get; set; }
+
+    /// <summary>
+    /// Raw detection-text span produced by the encounter-boundary semantic inference
+    /// for <see cref="EncounterSummaryType.EncounterCompletion"/> rows. Null for other
+    /// summary types. Persisted for diagnostics and for B-056's aftermath injector
+    /// (fallback if <see cref="LlmSummary"/> is not yet populated).
+    /// </summary>
+    public string? DetectionEvidence { get; set; }
+
+    /// <summary>
+    /// For <see cref="EncounterSummaryType.EncounterCompletion"/> rows: starting index
+    /// (inclusive) of this encounter's interactions within
+    /// <c>RolePlaySession.Interactions</c>. Default 0 for other summary types.
+    /// </summary>
+    public int StartInteractionIndex { get; set; }
+
+    /// <summary>
+    /// For <see cref="EncounterSummaryType.EncounterCompletion"/> rows: ending index
+    /// (inclusive) of this encounter's interactions within
+    /// <c>RolePlaySession.Interactions</c>. Default 0 for other summary types.
+    /// </summary>
+    public int EndInteractionIndex { get; set; }
 
     public string? SceneLocation { get; set; }
 

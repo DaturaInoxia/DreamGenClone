@@ -793,8 +793,9 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         if (_memoryOptions is not null && session.AdaptiveState.EncounterSummaries.Count > 0)
         {
             var effectiveMilestones = session.MaxMilestonesToInject ?? _memoryOptions.Value.MaxMilestonesToInject;
-            var effectiveArcCompletions = _memoryOptions.Value.MaxArcCompletionsToInject;
-            InjectSessionMemoryBlock(sb, session.AdaptiveState.EncounterSummaries, effectiveMilestones, effectiveArcCompletions, session.AdaptiveState.CycleIndex);
+            var effectiveArcCompletions = session.MaxArcCompletionsToInject ?? _memoryOptions.Value.MaxArcCompletionsToInject;
+            var effectiveEncounterCompletions = session.MaxEncounterCompletionsToInject ?? _memoryOptions.Value.MaxEncounterCompletionsToInject;
+            InjectSessionMemoryBlock(sb, session.AdaptiveState.EncounterSummaries, effectiveMilestones, effectiveArcCompletions, effectiveEncounterCompletions, session.AdaptiveState.CycleIndex);
         }
 
         if (_enableLocationServices
@@ -1163,7 +1164,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
 
         // SceneDirectionCoordinator: marker-driven behavioral directives
         var sceneDirection = SceneDirectionResolver.Resolve(currentPhase, activeTheme, ClimaxSubPhase.None, intent);
-        var ctx = new PromptInjectionContext { Session = session, SceneDirection = sceneDirection, Phase = currentPhase, Intent = intent, PositionInTurn = positionInTurn, TurnActorCount = turnActorCount, ActorName = actorName, ActiveTheme = activeTheme, ActorStats = ResolvePromptActorStats(session, actorName), PhaseGuidanceLines = RolePlayAssistantPrompts.GetThemePhaseGuidanceLines(activeTheme, currentPhase), PhaseDirectiveLines = RolePlayAssistantPrompts.GetThemePhaseDirectiveLines(activeTheme, currentPhase), AiGuidanceNotes = activeTheme?.AIGenerationNotes ?? [], ThemeHardConstraintLines = activeThemeHardConstraints };
+        var ctx = new PromptInjectionContext { Session = session, SceneDirection = sceneDirection, Phase = currentPhase, Intent = intent, PositionInTurn = positionInTurn, TurnActorCount = turnActorCount, ActorName = actorName, ActiveTheme = activeTheme, ActorStats = ResolvePromptActorStats(session, actorName), PhaseGuidanceLines = RolePlayAssistantPrompts.GetThemePhaseGuidanceLines(activeTheme, currentPhase), PhaseDirectiveLines = RolePlayAssistantPrompts.GetThemePhaseDirectiveLines(activeTheme, currentPhase), AiGuidanceNotes = activeTheme?.AIGenerationNotes ?? [], ThemeHardConstraintLines = activeThemeHardConstraints, IsActorInScene = RolePlayScenePresenceHelper.IsActorInScene(session, actorName) };
         sb.Append(_coordinator.BuildPrompt(ctx));
 
         // Three distinct interaction types with different POV rules:
@@ -1441,6 +1442,7 @@ var styleHint = string.IsNullOrWhiteSpace(scenarioStyle)
         List<DreamGenClone.Domain.RolePlay.EncounterSummaryRecord> summaries,
         int effectiveMilestones,
         int effectiveArcCompletions,
+        int effectiveEncounterCompletions,
         int currentCycleIndex)
     {
         // Arc completions: take most recent N (DESC by OccurredUtc, then reverse to chronological)
@@ -1448,6 +1450,14 @@ var styleHint = string.IsNullOrWhiteSpace(scenarioStyle)
             .Where(s => s.SummaryType == DreamGenClone.Domain.RolePlay.EncounterSummaryType.ArcCompletion)
             .OrderByDescending(s => s.OccurredUtc)
             .Take(effectiveArcCompletions)
+            .OrderBy(s => s.OccurredUtc)
+            .ToList();
+
+        // Encounter completions: only current arc, take most recent N (DESC, then reverse to chronological)
+        var encounterCompletions = summaries
+            .Where(s => s.SummaryType == DreamGenClone.Domain.RolePlay.EncounterSummaryType.EncounterCompletion && s.CycleIndex == currentCycleIndex)
+            .OrderByDescending(s => s.OccurredUtc)
+            .Take(effectiveEncounterCompletions)
             .OrderBy(s => s.OccurredUtc)
             .ToList();
 
@@ -1459,16 +1469,29 @@ var styleHint = string.IsNullOrWhiteSpace(scenarioStyle)
             .OrderBy(s => s.OccurredUtc)
             .ToList();
 
-        if (arcCompletions.Count == 0 && milestones.Count == 0)
+        if (arcCompletions.Count == 0 && encounterCompletions.Count == 0 && milestones.Count == 0)
         {
             return;
         }
 
         sb.AppendLine("Session Memory:");
 
+        // Render order: arc completions → encounter completions → phase milestones
         foreach (var record in arcCompletions)
         {
             sb.AppendLine($"[Arc {record.CycleIndex + 1} Complete — {record.CharacterId}]");
+            if (!string.IsNullOrWhiteSpace(record.ActiveSummary))
+            {
+                sb.AppendLine(record.ActiveSummary);
+            }
+        }
+
+        foreach (var record in encounterCompletions)
+        {
+            // Per-character encounter memory — number as "N/M" where M is the total encounters
+            // in the arc (we don't know M cheaply, so we render the encounter number alone with
+            // the arc index for context; the LLM prose already says "encounter N of arc").
+            sb.AppendLine($"[Encounter {record.EncounterNumber} — {record.CharacterId}]");
             if (!string.IsNullOrWhiteSpace(record.ActiveSummary))
             {
                 sb.AppendLine(record.ActiveSummary);
@@ -2115,12 +2138,36 @@ var styleHint = string.IsNullOrWhiteSpace(scenarioStyle)
 
         foreach (var otherMale in otherMales)
         {
-            // Gate: only inject partner perspective if they've shared encounter history
-            if (!IntimateBehavioralTextBuilder.HasSharedEncounterHistory(
-                    character.Id, otherMale.Id,
+            // B-058 Phase 6.2 gate: knowledge of the other man's intimate attributes now
+            // depends on whether an EncounterCompletion record exists for him. Pre-encounter
+            //   → attraction without knowledge (BuildPartnerPreEncounterText)
+            // Post-encounter → full partner perspective (BuildPartnerPerspectiveText)
+            // Comparison text is gated post-encounter only.
+            //
+            // B-058 Phase 6.3 EXCEPTION: the husband (or any male character related to this
+            // female character) has an established intimate history — the encounter gate is
+            // designed for new partners (the "other man"), not the spouse. Always treat
+            // related males as post-encounter.
+            var isRelatedMale = !string.IsNullOrWhiteSpace(otherMale.RelationTargetId)
+                && string.Equals(otherMale.RelationTargetId, character.Name, StringComparison.OrdinalIgnoreCase);
+
+            var hasEncounterCompletion = isRelatedMale
+                || IntimateBehavioralTextBuilder.HasEncounterCompletionForCharacter(
+                    otherMale.Id,
                     session.AdaptiveState.EncounterSummaries,
-                    session.PersonaName))
+                    session.PersonaName);
+
+            if (!hasEncounterCompletion)
+            {
+                var anticipation = IntimateBehavioralTextBuilder.BuildPartnerPreEncounterText(
+                    otherMale.Name!, otherMale.Gender,
+                    otherMale.PhysicalAttributes,
+                    character.Name!, character.Gender);
+                if (!string.IsNullOrEmpty(anticipation))
+                    sb.AppendLine($"    {anticipation}");
+                // Pre-encounter: do NOT register as first-other-male — comparison is gated post-encounter.
                 continue;
+            }
 
             var otherPerspective = IntimateBehavioralTextBuilder.BuildPartnerPerspectiveText(
                 otherMale.PhysicalAttributes!, otherMale.Gender,

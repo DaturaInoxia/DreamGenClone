@@ -327,6 +327,10 @@ public sealed class SemanticInteractionAnalysisJobHandler : IBackgroundJobHandle
                 updated.InteractionsSinceCommitment    = latestStateBeforeSave.InteractionsSinceCommitment;
                 updated.InteractionsInApproaching      = latestStateBeforeSave.InteractionsInApproaching;
                 updated.ScenarioCommitmentTimeUtc      = latestStateBeforeSave.ScenarioCommitmentTimeUtc;
+                updated.CurrentTimeSkipPhase          = latestStateBeforeSave.CurrentTimeSkipPhase;
+                updated.CurrentEncounterNumber        = latestStateBeforeSave.CurrentEncounterNumber;
+                updated.InteractionsInCurrentEncounter = latestStateBeforeSave.InteractionsInCurrentEncounter;
+                updated.GlobalEncounterCount          = latestStateBeforeSave.GlobalEncounterCount;
                 session.AdaptiveState = updated;
             }
 

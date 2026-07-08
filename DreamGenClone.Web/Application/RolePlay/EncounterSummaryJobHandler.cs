@@ -7,6 +7,7 @@ using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Infrastructure.Configuration;
 using DreamGenClone.Web.Application.BackgroundJobs;
 using DreamGenClone.Web.Application.Sessions;
+using DreamGenClone.Web.Domain.RolePlay;
 using Microsoft.Extensions.Options;
 
 namespace DreamGenClone.Web.Application.RolePlay;
@@ -98,7 +99,17 @@ public sealed class EncounterSummaryJobHandler : IBackgroundJobHandler
         ResolvedModel resolvedModel;
         try
         {
-            resolvedModel = await _modelResolutionService.ResolveAsync(AppFunction.RolePlaySemanticAnalysis, cancellationToken: cancellationToken);
+            // B-058 Phase 7.1: ArcCompletion + EncounterCompletion use the dedicated summary
+            // enhancement model slot, isolated from RolePlaySemanticAnalysis so its concurrency
+            // limits / model selection can be tuned independently. PhaseMilestone still uses the
+            // semantic analysis slot to preserve existing behavior (a single-slot config is fine
+            // for the cheaper milestone prompt).
+            var appFunction = recordsToEnhance.Any(r => r.SummaryType == EncounterSummaryType.PhaseMilestone
+                                                      && r.SummaryType != EncounterSummaryType.EncounterCompletion)
+                && recordsToEnhance.All(r => r.SummaryType == EncounterSummaryType.PhaseMilestone)
+                ? AppFunction.RolePlaySemanticAnalysis
+                : AppFunction.RolePlaySummaryEnhancement;
+            resolvedModel = await _modelResolutionService.ResolveAsync(appFunction, cancellationToken: cancellationToken);
         }
         catch (Exception ex)
         {
@@ -136,9 +147,16 @@ public sealed class EncounterSummaryJobHandler : IBackgroundJobHandler
                 continue;
             }
 
-            var prompt = record.SummaryType == EncounterSummaryType.PhaseMilestone
-                ? BuildMilestonePrompt(record, recentInteractions)
-                : BuildArcCompletionPrompt(record, arcPhaseSummaries, recentInteractions);
+            string prompt = record.SummaryType switch
+            {
+                EncounterSummaryType.PhaseMilestone =>
+                    BuildMilestonePrompt(record, recentInteractions),
+                EncounterSummaryType.ArcCompletion =>
+                    BuildArcCompletionPrompt(record, arcPhaseSummaries, recentInteractions),
+                EncounterSummaryType.EncounterCompletion =>
+                    BuildEncounterCompletionPrompt(record, session),
+                _ => throw new InvalidOperationException($"Unsupported summary type {record.SummaryType}")
+            };
 
             await EnhanceRecordAsync(record, prompt, resolvedModel, payload, cancellationToken);
         }
@@ -201,6 +219,50 @@ public sealed class EncounterSummaryJobHandler : IBackgroundJobHandler
             {contextBlock}
 
             Write 3-4 sentences from {record.CharacterId}'s perspective summarizing the complete arc: how the encounter began, what physical acts took place across all phases (note positions, partners, sequence), and how it concluded. This is a permanent memory that will be referenced in future sessions to ensure continuity. Be specific and explicit. Write in third person past tense.
+            """;
+    }
+
+    /// <summary>
+    /// B-058 Phase 3.1: dedicated prompt for EncounterCompletion records. Instead of
+    /// TakeLast(30) on all interactions, load the actual interactions in the encounter's
+    /// inclusive index range so the LLM has the complete encounter history.
+    /// </summary>
+    private static string BuildEncounterCompletionPrompt(
+        EncounterSummaryRecord record,
+        RolePlaySession session)
+    {
+        var rangeCount = Math.Max(0, record.EndInteractionIndex - record.StartInteractionIndex + 1);
+        var encounterInteractions = session.Interactions
+            .Where(x => !x.IsExcluded)
+            .Skip(record.StartInteractionIndex)
+            .Take(rangeCount)
+            .Select(x => $"[{x.InteractionType}] {x.ActorName}: {x.Content}")
+            .ToList();
+
+        var interactionsText = encounterInteractions.Count > 0
+            ? string.Join("\n", encounterInteractions)
+            : "(no interactions available for this encounter range)";
+
+        var displayName = !string.IsNullOrWhiteSpace(record.DetectionEvidence)
+            ? record.DetectionEvidence
+            : "(no detection evidence captured)";
+        var totalInArc = session.AdaptiveState?.GlobalEncounterCount > 0
+            ? session.AdaptiveState.GlobalEncounterCount
+            : record.EncounterNumber;
+
+        return $"""
+            You are writing a memory record for a single encounter in a roleplay session.
+
+            Character: {record.CharacterId}
+            Encounter {record.EncounterNumber} of arc {record.CycleIndex + 1} (encounter {record.EncounterNumber} of {totalInArc} total in session)
+            Phase when encounter ended: {record.FromPhase}
+            Scene: {(string.IsNullOrWhiteSpace(record.SceneLocation) ? "unknown location" : record.SceneLocation)}
+            Detection evidence: {displayName}
+
+            The interactions from this specific encounter (in order):
+            {interactionsText}
+
+            Write 2-3 concise sentences from {record.CharacterId}'s perspective describing what happened during this encounter (encounter {record.EncounterNumber} of {totalInArc}). Include: who was present, where it happened, what physical acts occurred (flashing, hands, oral, intercourse), positions used, and orgasm details (especially male orgasm details). Focus on sensory and emotional impact so the character can recall this in their internal dialogue and actions. Base your summary on the interactions above. Write in third person past tense.
             """;
     }
 

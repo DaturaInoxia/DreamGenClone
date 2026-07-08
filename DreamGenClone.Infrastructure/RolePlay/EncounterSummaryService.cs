@@ -132,6 +132,115 @@ public sealed class EncounterSummaryService : IEncounterSummaryService
         return result;
     }
 
+    /// <inheritdoc />
+    public Task<IReadOnlyList<EncounterSummaryRecord>> GenerateEncounterCompletionTemplatesAsync(
+        AdaptiveScenarioState v2State,
+        int encounterNumber,
+        string detectionEvidence,
+        int startInteractionIndex,
+        int endInteractionIndex,
+        IReadOnlyDictionary<string, string>? characterInteractionsTexts = null,
+        IReadOnlySet<string>? allowedCharacterIds = null,
+        CancellationToken cancellationToken = default)
+    {
+        // B-058 Phase 2.5: build the participant list using the same allowedCharacterIds-first
+        // pattern as GenerateTemplatesAsync, so NPCs detected mid-session also get memory entries.
+        if (allowedCharacterIds is null || allowedCharacterIds.Count == 0)
+        {
+            _logger.LogDebug(
+                "GenerateEncounterCompletionTemplatesAsync: no allowed characters supplied for session {SessionId} — returning empty list.",
+                v2State.SessionId);
+            return Task.FromResult<IReadOnlyList<EncounterSummaryRecord>>([]);
+        }
+
+        var snapshotMap = v2State.CharacterSnapshots
+            .ToDictionary(s => s.CharacterId, StringComparer.OrdinalIgnoreCase);
+        var characters = allowedCharacterIds
+            .Select(id => (id, snapshotMap.TryGetValue(id, out var snap)
+                ? snap
+                : new CharacterStatProfileV2 { CharacterId = id }))
+            .ToList();
+
+        var records = new List<EncounterSummaryRecord>(characters.Count);
+        foreach (var (charId, snapshot) in characters)
+        {
+            var statsJson = JsonSerializer.Serialize(snapshot, JsonOptions);
+            // B-057 Phase 2.5: name resolution — snapshot has no DisplayName field; use
+            // CharacterRole if set (e.g. "Wife", "Husband", "The Other Man"), else the Id.
+            var displayName = !string.IsNullOrWhiteSpace(snapshot.CharacterRole)
+                ? snapshot.CharacterRole!
+                : charId;
+            var charText = characterInteractionsTexts is not null
+                && characterInteractionsTexts.TryGetValue(charId, out var ct)
+                ? ct
+                : null;
+            var templateSummary = BuildEncounterCompletionTemplate(
+                displayName, encounterNumber, v2State, detectionEvidence,
+                charText);
+
+            records.Add(new EncounterSummaryRecord
+            {
+                Id                       = Guid.NewGuid().ToString("N"),
+                SessionId                = v2State.SessionId,
+                CharacterId              = charId,
+                SummaryType              = EncounterSummaryType.EncounterCompletion,
+                CycleIndex               = v2State.CycleIndex,
+                FromPhase                = v2State.CurrentPhase,
+                ToPhase                  = v2State.CurrentPhase, // encounter boundary within a phase — no phase transition
+                OccurredUtc              = DateTime.UtcNow,
+                InteractionCountInPhase  = v2State.InteractionCountInPhase,
+                EncounterNumber          = encounterNumber,
+                DetectionEvidence        = detectionEvidence,
+                StartInteractionIndex    = startInteractionIndex,
+                EndInteractionIndex      = endInteractionIndex,
+                SceneLocation           = v2State.CurrentSceneLocation,
+                ActiveThemeId           = v2State.PrimaryThemeId,
+                FinishingMoveId         = null,
+                PositionIdsJson         = "[]",
+                CharacterStatsSnapshotJson = statsJson,
+                TemplateSummary         = templateSummary,
+                LlmSummary              = null,
+                LlmEnhancedUtc          = null
+            });
+        }
+
+        _logger.LogInformation(
+            "GenerateEncounterCompletionTemplatesAsync: generated {Count} EncounterCompletion records for session {SessionId} cycle {CycleIndex} encounter {EncNum}",
+            records.Count, v2State.SessionId, v2State.CycleIndex, encounterNumber);
+        return Task.FromResult<IReadOnlyList<EncounterSummaryRecord>>(records);
+    }
+
+    private static string BuildEncounterCompletionTemplate(
+        string displayName,
+        int encounterNumber,
+        AdaptiveScenarioState v2State,
+        string detectionEvidence,
+        string? encounterInteractionsText = null)
+    {
+        var location = string.IsNullOrWhiteSpace(v2State.CurrentSceneLocation)
+            ? "unknown"
+            : v2State.CurrentSceneLocation;
+        var header = $"{displayName} — encounter {encounterNumber} of arc {v2State.CycleIndex + 1}. " +
+                     $"Scene: {location}.";
+
+        if (!string.IsNullOrWhiteSpace(encounterInteractionsText))
+        {
+            var body = TruncateForTemplate(encounterInteractionsText, 800);
+            return header + "\n" + body;
+        }
+
+        var evidenceSnippet = string.IsNullOrWhiteSpace(detectionEvidence)
+            ? "(no detection evidence)"
+            : TruncateForTemplate(detectionEvidence, 240);
+        return header + "\n" + evidenceSnippet;
+    }
+
+    private static string TruncateForTemplate(string text, int maxLength)
+    {
+        if (string.IsNullOrEmpty(text) || text.Length <= maxLength) return text ?? string.Empty;
+        return text.Substring(0, maxLength) + "…";
+    }
+
     private static string BuildPhaseMilestoneTemplate(
         CharacterStatProfileV2 snapshot,
         NarrativePhaseTransitionEvent transitionEvent,

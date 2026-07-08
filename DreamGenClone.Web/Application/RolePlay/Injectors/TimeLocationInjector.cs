@@ -33,17 +33,42 @@ public sealed class TimeLocationInjector : IPromptInjector
         }
         else
         {
-            // Position > 1: Location Continuity HC — enhanced with anchor.
-            sb.AppendLine();
-            sb.AppendLine("Location Continuity (HARD CONSTRAINT):");
-            sb.AppendLine("- The scene is now at the time and location established by the first response this turn.");
-            sb.AppendLine("- Maintain this physical setting. Do not silently relocate any character.");
-            sb.AppendLine("- If a character moves, write the transition explicitly.");
-
-            // Position > 1 + marker overrides: modified time-shift permission.
-            bool hasOverride = context.SceneDirection.Pacing == ScenePacing.Fast
+            // Position > 1: tri-state location continuity based on IsActorInScene.
+            bool hasTimeShift = context.SceneDirection.Pacing == ScenePacing.Fast
                 || context.SceneDirection.TimeShift != TimeShiftPolicy.None;
-            if (hasOverride)
+
+            if (context.IsActorInScene == true)
+            {
+                // Actor is confirmed in-scene: HARD CONSTRAINT to maintain the setting.
+                sb.AppendLine();
+                sb.AppendLine("Location Continuity (HARD CONSTRAINT):");
+                sb.AppendLine("- The scene is now at the time and location established by the first response this turn.");
+                sb.AppendLine("- Maintain this physical setting. Do not silently relocate any character.");
+                sb.AppendLine("- If a character moves, write the transition explicitly.");
+            }
+            else if (context.IsActorInScene == false)
+            {
+                // Actor is confirmed out-of-scene: soft directive to continue from own location.
+                sb.AppendLine();
+                sb.AppendLine("Location Continuity:");
+                sb.AppendLine("- You are NOT at the scene established by the first response this turn. Your character is elsewhere.");
+                sb.AppendLine("- Continue from your own location and perspective. Do not insert yourself into the scene just described.");
+                sb.AppendLine("- Only reference what your character can perceive from where they are.");
+                sb.AppendLine("- If your character later joins the scene, write the transition explicitly.");
+            }
+            else
+            {
+                // Unknown (location services off, scene location absent, or actor's truth state not tracked):
+                // soft directive — restores pre-refactor behavior where the LLM has latitude.
+                sb.AppendLine();
+                sb.AppendLine("Location Continuity:");
+                sb.AppendLine("- Continue from your character's perspective at their current location.");
+                sb.AppendLine("- If your character is not at the scene just described, write them at their own location");
+                sb.AppendLine("  and perspective. Do not assume they are present at the scene.");
+            }
+
+            // Position > 1 + marker overrides: modified time-shift permission (all three states).
+            if (hasTimeShift)
             {
                 sb.AppendLine();
                 sb.AppendLine("Time Shift Permission:");

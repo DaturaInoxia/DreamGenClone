@@ -172,6 +172,35 @@ internal static class IntimateBehavioralTextBuilder
     }
 
     /// <summary>
+    /// B-058 Phase 6.1: generates the pre-encounter partner-perspective constraint. Used when
+    /// the female character is attracted to a male partner but no EncounterCompletion record
+    /// exists yet — she is unable to know his intimate attributes through experience. The text
+    /// frames his intimate qualities as unknown/anticipated rather than known, so the model
+    /// avoids leaking attribute details into her internal dialogue before discovery occurs.
+    /// </summary>
+    internal static string? BuildPartnerPreEncounterText(
+        string partnerName,
+        string partnerGender,
+        PhysicalAttributes? partnerAttrs,
+        string selfName,
+        string selfGender)
+    {
+        if (partnerAttrs is null) return null;
+        if (!string.Equals(partnerGender, "Male", StringComparison.OrdinalIgnoreCase)) return null;
+
+        // B-058 Phase 6.1: pre-encounter framing — the female has not yet experienced him
+        // intimately, so the text frames his intimate qualities as unknown rather than known.
+        // We use "her" pronouns consistently because this method is only invoked for a
+        // female-self perspective (the gate in InjectCharacterBehavioralTexts filters to
+        // isFemale && personaIsMale relation).
+        return $"BEHAVIORAL CONSTRAINT — {selfName}'s anticipation of {partnerName}: "
+             + $"she finds {partnerName} attractive and senses potential, "
+             + $"but has not yet experienced him intimately — his intimate qualities remain a mystery until she experiences him. "
+             + $"she cannot compare him to her current partner in any concrete physical way; "
+             + $"any internal thoughts about his body should be speculation and curiosity, not knowledge.";
+    }
+
+    /// <summary>
     /// Generates a comparison constraint contrasting two partners.
     /// </summary>
     internal static string? BuildComparisonText(
@@ -220,6 +249,23 @@ internal static class IntimateBehavioralTextBuilder
             .Select(s => s.CycleIndex).ToHashSet();
 
         return cycles1.Intersect(cycles2).Any();
+    }
+
+    /// <summary>
+    /// B-058 Phase 6.2: returns true if the given character has at least one
+    /// <see cref="EncounterSummaryType.EncounterCompletion"/> record (in any arc).
+    /// Used by <c>InjectCharacterBehavioralTexts</c> to gate the wife's awareness of the
+    /// other man's intimate attributes — pre-encounter = attraction without knowledge;
+    /// post-encounter = full perspective + comparison.
+    /// </summary>
+    internal static bool HasEncounterCompletionForCharacter(
+        string characterId,
+        List<EncounterSummaryRecord> summaries,
+        string? personaName = null)
+    {
+        return summaries.Any(s =>
+            s.SummaryType == EncounterSummaryType.EncounterCompletion
+            && MatchesCharacter(s, characterId, personaName));
     }
 
     // ── Private helpers ──────────────────────────────────────────────────────

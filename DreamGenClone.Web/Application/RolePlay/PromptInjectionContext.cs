@@ -42,6 +42,15 @@ public sealed record PromptInjectionContext
     public IReadOnlyList<RPThemeAIGuidanceNote> AiGuidanceNotes { get; init; } = [];
     public IReadOnlyList<string> ThemeHardConstraintLines { get; init; } = [];
 
+    // ── Location awareness ─────────────────────────────────────
+    /// <summary>
+    /// Whether this actor is confirmed in the current scene location.
+    ///   true  — actor is confirmed in the current scene location
+    ///   false — actor is confirmed NOT in the current scene location
+    ///   null  — unknown (location services off, scene location absent, or actor's truth state not tracked)
+    /// </summary>
+    public bool? IsActorInScene { get; init; }
+
     // ── Helpers ────────────────────────────────────────────────
     /// <summary>
     /// Checks if the specified marker string exists in the current phase's guidance lines.

@@ -231,7 +231,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 CompletedScenarios, InteractionsSinceCommitment, InteractionsInApproaching, ScenarioCommitmentTimeUtc,
                 SemanticStepSucceeded, SemanticDeltaBreakdownsJson, SemanticStatDeltaBreakdownsJson,
                 CurrentEncounterNumber, InteractionsInCurrentEncounter, TimeSkipPending, CurrentTimeSkipPhase,
-                LastEncounterEvidenceSpan,
+                GlobalEncounterCount,
                 UpdatedUtc)
             VALUES (
                 $sessionId, $activeScenarioId, $currentPhase, $interactionCountInPhase, $consecutiveLeadCount,
@@ -244,7 +244,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 $completedScenarios, $interactionsSinceCommitment, $interactionsInApproaching, $scenarioCommitmentTimeUtc,
                 $semanticStepSucceeded, $semanticDeltaBreakdownsJson, $semanticStatDeltaBreakdownsJson,
                 $currentEncounterNumber, $interactionsInCurrentEncounter, $timeSkipPending, $currentTimeSkipPhase,
-                $lastEncounterEvidenceSpan,
+                $globalEncounterCount,
                 $updatedUtc)
             ON CONFLICT(SessionId) DO UPDATE SET
                 ActiveScenarioId = excluded.ActiveScenarioId,
@@ -281,7 +281,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 InteractionsInCurrentEncounter = excluded.InteractionsInCurrentEncounter,
                 TimeSkipPending = excluded.TimeSkipPending,
                 CurrentTimeSkipPhase = excluded.CurrentTimeSkipPhase,
-                LastEncounterEvidenceSpan = excluded.LastEncounterEvidenceSpan,
+                GlobalEncounterCount = excluded.GlobalEncounterCount,
                 UpdatedUtc = excluded.UpdatedUtc;
             """;
 
@@ -328,7 +328,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
         command.Parameters.AddWithValue("$interactionsInCurrentEncounter", state.InteractionsInCurrentEncounter);
         command.Parameters.AddWithValue("$timeSkipPending", 0); // retired — always write 0
         command.Parameters.AddWithValue("$currentTimeSkipPhase", (int)state.CurrentTimeSkipPhase);
-        command.Parameters.AddWithValue("$lastEncounterEvidenceSpan", state.LastEncounterEvidenceSpan ?? (object)DBNull.Value);
+        command.Parameters.AddWithValue("$globalEncounterCount", state.GlobalEncounterCount);
         command.Parameters.AddWithValue("$updatedUtc", nowUtc.ToString("O"));
         await command.ExecuteNonQueryAsync(cancellationToken);
 
@@ -524,7 +524,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                               SemanticStepSucceeded, SemanticDeltaBreakdownsJson, SemanticStatDeltaBreakdownsJson,
                               CharacterEncounterProfileIdsJson,
                               CurrentEncounterNumber, InteractionsInCurrentEncounter, TimeSkipPending, CurrentTimeSkipPhase,
-                              LastEncounterEvidenceSpan
+                              GlobalEncounterCount
             FROM RolePlayV2AdaptiveStates
             WHERE SessionId = $sessionId;
             """;
@@ -600,7 +600,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
             CurrentTimeSkipPhase = reader.IsDBNull(35)
                 ? (reader.IsDBNull(34) ? TimeSkipPhase.None : (reader.GetInt32(34) != 0 ? TimeSkipPhase.CloseScene : TimeSkipPhase.None))
                 : (TimeSkipPhase)reader.GetInt32(35),
-            LastEncounterEvidenceSpan = reader.IsDBNull(36) ? null : reader.GetString(36)
+            GlobalEncounterCount = reader.IsDBNull(36) ? 0 : reader.GetInt32(36)
         };
         await reader.CloseAsync();
 
@@ -765,7 +765,10 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
         await using var cmd = connection.CreateCommand();
         cmd.CommandText = """
             SELECT Id, CharacterId, SummaryType, CycleIndex, FromPhase, ToPhase,
-                   OccurredUtc, InteractionCountInPhase, SceneLocation, ActiveThemeId,
+                   OccurredUtc, InteractionCountInPhase,
+                   EncounterNumber, DetectionEvidence,
+                   StartInteractionIndex, EndInteractionIndex,
+                   SceneLocation, ActiveThemeId,
                    FinishingMoveId, PositionIdsJson, CharacterStatsSnapshotJson,
                    TemplateSummary, LlmSummary, LlmEnhancedUtc
             FROM RolePlayV2EncounterSummaries
@@ -787,14 +790,18 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 ToPhase      = Enum.Parse<NarrativePhase>(rdr.GetString(5)),
                 OccurredUtc  = ParseUtcTimestamp(rdr.GetString(6), state.SessionId),
                 InteractionCountInPhase = rdr.GetInt32(7),
-                SceneLocation           = rdr.IsDBNull(8) ? null : rdr.GetString(8),
-                ActiveThemeId           = rdr.IsDBNull(9) ? null : rdr.GetString(9),
-                FinishingMoveId         = rdr.IsDBNull(10) ? null : rdr.GetString(10),
-                PositionIdsJson         = rdr.IsDBNull(11) ? "[]" : rdr.GetString(11),
-                CharacterStatsSnapshotJson = rdr.IsDBNull(12) ? "{}" : rdr.GetString(12),
-                TemplateSummary         = rdr.IsDBNull(13) ? string.Empty : rdr.GetString(13),
-                LlmSummary              = rdr.IsDBNull(14) ? null : rdr.GetString(14),
-                LlmEnhancedUtc          = rdr.IsDBNull(15) ? null : ParseUtcTimestamp(rdr.GetString(15), state.SessionId)
+                EncounterNumber         = rdr.IsDBNull(8) ? 0 : rdr.GetInt32(8),
+                DetectionEvidence       = rdr.IsDBNull(9) ? null : rdr.GetString(9),
+                StartInteractionIndex   = rdr.IsDBNull(10) ? 0 : rdr.GetInt32(10),
+                EndInteractionIndex     = rdr.IsDBNull(11) ? 0 : rdr.GetInt32(11),
+                SceneLocation           = rdr.IsDBNull(12) ? null : rdr.GetString(12),
+                ActiveThemeId           = rdr.IsDBNull(13) ? null : rdr.GetString(13),
+                FinishingMoveId         = rdr.IsDBNull(14) ? null : rdr.GetString(14),
+                PositionIdsJson         = rdr.IsDBNull(15) ? "[]" : rdr.GetString(15),
+                CharacterStatsSnapshotJson = rdr.IsDBNull(16) ? "{}" : rdr.GetString(16),
+                TemplateSummary         = rdr.IsDBNull(17) ? string.Empty : rdr.GetString(17),
+                LlmSummary              = rdr.IsDBNull(18) ? null : rdr.GetString(18),
+                LlmEnhancedUtc          = rdr.IsDBNull(19) ? null : ParseUtcTimestamp(rdr.GetString(19), state.SessionId)
             });
         }
     }
@@ -1045,12 +1052,24 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
             await backfill.ExecuteNonQueryAsync(cancellationToken);
         }
 
-        // B-056 Aftermath closure: evidence span captured at encounter-boundary detection,
-        // consumed by HusbandAftermathInjector to construct the wife-husband contrast directive.
+        // B-056 / B-058: LastEncounterEvidenceSpan column was added in B-056 to feed the
+        // HusbandAftermathInjector. B-058 Phase 5.3 retired the in-memory field and the injector
+        // now reads from EncounterCompletion summaries. The DB column is no longer written
+        // or read, but we keep the migration guard so old databases (created before B-056)
+        // still add the column for any reading on legacy session blobs — old data is ignored.
         if (!await HasColumnAsync(connection, "RolePlayV2AdaptiveStates", "LastEncounterEvidenceSpan", cancellationToken))
         {
             await using var add = connection.CreateCommand();
             add.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN LastEncounterEvidenceSpan TEXT";
+            await add.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        // B-057: GlobalEncounterCount — cumulative count of all completed encounters
+        // in this session. Incremented on every encounter boundary detection, never decremented.
+        if (!await HasColumnAsync(connection, "RolePlayV2AdaptiveStates", "GlobalEncounterCount", cancellationToken))
+        {
+            await using var add = connection.CreateCommand();
+            add.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN GlobalEncounterCount INTEGER NOT NULL DEFAULT 0";
             await add.ExecuteNonQueryAsync(cancellationToken);
         }
 
@@ -1690,12 +1709,18 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
         cmd.CommandText = """
             INSERT INTO RolePlayV2EncounterSummaries (
                 Id, SessionId, CharacterId, SummaryType, CycleIndex, FromPhase, ToPhase,
-                OccurredUtc, InteractionCountInPhase, SceneLocation, ActiveThemeId,
+                OccurredUtc, InteractionCountInPhase,
+                EncounterNumber, DetectionEvidence,
+                StartInteractionIndex, EndInteractionIndex,
+                SceneLocation, ActiveThemeId,
                 FinishingMoveId, PositionIdsJson, CharacterStatsSnapshotJson,
                 TemplateSummary, LlmSummary, LlmEnhancedUtc)
             VALUES (
                 $id, $sessionId, $characterId, $summaryType, $cycleIndex, $fromPhase, $toPhase,
-                $occurredUtc, $interactionCountInPhase, $sceneLocation, $activeThemeId,
+                $occurredUtc, $interactionCountInPhase,
+                $encounterNumber, $detectionEvidence,
+                $startInteractionIndex, $endInteractionIndex,
+                $sceneLocation, $activeThemeId,
                 $finishingMoveId, $positionIdsJson, $characterStatsSnapshotJson,
                 $templateSummary, $llmSummary, $llmEnhancedUtc);
             """;
@@ -1708,6 +1733,10 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
         cmd.Parameters.AddWithValue("$toPhase", record.ToPhase.ToString());
         cmd.Parameters.AddWithValue("$occurredUtc", record.OccurredUtc.ToString("O"));
         cmd.Parameters.AddWithValue("$interactionCountInPhase", record.InteractionCountInPhase);
+        cmd.Parameters.AddWithValue("$encounterNumber", record.EncounterNumber);
+        cmd.Parameters.AddWithValue("$detectionEvidence", (object?)record.DetectionEvidence ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$startInteractionIndex", record.StartInteractionIndex);
+        cmd.Parameters.AddWithValue("$endInteractionIndex", record.EndInteractionIndex);
         cmd.Parameters.AddWithValue("$sceneLocation", (object?)record.SceneLocation ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$activeThemeId", (object?)record.ActiveThemeId ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$finishingMoveId", (object?)record.FinishingMoveId ?? DBNull.Value);
@@ -1741,7 +1770,10 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
         await using var cmd = connection.CreateCommand();
         cmd.CommandText = """
             SELECT Id, CharacterId, SummaryType, CycleIndex, FromPhase, ToPhase,
-                   OccurredUtc, InteractionCountInPhase, SceneLocation, ActiveThemeId,
+                   OccurredUtc, InteractionCountInPhase,
+                   EncounterNumber, DetectionEvidence,
+                   StartInteractionIndex, EndInteractionIndex,
+                   SceneLocation, ActiveThemeId,
                    FinishingMoveId, PositionIdsJson, CharacterStatsSnapshotJson,
                    TemplateSummary, LlmSummary, LlmEnhancedUtc
             FROM RolePlayV2EncounterSummaries
@@ -1763,14 +1795,18 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 ToPhase      = Enum.Parse<NarrativePhase>(rdr.GetString(5)),
                 OccurredUtc  = ParseUtcTimestamp(rdr.GetString(6), sessionId),
                 InteractionCountInPhase = rdr.GetInt32(7),
-                SceneLocation           = rdr.IsDBNull(8) ? null : rdr.GetString(8),
-                ActiveThemeId           = rdr.IsDBNull(9) ? null : rdr.GetString(9),
-                FinishingMoveId         = rdr.IsDBNull(10) ? null : rdr.GetString(10),
-                PositionIdsJson         = rdr.IsDBNull(11) ? "[]" : rdr.GetString(11),
-                CharacterStatsSnapshotJson = rdr.IsDBNull(12) ? "{}" : rdr.GetString(12),
-                TemplateSummary         = rdr.IsDBNull(13) ? string.Empty : rdr.GetString(13),
-                LlmSummary              = rdr.IsDBNull(14) ? null : rdr.GetString(14),
-                LlmEnhancedUtc          = rdr.IsDBNull(15) ? null : ParseUtcTimestamp(rdr.GetString(15), sessionId)
+                EncounterNumber         = rdr.IsDBNull(8) ? 0 : rdr.GetInt32(8),
+                DetectionEvidence       = rdr.IsDBNull(9) ? null : rdr.GetString(9),
+                StartInteractionIndex   = rdr.IsDBNull(10) ? 0 : rdr.GetInt32(10),
+                EndInteractionIndex     = rdr.IsDBNull(11) ? 0 : rdr.GetInt32(11),
+                SceneLocation           = rdr.IsDBNull(12) ? null : rdr.GetString(12),
+                ActiveThemeId           = rdr.IsDBNull(13) ? null : rdr.GetString(13),
+                FinishingMoveId         = rdr.IsDBNull(14) ? null : rdr.GetString(14),
+                PositionIdsJson         = rdr.IsDBNull(15) ? "[]" : rdr.GetString(15),
+                CharacterStatsSnapshotJson = rdr.IsDBNull(16) ? "{}" : rdr.GetString(16),
+                TemplateSummary         = rdr.IsDBNull(17) ? string.Empty : rdr.GetString(17),
+                LlmSummary              = rdr.IsDBNull(18) ? null : rdr.GetString(18),
+                LlmEnhancedUtc          = rdr.IsDBNull(19) ? null : ParseUtcTimestamp(rdr.GetString(19), sessionId)
             });
         }
         return results;

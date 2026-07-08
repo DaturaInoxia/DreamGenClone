@@ -1429,6 +1429,11 @@ article:has(.rw-shell) {
     border: 1px solid #2e4068;
 }
 
+.rw-char-memory-encounter {
+    background: #1a1f1c;
+    border: 1px solid #2d4038;
+}
+
 .rw-char-memory-milestone {
     background: #1c1e25;
     border: 1px solid #2c303d;

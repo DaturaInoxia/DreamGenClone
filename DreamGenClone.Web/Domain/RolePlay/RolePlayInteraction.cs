@@ -74,4 +74,26 @@ public sealed class RolePlayInteraction
     /// or when the interaction was user-authored.
     /// </summary>
     public string? ReasoningContent { get; set; }
+
+    /// <summary>
+    /// This interaction's position in the session (0-based). null = legacy data.
+    /// </summary>
+    public int? SessionInteractionIndex { get; set; }
+
+    /// <summary>
+    /// Which global encounter # this interaction belongs to. null = no active encounter / legacy.
+    /// Stamped from GlobalEncounterCount at creation time.
+    /// </summary>
+    public int? EncounterNumberAtCreation { get; set; }
+
+    /// <summary>
+    /// Position within the encounter (0-based). null = not in an encounter / legacy.
+    /// </summary>
+    public int? InteractionIndexInEncounter { get; set; }
+
+    /// <summary>
+    /// Session's resolved intensity label at creation time (e.g. "Explicit", "Hardcore"). null = legacy.
+    /// Captured from session.LastResolvedIntensityLabel at creation time.
+    /// </summary>
+    public string? ExplicitnessLevelAtCreation { get; set; }
 }

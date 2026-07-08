@@ -205,6 +205,19 @@ public sealed class RolePlaySession
     /// </summary>
     public int? MaxMilestonesToInject { get; set; }
 
+    /// <summary>
+    /// Per-session override for the number of ArcCompletion entries (prior arcs) to inject.
+    /// Null means use the global RolePlayMemoryOptions.MaxArcCompletionsToInject default.
+    /// </summary>
+    public int? MaxArcCompletionsToInject { get; set; }
+
+    /// <summary>
+    /// Per-session override for the number of EncounterCompletion entries (encounter-boundary
+    /// memories for the current arc) to inject. Null means use the global
+    /// RolePlayMemoryOptions.MaxEncounterCompletionsToInject default.
+    /// </summary>
+    public int? MaxEncounterCompletionsToInject { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public DateTime ModifiedAt { get; set; } = DateTime.UtcNow;

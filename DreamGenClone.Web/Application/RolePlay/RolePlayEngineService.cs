@@ -366,6 +366,8 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             PersonaPerspectiveMode = CharacterPerspectiveMode.FirstPersonInternalMonologue,
             PersonaPhysicalAttributes = request.PersonaPhysicalAttributes,
             MaxMilestonesToInject = request.MaxMilestonesToInject,
+            MaxArcCompletionsToInject = request.MaxArcCompletionsToInject,
+            MaxEncounterCompletionsToInject = request.MaxEncounterCompletionsToInject,
         };
 
         foreach (var kvp in request.CharacterEncounterProfileIds)
@@ -1319,12 +1321,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
         if (!pipelinesAlreadyRan)
         {
-            // B-057: Save encounter state before RunRolePlayV2PipelinesAsync hydrates from DB.
-            if (session.AdaptiveState.IsStateDirty)
-            {
-                await _stateRepository.SaveAdaptiveStateAsync(session.AdaptiveState, cancellationToken);
-                session.AdaptiveState.IsStateDirty = false;
-            }
+            // Redundant — time-skip mutations persist synchronously at their mutation sites.
             await RunRolePlayV2PipelinesAsync(
                 session,
                 DecisionTrigger.InteractionStart,
@@ -1544,6 +1541,12 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                     if (!HasRecentUserInstruction(session, 3))
                     {
                         var currentSkipPhase = session.AdaptiveState.CurrentTimeSkipPhase;
+                        _logger.LogInformation(
+                            "B057Trace Overflow_Enter: Phase={Phase} Enc={Enc} Global={Global} TimeSkip={TimeSkip} IxnInEnc={IxnInEnc}",
+                            session.AdaptiveState.CurrentPhase, session.AdaptiveState.CurrentEncounterNumber,
+                            session.AdaptiveState.GlobalEncounterCount, currentSkipPhase,
+                            session.AdaptiveState.InteractionsInCurrentEncounter);
+
                         string directive;
                         if (currentSkipPhase == TimeSkipPhase.CloseScene)
                         {
@@ -1553,7 +1556,13 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                             session.AdaptiveState.CurrentTimeSkipPhase = hasAftermath
                                 ? TimeSkipPhase.AftermathCoupleInteraction
                                 : TimeSkipPhase.AdvanceTime;
-                            session.AdaptiveState.IsStateDirty = true;
+                            // B-057: synchronous persist — DB is always authoritative for time-skip state.
+                            await _stateRepository.SaveAdaptiveStateAsync(session.AdaptiveState, cancellationToken);
+                            _logger.LogInformation(
+                                "B057Trace Overflow_CloseScene_To_{Next}: Phase={Phase} Enc={Enc} Global={Global} TimeSkip={TimeSkip} IxnInEnc={IxnInEnc}",
+                                session.AdaptiveState.CurrentTimeSkipPhase, session.AdaptiveState.CurrentPhase,
+                                session.AdaptiveState.CurrentEncounterNumber, session.AdaptiveState.GlobalEncounterCount,
+                                session.AdaptiveState.CurrentTimeSkipPhase, session.AdaptiveState.InteractionsInCurrentEncounter);
                         }
                         else if (currentSkipPhase == TimeSkipPhase.AftermathCoupleInteraction)
                         {
@@ -1564,13 +1573,29 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                             session.AdaptiveState.CurrentTimeSkipPhase = hasMulti
                                 ? TimeSkipPhase.AdvanceTime
                                 : TimeSkipPhase.None;
-                            session.AdaptiveState.IsStateDirty = true;
+                            // B-057: synchronous persist — DB is always authoritative for time-skip state.
+                            await _stateRepository.SaveAdaptiveStateAsync(session.AdaptiveState, cancellationToken);
+                            _logger.LogInformation(
+                                "B057Trace Overflow_Aftermath_To_{Next}: Phase={Phase} Enc={Enc} Global={Global} TimeSkip={TimeSkip} IxnInEnc={IxnInEnc}",
+                                session.AdaptiveState.CurrentTimeSkipPhase, session.AdaptiveState.CurrentPhase,
+                                session.AdaptiveState.CurrentEncounterNumber, session.AdaptiveState.GlobalEncounterCount,
+                                session.AdaptiveState.CurrentTimeSkipPhase, session.AdaptiveState.InteractionsInCurrentEncounter);
                         }
                         else // AdvanceTime
                         {
                             directive = "Advance time to a new moment — a different day or time, a new context, a new circumstance. Establish ordinary life.";
                             session.AdaptiveState.CurrentTimeSkipPhase = TimeSkipPhase.None;
-                            session.AdaptiveState.IsStateDirty = true;
+                            // B-057: synchronous persist — DB is always authoritative for time-skip state.
+                            await _stateRepository.SaveAdaptiveStateAsync(session.AdaptiveState, cancellationToken);
+                            // B-058 Phase 2.3: AdvanceTime → None marks the start of the next encounter
+                            // (the next interaction will be part of the new encounter). Capture the
+                            // interaction-list index BEFORE that next interaction is appended.
+                            session.AdaptiveState.CurrentEncounterStartInteractionIndex = session.Interactions.Count;
+                            _logger.LogInformation(
+                                "B057Trace Overflow_AdvanceTime_To_None: Phase={Phase} Enc={Enc} Global={Global} TimeSkip={TimeSkip} IxnInEnc={IxnInEnc}",
+                                session.AdaptiveState.CurrentPhase, session.AdaptiveState.CurrentEncounterNumber,
+                                session.AdaptiveState.GlobalEncounterCount, session.AdaptiveState.CurrentTimeSkipPhase,
+                                session.AdaptiveState.InteractionsInCurrentEncounter);
                         }
 
                         var timeSkipInstruction = new RolePlayInteraction
@@ -1760,14 +1785,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             request.TriggeredBy,
             result.IsUserTurn);
 
-        // B-057: Save encounter state before RunRolePlayV2PipelinesAsync hydrates from DB.
-        // Detection may have advanced CurrentTimeSkipPhase / CurrentEncounterNumber
-        // earlier in this method; persist before the pipeline clobbers them.
-        if (session.AdaptiveState.IsStateDirty)
-        {
-            await _stateRepository.SaveAdaptiveStateAsync(session.AdaptiveState, cancellationToken);
-            session.AdaptiveState.IsStateDirty = false;
-        }
+        // Redundant — time-skip mutations persist synchronously at their mutation sites.
         await RunRolePlayV2PipelinesAsync(session, DecisionTrigger.InteractionStart, cancellationToken);
         // Flush the pending session save to DB before enqueueing semantic analysis jobs.
         // The job handler loads the session from DB; if we only queue the save (debounced 1s),
@@ -2276,7 +2294,8 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
             // Clear the aftermath phase so the session can continue normally.
             session.AdaptiveState.CurrentTimeSkipPhase = TimeSkipPhase.None;
-            session.AdaptiveState.IsStateDirty = true;
+            // B-057: synchronous persist — DB is always authoritative for time-skip state.
+            await _stateRepository.SaveAdaptiveStateAsync(session.AdaptiveState, cancellationToken);
             return new List<OverflowActorCandidate>();
         }
 
@@ -2438,21 +2457,10 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
     private static bool IsActorInCurrentScene(RolePlaySession session, string actorName, string? currentSceneLocation)
     {
-        if (string.IsNullOrWhiteSpace(actorName) || string.IsNullOrWhiteSpace(currentSceneLocation))
-        {
-            return false;
-        }
-
-        var location = session.AdaptiveState.CharacterLocations.FirstOrDefault(x =>
-            !string.IsNullOrWhiteSpace(x.CharacterId)
-            && string.Equals(x.CharacterId, actorName, StringComparison.OrdinalIgnoreCase));
-
-        if (location is null || string.IsNullOrWhiteSpace(location.TrueLocation))
-        {
-            return false;
-        }
-
-        return string.Equals(location.TrueLocation.Trim(), currentSceneLocation.Trim(), StringComparison.OrdinalIgnoreCase);
+        // Delegate to the shared helper for source-of-truth; map null (unknown) to false for
+        // existing callers that expect a boolean (absent/ineligible).
+        _ = currentSceneLocation; // parameter kept for backward-compatible signature
+        return RolePlayScenePresenceHelper.IsActorInScene(session, actorName) ?? false;
     }
 
     private static bool ShouldIncludePersonaInAutoRotation(RolePlaySession session, string personaName, string? currentSceneLocation)
@@ -2529,15 +2537,13 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     {
         session.AdaptiveState = await UpdateAdaptiveStateWithSemanticDiagnosticsAsync(session, interaction, cancellationToken);
 
-        // Multi-encounter Climax: per-interaction counter increment.
-        // The pipeline-scoped increment in RunRolePlayV2PipelinesAsync is additive
-        // but may not fire every turn; this ensures the running encounter count is
-        // always current when TryDetectEncounterBoundaryAsync inspects it.
-        if (session.AdaptiveState.CurrentEncounterNumber > 0
-            && session.AdaptiveState.CurrentPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.Climax)
-        {
-            session.AdaptiveState.InteractionsInCurrentEncounter++;
-        }
+        // B-057: Stamp session interaction index (0-based). Simple incrementing counter
+        // from the current interaction list count (before this interaction was added).
+        interaction.SessionInteractionIndex = session.Interactions.Count - 1; // 0-based, last item
+
+        // ---- Universal encounter tracking (B-057) ---------------------------------------
+        // Active across all phases, not just Climax. Encounter starts on first sexual
+        // content, ends on keyword/LLM completion detection.
 
         // ---- Encounter participation tracking (Change 1: sync heuristic) -----------------
         // Only track character actors (Npc, User, Custom) — System interactions
@@ -2548,6 +2554,26 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             && HasSexualActivityContent(interaction.Content))
         {
             interaction.WasInSexScene = true;
+
+            // Detect encounter start: first sexual content with no active encounter.
+            if (session.AdaptiveState.CurrentEncounterNumber == 0)
+            {
+                session.AdaptiveState.CurrentEncounterNumber = session.AdaptiveState.GlobalEncounterCount + 1;
+
+                // B-058 Phase 2.2 (non-Climax encounters): capture the start interaction index
+                // for encounters that begin in non-Climax phases. Climax-entry captures this in
+                // the lifecycle transition handler; first-sexual-content in BuildUp / Approaching /
+                // Committed captures it here. This interaction is the first interaction of the
+                // encounter, so the start index is the index it will occupy once appended.
+                if (session.AdaptiveState.CurrentEncounterStartInteractionIndex == 0)
+                {
+                    session.AdaptiveState.CurrentEncounterStartInteractionIndex = session.Interactions.Count;
+                    _logger.LogDebug(
+                        "B058 EncounterStartIndex_FirstSexualContent: SessionId={SessionId} StartIdx={Idx} Phase={Phase}",
+                        session.Id, session.AdaptiveState.CurrentEncounterStartInteractionIndex, session.AdaptiveState.CurrentPhase);
+                }
+            }
+
             if (!session.AdaptiveState.CharacterEncounterStates.TryGetValue(actorName, out var encState))
             {
                 encState = new CharacterEncounterState();
@@ -2557,6 +2583,23 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             encState.EncounterNumber = session.AdaptiveState.CurrentEncounterNumber;
             encState.EnteredEncounterUtc ??= DateTime.UtcNow;
         }
+
+        // Per-interaction counter increment (universal, not Climax-only).
+        // MUST happen AFTER encounter start detection so the first interaction of a new
+        // encounter increments from 0 to 1 (giving index 0).
+        if (session.AdaptiveState.CurrentEncounterNumber > 0)
+        {
+            session.AdaptiveState.InteractionsInCurrentEncounter++;
+        }
+
+        // Stamp per-interaction encounter metadata (B-057).
+        interaction.EncounterNumberAtCreation = session.AdaptiveState.CurrentEncounterNumber > 0
+            ? session.AdaptiveState.CurrentEncounterNumber
+            : null;
+        interaction.InteractionIndexInEncounter = session.AdaptiveState.CurrentEncounterNumber > 0
+            ? session.AdaptiveState.InteractionsInCurrentEncounter - 1 // 0-based, already incremented above
+            : null;
+        interaction.ExplicitnessLevelAtCreation = session.LastResolvedIntensityLabel;
 
         await TryDetectEncounterBoundaryAsync(session, interaction, session.AdaptiveState, cancellationToken);
     }
@@ -2674,6 +2717,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             var seededProfile = CharacterStatProfileV2Accessor.CreateDefault(character.Id);
             CharacterStatProfileV2Accessor.SetAllStats(seededProfile, mergedStats);
             seededProfile.BaselineStats = new Dictionary<string, int>(mergedStats, StringComparer.OrdinalIgnoreCase);
+            seededProfile.CharacterRole = CharacterRoleCatalog.Normalize(character.Role);
             session.AdaptiveState.CharacterStats[character.Name.Trim()] = seededProfile;
         }
 
@@ -3020,7 +3064,18 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         DreamGenClone.Domain.RolePlay.NarrativePhase? manualPhaseAdvanceTarget = null)
     {
         var previousV2State = await _stateRepository.LoadAdaptiveStateAsync(session.Id, cancellationToken);
+        _logger.LogInformation(
+            "B057Trace Pipeline_LoadedFromDB: Phase={Phase} Enc={Enc} Global={Global} TimeSkip={TimeSkip} IxnInEnc={IxnInEnc} Loaded={Loaded}",
+            previousV2State?.CurrentPhase.ToString() ?? "(null)", previousV2State?.CurrentEncounterNumber ?? -1,
+            previousV2State?.GlobalEncounterCount ?? -1, previousV2State?.CurrentTimeSkipPhase ?? (object)"(null)",
+            previousV2State?.InteractionsInCurrentEncounter ?? -1, previousV2State is not null);
+
         var v2State = HydrateV2State(session, previousV2State);
+
+        _logger.LogInformation(
+            "B057Trace Pipeline_AfterHydrate: Phase={Phase} Enc={Enc} Global={Global} TimeSkip={TimeSkip} IxnInEnc={IxnInEnc}",
+            v2State.CurrentPhase, v2State.CurrentEncounterNumber, v2State.GlobalEncounterCount,
+            v2State.CurrentTimeSkipPhase, v2State.InteractionsInCurrentEncounter);
 
         // Opening → BuildUp: the opening period runs for the first 3 turns with husband-wife
         // guidance. After ObservedTurnCount exceeds OpeningPeriodTurnCount, advance to BuildUp
@@ -3645,6 +3700,18 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             {
                 await _stateRepository.SaveTransitionEventAsync(lifecycle.TransitionEvent, cancellationToken);
 
+                // B-058 Phase 2.2: capture encounter-start interaction index on Climax phase entry.
+                // The 1st encounter of an arc begins at the first Climax interaction; subsequent
+                // encounters are captured at the AdvanceTime → None transition (Phase 2.3).
+                if (lifecycle.TransitionEvent.ToPhase == NarrativePhase.Climax)
+                {
+                    v2State.CurrentEncounterStartInteractionIndex = session.Interactions.Count;
+                    session.AdaptiveState.CurrentEncounterStartInteractionIndex = session.Interactions.Count;
+                    _logger.LogDebug(
+                        "B058 EncounterStartIndex_ClimaxEntry: SessionId={SessionId} StartIdx={Idx} Cycle={Cycle}",
+                        session.Id, v2State.CurrentEncounterStartInteractionIndex, v2State.CycleIndex);
+                }
+
                 if (_encounterSummaryService is not null)
                 {
                     // Build an allowlist of characters that belong to the scenario and persona.
@@ -4222,10 +4289,13 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             && priorPhase != DreamGenClone.Domain.RolePlay.NarrativePhase.Climax)
         {
             await EnsureEncounterCompletedMappingAsync(beatCursorTheme!, session.Id, cancellationToken);
-            v2State.CurrentEncounterNumber = 1;
+            // B-057: Use global counter for numbering — encounters numbered globally:
+            // encounter 1 (BuildUp), encounter 2 (Climax), etc.
+            v2State.CurrentEncounterNumber = v2State.GlobalEncounterCount + 1;
             v2State.InteractionsInCurrentEncounter = 0;
-            _logger.LogInformation("MultiEncounterClimax initialized: SessionId={SessionId} ThemeId={ThemeId} EncounterNumber=1", session.Id, v2State.ActiveScenarioId);
-            await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord { SessionId = session.Id, EventKind = "MultiEncounterClimaxInitialized", Severity = "Info", Summary = $"Multi-encounter Climax initialized (theme={v2State.ActiveScenarioId}, encounter=1)", MetadataJson = JsonSerializer.Serialize(new { themeId = v2State.ActiveScenarioId, encounterNumber = 1, priorPhase = priorPhase?.ToString(), finalPhase = finalPhase.ToString() }) }, cancellationToken);
+            var climacticEncounterNumber = v2State.CurrentEncounterNumber;
+            _logger.LogInformation("MultiEncounterClimax initialized: SessionId={SessionId} ThemeId={ThemeId} EncounterNumber={EncounterNumber}", session.Id, v2State.ActiveScenarioId, climacticEncounterNumber);
+            await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord { SessionId = session.Id, EventKind = "MultiEncounterClimaxInitialized", Severity = "Info", Summary = $"Multi-encounter Climax initialized (theme={v2State.ActiveScenarioId}, encounter={climacticEncounterNumber})", MetadataJson = JsonSerializer.Serialize(new { themeId = v2State.ActiveScenarioId, encounterNumber = climacticEncounterNumber, priorPhase = priorPhase?.ToString(), finalPhase = finalPhase.ToString() }) }, cancellationToken);
         }
         else if (isMultiEncounterClimax
             && finalPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.Climax
@@ -4245,8 +4315,19 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         // created after this pipeline execution.
         v2State.LastEvaluationUtc = DateTime.UtcNow;
 
+        _logger.LogInformation(
+            "B057Trace Pipeline_PreFinalPersist: Phase={Phase} Enc={Enc} Global={Global} TimeSkip={TimeSkip} IxnInEnc={IxnInEnc}",
+            v2State.CurrentPhase, v2State.CurrentEncounterNumber, v2State.GlobalEncounterCount,
+            v2State.CurrentTimeSkipPhase, v2State.InteractionsInCurrentEncounter);
+
         await _stateRepository.SaveAdaptiveStateAsync(v2State, cancellationToken);
         SyncSessionAdaptiveStateFromV2(session, v2State);
+
+        _logger.LogInformation(
+            "B057Trace Pipeline_WriteBackToSession: Phase={Phase} Enc={Enc} Global={Global} TimeSkip={TimeSkip} IxnInEnc={IxnInEnc}",
+            session.AdaptiveState.CurrentPhase, session.AdaptiveState.CurrentEncounterNumber,
+            session.AdaptiveState.GlobalEncounterCount, session.AdaptiveState.CurrentTimeSkipPhase,
+            session.AdaptiveState.InteractionsInCurrentEncounter);
     }
 
     private static DreamGenClone.Domain.RolePlay.AdaptiveScenarioState HydrateV2State(
@@ -4360,37 +4441,20 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             .ToList();
         mapped.RebuildCharacterStatsCache();
 
-        // FR-006: Persist multi-encounter time-skip state across save/load cycles.
-        // Restore the persisted phase/encounter counters from the V2 snapshot so a
-        // session reopened after browser close picks up exactly where it left off.
-        // AlignPromptNarrativeStateWithV2Async intentionally skips these fields during
-        // mid-pipeline reloads to avoid overwriting in-progress transitions — this
-        // one-time restore in HydrateV2State is the authoritative load path.
-        //
-        // CRITICAL: RunRolePlayV2PipelinesAsync calls this method AFTER detection may have
-        // already fired in the same turn (UpdateStateAndDetectEncounterAsync runs first).
-        // We must NOT clobber in-memory state that the detection just advanced. Rule:
-        //   - If in-memory has a newer phase transition (CloseScene/AdvanceTime/Aftermath),
-        //     preserve it — the DB hasn't been flushed yet.
-        //   - If in-memory has a higher encounter number (detection just advanced it),
-        //     preserve it.
-        //   - Otherwise (in-memory is None/0 and DB has non-None/non-zero), restore from DB.
-        if (mapped.CurrentTimeSkipPhase != TimeSkipPhase.None
-            && previousState.CurrentTimeSkipPhase == TimeSkipPhase.None)
-        {
-            // In-memory has an active phase transition that the DB hasn't seen yet — keep it.
-        }
-        else if (mapped.CurrentEncounterNumber > previousState.CurrentEncounterNumber)
-        {
-            // In-memory encounter counter was just advanced by detection — keep it.
-        }
-        else
-        {
-            mapped.CurrentTimeSkipPhase = previousState.CurrentTimeSkipPhase;
-            mapped.CurrentEncounterNumber = previousState.CurrentEncounterNumber;
-            mapped.InteractionsInCurrentEncounter = previousState.InteractionsInCurrentEncounter;
-            mapped.LastEncounterEvidenceSpan = previousState.LastEncounterEvidenceSpan;
-        }
+        // B-057: Restore time-skip and encounter tracking state from the V2 snapshot.
+        // DB is always authoritative for these fields because every mutation sync-persists.
+        // Note: detection (UpdateStateAndDetectEncounterAsync) runs AFTER the pipeline
+        // in the same turn (ContinueAsAsync multi-actor loop, SubmitPromptAsync),
+        // so the V2 snapshot loaded here reflects the PREVIOUS turn's detection state.
+        // That is correct — this turn's detection persists for the NEXT turn's pipeline.
+        // GlobalEncounterCount must also be restored so the Climax entry code
+        // can compute CurrentEncounterNumber = GlobalEncounterCount + 1 correctly.
+        mapped.CurrentTimeSkipPhase = previousState.CurrentTimeSkipPhase;
+        mapped.CurrentEncounterNumber = previousState.CurrentEncounterNumber;
+        mapped.InteractionsInCurrentEncounter = previousState.InteractionsInCurrentEncounter;
+        // B-058 Phase 5.3: LastEncounterEvidenceSpan removed; the HusbandAftermathInjector now
+        // reads from EncounterCompletion summaries (already restored via LoadEncounterSummariesAsync).
+        mapped.GlobalEncounterCount = previousState.GlobalEncounterCount;
 
         mapped.CurrentBeatCode = previousState.CurrentBeatCode;
         mapped.TurnsInCurrentBeat = previousState.TurnsInCurrentBeat;
@@ -4767,22 +4831,57 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             }
         }
 
-        // ---- B-056: capture evidence span for aftermath injector ----
-        if (isAftermath)
-        {
-            state.LastEncounterEvidenceSpan = detected.EvidenceSpan;
-        }
+        // B-058 Phase 5.3: LastEncounterEvidenceSpan removed — the HusbandAftermathInjector now
+        // reads from the most recent EncounterCompletion summary (built below), so there is
+        // no separate evidence-span handoff here. The detection evidence is preserved on the
+        // EncounterCompletion record's DetectionEvidence field.
 
         // Tag the interaction that triggered the boundary.
         interaction.WasEncounterBoundaryDetected = true;
 
         // ---- Multi-encounter boundary advance ----
+        _logger.LogInformation(
+            "B057Trace BoundaryAdvance_Enter: Phase={Phase} Enc={Enc} Global={Global} TimeSkip={TimeSkip} IxnInEnc={IxnInEnc}",
+            state.CurrentPhase, state.CurrentEncounterNumber, state.GlobalEncounterCount,
+            state.CurrentTimeSkipPhase, state.InteractionsInCurrentEncounter);
+
         var before = state.CurrentEncounterNumber;
         state.CurrentEncounterNumber++;
+        state.GlobalEncounterCount++;
         state.InteractionsInCurrentEncounter = 0;
         state.CurrentTimeSkipPhase = TimeSkipPhase.CloseScene;
         state.CharacterEncounterStates.Clear();
-        state.IsStateDirty = true;
+
+        // B-057: synchronous persist — DB is always authoritative for time-skip state.
+        await _stateRepository.SaveAdaptiveStateAsync(state, cancellationToken);
+
+        // B-058 Phase 2.4: write EncounterCompletion memory at every encounter boundary detection
+        // (universal — fire in any phase, not just Climax). Capture the inclusive interaction index
+        // range of the encounter that just ended, so async LLM enrichment can load those interactions.
+        state.LastEncounterEndInteractionIndex = session.Interactions.Count - 1;
+        try
+        {
+            await GenerateEncounterCompletionSummariesAsync(
+                session, state, encounterNumber: before + 1,
+                detectionEvidence: detected.EvidenceSpan,
+                startInteractionIndex: state.CurrentEncounterStartInteractionIndex,
+                endInteractionIndex: state.LastEncounterEndInteractionIndex,
+                themeId: theme.Id,
+                cancellationToken: cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            // Encounter-completion memory is observability/recall only — never fail the
+            // detection path. Log and continue; the boundary still advances.
+            _logger.LogWarning(ex,
+                "B058 EncounterCompletion generation failed for session {SessionId} encounter {EncNum}. Boundary advance still succeeded.",
+                session.Id, before + 1);
+        }
+
+        _logger.LogInformation(
+            "B057Trace BoundaryAdvance_Persisted: Phase={Phase} Enc={Enc} Global={Global} TimeSkip={TimeSkip} IxnInEnc={IxnInEnc}",
+            state.CurrentPhase, state.CurrentEncounterNumber, state.GlobalEncounterCount,
+            state.CurrentTimeSkipPhase, state.InteractionsInCurrentEncounter);
 
         _logger.LogInformation("EncounterBoundaryAdvanced: SessionId={SessionId} {Before} -> {After} (conf={Conf})",
             session.Id, before, state.CurrentEncounterNumber, detected.Confidence);
@@ -4808,6 +4907,125 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         }
 
         return ContainsClimaxCompletionCommand(latest.Content);
+    }
+
+    /// <summary>
+    /// B-058 Phase 2.4: generate and persist EncounterCompletion template summaries at the
+    /// moment an encounter boundary is detected (universal — any phase). NPCs detected
+    /// mid-session are included via CharacterSnapshots keys. Enqueues async LLM enhancement
+    /// jobs for each record (same pattern as ArcCompletion).
+    /// </summary>
+    private async Task GenerateEncounterCompletionSummariesAsync(
+        RolePlaySession session,
+        AdaptiveScenarioState v2State,
+        int encounterNumber,
+        string detectionEvidence,
+        int startInteractionIndex,
+        int endInteractionIndex,
+        string themeId,
+        CancellationToken cancellationToken)
+    {
+        if (_encounterSummaryService is null)
+        {
+            _logger.LogDebug("B058 EncounterCompletion skipped — no IEncounterSummaryService registered");
+            return;
+        }
+
+        // B-058 Phase 7.4 NPC inclusion: build allowlist from CharacterSnapshots (so NPCs
+        // detected mid-session get memory) plus persona + scenario-defined characters.
+        var allowed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var c in v2State.CharacterSnapshots)
+        {
+            if (!string.IsNullOrWhiteSpace(c.CharacterId))
+                allowed.Add(c.CharacterId);
+        }
+        if (!string.IsNullOrWhiteSpace(session.PersonaName))
+            allowed.Add(session.PersonaName);
+        if (!string.IsNullOrWhiteSpace(session.ScenarioId))
+        {
+            var scenario = await _scenarioService.GetScenarioAsync(session.ScenarioId);
+            if (scenario is not null)
+            {
+                foreach (var c in scenario.Characters)
+                {
+                    if (!string.IsNullOrWhiteSpace(c.Name))
+                        allowed.Add(c.Name);
+                }
+            }
+        }
+
+        var rangeCount = Math.Max(0, endInteractionIndex - startInteractionIndex + 1);
+        var rangeInteractions = rangeCount > 0
+            ? session.Interactions
+                .Where(x => !x.IsExcluded)
+                .Skip(startInteractionIndex)
+                .Take(rangeCount)
+                .ToList()
+            : [];
+
+        // Build per-character interaction text so each character's memory reflects only
+        // their own actions and perspective, not a generic omnibus of the full encounter.
+        var characterInteractionsTexts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var ix in rangeInteractions)
+        {
+            if (ix.InteractionType == InteractionType.System || string.IsNullOrWhiteSpace(ix.ActorName))
+                continue;
+            var line = $"[{ix.InteractionType}] {ix.ActorName}: {ix.Content}";
+            if (characterInteractionsTexts.TryGetValue(ix.ActorName!, out var existing))
+                characterInteractionsTexts[ix.ActorName!] = existing + "\n" + line;
+            else
+                characterInteractionsTexts[ix.ActorName!] = line;
+        }
+
+        var summaries = await _encounterSummaryService.GenerateEncounterCompletionTemplatesAsync(
+            v2State, encounterNumber, detectionEvidence,
+            startInteractionIndex, endInteractionIndex,
+            characterInteractionsTexts,
+            allowed, cancellationToken);
+
+        foreach (var summary in summaries)
+        {
+            await _encounterSummaryService.SaveAsync(summary, cancellationToken);
+            v2State.EncounterSummaries.Add(summary);
+
+            // Enqueue async LLM enrichment (Phase 3 will refine the prompt + model slot).
+            // Dedup key matches the existing pattern: enc-summary:sessionId:summaryId
+            if (_backgroundJobQueue is not null && _memoryOptions?.Value.EnableLlmSummaryEnhancement == true)
+            {
+                _backgroundJobQueue.Enqueue(
+                    BackgroundJobTypes.EncounterSummaryEnhancement,
+                    JsonSerializer.Serialize(new EncounterSummaryJobPayload
+                    {
+                        SessionId   = session.Id,
+                        CycleIndex  = v2State.CycleIndex,
+                        SummaryId   = summary.Id,
+                        SummaryType = summary.SummaryType.ToString()
+                    }),
+                    dedupeKey: $"enc-summary:{session.Id}:{summary.Id}");
+            }
+        }
+
+        if (summaries.Count > 0)
+        {
+            _logger.LogInformation(
+                "B058 EncounterCompletion: {Count} records written + {Queued} enrichment jobs enqueued for session {SessionId} encounter {EncNum}",
+                summaries.Count, summaries.Count, session.Id, encounterNumber);
+            await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+            {
+                SessionId = session.Id,
+                EventKind = "EncounterCompletionSummariesWritten",
+                Severity = "Info",
+                Summary = $"EncounterCompletion summaries written: {summaries.Count} for encounter {encounterNumber}",
+                MetadataJson = JsonSerializer.Serialize(new
+                {
+                    encounterNumber,
+                    startInteractionIndex,
+                    endInteractionIndex,
+                    characterIds = summaries.Select(s => s.CharacterId).ToArray(),
+                    themeId
+                })
+            }, cancellationToken);
+        }
     }
 
     private static bool IsReturnBeatCompletionRequested(RolePlaySession session)

@@ -128,14 +128,30 @@ public sealed class AdaptiveScenarioState
     /// </summary>
     public int TurnsInCurrentBeat { get; set; }
 
-    // ---- Multi-encounter Climax state -----------------------------------------------------
-    // Only meaningful when CurrentPhase is Climax AND the active theme has
-    // [ClimaxMode:multi-encounter] in its Climax phase guidance. Dormant (0) for all other
-    // themes and phases. Drives cross-encounter escalation language in the prompt.
+    // ---- Universal encounter tracking ----------------------------------------------------
+    // Active across all phases, not just Climax. Encounters start on first sexual content,
+    // end on keyword/LLM completion detection. GlobalEncounterCount is cumulative for the
+    // session (never decremented); CurrentEncounterNumber tracks the currently active
+    // encounter (0 = no active encounter).
+
     /// <summary>
-    /// 1-based index of the active encounter within a multi-encounter Climax phase.
-    /// 0 = not in multi-encounter Climax (dormant). Incremented when the sync
-    /// encounter-completed semantic detection fires.
+    /// Cumulative count of ALL completed encounters in this session.
+    /// Incremented on every encounter boundary detection (any phase, any marker).
+    /// Never decremented. Persisted in DB.
+    /// </summary>
+    public int GlobalEncounterCount { get; set; }
+
+    // ---- Multi-encounter Climax state -----------------------------------------------------
+    // CurrentEncounterNumber is now repurposed as a universal active-encounter tracker.
+    // 0 = no active encounter (inactive/dormant). When non-zero, an encounter is in progress
+    // and tracked across all phases. Multi-encounter Climax uses GlobalEncounterCount + 1
+    // for numbering instead of hardcoded value 1.
+    /// <summary>
+    /// 1-based index of the currently active encounter, universal across all phases.
+    /// 0 = no active encounter (dormant). Set to GlobalEncounterCount + 1 on first
+    /// sexual content in any phase, or on Climax entry for multi-encounter themes.
+    /// Set to 0 when the encounter boundary fires (encounter no longer active)
+    /// or when leaving Climax / entering Reset.
     /// </summary>
     public int CurrentEncounterNumber { get; set; }
 
@@ -223,33 +239,46 @@ public sealed class AdaptiveScenarioState
         = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Set to true when encounter boundary state changes (CurrentEncounterNumber,
-    /// InteractionsInCurrentEncounter, CurrentTimeSkipPhase, LastEncounterEvidenceSpan)
-    /// are made in-memory but not yet persisted. Flushed at turn completion on success;
-    /// discarded on turn failure. Not serialized — always starts false on load.
+    /// Set to true when state changes (character stats, theme scores, non-time-skip
+    /// phase transitions, location state) are made in-memory but not yet persisted.
+    /// Time-skip mutations (CurrentEncounterNumber, CurrentTimeSkipPhase, etc.)
+    /// persist synchronously via B-057 and do NOT use this dirty flag.
+    /// Flushed at turn completion on success; discarded on turn failure.
+    /// Not serialized — always starts false on load.
     /// </summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public bool IsStateDirty { get; set; }
 
     // ---- Last encounter evidence span (B-056 aftermath closure) ---------------------------
+    // B-058 Phase 5.3: LastEncounterEvidenceSpan has been REMOVED from the in-memory state.
+    // The husband-aftermath contrast directive now reads from the most recent
+    // EncounterCompletion summary (LlmSummary ?? TemplateSummary ?? DetectionEvidence)
+    // via HusbandAftermathInjector. The DB column `LastEncounterEvidenceSpan TEXT` is kept
+    // for backward compatibility with existing rows but no longer written or read.
+
+    // ---- B-058 encounter interaction-range tracking (runtime only, not persisted) ---------
+    // B-058 writes an EncounterCompletion summary at every encounter-boundary detection.
+    // The summary captures the interaction-list index range of the encounter so async LLM
+    // enrichment can load the actual interactions in that range (not TakeLast(30)).
+    // These fields are runtime-only — they reconstruct on session reload from
+    // GlobalEncounterCount / CurrentEncounterNumber state (B-057) and the persisted
+    // EncounterSummaryRecord rows.
     /// <summary>
-    /// Verbatim evidence-span text captured at encounter-boundary detection time
-    /// and persisted in the LastEncounterEvidenceSpan TEXT column. Used by the
-    /// HusbandAftermathInjector (priority 85) to construct the wife-husband contrast
-    /// directive ("You just {EvidenceSpan}. Get dressed, return to the normal setting...").
-    ///
-    /// Lifecycle:
-    ///   - Set by TryDetectEncounterBoundaryAsync when an encounter boundary fires AND
-    ///     the [Aftermath:husband-contrast] theme marker is present.
-    ///   - Persists across the CloseScene leg (if any) until the AftermathCoupleInteraction
-    ///     leg consumes it via the injector.
-    ///   - Restored on HydrateV2State session reload.
-    ///   - NULL is valid (represents "no aftermath context captured yet"); the injector
-    ///     falls back to "had an intimate encounter with another man" when null.
-    ///
-    /// Dirty-flag contract: mutations MUST set IsStateDirty = true.
+    /// Index into <c>RolePlaySession.Interactions</c> of the first interaction in the
+    /// currently active encounter (inclusive). Set when an encounter starts:
+    /// 1st encounter = Climax entry (or first sexual content in non-Climax); 2nd+ =
+    /// AdvanceTime → None transition. [JsonIgnore] — not persisted.
     /// </summary>
-    public string? LastEncounterEvidenceSpan { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore]
+    public int CurrentEncounterStartInteractionIndex { get; set; }
+
+    /// <summary>
+    /// Staging field for the inclusive ending interaction index of the encounter that just
+    /// completed detection. Set at detection time (= <c>Interactions.Count - 1</c>) before
+    /// the synchronous EncounterCompletion record is written. [JsonIgnore] — not persisted.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public int LastEncounterEndInteractionIndex { get; set; }
 
     // ---- Encounter participation helper -----------------------------------------------------
     /// <summary>
