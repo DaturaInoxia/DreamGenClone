@@ -1,6 +1,7 @@
 using DreamGenClone.Application.StoryAnalysis.Models;
 using DreamGenClone.Domain.RolePlay;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace DreamGenClone.Web.Application.RolePlay;
 
@@ -18,7 +19,7 @@ public static class RolePlayAssistantPrompts
         return activeTheme.PhaseGuidance
             .Where(x => string.Equals(x.Phase.ToString(), phase, StringComparison.OrdinalIgnoreCase))
             .Where(x => !string.IsNullOrWhiteSpace(x.GuidanceText))
-            .Select(x => x.GuidanceText.Trim())
+            .Select(x => Regex.Replace(x.GuidanceText.Trim(), @"\[Aftermath:husband-contrast\]", "", RegexOptions.IgnoreCase).Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
     }

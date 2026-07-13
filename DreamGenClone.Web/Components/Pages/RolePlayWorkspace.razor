@@ -7869,6 +7869,18 @@ private void CloseInteractionInfo()
                                         {
                                             <span class="rw-flag-icon rw-flag-pinned" title="This interaction is pinned for AI context retention">&#x1F4CC;</span>
                                         }
+                                        @if (interaction.WasEncounterStart == true)
+                                        {
+                                            <span class="rw-flag-icon rw-flag-encounter-start" title="Encounter started (semantic)">&#x1F525;</span>
+                                        }
+                                        @if (interaction.WasEncounterBoundaryDetected == true)
+                                        {
+                                            <span class="rw-flag-icon rw-flag-encounter-end" title="Encounter ended (semantic)">&#x1F4A6;</span>
+                                        }
+                                        @if (interaction.EncounterNumberAtCreation.HasValue)
+                                        {
+                                            <span class="rw-flag-icon rw-flag-in-sex-scene" title="In sex scene (Interaction #@interaction.InteractionIndexInEncounter in encounter #@interaction.EncounterNumberAtCreation)">&#x1F346;</span>
+                                        }
                                     </div>
                                     <div class="rw-interaction-header-right">
                                         <div class="rw-interaction-toolbar">
@@ -8269,14 +8281,11 @@ private void CloseInteractionInfo()
                                             <div class="rw-info-row"><span class="rw-info-label">Excluded</span><span class="rw-info-value">@(infoInteraction.IsExcluded ? "Yes" : "No")</span></div>
                                             <div class="rw-info-row"><span class="rw-info-label">Pinned</span><span class="rw-info-value">@(infoInteraction.IsPinned ? "Yes" : "No")</span></div>
                                             <div class="rw-info-row"><span class="rw-info-label">Hidden</span><span class="rw-info-value">@(infoInteraction.IsHidden ? "Yes" : "No")</span></div>
-                                            @if (infoInteraction.WasInSexScene.HasValue)
-                                            {
-                                                <div class="rw-info-row"><span class="rw-info-label">In Sex Scene</span><span class="rw-info-value">@(infoInteraction.WasInSexScene.Value ? "Yes" : "No")</span></div>
-                                            }
-                                            @if (infoInteraction.WasEncounterBoundaryDetected.HasValue)
-                                            {
-                                                <div class="rw-info-row"><span class="rw-info-label">Encounter Boundary</span><span class="rw-info-value">@(infoInteraction.WasEncounterBoundaryDetected.Value ? "Yes" : "No")</span></div>
-                                            }
+                                            <div class="rw-info-row"><span class="rw-info-label">Encounter Start</span><span class="rw-info-value">@(infoInteraction.WasEncounterStart.HasValue ? (infoInteraction.WasEncounterStart.Value ? "Yes" : "No") : "—")</span></div>
+                                            <div class="rw-info-row"><span class="rw-info-label">Encounter End</span><span class="rw-info-value">@(infoInteraction.WasEncounterBoundaryDetected.HasValue ? (infoInteraction.WasEncounterBoundaryDetected.Value ? "Yes" : "No") : "—")</span></div>
+                                            <div class="rw-info-row"><span class="rw-info-label">Encounter #</span><span class="rw-info-value">@(infoInteraction.EncounterNumberAtCreation.HasValue ? infoInteraction.EncounterNumberAtCreation.Value.ToString() : "—")</span></div>
+                                            <div class="rw-info-row"><span class="rw-info-label">Interaction in Encounter</span><span class="rw-info-value">@(infoInteraction.InteractionIndexInEncounter.HasValue ? infoInteraction.InteractionIndexInEncounter.Value.ToString() : "—")</span></div>
+                                            <div class="rw-info-row"><span class="rw-info-label">In Sex Scene</span><span class="rw-info-value">@(infoInteraction.EncounterNumberAtCreation.HasValue ? "Yes" : "—")</span></div>
                                         </div>
                                         }
                                         @if (_infoPopupTab == "reasoning" && !string.IsNullOrWhiteSpace(infoInteraction.ReasoningContent))

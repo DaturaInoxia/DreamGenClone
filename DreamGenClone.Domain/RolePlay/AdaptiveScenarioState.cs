@@ -172,6 +172,14 @@ public sealed class AdaptiveScenarioState
     /// </summary>
     public TimeSkipPhase CurrentTimeSkipPhase { get; set; }
 
+    /// <summary>
+    /// True when an encounter is actively in progress (start detected, end not yet detected).
+    /// Set to true by encounter-start detection; set to false by encounter-boundary detection.
+    /// This is the single authoritative gate for encounter tracking (counter, stamps, re-entry).
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsEncounterActive { get; set; }
+
     // ---- V2 theme tracker -----------------------------------------------------------------
     /// <summary>Per-theme score state. Hydrated from <c>RolePlayV2ThemeScores</c>.</summary>
     public Dictionary<string, ThemeScoreState> ThemeScores { get; set; }
@@ -267,9 +275,8 @@ public sealed class AdaptiveScenarioState
     /// Index into <c>RolePlaySession.Interactions</c> of the first interaction in the
     /// currently active encounter (inclusive). Set when an encounter starts:
     /// 1st encounter = Climax entry (or first sexual content in non-Climax); 2nd+ =
-    /// AdvanceTime → None transition. [JsonIgnore] — not persisted.
+    /// AdvanceTime → None transition.
     /// </summary>
-    [System.Text.Json.Serialization.JsonIgnore]
     public int CurrentEncounterStartInteractionIndex { get; set; }
 
     /// <summary>

@@ -231,7 +231,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 CompletedScenarios, InteractionsSinceCommitment, InteractionsInApproaching, ScenarioCommitmentTimeUtc,
                 SemanticStepSucceeded, SemanticDeltaBreakdownsJson, SemanticStatDeltaBreakdownsJson,
                 CurrentEncounterNumber, InteractionsInCurrentEncounter, TimeSkipPending, CurrentTimeSkipPhase,
-                GlobalEncounterCount,
+                GlobalEncounterCount, CurrentEncounterStartInteractionIndex, IsEncounterActive,
                 UpdatedUtc)
             VALUES (
                 $sessionId, $activeScenarioId, $currentPhase, $interactionCountInPhase, $consecutiveLeadCount,
@@ -244,7 +244,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 $completedScenarios, $interactionsSinceCommitment, $interactionsInApproaching, $scenarioCommitmentTimeUtc,
                 $semanticStepSucceeded, $semanticDeltaBreakdownsJson, $semanticStatDeltaBreakdownsJson,
                 $currentEncounterNumber, $interactionsInCurrentEncounter, $timeSkipPending, $currentTimeSkipPhase,
-                $globalEncounterCount,
+                $globalEncounterCount, $currentEncounterStartInteractionIndex, $isEncounterActive,
                 $updatedUtc)
             ON CONFLICT(SessionId) DO UPDATE SET
                 ActiveScenarioId = excluded.ActiveScenarioId,
@@ -282,6 +282,8 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 TimeSkipPending = excluded.TimeSkipPending,
                 CurrentTimeSkipPhase = excluded.CurrentTimeSkipPhase,
                 GlobalEncounterCount = excluded.GlobalEncounterCount,
+                CurrentEncounterStartInteractionIndex = excluded.CurrentEncounterStartInteractionIndex,
+                IsEncounterActive = excluded.IsEncounterActive,
                 UpdatedUtc = excluded.UpdatedUtc;
             """;
 
@@ -329,6 +331,8 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
         command.Parameters.AddWithValue("$timeSkipPending", 0); // retired — always write 0
         command.Parameters.AddWithValue("$currentTimeSkipPhase", (int)state.CurrentTimeSkipPhase);
         command.Parameters.AddWithValue("$globalEncounterCount", state.GlobalEncounterCount);
+        command.Parameters.AddWithValue("$currentEncounterStartInteractionIndex", state.CurrentEncounterStartInteractionIndex);
+        command.Parameters.AddWithValue("$isEncounterActive", state.IsEncounterActive ? 1 : 0);
         command.Parameters.AddWithValue("$updatedUtc", nowUtc.ToString("O"));
         await command.ExecuteNonQueryAsync(cancellationToken);
 
@@ -524,7 +528,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                               SemanticStepSucceeded, SemanticDeltaBreakdownsJson, SemanticStatDeltaBreakdownsJson,
                               CharacterEncounterProfileIdsJson,
                               CurrentEncounterNumber, InteractionsInCurrentEncounter, TimeSkipPending, CurrentTimeSkipPhase,
-                              GlobalEncounterCount
+                              GlobalEncounterCount, CurrentEncounterStartInteractionIndex, IsEncounterActive
             FROM RolePlayV2AdaptiveStates
             WHERE SessionId = $sessionId;
             """;
@@ -600,7 +604,9 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
             CurrentTimeSkipPhase = reader.IsDBNull(35)
                 ? (reader.IsDBNull(34) ? TimeSkipPhase.None : (reader.GetInt32(34) != 0 ? TimeSkipPhase.CloseScene : TimeSkipPhase.None))
                 : (TimeSkipPhase)reader.GetInt32(35),
-            GlobalEncounterCount = reader.IsDBNull(36) ? 0 : reader.GetInt32(36)
+            GlobalEncounterCount = reader.IsDBNull(36) ? 0 : reader.GetInt32(36),
+            CurrentEncounterStartInteractionIndex = reader.IsDBNull(37) ? 0 : reader.GetInt32(37),
+            IsEncounterActive = reader.IsDBNull(38) ? false : reader.GetInt32(38) != 0
         };
         await reader.CloseAsync();
 
@@ -1070,6 +1076,26 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
         {
             await using var add = connection.CreateCommand();
             add.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN GlobalEncounterCount INTEGER NOT NULL DEFAULT 0";
+            await add.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        // B-059 Issue 1: CurrentEncounterStartInteractionIndex — tracks where the current
+        // encounter began (interaction list index). Persisted so HydrateV2State can restore
+        // it across session reloads and the background semantic job doesn't clobber it.
+        if (!await HasColumnAsync(connection, "RolePlayV2AdaptiveStates", "CurrentEncounterStartInteractionIndex", cancellationToken))
+        {
+            await using var add = connection.CreateCommand();
+            add.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN CurrentEncounterStartInteractionIndex INTEGER NOT NULL DEFAULT 0";
+            await add.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        // B-059 IsEncounterActive — gates per-interaction counter/stamping and re-entry
+        // guard for TryDetectEncounterStartAsync. Set true by encounter-start detection,
+        // Climax entry, and AdvanceTime→None overflow; set false by boundary detection.
+        if (!await HasColumnAsync(connection, "RolePlayV2AdaptiveStates", "IsEncounterActive", cancellationToken))
+        {
+            await using var add = connection.CreateCommand();
+            add.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN IsEncounterActive INTEGER NOT NULL DEFAULT 0";
             await add.ExecuteNonQueryAsync(cancellationToken);
         }
 

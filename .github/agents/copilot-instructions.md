@@ -54,6 +54,8 @@ Auto-generated from all feature plans. Last updated: 2026-03-17
 - SQLite via EF Core (existing `DreamGenClone.Web/data/dreamgenclone.dev.db`) — themes, sessions, guidance prose persisted in DB (001-prompt-injection-refactor)
 - C# 13 / .NET 9 (`net9.0`; target framework shared by all projects in the solution) + ASP.NET Core 9 (`Microsoft.NET.Sdk.Web`), Blazor Server, `Microsoft.Data.Sqlite 9.0.0`, Serilog stack (`Serilog.AspNetCore 9.0.0`, `Serilog.Sinks.Console 6.0.0`, `Serilog.Sinks.File 6.0.0`, `Serilog.Settings.Configuration 9.0.0`, enrichers Environment/Thread), xUnit 2.9.2 + coverlet 6.0.2. (001-husband-aftermath)
 - SQLite — existing `RolePlayV2AdaptiveStates` table; new `LastEncounterEvidenceSpan TEXT` column (Phase A2). The `CurrentTimeSkipPhase` column survives the new enum value `3` unchanged (already `INTEGER NOT NULL DEFAULT 0`). (001-husband-aftermath)
+- C# 13 / .NET 9 + ASP.NET Core Blazor (server-side), EF Core + SQLite, Serilog, existing `ISemanticEventInferenceService` (LLM inference pipeline), existing `EncounterSummaryJobHandler` (async background job infrastructure) (028-encounter-start-detection)
+- SQLite (via `DreamGenClone.Web/data/dreamgenclone.dev.db`) — no schema changes; new `WasEncounterStart` property on existing `RolePlayInteraction` entity (028-encounter-start-detection)
 
 - C# / .NET 9 (`net9.0`) + ASP.NET Core Blazor Server, `Microsoft.Data.Sqlite`, `Microsoft.Extensions.*`, Serilog (`Serilog.AspNetCore`, `Serilog.Settings.Configuration`, sinks/enrichers) (001-roleplay-session-screens)
 
@@ -74,9 +76,9 @@ tests/
 C# / .NET 9 (`net9.0`): Follow standard conventions
 
 ## Recent Changes
+- 028-encounter-start-detection: Added C# 13 / .NET 9 + ASP.NET Core Blazor (server-side), EF Core + SQLite, Serilog, existing `ISemanticEventInferenceService` (LLM inference pipeline), existing `EncounterSummaryJobHandler` (async background job infrastructure)
 - 001-husband-aftermath: Added C# 13 / .NET 9 (`net9.0`; target framework shared by all projects in the solution) + ASP.NET Core 9 (`Microsoft.NET.Sdk.Web`), Blazor Server, `Microsoft.Data.Sqlite 9.0.0`, Serilog stack (`Serilog.AspNetCore 9.0.0`, `Serilog.Sinks.Console 6.0.0`, `Serilog.Sinks.File 6.0.0`, `Serilog.Settings.Configuration 9.0.0`, enrichers Environment/Thread), xUnit 2.9.2 + coverlet 6.0.2.
 - 001-prompt-injection-refactor: Added C# 12, .NET 9 + ASP.NET Core (Blazor), Serilog, Entity Framework Core (SQLite), existing domain models under `DreamGenClone.*` projects
-- 001-split-time-skip: Added C# 13 / .NET 9 + ASP.NET Core (Blazor), Microsoft.Data.Sqlite, Serilog
 
 
 <!-- MANUAL ADDITIONS START -->

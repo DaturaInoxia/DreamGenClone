@@ -147,7 +147,7 @@ public sealed class EncounterSummaryJobHandler : IBackgroundJobHandler
                 continue;
             }
 
-            string prompt = record.SummaryType switch
+            var prompt = record.SummaryType switch
             {
                 EncounterSummaryType.PhaseMilestone =>
                     BuildMilestonePrompt(record, recentInteractions),
@@ -157,6 +157,14 @@ public sealed class EncounterSummaryJobHandler : IBackgroundJobHandler
                     BuildEncounterCompletionPrompt(record, session),
                 _ => throw new InvalidOperationException($"Unsupported summary type {record.SummaryType}")
             };
+
+            if (prompt is null)
+            {
+                _logger.LogInformation(
+                    "EncounterSummaryJobHandler: skipping record {RecordId} for character {CharacterId} — no interactions in range [{StartIdx}-{EndIdx}]",
+                    record.Id, record.CharacterId, record.StartInteractionIndex, record.EndInteractionIndex);
+                continue;
+            }
 
             await EnhanceRecordAsync(record, prompt, resolvedModel, payload, cancellationToken);
         }
@@ -227,7 +235,8 @@ public sealed class EncounterSummaryJobHandler : IBackgroundJobHandler
     /// TakeLast(30) on all interactions, load the actual interactions in the encounter's
     /// inclusive index range so the LLM has the complete encounter history.
     /// </summary>
-    private static string BuildEncounterCompletionPrompt(
+    /// <returns>Null when character has zero interactions in the encounter range — no memory to generate.</returns>
+    private static string? BuildEncounterCompletionPrompt(
         EncounterSummaryRecord record,
         RolePlaySession session)
     {
@@ -236,33 +245,51 @@ public sealed class EncounterSummaryJobHandler : IBackgroundJobHandler
             .Where(x => !x.IsExcluded)
             .Skip(record.StartInteractionIndex)
             .Take(rangeCount)
+            // Filter to this character's own perspective only — prevents POV confusion
+            // where Dean's memory prompt would include Becky's first-person text.
+            .Where(x => string.Equals(x.ActorName, record.CharacterId, StringComparison.OrdinalIgnoreCase))
             .Select(x => $"[{x.InteractionType}] {x.ActorName}: {x.Content}")
             .ToList();
 
-        var interactionsText = encounterInteractions.Count > 0
-            ? string.Join("\n", encounterInteractions)
-            : "(no interactions available for this encounter range)";
+        if (encounterInteractions.Count == 0)
+            return null; // No interactions = no memory to generate
 
-        var displayName = !string.IsNullOrWhiteSpace(record.DetectionEvidence)
-            ? record.DetectionEvidence
-            : "(no detection evidence captured)";
+        var interactionsText = string.Join("\n", encounterInteractions);
+
         var totalInArc = session.AdaptiveState?.GlobalEncounterCount > 0
             ? session.AdaptiveState.GlobalEncounterCount
             : record.EncounterNumber;
 
+        var characterRole = session.AdaptiveState?.CharacterStats
+            .TryGetValue(record.CharacterId, out var statBlock) == true
+            ? statBlock.CharacterRole ?? "Unknown"
+            : "Unknown";
+
         return $"""
-            You are writing a memory record for a single encounter in a roleplay session.
+            You are writing a first-person memory for {record.CharacterId}.
+            Describe what they actually experienced, saw, heard, felt, noticed.
+
+            If interactions involve sexual activity, be explicit and vivid:
+            - WHO was involved and their roles
+            - WHAT physical acts occurred and in which SEX POSITIONS (missionary, doggy, cowgirl, standing, etc.)
+            - FEMALE ORGASMS — did she come, how many times, physical evidence
+            - MALE ORGASM — did he ejaculate, and WHERE (inside her, on her body, pulled out, elsewhere)
+            - SENSORY & EMOTIONAL details
+
+            If nothing notable occurred, describe their ordinary experience.
+            For unusual observations (sounds, absences, changes in others),
+            include those naturally.
 
             Character: {record.CharacterId}
-            Encounter {record.EncounterNumber} of arc {record.CycleIndex + 1} (encounter {record.EncounterNumber} of {totalInArc} total in session)
-            Phase when encounter ended: {record.FromPhase}
-            Scene: {(string.IsNullOrWhiteSpace(record.SceneLocation) ? "unknown location" : record.SceneLocation)}
-            Detection evidence: {displayName}
+            Character role: {characterRole}
+            Encounter number: {record.EncounterNumber} of {totalInArc} in this arc
+            Location: {(string.IsNullOrWhiteSpace(record.SceneLocation) ? "unknown location" : record.SceneLocation)}
 
-            The interactions from this specific encounter (in order):
+            The interactions involving {record.CharacterId} during this encounter (in order):
             {interactionsText}
 
-            Write 2-3 concise sentences from {record.CharacterId}'s perspective describing what happened during this encounter (encounter {record.EncounterNumber} of {totalInArc}). Include: who was present, where it happened, what physical acts occurred (flashing, hands, oral, intercourse), positions used, and orgasm details (especially male orgasm details). Focus on sensory and emotional impact so the character can recall this in their internal dialogue and actions. Base your summary on the interactions above. Write in third person past tense.
+            Write 2-4 sentences in FIRST PERSON ("I...") from {record.CharacterId}'s perspective.
+            Base the memory ONLY on the interactions above.
             """;
     }
 
@@ -277,13 +304,31 @@ public sealed class EncounterSummaryJobHandler : IBackgroundJobHandler
         {
             try
             {
+                _logger.LogInformation(
+                    "EncounterSummaryJobHandler: enrichment request record={RecordId} type={SummaryType} charId={CharacterId} promptChars={PromptLen}",
+                    record.Id, record.SummaryType, record.CharacterId, prompt.Length);
+                _logger.LogInformation(
+                    "EncounterSummaryJobHandler: enrichment prompt record={RecordId}{NewLine}--- PROMPT ---{NewLine}{Prompt}{NewLine}--- END PROMPT ---",
+                    record.Id, Environment.NewLine, prompt, Environment.NewLine);
                 var llmSummary = await _completionClient.GenerateAsync(prompt, resolvedModel, cancellationToken);
                 if (!string.IsNullOrWhiteSpace(llmSummary))
                 {
+                    _logger.LogInformation(
+                        "EncounterSummaryJobHandler: enrichment response record={RecordId} responseChars={ResponseLen}",
+                        record.Id, llmSummary.Length);
+                    _logger.LogInformation(
+                        "EncounterSummaryJobHandler: enrichment response record={RecordId}{NewLine}--- RESPONSE ---{NewLine}{Response}{NewLine}--- END RESPONSE ---",
+                        record.Id, Environment.NewLine, llmSummary, Environment.NewLine);
                     await _encounterSummaryService.UpdateLlmSummaryAsync(record.Id, llmSummary.Trim(), DateTime.UtcNow, cancellationToken);
                     _logger.LogInformation(
                         "Encounter summary LLM enhancement complete: {RecordId} type={SummaryType} charId={CharacterId} session={SessionId} cycle={CycleIndex}",
                         record.Id, record.SummaryType, record.CharacterId, payload.SessionId, payload.CycleIndex);
+                }
+                else
+                {
+                    _logger.LogWarning(
+                        "EncounterSummaryJobHandler: enrichment returned empty response record={RecordId} type={SummaryType} charId={CharacterId}",
+                        record.Id, record.SummaryType, record.CharacterId);
                 }
                 return;
             }
