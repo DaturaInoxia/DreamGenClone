@@ -105,4 +105,11 @@ public sealed class RolePlayInteraction
     /// Captured from session.LastResolvedIntensityLabel at creation time.
     /// </summary>
     public string? ExplicitnessLevelAtCreation { get; set; }
+
+    /// <summary>
+    /// The full LLM prompt text sent for this interaction, with the prior interactions
+    /// block trimmed to first N + last N characters for storage efficiency.
+    /// Null means "not captured" (pre-deployment interactions or best-effort capture failure).
+    /// </summary>
+    public string? PromptText { get; set; }
 }

@@ -122,6 +122,23 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
 
         var prompt = await BuildPromptAsync(session, actor, customActorName, intent, promptText, cancellationToken,
             turnIndex, positionInTurn, turnActorCount);
+        
+        // Capture prompt text for storage (best-effort, truncated to reduce size)
+        string? capturedPromptText = null;
+        try
+        {
+            capturedPromptText = PromptTextTruncation.TrimInteractionHistoryBlock(prompt);
+            if (capturedPromptText != null)
+            {
+                _logger.LogInformation("Successfully captured prompt text for interaction in session {SessionId}, length: {Length}", 
+                    session.Id, capturedPromptText.Length);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to capture prompt text for interaction in session {SessionId}", session.Id);
+        }
+        
         if (diagnostics is not null)
         {
             prompt = $"[V2 Diagnostics: candidates={diagnostics.CandidateEvaluations.Count}, transitions={diagnostics.TransitionEvents.Count}, decisions={diagnostics.DecisionPoints.Count}]\n{prompt}";
@@ -271,7 +288,8 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             GeneratedTopP = resolved.TopP,
             GeneratedMaxTokens = resolved.MaxTokens,
             ReasoningContent = reasoningContent,
-            NarrativePhaseAtCreation = session.AdaptiveState.CurrentPhase
+            NarrativePhaseAtCreation = session.AdaptiveState.CurrentPhase,
+            PromptText = capturedPromptText
         };
 
         await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
@@ -323,6 +341,17 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             positionInTurn: null,
             turnActorCount);
 
+        // Capture prompt text for storage (best-effort, truncated to reduce size)
+        string? capturedPromptText = null;
+        try
+        {
+            capturedPromptText = PromptTextTruncation.TrimInteractionHistoryBlock(prompt);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to capture prompt text for narrative interaction in session {SessionId}", session.Id);
+        }
+
         // Log the narrative prompt for debugging (same as character prompts).
         await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
         {
@@ -363,7 +392,8 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             GeneratedTemperature = resolved.Temperature,
             GeneratedTopP = resolved.TopP,
             GeneratedMaxTokens = resolved.MaxTokens,
-            NarrativePhaseAtCreation = session.AdaptiveState.CurrentPhase
+            NarrativePhaseAtCreation = session.AdaptiveState.CurrentPhase,
+            PromptText = capturedPromptText
         };
     }
 
@@ -404,6 +434,18 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                 PromptIntent.Narrative,
                 narrativePrompt,
                 cancellationToken);
+
+            // Capture prompt text for storage (best-effort, truncated to reduce size)
+            string? capturedPromptText = null;
+            try
+            {
+                capturedPromptText = PromptTextTruncation.TrimInteractionHistoryBlock(prompt);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to capture prompt text for batch narrative interaction in session {SessionId}", session.Id);
+            }
+
             var narrativeSettings = _modelSettingsService.GetSettings(session.Id);
             var narrativeResolved = await _modelResolver.ResolveAsync(
                 AppFunction.RolePlayGeneration,
@@ -425,7 +467,8 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                 GeneratedTemperature = narrativeResolved.Temperature,
                 GeneratedTopP = narrativeResolved.TopP,
                 GeneratedMaxTokens = narrativeResolved.MaxTokens,
-                NarrativePhaseAtCreation = session.AdaptiveState.CurrentPhase
+                NarrativePhaseAtCreation = session.AdaptiveState.CurrentPhase,
+                PromptText = capturedPromptText
             };
         }
 
