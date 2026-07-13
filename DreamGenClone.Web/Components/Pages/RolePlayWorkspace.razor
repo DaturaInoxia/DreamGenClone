@@ -7352,6 +7352,14 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
     private void SetInfoTab() => _infoPopupTab = "info";
 
     private void SetReasoningTab() => _infoPopupTab = "reasoning";
+
+    private void SetPromptTab() => _infoPopupTab = "prompt";
+
+    private async Task CopyPromptToClipboard(string promptText)
+    {
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", promptText);
+    }
+
 private void CloseInteractionInfo()
     {
         _infoPopupInteractionId = null;
@@ -8186,6 +8194,7 @@ private void CloseInteractionInfo()
                                             {
                                                 <button class="rw-tab @(_infoPopupTab == "reasoning" ? "rw-tab-active" : "")" @onclick="SetReasoningTab">Reasoning</button>
                                             }
+                                            <button class="rw-tab @(_infoPopupTab == "prompt" ? "rw-tab-active" : "")" @onclick="SetPromptTab">LLM Prompt</button>
                                         </div>
                                     </div>
                                     <div class="rw-modal-body">
@@ -8291,6 +8300,24 @@ private void CloseInteractionInfo()
                                         @if (_infoPopupTab == "reasoning" && !string.IsNullOrWhiteSpace(infoInteraction.ReasoningContent))
                                         {
                                             <div class="rw-info-value-mono" style="white-space: pre-wrap; max-height: 60vh; overflow-y: auto; font-size: 0.85em; color: #b0b0b0;">@infoInteraction.ReasoningContent</div>
+                                        }
+                                        @if (_infoPopupTab == "prompt")
+                                        {
+                                            @if (!string.IsNullOrWhiteSpace(infoInteraction.PromptText))
+                                            {
+                                                <div style="margin-bottom: 0.5rem;">
+                                                    <button class="rw-btn rw-btn-secondary" @onclick="() => CopyPromptToClipboard(infoInteraction.PromptText)">
+                                                        <i class="fas fa-copy"></i> Copy to Clipboard
+                                                    </button>
+                                                </div>
+                                                <div class="rw-info-value-mono rw-prompt-viewer">@infoInteraction.PromptText</div>
+                                            }
+                                            else
+                                            {
+                                                <div class="rw-info-value" style="font-style: italic; color: #888;">
+                                                    No prompt data available for this interaction.
+                                                </div>
+                                            }
                                         }
                                     </div>
                                     <div class="rw-modal-actions">

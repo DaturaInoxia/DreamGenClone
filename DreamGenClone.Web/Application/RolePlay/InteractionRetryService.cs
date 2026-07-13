@@ -44,10 +44,22 @@ public sealed class InteractionRetryService : IInteractionRetryService
         var active = session.ResolveActiveAlternative(original);
 
         var prompt = await BuildRetryPromptAsync(session, active, null, cancellationToken);
+        
+        // Capture prompt text for storage (best-effort, truncated to reduce size)
+        string? capturedPromptText = null;
+        try
+        {
+            capturedPromptText = PromptTextTruncation.TrimInteractionHistoryBlock(prompt);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to capture prompt text for retry interaction in session {SessionId}", session.Id);
+        }
+        
         var resolved = await ResolveModelAsync(session, sessionModelId: null, cancellationToken);
         var (output, reasoningContent) = await _completionClient.GenerateWithReasoningAsync(prompt, resolved, cancellationToken);
 
-        var alternative = CreateAlternative(original, session, active.InteractionType, active.ActorName, output, reasoningContent, resolved, "Retry");
+        var alternative = CreateAlternative(original, session, active.InteractionType, active.ActorName, output, reasoningContent, resolved, "Retry", capturedPromptText);
 
         _logger.LogInformation(
             "Retry created alternative {AlternativeIndex} for interaction {InteractionId} in session {SessionId}",
@@ -66,10 +78,22 @@ public sealed class InteractionRetryService : IInteractionRetryService
         var active = session.ResolveActiveAlternative(original);
 
         var prompt = await BuildRetryPromptAsync(session, active, null, cancellationToken);
+        
+        // Capture prompt text for storage (best-effort, truncated to reduce size)
+        string? capturedPromptText = null;
+        try
+        {
+            capturedPromptText = PromptTextTruncation.TrimInteractionHistoryBlock(prompt);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to capture prompt text for retry-with-model interaction in session {SessionId}", session.Id);
+        }
+        
         var resolved = await ResolveModelAsync(session, modelId, cancellationToken);
         var (output, reasoningContent) = await _completionClient.GenerateWithReasoningAsync(prompt, resolved, cancellationToken);
 
-        var alternative = CreateAlternative(original, session, active.InteractionType, active.ActorName, output, reasoningContent, resolved, "RetryWithModel");
+        var alternative = CreateAlternative(original, session, active.InteractionType, active.ActorName, output, reasoningContent, resolved, "RetryWithModel", capturedPromptText);
 
         _logger.LogInformation(
             "RetryWithModel created alternative {AlternativeIndex} for interaction {InteractionId} using model {ModelId} in session {SessionId}",
@@ -104,10 +128,22 @@ public sealed class InteractionRetryService : IInteractionRetryService
             };
 
         var prompt = await BuildRetryPromptAsync(session, original, $"Rewrite as character: {actorName}", cancellationToken);
+        
+        // Capture prompt text for storage (best-effort, truncated to reduce size)
+        string? capturedPromptText = null;
+        try
+        {
+            capturedPromptText = PromptTextTruncation.TrimInteractionHistoryBlock(prompt);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to capture prompt text for retry-as interaction in session {SessionId}", session.Id);
+        }
+        
         var resolved = await ResolveModelAsync(session, sessionModelId: null, cancellationToken);
         var (output, reasoningContent) = await _completionClient.GenerateWithReasoningAsync(prompt, resolved, cancellationToken);
 
-        var alternative = CreateAlternative(original, session, interactionType, actorName, output, reasoningContent, resolved, "RetryAs");
+        var alternative = CreateAlternative(original, session, interactionType, actorName, output, reasoningContent, resolved, "RetryAs", capturedPromptText);
 
         _logger.LogInformation(
             "RetryAs created alternative {AlternativeIndex} as {ActorName} for interaction {InteractionId} in session {SessionId}",
@@ -125,10 +161,22 @@ public sealed class InteractionRetryService : IInteractionRetryService
         var active = session.ResolveActiveAlternative(original);
 
         var prompt = await BuildRetryPromptAsync(session, active, "Rewrite the following interaction to be significantly longer and more detailed, expanding on descriptions, dialogue, and atmosphere.", cancellationToken);
+        
+        // Capture prompt text for storage (best-effort, truncated to reduce size)
+        string? capturedPromptText = null;
+        try
+        {
+            capturedPromptText = PromptTextTruncation.TrimInteractionHistoryBlock(prompt);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to capture prompt text for make-longer interaction in session {SessionId}", session.Id);
+        }
+        
         var resolved = await ResolveModelAsync(session, sessionModelId: null, cancellationToken);
         var (output, reasoningContent) = await _completionClient.GenerateWithReasoningAsync(prompt, resolved, cancellationToken);
 
-        var alternative = CreateAlternative(original, session, active.InteractionType, active.ActorName, output, reasoningContent, resolved, "MakeLonger");
+        var alternative = CreateAlternative(original, session, active.InteractionType, active.ActorName, output, reasoningContent, resolved, "MakeLonger", capturedPromptText);
 
         _logger.LogInformation(
             "MakeLonger created alternative {AlternativeIndex} for interaction {InteractionId} in session {SessionId}",
@@ -146,10 +194,22 @@ public sealed class InteractionRetryService : IInteractionRetryService
         var active = session.ResolveActiveAlternative(original);
 
         var prompt = await BuildRetryPromptAsync(session, active, "Rewrite the following interaction to be shorter and more concise, keeping only the essential content.", cancellationToken);
+        
+        // Capture prompt text for storage (best-effort, truncated to reduce size)
+        string? capturedPromptText = null;
+        try
+        {
+            capturedPromptText = PromptTextTruncation.TrimInteractionHistoryBlock(prompt);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to capture prompt text for make-shorter interaction in session {SessionId}", session.Id);
+        }
+        
         var resolved = await ResolveModelAsync(session, sessionModelId: null, cancellationToken);
         var (output, reasoningContent) = await _completionClient.GenerateWithReasoningAsync(prompt, resolved, cancellationToken);
 
-        var alternative = CreateAlternative(original, session, active.InteractionType, active.ActorName, output, reasoningContent, resolved, "MakeShorter");
+        var alternative = CreateAlternative(original, session, active.InteractionType, active.ActorName, output, reasoningContent, resolved, "MakeShorter", capturedPromptText);
 
         _logger.LogInformation(
             "MakeShorter created alternative {AlternativeIndex} for interaction {InteractionId} in session {SessionId}",
@@ -173,10 +233,22 @@ public sealed class InteractionRetryService : IInteractionRetryService
         var active = session.ResolveActiveAlternative(original);
 
         var prompt = await BuildRetryPromptAsync(session, active, $"Rewrite instruction: {instruction.Trim()}", cancellationToken);
+        
+        // Capture prompt text for storage (best-effort, truncated to reduce size)
+        string? capturedPromptText = null;
+        try
+        {
+            capturedPromptText = PromptTextTruncation.TrimInteractionHistoryBlock(prompt);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to capture prompt text for ask-to-rewrite interaction in session {SessionId}", session.Id);
+        }
+        
         var resolved = await ResolveModelAsync(session, sessionModelId: null, cancellationToken);
         var (output, reasoningContent) = await _completionClient.GenerateWithReasoningAsync(prompt, resolved, cancellationToken);
 
-        var alternative = CreateAlternative(original, session, active.InteractionType, active.ActorName, output, reasoningContent, resolved, "AskToRewrite");
+        var alternative = CreateAlternative(original, session, active.InteractionType, active.ActorName, output, reasoningContent, resolved, "AskToRewrite", capturedPromptText);
 
         _logger.LogInformation(
             "AskToRewrite created alternative {AlternativeIndex} for interaction {InteractionId} in session {SessionId}",
@@ -206,7 +278,8 @@ public sealed class InteractionRetryService : IInteractionRetryService
         string output,
         string? reasoningContent,
         ResolvedModel resolvedModel,
-        string command)
+        string command,
+        string? promptText = null)
     {
         var existingAlternatives = session.Interactions
             .Where(i => i.ParentInteractionId == original.Id)
@@ -231,7 +304,8 @@ public sealed class InteractionRetryService : IInteractionRetryService
             GeneratedTopP = resolvedModel.TopP,
             GeneratedMaxTokens = resolvedModel.MaxTokens,
             ReasoningContent = reasoningContent,
-            NarrativePhaseAtCreation = session.AdaptiveState.CurrentPhase
+            NarrativePhaseAtCreation = session.AdaptiveState.CurrentPhase,
+            PromptText = promptText
         };
 
         original.ActiveAlternativeIndex = nextIndex;

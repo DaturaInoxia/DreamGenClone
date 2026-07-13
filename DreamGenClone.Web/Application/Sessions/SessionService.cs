@@ -73,6 +73,10 @@ public sealed class SessionService : ISessionService
         var session = JsonSerializer.Deserialize<RolePlaySession>(row.PayloadJson, JsonOptions);
         // AdaptiveStateJson is a legacy V1 column. V2 adaptive state is loaded exclusively from
         // dedicated V2 tables via IRolePlayStateRepository. Do not overlay from this column.
+        //
+        // PromptText invariant: Old interactions (created before B-053) will have null PromptText.
+        // We do NOT retroactively populate PromptText for these interactions. Only new interactions
+        // created after the feature implementation will have PromptText populated.
         NormalizeRolePlaySession(session);
         return session;
     }
