@@ -271,8 +271,9 @@ public sealed class EncounterSummaryJobHandler : IBackgroundJobHandler
 
             If interactions involve sexual activity, be explicit and vivid:
             - WHO was involved and their roles
-            - WHAT physical acts occurred
-            - ORGASMS — who came, how many, physical evidence
+            - WHAT physical acts occurred and in which SEX POSITIONS (missionary, doggy, cowgirl, standing, etc.)
+            - FEMALE ORGASMS — did she come, how many times, physical evidence
+            - MALE ORGASM — did he ejaculate, and WHERE (inside her, on her body, pulled out, elsewhere)
             - SENSORY & EMOTIONAL details
 
             If nothing notable occurred, describe their ordinary experience.

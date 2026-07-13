@@ -1667,7 +1667,9 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                             && session.AdaptiveState.InteractionsInCurrentEncounter == 0;
                         promptText = isNewEncounterStart
                             ? "Begin a new encounter — a discrete event in a new context, escalated from the previous encounter. Establish the new time, place, and circumstance before the exposure begins."
-                            : "Continue the current encounter naturally from where it left off.";
+                            : session.AdaptiveState.IsEncounterActive
+                                ? "Continue the current encounter naturally from where it left off, building toward the male character reaching his climax."
+                                : "Continue the current encounter naturally from where it left off.";
                     }
                     else
                     {
@@ -1692,7 +1694,16 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 // Append to session so next iteration's prompt sees this interaction
                 session.Interactions.Add(interaction);
                 outputInteractionIds.Add(interaction.Id);
-                await UpdateStateAndDetectEncounterAsync(session, interaction, cancellationToken);
+                await UpdateStateAndDetectEncounterAsync(session, interaction, cancellationToken, skipBoundaryDetection: true);
+            }
+
+            // Run boundary detection once after all batch interactions are generated.
+            // Deferred from the for-loop so same-turn POVs (Dean's climax + Becky's
+            // climax) are all included in the encounter range, stamping, and memory.
+            var lastBatchInteraction = result.ParticipantOutputs.LastOrDefault();
+            if (lastBatchInteraction is not null)
+            {
+                await TryDetectEncounterBoundaryAsync(session, lastBatchInteraction, session.AdaptiveState, cancellationToken);
             }
 
             // Exclude the time-skip instruction after this turn completes so it does not
@@ -2536,7 +2547,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     }
 
 
-    private async Task UpdateStateAndDetectEncounterAsync(RolePlaySession session, RolePlayInteraction interaction, CancellationToken cancellationToken)
+    private async Task UpdateStateAndDetectEncounterAsync(RolePlaySession session, RolePlayInteraction interaction, CancellationToken cancellationToken, bool skipBoundaryDetection = false)
     {
         session.AdaptiveState = await UpdateAdaptiveStateWithSemanticDiagnosticsAsync(session, interaction, cancellationToken);
 
@@ -2592,7 +2603,13 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             : null;
         interaction.ExplicitnessLevelAtCreation = session.LastResolvedIntensityLabel;
 
-        await TryDetectEncounterBoundaryAsync(session, interaction, session.AdaptiveState, cancellationToken);
+        // Defer boundary detection when processing a multi-interaction turn batch.
+        // The boundary fires once at turn end so all same-turn POVs (Dean's climax +
+        // Becky's climax) are included in the encounter range, stamping, and memory.
+        if (!skipBoundaryDetection)
+        {
+            await TryDetectEncounterBoundaryAsync(session, interaction, session.AdaptiveState, cancellationToken);
+        }
     }
 
     private async Task<AdaptiveScenarioState> UpdateAdaptiveStateWithSemanticDiagnosticsAsync(
@@ -4908,19 +4925,17 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         var isAftermath = theme is not null && RolePlayAssistantPrompts.IsAftermathHusbandContrast(theme,
             state.CurrentPhase.ToString());
 
-        if (!isMulti && !isAftermath) return;
-
-        // Multi-encounter gate: requires at least encounter 1. Aftermath-only
-        // path has no encounter counter requirement — it fires on any boundary.
+        // Boundary detection is universal — runs for any theme that has an
+        // encounter-completed semantic mapping. The multi-encounter and aftermath
+        // markers gate only what happens AFTER the boundary (overflow vs injector),
+        // not whether the boundary itself fires.
+        // Multi-encounter gate: requires at least encounter 1.
         if (isMulti && state.CurrentEncounterNumber <= 0) return;
 
         var mapping = theme!.SemanticEventMappings.FirstOrDefault(x => string.Equals(x.EventId, "encounter-completed", StringComparison.OrdinalIgnoreCase));
         if (mapping is null)
         {
-            if (isMulti)
-                _logger.LogWarning("TryDetectEncounterBoundary: theme {ThemeId} has [ClimaxMode:multi-encounter] but no encounter-completed mapping", theme.Id);
-            if (isAftermath)
-                _logger.LogWarning("TryDetectEncounterBoundary: theme {ThemeId} has [Aftermath:husband-contrast] but no encounter-completed mapping", theme.Id);
+            _logger.LogDebug("TryDetectEncounterBoundary: theme {ThemeId} has no encounter-completed mapping", theme.Id);
             return;
         }
         var cwSize = Math.Max(12, session.ContextWindowSize);
@@ -4931,7 +4946,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         SemanticEventInferenceResult inf;
         try
         {
-            inf = await _semanticEventInferenceService.InferAsync(new SemanticEventInferenceRequest { SessionId = session.Id, InteractionId = interaction.Id, ActorName = actorName, InteractionText = interaction.Content ?? string.Empty, ContextTurns = ctx, AllowedEventIds = ["encounter-completed"], EventDescriptions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["encounter-completed"] = "The CURRENT sexual encounter has reached its natural conclusion — either through climax (orgasm has occurred, bodies are spent, the tension has released and the scene settles into afterglow) OR through interruption (someone is about to walk in, the risk becomes too high, they are startled apart, they hear a sound and freeze — the encounter is cut short and they must separate or hide). Do NOT detect during mid-encounter escalation or at the moment of orgasm itself. Do NOT detect if sexual activity within the same encounter is still ongoing or building. Only detect when the encounter is clearly over — whether finished or interrupted." } }, cancellationToken);
+            inf = await _semanticEventInferenceService.InferAsync(new SemanticEventInferenceRequest { SessionId = session.Id, InteractionId = interaction.Id, ActorName = actorName, InteractionText = interaction.Content ?? string.Empty, ContextTurns = ctx, AllowedEventIds = ["encounter-completed"], EventDescriptions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["encounter-completed"] = "The CURRENT sexual encounter has reached its natural conclusion — either through climax (the male character must have orgasmed/ejaculated — the female orgasming alone does NOT end the encounter; the male must reach ejaculation, then bodies are spent, the tension has released and the scene settles into afterglow) OR through interruption (someone is about to walk in, the risk becomes too high, they are startled apart, they hear a sound and freeze — the encounter is cut short and they must separate or hide). Do NOT detect during mid-encounter escalation or at the moment of orgasm itself. Do NOT detect if sexual activity within the same encounter is still ongoing or building. Only detect when the encounter is clearly over — whether finished or interrupted." } }, cancellationToken);
         }
         catch (Exception ex)
         {
