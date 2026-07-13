@@ -1,4 +1,5 @@
 using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Web.Domain.RolePlay;
 
 namespace DreamGenClone.Web.Application.RolePlay.Injectors;
 
@@ -13,7 +14,7 @@ public sealed class SceneTimeDirectionInjector : IPromptInjector
     public int Priority => 70;
 
     public bool ShouldFire(PromptInjectionContext context)
-        => true;
+        => context.Intent != PromptIntent.Narrative;
 
     public string BuildText(PromptInjectionContext context)
     {
@@ -30,8 +31,8 @@ public sealed class SceneTimeDirectionInjector : IPromptInjector
             switch (pacing)
             {
                 case ScenePacing.Slow:
-                    sb.AppendLine("- Stay in the current moment. Do not skip forward.");
-                    sb.AppendLine("- Savor the moment with detailed sensory and emotional depth. One beat per response.");
+                    sb.AppendLine("- Cover one beat per response with detailed sensory and emotional depth.");
+                    sb.AppendLine("- Advance to a new beat each response. Do not repeat or linger on a previous beat.");
                     break;
                 case ScenePacing.Fast:
                     sb.AppendLine("- Compress multiple beats into one response. Cover more story ground per response.");
@@ -48,17 +49,17 @@ public sealed class SceneTimeDirectionInjector : IPromptInjector
             switch (pacing)
             {
                 case ScenePacing.Slow:
-                    sb.AppendLine("- Focus on one beat per response.");
-                    sb.AppendLine("- Let time advance naturally to the next moment. Use organic transitions.");
+                    sb.AppendLine("- Cover one beat per response, richly expanded with sensory and emotional depth.");
+                    sb.AppendLine("- Move to a new beat each response. Let the scene unfold naturally but keep advancing.");
                     break;
                 case ScenePacing.Fast:
-                    sb.AppendLine("- Compress multiple beats. Time must advance significantly — cover more story ground.");
-                    sb.AppendLine("- Use clear transitions. Do not remain in the same time frame across consecutive responses.");
-                    sb.AppendLine("- Do not skip through multiple separate times within a single response.");
+                    sb.AppendLine("- Cover the full arc rapidly: initiate, escalate, conclude, react — all within this response and the next.");
+                    sb.AppendLine("- Do not linger on any single beat. Compress the action into efficient, urgent prose.");
+                    sb.AppendLine("- Do not jump to a different time or setting. Stay within the current scene but move through it quickly.");
                     break;
                 default: // Medium
-                    sb.AppendLine("- Cover one to two beats per response.");
-                    sb.AppendLine("- Let time advance naturally — let transitions feel organic.");
+                    sb.AppendLine("- Cover one to two beats this response — dialogue, actions, reactions. Advance to new beats each response.");
+                    sb.AppendLine("- Let transitions feel organic within the scene. Do not leap to a different time or setting.");
                     break;
             }
         }

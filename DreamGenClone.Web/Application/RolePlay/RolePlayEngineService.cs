@@ -1585,12 +1585,15 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                         {
                             directive = "Advance time to a new moment — a different day or time, a new context, a new circumstance. Establish ordinary life.";
                             session.AdaptiveState.CurrentTimeSkipPhase = TimeSkipPhase.None;
-                            // B-057: synchronous persist — DB is always authoritative for time-skip state.
-                            await _stateRepository.SaveAdaptiveStateAsync(session.AdaptiveState, cancellationToken);
                             // B-058 Phase 2.3: AdvanceTime → None marks the start of the next encounter
                             // (the next interaction will be part of the new encounter). Capture the
                             // interaction-list index BEFORE that next interaction is appended.
                             session.AdaptiveState.CurrentEncounterStartInteractionIndex = session.Interactions.Count;
+                            session.AdaptiveState.IsEncounterActive = true; // Next encounter is now active
+                            // B-057: synchronous persist — DB is always authoritative for time-skip state.
+                            // MUST save AFTER setting CurrentEncounterStartInteractionIndex and
+                            // IsEncounterActive so V2 captures the correct values.
+                            await _stateRepository.SaveAdaptiveStateAsync(session.AdaptiveState, cancellationToken);
                             _logger.LogInformation(
                                 "B057Trace Overflow_AdvanceTime_To_None: Phase={Phase} Enc={Enc} Global={Global} TimeSkip={TimeSkip} IxnInEnc={IxnInEnc}",
                                 session.AdaptiveState.CurrentPhase, session.AdaptiveState.CurrentEncounterNumber,
@@ -2555,24 +2558,10 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         {
             interaction.WasInSexScene = true;
 
-            // Detect encounter start: first sexual content with no active encounter.
-            if (session.AdaptiveState.CurrentEncounterNumber == 0)
-            {
-                session.AdaptiveState.CurrentEncounterNumber = session.AdaptiveState.GlobalEncounterCount + 1;
-
-                // B-058 Phase 2.2 (non-Climax encounters): capture the start interaction index
-                // for encounters that begin in non-Climax phases. Climax-entry captures this in
-                // the lifecycle transition handler; first-sexual-content in BuildUp / Approaching /
-                // Committed captures it here. This interaction is the first interaction of the
-                // encounter, so the start index is the index it will occupy once appended.
-                if (session.AdaptiveState.CurrentEncounterStartInteractionIndex == 0)
-                {
-                    session.AdaptiveState.CurrentEncounterStartInteractionIndex = session.Interactions.Count;
-                    _logger.LogDebug(
-                        "B058 EncounterStartIndex_FirstSexualContent: SessionId={SessionId} StartIdx={Idx} Phase={Phase}",
-                        session.Id, session.AdaptiveState.CurrentEncounterStartInteractionIndex, session.AdaptiveState.CurrentPhase);
-                }
-            }
+            // B-059 Phase 3: semantic encounter-start detection via LLM inference.
+            // Supplements the keyword-only heuristic with LLM inference to distinguish
+            // "sexy conversation" from actual physical sexual activity.
+            await TryDetectEncounterStartAsync(session, interaction, session.AdaptiveState, cancellationToken);
 
             if (!session.AdaptiveState.CharacterEncounterStates.TryGetValue(actorName, out var encState))
             {
@@ -2585,19 +2574,21 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         }
 
         // Per-interaction counter increment (universal, not Climax-only).
-        // MUST happen AFTER encounter start detection so the first interaction of a new
-        // encounter increments from 0 to 1 (giving index 0).
-        if (session.AdaptiveState.CurrentEncounterNumber > 0)
+        // Gated on IsEncounterActive — during aftermath the encounter is no longer active,
+        // so the counter does NOT increment, keeping InteractionsInCurrentEncounter at 0 for
+        // the next encounter start detection when it fires.
+        if (session.AdaptiveState.IsEncounterActive)
         {
             session.AdaptiveState.InteractionsInCurrentEncounter++;
         }
 
         // Stamp per-interaction encounter metadata (B-057).
-        interaction.EncounterNumberAtCreation = session.AdaptiveState.CurrentEncounterNumber > 0
+        // Uses IsEncounterActive as the single authoritative gate.
+        interaction.EncounterNumberAtCreation = session.AdaptiveState.IsEncounterActive
             ? session.AdaptiveState.CurrentEncounterNumber
             : null;
-        interaction.InteractionIndexInEncounter = session.AdaptiveState.CurrentEncounterNumber > 0
-            ? session.AdaptiveState.InteractionsInCurrentEncounter - 1 // 0-based, already incremented above
+        interaction.InteractionIndexInEncounter = session.AdaptiveState.IsEncounterActive
+            ? session.AdaptiveState.InteractionsInCurrentEncounter // 1-based, already incremented above
             : null;
         interaction.ExplicitnessLevelAtCreation = session.LastResolvedIntensityLabel;
 
@@ -3047,6 +3038,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                     loaded.Status = RolePlaySessionStatus.InProgress;
                 }
 
+                loaded.AdaptiveState.RebuildCharacterStatsCache();
                 Sessions.TryAdd(loaded.Id, loaded);
             }
         }
@@ -3703,13 +3695,24 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 // B-058 Phase 2.2: capture encounter-start interaction index on Climax phase entry.
                 // The 1st encounter of an arc begins at the first Climax interaction; subsequent
                 // encounters are captured at the AdvanceTime → None transition (Phase 2.3).
+                // B-059 Part C: only capture when no encounter has started yet (guard prevents
+                // clobbering the index when an encounter already began in BuildUp).
                 if (lifecycle.TransitionEvent.ToPhase == NarrativePhase.Climax)
                 {
-                    v2State.CurrentEncounterStartInteractionIndex = session.Interactions.Count;
-                    session.AdaptiveState.CurrentEncounterStartInteractionIndex = session.Interactions.Count;
-                    _logger.LogDebug(
-                        "B058 EncounterStartIndex_ClimaxEntry: SessionId={SessionId} StartIdx={Idx} Cycle={Cycle}",
-                        session.Id, v2State.CurrentEncounterStartInteractionIndex, v2State.CycleIndex);
+                    if (v2State.CurrentEncounterStartInteractionIndex == 0)
+                    {
+                        v2State.CurrentEncounterStartInteractionIndex = session.Interactions.Count;
+                        session.AdaptiveState.CurrentEncounterStartInteractionIndex = session.Interactions.Count;
+                        _logger.LogDebug(
+                            "B058 EncounterStartIndex_ClimaxEntry: SessionId={SessionId} StartIdx={Idx} Cycle={Cycle}",
+                            session.Id, v2State.CurrentEncounterStartInteractionIndex, v2State.CycleIndex);
+                    }
+                    else
+                    {
+                        _logger.LogDebug(
+                            "B059 EncounterStartIndex_ClimaxEntry_BlockedByGuard: SessionId={SessionId} ExistingStartIdx={Idx}",
+                            session.Id, v2State.CurrentEncounterStartInteractionIndex);
+                    }
                 }
 
                 if (_encounterSummaryService is not null)
@@ -4293,6 +4296,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             // encounter 1 (BuildUp), encounter 2 (Climax), etc.
             v2State.CurrentEncounterNumber = v2State.GlobalEncounterCount + 1;
             v2State.InteractionsInCurrentEncounter = 0;
+            v2State.IsEncounterActive = true; // Encounter begins with Climax entry
             var climacticEncounterNumber = v2State.CurrentEncounterNumber;
             _logger.LogInformation("MultiEncounterClimax initialized: SessionId={SessionId} ThemeId={ThemeId} EncounterNumber={EncounterNumber}", session.Id, v2State.ActiveScenarioId, climacticEncounterNumber);
             await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord { SessionId = session.Id, EventKind = "MultiEncounterClimaxInitialized", Severity = "Info", Summary = $"Multi-encounter Climax initialized (theme={v2State.ActiveScenarioId}, encounter={climacticEncounterNumber})", MetadataJson = JsonSerializer.Serialize(new { themeId = v2State.ActiveScenarioId, encounterNumber = climacticEncounterNumber, priorPhase = priorPhase?.ToString(), finalPhase = finalPhase.ToString() }) }, cancellationToken);
@@ -4308,6 +4312,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         else if (finalPhase != DreamGenClone.Domain.RolePlay.NarrativePhase.Climax && v2State.CurrentEncounterNumber != 0)
         {
             v2State.CurrentEncounterNumber = 0;
+            v2State.IsEncounterActive = false;
             v2State.InteractionsInCurrentEncounter = 0;
             _logger.LogInformation("MultiEncounterClimax cleared: SessionId={SessionId} (left Climax phase)", session.Id);
         }
@@ -4450,11 +4455,25 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         // GlobalEncounterCount must also be restored so the Climax entry code
         // can compute CurrentEncounterNumber = GlobalEncounterCount + 1 correctly.
         mapped.CurrentTimeSkipPhase = previousState.CurrentTimeSkipPhase;
-        mapped.CurrentEncounterNumber = previousState.CurrentEncounterNumber;
-        mapped.InteractionsInCurrentEncounter = previousState.InteractionsInCurrentEncounter;
+        // B-057 race guard: detection runs BEFORE the pipeline in ContinueAsAsync's for-loop,
+        // so CurrentEncounterNumber may have been set by TryDetectEncounterStartAsync already.
+        // Only restore from V2 when the in-memory value hasn't advanced past it.
+        if (mapped.CurrentEncounterNumber <= previousState.CurrentEncounterNumber)
+            mapped.CurrentEncounterNumber = previousState.CurrentEncounterNumber;
+        // Same guard for InteractionsInCurrentEncounter (incremented per-interaction in for-loop).
+        if (mapped.InteractionsInCurrentEncounter <= previousState.InteractionsInCurrentEncounter)
+            mapped.InteractionsInCurrentEncounter = previousState.InteractionsInCurrentEncounter;
         // B-058 Phase 5.3: LastEncounterEvidenceSpan removed; the HusbandAftermathInjector now
         // reads from EncounterCompletion summaries (already restored via LoadEncounterSummariesAsync).
         mapped.GlobalEncounterCount = previousState.GlobalEncounterCount;
+        // B-059 Issue 1: restore from V2 column so encounter-boundary detection uses
+        // the correct interaction index, not 0 (which would span the entire session).
+        mapped.CurrentEncounterStartInteractionIndex = previousState.CurrentEncounterStartInteractionIndex;
+        // IsEncounterActive: only restore from V2 when in-memory hasn't been set yet
+        // (fresh session load). After detection fires within a turn, the in-memory true
+        // must not be overwritten by the previous turn's V2 snapshot (which may be stale).
+        if (!mapped.IsEncounterActive && previousState.IsEncounterActive)
+            mapped.IsEncounterActive = true;
 
         mapped.CurrentBeatCode = previousState.CurrentBeatCode;
         mapped.TurnsInCurrentBeat = previousState.TurnsInCurrentBeat;
@@ -4551,6 +4570,12 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         // These fields are owned by the in-memory pipeline during overflow/generation and
         // must not be overwritten by the DB snapshot (which may lag behind the pipeline's
         // real-time phase transitions like CloseScene → AdvanceTime → None).
+        //
+        // IsEncounterActive is an exception: it's [JsonIgnore] so fresh payload loads
+        // always have false, but the re-entry guard in TryDetectEncounterStartAsync depends
+        // on it. Restore from V2 when in-memory hasn't been set yet by detection.
+        if (!session.AdaptiveState.IsEncounterActive && snapshot.IsEncounterActive)
+            session.AdaptiveState.IsEncounterActive = true;
 
         var interactionCount = Math.Max(0, snapshot.InteractionCountInPhase);
         session.AdaptiveState.InteractionsSinceCommitment = snapshot.CurrentPhase == NarrativePhase.BuildUp
@@ -4733,6 +4758,120 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         }
     }
 
+    private async Task TryDetectEncounterStartAsync(
+        RolePlaySession session,
+        RolePlayInteraction interaction,
+        AdaptiveScenarioState state,
+        CancellationToken cancellationToken)
+    {
+        if (_semanticEventInferenceService is null) return;
+        if (string.IsNullOrWhiteSpace(state.ActiveScenarioId)) return;
+
+        // Re-entry guard: encounter is already active, or time-skip is pending.
+        if (state.IsEncounterActive || state.CurrentTimeSkipPhase != TimeSkipPhase.None)
+            return;
+
+        var threshold = _memoryOptions?.Value.EncounterStartConfidenceThreshold ?? 0.70m;
+
+        // Build context window (same pattern as TryDetectEncounterBoundaryAsync).
+        var cwSize = Math.Max(12, session.ContextWindowSize);
+        var ixIdx = session.Interactions.FindIndex(x => string.Equals(x.Id, interaction.Id, StringComparison.OrdinalIgnoreCase));
+        var ctxStart = ixIdx >= 0 ? Math.Max(0, ixIdx - cwSize) : Math.Max(0, session.Interactions.Count - cwSize);
+        var ctxEnd = ixIdx >= 0 ? ixIdx : session.Interactions.Count;
+        var ctx = session.Interactions
+            .Skip(ctxStart).Take(Math.Max(0, ctxEnd - ctxStart))
+            .Where(x => !x.IsExcluded)
+            .Select(x => $"[{x.InteractionType}] {x.ActorName}: {x.Content}")
+            .ToList();
+
+        SemanticEventInferenceResult inf;
+        try
+        {
+            inf = await _semanticEventInferenceService.InferAsync(
+                new SemanticEventInferenceRequest
+                {
+                    SessionId = session.Id,
+                    InteractionId = interaction.Id,
+                    ActorName = interaction.ActorName ?? string.Empty,
+                    InteractionText = interaction.Content ?? string.Empty,
+                    ContextTurns = ctx,
+                    AllowedEventIds = ["encounter-started"],
+                    EventDescriptions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["encounter-started"] = "A NEW sexual encounter has just begun in the most recent interaction. The characters have crossed from tension/flirtation/suggestion into ACTUAL physical sexual activity — touching, undressing, oral, intercourse, or any physical act with sexual intent. The mere mention of sex, a sexy comment, or building tension is NOT enough — actual physical contact must have occurred or be explicitly depicted as beginning right now. An encounter-start follows an encounter-completed or follows a period of non-sexual interaction. Do NOT detect if the characters were already in an active sexual encounter — only detect the moment of transition from non-sexual to sexual activity."
+                    }
+                },
+                cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "TryDetectEncounterStart: inference failed SessionId={SessionId}", session.Id);
+            await _debugEventSink.WriteAsync(
+                new RolePlayDebugEventRecord
+                {
+                    SessionId = session.Id,
+                    InteractionId = interaction.Id,
+                    EventKind = "EncounterStartDetectionFailed",
+                    Severity = "Warn",
+                    ActorName = interaction.ActorName,
+                    Summary = $"Encounter-start detection failed: {ex.GetType().Name}: {ex.Message}",
+                    MetadataJson = JsonSerializer.Serialize(new { error = ex.Message })
+                },
+                cancellationToken);
+            return;
+        }
+
+        if (!inf.Success)
+        {
+            _logger.LogWarning("TryDetectEncounterStart: inference non-success SessionId={SessionId}", session.Id);
+            return;
+        }
+
+        var detected = inf.Events.FirstOrDefault(x =>
+            string.Equals(x.EventId, "encounter-started", StringComparison.OrdinalIgnoreCase)
+            && x.Confidence >= threshold);
+
+        if (detected is null)
+        {
+            _logger.LogDebug("TryDetectEncounterStart: no detection SessionId={SessionId}", session.Id);
+            return;
+        }
+
+        // Detection confirmed — start new encounter.
+        if (state.CurrentEncounterNumber == 0)
+        {
+            state.CurrentEncounterNumber = state.GlobalEncounterCount + 1;
+        }
+
+        state.CurrentEncounterStartInteractionIndex = session.Interactions.Count;
+        state.IsEncounterActive = true;
+        interaction.WasEncounterStart = true;
+
+        _logger.LogInformation(
+            "EncounterStartDetected: SessionId={SessionId} Encounter={EncNum} StartIdx={Idx} Confidence={Conf} Actor={Actor}",
+            session.Id, state.CurrentEncounterNumber, state.CurrentEncounterStartInteractionIndex,
+            detected.Confidence, interaction.ActorName);
+
+        await _debugEventSink.WriteAsync(
+            new RolePlayDebugEventRecord
+            {
+                SessionId = session.Id,
+                InteractionId = interaction.Id,
+                EventKind = "EncounterStartDetected",
+                Severity = "Info",
+                ActorName = interaction.ActorName,
+                Summary = $"Encounter #{state.CurrentEncounterNumber} started at interaction index {state.CurrentEncounterStartInteractionIndex} (confidence {detected.Confidence})",
+                MetadataJson = JsonSerializer.Serialize(new
+                {
+                    encounterNumber = state.CurrentEncounterNumber,
+                    startInteractionIndex = state.CurrentEncounterStartInteractionIndex,
+                    confidence = detected.Confidence,
+                    evidence = detected.EvidenceSpan
+                })
+            },
+            cancellationToken);
+    }
+
     private async Task TryDetectEncounterBoundaryAsync(RolePlaySession session, RolePlayInteraction interaction, AdaptiveScenarioState state, CancellationToken cancellationToken)
     {
         // Phase C (B-056): generalize detection to any non-Reset phase for the
@@ -4846,8 +4985,9 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             state.CurrentTimeSkipPhase, state.InteractionsInCurrentEncounter);
 
         var before = state.CurrentEncounterNumber;
-        state.CurrentEncounterNumber++;
+        state.CurrentEncounterNumber++;  // Advance to next encounter number for the next encounter
         state.GlobalEncounterCount++;
+        state.IsEncounterActive = false; // Encounter is no longer active — gates counter, stamps, and re-entry
         state.InteractionsInCurrentEncounter = 0;
         state.CurrentTimeSkipPhase = TimeSkipPhase.CloseScene;
         state.CharacterEncounterStates.Clear();
@@ -4862,7 +5002,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         try
         {
             await GenerateEncounterCompletionSummariesAsync(
-                session, state, encounterNumber: before + 1,
+                session, state, encounterNumber: before,
                 detectionEvidence: detected.EvidenceSpan,
                 startInteractionIndex: state.CurrentEncounterStartInteractionIndex,
                 endInteractionIndex: state.LastEncounterEndInteractionIndex,
@@ -4877,6 +5017,15 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 "B058 EncounterCompletion generation failed for session {SessionId} encounter {EncNum}. Boundary advance still succeeded.",
                 session.Id, before + 1);
         }
+
+        // B-059 Part D: reset the start interaction index so the re-entry guard
+        // (InteractionsInCurrentEncounter == 0) and the first-sexual-content guard
+        // (CurrentEncounterStartInteractionIndex == 0) fire correctly for the next
+        // encounter, regardless of whether AdvanceTime → None is reached.
+        _logger.LogDebug(
+            "B059 EncounterStartIndex_ResetAfterBoundary: SessionId={SessionId} EncounterBeforeReset={EncNum}",
+            session.Id, state.CurrentEncounterNumber);
+        state.CurrentEncounterStartInteractionIndex = 0;
 
         _logger.LogInformation(
             "B057Trace BoundaryAdvance_Persisted: Phase={Phase} Enc={Enc} Global={Global} TimeSkip={TimeSkip} IxnInEnc={IxnInEnc}",

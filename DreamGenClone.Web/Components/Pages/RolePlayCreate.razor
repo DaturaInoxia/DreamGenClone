@@ -223,44 +223,42 @@
         </div>
 
         <!-- Persona Details (collapsible, collapsed by default) -->
-        <div class="card mb-3">
-            <div class="card-header d-flex justify-content-between align-items-center py-2">
-                <span class="fw-semibold">Persona Details</span>
-                <button class="btn btn-sm btn-link py-0" @onclick="@(() => _personaDetailsExpanded = !_personaDetailsExpanded)">
-                    @(_personaDetailsExpanded ? "▼" : "▶")
-                </button>
-            </div>
+        <div class="rw-collapsible-section mb-3">
+            <button type="button" class="rw-collapsible-header" @onclick="@(() => _personaDetailsExpanded = !_personaDetailsExpanded)">
+                <span class="rw-collapsible-chevron @(_personaDetailsExpanded ? "is-open" : "")"></span>
+                <span class="rw-collapsible-title">Persona Details</span>
+            </button>
             @if (_personaDetailsExpanded)
             {
-                <div class="card-body">
+                <div class="rw-collapsible-body">
                     <!-- Description sub-section -->
-                    <div class="mb-3 border rounded p-2">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <span class="small fw-semibold text-muted">Description</span>
-                            <button class="btn btn-sm btn-link py-0" @onclick="@(() => _personaDescriptionExpanded = !_personaDescriptionExpanded)">
-                                @(_personaDescriptionExpanded ? "▼" : "▶")
-                            </button>
-                        </div>
+                    <div class="rw-collapsible-section">
+                        <button type="button" class="rw-collapsible-header" @onclick="@(() => _personaDescriptionExpanded = !_personaDescriptionExpanded)">
+                            <span class="rw-collapsible-chevron @(_personaDescriptionExpanded ? "is-open" : "")"></span>
+                            <span class="rw-collapsible-title">Description</span>
+                        </button>
                         @if (_personaDescriptionExpanded)
                         {
-                            <textarea class="form-control form-control-sm" rows="2" @bind="_personaDescription"></textarea>
+                            <div class="rw-collapsible-body">
+                                <textarea class="form-control form-control-sm" rows="2" @bind="_personaDescription"></textarea>
+                            </div>
                         }
                     </div>
 
                     <!-- Physical Attributes sub-section -->
-                    <div class="mb-3 border rounded p-2">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <span class="small fw-semibold text-muted">Physical Attributes</span>
-                            <button class="btn btn-sm btn-link py-0" @onclick="@(() => _personaPhysicalAttributesExpanded = !_personaPhysicalAttributesExpanded)">
-                                @(_personaPhysicalAttributesExpanded ? "▼" : "▶")
-                            </button>
-                        </div>
+                    <div class="rw-collapsible-section">
+                        <button type="button" class="rw-collapsible-header" @onclick="@(() => _personaPhysicalAttributesExpanded = !_personaPhysicalAttributesExpanded)">
+                            <span class="rw-collapsible-chevron @(_personaPhysicalAttributesExpanded ? "is-open" : "")"></span>
+                            <span class="rw-collapsible-title">Physical Attributes</span>
+                        </button>
                         @if (_personaPhysicalAttributesExpanded)
                         {
-                            <PhysicalAttributesEditor
-                                Attributes="@_personaPhysicalAttributes"
-                                AttributesChanged="@(attrs => _personaPhysicalAttributes = attrs)"
-                                Gender="@_personaGender" />
+                            <div class="rw-collapsible-body">
+                                <PhysicalAttributesEditor
+                                    Attributes="@_personaPhysicalAttributes"
+                                    AttributesChanged="@(attrs => _personaPhysicalAttributes = attrs)"
+                                    Gender="@_personaGender" />
+                            </div>
                         }
                     </div>
                 </div>
@@ -270,19 +268,17 @@
         <!-- Character stat overrides -->
         @foreach (var cs in _characterEditStates)
         {
-            <div class="card mb-2">
-                <div class="card-header d-flex justify-content-between align-items-center py-2">
-                    <span>
+            <div class="rw-collapsible-section mb-2">
+                <button type="button" class="rw-collapsible-header" @onclick="@(() => cs.IsExpanded = !cs.IsExpanded)">
+                    <span class="rw-collapsible-chevron @(cs.IsExpanded ? "is-open" : "")"></span>
+                    <span class="rw-collapsible-title">
                         @cs.CharacterName
-                        <span class="text-muted small ms-1">(@cs.Gender / @cs.Role)</span>
+                        <span style="text-transform: none; letter-spacing: normal; font-size: 12px; font-weight: 400; color: #999;">(@cs.Gender / @cs.Role)</span>
                     </span>
-                    <button class="btn btn-sm btn-link py-0" @onclick="@(() => cs.IsExpanded = !cs.IsExpanded)">
-                        @(cs.IsExpanded ? "▼" : "▶")
-                    </button>
-                </div>
+                </button>
                 @if (cs.IsExpanded)
                 {
-                    <div class="card-body">
+                    <div class="rw-collapsible-body">
                         <div class="mb-1">
                             <label class="form-label fw-semibold mb-1">Stat Profile <span class="text-danger">*</span></label>
                             <select class="form-select @(_showStep3Validation && string.IsNullOrWhiteSpace(cs.SelectedStatProfileId) ? "is-invalid" : "")"

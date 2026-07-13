@@ -11,6 +11,14 @@
             {
                 <small class="text-muted d-block">@ThemeSummary</small>
             }
+            @if (!string.IsNullOrEmpty(PersonaSummary))
+            {
+                <small class="text-muted d-block">Persona: @PersonaSummary</small>
+            }
+            @if (!string.IsNullOrEmpty(CharactersSummary))
+            {
+                <small class="text-muted d-block">Characters: @CharactersSummary</small>
+            }
         </div>
         <small class="text-muted flex-shrink-0 ms-2">@LastUpdatedLabel</small>
     </div>
@@ -44,6 +52,12 @@
 
     [Parameter]
     public string ThemeSummary { get; set; } = string.Empty;
+
+    [Parameter]
+    public string PersonaSummary { get; set; } = string.Empty;
+
+    [Parameter]
+    public string CharactersSummary { get; set; } = string.Empty;
 
     [Parameter]
     public EventCallback OnPrimaryAction { get; set; }

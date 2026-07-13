@@ -173,6 +173,17 @@ public sealed class AftermathHusbandContrastTests
 
         var session = new RolePlaySession();
         session.AdaptiveState.CurrentTimeSkipPhase = TimeSkipPhase.AftermathCoupleInteraction;
+        session.AdaptiveState.CycleIndex = 0;
+        // B-060: ShouldFire now requires the actor to have an EncounterCompletion record.
+        session.AdaptiveState.EncounterSummaries.Add(new EncounterSummaryRecord
+        {
+            SessionId = session.Id,
+            CharacterId = "Anna",
+            SummaryType = EncounterSummaryType.EncounterCompletion,
+            CycleIndex = 0,
+            EncounterNumber = 1,
+            TemplateSummary = "test summary"
+        });
 
         var context = new PromptInjectionContext
         {
@@ -184,6 +195,29 @@ public sealed class AftermathHusbandContrastTests
         };
 
         Assert.True(injector.ShouldFire(context));
+    }
+
+    [Fact]
+    public void HusbandAftermathInjector_ShouldNotFire_WhenActorHasNoEncounterRecord()
+    {
+        // B-060: ShouldFire returns false when the actor has no EncounterCompletion record
+        // even if the phase is AftermathCoupleInteraction.
+        var injector = new HusbandAftermathInjector();
+        var session = new RolePlaySession();
+        session.AdaptiveState.CurrentTimeSkipPhase = TimeSkipPhase.AftermathCoupleInteraction;
+        session.AdaptiveState.CycleIndex = 0;
+        // No encounter summaries added — Ken has no record.
+
+        var context = new PromptInjectionContext
+        {
+            Session = session,
+            SceneDirection = new SceneDirection(),
+            Phase = "Climax",
+            ActorName = "Ken",
+            Intent = PromptIntent.Message
+        };
+
+        Assert.False(injector.ShouldFire(context));
     }
 
     [Fact]
@@ -241,8 +275,13 @@ public sealed class AftermathHusbandContrastTests
             Intent = PromptIntent.Message
         };
 
+        // B-060: set persona role and character roles so dynamic partner label resolves.
+        session.PersonaRole = "Husband";
+        session.AdaptiveState.CharacterRoles["Anna"] = "Wife";
+
         var text = injector.BuildText(context);
         Assert.Contains("Anna and Marcus had passionate sex in the bathroom", text);
+        // B-060: dynamic label resolves to "husband" (actor Anna != persona, partner = persona = Husband).
         Assert.Contains("husband", text, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -272,6 +311,10 @@ public sealed class AftermathHusbandContrastTests
             ActorName = "Anna",
             Intent = PromptIntent.Message
         };
+
+        // B-060: set persona role and character roles so dynamic partner label resolves.
+        session.PersonaRole = "Husband";
+        session.AdaptiveState.CharacterRoles["Anna"] = "Wife";
 
         var text = injector.BuildText(context);
         Assert.Contains("encounter 1 of arc 1", text);
@@ -311,11 +354,10 @@ public sealed class AftermathHusbandContrastTests
     }
 
     [Fact]
-    public void HusbandAftermathInjector_BuildText_StaticFallbackWhenNoEncounterCompletionRecord()
+    public void HusbandAftermathInjector_BuildText_ReturnsEmptyWhenNoEncounterCompletionRecord()
     {
-        // B-058 Phase 5.1: when no EncounterCompletion summary exists yet for the arc
-        // (enrichment job not processed or record dropped), the injector falls back to the
-        // static phrase.
+        // B-060: when no EncounterCompletion summary exists for THIS actor in the arc,
+        // BuildText returns string.Empty (defensive guard — ShouldFire already gates this).
         var injector = new HusbandAftermathInjector();
         var session = new RolePlaySession();
         session.AdaptiveState.CurrentTimeSkipPhase = TimeSkipPhase.AftermathCoupleInteraction;
@@ -331,8 +373,7 @@ public sealed class AftermathHusbandContrastTests
         };
 
         var text = injector.BuildText(context);
-        Assert.Contains("had an intimate encounter with another man", text);
-        Assert.Contains("husband", text, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(string.Empty, text);
     }
 
     // ---- US3: Fast Pacing HC suppression ----

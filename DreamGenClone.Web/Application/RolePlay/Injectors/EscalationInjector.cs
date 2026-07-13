@@ -14,7 +14,8 @@ public sealed class EscalationInjector : IPromptInjector
     public int Priority => 60;
 
     public bool ShouldFire(PromptInjectionContext context)
-        => context.Intent != PromptIntent.Instruction;
+        => context.Intent != PromptIntent.Instruction
+        && context.Intent != PromptIntent.Narrative;
 
     public string BuildText(PromptInjectionContext context)
     {
@@ -38,18 +39,18 @@ public sealed class EscalationInjector : IPromptInjector
             switch (context.SceneDirection.Pacing)
             {
                 case ScenePacing.Slow:
-                    sb.AppendLine("- Advance within the same beat — deepen, do not leap.");
-                    sb.AppendLine("- Fill the response with sensory, emotional, and physical detail specific to this moment.");
-                    sb.AppendLine("- Do not describe a new beat or position.");
+                    sb.AppendLine("- Cover exactly one beat this response — richly detailed, deeply explored.");
+                    sb.AppendLine("- Fill the response with sensory, emotional, and physical detail specific to this beat.");
+                    sb.AppendLine("- Advance to a new beat next response. Do not repeat or re-describe the same beat.");
                     break;
                 case ScenePacing.Fast:
-                    sb.AppendLine("- This is a fast-paced scene. Cover more story ground per response — advance through the full arc of this moment.");
-                    sb.AppendLine("- Compress multiple beats into each response. Do not write only one beat when multiple beats fit naturally.");
-                    sb.AppendLine("- If a beat reaches its natural conclusion, advance to the next time or setting. Do not advance through multiple separate times within a single response.");
+                    sb.AppendLine("- This is a fast-paced encounter. Move through the full arc rapidly — initiation, act, climax, conclusion — within this and the next response.");
+                    sb.AppendLine("- Do not linger on individual beats. Cover the essential actions efficiently and keep moving forward.");
+                    sb.AppendLine("- Prioritize forward momentum over detailed description. This is meant to be brief and urgent.");
                     break;
                 default: // Medium
-                    sb.AppendLine("- Advance the scene with forward momentum.");
-                    sb.AppendLine("- Cover one to two beats this response. Avoid repeating only hesitant or reset beats.");
+                    sb.AppendLine("- Advance the scene with forward momentum within the current scene.");
+                    sb.AppendLine("- Cover one to two beats this response. Each response should advance to new beats — do not repeat previous beats.");
                     break;
             }
         }

@@ -1,4 +1,5 @@
 using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Web.Domain.RolePlay;
 
 namespace DreamGenClone.Web.Application.RolePlay.Injectors;
 
@@ -7,8 +8,7 @@ namespace DreamGenClone.Web.Application.RolePlay.Injectors;
 /// theme-controlled overrides via markers.
 /// 
 /// Position 1: Time Span Reminder — may establish/shift time and location.
-/// Position > 1: Location Continuity HC — must maintain the anchor set by position 1.
-/// Position > 1 + [Pacing:fast] or [TimeShift:*] markers: modified time-shift permission.
+/// Position > 1: Location Continuity — must maintain the anchor set by position 1.
 /// </summary>
 public sealed class TimeLocationInjector : IPromptInjector
 {
@@ -16,7 +16,7 @@ public sealed class TimeLocationInjector : IPromptInjector
     public int Priority => 10;
 
     public bool ShouldFire(PromptInjectionContext context)
-        => true;
+        => context.Intent != PromptIntent.Narrative;
 
     public string BuildText(PromptInjectionContext context)
     {
@@ -34,9 +34,6 @@ public sealed class TimeLocationInjector : IPromptInjector
         else
         {
             // Position > 1: tri-state location continuity based on IsActorInScene.
-            bool hasTimeShift = context.SceneDirection.Pacing == ScenePacing.Fast
-                || context.SceneDirection.TimeShift != TimeShiftPolicy.None;
-
             if (context.IsActorInScene == true)
             {
                 // Actor is confirmed in-scene: HARD CONSTRAINT to maintain the setting.
@@ -67,13 +64,6 @@ public sealed class TimeLocationInjector : IPromptInjector
                 sb.AppendLine("  and perspective. Do not assume they are present at the scene.");
             }
 
-            // Position > 1 + marker overrides: modified time-shift permission (all three states).
-            if (hasTimeShift)
-            {
-                sb.AppendLine();
-                sb.AppendLine("Time Shift Permission:");
-                sb.AppendLine("- You may also shift time or location, following the pacing and time shift rules.");
-            }
         }
 
         return sb.ToString();

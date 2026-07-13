@@ -40,4 +40,12 @@ public sealed class RolePlayMemoryOptions
     /// Default: true.
     /// </summary>
     public bool EnableLlmSummaryEnhancement { get; init; } = true;
+
+    /// <summary>
+    /// Global confidence threshold for semantic encounter-start detection.
+    /// Applied universally across all themes. Detection fires when the LLM
+    /// inference confidence meets or exceeds this value.
+    /// Default: 0.70.
+    /// </summary>
+    public decimal EncounterStartConfidenceThreshold { get; init; } = 0.70m;
 }

@@ -323,6 +323,23 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             positionInTurn: null,
             turnActorCount);
 
+        // Log the narrative prompt for debugging (same as character prompts).
+        await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+        {
+            SessionId = session.Id,
+            EventKind = "PromptBuilt",
+            Severity = "Info",
+            ActorName = string.IsNullOrWhiteSpace(actorName) ? "Narrative" : actorName,
+            Summary = $"Prompt prepared for Narrative ({PromptIntent.Narrative})",
+            MetadataJson = JsonSerializer.Serialize(new
+            {
+                actor = actorName,
+                intent = PromptIntent.Narrative.ToString(),
+                prompt,
+                promptLength = prompt.Length
+            })
+        }, cancellationToken);
+
         var settings = _modelSettingsService.GetSettings(session.Id);
         var resolved = await _modelResolver.ResolveAsync(
             AppFunction.RolePlayGeneration,
@@ -1529,6 +1546,7 @@ var styleHint = string.IsNullOrWhiteSpace(scenarioStyle)
             .Where(x => !string.IsNullOrWhiteSpace(x.GuidanceText))
             .OrderBy(x => x.GuidanceText, StringComparer.OrdinalIgnoreCase)
             .Select(x => Regex.Replace(x.GuidanceText.Trim(), @"\[Beat[^\]]*\]", "", RegexOptions.IgnoreCase).Trim())
+            .Select(x => Regex.Replace(x, @"\[Aftermath:husband-contrast\]", "", RegexOptions.IgnoreCase).Trim())
             .ToList();
         if (phaseGuidance.Count > 0)
         {

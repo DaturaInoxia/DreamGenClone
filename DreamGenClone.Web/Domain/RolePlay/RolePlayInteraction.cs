@@ -62,6 +62,15 @@ public sealed class RolePlayInteraction
     public bool? WasInSexScene { get; set; }
 
     /// <summary>
+    /// Set to true by the semantic encounter-start detection method when LLM inference
+    /// confirms this interaction marks the beginning of a new sexual encounter.
+    /// Distinct from WasInSexScene (which fires on any keyword match) — this fires only
+    /// on the single interaction where the encounter transition was detected.
+    /// Null for interactions that were not evaluated.
+    /// </summary>
+    public bool? WasEncounterStart { get; set; }
+
+    /// <summary>
     /// Set to true when this interaction triggered an encounter-completed boundary
     /// detection that advanced the encounter counter and set a time-skip phase.
     /// Null for interactions that were not evaluated or did not trigger detection.
