@@ -2235,7 +2235,7 @@
                     .ThenByDescending(x => x.Confidence)
                     .FirstOrDefault();
             var fitScore = topEligibleCandidate?.FitScore ?? topCandidate?.FitScore;
-            var interactionCount = _v2State?.InteractionCountInPhase ?? state.InteractionCountInPhase;
+            var interactionCount = _v2State?.TurnCountInPhase ?? state.TurnCountInPhase;
             var averageDesire = GetAverageAdaptiveStat(state, "Desire");
             var averageRestraint = GetAverageAdaptiveStat(state, "Restraint");
             var averageDominance = GetAverageAdaptiveStat(state, "Dominance");
@@ -2244,7 +2244,7 @@
             var metricValues = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
             {
                 [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.ActiveScenarioScore] = fitScore ?? 0m,
-                [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.InteractionsSinceCommitment] = interactionCount,
+                [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.TurnsSinceCommitment] = interactionCount,
                 [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageDesire] = (decimal)averageDesire,
                 [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageRestraint] = (decimal)averageRestraint,
                 [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageDominance] = (decimal)averageDominance,
@@ -2333,20 +2333,20 @@
             case NarrativePhase.Committed:
             {
                 var thresholds = ResolveCommittedGateThresholds(state);
-                var committedInteractions = _v2State?.InteractionCountInPhase ?? state.InteractionsSinceCommitment;
+                var committedTurns = _v2State?.TurnCountInPhase ?? state.TurnsSinceCommitment;
                 var scoreMet = activeScenarioScore >= thresholds.ScoreMin;
                 var desireMet = desire >= thresholds.DesireMin;
                 var restraintMet = restraint <= thresholds.RestraintMax;
-                var interactionsMet = committedInteractions >= thresholds.InteractionsMin;
-                var isMet = scoreMet && desireMet && restraintMet && interactionsMet;
+                var turnsMet = committedTurns >= thresholds.InteractionsMin;
+                var isMet = scoreMet && desireMet && restraintMet && turnsMet;
                 var scoreGap = Math.Max(0, thresholds.ScoreMin - activeScenarioScore);
                 var desireGap = Math.Max(0, thresholds.DesireMin - desire);
                 var restraintGap = Math.Max(0, restraint - thresholds.RestraintMax);
-                var interactionGap = Math.Max(0, thresholds.InteractionsMin - committedInteractions);
+                var turnGap = Math.Max(0, thresholds.InteractionsMin - committedTurns);
                 rows.Add(new PhaseGateRow(
                     "Gate: Committed -> Approaching",
                     isMet ? "Open" : "Closed",
-                    $"{thresholds.Source}: Score {activeScenarioScore:0.0}/{thresholds.ScoreMin:0} ({(scoreMet ? "OK" : $"Need +{scoreGap:0.0}")}), Desire {desire:0.0}/{thresholds.DesireMin:0} ({(desireMet ? "OK" : $"Need +{desireGap:0.0}")}), Restraint {restraint:0.0}/<={thresholds.RestraintMax:0} ({(restraintMet ? "OK" : $"Need -{restraintGap:0.0}")}), Interactions {committedInteractions}/{thresholds.InteractionsMin} ({(interactionsMet ? "OK" : $"Need +{interactionGap}")})"));
+                    $"{thresholds.Source}: Score {activeScenarioScore:0.0}/{thresholds.ScoreMin:0} ({(scoreMet ? "OK" : $"Need +{scoreGap:0.0}")}), Desire {desire:0.0}/{thresholds.DesireMin:0} ({(desireMet ? "OK" : $"Need +{desireGap:0.0}")}), Restraint {restraint:0.0}/<={thresholds.RestraintMax:0} ({(restraintMet ? "OK" : $"Need -{restraintGap:0.0}")}), Interactions {committedTurns}/{thresholds.InteractionsMin} ({(turnsMet ? "OK" : $"Need +{turnGap}")})"));
                 break;
             }
             case NarrativePhase.Approaching:
@@ -2355,16 +2355,16 @@
                 var scoreMet = activeScenarioScore >= thresholds.ScoreMin;
                 var desireMet = desire >= thresholds.DesireMin;
                 var restraintMet = restraint <= thresholds.RestraintMax;
-                var interactionsMet = state.InteractionsInApproaching >= thresholds.InteractionsMin;
-                var thresholdMet = scoreMet && desireMet && restraintMet && interactionsMet;
+                var turnsMet = state.TurnsInApproaching >= thresholds.InteractionsMin;
+                var thresholdMet = scoreMet && desireMet && restraintMet && turnsMet;
                 var scoreGap = Math.Max(0, thresholds.ScoreMin - activeScenarioScore);
                 var desireGap = Math.Max(0, thresholds.DesireMin - desire);
                 var restraintGap = Math.Max(0, restraint - thresholds.RestraintMax);
-                var interactionGap = Math.Max(0, thresholds.InteractionsMin - state.InteractionsInApproaching);
+                var turnGap = Math.Max(0, thresholds.InteractionsMin - state.TurnsInApproaching);
                 rows.Add(new PhaseGateRow(
                     "Gate: Approaching -> Climax",
                     thresholdMet ? "Open" : "Closed",
-                    $"{thresholds.Source}: Score {activeScenarioScore:0.0}/{thresholds.ScoreMin:0} ({(scoreMet ? "OK" : $"Need +{scoreGap:0.0}")}), Desire {desire:0.0}/{thresholds.DesireMin:0} ({(desireMet ? "OK" : $"Need +{desireGap:0.0}")}), Restraint {restraint:0.0}/<={thresholds.RestraintMax:0} ({(restraintMet ? "OK" : $"Need -{restraintGap:0.0}")}), Interactions {state.InteractionsInApproaching}/{thresholds.InteractionsMin} ({(interactionsMet ? "OK" : $"Need +{interactionGap}")}). '/climax' can force transition."));
+                    $"{thresholds.Source}: Score {activeScenarioScore:0.0}/{thresholds.ScoreMin:0} ({(scoreMet ? "OK" : $"Need +{scoreGap:0.0}")}), Desire {desire:0.0}/{thresholds.DesireMin:0} ({(desireMet ? "OK" : $"Need +{desireGap:0.0}")}), Restraint {restraint:0.0}/<={thresholds.RestraintMax:0} ({(restraintMet ? "OK" : $"Need -{restraintGap:0.0}")}), Interactions {state.TurnsInApproaching}/{thresholds.InteractionsMin} ({(turnsMet ? "OK" : $"Need +{turnGap}")}). '/climax' can force transition."));
                 break;
             }
             case NarrativePhase.Climax:
@@ -2379,9 +2379,9 @@
                     .FirstOrDefault(r =>
                         string.Equals(r.FromPhase, "Reset", StringComparison.OrdinalIgnoreCase)
                         && string.Equals(r.ToPhase, "BuildUp", StringComparison.OrdinalIgnoreCase)
-                        && string.Equals(r.MetricKey, DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.InteractionsSinceCommitment, StringComparison.OrdinalIgnoreCase));
+                        && string.Equals(r.MetricKey, DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.TurnsSinceCommitment, StringComparison.OrdinalIgnoreCase));
                 var resetThreshold = resetInteractionRule is not null ? (int)Math.Round(resetInteractionRule.Threshold, MidpointRounding.AwayFromZero) : 3;
-                var resetInteractions = state.InteractionsSinceCommitment;
+                var resetInteractions = state.TurnsSinceCommitment;
                 var resetGateOpen = resetInteractions >= resetThreshold;
                 rows.Add(new PhaseGateRow(
                     "Gate: Reset -> BuildUp",
@@ -2507,14 +2507,14 @@
         var desire = GetAverageAdaptiveStat(state, "Desire");
         var restraint = GetAverageAdaptiveStat(state, "Restraint");
         var activeScenarioScore = GetLifecycleActiveScenarioScore(state, out _);
-        var effectiveInteractionsSinceCommitment = GetEffectiveInteractionsSinceCommitment(state);
-        var effectiveInteractionsInApproaching = GetEffectiveInteractionsInApproaching(state, effectiveInteractionsSinceCommitment);
+        var effectiveTurnsSinceCommitment = GetEffectiveTurnsSinceCommitment(state);
+        var effectiveTurnsInApproaching = GetEffectiveTurnsInApproaching(state, effectiveTurnsSinceCommitment);
 
         return state.CurrentPhase switch
         {
             NarrativePhase.BuildUp => BuildBuildUpProgress(state, desire, restraint),
-            NarrativePhase.Committed => BuildCommittedProgress(state, activeScenarioScore, desire, restraint, effectiveInteractionsSinceCommitment),
-            NarrativePhase.Approaching => BuildApproachingProgress(state, activeScenarioScore, desire, restraint, effectiveInteractionsInApproaching),
+            NarrativePhase.Committed => BuildCommittedProgress(state, activeScenarioScore, desire, restraint, effectiveTurnsSinceCommitment),
+            NarrativePhase.Approaching => BuildApproachingProgress(state, activeScenarioScore, desire, restraint, effectiveTurnsInApproaching),
             NarrativePhase.Climax => new PhaseProgressInfo(
                 "Reset",
                 0,
@@ -2570,12 +2570,12 @@
                 .ThenByDescending(x => x.FitScore)
                 .FirstOrDefault();
 
-        var interactionCount = _v2State?.InteractionCountInPhase ?? _session?.AdaptiveState.InteractionCountInPhase ?? 0;
+        var interactionCount = _v2State?.TurnCountInPhase ?? _session?.AdaptiveState.TurnCountInPhase ?? 0;
         var fitScore = topEligibleCandidate?.FitScore ?? 0m;
         var metricValues = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
         {
             [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.ActiveScenarioScore] = fitScore,
-            [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.InteractionsSinceCommitment] = interactionCount,
+            [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.TurnsSinceCommitment] = interactionCount,
             [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageDesire] = (decimal)GetAverageAdaptiveStat(_session.AdaptiveState, "Desire"),
             [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageRestraint] = (decimal)GetAverageAdaptiveStat(_session.AdaptiveState, "Restraint"),
             [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageDominance] = (decimal)GetAverageAdaptiveStat(_session.AdaptiveState, "Dominance"),
@@ -2725,35 +2725,35 @@
         }
     }
 
-    private PhaseProgressInfo BuildCommittedProgress(AdaptiveScenarioState state, double activeScenarioScore, double desire, double restraint, int interactionsSinceCommitment)
+    private PhaseProgressInfo BuildCommittedProgress(AdaptiveScenarioState state, double activeScenarioScore, double desire, double restraint, int TurnsSinceCommitment)
     {
         var thresholds = ResolveCommittedGateThresholds(state);
         var scoreProgress = Math.Clamp(activeScenarioScore / thresholds.ScoreMin, 0, 1);
         var desireProgress = Math.Clamp(desire / thresholds.DesireMin, 0, 1);
         var restraintProgress = Math.Clamp((100.0 - restraint) / (100.0 - thresholds.RestraintMax), 0, 1);
-        var interactionProgress = Math.Clamp((double)interactionsSinceCommitment / thresholds.InteractionsMin, 0, 1);
+        var interactionProgress = Math.Clamp((double)TurnsSinceCommitment / thresholds.InteractionsMin, 0, 1);
 
         var progressPercent = (int)Math.Round((scoreProgress + desireProgress + restraintProgress + interactionProgress) / 4.0 * 100.0);
         return new PhaseProgressInfo(
             "Approaching",
             progressPercent,
-            $"{thresholds.Source}: score>={thresholds.ScoreMin:0} ({activeScenarioScore:0.0}), desire>={thresholds.DesireMin:0} ({desire:0.0}), restraint<={thresholds.RestraintMax:0} ({restraint:0.0}), interactions>={thresholds.InteractionsMin} ({interactionsSinceCommitment})."
+            $"{thresholds.Source}: score>={thresholds.ScoreMin:0} ({activeScenarioScore:0.0}), desire>={thresholds.DesireMin:0} ({desire:0.0}), restraint<={thresholds.RestraintMax:0} ({restraint:0.0}), interactions>={thresholds.InteractionsMin} ({TurnsSinceCommitment})."
         );
     }
 
-    private PhaseProgressInfo BuildApproachingProgress(AdaptiveScenarioState state, double activeScenarioScore, double desire, double restraint, int interactionsInApproaching)
+    private PhaseProgressInfo BuildApproachingProgress(AdaptiveScenarioState state, double activeScenarioScore, double desire, double restraint, int TurnsInApproaching)
     {
         var thresholds = ResolveApproachingGateThresholds(state);
         var scoreProgress = Math.Clamp(activeScenarioScore / thresholds.ScoreMin, 0, 1);
         var desireProgress = Math.Clamp(desire / thresholds.DesireMin, 0, 1);
         var restraintProgress = Math.Clamp((100.0 - restraint) / (100.0 - thresholds.RestraintMax), 0, 1);
-        var interactionProgress = Math.Clamp((double)interactionsInApproaching / thresholds.InteractionsMin, 0, 1);
+        var interactionProgress = Math.Clamp((double)TurnsInApproaching / thresholds.InteractionsMin, 0, 1);
 
         var progressPercent = (int)Math.Round((scoreProgress + desireProgress + restraintProgress + interactionProgress) / 4.0 * 100.0);
         return new PhaseProgressInfo(
             "Climax",
             progressPercent,
-            $"{thresholds.Source}: score>={thresholds.ScoreMin:0} ({activeScenarioScore:0.0}), desire>={thresholds.DesireMin:0} ({desire:0.0}), restraint<={thresholds.RestraintMax:0} ({restraint:0.0}), approaching interactions>={thresholds.InteractionsMin} ({interactionsInApproaching}). '/climax' can force transition."
+            $"{thresholds.Source}: score>={thresholds.ScoreMin:0} ({activeScenarioScore:0.0}), desire>={thresholds.DesireMin:0} ({desire:0.0}), restraint<={thresholds.RestraintMax:0} ({restraint:0.0}), approaching interactions>={thresholds.InteractionsMin} ({TurnsInApproaching}). '/climax' can force transition."
         );
     }
 
@@ -2763,9 +2763,9 @@
             .FirstOrDefault(r =>
                 string.Equals(r.FromPhase, "Reset", StringComparison.OrdinalIgnoreCase)
                 && string.Equals(r.ToPhase, "BuildUp", StringComparison.OrdinalIgnoreCase)
-                && string.Equals(r.MetricKey, DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.InteractionsSinceCommitment, StringComparison.OrdinalIgnoreCase));
+                && string.Equals(r.MetricKey, DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.TurnsSinceCommitment, StringComparison.OrdinalIgnoreCase));
         var threshold = interactionRule is not null ? (int)Math.Round(interactionRule.Threshold, MidpointRounding.AwayFromZero) : 3;
-        var current = state.InteractionsSinceCommitment;
+        var current = state.TurnsSinceCommitment;
         var progress = threshold <= 0 ? 100 : (int)Math.Round(Math.Clamp((double)current / threshold, 0.0, 1.0) * 100.0);
         var source = _defaultNarrativeGateProfile is not null ? $"Profile '{_defaultNarrativeGateProfile.Name}'" : "default";
         return new PhaseProgressInfo(
@@ -2829,7 +2829,7 @@
             out var restraintMax);
         var hasInteractions = TryGetThreshold(
             rules,
-            DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.InteractionsSinceCommitment,
+            DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.TurnsSinceCommitment,
             [DreamGenClone.Domain.RolePlay.NarrativeGateComparators.GreaterThanOrEqual, DreamGenClone.Domain.RolePlay.NarrativeGateComparators.GreaterThan],
             out var interactionsMin);
 
@@ -2926,7 +2926,7 @@
             var activeScenarioScore = GetLifecycleActiveScenarioScore(state, out _);
             var desire = GetAverageAdaptiveStat(state, "Desire");
             var restraint = GetAverageAdaptiveStat(state, "Restraint");
-            var interactionsSinceCommitment = GetEffectiveInteractionsSinceCommitment(state);
+            var TurnsSinceCommitment = GetEffectiveTurnsSinceCommitment(state);
 
             if (activeScenarioScore < thresholds.ScoreMin)
             {
@@ -2949,11 +2949,11 @@
                     $"Lower restraint to {thresholds.RestraintMax:0} (current {restraint:0.0}).");
             }
 
-            if (interactionsSinceCommitment < thresholds.InteractionsMin)
+            if (TurnsSinceCommitment < thresholds.InteractionsMin)
             {
                 return (
                     "Next phase Approaching is blocked.",
-                    $"Add interactions to {thresholds.InteractionsMin} (current {interactionsSinceCommitment}).");
+                    $"Add interactions to {thresholds.InteractionsMin} (current {TurnsSinceCommitment}).");
             }
 
             return (
@@ -2974,8 +2974,8 @@
             var activeScenarioScore = GetLifecycleActiveScenarioScore(state, out _);
             var desire = GetAverageAdaptiveStat(state, "Desire");
             var restraint = GetAverageAdaptiveStat(state, "Restraint");
-            var interactionsSinceCommitment = GetEffectiveInteractionsSinceCommitment(state);
-            var interactionsInApproaching = GetEffectiveInteractionsInApproaching(state, interactionsSinceCommitment);
+            var TurnsSinceCommitment = GetEffectiveTurnsSinceCommitment(state);
+            var TurnsInApproaching = GetEffectiveTurnsInApproaching(state, TurnsSinceCommitment);
 
             if (activeScenarioScore < thresholds.ScoreMin)
             {
@@ -2998,11 +2998,11 @@
                     $"Lower restraint to {thresholds.RestraintMax:0} (current {restraint:0.0}).");
             }
 
-            if (interactionsInApproaching < thresholds.InteractionsMin)
+            if (TurnsInApproaching < thresholds.InteractionsMin)
             {
                 return (
                     "Next phase Climax is blocked.",
-                    $"Add approaching interactions to {thresholds.InteractionsMin} (current {interactionsInApproaching}).");
+                    $"Add approaching interactions to {thresholds.InteractionsMin} (current {TurnsInApproaching}).");
             }
 
             return (
@@ -3016,9 +3016,9 @@
                 .FirstOrDefault(r =>
                     string.Equals(r.FromPhase, "Reset", StringComparison.OrdinalIgnoreCase)
                     && string.Equals(r.ToPhase, "BuildUp", StringComparison.OrdinalIgnoreCase)
-                    && string.Equals(r.MetricKey, DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.InteractionsSinceCommitment, StringComparison.OrdinalIgnoreCase));
+                    && string.Equals(r.MetricKey, DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.TurnsSinceCommitment, StringComparison.OrdinalIgnoreCase));
             var threshold = interactionRule is not null ? (int)Math.Round(interactionRule.Threshold, MidpointRounding.AwayFromZero) : 3;
-            var current = state.InteractionsSinceCommitment;
+            var current = state.TurnsSinceCommitment;
             if (current < threshold)
             {
                 return (
@@ -3090,11 +3090,11 @@
         }
 
         var fitScore = topEligibleCandidate.FitScore;
-        var interactionCount = _v2State?.InteractionCountInPhase ?? _session?.AdaptiveState.InteractionCountInPhase ?? 0;
+        var interactionCount = _v2State?.TurnCountInPhase ?? _session?.AdaptiveState.TurnCountInPhase ?? 0;
         var metricValues = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
         {
             [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.ActiveScenarioScore] = fitScore,
-            [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.InteractionsSinceCommitment] = interactionCount,
+            [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.TurnsSinceCommitment] = interactionCount,
             [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageDesire] = (decimal)GetAverageAdaptiveStat(_session.AdaptiveState, "Desire"),
             [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageRestraint] = (decimal)GetAverageAdaptiveStat(_session.AdaptiveState, "Restraint"),
             [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageTension] = (decimal)GetAverageAdaptiveStat(_session.AdaptiveState, "Tension"),
@@ -3133,9 +3133,9 @@
             "Commit should happen on this/next evaluation cycle unless a higher-level lock is active.");
     }
 
-    private int GetEffectiveInteractionsSinceCommitment(AdaptiveScenarioState state)
+    private int GetEffectiveTurnsSinceCommitment(AdaptiveScenarioState state)
     {
-        var raw = state.InteractionsSinceCommitment;
+        var raw = state.TurnsSinceCommitment;
         if (raw > 0)
         {
             return raw;
@@ -3159,19 +3159,19 @@
         return Math.Max(raw, estimated);
     }
 
-    private static int GetEffectiveInteractionsInApproaching(AdaptiveScenarioState state, int effectiveInteractionsSinceCommitment)
+    private static int GetEffectiveTurnsInApproaching(AdaptiveScenarioState state, int effectiveTurnsSinceCommitment)
     {
-        if (state.InteractionsInApproaching > 0)
+        if (state.TurnsInApproaching > 0)
         {
-            return state.InteractionsInApproaching;
+            return state.TurnsInApproaching;
         }
 
         if (state.CurrentPhase != NarrativePhase.Approaching)
         {
-            return state.InteractionsInApproaching;
+            return state.TurnsInApproaching;
         }
 
-        return Math.Max(0, Math.Min(effectiveInteractionsSinceCommitment, 2));
+        return Math.Max(0, Math.Min(effectiveTurnsSinceCommitment, 2));
     }
 
     private sealed record PhaseGateRuleRow(
@@ -3231,12 +3231,12 @@
             ? topEval.FitScore
             : 0m;
 
-        var interactionCount = (decimal)(_v2State?.InteractionCountInPhase ?? state.InteractionCountInPhase);
+        var interactionCount = (decimal)(_v2State?.TurnCountInPhase ?? state.TurnCountInPhase);
 
         var metricValues = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
         {
             [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.ActiveScenarioScore]          = fitScore,
-            [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.InteractionsSinceCommitment]  = interactionCount,
+            [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.TurnsSinceCommitment]  = interactionCount,
             [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageDesire]                = (decimal)GetAverageAdaptiveStat(state, "Desire"),
             [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageRestraint]             = (decimal)GetAverageAdaptiveStat(state, "Restraint"),
             [DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageTension]               = (decimal)GetAverageAdaptiveStat(state, "Tension"),
@@ -3254,7 +3254,7 @@
             TryCompareRuleMetric(actual, rule.Comparator, rule.Threshold, out var passed);
             var gapDesc = passed ? string.Empty : ComputeRuleGapDescription(actual, rule.Comparator, rule.Threshold);
             var isCount = string.Equals(rule.MetricKey,
-                DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.InteractionsSinceCommitment,
+                DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.TurnsSinceCommitment,
                 StringComparison.OrdinalIgnoreCase);
             rows.Add(new PhaseGateRuleRow(
                 MetricLabel: FormatGateMetricLabel(rule.MetricKey),
@@ -3269,7 +3269,7 @@
     private static string FormatGateMetricLabel(string metricKey) => metricKey switch
     {
         DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.ActiveScenarioScore          => "Fit Score",
-        DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.InteractionsSinceCommitment  => "Interactions",
+        DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.TurnsSinceCommitment  => "Interactions",
         DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageDesire                => "Avg Desire",
         DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageRestraint             => "Avg Restraint",
         DreamGenClone.Domain.RolePlay.NarrativeGateMetricKeys.AverageTension               => "Avg Tension",

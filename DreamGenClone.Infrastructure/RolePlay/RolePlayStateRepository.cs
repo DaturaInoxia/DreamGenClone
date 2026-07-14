@@ -63,7 +63,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                     StartedUtc, CompletedUtc, Status, FailureReason, UpdatedUtc)
                 VALUES (
                     $turnId, $sessionId, $turnIndex, $turnKind, $triggerSource, $initiatedByActorName,
-                    $inputInteractionId, $outputInteractionIdsJson, $outputInteractionCount,
+                    $inputInteractionId, $outputInteractionIdsJson, $OutputInteractionCount,
                     $startedUtc, NULL, $status, NULL, $updatedUtc);
                 """;
             insertCommand.Parameters.AddWithValue("$turnId", turnId);
@@ -74,7 +74,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
             insertCommand.Parameters.AddWithValue("$initiatedByActorName", (object?)initiatedByActorName ?? DBNull.Value);
             insertCommand.Parameters.AddWithValue("$inputInteractionId", (object?)inputInteractionId ?? DBNull.Value);
             insertCommand.Parameters.AddWithValue("$outputInteractionIdsJson", "[]");
-            insertCommand.Parameters.AddWithValue("$outputInteractionCount", 0);
+            insertCommand.Parameters.AddWithValue("$OutputInteractionCount", 0);
             insertCommand.Parameters.AddWithValue("$startedUtc", startedUtc.ToString("O"));
             insertCommand.Parameters.AddWithValue("$status", RolePlayTurnStatus.Started.ToString());
             insertCommand.Parameters.AddWithValue("$updatedUtc", startedUtc.ToString("O"));
@@ -124,7 +124,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
         command.CommandText = """
             UPDATE RolePlayV2Turns
             SET OutputInteractionIdsJson = $outputInteractionIdsJson,
-                OutputInteractionCount = $outputInteractionCount,
+                OutputInteractionCount = $OutputInteractionCount,
                 CompletedUtc = $completedUtc,
                 Status = $status,
                 FailureReason = $failureReason,
@@ -132,7 +132,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
             WHERE SessionId = $sessionId AND TurnId = $turnId;
             """;
         command.Parameters.AddWithValue("$outputInteractionIdsJson", JsonSerializer.Serialize(outputInteractionIds));
-        command.Parameters.AddWithValue("$outputInteractionCount", outputInteractionIds.Count);
+        command.Parameters.AddWithValue("$OutputInteractionCount", outputInteractionIds.Count);
         command.Parameters.AddWithValue("$completedUtc", completedUtc.ToString("O"));
         command.Parameters.AddWithValue("$status", status.ToString());
         command.Parameters.AddWithValue("$failureReason", succeeded ? (object)DBNull.Value : (object?)(string.IsNullOrWhiteSpace(failureReason) ? "Turn execution failed." : failureReason.Trim()) ?? DBNull.Value);
@@ -221,35 +221,35 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
         command.Transaction = transaction;
         command.CommandText = """
             INSERT INTO RolePlayV2AdaptiveStates (
-                SessionId, ActiveScenarioId, CurrentPhase, InteractionCountInPhase, ConsecutiveLeadCount,
+                SessionId, ActiveScenarioId, CurrentPhase, TurnCountInPhase, ConsecutiveLeadCount,
                 LastEvaluationUtc, CycleIndex, ActiveFormulaVersion, ActiveVariantId,
                 SelectedWillingnessProfileId, SelectedNarrativeGateProfileId, CharacterEncounterProfileIdsJson,
                 PhaseOverrideFloor, PhaseOverrideScenarioId, PhaseOverrideCycleIndex, PhaseOverrideSource, PhaseOverrideAppliedUtc,
                 CurrentSceneLocation,
                 CharacterLocationsJson, CharacterLocationPerceptionsJson, CharacterSnapshotsJson, ThemeMachineSnapshotJson,
                 CurrentBeatCode, TurnsInCurrentBeat,
-                CompletedScenarios, InteractionsSinceCommitment, InteractionsInApproaching, ScenarioCommitmentTimeUtc,
+                CompletedScenarios, TurnsSinceCommitment, TurnsInApproaching, ScenarioCommitmentTimeUtc,
                 SemanticStepSucceeded, SemanticDeltaBreakdownsJson, SemanticStatDeltaBreakdownsJson,
-                CurrentEncounterNumber, InteractionsInCurrentEncounter, TimeSkipPending, CurrentTimeSkipPhase,
+                CurrentEncounterNumber, TurnsInCurrentEncounter, TimeSkipPending, CurrentTimeSkipPhase,
                 GlobalEncounterCount, CurrentEncounterStartInteractionIndex, IsEncounterActive,
                 UpdatedUtc)
             VALUES (
-                $sessionId, $activeScenarioId, $currentPhase, $interactionCountInPhase, $consecutiveLeadCount,
+                $sessionId, $activeScenarioId, $currentPhase, $TurnCountInPhase, $consecutiveLeadCount,
                 $lastEvaluationUtc, $cycleIndex, $activeFormulaVersion, $activeVariantId,
                 $selectedWillingnessProfileId, $selectedNarrativeGateProfileId, $characterEncounterProfileIdsJson,
                 $phaseOverrideFloor, $phaseOverrideScenarioId, $phaseOverrideCycleIndex, $phaseOverrideSource, $phaseOverrideAppliedUtc,
                 $currentSceneLocation,
                 $characterLocationsJson, $characterLocationPerceptionsJson, $characterSnapshotsJson, $themeMachineSnapshotJson,
                 $currentBeatCode, $turnsInCurrentBeat,
-                $completedScenarios, $interactionsSinceCommitment, $interactionsInApproaching, $scenarioCommitmentTimeUtc,
+                $completedScenarios, $TurnsSinceCommitment, $TurnsInApproaching, $scenarioCommitmentTimeUtc,
                 $semanticStepSucceeded, $semanticDeltaBreakdownsJson, $semanticStatDeltaBreakdownsJson,
-                $currentEncounterNumber, $interactionsInCurrentEncounter, $timeSkipPending, $currentTimeSkipPhase,
+                $currentEncounterNumber, $TurnsInCurrentEncounter, $timeSkipPending, $currentTimeSkipPhase,
                 $globalEncounterCount, $currentEncounterStartInteractionIndex, $isEncounterActive,
                 $updatedUtc)
             ON CONFLICT(SessionId) DO UPDATE SET
                 ActiveScenarioId = excluded.ActiveScenarioId,
                 CurrentPhase = excluded.CurrentPhase,
-                InteractionCountInPhase = excluded.InteractionCountInPhase,
+                TurnCountInPhase = excluded.TurnCountInPhase,
                 ConsecutiveLeadCount = excluded.ConsecutiveLeadCount,
                 LastEvaluationUtc = excluded.LastEvaluationUtc,
                 CycleIndex = excluded.CycleIndex,
@@ -271,14 +271,14 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 CurrentBeatCode = excluded.CurrentBeatCode,
                 TurnsInCurrentBeat = excluded.TurnsInCurrentBeat,
                 CompletedScenarios = excluded.CompletedScenarios,
-                InteractionsSinceCommitment = excluded.InteractionsSinceCommitment,
-                InteractionsInApproaching = excluded.InteractionsInApproaching,
+                TurnsSinceCommitment = excluded.TurnsSinceCommitment,
+                TurnsInApproaching = excluded.TurnsInApproaching,
                 ScenarioCommitmentTimeUtc = excluded.ScenarioCommitmentTimeUtc,
                 SemanticStepSucceeded = excluded.SemanticStepSucceeded,
                 SemanticDeltaBreakdownsJson = excluded.SemanticDeltaBreakdownsJson,
                 SemanticStatDeltaBreakdownsJson = excluded.SemanticStatDeltaBreakdownsJson,
                 CurrentEncounterNumber = excluded.CurrentEncounterNumber,
-                InteractionsInCurrentEncounter = excluded.InteractionsInCurrentEncounter,
+                TurnsInCurrentEncounter = excluded.TurnsInCurrentEncounter,
                 TimeSkipPending = excluded.TimeSkipPending,
                 CurrentTimeSkipPhase = excluded.CurrentTimeSkipPhase,
                 GlobalEncounterCount = excluded.GlobalEncounterCount,
@@ -291,7 +291,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
         command.Parameters.AddWithValue("$sessionId", state.SessionId);
         command.Parameters.AddWithValue("$activeScenarioId", (object?)state.ActiveScenarioId ?? DBNull.Value);
         command.Parameters.AddWithValue("$currentPhase", state.CurrentPhase.ToString());
-        command.Parameters.AddWithValue("$interactionCountInPhase", state.InteractionCountInPhase);
+        command.Parameters.AddWithValue("$TurnCountInPhase", state.TurnCountInPhase);
         command.Parameters.AddWithValue("$consecutiveLeadCount", state.ConsecutiveLeadCount);
         command.Parameters.AddWithValue("$lastEvaluationUtc", state.LastEvaluationUtc.ToString("O"));
         command.Parameters.AddWithValue("$cycleIndex", state.CycleIndex);
@@ -320,14 +320,14 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
         command.Parameters.AddWithValue("$currentBeatCode", (object?)state.CurrentBeatCode ?? DBNull.Value);
         command.Parameters.AddWithValue("$turnsInCurrentBeat", state.TurnsInCurrentBeat);
         command.Parameters.AddWithValue("$completedScenarios", state.CompletedScenarios);
-        command.Parameters.AddWithValue("$interactionsSinceCommitment", state.InteractionsSinceCommitment);
-        command.Parameters.AddWithValue("$interactionsInApproaching", state.InteractionsInApproaching);
+        command.Parameters.AddWithValue("$TurnsSinceCommitment", state.TurnsSinceCommitment);
+        command.Parameters.AddWithValue("$TurnsInApproaching", state.TurnsInApproaching);
         command.Parameters.AddWithValue("$scenarioCommitmentTimeUtc", state.ScenarioCommitmentTimeUtc?.ToString("O") ?? (object)DBNull.Value);
         command.Parameters.AddWithValue("$semanticStepSucceeded", state.SemanticStepSucceeded ? 1 : 0);
         command.Parameters.AddWithValue("$semanticDeltaBreakdownsJson", JsonSerializer.Serialize(state.SemanticDeltaBreakdowns));
         command.Parameters.AddWithValue("$semanticStatDeltaBreakdownsJson", JsonSerializer.Serialize(state.SemanticStatDeltaBreakdowns));
         command.Parameters.AddWithValue("$currentEncounterNumber", state.CurrentEncounterNumber);
-        command.Parameters.AddWithValue("$interactionsInCurrentEncounter", state.InteractionsInCurrentEncounter);
+        command.Parameters.AddWithValue("$TurnsInCurrentEncounter", state.TurnsInCurrentEncounter);
         command.Parameters.AddWithValue("$timeSkipPending", 0); // retired — always write 0
         command.Parameters.AddWithValue("$currentTimeSkipPhase", (int)state.CurrentTimeSkipPhase);
         command.Parameters.AddWithValue("$globalEncounterCount", state.GlobalEncounterCount);
@@ -362,7 +362,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 INSERT INTO RolePlayV2ThemeScores (
                     SessionId, ThemeId, ThemeName, Intensity, Score, Blocked, SuppressedHitCount,
                     IsScenarioCandidate, NarrativeFitScore, LastCandidateEvaluationTimeUtc,
-                    CompletionCooldownInteractions, BreakdownJson, UpdatedUtc)
+                    CompletionCooldownTurns, BreakdownJson, UpdatedUtc)
                 VALUES (
                     $sessionId, $themeId, $themeName, $intensity, $score, $blocked, $suppressedHitCount,
                     $isScenarioCandidate, $narrativeFitScore, $lastCandidateEvalUtc,
@@ -378,7 +378,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
             ins.Parameters.AddWithValue("$isScenarioCandidate", score.IsScenarioCandidate ? 1 : 0);
             ins.Parameters.AddWithValue("$narrativeFitScore", score.NarrativeFitScore);
             ins.Parameters.AddWithValue("$lastCandidateEvalUtc", score.LastCandidateEvaluationTimeUtc?.ToString("O") ?? (object)DBNull.Value);
-            ins.Parameters.AddWithValue("$completionCooldown", score.CompletionCooldownInteractions);
+            ins.Parameters.AddWithValue("$completionCooldown", score.CompletionCooldownTurns);
             ins.Parameters.AddWithValue("$breakdownJson", JsonSerializer.Serialize(score.Breakdown));
             ins.Parameters.AddWithValue("$updatedUtc", (score.UpdatedUtc == default ? nowUtc : score.UpdatedUtc).ToString("O"));
             await ins.ExecuteNonQueryAsync(cancellationToken);
@@ -431,17 +431,17 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
             ins.Transaction = transaction;
             ins.CommandText = """
                 INSERT INTO RolePlayV2ScenarioHistory (
-                    Id, SessionId, ScenarioId, CompletedAtUtc, InteractionCount,
+                    Id, SessionId, ScenarioId, CompletedAtUtc, TurnCount,
                     PeakThemeScore, PeakDesireLevel, AverageRestraintLevel, Notes)
                 VALUES (
-                    $id, $sessionId, $scenarioId, $completedAtUtc, $interactionCount,
+                    $id, $sessionId, $scenarioId, $completedAtUtc, $TurnCount,
                     $peakThemeScore, $peakDesireLevel, $averageRestraintLevel, $notes);
                 """;
             ins.Parameters.AddWithValue("$id", string.IsNullOrWhiteSpace(entry.Id) ? Guid.NewGuid().ToString() : entry.Id);
             ins.Parameters.AddWithValue("$sessionId", state.SessionId);
             ins.Parameters.AddWithValue("$scenarioId", entry.ScenarioId);
             ins.Parameters.AddWithValue("$completedAtUtc", entry.CompletedAtUtc.ToString("O"));
-            ins.Parameters.AddWithValue("$interactionCount", entry.InteractionCount);
+            ins.Parameters.AddWithValue("$TurnCount", entry.TurnCount);
             ins.Parameters.AddWithValue("$peakThemeScore", entry.PeakThemeScore);
             ins.Parameters.AddWithValue("$peakDesireLevel", entry.PeakDesireLevel);
             ins.Parameters.AddWithValue("$averageRestraintLevel", entry.AverageRestraintLevel);
@@ -517,17 +517,17 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
         await EnsureAdaptiveStateSchemaAsync(connection, cancellationToken);
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT SessionId, ActiveScenarioId, CurrentPhase, InteractionCountInPhase, ConsecutiveLeadCount,
+            SELECT SessionId, ActiveScenarioId, CurrentPhase, TurnCountInPhase, ConsecutiveLeadCount,
                  LastEvaluationUtc, CycleIndex, ActiveFormulaVersion, ActiveVariantId,
                                 SelectedWillingnessProfileId, SelectedNarrativeGateProfileId, HusbandAwarenessProfileId,
                                 PhaseOverrideFloor,
                                 PhaseOverrideScenarioId, PhaseOverrideCycleIndex, PhaseOverrideSource, PhaseOverrideAppliedUtc,
                               CurrentSceneLocation, CharacterLocationsJson, CharacterLocationPerceptionsJson, CharacterSnapshotsJson,
                               ThemeMachineSnapshotJson, CurrentBeatCode, TurnsInCurrentBeat,
-                              CompletedScenarios, InteractionsSinceCommitment, InteractionsInApproaching, ScenarioCommitmentTimeUtc,
+                              CompletedScenarios, TurnsSinceCommitment, TurnsInApproaching, ScenarioCommitmentTimeUtc,
                               SemanticStepSucceeded, SemanticDeltaBreakdownsJson, SemanticStatDeltaBreakdownsJson,
                               CharacterEncounterProfileIdsJson,
-                              CurrentEncounterNumber, InteractionsInCurrentEncounter, TimeSkipPending, CurrentTimeSkipPhase,
+                              CurrentEncounterNumber, TurnsInCurrentEncounter, TimeSkipPending, CurrentTimeSkipPhase,
                               GlobalEncounterCount, CurrentEncounterStartInteractionIndex, IsEncounterActive
             FROM RolePlayV2AdaptiveStates
             WHERE SessionId = $sessionId;
@@ -548,7 +548,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
             SessionId = reader.GetString(0),
             ActiveScenarioId = reader.IsDBNull(1) ? null : reader.GetString(1),
             CurrentPhase = ParseNarrativePhase(reader.GetString(2), reader.GetString(0)),
-            InteractionCountInPhase = reader.GetInt32(3),
+            TurnCountInPhase = reader.GetInt32(3),
             ConsecutiveLeadCount = reader.GetInt32(4),
             LastEvaluationUtc = ParseUtcTimestamp(reader.GetString(5), reader.GetString(0)),
             CycleIndex = reader.GetInt32(6),
@@ -580,8 +580,8 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
             CurrentBeatCode = reader.IsDBNull(22) ? null : reader.GetString(22),
             TurnsInCurrentBeat = reader.IsDBNull(23) ? 0 : reader.GetInt32(23),
             CompletedScenarios = reader.GetInt32(24),
-            InteractionsSinceCommitment = reader.GetInt32(25),
-            InteractionsInApproaching = reader.GetInt32(26),
+            TurnsSinceCommitment = reader.GetInt32(25),
+            TurnsInApproaching = reader.GetInt32(26),
             ScenarioCommitmentTimeUtc = reader.IsDBNull(27)
                 ? null
                 : ParseUtcTimestamp(reader.GetString(27), reader.GetString(0)),
@@ -598,7 +598,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                     JsonSerializer.Deserialize<Dictionary<string, string>>(reader.GetString(31)) ?? [],
                     StringComparer.OrdinalIgnoreCase),
             CurrentEncounterNumber = reader.IsDBNull(32) ? 0 : reader.GetInt32(32),
-            InteractionsInCurrentEncounter = reader.IsDBNull(33) ? 0 : reader.GetInt32(33),
+            TurnsInCurrentEncounter = reader.IsDBNull(33) ? 0 : reader.GetInt32(33),
             // Back-compat: if CurrentTimeSkipPhase column exists and is non-zero, use it.
             // Otherwise fall back to legacy TimeSkipPending at ordinal 34 (1 = CloseScene).
             CurrentTimeSkipPhase = reader.IsDBNull(35)
@@ -641,7 +641,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
         cmd.CommandText = """
             SELECT ThemeId, ThemeName, Intensity, Score, Blocked, SuppressedHitCount,
                    IsScenarioCandidate, NarrativeFitScore, LastCandidateEvaluationTimeUtc,
-                   CompletionCooldownInteractions, BreakdownJson, UpdatedUtc
+                   CompletionCooldownTurns, BreakdownJson, UpdatedUtc
             FROM RolePlayV2ThemeScores WHERE SessionId = $sessionId;
             """;
         cmd.Parameters.AddWithValue("$sessionId", state.SessionId);
@@ -662,7 +662,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 LastCandidateEvaluationTimeUtc = rdr.IsDBNull(8)
                     ? null
                     : (DateTime.TryParse(rdr.GetString(8), out var lastEval) ? lastEval : null),
-                CompletionCooldownInteractions = rdr.GetInt32(9),
+                CompletionCooldownTurns = rdr.GetInt32(9),
                 Breakdown = JsonSerializer.Deserialize<ThemeScoreBreakdownV2>(rdr.GetString(10)) ?? new ThemeScoreBreakdownV2(),
                 UpdatedUtc = ParseUtcTimestamp(rdr.GetString(11), state.SessionId)
             };
@@ -697,7 +697,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
     {
         await using var cmd = connection.CreateCommand();
         cmd.CommandText = """
-            SELECT Id, ScenarioId, CompletedAtUtc, InteractionCount, PeakThemeScore,
+            SELECT Id, ScenarioId, CompletedAtUtc, TurnCount, PeakThemeScore,
                    PeakDesireLevel, AverageRestraintLevel, Notes
             FROM RolePlayV2ScenarioHistory WHERE SessionId = $sessionId
             ORDER BY CompletedAtUtc ASC;
@@ -711,7 +711,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 Id = rdr.GetString(0),
                 ScenarioId = rdr.GetString(1),
                 CompletedAtUtc = ParseUtcTimestamp(rdr.GetString(2), state.SessionId),
-                InteractionCount = rdr.GetInt32(3),
+                TurnCount = rdr.GetInt32(3),
                 PeakThemeScore = rdr.GetInt32(4),
                 PeakDesireLevel = rdr.GetInt32(5),
                 AverageRestraintLevel = rdr.GetDouble(6),
@@ -771,7 +771,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
         await using var cmd = connection.CreateCommand();
         cmd.CommandText = """
             SELECT Id, CharacterId, SummaryType, CycleIndex, FromPhase, ToPhase,
-                   OccurredUtc, InteractionCountInPhase,
+                   OccurredUtc, TurnCountInPhase,
                    EncounterNumber, DetectionEvidence,
                    StartInteractionIndex, EndInteractionIndex,
                    SceneLocation, ActiveThemeId,
@@ -795,7 +795,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 FromPhase    = Enum.Parse<NarrativePhase>(rdr.GetString(4)),
                 ToPhase      = Enum.Parse<NarrativePhase>(rdr.GetString(5)),
                 OccurredUtc  = ParseUtcTimestamp(rdr.GetString(6), state.SessionId),
-                InteractionCountInPhase = rdr.GetInt32(7),
+                TurnCountInPhase = rdr.GetInt32(7),
                 EncounterNumber         = rdr.IsDBNull(8) ? 0 : rdr.GetInt32(8),
                 DetectionEvidence       = rdr.IsDBNull(9) ? null : rdr.GetString(9),
                 StartInteractionIndex   = rdr.IsDBNull(10) ? 0 : rdr.GetInt32(10),
@@ -981,16 +981,16 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
             add.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN CompletedScenarios INTEGER NOT NULL DEFAULT 0";
             await add.ExecuteNonQueryAsync(cancellationToken);
         }
-        if (!await HasColumnAsync(connection, "RolePlayV2AdaptiveStates", "InteractionsSinceCommitment", cancellationToken))
+        if (!await HasColumnAsync(connection, "RolePlayV2AdaptiveStates", "TurnsSinceCommitment", cancellationToken))
         {
             await using var add = connection.CreateCommand();
-            add.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN InteractionsSinceCommitment INTEGER NOT NULL DEFAULT 0";
+            add.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN TurnsSinceCommitment INTEGER NOT NULL DEFAULT 0";
             await add.ExecuteNonQueryAsync(cancellationToken);
         }
-        if (!await HasColumnAsync(connection, "RolePlayV2AdaptiveStates", "InteractionsInApproaching", cancellationToken))
+        if (!await HasColumnAsync(connection, "RolePlayV2AdaptiveStates", "TurnsInApproaching", cancellationToken))
         {
             await using var add = connection.CreateCommand();
-            add.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN InteractionsInApproaching INTEGER NOT NULL DEFAULT 0";
+            add.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN TurnsInApproaching INTEGER NOT NULL DEFAULT 0";
             await add.ExecuteNonQueryAsync(cancellationToken);
         }
         if (!await HasColumnAsync(connection, "RolePlayV2AdaptiveStates", "ScenarioCommitmentTimeUtc", cancellationToken))
@@ -1034,10 +1034,10 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
             add.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN CurrentEncounterNumber INTEGER NOT NULL DEFAULT 0";
             await add.ExecuteNonQueryAsync(cancellationToken);
         }
-        if (!await HasColumnAsync(connection, "RolePlayV2AdaptiveStates", "InteractionsInCurrentEncounter", cancellationToken))
+        if (!await HasColumnAsync(connection, "RolePlayV2AdaptiveStates", "TurnsInCurrentEncounter", cancellationToken))
         {
             await using var add = connection.CreateCommand();
-            add.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN InteractionsInCurrentEncounter INTEGER NOT NULL DEFAULT 0";
+            add.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN TurnsInCurrentEncounter INTEGER NOT NULL DEFAULT 0";
             await add.ExecuteNonQueryAsync(cancellationToken);
         }
         if (!await HasColumnAsync(connection, "RolePlayV2AdaptiveStates", "TimeSkipPending", cancellationToken))
@@ -1114,7 +1114,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                     IsScenarioCandidate INTEGER NOT NULL DEFAULT 0,
                     NarrativeFitScore REAL NOT NULL DEFAULT 0,
                     LastCandidateEvaluationTimeUtc TEXT NULL,
-                    CompletionCooldownInteractions INTEGER NOT NULL DEFAULT 0,
+                    CompletionCooldownTurns INTEGER NOT NULL DEFAULT 0,
                     BreakdownJson TEXT NOT NULL DEFAULT '{}',
                     UpdatedUtc TEXT NOT NULL,
                     PRIMARY KEY (SessionId, ThemeId)
@@ -1146,7 +1146,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                     SessionId TEXT NOT NULL,
                     ScenarioId TEXT NOT NULL,
                     CompletedAtUtc TEXT NOT NULL,
-                    InteractionCount INTEGER NOT NULL DEFAULT 0,
+                    TurnCount INTEGER NOT NULL DEFAULT 0,
                     PeakThemeScore INTEGER NOT NULL DEFAULT 0,
                     PeakDesireLevel INTEGER NOT NULL DEFAULT 0,
                     AverageRestraintLevel REAL NOT NULL DEFAULT 0,
@@ -1735,7 +1735,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
         cmd.CommandText = """
             INSERT INTO RolePlayV2EncounterSummaries (
                 Id, SessionId, CharacterId, SummaryType, CycleIndex, FromPhase, ToPhase,
-                OccurredUtc, InteractionCountInPhase,
+                OccurredUtc, TurnCountInPhase,
                 EncounterNumber, DetectionEvidence,
                 StartInteractionIndex, EndInteractionIndex,
                 SceneLocation, ActiveThemeId,
@@ -1743,7 +1743,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 TemplateSummary, LlmSummary, LlmEnhancedUtc)
             VALUES (
                 $id, $sessionId, $characterId, $summaryType, $cycleIndex, $fromPhase, $toPhase,
-                $occurredUtc, $interactionCountInPhase,
+                $occurredUtc, $TurnCountInPhase,
                 $encounterNumber, $detectionEvidence,
                 $startInteractionIndex, $endInteractionIndex,
                 $sceneLocation, $activeThemeId,
@@ -1758,7 +1758,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
         cmd.Parameters.AddWithValue("$fromPhase", record.FromPhase.ToString());
         cmd.Parameters.AddWithValue("$toPhase", record.ToPhase.ToString());
         cmd.Parameters.AddWithValue("$occurredUtc", record.OccurredUtc.ToString("O"));
-        cmd.Parameters.AddWithValue("$interactionCountInPhase", record.InteractionCountInPhase);
+        cmd.Parameters.AddWithValue("$TurnCountInPhase", record.TurnCountInPhase);
         cmd.Parameters.AddWithValue("$encounterNumber", record.EncounterNumber);
         cmd.Parameters.AddWithValue("$detectionEvidence", (object?)record.DetectionEvidence ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$startInteractionIndex", record.StartInteractionIndex);
@@ -1796,7 +1796,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
         await using var cmd = connection.CreateCommand();
         cmd.CommandText = """
             SELECT Id, CharacterId, SummaryType, CycleIndex, FromPhase, ToPhase,
-                   OccurredUtc, InteractionCountInPhase,
+                   OccurredUtc, TurnCountInPhase,
                    EncounterNumber, DetectionEvidence,
                    StartInteractionIndex, EndInteractionIndex,
                    SceneLocation, ActiveThemeId,
@@ -1820,7 +1820,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 FromPhase    = Enum.Parse<NarrativePhase>(rdr.GetString(4)),
                 ToPhase      = Enum.Parse<NarrativePhase>(rdr.GetString(5)),
                 OccurredUtc  = ParseUtcTimestamp(rdr.GetString(6), sessionId),
-                InteractionCountInPhase = rdr.GetInt32(7),
+                TurnCountInPhase = rdr.GetInt32(7),
                 EncounterNumber         = rdr.IsDBNull(8) ? 0 : rdr.GetInt32(8),
                 DetectionEvidence       = rdr.IsDBNull(9) ? null : rdr.GetString(9),
                 StartInteractionIndex   = rdr.IsDBNull(10) ? 0 : rdr.GetInt32(10),

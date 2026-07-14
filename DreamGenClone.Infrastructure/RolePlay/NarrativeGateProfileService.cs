@@ -106,7 +106,7 @@ public sealed class NarrativeGateProfileService : INarrativeGateProfileService
                 SortOrder = maxSortOrder + 1,
                 FromPhase = "Reset",
                 ToPhase = "BuildUp",
-                MetricKey = NarrativeGateMetricKeys.InteractionsSinceCommitment,
+                MetricKey = NarrativeGateMetricKeys.TurnsSinceCommitment,
                 Comparator = NarrativeGateComparators.GreaterThanOrEqual,
                 Threshold = 3m
             });
@@ -121,16 +121,16 @@ public sealed class NarrativeGateProfileService : INarrativeGateProfileService
         return
         [
             new() { SortOrder = 1, FromPhase = "BuildUp", ToPhase = "Committed", MetricKey = NarrativeGateMetricKeys.ActiveScenarioScore, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = DefaultBuildUpCommitScoreThreshold },
-            new() { SortOrder = 2, FromPhase = "BuildUp", ToPhase = "Committed", MetricKey = NarrativeGateMetricKeys.InteractionsSinceCommitment, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = DefaultBuildUpCommitInteractionThreshold },
+            new() { SortOrder = 2, FromPhase = "BuildUp", ToPhase = "Committed", MetricKey = NarrativeGateMetricKeys.TurnsSinceCommitment, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = DefaultBuildUpCommitInteractionThreshold },
             new() { SortOrder = 3, FromPhase = "Committed", ToPhase = "Approaching", MetricKey = NarrativeGateMetricKeys.ActiveScenarioScore, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 60m },
             new() { SortOrder = 4, FromPhase = "Committed", ToPhase = "Approaching", MetricKey = NarrativeGateMetricKeys.AverageDesire, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 65m },
             new() { SortOrder = 5, FromPhase = "Committed", ToPhase = "Approaching", MetricKey = NarrativeGateMetricKeys.AverageRestraint, Comparator = NarrativeGateComparators.LessThanOrEqual, Threshold = 45m },
-            new() { SortOrder = 6, FromPhase = "Committed", ToPhase = "Approaching", MetricKey = NarrativeGateMetricKeys.InteractionsSinceCommitment, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 3m },
+            new() { SortOrder = 6, FromPhase = "Committed", ToPhase = "Approaching", MetricKey = NarrativeGateMetricKeys.TurnsSinceCommitment, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 3m },
             new() { SortOrder = 7, FromPhase = "Approaching", ToPhase = "Climax", MetricKey = NarrativeGateMetricKeys.ActiveScenarioScore, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 80m },
             new() { SortOrder = 8, FromPhase = "Approaching", ToPhase = "Climax", MetricKey = NarrativeGateMetricKeys.AverageDesire, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 75m },
             new() { SortOrder = 9, FromPhase = "Approaching", ToPhase = "Climax", MetricKey = NarrativeGateMetricKeys.AverageRestraint, Comparator = NarrativeGateComparators.LessThanOrEqual, Threshold = 35m },
-            new() { SortOrder = 10, FromPhase = "Climax", ToPhase = "Reset", MetricKey = NarrativeGateMetricKeys.InteractionsSinceCommitment, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 12m },
-            new() { SortOrder = 11, FromPhase = "Reset", ToPhase = "BuildUp", MetricKey = NarrativeGateMetricKeys.InteractionsSinceCommitment, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 3m }
+            new() { SortOrder = 10, FromPhase = "Climax", ToPhase = "Reset", MetricKey = NarrativeGateMetricKeys.TurnsSinceCommitment, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 12m },
+            new() { SortOrder = 11, FromPhase = "Reset", ToPhase = "BuildUp", MetricKey = NarrativeGateMetricKeys.TurnsSinceCommitment, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 3m }
         ];
     }
 

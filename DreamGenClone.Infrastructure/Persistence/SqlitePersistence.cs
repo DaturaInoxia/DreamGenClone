@@ -758,7 +758,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 ActiveScenarioId TEXT NULL,
                 ActiveVariantId TEXT NULL,
                 CurrentPhase TEXT NOT NULL,
-                InteractionCountInPhase INTEGER NOT NULL,
+                TurnCountInPhase INTEGER NOT NULL,
                 ConsecutiveLeadCount INTEGER NOT NULL,
                 LastEvaluationUtc TEXT NOT NULL,
                 CycleIndex INTEGER NOT NULL,
@@ -946,7 +946,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 IsScenarioCandidate INTEGER NOT NULL DEFAULT 0,
                 NarrativeFitScore REAL NOT NULL DEFAULT 0,
                 LastCandidateEvaluationTimeUtc TEXT NULL,
-                CompletionCooldownInteractions INTEGER NOT NULL DEFAULT 0,
+                CompletionCooldownTurns INTEGER NOT NULL DEFAULT 0,
                 BreakdownJson TEXT NOT NULL DEFAULT '{}',
                 UpdatedUtc TEXT NOT NULL,
                 PRIMARY KEY (SessionId, ThemeId)
@@ -970,14 +970,12 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 SessionId TEXT NOT NULL,
                 ScenarioId TEXT NOT NULL,
                 CompletedAtUtc TEXT NOT NULL,
-                InteractionCount INTEGER NOT NULL DEFAULT 0,
+                TurnCount INTEGER NOT NULL DEFAULT 0,
                 PeakThemeScore INTEGER NOT NULL DEFAULT 0,
                 PeakDesireLevel INTEGER NOT NULL DEFAULT 0,
                 AverageRestraintLevel REAL NOT NULL DEFAULT 0,
                 Notes TEXT NULL
             );
-            CREATE INDEX IF NOT EXISTS IX_RolePlayV2ScenarioHistory_Session_CompletedUtc
-                ON RolePlayV2ScenarioHistory (SessionId, CompletedAtUtc DESC);
 
             CREATE TABLE IF NOT EXISTS RolePlayV2PairwiseStats (
                 SessionId TEXT NOT NULL,
@@ -1011,7 +1009,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 FromPhase                   TEXT NOT NULL,
                 ToPhase                     TEXT NOT NULL,
                 OccurredUtc                 TEXT NOT NULL,
-                InteractionCountInPhase     INTEGER NOT NULL DEFAULT 0,
+                TurnCountInPhase     INTEGER NOT NULL DEFAULT 0,
                 EncounterNumber             INTEGER NOT NULL DEFAULT 0,
                 DetectionEvidence           TEXT NULL,
                 StartInteractionIndex       INTEGER NOT NULL DEFAULT 0,
@@ -1286,8 +1284,8 @@ public sealed class SqlitePersistence : ISqlitePersistence
         var v2AdaptiveExtraColumns = new (string Column, string Ddl)[]
         {
             ("CompletedScenarios", "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN CompletedScenarios INTEGER NOT NULL DEFAULT 0"),
-            ("InteractionsSinceCommitment", "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN InteractionsSinceCommitment INTEGER NOT NULL DEFAULT 0"),
-            ("InteractionsInApproaching", "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN InteractionsInApproaching INTEGER NOT NULL DEFAULT 0"),
+            ("TurnsSinceCommitment", "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN TurnsSinceCommitment INTEGER NOT NULL DEFAULT 0"),
+            ("TurnsInApproaching", "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN TurnsInApproaching INTEGER NOT NULL DEFAULT 0"),
             ("ScenarioCommitmentTimeUtc", "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN ScenarioCommitmentTimeUtc TEXT NULL"),
             ("SemanticStepSucceeded", "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN SemanticStepSucceeded INTEGER NOT NULL DEFAULT 1"),
             ("SemanticDeltaBreakdownsJson", "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN SemanticDeltaBreakdownsJson TEXT NOT NULL DEFAULT '[]'"),
@@ -1306,6 +1304,10 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 _logger.LogInformation("Migrated RolePlayV2AdaptiveStates table: added {Column} column", column);
             }
         }
+
+        // B-044: rename Interaction* columns to Turn* on V2 tables and convert stored values
+        // from interaction units to turn units (÷3 ceiling). Idempotent — skips already-renamed columns.
+        await MigrateV2ColumnsToTurnsAsync(connection, cancellationToken);
 
         var shouldRunLegacyMigrations = await ShouldRunLegacyMigrationsAsync(connection, cancellationToken);
         if (!shouldRunLegacyMigrations)
@@ -3202,6 +3204,146 @@ public sealed class SqlitePersistence : ISqlitePersistence
             alterRole.CommandText = "ALTER TABLE BaseStatProfiles ADD COLUMN TargetRole TEXT NOT NULL DEFAULT 'Unknown'";
             await alterRole.ExecuteNonQueryAsync(cancellationToken);
             _logger.LogInformation("Migrated BaseStatProfiles table on-demand: added TargetRole column");
+        }
+    }
+
+    // B-044: rename Interaction* columns to Turn* on V2 tables and convert stored values
+    // from interaction units to turn units (÷3 ceiling). Idempotent — skips already-renamed columns.
+    // Also rewrites RPThemeMachineTransitions.GateConfigJson: minimumInteractions → minimumTurns (÷3 ceiling).
+    private async Task MigrateV2ColumnsToTurnsAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        // Column renames with idempotency: skip if old column missing OR new column already present.
+        var renames = new (string Table, string OldCol, string NewCol)[]
+        {
+            ("RolePlayV2AdaptiveStates",    "InteractionCountInPhase",     "TurnCountInPhase"),
+            ("RolePlayV2AdaptiveStates",    "InteractionsSinceCommitment", "TurnsSinceCommitment"),
+            ("RolePlayV2AdaptiveStates",    "InteractionsInApproaching",   "TurnsInApproaching"),
+            ("RolePlayV2ThemeScores",       "CompletionCooldownInteractions", "CompletionCooldownTurns"),
+            ("RolePlayV2ScenarioHistory",   "InteractionCount",            "TurnCount"),
+            ("RolePlayV2EncounterSummaries","InteractionCountInPhase",     "TurnCountInPhase"),
+        };
+
+        foreach (var (table, oldCol, newCol) in renames)
+        {
+            var hasOld = await ColumnExistsAsync(connection, table, oldCol, cancellationToken);
+            var hasNew = await ColumnExistsAsync(connection, table, newCol, cancellationToken);
+            if (!hasOld || hasNew) continue;
+
+            var renameCmd = connection.CreateCommand();
+            renameCmd.CommandText = $"ALTER TABLE {table} RENAME COLUMN {oldCol} TO {newCol}";
+            await renameCmd.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("B-044 migration: renamed {Table}.{OldCol} → {NewCol}", table, oldCol, newCol);
+
+            // Convert the numeric values from interaction units to turn units (÷3 ceiling).
+            var updateCmd = connection.CreateCommand();
+            updateCmd.CommandText = $"UPDATE {table} SET {newCol} = MAX(0, ({newCol} + 2) / 3)";
+            await updateCmd.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("B-044 migration: converted {Table}.{NewCol} values (÷3 ceiling)", table, newCol);
+        }
+
+        // Rewrite theme machine gate JSON: minimumInteractions → minimumTurns with ÷3 value.
+        await MigrateGateConfigJsonToTurnsAsync(connection, cancellationToken);
+    }
+
+    private static async Task<bool> ColumnExistsAsync(SqliteConnection connection, string table, string column, CancellationToken cancellationToken)
+    {
+        var cmd = connection.CreateCommand();
+        cmd.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name='{column}'";
+        return Convert.ToInt64(await cmd.ExecuteScalarAsync(cancellationToken)) > 0;
+    }
+
+    private async Task MigrateGateConfigJsonToTurnsAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        // Select rows whose GateConfigJson contains the legacy key.
+        var selectCmd = connection.CreateCommand();
+        selectCmd.CommandText = """
+            SELECT TransitionId, GateConfigJson FROM RPThemeMachineTransitions
+            WHERE GateConfigJson LIKE '%minimumInteractions%'
+            """;
+
+        await using var reader = await selectCmd.ExecuteReaderAsync(cancellationToken);
+        var updates = new List<(string TransitionId, string NewJson)>();
+
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var transitionId = reader.GetString(0);
+            var oldJson = reader.GetString(1);
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(oldJson);
+                var root = doc.RootElement;
+
+                // Read legacy minimumInteractions if present.
+                int legacyValue = 0;
+                bool hasLegacy = false;
+                if (root.TryGetProperty("minimumInteractions", out var legacyProp)
+                    && legacyProp.ValueKind == System.Text.Json.JsonValueKind.Number
+                    && legacyProp.TryGetInt32(out legacyValue))
+                {
+                    hasLegacy = true;
+                }
+
+                // Skip rows that already have minimumTurns and no minimumInteractions — done.
+                bool hasNew = root.TryGetProperty("minimumTurns", out _);
+                if (!hasLegacy && hasNew) continue;
+                if (hasNew && !hasLegacy) continue;
+
+                // Determine the turn value.
+                int turnValue;
+                if (hasNew && root.TryGetProperty("minimumTurns", out var mtProp)
+                    && mtProp.ValueKind == System.Text.Json.JsonValueKind.Number
+                    && mtProp.TryGetInt32(out var existingMt))
+                {
+                    turnValue = existingMt; // already migrated, keep
+                }
+                else
+                {
+                    turnValue = Math.Max(0, (legacyValue + 2) / 3); // ÷3 ceiling
+                }
+
+                // Build new JSON preserving all properties except minimumInteractions.
+                using var stream = new MemoryStream();
+                using var writer = new System.Text.Json.Utf8JsonWriter(stream, new System.Text.Json.JsonWriterOptions { Indented = false });
+                writer.WriteStartObject();
+                foreach (var prop in root.EnumerateObject())
+                {
+                    if (prop.NameEquals("minimumInteractions")) continue; // remove legacy key
+                    if (prop.NameEquals("minimumTurns"))
+                    {
+                        writer.WriteNumber("minimumTurns", turnValue);
+                        continue;
+                    }
+                    prop.WriteTo(writer);
+                }
+                // If minimumTurns was not in the original, add it now.
+                if (!root.TryGetProperty("minimumTurns", out _))
+                {
+                    writer.WriteNumber("minimumTurns", turnValue);
+                }
+                writer.WriteEndObject();
+                writer.Flush();
+
+                var newJson = System.Text.Encoding.UTF8.GetString(stream.ToArray());
+                updates.Add((transitionId, newJson));
+            }
+            catch (System.Text.Json.JsonException ex)
+            {
+                _logger.LogWarning(ex, "B-044 migration: failed to parse GateConfigJson for transition {TransitionId}, skipping", transitionId);
+            }
+        }
+
+        foreach (var (transitionId, newJson) in updates)
+        {
+            var updateCmd = connection.CreateCommand();
+            updateCmd.CommandText = "UPDATE RPThemeMachineTransitions SET GateConfigJson = $json WHERE TransitionId = $id";
+            updateCmd.Parameters.AddWithValue("$json", newJson);
+            updateCmd.Parameters.AddWithValue("$id", transitionId);
+            await updateCmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        if (updates.Count > 0)
+        {
+            _logger.LogInformation("B-044 migration: rewrote {Count} RPThemeMachineTransitions.GateConfigJson blobs (minimumInteractions → minimumTurns, ÷3)", updates.Count);
         }
     }
 

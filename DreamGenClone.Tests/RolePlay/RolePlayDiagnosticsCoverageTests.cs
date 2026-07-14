@@ -44,7 +44,7 @@ public sealed class RolePlayDiagnosticsCoverageTests
             {
                 SessionId = sessionId,
                 CurrentPhase = NarrativePhase.BuildUp,
-                InteractionCountInPhase = 7
+                TurnCountInPhase = 7
             });
 
         public Task<IReadOnlyList<RolePlayTurn>> LoadTurnsAsync(string sessionId, int take = 100, CancellationToken cancellationToken = default)

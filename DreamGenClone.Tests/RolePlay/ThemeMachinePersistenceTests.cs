@@ -26,7 +26,7 @@ public sealed class ThemeMachinePersistenceTests
                 SessionId = "session-1",
                 ActiveScenarioId = "theme-1",
                 CurrentPhase = NarrativePhase.Committed,
-                InteractionCountInPhase = 1,
+                TurnCountInPhase = 1,
                 CharacterSnapshots =
                 [
                     new CharacterStatProfileV2 { CharacterId = "char-1", Desire = 60, Restraint = 40, Dominance = 50, Loyalty = 50, SelfRespect = 50, RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 55, ["Connection"] = 50 } }
@@ -82,7 +82,7 @@ public sealed class ThemeMachinePersistenceTests
                 SessionId = "session-1",
                 ActiveScenarioId = "theme-1",
                 CurrentPhase = NarrativePhase.Committed,
-                InteractionCountInPhase = 1,
+                TurnCountInPhase = 1,
                 CharacterSnapshots =
                 [
                     new CharacterStatProfileV2 { CharacterId = "char-1", Desire = 60, Restraint = 40, Dominance = 50, Loyalty = 50, SelfRespect = 50, RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 55, ["Connection"] = 50 } }
@@ -140,7 +140,7 @@ public sealed class ThemeMachinePersistenceTests
                 SessionId TEXT PRIMARY KEY,
                 ActiveScenarioId TEXT NULL,
                 CurrentPhase TEXT NOT NULL,
-                InteractionCountInPhase INTEGER NOT NULL,
+                TurnCountInPhase INTEGER NOT NULL,
                 ConsecutiveLeadCount INTEGER NOT NULL,
                 LastEvaluationUtc TEXT NOT NULL,
                 CycleIndex INTEGER NOT NULL,

@@ -33,7 +33,7 @@ public sealed class ScenarioStateModelTests
         {
             ScenarioId = "scenario-a",
             CompletedAtUtc = completedAt,
-            InteractionCount = 6,
+            TurnCount = 6,
             PeakThemeScore = 88,
             PeakDesireLevel = 79,
             AverageRestraintLevel = 34.5,
@@ -42,7 +42,7 @@ public sealed class ScenarioStateModelTests
 
         Assert.Equal("scenario-a", metadata.ScenarioId);
         Assert.Equal(completedAt, metadata.CompletedAtUtc);
-        Assert.Equal(6, metadata.InteractionCount);
+        Assert.Equal(6, metadata.TurnCount);
         Assert.Equal(88, metadata.PeakThemeScore);
         Assert.Equal(79, metadata.PeakDesireLevel);
         Assert.Equal(34.5, metadata.AverageRestraintLevel);

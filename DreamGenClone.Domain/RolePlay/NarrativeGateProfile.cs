@@ -42,7 +42,7 @@ public static class NarrativeGateMetricKeys
     public const string AverageDominance = "AverageDominance";
     public const string AverageLoyalty = "AverageLoyalty";
     public const string AverageSelfRespect = "AverageSelfRespect";
-    public const string InteractionsSinceCommitment = "InteractionsSinceCommitment";
+    public const string TurnsSinceCommitment = "TurnsSinceCommitment";
 }
 
 public static class NarrativeGateComparators

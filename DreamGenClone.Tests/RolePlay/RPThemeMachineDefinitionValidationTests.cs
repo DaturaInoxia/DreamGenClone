@@ -207,8 +207,8 @@ public sealed class RPThemeMachineDefinitionValidationTests : IDisposable
                 new NarrativeGateRule { SortOrder = 1, FromPhase = "BuildUp", ToPhase = "Committed", MetricKey = NarrativeGateMetricKeys.ActiveScenarioScore, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 60m },
                 new NarrativeGateRule { SortOrder = 2, FromPhase = "Committed", ToPhase = "Approaching", MetricKey = NarrativeGateMetricKeys.ActiveScenarioScore, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 60m },
                 new NarrativeGateRule { SortOrder = 3, FromPhase = "Approaching", ToPhase = "Climax", MetricKey = NarrativeGateMetricKeys.ActiveScenarioScore, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 80m },
-                new NarrativeGateRule { SortOrder = 4, FromPhase = "Climax", ToPhase = "Reset", MetricKey = NarrativeGateMetricKeys.InteractionsSinceCommitment, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 12m },
-                new NarrativeGateRule { SortOrder = 5, FromPhase = "Reset", ToPhase = "BuildUp", MetricKey = NarrativeGateMetricKeys.InteractionsSinceCommitment, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 3m }
+                new NarrativeGateRule { SortOrder = 4, FromPhase = "Climax", ToPhase = "Reset", MetricKey = NarrativeGateMetricKeys.TurnsSinceCommitment, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 12m },
+                new NarrativeGateRule { SortOrder = 5, FromPhase = "Reset", ToPhase = "BuildUp", MetricKey = NarrativeGateMetricKeys.TurnsSinceCommitment, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 3m }
             ]
         };
     }

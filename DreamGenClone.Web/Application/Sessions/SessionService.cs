@@ -300,8 +300,8 @@ public sealed class SessionService : ISessionService
         session.AdaptiveState.CompletedScenarios = Math.Max(
             session.AdaptiveState.CompletedScenarios,
             session.AdaptiveState.ScenarioHistory.Count);
-        session.AdaptiveState.InteractionsSinceCommitment = Math.Max(0, session.AdaptiveState.InteractionsSinceCommitment);
-        session.AdaptiveState.InteractionsInApproaching = Math.Max(0, session.AdaptiveState.InteractionsInApproaching);
+        session.AdaptiveState.TurnsSinceCommitment = Math.Max(0, session.AdaptiveState.TurnsSinceCommitment);
+        session.AdaptiveState.TurnsInApproaching = Math.Max(0, session.AdaptiveState.TurnsInApproaching);
 
         if (string.IsNullOrWhiteSpace(session.AdaptiveIntensityProfileId)
             && !string.IsNullOrWhiteSpace(session.SelectedIntensityProfileId))

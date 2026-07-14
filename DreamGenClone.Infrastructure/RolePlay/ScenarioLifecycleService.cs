@@ -149,7 +149,7 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
             ReasonCode = reasonCode,
             EvidencePayload = JsonSerializer.Serialize(new
             {
-                inputs.InteractionsSinceCommitment,
+                inputs.TurnsSinceCommitment,
                 inputs.ActiveScenarioConfidence,
                 inputs.ActiveScenarioFitScore,
                 averageDesire,
@@ -209,7 +209,7 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
             // here defeats observer re-entry and causes the same scenario to be re-used.
             ActiveScenarioId = null,
             CurrentPhase = NarrativePhase.Reset,
-            InteractionCountInPhase = 0,
+            TurnCountInPhase = 0,
             ConsecutiveLeadCount = 0,
             LastEvaluationUtc = DateTime.UtcNow,
             CycleIndex = nextCycleIndex,
@@ -423,13 +423,13 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
             [NarrativeGateMetricKeys.ActiveScenarioScore] = inputs.ActiveScenarioFitScore,
             [NarrativeGateMetricKeys.AverageDesire] = averageDesire,
             [NarrativeGateMetricKeys.AverageRestraint] = averageRestraint,
-            [NarrativeGateMetricKeys.InteractionsSinceCommitment] = inputs.InteractionsSinceCommitment
+            [NarrativeGateMetricKeys.TurnsSinceCommitment] = inputs.TurnsSinceCommitment
         };
 
         if (state.CurrentPhase == NarrativePhase.Committed && HasConfiguredGateRules(profile, "Committed", "Approaching"))
         {
             return EvaluateConfiguredGate(profile, "Committed", "Approaching", metricValues)
-                ? (true, NarrativePhase.Approaching, TransitionTriggerType.InteractionCountGate, "COMMITTED_TO_APPROACHING")
+                ? (true, NarrativePhase.Approaching, TransitionTriggerType.TurnCountGate, "COMMITTED_TO_APPROACHING")
                 : (false, state.CurrentPhase, TransitionTriggerType.Threshold, "NO_TRANSITION");
         }
 

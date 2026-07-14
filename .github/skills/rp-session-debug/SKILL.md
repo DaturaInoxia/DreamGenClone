@@ -56,24 +56,27 @@ powershell -ExecutionPolicy RemoteSigned -File helpers/dbq.ps1 schema <TableName
 powershell -ExecutionPolicy RemoteSigned -File helpers/dbq.ps1 sessions
 ```
 
-### Prompt extraction
+### Read prompt + reasoning from interaction payload
 
-```powershell
-# List all PromptBuilt events for a session:
-python -c "
+Prompts and reasoning are stored **directly on each interaction** in the session payload. No need to mine `RolePlayDebugEvents`.
+
+```python
 import sqlite3, json
+
 sid = 'SESSION_ID_HERE'
 c = sqlite3.connect('DreamGenClone.Web/data/dreamgenclone.dev.db')
-evt = c.execute(\"SELECT CreatedUtc, Summary, MetadataJson FROM RolePlayDebugEvents WHERE SessionId=? AND EventKind='PromptBuilt' ORDER BY CreatedUtc\", (sid,)).fetchall()
+row = c.execute("SELECT PayloadJson FROM Sessions WHERE Id=?", (sid,)).fetchone()
 c.close()
-for i,e in enumerate(evt):
-    meta = json.loads(e[2])
-    prompt = meta.get('prompt','')
-    print(f'[{i}] {e[0]} | {e[1][:60]} | {len(prompt)} chars')
-"
+
+payload = json.loads(row[0])
+for i, ix in enumerate(payload.get("interactions", [])):
+    ix_id = ix.get("id", "?")[:8]
+    prompt = ix.get("promptText") or ix.get("PromptText", "")
+    reasoning = ix.get("reasoningContent") or ix.get("ReasoningContent", "")
+    print(f"[{i}] {ix_id} | prompt={len(prompt)} chars | reasoning={len(reasoning)} chars")
 ```
 
-Save extracted prompts to `specs/debug/prompts_{shortId}/` following [prompt-extraction.instructions.md](../../instructions/prompt-extraction.instructions.md). Match prompts to interactions by timestamp proximity (`PromptBuilt.CreatedUtc <= interaction.createdAt`).
+Save extracted prompts to `specs/debug/prompts_{shortId}/` following [prompt-extraction.instructions.md](../../instructions/prompt-extraction.instructions.md).
 
 ### Build & test
 
@@ -128,22 +131,25 @@ Also check:
 
 ### 📝 "What was sent to the LLM?" — Prompt Content
 
-Extract and save prompts:
-```powershell
-python -c "
+Prompts are stored **directly on each interaction** in the session payload. No need to cross-reference debug events.
+
+```python
 import sqlite3, json
+
 sid = 'SESSION_ID_HERE'
 c = sqlite3.connect('DreamGenClone.Web/data/dreamgenclone.dev.db')
-evt = c.execute(\"SELECT CreatedUtc, Summary, MetadataJson FROM RolePlayDebugEvents WHERE SessionId=? AND EventKind='PromptBuilt' ORDER BY CreatedUtc\", (sid,)).fetchall()
+row = c.execute("SELECT PayloadJson FROM Sessions WHERE Id=?", (sid,)).fetchone()
 c.close()
-for i,e in enumerate(evt):
-    meta = json.loads(e[2])
-    prompt = meta.get('prompt','')
-    print(f'[{i}] {e[0]} | {e[1][:60]} | {len(prompt)} chars')
-"
+
+payload = json.loads(row[0])
+for i, ix in enumerate(payload.get("interactions", [])):
+    prompt = ix.get("promptText") or ""
+    reasoning = ix.get("reasoningContent") or ""
+    if prompt:
+        print(f"[{i}] interaction={ix['id'][:8]} | prompt={len(prompt)} chars | reasoning={len(reasoning)} chars")
 ```
 
-Match prompt to interaction by timestamp: `PromptBuilt.CreatedUtc <= interaction.createdAt`. Then save the full prompt file via the prompt-extraction skill.
+Save extracted prompts to `specs/debug/prompts_{shortId}/` following [prompt-extraction.instructions.md](../../instructions/prompt-extraction.instructions.md).
 
 **In the prompt text, check:**
 - **HARD CONSTRAINT lines** — do stat values, theme, phase constraints look correct?
@@ -219,7 +225,7 @@ powershell -ExecutionPolicy RemoteSigned -File helpers/dbq.ps1 sql artifacts/tmp
 ```
 
 Look for events by kind to trace the session's execution:
-- `PromptBuilt` — timestamps to match interactions
+- `PromptBuilt` — secondary source for prompt text (canonical source is `promptText` on the interaction payload itself)
 - `SemanticInference RESPONSE` — parse success/failure
 - `AdaptiveStateUpdateSkipped` — **EXPECTED, IGNORE** (see known issues)
 - `PhaseTransition` — phase changes
@@ -247,7 +253,12 @@ The `interactions` array structure:
   "flags": ["flag1", "flag2"],
   "commandType": "continue" | "submit" | null,
   "actorName": "Name",
-  "characterId": "guid"
+  "characterId": "guid",
+  "promptText": "full LLM prompt text... (trimmed middle for storage)",
+  "reasoningContent": "model's chain-of-thought...",
+  "narrativePhaseAtCreation": "BuildUp",
+  "generatedByModelId": "deepseek-chat",
+  "sessionInteractionIndex": 42
 }
 ```
 
@@ -257,10 +268,10 @@ Check: interaction count, role alternation, content quality, command types per t
 
 ### 🎯 "Specific interaction/turn isn't right" — Interaction-Level Deep Dive
 
-If the user has an interaction ID or can describe which turn:
+If the user has an interaction ID or can describe which turn — everything is in one place:
 1. Find the interaction in the payload via its `id`
-2. Find the `PromptBuilt` event with `CreatedUtc` just before the interaction's `createdAt`
-3. Extract and analyze that specific prompt
+2. Read `promptText` directly — the full prompt sent to the LLM for this interaction
+3. Read `reasoningContent` directly — the model's chain-of-thought (DeepSeek reasoning, OpenAI o-series, etc.)
 4. Check `SemanticInference RESPONSE` for that interaction's analysis
 5. Check `CharacterSnapshotsJson.LastStatDeltas` for stat changes after this interaction
 
@@ -289,8 +300,9 @@ Also check theme tracker meta for primary/secondary theme selection:
 | Phase transitions | `RolePlayV2PhaseTransitions` | `dbq transitions <id>` |
 | Turns | `RolePlayV2Turns` | `dbq turns <id>` |
 | Debug events | `RolePlayDebugEvents` | `dbq debug <id>` |
-| Prompts | `MetadataJson.prompt` in `PromptBuilt` events | Python extraction |
-| Interactions | `Sessions.PayloadJson.interactions` | Python or SQL |
+| Prompts | `promptText` on each interaction in `Sessions.PayloadJson.interactions` | Python: `ix.get("promptText")` |
+| Model reasoning | `reasoningContent` on each interaction in `Sessions.PayloadJson.interactions` | Python: `ix.get("reasoningContent")` |
+| Interactions (content) | `Sessions.PayloadJson.interactions[].content` | Python or SQL |
 | Gate profiles | `NarrativeGateProfiles` | `dbq gate-profiles` |
 | Gate rules | `RPThemeNarrativeGateRules` | `dbq gate-rules <themeId>` |
 | Theme profiles | `RPThemeProfiles` + assignments | `dbq theme-profiles` |
@@ -381,4 +393,4 @@ When auditing whether this skill was followed correctly:
 - **Were canonical helpers used** (`helpers/dbq.ps1`, `helpers/dbq-session.ps1`) instead of raw sqlite3 or ad-hoc queries? (Yes/No)
 - **Was the Change Control Rule obeyed** — findings presented without auto-implementing fixes? (Yes/No)
 - **Was `AdaptiveStateUpdateSkipped` treated as expected behavior** rather than flagged as a bug? (Yes/No)
-- **Were prompts extracted via the canonical Python command** when prompt analysis was needed? (Yes/No)
+- **Were prompts read from `promptText` on the interaction payload** (not from `RolePlayDebugEvents`) when prompt analysis was needed? (Yes/No)

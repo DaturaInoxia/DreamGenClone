@@ -180,7 +180,7 @@ public sealed class RolePlayContinuationScenarioGuidanceTests
 
         var text = builder.ToString();
         Assert.Contains("Current State: ReintegrationCooldown", text, StringComparison.Ordinal);
-        Assert.Contains("Cooldown interactions in current state: 3", text, StringComparison.Ordinal);
+        Assert.Contains("Cooldown turns in current state: 3", text, StringComparison.Ordinal);
         Assert.Contains("Return beat completed: no", text, StringComparison.Ordinal);
     }
 

@@ -27,7 +27,7 @@ public sealed class EncounterSummaryServiceTests
             SessionId           = sessionId,
             CycleIndex          = cycleIndex,
             CurrentPhase        = NarrativePhase.Approaching,
-            InteractionCountInPhase = 3,
+            TurnCountInPhase = 3,
             CurrentSceneLocation = "Bedroom",
             PrimaryThemeId      = "theme-abc",
             CurrentBeatCode     = "beat-42",
@@ -71,7 +71,7 @@ public sealed class EncounterSummaryServiceTests
         Assert.Equal(state.CycleIndex,  r.CycleIndex);
         Assert.Equal(evt.FromPhase,     r.FromPhase);
         Assert.Equal(evt.ToPhase,       r.ToPhase);
-        Assert.Equal(state.InteractionCountInPhase, r.InteractionCountInPhase);
+        Assert.Equal(state.TurnCountInPhase, r.TurnCountInPhase);
         Assert.Equal(state.CurrentSceneLocation,    r.SceneLocation);
         Assert.Equal(state.PrimaryThemeId,          r.ActiveThemeId);
         Assert.NotEmpty(r.TemplateSummary);

@@ -2002,7 +2002,7 @@
                             <div class="col-md-6">
                                 <label class="form-label">Climax Completion Interaction Threshold</label>
                                 <input type="number" min="1" step="1" class="form-control" @bind="_climaxResetInteractionThreshold" />
-                                <div class="form-text">Stored as the Climax -&gt; Reset rule using InteractionsSinceCommitment and &gt;=.</div>
+                                <div class="form-text">Stored as the Climax -&gt; Reset rule using TurnsSinceCommitment and &gt;=.</div>
                             </div>
                         </div>
 
@@ -3140,7 +3140,7 @@
         NarrativeGateMetricKeys.ActiveScenarioScore,
         NarrativeGateMetricKeys.AverageDesire,
         NarrativeGateMetricKeys.AverageRestraint,
-        NarrativeGateMetricKeys.InteractionsSinceCommitment
+        NarrativeGateMetricKeys.TurnsSinceCommitment
     ];
     private readonly string[] _narrativeGateComparatorOptions =
     [
@@ -5295,7 +5295,7 @@
             SortOrder = normalizedRules.Count + 1,
             FromPhase = "Climax",
             ToPhase = "Reset",
-            MetricKey = NarrativeGateMetricKeys.InteractionsSinceCommitment,
+            MetricKey = NarrativeGateMetricKeys.TurnsSinceCommitment,
             Comparator = NarrativeGateComparators.GreaterThanOrEqual,
             Threshold = decimal.Round(_climaxResetInteractionThreshold, 0, MidpointRounding.AwayFromZero)
         });
@@ -5380,7 +5380,7 @@
     {
         return string.Equals(rule.FromPhase, "Climax", StringComparison.OrdinalIgnoreCase)
             && string.Equals(rule.ToPhase, "Reset", StringComparison.OrdinalIgnoreCase)
-            && string.Equals(rule.MetricKey, NarrativeGateMetricKeys.InteractionsSinceCommitment, StringComparison.OrdinalIgnoreCase);
+            && string.Equals(rule.MetricKey, NarrativeGateMetricKeys.TurnsSinceCommitment, StringComparison.OrdinalIgnoreCase);
     }
 
     private static decimal ResolveClimaxResetInteractionThreshold(IReadOnlyList<NarrativeGateRule> rules)
