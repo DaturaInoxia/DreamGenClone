@@ -14,7 +14,7 @@ public sealed class DecisionPointMutationTests
     {
         var state = RolePlayAcceptanceFixtureData.BuildBoundaryState(70, 40, 60);
         state.ActiveScenarioId = "scenario-1";
-        state.InteractionCountInPhase = 3;
+        state.TurnCountInPhase = 3;
 
         var point = await _service.TryCreateDecisionPointAsync(state, DecisionTrigger.InteractionStart);
 
@@ -28,7 +28,7 @@ public sealed class DecisionPointMutationTests
     {
         var state = RolePlayAcceptanceFixtureData.BuildBoundaryState(45, 72, 40);
         state.ActiveScenarioId = "scenario-1";
-        state.InteractionCountInPhase = 3;
+        state.TurnCountInPhase = 3;
         state.CurrentPhase = NarrativePhase.BuildUp;
 
         var point = await _service.TryCreateDecisionPointAsync(state, DecisionTrigger.InteractionStart);
@@ -42,7 +42,7 @@ public sealed class DecisionPointMutationTests
     {
         var state = RolePlayAcceptanceFixtureData.BuildBoundaryState(78, 35, 75);
         state.ActiveScenarioId = "scenario-1";
-        state.InteractionCountInPhase = 3;
+        state.TurnCountInPhase = 3;
         state.CurrentPhase = NarrativePhase.Approaching;
 
         var point = await _service.TryCreateDecisionPointAsync(state, DecisionTrigger.SignificantStatChange);
@@ -60,7 +60,7 @@ public sealed class DecisionPointMutationTests
             SessionId = "fixture-session",
             ActiveScenarioId = "scenario-1",
             CurrentPhase = NarrativePhase.Committed,
-            InteractionCountInPhase = 3,
+            TurnCountInPhase = 3,
             CharacterSnapshots =
             [
                 new CharacterStatProfileV2
@@ -339,7 +339,7 @@ public sealed class DecisionPointMutationTests
     {
         var state = RolePlayAcceptanceFixtureData.BuildBoundaryState(70, 45, 55);
         state.ActiveScenarioId = "scenario-1";
-        state.InteractionCountInPhase = 3;
+        state.TurnCountInPhase = 3;
         state.CurrentPhase = NarrativePhase.BuildUp;
 
         var point = await _service.TryCreateDecisionPointAsync(

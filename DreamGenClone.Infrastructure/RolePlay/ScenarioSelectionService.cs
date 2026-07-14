@@ -748,7 +748,7 @@ public sealed class ScenarioSelectionService : IScenarioSelectionService
             [NarrativeGateMetricKeys.ActiveScenarioScore] = leader.FitScore,
             [NarrativeGateMetricKeys.AverageDesire] = averageDesire,
             [NarrativeGateMetricKeys.AverageRestraint] = averageRestraint,
-            [NarrativeGateMetricKeys.InteractionsSinceCommitment] = state.InteractionCountInPhase
+            [NarrativeGateMetricKeys.TurnsSinceCommitment] = state.TurnCountInPhase
         };
 
         var audits = new List<BuildUpGateRuleAudit>(rules.Count);

@@ -31,7 +31,7 @@ public sealed class PhaseLifecycleTransitionTests
 
         var toApproaching = await service.EvaluateTransitionAsync(state, new LifecycleInputs
         {
-            InteractionsSinceCommitment = 3,
+            TurnsSinceCommitment = 3,
             ActiveScenarioFitScore = 61m,
             ActiveScenarioConfidence = 0.8m
         });
@@ -39,7 +39,7 @@ public sealed class PhaseLifecycleTransitionTests
 
         var toClimax = await service.EvaluateTransitionAsync(state, new LifecycleInputs
         {
-            InteractionsSinceCommitment = 1,
+            TurnsSinceCommitment = 1,
             ActiveScenarioFitScore = 85m,
             ActiveScenarioConfidence = 0.9m
         });
@@ -66,7 +66,7 @@ public sealed class PhaseLifecycleTransitionTests
         {
             ActiveScenarioConfidence = 0.99m,
             ActiveScenarioFitScore = 95m,
-            InteractionsSinceCommitment = 100
+            TurnsSinceCommitment = 100
         });
 
         Assert.False(result.Transitioned);
@@ -82,7 +82,7 @@ public sealed class PhaseLifecycleTransitionTests
 
         var result = await _service.EvaluateTransitionAsync(state, new LifecycleInputs
         {
-            InteractionsSinceCommitment = 100,
+            TurnsSinceCommitment = 100,
             ActiveScenarioConfidence = 0.99m,
             ActiveScenarioFitScore = 95m
         });
@@ -101,7 +101,7 @@ public sealed class PhaseLifecycleTransitionTests
         // explicit climax completion must be requested to transition.
         var result = await _service.EvaluateTransitionAsync(state, new LifecycleInputs
         {
-            InteractionsSinceCommitment = 50,
+            TurnsSinceCommitment = 50,
             ActiveScenarioFitScore = 95m,
             ClimaxCompletionRequested = true
         });
@@ -162,7 +162,7 @@ public sealed class PhaseLifecycleTransitionTests
 
         var beforeSemantic = await service.EvaluateTransitionAsync(state, new LifecycleInputs
         {
-            InteractionsSinceCommitment = 3,
+            TurnsSinceCommitment = 3,
             ActiveScenarioFitScore = 61m,
             ActiveScenarioConfidence = 0.8m
         });
@@ -173,7 +173,7 @@ public sealed class PhaseLifecycleTransitionTests
 
         var afterSemantic = await service.EvaluateTransitionAsync(state, new LifecycleInputs
         {
-            InteractionsSinceCommitment = 3,
+            TurnsSinceCommitment = 3,
             ActiveScenarioFitScore = 61m,
             ActiveScenarioConfidence = 0.8m
         });
@@ -195,7 +195,7 @@ public sealed class PhaseLifecycleTransitionTests
 
         var result = await service.EvaluateTransitionAsync(state, new LifecycleInputs
         {
-            InteractionsSinceCommitment = 3,
+            TurnsSinceCommitment = 3,
             ActiveScenarioFitScore = 61m,
             ActiveScenarioConfidence = 0.8m
         });
@@ -208,7 +208,7 @@ public sealed class PhaseLifecycleTransitionTests
     public async Task IllegalTransitionRequest_IsRejected()
     {
         var state = CreateState();
-        var result = await _service.EvaluateTransitionAsync(state, new LifecycleInputs { InteractionsSinceCommitment = 5, ActiveScenarioFitScore = 90m });
+        var result = await _service.EvaluateTransitionAsync(state, new LifecycleInputs { TurnsSinceCommitment = 5, ActiveScenarioFitScore = 90m });
 
         Assert.False(result.Transitioned);
         Assert.Equal(NarrativePhase.BuildUp, result.TargetPhase);
@@ -774,11 +774,11 @@ public sealed class PhaseLifecycleTransitionTests
                 new() { SortOrder = 1, FromPhase = "Committed", ToPhase = "Approaching", MetricKey = NarrativeGateMetricKeys.ActiveScenarioScore, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 60m },
                 new() { SortOrder = 2, FromPhase = "Committed", ToPhase = "Approaching", MetricKey = NarrativeGateMetricKeys.AverageDesire, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 65m },
                 new() { SortOrder = 3, FromPhase = "Committed", ToPhase = "Approaching", MetricKey = NarrativeGateMetricKeys.AverageRestraint, Comparator = NarrativeGateComparators.LessThanOrEqual, Threshold = 45m },
-                new() { SortOrder = 4, FromPhase = "Committed", ToPhase = "Approaching", MetricKey = NarrativeGateMetricKeys.InteractionsSinceCommitment, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 3m },
+                new() { SortOrder = 4, FromPhase = "Committed", ToPhase = "Approaching", MetricKey = NarrativeGateMetricKeys.TurnsSinceCommitment, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 3m },
                 new() { SortOrder = 5, FromPhase = "Approaching", ToPhase = "Climax", MetricKey = NarrativeGateMetricKeys.ActiveScenarioScore, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 80m },
                 new() { SortOrder = 6, FromPhase = "Approaching", ToPhase = "Climax", MetricKey = NarrativeGateMetricKeys.AverageDesire, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 75m },
                 new() { SortOrder = 7, FromPhase = "Approaching", ToPhase = "Climax", MetricKey = NarrativeGateMetricKeys.AverageRestraint, Comparator = NarrativeGateComparators.LessThanOrEqual, Threshold = 35m },
-                new() { SortOrder = 8, FromPhase = "Climax", ToPhase = "Reset", MetricKey = NarrativeGateMetricKeys.InteractionsSinceCommitment, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 12m }
+                new() { SortOrder = 8, FromPhase = "Climax", ToPhase = "Reset", MetricKey = NarrativeGateMetricKeys.TurnsSinceCommitment, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 12m }
             ]
         };
 

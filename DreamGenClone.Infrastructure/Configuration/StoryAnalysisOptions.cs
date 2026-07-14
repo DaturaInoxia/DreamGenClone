@@ -31,11 +31,11 @@ public sealed class StoryAnalysisOptions
 
     public int AdaptiveThemeAffinityStackLimit { get; set; } = 1;
 
-    public int AdaptiveEarlyTurnInteractionThreshold { get; set; } = 3;
+    public int AdaptiveEarlyTurnThreshold { get; set; } = 3;
 
     public int AdaptiveEarlyTurnPerStatDeltaCap { get; set; } = 2;
 
-    public int AdaptivePerInteractionTotalDeltaBudget { get; set; } = 10;
+    public int AdaptivePerTurnTotalDeltaBudget { get; set; } = 10;
 
     public int AdaptiveThemeAffinityCapBuildUp { get; set; } = 0;
 
@@ -93,7 +93,7 @@ public sealed class StoryAnalysisOptions
 
     // Number of interactions the just-completed theme is suppressed from selection after reset.
     // Default 10 prevents immediate re-selection during the Reset phase.
-    public int CompletedScenarioThemeCooldownInteractions { get; set; } = 10;
+    public int CompletedScenarioThemeCooldownTurns { get; set; } = 10;
 
     // Flat FitScore point deduction applied to the just-completed theme after reset.
     // Applied as a direct subtraction from the gate-adjusted FitScore (0–100 scale).
@@ -127,5 +127,5 @@ public sealed class StoryAnalysisOptions
     public List<double> ResetDesireBaselinePullSchedule { get; set; } = [];
 
     // Minimum BuildUp interactions required before a scenario can be committed.
-    public int BuildUpMinInteractionsBeforeCommit { get; set; } = 2;
+    public int BuildUpMinTurnsBeforeCommit { get; set; } = 2;
 }

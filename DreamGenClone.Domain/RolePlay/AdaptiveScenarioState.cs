@@ -6,7 +6,7 @@ public sealed class AdaptiveScenarioState
     public string? ActiveScenarioId { get; set; }
     public string? ActiveVariantId { get; set; }
     public NarrativePhase CurrentPhase { get; set; } = NarrativePhase.Opening;
-    public int InteractionCountInPhase { get; set; }
+    public int TurnCountInPhase { get; set; }
     public int ConsecutiveLeadCount { get; set; }
     public DateTime LastEvaluationUtc { get; set; } = DateTime.UtcNow;
     public int CycleIndex { get; set; }
@@ -156,10 +156,10 @@ public sealed class AdaptiveScenarioState
     public int CurrentEncounterNumber { get; set; }
 
     /// <summary>
-    /// Number of interactions generated in the current encounter since it started.
+    /// Number of turns generated in the current encounter since it started.
     /// Reset to 0 when CurrentEncounterNumber advances.
     /// </summary>
-    public int InteractionsInCurrentEncounter { get; set; }
+    public int TurnsInCurrentEncounter { get; set; }
 
     /// <summary>
     /// Current phase of the two-phase multi-encounter time-skip:
@@ -204,8 +204,8 @@ public sealed class AdaptiveScenarioState
 
     // ---- Pacing / progression -------------------------------------------------------------
     public int CompletedScenarios { get; set; }
-    public int InteractionsSinceCommitment { get; set; }
-    public int InteractionsInApproaching { get; set; }
+    public int TurnsSinceCommitment { get; set; }
+    public int TurnsInApproaching { get; set; }
     public DateTime? ScenarioCommitmentTimeUtc { get; set; }
 
     // ---- Scenario history -----------------------------------------------------------------

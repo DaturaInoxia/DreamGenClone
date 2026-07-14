@@ -63,7 +63,7 @@ public sealed class LifecycleInputs
     public string? NarrativeGateProfileId { get; init; }
     public IReadOnlyList<NarrativeGateRule>? NarrativeGateRules { get; init; }
     public bool SkipDefaultNarrativeGateProfileFallback { get; init; }
-    public int InteractionsSinceCommitment { get; init; }
+    public int TurnsSinceCommitment { get; init; }
     public decimal ActiveScenarioConfidence { get; init; }
     public decimal ActiveScenarioFitScore { get; init; }
     public string EvidenceSummary { get; init; } = string.Empty;

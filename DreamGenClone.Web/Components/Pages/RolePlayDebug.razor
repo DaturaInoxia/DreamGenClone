@@ -365,7 +365,7 @@
                         <div class="rpd-kv"><span>Configured</span><strong>@(gateDetails.Configured ? "Yes" : "No")</strong></div>
                         <div class="rpd-kv"><span>Profile</span><strong>@gateDetails.ProfileLabel</strong></div>
                         <div class="rpd-kv"><span>Profile Source</span><strong>@(gateDetails.ProfileSource ?? "-")</strong></div>
-                        <div class="rpd-kv"><span>Interaction Count</span><strong>@gateDetails.InteractionCount</strong></div>
+                        <div class="rpd-kv"><span>Turn Count</span><strong>@gateDetails.TurnCount</strong></div>
                         <div class="rpd-kv"><span>Candidate Count</span><strong>@gateDetails.CandidateCount</strong></div>
                         <div class="rpd-kv"><span>Selected Scenario</span><strong>@(gateDetails.SelectedScenarioId ?? "-")</strong></div>
                         <div class="rpd-kv"><span>Committed</span><strong>@(gateDetails.Committed ? "Yes" : "No")</strong></div>
@@ -749,7 +749,7 @@
             var details = new AdaptiveCommitGateDetails
             {
                 Phase = ReadString(root, "phase"),
-                InteractionCount = ReadInt(root, "interactionCount"),
+                TurnCount = ReadInt(root, "turnCount"),
                 CandidateCount = ReadInt(root, "candidateCount"),
                 SelectedScenarioId = ReadString(root, "selectedScenarioId"),
                 Committed = ReadBool(root, "committed"),
@@ -856,7 +856,7 @@
     private sealed class AdaptiveCommitGateDetails
     {
         public string? Phase { get; set; }
-        public int InteractionCount { get; set; }
+        public int TurnCount { get; set; }
         public int CandidateCount { get; set; }
         public string? SelectedScenarioId { get; set; }
         public bool Committed { get; set; }

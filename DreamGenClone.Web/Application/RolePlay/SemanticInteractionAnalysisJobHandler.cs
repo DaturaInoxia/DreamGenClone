@@ -294,9 +294,9 @@ public sealed class SemanticInteractionAnalysisJobHandler : IBackgroundJobHandle
             // every pipeline-managed field in session.AdaptiveState with the freshly loaded
             // values. ApplyInferredSemanticEvidenceAsync never touches these fields, but the
             // long-running LLM inference above may have allowed RunRolePlayV2PipelinesAsync to
-            // run on a new foreground turn, advancing InteractionCountInPhase, LastEvaluationUtc,
+            // run on a new foreground turn, advancing TurnCountInPhase, LastEvaluationUtc,
             // CurrentPhase, etc. Without this refresh the background save would clobber the
-            // pipeline's updates and reset InteractionCountInPhase back to its pre-inference
+            // pipeline's updates and reset TurnCountInPhase back to its pre-inference
             // value — permanently stalling phase-transition gate evaluation.
             var latestStateBeforeSave = await _stateRepository.LoadAdaptiveStateAsync(payload.SessionId, cancellationToken);
             if (latestStateBeforeSave is not null)
@@ -305,7 +305,7 @@ public sealed class SemanticInteractionAnalysisJobHandler : IBackgroundJobHandle
                 updated.ActiveScenarioId              = latestStateBeforeSave.ActiveScenarioId;
                 updated.ActiveVariantId               = latestStateBeforeSave.ActiveVariantId;
                 updated.CurrentPhase                  = latestStateBeforeSave.CurrentPhase;
-                updated.InteractionCountInPhase        = latestStateBeforeSave.InteractionCountInPhase;
+                updated.TurnCountInPhase        = latestStateBeforeSave.TurnCountInPhase;
                 updated.ConsecutiveLeadCount           = latestStateBeforeSave.ConsecutiveLeadCount;
                 updated.LastEvaluationUtc              = latestStateBeforeSave.LastEvaluationUtc;
                 updated.CycleIndex                    = latestStateBeforeSave.CycleIndex;
@@ -324,12 +324,12 @@ public sealed class SemanticInteractionAnalysisJobHandler : IBackgroundJobHandle
                 updated.CurrentBeatCode                = latestStateBeforeSave.CurrentBeatCode;
                 updated.TurnsInCurrentBeat             = latestStateBeforeSave.TurnsInCurrentBeat;
                 updated.CompletedScenarios             = latestStateBeforeSave.CompletedScenarios;
-                updated.InteractionsSinceCommitment    = latestStateBeforeSave.InteractionsSinceCommitment;
-                updated.InteractionsInApproaching      = latestStateBeforeSave.InteractionsInApproaching;
+                updated.TurnsSinceCommitment    = latestStateBeforeSave.TurnsSinceCommitment;
+                updated.TurnsInApproaching      = latestStateBeforeSave.TurnsInApproaching;
                 updated.ScenarioCommitmentTimeUtc      = latestStateBeforeSave.ScenarioCommitmentTimeUtc;
                 updated.CurrentTimeSkipPhase          = latestStateBeforeSave.CurrentTimeSkipPhase;
                 updated.CurrentEncounterNumber        = latestStateBeforeSave.CurrentEncounterNumber;
-                updated.InteractionsInCurrentEncounter = latestStateBeforeSave.InteractionsInCurrentEncounter;
+                updated.TurnsInCurrentEncounter = latestStateBeforeSave.TurnsInCurrentEncounter;
                 updated.GlobalEncounterCount          = latestStateBeforeSave.GlobalEncounterCount;
                 updated.CurrentEncounterStartInteractionIndex = latestStateBeforeSave.CurrentEncounterStartInteractionIndex;
                 updated.IsEncounterActive             = latestStateBeforeSave.IsEncounterActive;

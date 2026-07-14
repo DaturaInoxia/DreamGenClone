@@ -76,7 +76,7 @@ public sealed class EncounterSummaryService : IEncounterSummaryService
                 FromPhase                  = transitionEvent.FromPhase,
                 ToPhase                    = transitionEvent.ToPhase,
                 OccurredUtc                = transitionEvent.OccurredUtc,
-                InteractionCountInPhase    = v2State.InteractionCountInPhase,
+                TurnCountInPhase    = v2State.TurnCountInPhase,
                 SceneLocation              = v2State.CurrentSceneLocation,
                 ActiveThemeId              = v2State.PrimaryThemeId,
                 FinishingMoveId            = null,
@@ -188,7 +188,7 @@ public sealed class EncounterSummaryService : IEncounterSummaryService
                 FromPhase                = v2State.CurrentPhase,
                 ToPhase                  = v2State.CurrentPhase, // encounter boundary within a phase — no phase transition
                 OccurredUtc              = DateTime.UtcNow,
-                InteractionCountInPhase  = v2State.InteractionCountInPhase,
+                TurnCountInPhase  = v2State.TurnCountInPhase,
                 EncounterNumber          = encounterNumber,
                 DetectionEvidence        = detectionEvidence,
                 StartInteractionIndex    = startInteractionIndex,
@@ -248,7 +248,7 @@ public sealed class EncounterSummaryService : IEncounterSummaryService
     {
         var location = string.IsNullOrWhiteSpace(v2State.CurrentSceneLocation) ? "unknown" : v2State.CurrentSceneLocation;
         return $"{snapshot.CharacterId} — phase moved from {transitionEvent.FromPhase} to {transitionEvent.ToPhase}. " +
-               $"Scene: {location}. Arc {v2State.CycleIndex + 1}, interaction {v2State.InteractionCountInPhase} in phase.";
+               $"Scene: {location}. Arc {v2State.CycleIndex + 1}, turn {v2State.TurnCountInPhase} in phase.";
     }
 
     private static string BuildArcCompletionTemplate(

@@ -39,7 +39,7 @@ public sealed class AdaptiveScenarioStateV2RoundTripTests
                 ActiveScenarioId = "theme-1",
                 ActiveVariantId = "variant-A",
                 CurrentPhase = NarrativePhase.Climax,
-                InteractionCountInPhase = 4,
+                TurnCountInPhase = 4,
                 ConsecutiveLeadCount = 2,
                 LastEvaluationUtc = nowUtc,
                 CycleIndex = 3,
@@ -53,8 +53,8 @@ public sealed class AdaptiveScenarioStateV2RoundTripTests
 
                 // Phase 1 new columns
                 CompletedScenarios = 5,
-                InteractionsSinceCommitment = 9,
-                InteractionsInApproaching = 1,
+                TurnsSinceCommitment = 9,
+                TurnsInApproaching = 1,
                 ScenarioCommitmentTimeUtc = nowUtc.AddMinutes(-10),
                 SemanticStepSucceeded = false,
 
@@ -78,7 +78,7 @@ public sealed class AdaptiveScenarioStateV2RoundTripTests
                         IsScenarioCandidate = true,
                         NarrativeFitScore = 0.71,
                         LastCandidateEvaluationTimeUtc = nowUtc.AddMinutes(-1),
-                        CompletionCooldownInteractions = 2,
+                        CompletionCooldownTurns = 2,
                         UpdatedUtc = nowUtc,
                         Breakdown = new ThemeScoreBreakdownV2
                         {
@@ -123,7 +123,7 @@ public sealed class AdaptiveScenarioStateV2RoundTripTests
                         Id = "hist-1",
                         ScenarioId = "theme-1",
                         CompletedAtUtc = nowUtc.AddMinutes(-5),
-                        InteractionCount = 8,
+                        TurnCount = 8,
                         PeakThemeScore = 14,
                         PeakDesireLevel = 9,
                         AverageRestraintLevel = 3.5,
@@ -206,8 +206,8 @@ public sealed class AdaptiveScenarioStateV2RoundTripTests
 
             // Parent row fields (Phase 1 new columns)
             Assert.Equal(5, loaded!.CompletedScenarios);
-            Assert.Equal(9, loaded.InteractionsSinceCommitment);
-            Assert.Equal(1, loaded.InteractionsInApproaching);
+            Assert.Equal(9, loaded.TurnsSinceCommitment);
+            Assert.Equal(1, loaded.TurnsInApproaching);
             Assert.Equal(nowUtc.AddMinutes(-10), loaded.ScenarioCommitmentTimeUtc);
             Assert.False(loaded.SemanticStepSucceeded);
 
@@ -227,7 +227,7 @@ public sealed class AdaptiveScenarioStateV2RoundTripTests
             Assert.Equal(1, theme.SuppressedHitCount);
             Assert.True(theme.IsScenarioCandidate);
             Assert.Equal(0.71, theme.NarrativeFitScore, 5);
-            Assert.Equal(2, theme.CompletionCooldownInteractions);
+            Assert.Equal(2, theme.CompletionCooldownTurns);
             Assert.Equal(3.0, theme.Breakdown.ChoiceSignal);
             Assert.Equal(4.5, theme.Breakdown.CharacterStateSignal);
             Assert.Equal(2.0, theme.Breakdown.InteractionEvidenceSignal);
@@ -247,7 +247,7 @@ public sealed class AdaptiveScenarioStateV2RoundTripTests
             // Scenario history
             Assert.Single(loaded.ScenarioHistory);
             Assert.Equal("hist-1", loaded.ScenarioHistory[0].Id);
-            Assert.Equal(8, loaded.ScenarioHistory[0].InteractionCount);
+            Assert.Equal(8, loaded.ScenarioHistory[0].TurnCount);
             Assert.Equal(14, loaded.ScenarioHistory[0].PeakThemeScore);
             Assert.Equal(3.5, loaded.ScenarioHistory[0].AverageRestraintLevel);
             Assert.Equal("completed beat 8g", loaded.ScenarioHistory[0].Notes);

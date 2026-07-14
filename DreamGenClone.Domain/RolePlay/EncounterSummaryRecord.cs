@@ -28,8 +28,8 @@ public sealed class EncounterSummaryRecord
 
     public DateTime OccurredUtc { get; set; } = DateTime.UtcNow;
 
-    /// <summary>How many interactions occurred in FromPhase before this transition.</summary>
-    public int InteractionCountInPhase { get; set; }
+    /// <summary>How many turns occurred in FromPhase before this transition.</summary>
+    public int TurnCountInPhase { get; set; }
 
     /// <summary>
     /// Encounter sequence number for <see cref="EncounterSummaryType.EncounterCompletion"/> rows

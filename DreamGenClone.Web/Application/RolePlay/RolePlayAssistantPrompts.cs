@@ -312,7 +312,7 @@ public static class RolePlayAssistantPrompts
         else if (string.Equals(snapshot.CurrentStateCode, "ReintegrationCooldown", StringComparison.OrdinalIgnoreCase))
         {
             promptBuilder.AppendLine("- HARD CONSTRAINT: Reintegration cooldown is active; keep disappearance beats blocked until cooldown obligations are met.");
-            promptBuilder.AppendLine($"- Cooldown interactions in current state: {snapshot.TurnsInCurrentState}");
+            promptBuilder.AppendLine($"- Cooldown turns in current state: {snapshot.TurnsInCurrentState}");
             promptBuilder.AppendLine($"- Return beat completed: {(snapshot.ReturnBeatCompleted ? "yes" : "no")}");
         }
         else if (string.Equals(snapshot.CurrentStateCode, "NextDisappearanceEligible", StringComparison.OrdinalIgnoreCase))

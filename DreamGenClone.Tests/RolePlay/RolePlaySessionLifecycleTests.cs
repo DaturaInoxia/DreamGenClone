@@ -66,7 +66,7 @@ public sealed class RolePlaySessionLifecycleTests
                 SessionId = "session-v2",
                 ActiveScenarioId = "scenario-a",
                 CurrentPhase = NarrativePhase.Committed,
-                InteractionCountInPhase = 2,
+                TurnCountInPhase = 2,
                 ConsecutiveLeadCount = 1,
                 CycleIndex = 3,
                 ActiveFormulaVersion = "rpv2-default",
@@ -493,14 +493,14 @@ public sealed class RolePlaySessionLifecycleTests
         };
         session.AdaptiveState.ActiveScenarioId = "dominance";
         session.AdaptiveState.CurrentPhase = DreamGenClone.Domain.RolePlay.NarrativePhase.Approaching;
-        session.AdaptiveState.InteractionsSinceCommitment = 5;
+        session.AdaptiveState.TurnsSinceCommitment = 5;
         await service.SaveSessionAsync(session);
 
         var overridden = await service.OverrideAdaptiveThemeAsync(created.Id, "infidelity");
 
         Assert.Equal("infidelity", overridden.AdaptiveState.ActiveScenarioId);
         Assert.Equal("infidelity", overridden.AdaptiveState.PrimaryThemeId);
-        Assert.Equal(0, overridden.AdaptiveState.InteractionsSinceCommitment);
+        Assert.Equal(0, overridden.AdaptiveState.TurnsSinceCommitment);
     }
 
     [Fact]
@@ -587,7 +587,7 @@ public sealed class RolePlaySessionLifecycleTests
             Score = 45
         };
         session.AdaptiveState.ActiveScenarioId = "dominance";
-        session.AdaptiveState.InteractionsSinceCommitment = 0;
+        session.AdaptiveState.TurnsSinceCommitment = 0;
         await service.SaveSessionAsync(session);
 
         await service.OverrideAdaptiveThemeAsync(created.Id, "infidelity");
@@ -621,7 +621,7 @@ public sealed class RolePlaySessionLifecycleTests
         };
         session.AdaptiveState.ActiveScenarioId = "dominance";
         session.AdaptiveState.CurrentPhase = DreamGenClone.Domain.RolePlay.NarrativePhase.Committed;
-        session.AdaptiveState.InteractionsSinceCommitment = 0;
+        session.AdaptiveState.TurnsSinceCommitment = 0;
         await service.SaveSessionAsync(session);
 
         await service.OverrideAdaptiveThemeAsync(created.Id, "infidelity");
@@ -629,7 +629,7 @@ public sealed class RolePlaySessionLifecycleTests
         var overridden = await service.GetSessionAsync(created.Id);
         Assert.NotNull(overridden);
         overridden!.AdaptiveState.CurrentPhase = DreamGenClone.Domain.RolePlay.NarrativePhase.Committed;
-        overridden.AdaptiveState.InteractionsSinceCommitment = 9;
+        overridden.AdaptiveState.TurnsSinceCommitment = 9;
         await service.SaveSessionAsync(overridden);
 
         await service.AddInteractionAsync(created.Id, ContinueAsActor.You, "dominate command obey control push harder");
@@ -685,7 +685,7 @@ public sealed class RolePlaySessionLifecycleTests
             SessionId = created.Id,
             ActiveScenarioId = "scenario-a",
             CurrentPhase = NarrativePhase.BuildUp,
-            InteractionCountInPhase = 0,
+            TurnCountInPhase = 0,
             ConsecutiveLeadCount = 0,
             LastEvaluationUtc = DateTime.UtcNow,
             CycleIndex = 0,
@@ -733,7 +733,7 @@ public sealed class RolePlaySessionLifecycleTests
             SessionId = created.Id,
             ActiveScenarioId = null,
             CurrentPhase = NarrativePhase.BuildUp,
-            InteractionCountInPhase = 0,
+            TurnCountInPhase = 0,
             ConsecutiveLeadCount = 0,
             LastEvaluationUtc = DateTime.UtcNow,
             CycleIndex = 0,
@@ -820,7 +820,7 @@ public sealed class RolePlaySessionLifecycleTests
             SessionId = created.Id,
             ActiveScenarioId = "scenario-a",
             CurrentPhase = NarrativePhase.Committed,
-            InteractionCountInPhase = 7,
+            TurnCountInPhase = 7,
             ConsecutiveLeadCount = 2,
             LastEvaluationUtc = DateTime.UtcNow,
             CycleIndex = 0,
@@ -850,7 +850,7 @@ public sealed class RolePlaySessionLifecycleTests
         var persisted = await repository.LoadAdaptiveStateAsync(created.Id);
         Assert.NotNull(persisted);
         Assert.Equal(NarrativePhase.Committed, persisted!.CurrentPhase);
-        Assert.Equal(7, persisted.InteractionCountInPhase);
+        Assert.Equal(7, persisted.TurnCountInPhase);
 
         var reloaded = await service.GetSessionAsync(created.Id);
         Assert.NotNull(reloaded);
@@ -1423,7 +1423,7 @@ public sealed class RolePlaySessionLifecycleTests
                 ActiveScenarioId = state.ActiveScenarioId,
                 ActiveVariantId = state.ActiveVariantId,
                 CurrentPhase = state.CurrentPhase,
-                InteractionCountInPhase = state.InteractionCountInPhase,
+                TurnCountInPhase = state.TurnCountInPhase,
                 ConsecutiveLeadCount = state.ConsecutiveLeadCount,
                 LastEvaluationUtc = state.LastEvaluationUtc,
                 CycleIndex = state.CycleIndex,
@@ -1487,7 +1487,7 @@ public sealed class RolePlaySessionLifecycleTests
                 ActiveScenarioId TEXT NULL,
                 ActiveVariantId TEXT NULL,
                 CurrentPhase TEXT NOT NULL,
-                InteractionCountInPhase INTEGER NOT NULL,
+                TurnCountInPhase INTEGER NOT NULL,
                 ConsecutiveLeadCount INTEGER NOT NULL,
                 LastEvaluationUtc TEXT NOT NULL,
                 CycleIndex INTEGER NOT NULL,
@@ -1515,7 +1515,7 @@ public sealed class RolePlaySessionLifecycleTests
                 FromPhase                   TEXT NOT NULL,
                 ToPhase                     TEXT NOT NULL,
                 OccurredUtc                 TEXT NOT NULL,
-                InteractionCountInPhase     INTEGER NOT NULL DEFAULT 0,
+                TurnCountInPhase     INTEGER NOT NULL DEFAULT 0,
                 SceneLocation               TEXT NULL,
                 ActiveThemeId               TEXT NULL,
                 FinishingMoveId             TEXT NULL,

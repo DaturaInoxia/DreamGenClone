@@ -32,7 +32,7 @@ public sealed class RolePlaySessionStepValidationTests
         state.SessionId = "step-validation-session";
         state.CurrentPhase = NarrativePhase.BuildUp;
         state.SelectedNarrativeGateProfileId = profile.Id;
-        state.InteractionCountInPhase = 3;
+        state.TurnCountInPhase = 3;
 
         var evaluations = new[]
         {
@@ -49,15 +49,15 @@ public sealed class RolePlaySessionStepValidationTests
         };
 
         _output.WriteLine("STEP 1: BuildUp commit gate should block at interactions=3 with threshold=12");
-        _output.WriteLine($"INPUT  : phase={state.CurrentPhase}, fit={evaluations[0].FitScore:0.##}, interactions={state.InteractionCountInPhase}, selectedProfile={state.SelectedNarrativeGateProfileId}");
+        _output.WriteLine($"INPUT  : phase={state.CurrentPhase}, fit={evaluations[0].FitScore:0.##}, interactions={state.TurnCountInPhase}, selectedProfile={state.SelectedNarrativeGateProfileId}");
         var commitBlocked = await selectionService.TryCommitScenarioAsync(state, evaluations);
         _output.WriteLine($"OUTPUT : committed={commitBlocked.Committed}, reason={commitBlocked.Reason}");
         Assert.False(commitBlocked.Committed);
-        Assert.Contains("InteractionsSinceCommitment >= 12", commitBlocked.Reason, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("TurnsSinceCommitment >= 12", commitBlocked.Reason, StringComparison.OrdinalIgnoreCase);
 
         _output.WriteLine("STEP 2: BuildUp commit gate should pass at interactions=12");
-        state.InteractionCountInPhase = 12;
-        _output.WriteLine($"INPUT  : phase={state.CurrentPhase}, fit={evaluations[0].FitScore:0.##}, interactions={state.InteractionCountInPhase}");
+        state.TurnCountInPhase = 12;
+        _output.WriteLine($"INPUT  : phase={state.CurrentPhase}, fit={evaluations[0].FitScore:0.##}, interactions={state.TurnCountInPhase}");
         var commitPassed = await selectionService.TryCommitScenarioAsync(state, evaluations);
         _output.WriteLine($"OUTPUT : committed={commitPassed.Committed}, scenario={commitPassed.ScenarioId}, reason={commitPassed.Reason}");
         Assert.True(commitPassed.Committed);
@@ -66,13 +66,13 @@ public sealed class RolePlaySessionStepValidationTests
         // Mirror engine post-commit state mutation for the lifecycle stage checks.
         state.ActiveScenarioId = commitPassed.ScenarioId;
         state.CurrentPhase = NarrativePhase.Committed;
-        state.InteractionCountInPhase = 0;
+        state.TurnCountInPhase = 0;
 
         _output.WriteLine("STEP 3: Committed -> Approaching should stay blocked at interactions=1");
         var committedBlocked = await lifecycleService.EvaluateTransitionAsync(state, new LifecycleInputs
         {
             NarrativeGateProfileId = profile.Id,
-            InteractionsSinceCommitment = 1,
+            TurnsSinceCommitment = 1,
             ActiveScenarioFitScore = evaluations[0].UnpenalizedFitScore,
             ActiveScenarioConfidence = evaluations[0].Confidence
         });
@@ -85,7 +85,7 @@ public sealed class RolePlaySessionStepValidationTests
         var committedPassed = await lifecycleService.EvaluateTransitionAsync(state, new LifecycleInputs
         {
             NarrativeGateProfileId = profile.Id,
-            InteractionsSinceCommitment = 2,
+            TurnsSinceCommitment = 2,
             ActiveScenarioFitScore = evaluations[0].UnpenalizedFitScore,
             ActiveScenarioConfidence = evaluations[0].Confidence
         });
@@ -99,7 +99,7 @@ public sealed class RolePlaySessionStepValidationTests
         var approachingBlocked = await lifecycleService.EvaluateTransitionAsync(state, new LifecycleInputs
         {
             NarrativeGateProfileId = profile.Id,
-            InteractionsSinceCommitment = 1,
+            TurnsSinceCommitment = 1,
             ActiveScenarioFitScore = 85m,
             ActiveScenarioConfidence = 0.9m
         });
@@ -112,7 +112,7 @@ public sealed class RolePlaySessionStepValidationTests
         var approachingPassed = await lifecycleService.EvaluateTransitionAsync(state, new LifecycleInputs
         {
             NarrativeGateProfileId = profile.Id,
-            InteractionsSinceCommitment = 2,
+            TurnsSinceCommitment = 2,
             ActiveScenarioFitScore = 85m,
             ActiveScenarioConfidence = 0.9m
         });
@@ -126,7 +126,7 @@ public sealed class RolePlaySessionStepValidationTests
         var climaxBlocked = await lifecycleService.EvaluateTransitionAsync(state, new LifecycleInputs
         {
             NarrativeGateProfileId = profile.Id,
-            InteractionsSinceCommitment = 99,
+            TurnsSinceCommitment = 99,
             ActiveScenarioFitScore = 90m,
             ActiveScenarioConfidence = 0.95m,
             ClimaxCompletionRequested = false
@@ -152,7 +152,7 @@ public sealed class RolePlaySessionStepValidationTests
         var resetBlocked = await lifecycleService.EvaluateTransitionAsync(state, new LifecycleInputs
         {
             NarrativeGateProfileId = profile.Id,
-            InteractionsSinceCommitment = 2
+            TurnsSinceCommitment = 2
         });
         _output.WriteLine("INPUT  : phase=Reset, interactions=2");
         _output.WriteLine($"OUTPUT : transitioned={resetBlocked.Transitioned}, target={resetBlocked.TargetPhase}, reason={resetBlocked.Reason}");
@@ -163,7 +163,7 @@ public sealed class RolePlaySessionStepValidationTests
         var resetPassed = await lifecycleService.EvaluateTransitionAsync(state, new LifecycleInputs
         {
             NarrativeGateProfileId = profile.Id,
-            InteractionsSinceCommitment = 3
+            TurnsSinceCommitment = 3
         });
         _output.WriteLine("INPUT  : phase=Reset, interactions=3");
         _output.WriteLine($"OUTPUT : transitioned={resetPassed.Transitioned}, target={resetPassed.TargetPhase}, reason={resetPassed.Reason}");
@@ -194,7 +194,7 @@ public sealed class RolePlaySessionStepValidationTests
                     SortOrder = 2,
                     FromPhase = "BuildUp",
                     ToPhase = "Committed",
-                    MetricKey = NarrativeGateMetricKeys.InteractionsSinceCommitment,
+                    MetricKey = NarrativeGateMetricKeys.TurnsSinceCommitment,
                     Comparator = NarrativeGateComparators.GreaterThanOrEqual,
                     Threshold = 12m
                 },
@@ -212,7 +212,7 @@ public sealed class RolePlaySessionStepValidationTests
                     SortOrder = 4,
                     FromPhase = "Committed",
                     ToPhase = "Approaching",
-                    MetricKey = NarrativeGateMetricKeys.InteractionsSinceCommitment,
+                    MetricKey = NarrativeGateMetricKeys.TurnsSinceCommitment,
                     Comparator = NarrativeGateComparators.GreaterThanOrEqual,
                     Threshold = 2m
                 },
@@ -230,7 +230,7 @@ public sealed class RolePlaySessionStepValidationTests
                     SortOrder = 6,
                     FromPhase = "Approaching",
                     ToPhase = "Climax",
-                    MetricKey = NarrativeGateMetricKeys.InteractionsSinceCommitment,
+                    MetricKey = NarrativeGateMetricKeys.TurnsSinceCommitment,
                     Comparator = NarrativeGateComparators.GreaterThanOrEqual,
                     Threshold = 2m
                 },
@@ -239,7 +239,7 @@ public sealed class RolePlaySessionStepValidationTests
                     SortOrder = 7,
                     FromPhase = "Reset",
                     ToPhase = "BuildUp",
-                    MetricKey = NarrativeGateMetricKeys.InteractionsSinceCommitment,
+                    MetricKey = NarrativeGateMetricKeys.TurnsSinceCommitment,
                     Comparator = NarrativeGateComparators.GreaterThanOrEqual,
                     Threshold = 3m
                 }

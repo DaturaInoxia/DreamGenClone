@@ -36,7 +36,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             && session.AdaptiveState.ObservedTurnCount > OpeningPeriodTurnCount)
         {
             session.AdaptiveState.CurrentPhase = NarrativePhase.BuildUp;
-            session.AdaptiveState.InteractionCountInPhase = 0;
+            session.AdaptiveState.TurnCountInPhase = 0;
             _logger.LogInformation(
                 "RolePlayV2 Opening→BuildUp transition: SessionId={SessionId} ObservedTurnCount={ObservedTurns}",
                 session.Id,
@@ -168,7 +168,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     private readonly decimal _completedScenarioRepeatPenaltyFloor;
     private readonly decimal _completedScenarioRecentPenaltyMultiplier;
     private readonly decimal _completedScenarioThemeScorePenalty;
-    private readonly int _completedScenarioThemeCooldownInteractions;
+    private readonly int _completedScenarioThemeCooldownTurns;
     private readonly decimal _completedScenarioFitScorePenaltyPoints;
     private readonly bool _suppressNarrativeAfterDecision;
     private readonly bool _suppressNarrativeAfterPhaseChange;
@@ -304,7 +304,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         _completedScenarioRepeatPenaltyFloor = (decimal)Math.Clamp(storyAnalysisOptions?.Value.CompletedScenarioRepeatPenaltyFloor ?? 0.40, 0d, 1d);
         _completedScenarioRecentPenaltyMultiplier = (decimal)Math.Clamp(storyAnalysisOptions?.Value.CompletedScenarioRecentPenaltyMultiplier ?? 0.65, 0d, 1d);
         _completedScenarioThemeScorePenalty = Math.Clamp(storyAnalysisOptions?.Value.CompletedScenarioThemeScorePenalty ?? 10, 0, 100);
-        _completedScenarioThemeCooldownInteractions = Math.Clamp(storyAnalysisOptions?.Value.CompletedScenarioThemeCooldownInteractions ?? 10, 0, 200);
+        _completedScenarioThemeCooldownTurns = Math.Clamp(storyAnalysisOptions?.Value.CompletedScenarioThemeCooldownTurns ?? 10, 0, 200);
         _completedScenarioFitScorePenaltyPoints = Math.Clamp(storyAnalysisOptions?.Value.CompletedScenarioFitScorePenaltyPoints ?? 20m, 0m, 100m);
         _suppressNarrativeAfterDecision = rolePlayDecisionOptions?.Value.SuppressNarrativeAfterDecision ?? false;
         _suppressNarrativeAfterPhaseChange = rolePlayDecisionOptions?.Value.SuppressNarrativeAfterPhaseChange ?? false;
@@ -1508,7 +1508,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             var isClimaxPhase = string.Equals(session.AdaptiveState.CurrentPhase.ToString(), "Climax", StringComparison.OrdinalIgnoreCase);
             if (isClimaxPhase && session.AdaptiveState.CurrentTimeSkipPhase != TimeSkipPhase.None)
             {
-                session.AdaptiveState.InteractionsInCurrentEncounter = 0;
+                session.AdaptiveState.TurnsInCurrentEncounter = 0;
                 // Phase intentionally preserved — the injection block below branches on it.
             }
 
@@ -1545,7 +1545,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                             "B057Trace Overflow_Enter: Phase={Phase} Enc={Enc} Global={Global} TimeSkip={TimeSkip} IxnInEnc={IxnInEnc}",
                             session.AdaptiveState.CurrentPhase, session.AdaptiveState.CurrentEncounterNumber,
                             session.AdaptiveState.GlobalEncounterCount, currentSkipPhase,
-                            session.AdaptiveState.InteractionsInCurrentEncounter);
+                            session.AdaptiveState.TurnsInCurrentEncounter);
 
                         string directive;
                         if (currentSkipPhase == TimeSkipPhase.CloseScene)
@@ -1562,7 +1562,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                                 "B057Trace Overflow_CloseScene_To_{Next}: Phase={Phase} Enc={Enc} Global={Global} TimeSkip={TimeSkip} IxnInEnc={IxnInEnc}",
                                 session.AdaptiveState.CurrentTimeSkipPhase, session.AdaptiveState.CurrentPhase,
                                 session.AdaptiveState.CurrentEncounterNumber, session.AdaptiveState.GlobalEncounterCount,
-                                session.AdaptiveState.CurrentTimeSkipPhase, session.AdaptiveState.InteractionsInCurrentEncounter);
+                                session.AdaptiveState.CurrentTimeSkipPhase, session.AdaptiveState.TurnsInCurrentEncounter);
                         }
                         else if (currentSkipPhase == TimeSkipPhase.AftermathCoupleInteraction)
                         {
@@ -1579,7 +1579,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                                 "B057Trace Overflow_Aftermath_To_{Next}: Phase={Phase} Enc={Enc} Global={Global} TimeSkip={TimeSkip} IxnInEnc={IxnInEnc}",
                                 session.AdaptiveState.CurrentTimeSkipPhase, session.AdaptiveState.CurrentPhase,
                                 session.AdaptiveState.CurrentEncounterNumber, session.AdaptiveState.GlobalEncounterCount,
-                                session.AdaptiveState.CurrentTimeSkipPhase, session.AdaptiveState.InteractionsInCurrentEncounter);
+                                session.AdaptiveState.CurrentTimeSkipPhase, session.AdaptiveState.TurnsInCurrentEncounter);
                         }
                         else // AdvanceTime
                         {
@@ -1598,7 +1598,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                                 "B057Trace Overflow_AdvanceTime_To_None: Phase={Phase} Enc={Enc} Global={Global} TimeSkip={TimeSkip} IxnInEnc={IxnInEnc}",
                                 session.AdaptiveState.CurrentPhase, session.AdaptiveState.CurrentEncounterNumber,
                                 session.AdaptiveState.GlobalEncounterCount, session.AdaptiveState.CurrentTimeSkipPhase,
-                                session.AdaptiveState.InteractionsInCurrentEncounter);
+                                session.AdaptiveState.TurnsInCurrentEncounter);
                         }
 
                         var timeSkipInstruction = new RolePlayInteraction
@@ -1664,7 +1664,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                         // FR-011: only treat as new-encounter-start when no time-skip phase is active.
                         var isNewEncounterStart = session.AdaptiveState.CurrentTimeSkipPhase == TimeSkipPhase.None
                             && session.AdaptiveState.CurrentEncounterNumber > 0
-                            && session.AdaptiveState.InteractionsInCurrentEncounter == 0;
+                            && session.AdaptiveState.TurnsInCurrentEncounter == 0;
                         promptText = isNewEncounterStart
                             ? "Begin a new encounter — a discrete event in a new context, escalated from the previous encounter. Establish the new time, place, and circumstance before the exposure begins."
                             : session.AdaptiveState.IsEncounterActive
@@ -2586,11 +2586,11 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
         // Per-interaction counter increment (universal, not Climax-only).
         // Gated on IsEncounterActive — during aftermath the encounter is no longer active,
-        // so the counter does NOT increment, keeping InteractionsInCurrentEncounter at 0 for
+        // so the counter does NOT increment, keeping TurnsInCurrentEncounter at 0 for
         // the next encounter start detection when it fires.
         if (session.AdaptiveState.IsEncounterActive)
         {
-            session.AdaptiveState.InteractionsInCurrentEncounter++;
+            session.AdaptiveState.TurnsInCurrentEncounter++;
         }
 
         // Stamp per-interaction encounter metadata (B-057).
@@ -2599,7 +2599,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             ? session.AdaptiveState.CurrentEncounterNumber
             : null;
         interaction.InteractionIndexInEncounter = session.AdaptiveState.IsEncounterActive
-            ? session.AdaptiveState.InteractionsInCurrentEncounter // 1-based, already incremented above
+            ? session.AdaptiveState.TurnsInCurrentEncounter // 1-based, already incremented above
             : null;
         interaction.ExplicitnessLevelAtCreation = session.LastResolvedIntensityLabel;
 
@@ -3077,14 +3077,14 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             "B057Trace Pipeline_LoadedFromDB: Phase={Phase} Enc={Enc} Global={Global} TimeSkip={TimeSkip} IxnInEnc={IxnInEnc} Loaded={Loaded}",
             previousV2State?.CurrentPhase.ToString() ?? "(null)", previousV2State?.CurrentEncounterNumber ?? -1,
             previousV2State?.GlobalEncounterCount ?? -1, previousV2State?.CurrentTimeSkipPhase ?? (object)"(null)",
-            previousV2State?.InteractionsInCurrentEncounter ?? -1, previousV2State is not null);
+            previousV2State?.TurnsInCurrentEncounter ?? -1, previousV2State is not null);
 
         var v2State = HydrateV2State(session, previousV2State);
 
         _logger.LogInformation(
             "B057Trace Pipeline_AfterHydrate: Phase={Phase} Enc={Enc} Global={Global} TimeSkip={TimeSkip} IxnInEnc={IxnInEnc}",
             v2State.CurrentPhase, v2State.CurrentEncounterNumber, v2State.GlobalEncounterCount,
-            v2State.CurrentTimeSkipPhase, v2State.InteractionsInCurrentEncounter);
+            v2State.CurrentTimeSkipPhase, v2State.TurnsInCurrentEncounter);
 
         // Opening → BuildUp: the opening period runs for the first 3 turns with husband-wife
         // guidance. After ObservedTurnCount exceeds OpeningPeriodTurnCount, advance to BuildUp
@@ -3094,7 +3094,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             && session.AdaptiveState.ObservedTurnCount > OpeningPeriodTurnCount)
         {
             v2State.CurrentPhase = NarrativePhase.BuildUp;
-            v2State.InteractionCountInPhase = 0;
+            v2State.TurnCountInPhase = 0;
             _logger.LogInformation(
                 "RolePlayV2 Opening→BuildUp transition: SessionId={SessionId} ObservedTurnCount={ObservedTurns}",
                 session.Id,
@@ -3108,53 +3108,18 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         NormalizePhaseOverrideLock(v2State);
         var climaxCompletionRequested = explicitClimaxCompletionRequested || IsClimaxCompletionRequested(session);
 
-        // Count actual NPC/narrative interactions generated since the last pipeline evaluation,
-        // so batch ContinueAs calls (which may generate 2-3 interactions per button click) advance
-        // the counter correctly instead of always adding +1 regardless of batch size.
-        var totalGeneratedInteractions = session.Interactions.Count(x =>
-            x.InteractionType is InteractionType.Npc or InteractionType.Custom or InteractionType.System);
+        // B-044: Turns is a first-class stored unit. Increment by exactly 1 per turn
+        // (one adaptive pipeline evaluation per turn call), independent of how many
+        // interactions were generated in batch.
+        var previousPhaseTurnCount = Math.Max(0, v2State.TurnCountInPhase);
+        v2State.TurnCountInPhase = previousPhaseTurnCount + 1;
+        var generatedSinceLastEval = 1; // one turn per evaluation
 
-        var previousPhaseInteractionCount = Math.Max(0, v2State.InteractionCountInPhase);
-        var generatedSinceLastEval = previousV2State?.LastEvaluationUtc is { } lastEval
-            ? session.Interactions.Count(x =>
-                x.CreatedAt > lastEval
-                && x.InteractionType is InteractionType.Npc or InteractionType.Custom or InteractionType.System)
-            : Math.Max(0, totalGeneratedInteractions - previousPhaseInteractionCount);
-
-        var proposedPhaseInteractionCount = previousPhaseInteractionCount + Math.Max(0, generatedSinceLastEval);
-        var invariantPhaseInteractionCount = Math.Min(proposedPhaseInteractionCount, totalGeneratedInteractions);
-        v2State.InteractionCountInPhase = invariantPhaseInteractionCount;
-
-        if (invariantPhaseInteractionCount != proposedPhaseInteractionCount)
-        {
-            _logger.LogWarning(
-                "RolePlayV2 phase interaction count invariant clamp applied: SessionId={SessionId} PreviousCount={PreviousCount} Delta={Delta} ProposedCount={ProposedCount} ClampedCount={ClampedCount} TotalGeneratedInteractions={TotalGeneratedInteractions} LastEvaluationUtc={LastEvaluationUtc}",
-                session.Id,
-                previousPhaseInteractionCount,
-                generatedSinceLastEval,
-                proposedPhaseInteractionCount,
-                invariantPhaseInteractionCount,
-                totalGeneratedInteractions,
-                previousV2State?.LastEvaluationUtc);
-
-            await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
-            {
-                SessionId = session.Id,
-                EventKind = "PhaseInteractionCountMismatchDetected",
-                Severity = "Warning",
-                Summary = "Phase interaction count clamped by invariant to prevent overcount drift.",
-                MetadataJson = JsonSerializer.Serialize(new
-                {
-                    phase = v2State.CurrentPhase.ToString(),
-                    previousCount = previousPhaseInteractionCount,
-                    delta = generatedSinceLastEval,
-                    proposedCount = proposedPhaseInteractionCount,
-                    clampedCount = invariantPhaseInteractionCount,
-                    totalGeneratedInteractions,
-                    lastEvaluationUtc = previousV2State?.LastEvaluationUtc
-                })
-            }, cancellationToken);
-        }
+        _logger.LogDebug(
+            "RolePlayV2 phase turn count incremented: SessionId={SessionId} PreviousTurnCount={PreviousTurnCount} CurrentTurnCount={CurrentTurnCount}",
+            session.Id,
+            previousPhaseTurnCount,
+            v2State.TurnCountInPhase);
 
         if (!string.IsNullOrWhiteSpace(v2State.ActiveScenarioId))
         {
@@ -3364,7 +3329,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 gateSnapshot.Configured,
                 commitResult.Committed,
                 commitResult.ScenarioId,
-                v2State.InteractionCountInPhase,
+                v2State.TurnCountInPhase,
                 evaluations.Count,
                 commitResult.Reason);
 
@@ -3381,7 +3346,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 MetadataJson = JsonSerializer.Serialize(new
                 {
                     phase = v2State.CurrentPhase.ToString(),
-                    interactionCount = v2State.InteractionCountInPhase,
+                    interactionCount = v2State.TurnCountInPhase,
                     candidateCount = evaluations.Count,
                     selectedScenarioId = commitResult.ScenarioId,
                     committed = commitResult.Committed,
@@ -3411,8 +3376,8 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             var suppressActiveScenarioSwitch = hasActiveScenario && !sameScenarioAlreadyActive;
             // First-scenario-selection guard: when we are in BuildUp and the arc has never had an
             // ActiveScenarioId yet, the BuildUp commit gate was evaluated against an
-            // InteractionCountInPhase that accumulated during the Observing window (no scenario
-            // assigned). That makes any configured InteractionsSinceCommitment threshold trivially
+            // TurnCountInPhase that accumulated during the Observing window (no scenario
+            // assigned). That makes any configured TurnsSinceCommitment threshold trivially
             // pass on the very first turn a candidate becomes eligible, which collapses the BuildUp
             // phase to zero turns. Treat this evaluation as a scenario SELECTION (assign and reset
             // the per-phase counter) and keep the session in BuildUp; the next turn will re-evaluate
@@ -3435,7 +3400,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 // Observation window guard: do not select a scenario while the theme tracker is
                 // still in its configured observation window (ObservedTurnCount <= SelectionMinimumTurns).
                 // The backfill path below handles first-scenario assignment once the observation
-                // window expires. Without this guard, a low InteractionsSinceCommitment threshold on
+                // window expires. Without this guard, a low TurnsSinceCommitment threshold on
                 // the configured gate profile would allow the commit gate to fire before the minimum
                 // observation turns have elapsed � bypassing the SelectionMinimumTurns setting.
                 var fsInObservationWindow = session.AdaptiveState.SelectionMinimumTurns > 0
@@ -3453,7 +3418,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 else
                 {
                     v2State.ActiveScenarioId = commitResult.ScenarioId;
-                    // Do NOT reset InteractionCountInPhase here. The interactions that accumulated
+                    // Do NOT reset TurnCountInPhase here. The interactions that accumulated
                     // before the scenario was selected were scored against this scenario's candidacy;
                     // resetting to 0 forces the gate to re-count from scratch, causing the session
                     // to remain in BuildUp for another full threshold window despite the gate having
@@ -3462,10 +3427,10 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                     // Phase remains BuildUp. Do not set commitApplied=true: the configured BuildUp
                     // narrative gate must still be evaluated against post-selection turn counts.
                     _logger.LogInformation(
-                        "RolePlayV2 first scenario selected during BuildUp; phase commit deferred until configured BuildUp narrative gate is met against post-selection turns. SessionId={SessionId} ScenarioId={ScenarioId} CurrentInteractionCountInPhase={CurrentInteractionCountInPhase}",
+                        "RolePlayV2 first scenario selected during BuildUp; phase commit deferred until configured BuildUp narrative gate is met against post-selection turns. SessionId={SessionId} ScenarioId={ScenarioId} CurrentTurnCountInPhase={CurrentTurnCountInPhase}",
                         session.Id,
                         commitResult.ScenarioId,
-                        v2State.InteractionCountInPhase);
+                        v2State.TurnCountInPhase);
                     await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
                     {
                         SessionId = session.Id,
@@ -3475,7 +3440,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                         MetadataJson = JsonSerializer.Serialize(new
                         {
                             scenarioId = commitResult.ScenarioId,
-                            currentInteractionCountInPhase = v2State.InteractionCountInPhase,
+                            currentTurnCountInPhase = v2State.TurnCountInPhase,
                             reason = commitResult.Reason
                         })
                     }, cancellationToken);
@@ -3509,7 +3474,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                     v2State.CurrentPhase = DreamGenClone.Domain.RolePlay.NarrativePhase.Committed;
 
                     // Reset phase interaction cadence only when a new arc is entered.
-                    v2State.InteractionCountInPhase = 0;
+                    v2State.TurnCountInPhase = 0;
 
                     // Write the BuildUp?Committed transition event and encounter summary records.
                     // This transition happens via the commit gate (not the lifecycle service), so we
@@ -3608,7 +3573,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                     // actually selected. Without this, turns accumulated while Observing (when no
                     // scenario was committed yet) count toward BuildUp's lifecycle gate and the
                     // phase is immediately promoted past as soon as the backfill happens.
-                    v2State.InteractionCountInPhase = 0;
+                    v2State.TurnCountInPhase = 0;
                     _logger.LogInformation(
                         "RolePlayV2 BuildUp active scenario backfilled: SessionId={SessionId} ScenarioId={ScenarioId} Reason={Reason}",
                         session.Id,
@@ -3654,7 +3619,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             v2State,
             new LifecycleInputs
             {
-                InteractionsSinceCommitment = v2State.InteractionCountInPhase,
+                TurnsSinceCommitment = v2State.TurnCountInPhase,
                 ClimaxCompletionRequested = climaxCompletionRequested,
                 ManualAdvanceTargetPhase = manualPhaseAdvanceTarget,
                 NarrativeGateProfileId = linkedNarrativeGateProfileId,
@@ -3670,7 +3635,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         {
             var transitionSourcePhase = v2State.CurrentPhase;
             v2State.CurrentPhase = lifecycle.TargetPhase;
-            v2State.InteractionCountInPhase = 0;
+            v2State.TurnCountInPhase = 0;
 
             if (_suppressNarrativeAfterPhaseChange)
             {
@@ -4292,8 +4257,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                     addedTurns = 0,
                     afterTurns = v2State.TurnsInCurrentBeat,
                     previousLastEvaluationUtc = previousV2State?.LastEvaluationUtc,
-                    totalGeneratedInteractions,
-                    previousPhaseInteractionCount,
+                    currentTurnCountInPhase = v2State.TurnCountInPhase,
                     enableAdaptiveStateUpdates = _enableAdaptiveStateUpdates
                 })
             }, cancellationToken);
@@ -4312,7 +4276,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             // B-057: Use global counter for numbering — encounters numbered globally:
             // encounter 1 (BuildUp), encounter 2 (Climax), etc.
             v2State.CurrentEncounterNumber = v2State.GlobalEncounterCount + 1;
-            v2State.InteractionsInCurrentEncounter = 0;
+            v2State.TurnsInCurrentEncounter = 0;
             v2State.IsEncounterActive = true; // Encounter begins with Climax entry
             var climacticEncounterNumber = v2State.CurrentEncounterNumber;
             _logger.LogInformation("MultiEncounterClimax initialized: SessionId={SessionId} ThemeId={ThemeId} EncounterNumber={EncounterNumber}", session.Id, v2State.ActiveScenarioId, climacticEncounterNumber);
@@ -4324,13 +4288,13 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             && generatedSinceLastEval > 0
             && v2State.CurrentTimeSkipPhase == TimeSkipPhase.None)
         {
-            v2State.InteractionsInCurrentEncounter += generatedSinceLastEval;
+            v2State.TurnsInCurrentEncounter += generatedSinceLastEval;
         }
         else if (finalPhase != DreamGenClone.Domain.RolePlay.NarrativePhase.Climax && v2State.CurrentEncounterNumber != 0)
         {
             v2State.CurrentEncounterNumber = 0;
             v2State.IsEncounterActive = false;
-            v2State.InteractionsInCurrentEncounter = 0;
+            v2State.TurnsInCurrentEncounter = 0;
             _logger.LogInformation("MultiEncounterClimax cleared: SessionId={SessionId} (left Climax phase)", session.Id);
         }
 // Refresh evaluation watermark so generatedSinceLastEval only counts interactions
@@ -4340,7 +4304,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         _logger.LogInformation(
             "B057Trace Pipeline_PreFinalPersist: Phase={Phase} Enc={Enc} Global={Global} TimeSkip={TimeSkip} IxnInEnc={IxnInEnc}",
             v2State.CurrentPhase, v2State.CurrentEncounterNumber, v2State.GlobalEncounterCount,
-            v2State.CurrentTimeSkipPhase, v2State.InteractionsInCurrentEncounter);
+            v2State.CurrentTimeSkipPhase, v2State.TurnsInCurrentEncounter);
 
         await _stateRepository.SaveAdaptiveStateAsync(v2State, cancellationToken);
         SyncSessionAdaptiveStateFromV2(session, v2State);
@@ -4349,7 +4313,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             "B057Trace Pipeline_WriteBackToSession: Phase={Phase} Enc={Enc} Global={Global} TimeSkip={TimeSkip} IxnInEnc={IxnInEnc}",
             session.AdaptiveState.CurrentPhase, session.AdaptiveState.CurrentEncounterNumber,
             session.AdaptiveState.GlobalEncounterCount, session.AdaptiveState.CurrentTimeSkipPhase,
-            session.AdaptiveState.InteractionsInCurrentEncounter);
+            session.AdaptiveState.TurnsInCurrentEncounter);
     }
 
     private static DreamGenClone.Domain.RolePlay.AdaptiveScenarioState HydrateV2State(
@@ -4369,7 +4333,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             mapped.ActiveScenarioId = session.AdaptiveState.ActiveScenarioId;
             mapped.ActiveVariantId = session.AdaptiveState.ActiveVariantId;
             mapped.CurrentPhase = session.AdaptiveState.CurrentPhase;
-            mapped.InteractionCountInPhase = Math.Max(0, session.AdaptiveState.InteractionsSinceCommitment);
+            mapped.TurnCountInPhase = Math.Max(0, session.AdaptiveState.TurnsSinceCommitment);
         }
         else
         {
@@ -4377,7 +4341,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             // "Observing" after the background job has advanced the tracker to
             // "ActiveScenarioLock". Using the stale PayloadJson value makes isObservingWindow=true,
             // which nulls ActiveScenarioId and triggers false scenario re-selection on every
-            // pipeline run, resetting InteractionCountInPhase to 0 each time.
+            // pipeline run, resetting TurnCountInPhase to 0 each time.
             //
             // Still respect the original guard: while the session is genuinely in its
             // observation window, do not restore ActiveScenarioId from the V2 snapshot.
@@ -4395,7 +4359,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 : previousState.ActiveScenarioId ?? mapped.ActiveScenarioId;
             mapped.ActiveVariantId = previousState.ActiveVariantId ?? mapped.ActiveVariantId;
             mapped.CurrentPhase = previousState.CurrentPhase;
-            mapped.InteractionCountInPhase = Math.Max(0, previousState.InteractionCountInPhase);
+            mapped.TurnCountInPhase = Math.Max(0, previousState.TurnCountInPhase);
         }
 
         mapped.ConsecutiveLeadCount = Math.Max(0, previousState.ConsecutiveLeadCount);
@@ -4477,9 +4441,9 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         // Only restore from V2 when the in-memory value hasn't advanced past it.
         if (mapped.CurrentEncounterNumber <= previousState.CurrentEncounterNumber)
             mapped.CurrentEncounterNumber = previousState.CurrentEncounterNumber;
-        // Same guard for InteractionsInCurrentEncounter (incremented per-interaction in for-loop).
-        if (mapped.InteractionsInCurrentEncounter <= previousState.InteractionsInCurrentEncounter)
-            mapped.InteractionsInCurrentEncounter = previousState.InteractionsInCurrentEncounter;
+        // Same guard for TurnsInCurrentEncounter (incremented per-interaction in for-loop).
+        if (mapped.TurnsInCurrentEncounter <= previousState.TurnsInCurrentEncounter)
+            mapped.TurnsInCurrentEncounter = previousState.TurnsInCurrentEncounter;
         // B-058 Phase 5.3: LastEncounterEvidenceSpan removed; the HusbandAftermathInjector now
         // reads from EncounterCompletion summaries (already restored via LoadEncounterSummariesAsync).
         mapped.GlobalEncounterCount = previousState.GlobalEncounterCount;
@@ -4546,7 +4510,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             return false;
         }
 
-        var interactionCount = Math.Max(0, session.AdaptiveState.InteractionsSinceCommitment);
+        var interactionCount = Math.Max(0, session.AdaptiveState.TurnsSinceCommitment);
         return interactionCount < ManualOverrideSelectionLockInteractions;
     }
 
@@ -4583,7 +4547,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         session.AdaptiveState.PhaseOverrideAppliedUtc = snapshot.PhaseOverrideAppliedUtc;
 
         // Multi-encounter Climax: CurrentTimeSkipPhase, CurrentEncounterNumber, and
-        // InteractionsInCurrentEncounter are intentionally NOT synced from the V2 snapshot.
+        // TurnsInCurrentEncounter are intentionally NOT synced from the V2 snapshot.
         // These fields are owned by the in-memory pipeline during overflow/generation and
         // must not be overwritten by the DB snapshot (which may lag behind the pipeline's
         // real-time phase transitions like CloseScene → AdvanceTime → None).
@@ -4594,11 +4558,11 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         if (!session.AdaptiveState.IsEncounterActive && snapshot.IsEncounterActive)
             session.AdaptiveState.IsEncounterActive = true;
 
-        var interactionCount = Math.Max(0, snapshot.InteractionCountInPhase);
-        session.AdaptiveState.InteractionsSinceCommitment = snapshot.CurrentPhase == NarrativePhase.BuildUp
+        var interactionCount = Math.Max(0, snapshot.TurnCountInPhase);
+        session.AdaptiveState.TurnsSinceCommitment = snapshot.CurrentPhase == NarrativePhase.BuildUp
             ? 0
             : interactionCount;
-        session.AdaptiveState.InteractionsInApproaching = snapshot.CurrentPhase == NarrativePhase.Approaching
+        session.AdaptiveState.TurnsInApproaching = snapshot.CurrentPhase == NarrativePhase.Approaching
             ? interactionCount
             : 0;
         session.AdaptiveState.ThemeMachineSnapshot = snapshot.ThemeMachineSnapshot;
@@ -4965,10 +4929,10 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         if (isMulti)
         {
             const int minIxns = 4;
-            if (state.InteractionsInCurrentEncounter < minIxns)
+            if (state.TurnsInCurrentEncounter < minIxns)
             {
                 _logger.LogDebug("TryDetectEncounterBoundary: below minimum encounter length ({Current}/{Min}) SessionId={SessionId}",
-                    state.InteractionsInCurrentEncounter, minIxns, session.Id);
+                    state.TurnsInCurrentEncounter, minIxns, session.Id);
                 return;
             }
         }
@@ -4997,13 +4961,13 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         _logger.LogInformation(
             "B057Trace BoundaryAdvance_Enter: Phase={Phase} Enc={Enc} Global={Global} TimeSkip={TimeSkip} IxnInEnc={IxnInEnc}",
             state.CurrentPhase, state.CurrentEncounterNumber, state.GlobalEncounterCount,
-            state.CurrentTimeSkipPhase, state.InteractionsInCurrentEncounter);
+            state.CurrentTimeSkipPhase, state.TurnsInCurrentEncounter);
 
         var before = state.CurrentEncounterNumber;
         state.CurrentEncounterNumber++;  // Advance to next encounter number for the next encounter
         state.GlobalEncounterCount++;
         state.IsEncounterActive = false; // Encounter is no longer active — gates counter, stamps, and re-entry
-        state.InteractionsInCurrentEncounter = 0;
+        state.TurnsInCurrentEncounter = 0;
         state.CurrentTimeSkipPhase = TimeSkipPhase.CloseScene;
         state.CharacterEncounterStates.Clear();
 
@@ -5034,7 +4998,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         }
 
         // B-059 Part D: reset the start interaction index so the re-entry guard
-        // (InteractionsInCurrentEncounter == 0) and the first-sexual-content guard
+        // (TurnsInCurrentEncounter == 0) and the first-sexual-content guard
         // (CurrentEncounterStartInteractionIndex == 0) fire correctly for the next
         // encounter, regardless of whether AdvanceTime → None is reached.
         _logger.LogDebug(
@@ -5045,7 +5009,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         _logger.LogInformation(
             "B057Trace BoundaryAdvance_Persisted: Phase={Phase} Enc={Enc} Global={Global} TimeSkip={TimeSkip} IxnInEnc={IxnInEnc}",
             state.CurrentPhase, state.CurrentEncounterNumber, state.GlobalEncounterCount,
-            state.CurrentTimeSkipPhase, state.InteractionsInCurrentEncounter);
+            state.CurrentTimeSkipPhase, state.TurnsInCurrentEncounter);
 
         _logger.LogInformation("EncounterBoundaryAdvanced: SessionId={SessionId} {Before} -> {After} (conf={Conf})",
             session.Id, before, state.CurrentEncounterNumber, detected.Confidence);
@@ -6292,8 +6256,8 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             || trigger == DecisionTrigger.CharacterDirectQuestion
             || trigger == DecisionTrigger.SceneLocationChanged
             || (trigger == DecisionTrigger.InteractionStart
-                && state.InteractionCountInPhase > 0
-                && state.InteractionCountInPhase % 3 == 0)
+                && state.TurnCountInPhase > 0
+                && state.TurnCountInPhase % 3 == 0)
             || trigger == DecisionTrigger.ManualOverride;
     }
 
@@ -8027,7 +7991,7 @@ Requirements:
             ActiveScenarioId = session.AdaptiveState.ActiveScenarioId,
             ActiveVariantId = session.AdaptiveState.ActiveVariantId,
             CurrentPhase = session.AdaptiveState.CurrentPhase,
-            InteractionCountInPhase = session.AdaptiveState.InteractionsSinceCommitment,
+            TurnCountInPhase = session.AdaptiveState.TurnsSinceCommitment,
             ConsecutiveLeadCount = 0,
             LastEvaluationUtc = DateTime.UtcNow,
             CycleIndex = session.AdaptiveState.CompletedScenarios,
@@ -8089,7 +8053,7 @@ Requirements:
                         IsScenarioCandidate = kvp.Value.IsScenarioCandidate,
                         NarrativeFitScore = kvp.Value.NarrativeFitScore,
                         LastCandidateEvaluationTimeUtc = kvp.Value.LastCandidateEvaluationTimeUtc,
-                        CompletionCooldownInteractions = kvp.Value.CompletionCooldownInteractions,
+                        CompletionCooldownTurns = kvp.Value.CompletionCooldownTurns,
                         UpdatedUtc = session.AdaptiveState.ThemeTrackerUpdatedUtc
                     },
                     StringComparer.OrdinalIgnoreCase),
@@ -8769,7 +8733,7 @@ Requirements:
                 {
                     ["turnsInCurrentState"] = state.ThemeMachineSnapshot.TurnsInCurrentState,
                     ["returnBeatCompleted"] = state.ThemeMachineSnapshot.ReturnBeatCompleted,
-                    ["interactionCountInPhase"] = state.InteractionCountInPhase
+                    ["TurnCountInPhase"] = state.TurnCountInPhase
                 }
             },
             cancellationToken);

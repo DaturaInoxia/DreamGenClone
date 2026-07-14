@@ -155,7 +155,7 @@ public sealed class DecisionPointService : IDecisionPointService
     {
         var shouldCreate = trigger == DecisionTrigger.PhaseChanged
             || trigger == DecisionTrigger.SignificantStatChange
-            || (trigger == DecisionTrigger.InteractionStart && state.InteractionCountInPhase > 0 && state.InteractionCountInPhase % 3 == 0)
+            || (trigger == DecisionTrigger.InteractionStart && state.TurnCountInPhase > 0 && state.TurnCountInPhase % 3 == 0)
             || trigger == DecisionTrigger.ManualOverride
             || trigger == DecisionTrigger.CharacterDirectQuestion
             || trigger == DecisionTrigger.SceneLocationChanged;

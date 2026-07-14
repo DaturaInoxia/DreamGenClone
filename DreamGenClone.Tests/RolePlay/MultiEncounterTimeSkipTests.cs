@@ -308,12 +308,12 @@ public sealed class MultiEncounterTimeSkipTests
         var state = new AdaptiveScenarioState
         {
             CurrentEncounterNumber = 2,
-            InteractionsInCurrentEncounter = 0,
+            TurnsInCurrentEncounter = 0,
             CurrentTimeSkipPhase = TimeSkipPhase.AdvanceTime
         };
 
         var isNewEncounterStart = state.CurrentEncounterNumber > 0
-            && state.InteractionsInCurrentEncounter == 0
+            && state.TurnsInCurrentEncounter == 0
             && state.CurrentTimeSkipPhase == TimeSkipPhase.None;
 
         Assert.False(isNewEncounterStart);
@@ -325,12 +325,12 @@ public sealed class MultiEncounterTimeSkipTests
         var state = new AdaptiveScenarioState
         {
             CurrentEncounterNumber = 2,
-            InteractionsInCurrentEncounter = 0,
+            TurnsInCurrentEncounter = 0,
             CurrentTimeSkipPhase = TimeSkipPhase.None
         };
 
         var isNewEncounterStart = state.CurrentEncounterNumber > 0
-            && state.InteractionsInCurrentEncounter == 0
+            && state.TurnsInCurrentEncounter == 0
             && state.CurrentTimeSkipPhase == TimeSkipPhase.None;
 
         Assert.True(isNewEncounterStart);
@@ -343,7 +343,7 @@ public sealed class MultiEncounterTimeSkipTests
         var state = new AdaptiveScenarioState
         {
             CurrentTimeSkipPhase = TimeSkipPhase.CloseScene,
-            InteractionsInCurrentEncounter = 5
+            TurnsInCurrentEncounter = 5
         };
         var generatedSinceLastEval = 3;
 
@@ -351,10 +351,10 @@ public sealed class MultiEncounterTimeSkipTests
         var shouldIncrement = state.CurrentTimeSkipPhase == TimeSkipPhase.None;
         if (shouldIncrement)
         {
-            state.InteractionsInCurrentEncounter += generatedSinceLastEval;
+            state.TurnsInCurrentEncounter += generatedSinceLastEval;
         }
 
-        Assert.Equal(5, state.InteractionsInCurrentEncounter); // unchanged
+        Assert.Equal(5, state.TurnsInCurrentEncounter); // unchanged
     }
 
     [Fact]
@@ -363,17 +363,17 @@ public sealed class MultiEncounterTimeSkipTests
         var state = new AdaptiveScenarioState
         {
             CurrentTimeSkipPhase = TimeSkipPhase.None,
-            InteractionsInCurrentEncounter = 5
+            TurnsInCurrentEncounter = 5
         };
         var generatedSinceLastEval = 3;
 
         var shouldIncrement = state.CurrentTimeSkipPhase == TimeSkipPhase.None;
         if (shouldIncrement)
         {
-            state.InteractionsInCurrentEncounter += generatedSinceLastEval;
+            state.TurnsInCurrentEncounter += generatedSinceLastEval;
         }
 
-        Assert.Equal(8, state.InteractionsInCurrentEncounter);
+        Assert.Equal(8, state.TurnsInCurrentEncounter);
     }
 
     [Fact]
@@ -412,7 +412,7 @@ public sealed class MultiEncounterTimeSkipTests
             SessionId = "test-session",
             CurrentTimeSkipPhase = TimeSkipPhase.CloseScene,
             CurrentEncounterNumber = 3,
-            InteractionsInCurrentEncounter = 2
+            TurnsInCurrentEncounter = 2
         };
 
         var previousState = new AdaptiveScenarioState
@@ -420,17 +420,17 @@ public sealed class MultiEncounterTimeSkipTests
             SessionId = "test-session",
             CurrentTimeSkipPhase = TimeSkipPhase.CloseScene,
             CurrentEncounterNumber = 3,
-            InteractionsInCurrentEncounter = 2
+            TurnsInCurrentEncounter = 2
         };
 
         // Unconditional restore: always mirror previousState (which is the latest persisted DB state)
         currentState.CurrentTimeSkipPhase = previousState.CurrentTimeSkipPhase;
         currentState.CurrentEncounterNumber = previousState.CurrentEncounterNumber;
-        currentState.InteractionsInCurrentEncounter = previousState.InteractionsInCurrentEncounter;
+        currentState.TurnsInCurrentEncounter = previousState.TurnsInCurrentEncounter;
 
         Assert.Equal(TimeSkipPhase.CloseScene, currentState.CurrentTimeSkipPhase);
         Assert.Equal(3, currentState.CurrentEncounterNumber);
-        Assert.Equal(2, currentState.InteractionsInCurrentEncounter);
+        Assert.Equal(2, currentState.TurnsInCurrentEncounter);
     }
 
     [Fact]
@@ -443,7 +443,7 @@ public sealed class MultiEncounterTimeSkipTests
             SessionId = "test-session"
             // CurrentTimeSkipPhase defaults to None (0)
             // CurrentEncounterNumber defaults to 0
-            // InteractionsInCurrentEncounter defaults to 0
+            // TurnsInCurrentEncounter defaults to 0
         };
 
         var previousState = new AdaptiveScenarioState
@@ -451,17 +451,17 @@ public sealed class MultiEncounterTimeSkipTests
             SessionId = "test-session",
             CurrentTimeSkipPhase = TimeSkipPhase.CloseScene,
             CurrentEncounterNumber = 2,
-            InteractionsInCurrentEncounter = 5
+            TurnsInCurrentEncounter = 5
         };
 
         // Unconditional restore from DB snapshot
         currentState.CurrentTimeSkipPhase = previousState.CurrentTimeSkipPhase;
         currentState.CurrentEncounterNumber = previousState.CurrentEncounterNumber;
-        currentState.InteractionsInCurrentEncounter = previousState.InteractionsInCurrentEncounter;
+        currentState.TurnsInCurrentEncounter = previousState.TurnsInCurrentEncounter;
 
         Assert.Equal(TimeSkipPhase.CloseScene, currentState.CurrentTimeSkipPhase);
         Assert.Equal(2, currentState.CurrentEncounterNumber);
-        Assert.Equal(5, currentState.InteractionsInCurrentEncounter);
+        Assert.Equal(5, currentState.TurnsInCurrentEncounter);
     }
 
     // ---- Phase 1: Sync persist in TryDetectEncounterBoundaryAsync (tests 3-5) ----
@@ -475,18 +475,18 @@ public sealed class MultiEncounterTimeSkipTests
         {
             SessionId = "test-session",
             CurrentEncounterNumber = 1,
-            InteractionsInCurrentEncounter = 6,
+            TurnsInCurrentEncounter = 6,
             CurrentTimeSkipPhase = TimeSkipPhase.None
         };
 
         // Simulate the detection mutation block (Phase 1)
         state.CurrentEncounterNumber++;
-        state.InteractionsInCurrentEncounter = 0;
+        state.TurnsInCurrentEncounter = 0;
         state.CurrentTimeSkipPhase = TimeSkipPhase.CloseScene;
 
         // Verify mutated state (what would be persisted synchronously)
         Assert.Equal(2, state.CurrentEncounterNumber);
-        Assert.Equal(0, state.InteractionsInCurrentEncounter);
+        Assert.Equal(0, state.TurnsInCurrentEncounter);
         Assert.Equal(TimeSkipPhase.CloseScene, state.CurrentTimeSkipPhase);
     }
 
@@ -500,7 +500,7 @@ public sealed class MultiEncounterTimeSkipTests
             SessionId = "test-session",
             CurrentTimeSkipPhase = TimeSkipPhase.CloseScene,
             CurrentEncounterNumber = 2,
-            InteractionsInCurrentEncounter = 0
+            TurnsInCurrentEncounter = 0
         };
 
         // Step 1: CloseScene → AdvanceTime
@@ -513,7 +513,7 @@ public sealed class MultiEncounterTimeSkipTests
 
         // Encounter number and interaction counter unchanged during phase transitions
         Assert.Equal(2, state.CurrentEncounterNumber);
-        Assert.Equal(0, state.InteractionsInCurrentEncounter);
+        Assert.Equal(0, state.TurnsInCurrentEncounter);
     }
 
     [Fact]
@@ -524,16 +524,16 @@ public sealed class MultiEncounterTimeSkipTests
         {
             SessionId = "test-session",
             CurrentEncounterNumber = 1,
-            InteractionsInCurrentEncounter = 6,
+            TurnsInCurrentEncounter = 6,
             CurrentTimeSkipPhase = TimeSkipPhase.None
         };
 
         // 1. Detection fires: encounter advances, counter resets, CloseScene set
         state.CurrentEncounterNumber++;
-        state.InteractionsInCurrentEncounter = 0;
+        state.TurnsInCurrentEncounter = 0;
         state.CurrentTimeSkipPhase = TimeSkipPhase.CloseScene;
         Assert.Equal(2, state.CurrentEncounterNumber);
-        Assert.Equal(0, state.InteractionsInCurrentEncounter);
+        Assert.Equal(0, state.TurnsInCurrentEncounter);
         Assert.Equal(TimeSkipPhase.CloseScene, state.CurrentTimeSkipPhase);
 
         // 2. CloseScene → AdvanceTime
@@ -670,7 +670,7 @@ public sealed class MultiEncounterTimeSkipTests
         var state = new AdaptiveScenarioState
         {
             CurrentEncounterNumber = 2,
-            InteractionsInCurrentEncounter = 5,
+            TurnsInCurrentEncounter = 5,
             GlobalEncounterCount = 1
         };
 
@@ -680,7 +680,7 @@ public sealed class MultiEncounterTimeSkipTests
             ? state.CurrentEncounterNumber
             : null;
         interaction.InteractionIndexInEncounter = state.CurrentEncounterNumber > 0
-            ? state.InteractionsInCurrentEncounter - 1
+            ? state.TurnsInCurrentEncounter - 1
             : null;
         interaction.ExplicitnessLevelAtCreation = session.LastResolvedIntensityLabel;
 
@@ -699,14 +699,14 @@ public sealed class MultiEncounterTimeSkipTests
         var state = new AdaptiveScenarioState
         {
             CurrentEncounterNumber = 0,
-            InteractionsInCurrentEncounter = 0
+            TurnsInCurrentEncounter = 0
         };
 
         interaction.EncounterNumberAtCreation = state.CurrentEncounterNumber > 0
             ? state.CurrentEncounterNumber
             : null;
         interaction.InteractionIndexInEncounter = state.CurrentEncounterNumber > 0
-            ? state.InteractionsInCurrentEncounter - 1
+            ? state.TurnsInCurrentEncounter - 1
             : null;
         interaction.ExplicitnessLevelAtCreation = null;
 
@@ -726,7 +726,7 @@ public sealed class MultiEncounterTimeSkipTests
         {
             SessionId = "test-session",
             CurrentEncounterNumber = 0, // no active encounter yet
-            InteractionsInCurrentEncounter = 0,
+            TurnsInCurrentEncounter = 0,
             GlobalEncounterCount = 0
         };
 
@@ -739,15 +739,15 @@ public sealed class MultiEncounterTimeSkipTests
         // Counter increment happens AFTER encounter start (correct order)
         if (state.CurrentEncounterNumber > 0)
         {
-            state.InteractionsInCurrentEncounter++; // 0 → 1
+            state.TurnsInCurrentEncounter++; // 0 → 1
         }
 
         int? interactionIndexInEncounter = state.CurrentEncounterNumber > 0
-            ? state.InteractionsInCurrentEncounter - 1 // 1 - 1 = 0
+            ? state.TurnsInCurrentEncounter - 1 // 1 - 1 = 0
             : null;
 
         Assert.Equal(1, state.CurrentEncounterNumber);
-        Assert.Equal(1, state.InteractionsInCurrentEncounter);
+        Assert.Equal(1, state.TurnsInCurrentEncounter);
         Assert.Equal(0, interactionIndexInEncounter); // NOT -1
     }
 
@@ -766,10 +766,10 @@ public sealed class MultiEncounterTimeSkipTests
 
         // Simulate the Climax entry logic (Phase 9): use GlobalEncounterCount + 1
         state.CurrentEncounterNumber = state.GlobalEncounterCount + 1;
-        state.InteractionsInCurrentEncounter = 0;
+        state.TurnsInCurrentEncounter = 0;
 
         Assert.Equal(2, state.CurrentEncounterNumber);
-        Assert.Equal(0, state.InteractionsInCurrentEncounter);
+        Assert.Equal(0, state.TurnsInCurrentEncounter);
     }
 
     [Fact]
@@ -782,13 +782,13 @@ public sealed class MultiEncounterTimeSkipTests
             SessionId = "test-session",
             CurrentEncounterNumber = 0,
             GlobalEncounterCount = 2,
-            InteractionsInCurrentEncounter = 0,
+            TurnsInCurrentEncounter = 0,
             CurrentPhase = DreamGenClone.Domain.RolePlay.NarrativePhase.Climax
         };
 
         // Entering Climax — use global counter for numbering
         state.CurrentEncounterNumber = state.GlobalEncounterCount + 1;
-        state.InteractionsInCurrentEncounter = 0;
+        state.TurnsInCurrentEncounter = 0;
         Assert.Equal(3, state.CurrentEncounterNumber);
 
         // Simulate boundary detection for this encounter
@@ -805,7 +805,7 @@ public sealed class MultiEncounterTimeSkipTests
 
         // Next encounter starts with GlobalEncounterCount + 1
         state.CurrentEncounterNumber = state.GlobalEncounterCount + 1;
-        state.InteractionsInCurrentEncounter = 0;
+        state.TurnsInCurrentEncounter = 0;
         Assert.Equal(4, state.CurrentEncounterNumber);
         Assert.Equal(3, state.GlobalEncounterCount);
     }

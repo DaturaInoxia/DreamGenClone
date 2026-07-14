@@ -100,10 +100,10 @@ public sealed class AdaptiveScenarioStateEncounterFieldsTests
     }
 
     [Fact]
-    public void InteractionsInCurrentEncounter_DefaultsToZero()
+    public void TurnsInCurrentEncounter_DefaultsToZero()
     {
         var state = new AdaptiveScenarioState();
-        Assert.Equal(0, state.InteractionsInCurrentEncounter);
+        Assert.Equal(0, state.TurnsInCurrentEncounter);
     }
 
     [Fact]
@@ -114,9 +114,9 @@ public sealed class AdaptiveScenarioStateEncounterFieldsTests
     }
 
     [Fact]
-    public void InteractionsInCurrentEncounter_CanBeSetAndRetrieved()
+    public void TurnsInCurrentEncounter_CanBeSetAndRetrieved()
     {
-        var state = new AdaptiveScenarioState { InteractionsInCurrentEncounter = 5 };
-        Assert.Equal(5, state.InteractionsInCurrentEncounter);
+        var state = new AdaptiveScenarioState { TurnsInCurrentEncounter = 5 };
+        Assert.Equal(5, state.TurnsInCurrentEncounter);
     }
 }

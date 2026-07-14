@@ -6,7 +6,7 @@ public sealed class ScenarioMetadata
 
     public DateTime CompletedAtUtc { get; set; } = DateTime.UtcNow;
 
-    public int InteractionCount { get; set; }
+    public int TurnCount { get; set; }
 
     public int PeakThemeScore { get; set; }
 

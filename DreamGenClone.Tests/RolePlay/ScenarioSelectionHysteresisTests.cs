@@ -20,7 +20,7 @@ public sealed class ScenarioSelectionHysteresisTests
             IsDefault = true,
             Rules =
             [
-                new() { SortOrder = 1, FromPhase = "BuildUp", ToPhase = "Committed", MetricKey = NarrativeGateMetricKeys.InteractionsSinceCommitment, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 2m }
+                new() { SortOrder = 1, FromPhase = "BuildUp", ToPhase = "Committed", MetricKey = NarrativeGateMetricKeys.TurnsSinceCommitment, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 2m }
             ]
         });
         return new ScenarioSelectionService(
@@ -49,7 +49,7 @@ public sealed class ScenarioSelectionHysteresisTests
         var state = RolePlayV2AcceptanceFixtureData.BuildBoundaryState(desire: 60, restraint: 45, tension: 50);
         state.SelectedNarrativeGateProfileId = "default";
         state.ConsecutiveLeadCount = 0;
-        state.InteractionCountInPhase = 2;
+        state.TurnCountInPhase = 2;
         var candidates =
             new[]
             {
@@ -92,7 +92,7 @@ public sealed class ScenarioSelectionHysteresisTests
         var service = CreateServiceWithProfile();
         var state = RolePlayV2AcceptanceFixtureData.BuildBoundaryState(desire: 70, restraint: 40, tension: 50);
         state.SelectedNarrativeGateProfileId = "default";
-        state.InteractionCountInPhase = 2;
+        state.TurnCountInPhase = 2;
         var evaluations = new[]
         {
             new DreamGenClone.Domain.RolePlay.ScenarioCandidateEvaluation
@@ -118,7 +118,7 @@ public sealed class ScenarioSelectionHysteresisTests
         var state = RolePlayV2AcceptanceFixtureData.BuildBoundaryState(desire: 70, restraint: 40, tension: 50);
         state.CurrentPhase = DreamGenClone.Domain.RolePlay.NarrativePhase.Approaching;
         state.ActiveScenarioId = "only";
-        state.InteractionCountInPhase = 8;
+        state.TurnCountInPhase = 8;
 
         var evaluations = new[]
         {

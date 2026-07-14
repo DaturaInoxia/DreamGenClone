@@ -1,4 +1,4 @@
-ï»¿using DreamGenClone.Web.Domain.RolePlay;
+using DreamGenClone.Web.Domain.RolePlay;
 using DreamGenClone.Web.Domain.Scenarios;
 using System.Text.Json;
 using DreamGenClone.Application.Abstractions;
@@ -19,9 +19,9 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
 {
     private const int MaxAdaptiveTransitionHistory = 25;
     private const int DefaultThemeAffinityStackLimit = 1;
-    private const int DefaultEarlyTurnInteractionThreshold = 3;
+    private const int DefaultEarlyTurnThreshold = 3;
     private const int DefaultEarlyTurnPerStatDeltaCap = 2;
-    private const int DefaultPerInteractionTotalDeltaBudget = 10;
+    private const int DefaultPerTurnTotalDeltaBudget = 10;
     private const double DefaultSuppressedEvidenceMultiplier = 0.20;
     private const double DefaultSuppressedEvidencePerTurnCap = 1.5;
     private const double DefaultSemanticEvidencePerTurnCap = 25.0;
@@ -38,9 +38,9 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
     private readonly IRolePlayDebugEventSink? _debugEventSink;
     private readonly ILogger<RolePlayAdaptiveStateService>? _logger;
     private readonly int _themeAffinityStackLimit;
-    private readonly int _earlyTurnInteractionThreshold;
+    private readonly int _earlyTurnThreshold;
     private readonly int _earlyTurnPerStatDeltaCap;
-    private readonly int _perInteractionTotalDeltaBudget;
+    private readonly int _perTurnTotalDeltaBudget;
     private readonly int _themeAffinityCapBuildUp;
     private readonly int _themeAffinityCapCommitted;
     private readonly int _themeAffinityCapApproaching;
@@ -55,9 +55,9 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
     {
         _themeCatalogService = themeCatalogService;
         _themeAffinityStackLimit = DefaultThemeAffinityStackLimit;
-        _earlyTurnInteractionThreshold = DefaultEarlyTurnInteractionThreshold;
+        _earlyTurnThreshold = DefaultEarlyTurnThreshold;
         _earlyTurnPerStatDeltaCap = DefaultEarlyTurnPerStatDeltaCap;
-        _perInteractionTotalDeltaBudget = DefaultPerInteractionTotalDeltaBudget;
+        _perTurnTotalDeltaBudget = DefaultPerTurnTotalDeltaBudget;
         _themeAffinityCapBuildUp = 0;
         _themeAffinityCapCommitted = 1;
         _themeAffinityCapApproaching = 1;
@@ -75,9 +75,9 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         _themeCatalogService = themeCatalogService;
         _intensityProfileService = intensityProfileService;
         _themeAffinityStackLimit = DefaultThemeAffinityStackLimit;
-        _earlyTurnInteractionThreshold = DefaultEarlyTurnInteractionThreshold;
+        _earlyTurnThreshold = DefaultEarlyTurnThreshold;
         _earlyTurnPerStatDeltaCap = DefaultEarlyTurnPerStatDeltaCap;
-        _perInteractionTotalDeltaBudget = DefaultPerInteractionTotalDeltaBudget;
+        _perTurnTotalDeltaBudget = DefaultPerTurnTotalDeltaBudget;
         _themeAffinityCapBuildUp = 0;
         _themeAffinityCapCommitted = 1;
         _themeAffinityCapApproaching = 1;
@@ -97,9 +97,9 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         _debugEventSink = debugEventSink;
         _logger = logger;
         _themeAffinityStackLimit = DefaultThemeAffinityStackLimit;
-        _earlyTurnInteractionThreshold = DefaultEarlyTurnInteractionThreshold;
+        _earlyTurnThreshold = DefaultEarlyTurnThreshold;
         _earlyTurnPerStatDeltaCap = DefaultEarlyTurnPerStatDeltaCap;
-        _perInteractionTotalDeltaBudget = DefaultPerInteractionTotalDeltaBudget;
+        _perTurnTotalDeltaBudget = DefaultPerTurnTotalDeltaBudget;
         _themeAffinityCapBuildUp = 0;
         _themeAffinityCapCommitted = 1;
         _themeAffinityCapApproaching = 1;
@@ -130,9 +130,9 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         _debugEventSink = debugEventSink;
         _logger = logger;
         _themeAffinityStackLimit = Math.Max(1, storyAnalysisOptions?.Value.AdaptiveThemeAffinityStackLimit ?? DefaultThemeAffinityStackLimit);
-        _earlyTurnInteractionThreshold = Math.Max(1, storyAnalysisOptions?.Value.AdaptiveEarlyTurnInteractionThreshold ?? DefaultEarlyTurnInteractionThreshold);
+        _earlyTurnThreshold = Math.Max(1, storyAnalysisOptions?.Value.AdaptiveEarlyTurnThreshold ?? DefaultEarlyTurnThreshold);
         _earlyTurnPerStatDeltaCap = Math.Max(1, storyAnalysisOptions?.Value.AdaptiveEarlyTurnPerStatDeltaCap ?? DefaultEarlyTurnPerStatDeltaCap);
-        _perInteractionTotalDeltaBudget = Math.Max(1, storyAnalysisOptions?.Value.AdaptivePerInteractionTotalDeltaBudget ?? DefaultPerInteractionTotalDeltaBudget);
+        _perTurnTotalDeltaBudget = Math.Max(1, storyAnalysisOptions?.Value.AdaptivePerTurnTotalDeltaBudget ?? DefaultPerTurnTotalDeltaBudget);
         _themeAffinityCapBuildUp = Math.Max(0, storyAnalysisOptions?.Value.AdaptiveThemeAffinityCapBuildUp ?? 0);
         _themeAffinityCapCommitted = Math.Max(0, storyAnalysisOptions?.Value.AdaptiveThemeAffinityCapCommitted ?? 1);
         _themeAffinityCapApproaching = Math.Max(0, storyAnalysisOptions?.Value.AdaptiveThemeAffinityCapApproaching ?? 1);
@@ -530,11 +530,11 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             }
 
             var totalBeforeBudgetCap = adjustedDeltas.Values.Sum(x => Math.Abs(x));
-            if (totalBeforeBudgetCap > _perInteractionTotalDeltaBudget)
+            if (totalBeforeBudgetCap > _perTurnTotalDeltaBudget)
             {
                 var beforeBudgetDeltas = new Dictionary<string, int>(adjustedDeltas, StringComparer.OrdinalIgnoreCase);
                 var currentTotal = totalBeforeBudgetCap;
-                while (currentTotal > _perInteractionTotalDeltaBudget)
+                while (currentTotal > _perTurnTotalDeltaBudget)
                 {
                     var keyToReduce = adjustedDeltas
                         .Where(x => x.Value != 0)
@@ -559,7 +559,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
                     {
                         AppendPolicyReason(
                             statName,
-                            $"policy:per-turn-budget-cap({beforeBudgetDelta}->{afterBudgetDelta},total={totalBeforeBudgetCap}->{_perInteractionTotalDeltaBudget})");
+                            $"policy:per-turn-budget-cap({beforeBudgetDelta}->{afterBudgetDelta},total={totalBeforeBudgetCap}->{_perTurnTotalDeltaBudget})");
                     }
                 }
             }
@@ -629,7 +629,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
                 actorTurnCount++;
             }
 
-            return actorTurnCount <= _earlyTurnInteractionThreshold;
+            return actorTurnCount <= _earlyTurnThreshold;
         }
     }
 
@@ -724,7 +724,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
 
         state.SemanticStepSucceeded = true;
         state.SemanticEvents.Clear();
-        // Keep SemanticDeltaBreakdowns and SemanticStatDeltaBreakdowns â€” they accumulate per-interaction
+        // Keep SemanticDeltaBreakdowns and SemanticStatDeltaBreakdowns — they accumulate per-interaction
         // so the Semantic Analysis modal can show history for any prior interaction in the session.
 
         var matches = SemanticSignalRegex.Matches(interaction.Content ?? string.Empty);
@@ -763,7 +763,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         //    session is live.
         //  * SessionThemeSelections is authoritative for live sessions; SelectedRPThemeProfileId
         //    is only a seed at session create time. Resolve mappings from SessionThemeSelections
-        //    when available. Missing configuration fails fast â€” no silent no-ops.
+        //    when available. Missing configuration fails fast — no silent no-ops.
         // The theme-score deltas (built from semantic event mappings) are gated below by
         // ActiveScenarioId so they stop accumulating after primary commit; stat deltas always
         // apply regardless of theme-commit status.
@@ -777,7 +777,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        // Compute commit status early â€” used below to suppress theme-score deltas once the
+        // Compute commit status early — used below to suppress theme-score deltas once the
         // narrative has progressed past BuildUp. "Committed" = phase advanced beyond BuildUp.
         // Note: stat mapping scoping is based on ActiveScenarioId alone (see below), not this flag.
         var primaryThemeCommitted = !string.IsNullOrWhiteSpace(session.AdaptiveState.ActiveScenarioId)
@@ -801,10 +801,10 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         }
 
         // Scope stat mappings to avoid multi-theme stacking:
-        //  * Active theme set (ActiveScenarioId is non-empty): a theme has been picked â€” only that
+        //  * Active theme set (ActiveScenarioId is non-empty): a theme has been picked — only that
         //    theme's stat mappings apply, across all phases including BuildUp. Other selected themes
         //    must not stack their stat deltas once the narrative is tracking a specific theme.
-        //  * No active theme yet: deduplicate across all selected themes â€” for each
+        //  * No active theme yet: deduplicate across all selected themes — for each
         //    (eventId, targetStat) pair keep only the single highest-magnitude mapping. This lets
         //    all themes participate in the selection race without stacking identical-event deltas
         //    from similar themes (e.g. infidelity-brief-disappearance duplicating
@@ -825,7 +825,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         }
         else
         {
-            // No active theme yet â€” deduplicate by (eventId, targetStat), keeping highest absolute delta per pair.
+            // No active theme yet — deduplicate by (eventId, targetStat), keeping highest absolute delta per pair.
             statMappingsByEvent = statMappingsByEvent
                 .ToDictionary(
                     kvp => kvp.Key,
@@ -949,7 +949,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
 
         // Per product requirement:
         //  * Semantic Event Mappings drive theme scoring; once a primary theme is committed,
-        //    non-active themes no longer participate (the score race is over for them) â€”
+        //    non-active themes no longer participate (the score race is over for them) —
         //    otherwise every theme eventually pegs at the 100 cap as evidence keeps accumulating.
         //    The active theme continues to accumulate InteractionEvidenceSignal so the panel
         //    reflects ongoing narrative engagement.
@@ -957,7 +957,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         //    session is live, independent of theme-commit status.
         //  * SessionThemeSelections is authoritative for live sessions; SelectedRPThemeProfileId
         //    is only a seed at session create time. Resolve mappings from SessionThemeSelections
-        //    when available. Missing configuration fails fast â€” no silent no-ops.
+        //    when available. Missing configuration fails fast — no silent no-ops.
         if (primaryThemeCommitted && pending.Count > 0)
         {
             var activeId = session.AdaptiveState.ActiveScenarioId;
@@ -1125,7 +1125,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
                         // Encounter dimension drift (mirrors ApplyTrackedDelta in UpdateFromInteractionAsync).
                         // EnableAdaptiveStateUpdates=false skips the inline keyword path entirely, so this
                         // is the ONLY place RuntimeEncounterStats gets seeded and drifted during a session.
-                        // Do NOT remove this â€” without it, behavioral dimensions are never initialized.
+                        // Do NOT remove this — without it, behavioral dimensions are never initialized.
                         if (state.CharacterRoles.TryGetValue(item.TargetCharacterId, out var semanticTargetRole)
                             && !string.IsNullOrWhiteSpace(semanticTargetRole))
                         {
@@ -1187,7 +1187,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
     {
         if (_intensityProfileService is null)
         {
-            _logger?.LogWarning("IntensityTransition session={SessionId}: skipped â€” no intensity profile service", session.Id);
+            _logger?.LogWarning("IntensityTransition session={SessionId}: skipped — no intensity profile service", session.Id);
             return;
         }
 
@@ -1235,8 +1235,8 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         }
         // Anchor to the lowest non-Intro profile (Emotional, level 1) when no selected profile
         // exists. Using currentProfile as fallback causes a ratchet effect where each transition
-        // raises the baseline â€” BuildUp would climb Atmosphericâ†’Emotionalâ†’Suggestiveâ†’Sensualâ†’
-        // Eroticâ†’Hardcore in a handful of interactions instead of staying stable per phase.
+        // raises the baseline — BuildUp would climb Atmospheric?Emotional?Suggestive?Sensual?
+        // Erotic?Hardcore in a handful of interactions instead of staying stable per phase.
         var phaseBaselineSourceProfile = selectedProfile
             ?? profiles.FirstOrDefault(p => p.Intensity == IntensityLevel.Emotional)
             ?? currentProfile;
@@ -1301,13 +1301,13 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
 
         if (string.Equals(targetProfile.Id, currentProfile.Id, StringComparison.OrdinalIgnoreCase))
         {
-            _logger?.LogInformation("IntensityTransition session={SessionId}: no change needed â€” already at {Profile} (scale={Scale})",
+            _logger?.LogInformation("IntensityTransition session={SessionId}: no change needed — already at {Profile} (scale={Scale})",
                 session.Id, targetProfile.Name, targetScale);
             session.AdaptiveIntensityLastTransitionReason = reasonCode;
             return;
         }
 
-        _logger?.LogInformation("IntensityTransition session={SessionId}: TRANSITIONING {From} â†’ {To} (scale {FromScale}â†’{ToScale}) reason={Reason}",
+        _logger?.LogInformation("IntensityTransition session={SessionId}: TRANSITIONING {From} ? {To} (scale {FromScale}?{ToScale}) reason={Reason}",
             session.Id, currentProfile.Name, targetProfile.Name, (int)currentProfile.Intensity, targetScale, reasonCode);
 
         session.AdaptiveIntensityProfileId = targetProfile.Id;
@@ -1722,16 +1722,16 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
     private static void RecalculateSelectedThemes(AdaptiveScenarioState state, RolePlayInteraction interaction)
     {
         // Decrement completion cooldowns before selection each interaction
-        foreach (var theme in state.ThemeScores.Values.Where(t => t.CompletionCooldownInteractions > 0))
+        foreach (var theme in state.ThemeScores.Values.Where(t => t.CompletionCooldownTurns > 0))
         {
-            theme.CompletionCooldownInteractions--;
+            theme.CompletionCooldownTurns--;
         }
 
         // Turn count is incremented at user-turn boundaries (see RolePlayEngineService
         // turn-start sites), not per interaction. Do not increment here.
 
         var ordered = state.ThemeScores.Values
-            .Where(x => x.CompletionCooldownInteractions == 0)
+            .Where(x => x.CompletionCooldownTurns == 0)
             .OrderByDescending(x => x.Score)
             .ThenBy(x => x.ThemeId, StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -2199,8 +2199,8 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
 
         state.ActiveScenarioId = requestedScenarioId;
         state.ScenarioCommitmentTimeUtc = DateTime.UtcNow;
-        state.InteractionsSinceCommitment = 0;
-        state.InteractionsInApproaching = 0;
+        state.TurnsSinceCommitment = 0;
+        state.TurnsInApproaching = 0;
 
         var previousPrimary = state.PrimaryThemeId;
         state.PrimaryThemeId = requestedScenarioId;
@@ -2250,7 +2250,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
 
         double total = 0;
 
-        // Opening/Example text at 0.6Ã— weight
+        // Opening/Example text at 0.6× weight
         foreach (var opening in scenario.Openings)
         {
             if (!string.IsNullOrWhiteSpace(opening.Text))
@@ -2266,7 +2266,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             }
         }
 
-        // Plot/Setting/Narrative/Characters/Locations/Objects at 0.4Ã— weight
+        // Plot/Setting/Narrative/Characters/Locations/Objects at 0.4× weight
         total += ScoreText(scenario.Plot.Description, keywords, weight) * 0.4;
         foreach (var conflict in scenario.Plot.Conflicts)
             total += ScoreText(conflict, keywords, weight) * 0.4;
@@ -2300,7 +2300,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             total += ScoreText(obj.Description, keywords, weight) * 0.4;
         }
 
-        // Character stat deltas at 0.3Ã— weight
+        // Character stat deltas at 0.3× weight
         foreach (var character in scenario.Characters)
         {
             if (character.BaseStats.Count > 0)

@@ -58,6 +58,7 @@ Auto-generated from all feature plans. Last updated: 2026-03-17
 - SQLite (via `DreamGenClone.Web/data/dreamgenclone.dev.db`) — no schema changes; new `WasEncounterStart` property on existing `RolePlayInteraction` entity (028-encounter-start-detection)
 - C# 13 / .NET 9 + ASP.NET Core, Blazor Interactive Server, Microsoft.Data.Sqlite (raw ADO.NET, no EF Core), Serilog (001-prompt-viewer-tab)
 - SQLite — `Sessions` table with `PayloadJson` TEXT column containing serialized `RolePlaySession` (including `Interactions` list). No per-interaction table; no schema migration needed for new nullable JSON property. (001-prompt-viewer-tab)
+- C# 13 / .NET 9 + ASP.NET Core Blazor, Microsoft.Data.Sqlite, Serilog, xUnit (001-replace-interactions-turns)
 
 - C# / .NET 9 (`net9.0`) + ASP.NET Core Blazor Server, `Microsoft.Data.Sqlite`, `Microsoft.Extensions.*`, Serilog (`Serilog.AspNetCore`, `Serilog.Settings.Configuration`, sinks/enrichers) (001-roleplay-session-screens)
 
@@ -78,9 +79,9 @@ tests/
 C# / .NET 9 (`net9.0`): Follow standard conventions
 
 ## Recent Changes
+- 001-replace-interactions-turns: Added C# 13 / .NET 9 + ASP.NET Core Blazor, Microsoft.Data.Sqlite, Serilog, xUnit
 - 001-prompt-viewer-tab: Added C# 13 / .NET 9 + ASP.NET Core, Blazor Interactive Server, Microsoft.Data.Sqlite (raw ADO.NET, no EF Core), Serilog
 - 028-encounter-start-detection: Added C# 13 / .NET 9 + ASP.NET Core Blazor (server-side), EF Core + SQLite, Serilog, existing `ISemanticEventInferenceService` (LLM inference pipeline), existing `EncounterSummaryJobHandler` (async background job infrastructure)
-- 001-husband-aftermath: Added C# 13 / .NET 9 (`net9.0`; target framework shared by all projects in the solution) + ASP.NET Core 9 (`Microsoft.NET.Sdk.Web`), Blazor Server, `Microsoft.Data.Sqlite 9.0.0`, Serilog stack (`Serilog.AspNetCore 9.0.0`, `Serilog.Sinks.Console 6.0.0`, `Serilog.Sinks.File 6.0.0`, `Serilog.Settings.Configuration 9.0.0`, enrichers Environment/Thread), xUnit 2.9.2 + coverlet 6.0.2.
 
 
 <!-- MANUAL ADDITIONS START -->
