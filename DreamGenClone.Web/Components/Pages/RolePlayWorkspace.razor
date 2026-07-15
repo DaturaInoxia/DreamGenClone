@@ -10103,6 +10103,56 @@ private void CloseInteractionInfo()
                         }
                     </div>
 
+                    @* TODO-004: Location section in Adaptive tab *@
+                    <div class="rw-collapsible-section">
+                        <button type="button" class="rw-collapsible-header" @onclick='() => ToggleAdaptiveSection("location")'>
+                            <span class="rw-collapsible-chevron @(IsAdaptiveSectionExpanded("location") ? "is-open" : "")">›</span>
+                            <span class="rw-collapsible-title">Location</span>
+                        </button>
+                        @if (IsAdaptiveSectionExpanded("location"))
+                        {
+                            <div class="rw-collapsible-body">
+                                <div class="rw-settings-info-row">
+                                    <span>Current Scene Location</span>
+                                    <span>@(_v2State?.CurrentSceneLocation ?? "(none)")</span>
+                                </div>
+                                <div class="rw-settings-info-row">
+                                    <span>Time of Day</span>
+                                    <span>
+                                        @(_v2State?.CurrentTimeOfDay?.ToString() ?? "(unknown)")
+                                        @if (_v2State?.TimeOfDayManuallySet == true)
+                                        {
+                                            <span class="badge bg-warning ms-1" style="font-size:10px;">Manual</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-secondary ms-1" style="font-size:10px;">Auto</span>
+                                        }
+                                    </span>
+                                </div>
+                                @if ((_v2State?.CharacterLocations?.Count ?? 0) > 0)
+                                {
+                                    <div class="rw-settings-info-row" style="margin-top:6px;">
+                                        <span class="fw-semibold">Character Locations</span>
+                                        <span></span>
+                                    </div>
+                                    @foreach (var loc in _v2State!.CharacterLocations)
+                                    {
+                                        <div class="rw-settings-info-row" style="padding-left:12px;">
+                                            <span>@loc.CharacterId</span>
+                                            <span>@(loc.TrueLocation ?? "(unknown)")
+                                                @if (loc.IsHidden)
+                                                {
+                                                    <span class="badge bg-secondary ms-1" style="font-size:10px;">Hidden</span>
+                                                }
+                                            </span>
+                                        </div>
+                                    }
+                                }
+                            </div>
+                        }
+                    </div>
+
                     <div class="rw-collapsible-section">
                         <button type="button" class="rw-collapsible-header" @onclick='() => ToggleAdaptiveSection("character-stats")'>
                             <span class="rw-collapsible-chevron @(IsAdaptiveSectionExpanded("character-stats") ? "is-open" : "")">›</span>

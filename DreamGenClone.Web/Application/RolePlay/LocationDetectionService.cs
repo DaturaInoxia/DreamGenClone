@@ -33,7 +33,13 @@ public sealed class LocationDetectionService : ILocationDetectionService
         Models.LocationDetectionRequest request,
         CancellationToken cancellationToken = default)
     {
-        ValidateRequest(request);
+        var earlyResult = ValidateRequest(request);
+        if (earlyResult is not null)
+        {
+            _logger?.LogWarning("LocationDetection skipped SessionId={SessionId} — {Reason}",
+                request.SessionId, earlyResult.ErrorMessage);
+            return earlyResult;
+        }
 
         ResolvedModel resolved;
         try
@@ -67,6 +73,7 @@ public sealed class LocationDetectionService : ILocationDetectionService
             "perCharacterLocations is optional; each value MUST also be one of scenarioLocationNames or null. " +
             "If recentInteractions consistently reference the previousLocation with no transition language, return detectedLocation=previousLocation. " +
             "If recentInteractions describe a transition (e.g., 'we drive to', 'arriving at'), set detectedLocation to the destination. " +
+            "If multiple locations are plausibly referenced, prefer the most recently mentioned one. " +
             "Never invent a location name; only use scenarioLocationNames.";
 
         var namesJson = JsonSerializer.Serialize(request.ScenarioLocationNames, JsonOptions);
@@ -155,16 +162,31 @@ public sealed class LocationDetectionService : ILocationDetectionService
         return parsed with { LocationChanged = locationChanged };
     }
 
-    private static void ValidateRequest(Models.LocationDetectionRequest request)
+    private static Models.LocationDetectionResult ValidateRequest(Models.LocationDetectionRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.SessionId))
             throw new InvalidOperationException("LocationDetection requires SessionId.");
-        if (request.RecentInteractions.Count == 0)
-            throw new InvalidOperationException("LocationDetection requires at least one recent interaction.");
         if (request.ScenarioLocationNames.Count == 0)
             throw new InvalidOperationException("LocationDetection requires at least one scenario location name.");
         if (request.CharacterNames.Count == 0)
             throw new InvalidOperationException("LocationDetection requires at least one character name.");
+
+        // BUG-004 fix: allow zero interactions — return success=false without calling LLM
+        if (request.RecentInteractions.Count == 0)
+        {
+            return new Models.LocationDetectionResult
+            {
+                Success = false,
+                DetectedLocation = null,
+                LocationConfidence = 0,
+                RawModelOutput = string.Empty,
+                PromptSystem = string.Empty,
+                PromptUser = string.Empty,
+                ErrorMessage = "No recent interactions available for location detection; previous location preserved."
+            };
+        }
+
+        return null; // validation passed
     }
 
     internal static string ExtractJsonObject(string modelOutput)

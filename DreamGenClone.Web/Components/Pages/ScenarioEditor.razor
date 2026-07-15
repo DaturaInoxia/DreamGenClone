@@ -274,6 +274,21 @@
                             </select>
                             <div class="form-text">Starting time of day for new sessions created from this scenario.</div>
                         </div>
+
+                        @if (CurrentScenario.Locations.Any())
+                        {
+                            <div class="mb-3">
+                                <label class="form-label">Default Starting Location</label>
+                                <select class="form-select" @bind="CurrentScenario.DefaultStartingLocationId">
+                                    <option value="">(none — use opening location)</option>
+                                    @foreach (var loc in CurrentScenario.Locations.Where(l => !string.IsNullOrWhiteSpace(l.Name)))
+                                    {
+                                        <option value="@loc.Id">@(loc.Name ?? loc.Id)</option>
+                                    }
+                                </select>
+                                <div class="form-text">Seeds the initial scene location when a new session starts. Opening-level LocationId takes precedence.</div>
+                            </div>
+                        }
                         
                         <div class="mb-3">
                             <label class="form-label">Narrative Guidelines</label>

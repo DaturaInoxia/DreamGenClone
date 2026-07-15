@@ -136,13 +136,20 @@ public sealed class LocationDetectionJobHandler : IBackgroundJobHandler
         var previousLocation = adaptiveState.CurrentSceneLocation;
 
         // Apply per-character locations from the LLM result
+        // BUG-005 fix: skip entries where the LLM returned null — leave those characters
+        // at their existing TrueLocation instead of applying previousLocation uniformly.
         if (result.PerCharacterLocations is { Count: > 0 })
         {
             RolePlayCharacterStateMutator.EnsureCharacterLocationRows(adaptiveState);
             foreach (var kvp in result.PerCharacterLocations)
             {
+                if (string.IsNullOrWhiteSpace(kvp.Value))
+                {
+                    // LLM didn't place this character — leave existing truth unchanged
+                    continue;
+                }
                 RolePlayCharacterStateMutator.UpsertTrueLocation(
-                    adaptiveState, kvp.Key, kvp.Value ?? previousLocation ?? "Unknown",
+                    adaptiveState, kvp.Key, kvp.Value,
                     sourceIsHidden: false);
             }
             RolePlayCharacterStateMutator.UpdatePerceivedLocationsFromTruth(adaptiveState);

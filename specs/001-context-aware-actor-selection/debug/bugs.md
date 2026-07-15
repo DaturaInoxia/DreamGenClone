@@ -89,24 +89,12 @@ Also fixed a bad edit that duplicated the entire pipeline outside the `else` blo
 
 **Severity**: Low (engine fallback works, just no UI to set it)
 **Date added**: 2026-07-14
-**Status**: Open
+**Status**: Done
+**Fix commit**: 2026-07-15 reimplementation
 
 ### Description
 
-`Scenario.DefaultStartingLocationId` is used as a fallback in `CreateSessionAsync` when no opening has a `LocationId` set. But there's no UI to set it — the dropdown was in Scenario Details briefly but was removed in favor of per-opening location pickers.
-
-Needs a simple dropdown in Scenario Details:
-```
-<select class="form-select" @bind="CurrentScenario.DefaultStartingLocationId">
-    <option value="">(none — use opening location)</option>
-    @foreach (var loc in CurrentScenario.Locations.Where(...))
-    { <option value="@loc.Id">@(loc.Name ?? loc.Id)</option> }
-</select>
-```
-
-### Why Not Done Yet
-
-Prioritised per-opening location picker first. The fallback dropdown is low-urgency because the primary path (opening → location) handles new scenarios. This is only needed for existing scenarios that already have `DefaultStartingLocationId` set but no opening-level locations.
+`Scenario.DefaultStartingLocationId` is used as a fallback in `CreateSessionAsync` when no opening has a `LocationId` set. Added a dropdown in Scenario Details card in `ScenarioEditor.razor` (after Default Time of Day dropdown) bound to `CurrentScenario.DefaultStartingLocationId`. Options populated from `CurrentScenario.Locations`. Only shown when locations exist.
 
 ---
 
@@ -114,18 +102,16 @@ Prioritised per-opening location picker first. The fallback dropdown is low-urge
 
 **Severity**: Low (info display only — no engine impact)
 **Date added**: 2026-07-14
-**Status**: Open
+**Status**: Done
+**Fix commit**: 2026-07-15 reimplementation
 
 ### Description
 
-The Adaptive tab in the RP Workspace settings panel shows per-character stats, theme scores, etc. but has no section showing the current location state. Add a "Location" section just before the Character Stats section showing:
-
+Added a collapsible "Location" section in the Adaptive tab of `RolePlayWorkspace.razor` (just before Character Stats section). Shows:
 - `CurrentSceneLocation` (display name or "(none)")
-- `CurrentTimeOfDay` + auto/manual indicator
-- Per-character location truth (`TrueLocation` per character)
-- Source: LLM-detected vs seeded vs manual override
-
-Follow the same section pattern as other adaptive tabs (e.g., "Adaptive Section X → card-body → field rows"). File: `RolePlayWorkspace.razor`.
+- `CurrentTimeOfDay` + Auto/Manual indicator badge
+- Per-character location truth (`TrueLocation` per character from `_v2State.CharacterLocations`)
+- Hidden indicator per character
 
 ---
 
@@ -133,19 +119,8 @@ Follow the same section pattern as other adaptive tabs (e.g., "Adaptive Section 
 
 **Severity**: Medium (engine supports it; no UI to set it)
 **Date added**: 2026-07-14
-**Status**: Open
-
-### Description
-
-`CharacterTurnOverride.ResponsePriority` (0–100 additive boost to base score) is the intended mechanism for controlling character speaking order (FR-008). The data model and scoring engine support it, but there's no UI to configure it.
-
-The B-050 per-character override panel in the Workspace (settings panel → Scene Controls → per-character section) currently has no `ResponsePriority` slider. Need to add:
-
-- Per-character slider 0–100 bound to `session.CharacterTurnOverrides[name].ResponsePriority`
-- Default 0 (no boost)
-- Persisted via `RolePlayEngine.SaveSessionAsync`
-
-Also consider: should there be a default role-based baseline (Wife/Husband +50, OtherMan −50) that the ResponsePriority overrides on top of? That requires a separate discussion.
+**Status**: Done
+**Fix commit**: 2026-07-15 reimplementation (T058)
 
 ---
 
@@ -153,7 +128,8 @@ Also consider: should there be a default role-based baseline (Wife/Husband +50, 
 
 **Severity**: Medium (LLM behavior, not code bug)
 **Date found**: 2026-07-14
-**Status**: Open
+**Status**: Fixed
+**Fix commit**: 2026-07-15 reimplementation
 
 ### Symptom
 
@@ -163,9 +139,9 @@ Session `9188210c`: job ran at 21:10 (detected `Hiking Trails`, confidence 0.80)
 
 When interactions reference multiple locations, the LLM may pick either. The `previousLocation` tiebreaker in the system prompt isn't strong enough.
 
-### Proposed Fix
+### Fix
 
-Add to system prompt: "If multiple locations are plausibly referenced, prefer the most recently mentioned one. If the narrative describes a transition, prioritize the destination."
+Added to system prompt in `LocationDetectionService.cs`: "If multiple locations are plausibly referenced, prefer the most recently mentioned one. If the narrative describes a transition, prioritize the destination."
 
 ---
 
@@ -173,15 +149,16 @@ Add to system prompt: "If multiple locations are plausibly referenced, prefer th
 
 **Severity**: Medium
 **Date found**: 2026-07-14
-**Status**: Open
+**Status**: Fixed
+**Fix commit**: 2026-07-15 reimplementation
 
 ### Symptom
 
 Session `fa458cae`: three failures `"requires at least one recent interaction"`. New sessions have no NPC/Custom interactions — only opening narrative (System type).
 
-### Proposed Fix
+### Fix
 
-Change `ValidateRequest` to allow zero interactions. Return `Success = false` or `DetectedLocation = PreviousLocation` without calling the LLM.
+Changed `ValidateRequest` in `LocationDetectionService.cs` to return `Success=false` with `ErrorMessage` instead of throwing when `RecentInteractions.Count == 0`. LLM is not called; previous location is preserved. Updated call site to check returned result.
 
 ---
 
@@ -189,15 +166,16 @@ Change `ValidateRequest` to allow zero interactions. Return `Success = false` or
 
 **Severity**: Medium (data accuracy)
 **Date found**: 2026-07-14
-**Status**: Open
+**Status**: Fixed
+**Fix commit**: 2026-07-15 reimplementation
 
 ### Symptom
 
 Adaptive panel shows all characters at the same location. `UpsertTrueLocation` applies to every character in `PerCharacterLocations` regardless of narrative reality.
 
-### Proposed Fix
+### Fix
 
-Only apply `PerCharacterLocations` entries where the LLM returned a non-null value. Leave characters with null entries at their previous `TrueLocation`.
+Changed `LocationDetectionJobHandler.cs` to skip `PerCharacterLocations` entries where the LLM returned null/empty. Characters with null entries are left at their existing `TrueLocation` instead of being overwritten with `previousLocation`.
 
 ---
 
