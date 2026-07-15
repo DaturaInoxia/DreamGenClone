@@ -9642,8 +9642,15 @@ private void CloseInteractionInfo()
                         <div class="rw-settings-section mt-3">
                             <div class="rw-settings-section-label">Per-Character Turn Overrides</div>
                             @{ var personaCharName = _loadedScenario?.GetPersonaCharacter()?.Name?.Trim() ?? _session.PersonaName; }
-                            @foreach (var cp in _session.CharacterPerspectives.Where(c => !string.IsNullOrWhiteSpace(c.CharacterName)
-                                 && !string.Equals(c.CharacterName, personaCharName, StringComparison.OrdinalIgnoreCase)))
+                            @{ var overrideEntries = _session.CharacterPerspectives
+                                .Where(c => !string.IsNullOrWhiteSpace(c.CharacterName)
+                                    && !string.Equals(c.CharacterName, personaCharName, StringComparison.OrdinalIgnoreCase))
+                                .ToList(); }
+                            @if (overrideEntries.Count == 0 && _loadedScenario?.Characters.Any(c => !c.IsPersona && !string.IsNullOrWhiteSpace(c.Name)) == true)
+                            {
+                                <div class="rw-adaptive-note">No character perspectives loaded yet. Interact with the session to populate the character list.</div>
+                            }
+                            @foreach (var cp in overrideEntries)
                             {
                                 var charName = cp.CharacterName!;
                                 var hasOverride = _session.CharacterTurnOverrides.TryGetValue(charName, out var turnOverride);
