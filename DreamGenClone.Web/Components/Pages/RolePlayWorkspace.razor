@@ -1198,6 +1198,43 @@
             _expandedScenarioSections.Add(section);
     }
 
+    /// <summary>
+    /// Returns true when the given perspective entry is the persona (should be excluded
+    /// from the Turn Overrides panel). Matches by the persona character's scenario ID when
+    /// available, and only falls back to name-matching when no NPC shares that name.
+    /// </summary>
+    private static bool IsPersonaPerspectiveEntry(
+        RolePlayCharacterPerspective entry,
+        Character? personaChar,
+        string personaNameFallback,
+        bool hasNpcNamedLikePersona)
+    {
+        if (personaChar is not null)
+        {
+            // Match by the persona's scenario character ID (most precise, works for new sessions
+            // where the persona has a GUID Id in CharacterPerspectives).
+            if (string.Equals(entry.CharacterId, personaChar.Id, StringComparison.OrdinalIgnoreCase))
+                return true;
+            // Also match by persona name as a secondary check in case the perspective entry
+            // was seeded by name rather than ID (legacy CreateSessionAsync path).
+            if (!string.IsNullOrWhiteSpace(personaChar.Name)
+                && string.Equals(entry.CharacterName, personaChar.Name.Trim(), StringComparison.OrdinalIgnoreCase))
+                return true;
+            return false;
+        }
+
+        // No persona character defined — fall back to name match, but ONLY when it's safe:
+        // if an NPC shares the persona name, we can't distinguish and must NOT filter
+        // (avoids false positives, e.g. persona "Ken" accidentally excluding NPC "Ken").
+        if (!hasNpcNamedLikePersona
+            && string.Equals(entry.CharacterName, personaNameFallback, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
     private async Task OnSaveScenarioClicked()
     {
         // Snapshot manual stat overrides before any potential scenario rebuild
@@ -9641,10 +9678,15 @@ private void CloseInteractionInfo()
                         @* -- T058: Per-character Turn Overrides -- *@
                         <div class="rw-settings-section mt-3">
                             <div class="rw-settings-section-label">Per-Character Turn Overrides</div>
-                            @{ var personaCharName = _loadedScenario?.GetPersonaCharacter()?.Name?.Trim() ?? _session.PersonaName; }
+                            @{ var personaChar = _loadedScenario?.GetPersonaCharacter(); }
+                            @{ var personaNameForFallback = _session.PersonaName; }
+                            @{ var hasNpcNamedLikePersona = personaChar is null
+                                && _loadedScenario?.Characters.Any(c => !c.IsPersona
+                                    && !string.IsNullOrWhiteSpace(c.Name)
+                                    && string.Equals(c.Name.Trim(), personaNameForFallback, StringComparison.OrdinalIgnoreCase)) == true; }
                             @{ var overrideEntries = _session.CharacterPerspectives
                                 .Where(c => !string.IsNullOrWhiteSpace(c.CharacterName)
-                                    && !string.Equals(c.CharacterName, personaCharName, StringComparison.OrdinalIgnoreCase))
+                                    && !IsPersonaPerspectiveEntry(c, personaChar, personaNameForFallback, hasNpcNamedLikePersona))
                                 .ToList(); }
                             @if (overrideEntries.Count == 0 && _loadedScenario?.Characters.Any(c => !c.IsPersona && !string.IsNullOrWhiteSpace(c.Name)) == true)
                             {
