@@ -17,31 +17,33 @@ public sealed class RolePlaySession
 
     public string? ParentSessionId { get; set; }
 
-    /// <summary>The POV persona name ("You" perspective). Defaults to "You".</summary>
+    /// <summary>
+    /// DEPRECATED — persona is now a character in scenario.Characters with IsPersona==true.
+    /// Transitional stubs with compiled-in defaults. Call sites should migrate to
+    /// scenario.GetPersonaCharacter() lookups.
+    /// </summary>
+    [Obsolete("Persona is now a scenario Character with IsPersona=true. Use scenario.GetPersonaCharacter().")]
     public string PersonaName { get; set; } = "You";
 
-    /// <summary>Description/content of the POV persona (from template or manual).</summary>
+    [Obsolete("See PersonaName.")]
     public string PersonaDescription { get; set; } = string.Empty;
 
-    /// <summary>Active perspective mode for the persona in this session.</summary>
+    [Obsolete("See PersonaName.")]
     public CharacterPerspectiveMode PersonaPerspectiveMode { get; set; } = CharacterPerspectiveMode.FirstPersonInternalMonologue;
 
-    /// <summary>Optional link to the Persona template this was sourced from.</summary>
+    [Obsolete("See PersonaName.")]
     public string? PersonaTemplateId { get; set; }
 
-    /// <summary>Explicit persona gender used for strict adaptive profile matching.</summary>
+    [Obsolete("See PersonaName.")]
     public string PersonaGender { get; set; } = "Unknown";
 
-    /// <summary>Explicit persona role used for strict adaptive profile matching.</summary>
+    [Obsolete("See PersonaName.")]
     public string PersonaRole { get; set; } = "Unknown";
 
-    /// <summary>
-    /// Optional linked relation target for the persona, used to disambiguate paired roles.
-    /// Target can be a scenario character id.
-    /// </summary>
+    [Obsolete("See PersonaName.")]
     public string? PersonaRelationTargetId { get; set; }
 
-    /// <summary>Optional physical appearance data for the POV persona in this session.</summary>
+    [Obsolete("See PersonaName.")]
     public DreamGenClone.Domain.Templates.PhysicalAttributes? PersonaPhysicalAttributes { get; set; }
 
     public List<RolePlayInteraction> Interactions { get; set; } = [];
@@ -224,6 +226,20 @@ public sealed class RolePlaySession
 
     /// <summary>Schema compatibility marker used by RolePlay v2 validation.</summary>
     public string RolePlayV2SchemaVersion { get; set; } = "v2";
+
+    /// <summary>
+    /// Per-character turn overrides keyed by character name (case-insensitive).
+    /// Persona ("You") is excluded from this dictionary.
+    /// </summary>
+    public Dictionary<string, CharacterTurnOverride> CharacterTurnOverrides { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Transient cache of LLM-ordered actor names from last selection. Not persisted.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public List<string>? LastActorOrdering { get; set; }
+
+    /// <summary>Transient composite fingerprint from last selection cache hit. Not persisted.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? LastContextFingerprint { get; set; }
 }
 
 public sealed class RolePlayAssistantChatThread

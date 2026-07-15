@@ -32,7 +32,7 @@ public sealed class PersonaInteractionSelectionTests
                 ]
             }));
 
-        var created = await service.CreateSessionAsync("Persona Overflow", scenarioId: "sc1", personaName: "Alex");
+        var created = await service.CreateSessionAsync("Persona Overflow", scenarioId: "sc1");
         created.AutoNarrative = false;
         created.SceneContinueBatchSize = 2;
         await service.SaveSessionAsync(created);
@@ -64,7 +64,7 @@ public sealed class PersonaInteractionSelectionTests
                 ]
             }));
 
-        var created = await service.CreateSessionAsync("Persona Overflow Occasional", scenarioId: "sc1", personaName: "Alex");
+        var created = await service.CreateSessionAsync("Persona Overflow Occasional", scenarioId: "sc1");
         created.AutoNarrative = false;
         created.SceneContinueBatchSize = 3;
         created.Interactions.Add(new RolePlayInteraction { InteractionType = InteractionType.Npc, ActorName = "Aria", Content = "..." });
@@ -98,7 +98,7 @@ public sealed class PersonaInteractionSelectionTests
                 ]
             }));
 
-        var created = await service.CreateSessionAsync("Persona Batch1", scenarioId: "sc1", personaName: "Alex");
+        var created = await service.CreateSessionAsync("Persona Batch1", scenarioId: "sc1");
         created.AutoNarrative = false;
         created.SceneContinueBatchSize = 1;
         created.Interactions.Add(new RolePlayInteraction { InteractionType = InteractionType.Npc, ActorName = "Aria", Content = "..." });

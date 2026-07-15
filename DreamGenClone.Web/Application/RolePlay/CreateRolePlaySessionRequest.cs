@@ -13,17 +13,23 @@ public sealed class CreateRolePlaySessionRequest
 
     public string? ScenarioId { get; init; }
 
+    /// <summary>DEPRECATED — persona is now a scenario Character with IsPersona=true. Transitional stub.</summary>
+    [Obsolete("Persona is now a scenario Character with IsPersona=true.")]
     public string PersonaName { get; init; } = "You";
-
+    [Obsolete("See PersonaName.")]
     public string PersonaDescription { get; init; } = string.Empty;
-
+    [Obsolete("See PersonaName.")]
     public string? PersonaTemplateId { get; init; }
-
+    [Obsolete("See PersonaName.")]
     public string PersonaGender { get; init; } = "Unknown";
-
+    [Obsolete("See PersonaName.")]
     public string PersonaRole { get; init; } = "Unknown";
-
+    [Obsolete("See PersonaName.")]
     public string? PersonaRelationTargetId { get; init; }
+    [Obsolete("See PersonaName.")]
+    public IReadOnlyDictionary<string, int> PersonaStatOverrides { get; init; } = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+    [Obsolete("See PersonaName.")]
+    public DreamGenClone.Domain.Templates.PhysicalAttributes? PersonaPhysicalAttributes { get; init; }
 
     /// <summary>
     /// Explicit per-session theme selections set by the user during session create.
@@ -39,19 +45,9 @@ public sealed class CreateRolePlaySessionRequest
     public IReadOnlyDictionary<string, Dictionary<string, int>> CharacterStatOverrides { get; init; }
         = new Dictionary<string, Dictionary<string, int>>(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>
-    /// Starting stat overrides for the persona character, keyed by stat name.
-    /// Applied after the persona template stats are seeded.
-    /// </summary>
-    public IReadOnlyDictionary<string, int> PersonaStatOverrides { get; init; }
-        = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-
     /// <summary>Per-character encounter profile IDs, keyed by character ID.</summary>
     public IReadOnlyDictionary<string, string> CharacterEncounterProfileIds { get; init; }
         = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-
-    /// <summary>Optional physical appearance data for the POV persona.</summary>
-    public DreamGenClone.Domain.Templates.PhysicalAttributes? PersonaPhysicalAttributes { get; init; }
 
     /// <summary>
     /// Optional per-session override for the maximum number of phase milestones to inject into

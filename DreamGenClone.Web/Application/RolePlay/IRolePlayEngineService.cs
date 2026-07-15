@@ -8,12 +8,6 @@ public interface IRolePlayEngineService
     Task<RolePlaySession> CreateSessionAsync(
         string title,
         string? scenarioId = null,
-        string personaName = "You",
-        string personaDescription = "",
-        string? personaTemplateId = null,
-        string personaGender = "Unknown",
-        string personaRole = "Unknown",
-        string? personaRelationTargetId = null,
         CancellationToken cancellationToken = default);
 
     Task<RolePlaySession> CreateSessionAsync(

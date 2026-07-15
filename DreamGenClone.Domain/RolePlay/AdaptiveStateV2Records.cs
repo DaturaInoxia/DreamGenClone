@@ -99,6 +99,7 @@ public sealed class SemanticEventRecord
     public string Direction { get; set; } = string.Empty;
     public List<string> ThemeTargets { get; set; } = [];
     public DateTime ProcessedUtc { get; set; } = DateTime.UtcNow;
+    public string? ActorName { get; set; }
 }
 
 /// <summary>

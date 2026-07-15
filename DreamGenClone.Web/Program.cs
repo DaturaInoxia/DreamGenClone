@@ -89,6 +89,8 @@ builder.Services.AddScoped<IRolePlayAutoCompleteService, RolePlayAutoCompleteSer
 builder.Services.AddScoped<IRolePlayContinuationService, RolePlayContinuationService>();
 builder.Services.AddScoped<IRolePlayAdaptiveStateService, RolePlayAdaptiveStateService>();
 builder.Services.AddScoped<ISemanticEventInferenceService, SemanticEventInferenceService>();
+builder.Services.AddScoped<ILocationDetectionService, LocationDetectionService>();
+builder.Services.AddScoped<IActorSelectionService, ActorSelectionService>();
 builder.Services.AddScoped<IRolePlayPromptRouter, RolePlayPromptRouter>();
 builder.Services.AddScoped<IRolePlayIdentityOptionsService, RolePlayIdentityOptionsService>();
 builder.Services.AddScoped<IBehaviorModeService, BehaviorModeService>();
@@ -207,6 +209,7 @@ builder.Services.AddSingleton<GenericBackgroundJobQueue>();
 builder.Services.AddSingleton<IBackgroundJobQueue>(sp => sp.GetRequiredService<GenericBackgroundJobQueue>());
 builder.Services.AddScoped<IBackgroundJobHandler, SemanticInteractionAnalysisJobHandler>();
 builder.Services.AddScoped<IBackgroundJobHandler, EncounterSummaryJobHandler>();
+builder.Services.AddScoped<IBackgroundJobHandler, LocationDetectionJobHandler>();
 builder.Services.AddHostedService<GenericBackgroundJobWorker>();
 builder.Services.AddSingleton<SemanticBackgroundJobQueue>();
 builder.Services.AddSingleton<ISemanticBackgroundJobQueue>(sp => sp.GetRequiredService<SemanticBackgroundJobQueue>());

@@ -326,24 +326,12 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     public Task<RolePlaySession> CreateSessionAsync(
         string title,
         string? scenarioId = null,
-        string personaName = "You",
-        string personaDescription = "",
-        string? personaTemplateId = null,
-        string personaGender = "Unknown",
-        string personaRole = "Unknown",
-        string? personaRelationTargetId = null,
         CancellationToken cancellationToken = default)
     {
         return CreateSessionAsync(new CreateRolePlaySessionRequest
         {
             Title = title,
             ScenarioId = scenarioId,
-            PersonaName = personaName,
-            PersonaDescription = personaDescription,
-            PersonaTemplateId = personaTemplateId,
-            PersonaGender = personaGender,
-            PersonaRole = personaRole,
-            PersonaRelationTargetId = personaRelationTargetId,
         }, cancellationToken);
     }
 
@@ -2279,7 +2267,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 var aftermathActors = new List<OverflowActorCandidate>
                 {
                     new OverflowActorCandidate(ContinueAsActor.Npc, aftermathSpouseName!, "Aftermath wife — spouse of persona."),
-                    new OverflowActorCandidate(ContinueAsActor.Npc, aftermathPersonaName, "Aftermath husband — persona's partner.")
+                    new OverflowActorCandidate(ContinueAsActor.You, aftermathPersonaName, "Aftermath husband — persona's partner.")
                 };
                 _logger.LogDebug(
                     "AftermathActorFilter: wife={WifeName}, husband={HusbandName}, SessionId={SessionId}",
@@ -2346,7 +2334,6 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
         var personaName = string.IsNullOrWhiteSpace(session.PersonaName) ? "You" : session.PersonaName.Trim();
         sceneCharacterNames = sceneCharacterNames
-            .Where(name => !string.Equals(name, personaName, StringComparison.OrdinalIgnoreCase))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
@@ -2423,7 +2410,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             }
         }
 
-        if (autoAllowedActors.Contains(ContinueAsActor.You))
+        if (false && autoAllowedActors.Contains(ContinueAsActor.You)) // Persona unified via ResolveAvailableCharacters
         {
             // Persona is always a candidate � treated as a full character in the rotation.
             var personaInScene = IsActorInCurrentScene(session, personaName, currentSceneLocation);

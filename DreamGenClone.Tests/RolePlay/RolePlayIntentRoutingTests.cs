@@ -37,7 +37,7 @@ public sealed class RolePlayIntentRoutingTests
     {
         var continuation = new RecordingContinuationService();
         var (service, _) = CreateService(continuation);
-        var session = await service.CreateSessionAsync("Routing Test", personaName: "Pilot");
+        var session = await service.CreateSessionAsync("Routing Test");
 
         var submission = new UnifiedPromptSubmission
         {
@@ -68,7 +68,7 @@ public sealed class RolePlayIntentRoutingTests
     {
         var continuation = new RecordingContinuationService();
         var (service, _) = CreateService(continuation);
-        var session = await service.CreateSessionAsync("Routing Test", personaName: "Pilot");
+        var session = await service.CreateSessionAsync("Routing Test");
 
         var submission = new UnifiedPromptSubmission
         {
@@ -96,7 +96,7 @@ public sealed class RolePlayIntentRoutingTests
     {
         var continuation = new RecordingContinuationService();
         var (service, _) = CreateService(continuation);
-        var session = await service.CreateSessionAsync("Routing Test", personaName: "Pilot");
+        var session = await service.CreateSessionAsync("Routing Test");
 
         var submission = new UnifiedPromptSubmission
         {
@@ -118,7 +118,7 @@ public sealed class RolePlayIntentRoutingTests
     {
         var continuation = new RecordingContinuationService();
         var (service, _) = CreateService(continuation);
-        var session = await service.CreateSessionAsync("Routing Test", personaName: "Pilot");
+        var session = await service.CreateSessionAsync("Routing Test");
 
         var submission = new UnifiedPromptSubmission
         {
