@@ -1277,6 +1277,70 @@
         }
     }
 
+    // ---- T057/T058/T059: Time-of-day + Turn-override + Batch-size handlers ----
+
+    private async Task OnTimeOfDayOverrideChanged(ChangeEventArgs e)
+    {
+        if (_session is null) return;
+        var value = e.Value?.ToString();
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            _session.AdaptiveState.TimeOfDayManuallySet = false;
+        }
+        else if (Enum.TryParse<TimeOfDay>(value, out var parsed))
+        {
+            _session.AdaptiveState.TimeOfDayManuallySet = true;
+            _session.AdaptiveState.CurrentTimeOfDay = parsed;
+        }
+        await SaveSessionSettingsAsync();
+    }
+
+    private async Task OnSceneContinueBatchSizeChanged(ChangeEventArgs e)
+    {
+        if (_session is null) return;
+        if (int.TryParse(e.Value?.ToString(), out var parsed) && parsed >= 1 && parsed <= 6)
+        {
+            _session.SceneContinueBatchSize = parsed;
+            await SaveSessionSettingsAsync();
+        }
+    }
+
+    private async Task OnParticipateInAutoContinueChanged(string characterName, ChangeEventArgs e)
+    {
+        if (_session is null) return;
+        var participate = e.Value is bool b && b;
+        var ov = _session.CharacterTurnOverrides.TryGetValue(characterName, out var existing)
+            ? existing
+            : new CharacterTurnOverride { CharacterName = characterName };
+        ov.ParticipateInAutoContinue = participate;
+        _session.CharacterTurnOverrides[characterName] = ov;
+        await SaveSessionSettingsAsync();
+    }
+
+    private async Task OnResponsePriorityChanged(string characterName, ChangeEventArgs e)
+    {
+        if (_session is null) return;
+        var priority = int.TryParse(e.Value?.ToString(), out var p) ? Math.Clamp(p, 0, 100) : 0;
+        var ov = _session.CharacterTurnOverrides.TryGetValue(characterName, out var existing)
+            ? existing
+            : new CharacterTurnOverride { CharacterName = characterName };
+        ov.ResponsePriority = priority;
+        _session.CharacterTurnOverrides[characterName] = ov;
+        await SaveSessionSettingsAsync();
+    }
+
+    private async Task OnPreferredPositionChanged(string characterName, string? value)
+    {
+        if (_session is null) return;
+        var pos = Enum.TryParse<PreferredTurnPosition>(value, out var parsed) ? parsed : PreferredTurnPosition.Auto;
+        var ov = _session.CharacterTurnOverrides.TryGetValue(characterName, out var existing)
+            ? existing
+            : new CharacterTurnOverride { CharacterName = characterName };
+        ov.PreferredPosition = pos;
+        _session.CharacterTurnOverrides[characterName] = ov;
+        await SaveSessionSettingsAsync();
+    }
+
     // Phase 3b (additive parallel): loads the V2 AdaptiveScenarioState mirror from the repository.
     // Read sites in this razor are migrated panel-by-panel; until each is migrated they keep
     // reading _session.AdaptiveState (V1). The V1->V2 bridge populates the V2 store on save.
@@ -9529,6 +9593,87 @@ private void CloseInteractionInfo()
                                                        @onchange="@(e => SetPersonaLiveSessionStat(statName, e.Value?.ToString()))" />
                                             </div>
                                         }
+                                    </div>
+                                </div>
+                            }
+                        </div>
+
+                        @* -- T057: Time of Day display + manual override -- *@
+                        <div class="rw-settings-section mt-3">
+                            <div class="rw-settings-section-label">Time of Day</div>
+                            <div class="rw-scenario-field">
+                                <span class="rw-adaptive-note">
+                                    Current: @(_session.AdaptiveState.CurrentTimeOfDay?.ToString() ?? "(unknown)")
+                                    @if (_session.AdaptiveState.TimeOfDayManuallySet)
+                                    {
+                                        <span class="badge bg-warning ms-2">Manual</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-secondary ms-2">Auto</span>
+                                    }
+                                </span>
+                            </div>
+                            <div class="rw-scenario-field">
+                                <label class="rw-scenario-field-label">Override</label>
+                                <select class="rw-settings-input" @onchange="@OnTimeOfDayOverrideChanged">
+                                    <option value="" selected="@(!_session.AdaptiveState.TimeOfDayManuallySet)">Auto</option>
+                                    @foreach (var tod in Enum.GetValues<TimeOfDay>())
+                                    {
+                                        <option value="@tod" selected="@(_session.AdaptiveState.TimeOfDayManuallySet && _session.AdaptiveState.CurrentTimeOfDay == tod)">@tod</option>
+                                    }
+                                </select>
+                            </div>
+                        </div>
+
+                        @* -- T059: Scene Continue Batch Size -- *@
+                        <div class="rw-settings-section mt-3">
+                            <div class="rw-settings-section-label">Overflow Continue Batch Size</div>
+                            <div class="rw-scenario-field">
+                                <input type="range" min="1" max="6" step="1"
+                                       value="@_session.SceneContinueBatchSize"
+                                       @onchange="@OnSceneContinueBatchSizeChanged"
+                                       class="rw-settings-slider" style="width:120px;" />
+                                <span class="small text-muted ms-2">@_session.SceneContinueBatchSize</span>
+                            </div>
+                        </div>
+
+                        @* -- T058: Per-character Turn Overrides -- *@
+                        <div class="rw-settings-section mt-3">
+                            <div class="rw-settings-section-label">Per-Character Turn Overrides</div>
+                            @{ var personaCharName = _loadedScenario?.GetPersonaCharacter()?.Name?.Trim() ?? _session.PersonaName; }
+                            @foreach (var cp in _session.CharacterPerspectives.Where(c => !string.IsNullOrWhiteSpace(c.CharacterName)
+                                 && !string.Equals(c.CharacterName, personaCharName, StringComparison.OrdinalIgnoreCase)))
+                            {
+                                var charName = cp.CharacterName!;
+                                var hasOverride = _session.CharacterTurnOverrides.TryGetValue(charName, out var turnOverride);
+                                var participate = hasOverride ? turnOverride!.ParticipateInAutoContinue : true;
+                                var priority = hasOverride ? turnOverride!.ResponsePriority ?? 0 : 0;
+                                var preferred = hasOverride ? turnOverride!.PreferredPosition : PreferredTurnPosition.Auto;
+                                <div class="rw-scenario-field">
+                                    <label class="rw-scenario-field-label">@charName</label>
+                                    <div class="d-flex gap-3 align-items-center">
+                                        <label class="form-check form-check-sm">
+                                            <input type="checkbox" class="form-check-input"
+                                                   checked="@participate"
+                                                   @onchange="@(e => OnParticipateInAutoContinueChanged(charName, e))" /> Auto-participate
+                                        </label>
+                                        <label class="small">Priority:
+                                            <input type="range" min="0" max="100" step="1"
+                                                   value="@priority"
+                                                   @onchange="@(e => OnResponsePriorityChanged(charName, e))"
+                                                   class="rw-settings-slider" style="width:100px;" />
+                                            <span class="small text-muted ms-1">@priority</span>
+                                        </label>
+                                        <label class="small">Position:
+                                            <select class="form-select form-select-sm" style="width:90px;"
+                                                    value="@preferred"
+                                                    @onchange="@(e => OnPreferredPositionChanged(charName, e.Value?.ToString()))">
+                                                <option value="Auto" selected="@(preferred == PreferredTurnPosition.Auto)">Auto</option>
+                                                <option value="First" selected="@(preferred == PreferredTurnPosition.First)">First</option>
+                                                <option value="Last" selected="@(preferred == PreferredTurnPosition.Last)">Last</option>
+                                            </select>
+                                        </label>
                                     </div>
                                 </div>
                             }
