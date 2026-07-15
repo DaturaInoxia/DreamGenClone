@@ -9413,15 +9413,20 @@ private void CloseInteractionInfo()
                             }
                         </div>
 
-                        @* -- Persona -- *@
-                        <div class="rw-collapsible-section">
+                        @* -- Persona (deprecated: persona is now a scenario Character with IsPersona=true; edit it in the Characters section above) -- *@
+                        <div class="rw-collapsible-section rw-deprecated">
                             <button class="rw-collapsible-header" @onclick="@(() => ToggleScenarioSection("persona"))">
                                 <span class="rw-collapsible-chevron @(_expandedScenarioSections.Contains("persona") ? "is-open" : "")">›</span>
-                                <span class="rw-collapsible-title">Persona</span>
+                                <span class="rw-collapsible-title">Persona (legacy)</span>
                             </button>
                             @if (_expandedScenarioSections.Contains("persona"))
                             {
                                 <div class="rw-collapsible-body">
+                                    <div class="rw-adaptive-note mb-2">
+                                        The persona is now configured as a scenario character flagged with IsPersona=true
+                                        (added from the Scenario Editor). The fields below remain editable for legacy
+                                        sessions but changes here are not recommended — use the Characters section above.
+                                    </div>
                                     <div class="rw-scenario-field">
                                         <label class="rw-scenario-field-label">Name</label>
                                         <input class="rw-settings-input"
