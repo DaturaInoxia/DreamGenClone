@@ -2838,12 +2838,16 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             && !string.Equals(session.PersonaName.Trim(), "You", StringComparison.OrdinalIgnoreCase))
             characterNames.Add(session.PersonaName.Trim());
 
-        var recentInteractionSummaries = session.Interactions
-            .Where(i => (i.InteractionType == InteractionType.Npc || i.InteractionType == InteractionType.Custom)
-                && !i.IsExcluded && !string.IsNullOrWhiteSpace(i.Content))
-            .TakeLast(3)
-            .Select(i => i.Content!.Length > 200 ? i.Content[..197] + "..." : i.Content!)
+        // Send only interactions generated since the last location detection enqueue.
+        var lastCount = session.LastLocationDetectionInteractionCount;
+        var newInteractions = session.Interactions
+            .Where(i => !i.IsExcluded && !string.IsNullOrWhiteSpace(i.Content))
+            .Skip(lastCount)
             .ToList();
+        var recentInteractionSummaries = newInteractions.Select(i => i.Content!).ToList();
+
+        // Track count so next enqueue only sends interactions from the next turn.
+        session.LastLocationDetectionInteractionCount = session.Interactions.Count;
 
         var payload = new LocationDetectionJobPayload
         {

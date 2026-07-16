@@ -240,6 +240,10 @@ public sealed class RolePlaySession
     /// <summary>Transient composite fingerprint from last selection cache hit. Not persisted.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public string? LastContextFingerprint { get; set; }
+
+    /// <summary>Transient interaction count at last location detection enqueue. Not persisted.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public int LastLocationDetectionInteractionCount { get; set; }
 }
 
 public sealed class RolePlayAssistantChatThread

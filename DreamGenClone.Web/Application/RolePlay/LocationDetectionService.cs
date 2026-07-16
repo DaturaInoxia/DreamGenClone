@@ -64,11 +64,12 @@ public sealed class LocationDetectionService : ILocationDetectionService
         }
 
         var systemMessage =
-            "You detect the current scene location from roleplay narrative text. " +
+            "You detect the current scene location and time of day from roleplay narrative text. " +
             "Output ONLY strict JSON. Never include markdown. " +
-            "Schema: {\"detectedLocation\":\"<name or null>\",\"confidence\":0.0,\"perCharacterLocations\":{\"<characterName>\":\"<locationName or null>\"},\"reasoning\":\"<one sentence>\"}. " +
+            "Schema: {\"detectedLocation\":\"<name or null>\",\"confidence\":0.0,\"perCharacterLocations\":{\"<characterName>\":\"<locationName or null>\"},\"detectedTimeOfDay\":\"<Morning|Afternoon|Evening|Night or null>\",\"reasoning\":\"<one sentence>\"}. " +
             "Rules: " +
             "detectedLocation MUST be one of the provided scenarioLocationNames, or null if no location is clearly identifiable. " +
+            "detectedTimeOfDay MUST be one of [Morning, Afternoon, Evening, Night] or null. Detect from narrative cues: sunlight, time references, activities (breakfast→Morning, dinner→Evening), atmosphere. " +
             "confidence is a decimal in [0,1]; values below 0.5 should return null for detectedLocation. " +
             "perCharacterLocations is optional; each value MUST also be one of scenarioLocationNames or null. " +
             "If recentInteractions consistently reference the previousLocation with no transition language, return detectedLocation=previousLocation. " +
@@ -79,11 +80,15 @@ public sealed class LocationDetectionService : ILocationDetectionService
         var namesJson = JsonSerializer.Serialize(request.ScenarioLocationNames, JsonOptions);
         var charsJson = JsonSerializer.Serialize(request.CharacterNames, JsonOptions);
         var interactionsText = string.Join("\n", request.RecentInteractions);
+        var affinityHint = string.IsNullOrWhiteSpace(request.CharacterLocationAffinityContext)
+            ? string.Empty
+            : $"characterLocationAffinities={request.CharacterLocationAffinityContext}\n";
         var userMessage =
             $"sessionId={request.SessionId}\n" +
             $"previousLocation={request.PreviousLocation ?? "(none)"}\n" +
             $"scenarioLocationNames={namesJson}\n" +
             $"characterNames={charsJson}\n" +
+            $"{affinityHint}" +
             $"recentInteractions={interactionsText}";
 
         _logger?.LogInformation(
@@ -266,6 +271,7 @@ public sealed class LocationDetectionService : ILocationDetectionService
             LocationConfidence = confidence,
             PerCharacterLocations = perCharacter,
             Reasoning = envelope?.Reasoning?.Trim(),
+            DetectedTimeOfDay = envelope?.DetectedTimeOfDay,
             RawModelOutput = modelOutput,
             PromptSystem = string.Empty,
             PromptUser = string.Empty,
@@ -279,5 +285,6 @@ public sealed class LocationDetectionService : ILocationDetectionService
         public decimal? Confidence { get; set; }
         public Dictionary<string, string?>? PerCharacterLocations { get; set; }
         public string? Reasoning { get; set; }
+        public string? DetectedTimeOfDay { get; set; }
     }
 }

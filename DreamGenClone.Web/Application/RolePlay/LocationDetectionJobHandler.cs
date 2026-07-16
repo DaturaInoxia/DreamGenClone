@@ -81,13 +81,38 @@ public sealed class LocationDetectionJobHandler : IBackgroundJobHandler
             return;
         }
 
+        // Build character-location affinity context from scenario so the LLM
+        // knows which character lives/works at which location.
+        string? characterAffinityContext = null;
+        var session = await _sessionService.LoadRolePlaySessionAsync(payload.SessionId, cancellationToken);
+        if (session is not null && !string.IsNullOrWhiteSpace(session.ScenarioId))
+        {
+            var scenario = await _scenarioService.GetScenarioAsync(session.ScenarioId);
+            if (scenario is not null)
+            {
+                var affinityLines = new List<string>();
+                foreach (var character in scenario.Characters)
+                {
+                    if (string.IsNullOrWhiteSpace(character.Name)) continue;
+                    var required = character.LocationAffinities
+                        .Where(a => a.AffinityType == DreamGenClone.Web.Domain.Scenarios.AffinityType.Required)
+                        .Select(a => a.LocationName).Where(n => !string.IsNullOrWhiteSpace(n)).ToList();
+                    if (required.Count > 0)
+                        affinityLines.Add($"{character.Name.Trim()} belongs to: {string.Join(", ", required)}");
+                }
+                if (affinityLines.Count > 0)
+                    characterAffinityContext = string.Join("; ", affinityLines);
+            }
+        }
+
         var request = new LocationDetectionRequest
         {
             SessionId = payload.SessionId,
             RecentInteractions = payload.RecentInteractionSummaries,
             ScenarioLocationNames = payload.ScenarioLocationNames,
             PreviousLocation = adaptiveState.CurrentSceneLocation ?? payload.PreviousLocation,
-            CharacterNames = payload.CharacterNames
+            CharacterNames = payload.CharacterNames,
+            CharacterLocationAffinityContext = characterAffinityContext
         };
 
         LocationDetectionResult result;
@@ -158,6 +183,14 @@ public sealed class LocationDetectionJobHandler : IBackgroundJobHandler
         // Update the current scene location
         adaptiveState.CurrentSceneLocation = result.DetectedLocation ?? previousLocation;
 
+        // Apply time-of-day from LLM detection (respect manual override)
+        if (!adaptiveState.TimeOfDayManuallySet
+            && !string.IsNullOrWhiteSpace(result.DetectedTimeOfDay)
+            && Enum.TryParse<DreamGenClone.Domain.RolePlay.TimeOfDay>(result.DetectedTimeOfDay, ignoreCase: true, out var tod))
+        {
+            adaptiveState.CurrentTimeOfDay = tod;
+        }
+
         await _stateRepository.SaveAdaptiveStateAsync(adaptiveState, cancellationToken);
 
         _logger.LogInformation(
@@ -183,6 +216,7 @@ public sealed class LocationDetectionJobHandler : IBackgroundJobHandler
                 confidence = result.LocationConfidence,
                 locationChanged = result.LocationChanged,
                 reasoning = result.Reasoning,
+                detectedTimeOfDay = result.DetectedTimeOfDay,
                 perCharacterLocations = result.PerCharacterLocations
             })
         }, cancellationToken);
