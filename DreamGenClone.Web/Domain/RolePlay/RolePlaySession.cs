@@ -17,33 +17,20 @@ public sealed class RolePlaySession
 
     public string? ParentSessionId { get; set; }
 
-    /// <summary>
-    /// DEPRECATED — persona is now a character in scenario.Characters with IsPersona==true.
-    /// Transitional stubs with compiled-in defaults. Call sites should migrate to
-    /// scenario.GetPersonaCharacter() lookups.
-    /// </summary>
-    [Obsolete("Persona is now a scenario Character with IsPersona=true. Use scenario.GetPersonaCharacter().")]
     public string PersonaName { get; set; } = "You";
 
-    [Obsolete("See PersonaName.")]
     public string PersonaDescription { get; set; } = string.Empty;
 
-    [Obsolete("See PersonaName.")]
     public CharacterPerspectiveMode PersonaPerspectiveMode { get; set; } = CharacterPerspectiveMode.FirstPersonInternalMonologue;
 
-    [Obsolete("See PersonaName.")]
     public string? PersonaTemplateId { get; set; }
 
-    [Obsolete("See PersonaName.")]
     public string PersonaGender { get; set; } = "Unknown";
 
-    [Obsolete("See PersonaName.")]
     public string PersonaRole { get; set; } = "Unknown";
 
-    [Obsolete("See PersonaName.")]
     public string? PersonaRelationTargetId { get; set; }
 
-    [Obsolete("See PersonaName.")]
     public DreamGenClone.Domain.Templates.PhysicalAttributes? PersonaPhysicalAttributes { get; set; }
 
     public List<RolePlayInteraction> Interactions { get; set; } = [];

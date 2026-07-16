@@ -173,10 +173,6 @@ public class Scenario
     public Dictionary<string, int> ResolvedBaseStats { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// DEPRECATED — persona's perspective mode now lives on the persona Character's PerspectiveMode.
-    /// Transitional stub kept for serialization compatibility and existing call sites.
-    /// </summary>
-    [Obsolete("Persona perspective mode is now on the persona Character's PerspectiveMode.")]
     public CharacterPerspectiveMode DefaultPersonaPerspectiveMode { get; set; } = CharacterPerspectiveMode.FirstPersonInternalMonologue;
 
     /// <summary>

@@ -20,9 +20,7 @@ public static class RolePlaySessionExtensions
     {
         if (actor == ContinueAsActor.You || string.Equals(actorName, session.PersonaName, StringComparison.OrdinalIgnoreCase))
         {
-            return Enum.IsDefined(session.PersonaPerspectiveMode)
-                ? session.PersonaPerspectiveMode
-                : CharacterPerspectiveMode.FirstPersonInternalMonologue;
+            return CharacterPerspectiveMode.FirstPersonInternalMonologue;
         }
 
         return ResolveCharacterPerspectiveMode(session, actorName);
@@ -32,7 +30,7 @@ public static class RolePlaySessionExtensions
     {
         if (interactionType == InteractionType.User || string.Equals(actorName, session.PersonaName, StringComparison.OrdinalIgnoreCase))
         {
-            return session.PersonaPerspectiveMode;
+            return CharacterPerspectiveMode.FirstPersonInternalMonologue;
         }
 
         return ResolveCharacterPerspectiveMode(session, actorName);

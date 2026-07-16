@@ -13,22 +13,13 @@ public sealed class CreateRolePlaySessionRequest
 
     public string? ScenarioId { get; init; }
 
-    /// <summary>DEPRECATED — persona is now a scenario Character with IsPersona=true. Transitional stub.</summary>
-    [Obsolete("Persona is now a scenario Character with IsPersona=true.")]
     public string PersonaName { get; init; } = "You";
-    [Obsolete("See PersonaName.")]
     public string PersonaDescription { get; init; } = string.Empty;
-    [Obsolete("See PersonaName.")]
     public string? PersonaTemplateId { get; init; }
-    [Obsolete("See PersonaName.")]
     public string PersonaGender { get; init; } = "Unknown";
-    [Obsolete("See PersonaName.")]
     public string PersonaRole { get; init; } = "Unknown";
-    [Obsolete("See PersonaName.")]
     public string? PersonaRelationTargetId { get; init; }
-    [Obsolete("See PersonaName.")]
     public IReadOnlyDictionary<string, int> PersonaStatOverrides { get; init; } = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-    [Obsolete("See PersonaName.")]
     public DreamGenClone.Domain.Templates.PhysicalAttributes? PersonaPhysicalAttributes { get; init; }
 
     /// <summary>
