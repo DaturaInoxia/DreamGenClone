@@ -2681,7 +2681,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 var request = new ActorSelectionRequest
                 {
                     SessionId = session.Id,
-                    NarrativeSummary = BuildNarrativeSummary(session, lastN: 3),
+                    NarrativeSummary = BuildNarrativeSummary(session, lastN: Math.Max(3, session.SceneContinueBatchSize)),
                     CurrentPhase = session.AdaptiveState.CurrentPhase.ToString(),
                     CurrentLocation = currentSceneLocation,
                     CurrentTimeOfDay = session.AdaptiveState.CurrentTimeOfDay?.ToString(),
