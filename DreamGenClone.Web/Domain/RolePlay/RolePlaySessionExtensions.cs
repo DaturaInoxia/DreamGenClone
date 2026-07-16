@@ -2,6 +2,20 @@ namespace DreamGenClone.Web.Domain.RolePlay;
 
 public static class RolePlaySessionExtensions
 {
+    /// <summary>
+    /// Returns true when the given actor name or ID matches the session's persona character.
+    /// </summary>
+    public static bool IsPersonaActor(this RolePlaySession session, string? actorNameOrId)
+    {
+        if (string.IsNullOrWhiteSpace(actorNameOrId)) return false;
+
+        var personaName = string.IsNullOrWhiteSpace(session.PersonaName) ? "You" : session.PersonaName.Trim();
+        if (string.Equals(personaName, "You", StringComparison.OrdinalIgnoreCase))
+            return false; // "You" is too generic to match
+
+        return string.Equals(actorNameOrId.Trim(), personaName, StringComparison.OrdinalIgnoreCase);
+    }
+
     public static CharacterPerspectiveMode ResolvePerspectiveMode(this RolePlaySession session, ContinueAsActor actor, string actorName)
     {
         if (actor == ContinueAsActor.You || string.Equals(actorName, session.PersonaName, StringComparison.OrdinalIgnoreCase))

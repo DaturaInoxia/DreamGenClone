@@ -1329,6 +1329,7 @@
             _session.AdaptiveState.TimeOfDayManuallySet = true;
             _session.AdaptiveState.CurrentTimeOfDay = parsed;
         }
+        MarkScenarioDirty();
         await SaveSessionSettingsAsync();
     }
 
@@ -1338,6 +1339,7 @@
         if (int.TryParse(e.Value?.ToString(), out var parsed) && parsed >= 1 && parsed <= 6)
         {
             _session.SceneContinueBatchSize = parsed;
+            MarkScenarioDirty();
             await SaveSessionSettingsAsync();
         }
     }
@@ -1351,6 +1353,7 @@
             : new CharacterTurnOverride { CharacterName = characterName };
         ov.ParticipateInAutoContinue = participate;
         _session.CharacterTurnOverrides[characterName] = ov;
+        MarkScenarioDirty();
         await SaveSessionSettingsAsync();
     }
 
@@ -1363,6 +1366,7 @@
             : new CharacterTurnOverride { CharacterName = characterName };
         ov.ResponsePriority = priority;
         _session.CharacterTurnOverrides[characterName] = ov;
+        MarkScenarioDirty();
         await SaveSessionSettingsAsync();
     }
 
@@ -1375,6 +1379,7 @@
             : new CharacterTurnOverride { CharacterName = characterName };
         ov.PreferredPosition = pos;
         _session.CharacterTurnOverrides[characterName] = ov;
+        MarkScenarioDirty();
         await SaveSessionSettingsAsync();
     }
 

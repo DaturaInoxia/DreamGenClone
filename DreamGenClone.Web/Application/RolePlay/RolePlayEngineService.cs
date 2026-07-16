@@ -18,6 +18,8 @@ using DreamGenClone.Infrastructure.Configuration;
 using DreamGenClone.Infrastructure.Logging;
 using DreamGenClone.Infrastructure.RolePlay;
 using DreamGenClone.Web.Application.BackgroundJobs;
+using DreamGenClone.Web.Application.RolePlay.Models;
+using DreamGenClone.Web.Domain.Scenarios;
 using Microsoft.Extensions.Options;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -43,42 +45,6 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 session.AdaptiveState.ObservedTurnCount);
         }
     }
-
-    private static readonly string[] GenericLocationNames =
-    [
-        "Living Room",
-        "Game Room",
-        "Guest Room",
-        "Guest Bedroom",
-        "Kitchen",
-        "Bedroom",
-        "Bathroom",
-        "Office",
-        "Study",
-        "Garden",
-        "Patio",
-        "Balcony",
-        "Hall",
-        "Hallway",
-        "Corridor",
-        "Lounge",
-        "Bar",
-        "Club",
-        "Restaurant",
-        "Cafe",
-        "Coffee Shop",
-        "Outside",
-        "Outdoors",
-        "Park",
-        "Street",
-        "Car",
-        "Parking Lot",
-        "Backyard",
-        "Garage",
-        "Dining Room",
-        "Pool",
-        "Library"
-    ];
 
     private static readonly ConcurrentDictionary<string, RolePlaySession> Sessions = new();
     private static readonly IReadOnlyDictionary<string, (string Label, IReadOnlyDictionary<string, int> Deltas)> DecisionOptionCatalog =
@@ -185,6 +151,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     private readonly IOptions<RolePlayMemoryOptions>? _memoryOptions;
     private readonly IStatWillingnessProfileService? _statWillingnessProfileService;
     private readonly ISemanticEventInferenceService? _semanticEventInferenceService;
+    private readonly IActorSelectionService? _actorSelectionService;
 
     // ---- Encounter participation: keyword heuristic (Change 1: sync tier) --------------------
     private static readonly string[] SexualActivityKeywords = new[]
@@ -272,7 +239,8 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         IEncounterSummaryService? encounterSummaryService = null,
         IOptions<RolePlayMemoryOptions>? memoryOptions = null,
         IStatWillingnessProfileService? statWillingnessProfileService = null,
-        ISemanticEventInferenceService? semanticEventInferenceService = null)
+        ISemanticEventInferenceService? semanticEventInferenceService = null,
+        IActorSelectionService? actorSelectionService = null)
     {
         _continuationService = continuationService;
         _behaviorModeService = behaviorModeService;
@@ -321,6 +289,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         _memoryOptions = memoryOptions;
         _statWillingnessProfileService = statWillingnessProfileService;
         _semanticEventInferenceService = semanticEventInferenceService;
+        _actorSelectionService = actorSelectionService;
     }
 
     public Task<RolePlaySession> CreateSessionAsync(
@@ -396,6 +365,18 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 session.SelectedSteeringProfileId = scenario.DefaultSteeringProfileId;
                 session.IntensityFloorOverride = scenario.DefaultIntensityFloor;
                 session.IntensityCeilingOverride = scenario.DefaultIntensityCeiling;
+
+                // Seed initial scene location from scenario default (T029).
+                if (!string.IsNullOrWhiteSpace(scenario.DefaultStartingLocationId))
+                {
+                    var startLocation = scenario.Locations
+                        .FirstOrDefault(l => string.Equals(l.Id, scenario.DefaultStartingLocationId, StringComparison.OrdinalIgnoreCase));
+                    if (startLocation is not null && !string.IsNullOrWhiteSpace(startLocation.Name))
+                        session.AdaptiveState.CurrentSceneLocation = startLocation.Name.Trim();
+                }
+
+                // Seed default time of day from scenario (T029).
+                session.AdaptiveState.CurrentTimeOfDay = scenario.DefaultTimeOfDay;
 
                 // Per-session theme selections override the scenario's default RP theme profile.
                 // Set BEFORE SeedFromScenarioAsync so the tracker is seeded from selections exclusively.
@@ -2234,6 +2215,285 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         return true;
     }
 
+    // ── Actor Selection Scoring Constants (per spec research.md R9) ──
+    private const double ScoreLocationMatch = 1000.0;
+    private const double ScoreAffinityRequired = 500.0;
+    private const double ScoreAffinityPreferred = 200.0;
+    private const double ScoreAffinityExcluded = -1000.0;
+    private const double ScoreAffinityTimeMismatch = -500.0;
+    private const double ScoreAffinityTimeMatch = 100.0;
+    private const double ScorePreferredPositionFirst = 50.0;
+    private const double ScorePreferredPositionLast = -50.0;
+
+    /// <summary>
+    /// Internal mirror of <see cref="AffinityType"/> plus None, used for scoring.
+    /// </summary>
+    private enum AffinityStatus { None, Preferred, Required, Excluded }
+
+    /// <summary>
+    /// Computed availability for a character at a given location and time.
+    /// </summary>
+    private sealed record AvailableCharacter(
+        string Name,
+        string? Role,
+        bool IsInScene,
+        AffinityStatus AffinityStatus,
+        bool? TimeOfDayMatch,
+        bool IsAvailable,
+        string? AffinityDetails);
+
+    /// <summary>
+    /// Resolves which characters are available at the current location, applying
+    /// location affinities and time-of-day gates per spec R11.
+    /// </summary>
+    private static List<AvailableCharacter> ResolveAvailableCharacters(
+        RolePlaySession session,
+        DreamGenClone.Web.Domain.Scenarios.Scenario scenario,
+        string? currentSceneLocation,
+        AdaptiveScenarioState v2State)
+    {
+        var results = new List<AvailableCharacter>();
+        var tod = v2State.CurrentTimeOfDay;
+
+        foreach (var character in scenario.Characters)
+        {
+            if (string.IsNullOrWhiteSpace(character.Name)) continue;
+
+            var inScene = RolePlayScenePresenceHelper.IsActorInScene(session, character.Name.Trim()) ?? false;
+
+            // Gather affinity entries for this location
+            var affinityEntries = character.LocationAffinities
+                .Where(a => !string.IsNullOrWhiteSpace(a.LocationName)
+                    && string.Equals(a.LocationName.Trim(), currentSceneLocation?.Trim(), StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            if (affinityEntries.Count == 0)
+            {
+                // No affinity configured for this character at this location —
+                // always available (same as old behavior before location gating).
+                results.Add(new AvailableCharacter(
+                    character.Name.Trim(),
+                    character.Role,
+                    inScene,
+                    AffinityStatus.None,
+                    TimeOfDayMatch: null,
+                    IsAvailable: true,
+                    AffinityDetails: null));
+                continue;
+            }
+
+            // Precedence: Excluded > Required > Preferred (spec R11)
+            // Time-specific rule beats wildcard (TimeOfDay == null)
+            CharacterLocationAffinity? bestMatch = null;
+            AffinityStatus bestStatus = AffinityStatus.None;
+            bool? bestTimeMatch = null;
+
+            foreach (var entry in affinityEntries)
+            {
+                var status = entry.AffinityType switch
+                {
+                    DreamGenClone.Web.Domain.Scenarios.AffinityType.Excluded => AffinityStatus.Excluded,
+                    DreamGenClone.Web.Domain.Scenarios.AffinityType.Required => AffinityStatus.Required,
+                    DreamGenClone.Web.Domain.Scenarios.AffinityType.Preferred => AffinityStatus.Preferred,
+                    _ => AffinityStatus.None
+                };
+
+                // Skip entries weaker than current best
+                if (bestMatch is not null)
+                {
+                    // Excluded beats everything (keep Excluded)
+                    if (bestStatus == AffinityStatus.Excluded && status != AffinityStatus.Excluded) continue;
+                    if (bestStatus != AffinityStatus.Excluded && status == AffinityStatus.Excluded)
+                    {
+                        bestMatch = entry; bestStatus = status;
+                        bestTimeMatch = entry.TimeOfDay == null ? null : (entry.TimeOfDay == tod);
+                        continue;
+                    }
+                    // Required beats Preferred/None
+                    if (bestStatus == AffinityStatus.Required && status != AffinityStatus.Required) continue;
+                    if (bestStatus != AffinityStatus.Required && status == AffinityStatus.Required)
+                    {
+                        bestMatch = entry; bestStatus = status;
+                        bestTimeMatch = entry.TimeOfDay == null ? null : (entry.TimeOfDay == tod);
+                        continue;
+                    }
+                    // Preferred beats None
+                    if (bestStatus == AffinityStatus.Preferred && status == AffinityStatus.None) continue;
+                    if (bestStatus == AffinityStatus.None && status == AffinityStatus.Preferred)
+                    {
+                        bestMatch = entry; bestStatus = status;
+                        bestTimeMatch = entry.TimeOfDay == null ? null : (entry.TimeOfDay == tod);
+                        continue;
+                    }
+                    // Same status: prefer time-specific match over wildcard
+                    var existingIsWildcard = bestMatch.TimeOfDay == null;
+                    var newIsWildcard = entry.TimeOfDay == null;
+                    if (!existingIsWildcard && newIsWildcard) continue;
+                    if (existingIsWildcard && !newIsWildcard)
+                    {
+                        bestMatch = entry; bestStatus = status;
+                        bestTimeMatch = entry.TimeOfDay == null ? null : (entry.TimeOfDay == tod);
+                        continue;
+                    }
+                    // Both time-specific or both wildcard: first wins
+                    continue;
+                }
+
+                bestMatch = entry;
+                bestStatus = status;
+                bestTimeMatch = entry.TimeOfDay == null ? null : (entry.TimeOfDay == tod);
+            }
+
+            var isAvailable = bestStatus switch
+            {
+                AffinityStatus.Excluded => false,
+                AffinityStatus.Required => true,
+                _ => inScene
+            };
+
+            results.Add(new AvailableCharacter(
+                character.Name.Trim(),
+                character.Role,
+                inScene,
+                bestStatus,
+                bestTimeMatch,
+                isAvailable,
+                bestMatch?.LocationName));
+        }
+
+        return results;
+    }
+
+    /// <summary>
+    /// Scores a character for automatic actor selection using the spec R9 weight table.
+    /// </summary>
+    private static double ScoreActorForAutoSelection(
+        AvailableCharacter character,
+        AdaptiveScenarioState v2State,
+        List<string?> recentActors,
+        Dictionary<string, CharacterTurnOverride> overrides)
+    {
+        var score = 0.0;
+
+        // Location match (in-scene)
+        if (character.IsInScene) score += ScoreLocationMatch;
+
+        // Affinity scoring
+        switch (character.AffinityStatus)
+        {
+            case AffinityStatus.Required:
+                score += ScoreAffinityRequired;
+                break;
+            case AffinityStatus.Preferred:
+                score += ScoreAffinityPreferred;
+                break;
+            case AffinityStatus.Excluded:
+                score += ScoreAffinityExcluded;
+                break;
+        }
+
+        // Time-of-day
+        if (character.TimeOfDayMatch == true)
+            score += ScoreAffinityTimeMatch;
+        else if (character.TimeOfDayMatch == false)
+            score += ScoreAffinityTimeMismatch;
+
+        // Recency (0-200)
+        var lastSeenIndex = recentActors.FindLastIndex(name =>
+            string.Equals(name, character.Name, StringComparison.OrdinalIgnoreCase));
+        if (lastSeenIndex < 0)
+            score += 200.0; // Never spoken
+        else
+        {
+            var turnsAgo = recentActors.Count - lastSeenIndex;
+            score += turnsAgo switch
+            {
+                >= 7 => 180.0,
+                >= 4 => 120.0,
+                >= 2 => 60.0,
+                _ => 0.0
+            };
+        }
+
+        // Per-character turn overrides
+        if (overrides.TryGetValue(character.Name, out var turnOverride))
+        {
+            // Response priority (0-100 additive boost)
+            if (turnOverride.ResponsePriority.HasValue)
+                score += Math.Clamp(turnOverride.ResponsePriority.Value, 0, 100);
+
+            // Preferred position hint
+            score += turnOverride.PreferredPosition switch
+            {
+                PreferredTurnPosition.First => ScorePreferredPositionFirst,
+                PreferredTurnPosition.Last => ScorePreferredPositionLast,
+                _ => 0.0
+            };
+        }
+
+        return score;
+    }
+
+    /// <summary>
+    /// Builds a condensed (≤500 token) narrative summary of the last N interactions.
+    /// </summary>
+    private static string BuildNarrativeSummary(RolePlaySession session, int lastN = 3)
+    {
+        var recent = session.Interactions
+            .Where(i => (i.InteractionType == InteractionType.Npc || i.InteractionType == InteractionType.Custom)
+                && !i.IsExcluded)
+            .TakeLast(lastN)
+            .ToList();
+
+        var sb = new StringBuilder();
+        foreach (var interaction in recent)
+        {
+            var actor = string.IsNullOrWhiteSpace(interaction.ActorName) ? "Unknown" : interaction.ActorName.Trim();
+            var content = interaction.Content?.Trim() ?? string.Empty;
+            if (content.Length > 180) content = content[..177] + "...";
+            sb.AppendLine($"{actor}: {content}");
+        }
+        return sb.ToString().TrimEnd();
+    }
+
+    /// <summary>
+    /// Builds a composite fingerprint for cache invalidation per spec R10.
+    /// </summary>
+    private static string BuildFingerprint(AdaptiveScenarioState v2State, List<AvailableCharacter> available)
+    {
+        var sortedNames = available
+            .Select(c => c.Name)
+            .OrderBy(n => n, StringComparer.OrdinalIgnoreCase);
+        return $"{v2State.CurrentPhase}|{v2State.CurrentSceneLocation}|{string.Join(",", sortedNames)}|{v2State.CurrentTimeOfDay}";
+    }
+
+    /// <summary>
+    /// Maps ordered names from LLM/scoring back to candidate names, filtering out unknowns.
+    /// </summary>
+    private static List<string> MapOrderedNamesToCandidates(
+        IReadOnlyList<string> orderedNames,
+        List<AvailableCharacter> available)
+    {
+        var availableNames = available
+            .Select(c => c.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var mapped = orderedNames
+            .Where(n => availableNames.Contains(n))
+            .ToList();
+
+        // If LLM returned nothing useful, fall back to scoring order
+        if (mapped.Count == 0)
+        {
+            mapped = available
+                .Where(c => c.IsAvailable && !c.AffinityStatus.Equals(AffinityStatus.Excluded))
+                .Select(c => c.Name)
+                .ToList();
+        }
+
+        return mapped;
+    }
+
     /// <summary>
     /// Resolves the scene characters that should naturally continue the conversation.
     /// Looks at the scenario character list and recent interaction history to pick
@@ -2381,32 +2641,136 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             return true;
         }).ToList();
 
-        var ordered = eligibleCharacterNames
-            .Select((name, scenarioOrder) => new
+        // ── New pipeline: ResolveAvailableCharacters → ScoreActorForAutoSelection → ActorSelectionService ──
+        DreamGenClone.Web.Domain.Scenarios.Scenario? overflowScenario = null;
+        if (!string.IsNullOrWhiteSpace(session.ScenarioId))
+        {
+            overflowScenario = await _scenarioService.GetScenarioAsync(session.ScenarioId);
+        }
+
+        List<string> ordered;
+        if (overflowScenario is not null && _actorSelectionService is not null)
+        {
+            var availableCharacters = ResolveAvailableCharacters(session, overflowScenario, currentSceneLocation, session.AdaptiveState);
+            var availableForSelection = availableCharacters
+                .Where(c => c.IsAvailable && eligibleCharacterNames.Contains(c.Name, StringComparer.OrdinalIgnoreCase))
+                .ToList();
+
+            if (availableForSelection.Count > 0)
             {
-                Name = name,
-                ScenarioOrder = scenarioOrder,
-                LastSeenIndex = recentActors.FindLastIndex(actorName => string.Equals(actorName, name, StringComparison.OrdinalIgnoreCase)),
-                InScene = IsActorInCurrentScene(session, name, currentSceneLocation)
-            })
-            .OrderByDescending(x => x.InScene)
-            .ThenBy(x => x.LastSeenIndex < 0 ? int.MinValue : x.LastSeenIndex)
-            .ThenBy(x => x.ScenarioOrder)
-            .Select(x => x.Name)
-            .ToList();
+                var scored = availableForSelection
+                    .Select(c => (
+                        Character: c,
+                        Score: ScoreActorForAutoSelection(c, session.AdaptiveState, recentActors!, session.CharacterTurnOverrides)))
+                    .OrderByDescending(x => x.Score)
+                    .ToList();
+
+                var candidateInfos = scored.Select(x => new ActorCandidateInfo
+                {
+                    Name = x.Character.Name,
+                    Role = x.Character.Role,
+                    IsInScene = x.Character.IsInScene,
+                    AffinityStatus = x.Character.AffinityStatus.ToString(),
+                    TimeOfDayMatch = x.Character.TimeOfDayMatch,
+                    BaseScore = x.Score,
+                    AffinityDetails = x.Character.AffinityDetails
+                }).ToList();
+
+                var fingerprint = BuildFingerprint(session.AdaptiveState, availableForSelection);
+
+                var request = new ActorSelectionRequest
+                {
+                    SessionId = session.Id,
+                    NarrativeSummary = BuildNarrativeSummary(session, lastN: 3),
+                    CurrentPhase = session.AdaptiveState.CurrentPhase.ToString(),
+                    CurrentLocation = currentSceneLocation,
+                    CurrentTimeOfDay = session.AdaptiveState.CurrentTimeOfDay?.ToString(),
+                    Candidates = candidateInfos,
+                    BatchSize = Math.Clamp(session.SceneContinueBatchSize, 1, 6),
+                    CacheKey = fingerprint
+                };
+
+                var selection = await _actorSelectionService.SelectActorsAsync(request, cancellationToken);
+
+                ordered = MapOrderedNamesToCandidates(selection.OrderedNames, availableForSelection);
+
+                // Persist cache for LLM/Cache sources
+                if (selection.Source is ActorSelectionSource.LLM or ActorSelectionSource.Cache)
+                {
+                    session.LastActorOrdering = ordered;
+                    session.LastContextFingerprint = fingerprint;
+                }
+
+                // Emit debug event
+                await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+                {
+                    SessionId = session.Id,
+                    EventKind = "OverflowActorSelection",
+                        Severity = "Information",
+                        Summary = $"Source={selection.Source}, Candidates={candidateInfos.Count}, Ordered={ordered.Count}",
+                        MetadataJson = JsonSerializer.Serialize(new
+                        {
+                            source = selection.Source.ToString(),
+                            sessionId = session.Id,
+                            availableCount = availableForSelection.Count,
+                            totalCharacters = overflowScenario.Characters.Count,
+                            candidates = candidateInfos.Select(c => new
+                            {
+                                name = c.Name,
+                                score = c.BaseScore,
+                                affinityStatus = c.AffinityStatus,
+                                inScene = c.IsInScene
+                            }).ToList(),
+                            reasoning = selection.Reasoning,
+                            cacheKey = fingerprint
+                        })
+                    }, cancellationToken);
+            }
+            else
+            {
+                ordered = new List<string>();
+                _logger.LogDebug(
+                    "OverflowActor: no available characters after affinity filtering, SessionId={SessionId}",
+                    session.Id);
+            }
+        }
+        else
+        {
+            // Fallback: simple recency sort when no scenario or no actor selection service
+            ordered = eligibleCharacterNames
+                .Select((name, scenarioOrder) => new
+                {
+                    Name = name,
+                    ScenarioOrder = scenarioOrder,
+                    LastSeenIndex = recentActors.FindLastIndex(actorName =>
+                        string.Equals(actorName, name, StringComparison.OrdinalIgnoreCase)),
+                    InScene = IsActorInCurrentScene(session, name, currentSceneLocation)
+                })
+                .OrderByDescending(x => x.InScene)
+                .ThenBy(x => x.LastSeenIndex < 0 ? int.MinValue : x.LastSeenIndex)
+                .ThenBy(x => x.ScenarioOrder)
+                .Select(x => x.Name)
+                .ToList();
+        }
 
         if (autoAllowedActors.Contains(ContinueAsActor.Npc))
         {
             foreach (var name in ordered)
             {
+                var isPersona = session.IsPersonaActor(name);
+                if (isPersona && !autoAllowedActors.Contains(ContinueAsActor.You))
+                    continue;
+                var actor = isPersona ? ContinueAsActor.You : ContinueAsActor.Npc;
                 var inScene = IsActorInCurrentScene(session, name, currentSceneLocation);
-                var recencyIndex = recentActors.FindLastIndex(actorName => string.Equals(actorName, name, StringComparison.OrdinalIgnoreCase));
+                var recencyIndex = recentActors.FindLastIndex(actorName =>
+                    string.Equals(actorName, name, StringComparison.OrdinalIgnoreCase));
                 var recencyReason = recencyIndex < 0 ? "not recently active" : $"recent-index={recencyIndex}";
                 var sceneReason = inScene ? "in-scene" : "out-of-scene";
+                var candidateType = isPersona ? "Persona" : "NPC";
                 actors.Add(new OverflowActorCandidate(
-                    ContinueAsActor.Npc,
+                    actor,
                     name,
-                    $"NPC auto candidate ({sceneReason}, {recencyReason})."));
+                    $"{candidateType} auto candidate ({sceneReason}, {recencyReason})."));
             }
         }
 
@@ -2454,6 +2818,76 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         }
 
         return actors;
+    }
+
+    /// <summary>
+    /// Detects time of day from recent narrative text using keyword matching (spec FR-004).
+    /// Returns null when no signal is detected.
+    /// </summary>
+    private void EnqueueLocationDetectionJob(RolePlaySession session, List<string> scenarioLocationNames)
+    {
+        if (_backgroundJobQueue is null) return;
+
+        var characterNames = session.CharacterPerspectives
+            .Where(c => !string.IsNullOrWhiteSpace(c.CharacterName))
+            .Select(c => c.CharacterName!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (!string.IsNullOrWhiteSpace(session.PersonaName)
+            && !string.Equals(session.PersonaName.Trim(), "You", StringComparison.OrdinalIgnoreCase))
+            characterNames.Add(session.PersonaName.Trim());
+
+        var recentInteractionSummaries = session.Interactions
+            .Where(i => (i.InteractionType == InteractionType.Npc || i.InteractionType == InteractionType.Custom)
+                && !i.IsExcluded && !string.IsNullOrWhiteSpace(i.Content))
+            .TakeLast(3)
+            .Select(i => i.Content!.Length > 200 ? i.Content[..197] + "..." : i.Content!)
+            .ToList();
+
+        var payload = new LocationDetectionJobPayload
+        {
+            SessionId = session.Id,
+            RecentInteractionSummaries = recentInteractionSummaries,
+            ScenarioLocationNames = scenarioLocationNames,
+            CharacterNames = characterNames,
+            PreviousLocation = session.AdaptiveState.CurrentSceneLocation
+        };
+        _backgroundJobQueue.Enqueue(
+            BackgroundJobTypes.LocationDetection,
+            JsonSerializer.Serialize(payload),
+            dedupeKey: $"location:{session.Id}");
+    }
+
+    private static TimeOfDay? DetectTimeOfDay(RolePlaySession session)
+    {
+        var recent = session.Interactions
+            .Where(i => (i.InteractionType == InteractionType.Npc || i.InteractionType == InteractionType.Custom)
+                && !i.IsExcluded
+                && !string.IsNullOrWhiteSpace(i.Content))
+            .TakeLast(3)
+            .Select(i => i.Content!)
+            .ToList();
+
+        if (recent.Count == 0) return null;
+
+        var combined = string.Join(" ", recent);
+
+        // Check most recent mention first (reverse order)
+        for (var i = recent.Count - 1; i >= 0; i--)
+        {
+            var text = recent[i];
+            if (Regex.IsMatch(text, @"\b(morning|dawn|sunrise|breakfast|woke up|wake up)\b", RegexOptions.IgnoreCase))
+                return TimeOfDay.Morning;
+            if (Regex.IsMatch(text, @"\b(afternoon|lunch|midday|noon)\b", RegexOptions.IgnoreCase))
+                return TimeOfDay.Afternoon;
+            if (Regex.IsMatch(text, @"\b(evening|dusk|sunset|dinner|nightfall)\b", RegexOptions.IgnoreCase))
+                return TimeOfDay.Evening;
+            if (Regex.IsMatch(text, @"\b(night|midnight|moonlight|dark outside|late hour)\b", RegexOptions.IgnoreCase))
+                return TimeOfDay.Night;
+        }
+
+        return null;
     }
 
     private static bool IsActorInCurrentScene(RolePlaySession session, string actorName, string? currentSceneLocation)
@@ -3090,7 +3524,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
         if (!_enableLocationServices)
         {
-            ClearLocationState(v2State);
+            RolePlayCharacterStateMutator.ClearLocationState(v2State);
         }
         NormalizePhaseOverrideLock(v2State);
         var climaxCompletionRequested = explicitClimaxCompletionRequested || IsClimaxCompletionRequested(session);
@@ -3875,22 +4309,30 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             : trigger;
 
         var directQuestionSignal = TryDetectDirectQuestionSignal(session, v2State);
-        var sceneLocationSignal = _enableLocationServices
-            ? await DetectSceneLocationSignalAsync(session, v2State, cancellationToken)
-            : SceneLocationSignal.None;
 
-        if (sceneLocationSignal.Changed)
+        // Enqueue LLM-driven location detection background job (one-turn lag per spec R2).
+        if (_enableLocationServices && _backgroundJobQueue is not null)
         {
-            if (_enableSceneLocationDecisionPrompts)
+            var scenarioLocationNames = new List<string>();
+            if (!string.IsNullOrWhiteSpace(session.ScenarioId))
             {
-                effectiveDecisionTrigger = DecisionTrigger.SceneLocationChanged;
+                var locScenario = await _scenarioService.GetScenarioAsync(session.ScenarioId);
+                if (locScenario?.Locations is { Count: > 0 })
+                    scenarioLocationNames = locScenario.Locations
+                        .Select(l => l.Name).Where(n => !string.IsNullOrWhiteSpace(n)).Select(n => n!.Trim())
+                        .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             }
+            EnqueueLocationDetectionJob(session, scenarioLocationNames);
+        }
 
-            _logger.LogInformation(
-                RolePlayV2LogEvents.SceneLocationChangedDetected,
-                session.Id,
-                sceneLocationSignal.PreviousLocation ?? string.Empty,
-                sceneLocationSignal.CurrentLocation ?? string.Empty);
+        // Synchronous keyword-based time-of-day detection (cheap, no LLM)
+        if (!session.AdaptiveState.TimeOfDayManuallySet)
+        {
+            var detectedTod = DetectTimeOfDay(session);
+            if (detectedTod is not null)
+            {
+                session.AdaptiveState.CurrentTimeOfDay = detectedTod;
+            }
         }
 
         if (directQuestionSignal.IsDetected)
@@ -3947,7 +4389,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 v2State,
                 effectiveDecisionTrigger,
                 directQuestionSignal,
-                sceneLocationSignal.CurrentLocation);
+                v2State.CurrentSceneLocation);
             evaluatedContextCount = decisionContexts.Count;
             foreach (var decisionContext in decisionContexts)
             {
@@ -4043,8 +4485,6 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 MetadataJson = JsonSerializer.Serialize(new
                 {
                     trigger = effectiveDecisionTrigger.ToString(),
-                    sceneLocationChanged = sceneLocationSignal.Changed,
-                    previousSceneLocation = sceneLocationSignal.PreviousLocation,
                     currentSceneLocation = v2State.CurrentSceneLocation,
                     characterLocations = v2State.CharacterLocations
                         .OrderBy(x => x.CharacterId, StringComparer.OrdinalIgnoreCase)
@@ -7380,245 +7820,6 @@ Requirements:
         return new DirectQuestionSignal(true, askingActorId, targetActorId, content);
     }
 
-    private async Task<SceneLocationSignal> DetectSceneLocationSignalAsync(
-        RolePlaySession session,
-        DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state,
-        CancellationToken cancellationToken)
-    {
-        EnsureCharacterLocationRows(state);
-
-        var scenarioLocationNames = new List<string>();
-        if (!string.IsNullOrWhiteSpace(session.ScenarioId))
-        {
-            var scenario = await _scenarioService.GetScenarioAsync(session.ScenarioId);
-            if (scenario is not null && scenario.Locations.Count > 0)
-            {
-                scenarioLocationNames = scenario.Locations
-                    .Select(x => x.Name)
-                    .Where(x => !string.IsNullOrWhiteSpace(x))
-                    .Select(x => x!.Trim())
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToList();
-            }
-        }
-
-        string? latestLocation = null;
-        var previousLocation = state.CurrentSceneLocation;
-        var matchedInteraction = default(RolePlayInteraction);
-
-        foreach (var interaction in session.Interactions
-            .Where(x => !string.IsNullOrWhiteSpace(x.Content))
-            .Reverse())
-        {
-            var matched = MatchScenarioLocation(interaction.Content, scenarioLocationNames);
-            if (string.IsNullOrWhiteSpace(matched))
-            {
-                matched = MatchGenericLocation(interaction.Content);
-            }
-
-            if (string.IsNullOrWhiteSpace(matched))
-            {
-                continue;
-            }
-
-            latestLocation = matched;
-            matchedInteraction = interaction;
-            break;
-        }
-
-        if (string.IsNullOrWhiteSpace(latestLocation))
-        {
-            var fallbackLocation = previousLocation;
-
-            if (!string.IsNullOrWhiteSpace(fallbackLocation))
-            {
-                state.CurrentSceneLocation = fallbackLocation;
-
-                foreach (var snapshot in state.CharacterSnapshots)
-                {
-                    var existing = state.CharacterLocations.FirstOrDefault(x =>
-                        string.Equals(x.CharacterId, snapshot.CharacterId, StringComparison.OrdinalIgnoreCase));
-                    if (existing is null || string.IsNullOrWhiteSpace(existing.TrueLocation))
-                    {
-                        UpsertTrueLocation(state, snapshot.CharacterId, fallbackLocation, sourceIsHidden: false);
-                    }
-                }
-            }
-
-            UpdatePerceivedLocationsFromTruth(state);
-            return new SceneLocationSignal(false, previousLocation, state.CurrentSceneLocation);
-        }
-
-        var changed = !string.Equals(previousLocation, latestLocation, StringComparison.OrdinalIgnoreCase);
-        state.CurrentSceneLocation = latestLocation;
-
-        var actorId = ResolveDecisionActorId(state, session, matchedInteraction?.ActorName);
-        if (matchedInteraction is not null && matchedInteraction.InteractionType == InteractionType.System)
-        {
-            foreach (var snapshot in state.CharacterSnapshots)
-            {
-                var existing = state.CharacterLocations.FirstOrDefault(x =>
-                    string.Equals(x.CharacterId, snapshot.CharacterId, StringComparison.OrdinalIgnoreCase));
-                if (existing is null || string.IsNullOrWhiteSpace(existing.TrueLocation))
-                {
-                    UpsertTrueLocation(state, snapshot.CharacterId, latestLocation, sourceIsHidden: false);
-                }
-            }
-        }
-        else if (!string.IsNullOrWhiteSpace(actorId))
-        {
-            UpsertTrueLocation(state, actorId, latestLocation, sourceIsHidden: false);
-        }
-        else
-        {
-            foreach (var snapshot in state.CharacterSnapshots)
-            {
-                var existing = state.CharacterLocations.FirstOrDefault(x => string.Equals(x.CharacterId, snapshot.CharacterId, StringComparison.OrdinalIgnoreCase));
-                if (existing is null || string.IsNullOrWhiteSpace(existing.TrueLocation))
-                {
-                    UpsertTrueLocation(state, snapshot.CharacterId, latestLocation, sourceIsHidden: false);
-                }
-            }
-        }
-
-        UpdatePerceivedLocationsFromTruth(state);
-
-        if (!changed)
-        {
-            return new SceneLocationSignal(false, previousLocation, latestLocation);
-        }
-
-        return new SceneLocationSignal(true, previousLocation, latestLocation);
-    }
-
-    private static void ClearLocationState(DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state)
-    {
-        state.CurrentSceneLocation = null;
-        state.CharacterLocations = [];
-        state.CharacterLocationPerceptions = [];
-    }
-
-    private static void EnsureCharacterLocationRows(DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state)
-    {
-        foreach (var snapshot in state.CharacterSnapshots)
-        {
-            if (string.IsNullOrWhiteSpace(snapshot.CharacterId))
-            {
-                continue;
-            }
-
-            if (!state.CharacterLocations.Any(x => string.Equals(x.CharacterId, snapshot.CharacterId, StringComparison.OrdinalIgnoreCase)))
-            {
-                state.CharacterLocations.Add(new DreamGenClone.Domain.RolePlay.CharacterLocationState
-                {
-                    CharacterId = snapshot.CharacterId,
-                    TrueLocation = null,
-                    UpdatedUtc = DateTime.UtcNow
-                });
-            }
-        }
-    }
-
-    private static void UpsertTrueLocation(
-        DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state,
-        string characterId,
-        string? trueLocation,
-        bool sourceIsHidden)
-    {
-        var row = state.CharacterLocations.FirstOrDefault(x =>
-            string.Equals(x.CharacterId, characterId, StringComparison.OrdinalIgnoreCase));
-        if (row is null)
-        {
-            row = new DreamGenClone.Domain.RolePlay.CharacterLocationState
-            {
-                CharacterId = characterId
-            };
-            state.CharacterLocations.Add(row);
-        }
-
-        row.TrueLocation = trueLocation;
-        row.IsHidden = sourceIsHidden;
-        row.UpdatedUtc = DateTime.UtcNow;
-    }
-
-    private static void UpdatePerceivedLocationsFromTruth(DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state)
-    {
-        var truthByActor = state.CharacterLocations
-            .Where(x => !string.IsNullOrWhiteSpace(x.CharacterId))
-            .ToDictionary(x => x.CharacterId, x => x, StringComparer.OrdinalIgnoreCase);
-        if (truthByActor.Count == 0)
-        {
-            return;
-        }
-
-        foreach (var observer in truthByActor.Values)
-        {
-            foreach (var target in truthByActor.Values)
-            {
-                var row = state.CharacterLocationPerceptions.FirstOrDefault(x =>
-                    string.Equals(x.ObserverCharacterId, observer.CharacterId, StringComparison.OrdinalIgnoreCase)
-                    && string.Equals(x.TargetCharacterId, target.CharacterId, StringComparison.OrdinalIgnoreCase));
-                if (row is null)
-                {
-                    row = new DreamGenClone.Domain.RolePlay.CharacterLocationPerceptionState
-                    {
-                        ObserverCharacterId = observer.CharacterId,
-                        TargetCharacterId = target.CharacterId
-                    };
-                    state.CharacterLocationPerceptions.Add(row);
-                }
-
-                if (string.Equals(observer.CharacterId, target.CharacterId, StringComparison.OrdinalIgnoreCase))
-                {
-                    row.PerceivedLocation = observer.TrueLocation;
-                    row.Confidence = 100;
-                    row.HasLineOfSight = true;
-                    row.IsInProximity = true;
-                    row.KnowledgeSource = "self";
-                    row.UpdatedUtc = DateTime.UtcNow;
-                    continue;
-                }
-
-                var sameLocation = !string.IsNullOrWhiteSpace(observer.TrueLocation)
-                    && string.Equals(observer.TrueLocation, target.TrueLocation, StringComparison.OrdinalIgnoreCase);
-                if (sameLocation && !target.IsHidden)
-                {
-                    row.PerceivedLocation = target.TrueLocation;
-                    row.Confidence = 100;
-                    row.HasLineOfSight = true;
-                    row.IsInProximity = true;
-                    row.KnowledgeSource = "line-of-sight";
-                    row.UpdatedUtc = DateTime.UtcNow;
-                    continue;
-                }
-
-                row.HasLineOfSight = false;
-                row.IsInProximity = false;
-                if (string.IsNullOrWhiteSpace(row.PerceivedLocation))
-                {
-                    if (string.IsNullOrWhiteSpace(target.TrueLocation))
-                    {
-                        row.Confidence = 0;
-                        row.KnowledgeSource = "unknown";
-                        row.UpdatedUtc = DateTime.UtcNow;
-                        continue;
-                    }
-
-                    row.PerceivedLocation = target.TrueLocation;
-                    row.Confidence = 35;
-                    row.KnowledgeSource = "assumed";
-                }
-                else
-                {
-                    row.Confidence = Math.Clamp(row.Confidence - 15, 20, 85);
-                    row.KnowledgeSource = "last-known";
-                }
-
-                row.UpdatedUtc = DateTime.UtcNow;
-            }
-        }
-    }
-
     private static string? ResolveQuestionTargetActorId(
         RolePlaySession session,
         DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state,
@@ -7668,46 +7869,6 @@ Requirements:
 
         // Require explicit question punctuation to prevent narrative prose from being treated as a direct question.
         return content.Contains('?', StringComparison.Ordinal);
-    }
-
-    private static string? MatchScenarioLocation(string content, IEnumerable<string> locationNames)
-    {
-        if (string.IsNullOrWhiteSpace(content))
-        {
-            return null;
-        }
-
-        var ordered = locationNames
-            .Where(x => !string.IsNullOrWhiteSpace(x))
-            .OrderByDescending(x => x.Length)
-            .ToList();
-        foreach (var name in ordered)
-        {
-            if (ContainsWholeWord(content, name))
-            {
-                return name.Trim();
-            }
-        }
-
-        return null;
-    }
-
-    private static string? MatchGenericLocation(string? content)
-    {
-        if (string.IsNullOrWhiteSpace(content))
-        {
-            return null;
-        }
-
-        foreach (var genericName in GenericLocationNames.OrderByDescending(x => x.Length))
-        {
-            if (ContainsWholeWord(content, genericName))
-            {
-                return genericName;
-            }
-        }
-
-        return null;
     }
 
     private static bool ContainsWholeWord(string content, string token)
@@ -7782,14 +7943,6 @@ Requirements:
         string? PromptSnippet)
     {
         public static DirectQuestionSignal None => new(false, null, null, null);
-    }
-
-    private readonly record struct SceneLocationSignal(
-        bool Changed,
-        string? PreviousLocation,
-        string? CurrentLocation)
-    {
-        public static SceneLocationSignal None => new(false, null, null);
     }
 
     private static (string? AskingActorId, string? TargetActorId) ResolveDecisionActorsFromStoryContext(
