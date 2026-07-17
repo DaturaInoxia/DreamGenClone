@@ -152,6 +152,13 @@ public class Scenario
     public string? DefaultSteeringProfileId { get; set; }
 
     /// <summary>
+    /// The scenario character ID that serves as the default persona for new sessions.
+    /// When set, the RP Create wizard defaults to this character; the user can override.
+    /// </summary>
+    [JsonPropertyName("DefaultPersonaCharacterId")]
+    public string? DefaultPersonaCharacterId { get; set; }
+
+    /// <summary>
     /// Optional lower intensity boundary for this scenario.
     /// </summary>
     public string? DefaultIntensityFloor { get; set; }

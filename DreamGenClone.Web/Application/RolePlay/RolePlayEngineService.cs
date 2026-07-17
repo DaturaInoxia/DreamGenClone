@@ -314,7 +314,8 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         {
             Title = string.IsNullOrWhiteSpace(request.Title) ? "Untitled Role-Play" : request.Title.Trim(),
             ScenarioId = request.ScenarioId,
-            PersonaName = string.IsNullOrWhiteSpace(request.PersonaName) ? "You" : request.PersonaName.Trim(),
+            PersonaCharacterId = request.PersonaCharacterId,
+            PersonaName = string.IsNullOrWhiteSpace(request.PersonaName) ? string.Empty : request.PersonaName.Trim(),
             PersonaDescription = request.PersonaDescription ?? string.Empty,
             PersonaTemplateId = request.PersonaTemplateId,
             PersonaGender = CharacterGenderCatalog.NormalizeForCharacter(request.PersonaGender),
@@ -365,18 +366,6 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 session.SelectedSteeringProfileId = scenario.DefaultSteeringProfileId;
                 session.IntensityFloorOverride = scenario.DefaultIntensityFloor;
                 session.IntensityCeilingOverride = scenario.DefaultIntensityCeiling;
-
-                // Seed initial scene location from scenario default (T029).
-                if (!string.IsNullOrWhiteSpace(scenario.DefaultStartingLocationId))
-                {
-                    var startLocation = scenario.Locations
-                        .FirstOrDefault(l => string.Equals(l.Id, scenario.DefaultStartingLocationId, StringComparison.OrdinalIgnoreCase));
-                    if (startLocation is not null && !string.IsNullOrWhiteSpace(startLocation.Name))
-                        session.AdaptiveState.CurrentSceneLocation = startLocation.Name.Trim();
-                }
-
-                // Seed default time of day from scenario (T029).
-                session.AdaptiveState.CurrentTimeOfDay = scenario.DefaultTimeOfDay;
 
                 // Per-session theme selections override the scenario's default RP theme profile.
                 // Set BEFORE SeedFromScenarioAsync so the tracker is seeded from selections exclusively.
@@ -475,59 +464,6 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             }
         }
 
-        await SeedPersonaStatsFromTemplateAsync(session, cancellationToken);
-
-        // Ensure the persona block exists before applying overrides.
-        // EnsurePersonaCharacterState is a no-op when SeedPersonaStatsFromTemplateAsync
-        // already created it; when no template is set this creates the placeholder block
-        // so the stat-override application below can find it by name.
-        EnsurePersonaCharacterState(session);
-
-        // Apply wizard-provided persona stat overrides after template seeding.
-        // The overrides represent the user's explicit profile choice, so update BOTH the
-        // current stats and the baseline � the baseline identifies which stat profile the
-        // session "started from" in the Adaptive panel display.
-        if (request.PersonaStatOverrides.Count > 0
-            && session.AdaptiveState.CharacterStats.TryGetValue(session.PersonaName, out var personaBlock))
-        {
-            var normalizedPersonaOverrides = AdaptiveStatCatalog.NormalizeComplete(request.PersonaStatOverrides);
-            foreach (var (statName, statValue) in normalizedPersonaOverrides)
-            {
-                CharacterStatProfileV2Accessor.SetStat(personaBlock, statName, statValue);
-                personaBlock.BaselineStats[statName] = statValue;
-            }
-        }
-
-        // Stamp CharacterRole on the persona block (and any character missing it).
-        var personaRole = CharacterRoleCatalog.Normalize(session.PersonaRole);
-        if (!string.IsNullOrWhiteSpace(personaRole)
-            && session.AdaptiveState.CharacterStats.TryGetValue(session.PersonaName, out var personaBlockForRole)
-            && string.IsNullOrWhiteSpace(personaBlockForRole.CharacterRole))
-        {
-            personaBlockForRole.CharacterRole = personaRole;
-        }
-
-        // Seed RuntimeEncounterStats for persona from the selected encounter profile.
-        // The wizard stores the persona's encounter profile under the "__persona__" key.
-        if (request.CharacterEncounterProfileIds.TryGetValue("__persona__", out var personaEncProfileId)
-            && !string.IsNullOrWhiteSpace(personaEncProfileId)
-            && session.AdaptiveState.CharacterStats.TryGetValue(session.PersonaName, out var personaEncBlock)
-            && personaEncBlock.RuntimeEncounterStats is not { Count: > 0 })
-        {
-            var personaDims = BehavioralDimensionCatalog.GetDimensions(personaEncBlock.CharacterRole ?? string.Empty);
-            if (personaDims.Count > 0)
-            {
-                var personaEncProfile = await _characterProfileService.GetAsync(personaEncProfileId, cancellationToken);
-                if (personaEncProfile?.EncounterStats is { Count: > 0 })
-                {
-                    personaEncBlock.RuntimeEncounterStats = personaDims.ToDictionary(
-                        d => d.Name,
-                        d => personaEncProfile.EncounterStats.TryGetValue(d.Name, out var v) ? v : 50,
-                        StringComparer.OrdinalIgnoreCase);
-                }
-            }
-        }
-
         // Seal session-start baseline for all character stat blocks.
         // This snapshot is the reference for the "Base" column in the Adaptive panel
         // and the per-character decay target for the Reset phase algorithm.
@@ -622,24 +558,12 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     {
         if (Sessions.TryGetValue(sessionId, out var session))
         {
-            if (EnsurePersonaCharacterState(session))
-            {
-                session.ModifiedAt = DateTime.UtcNow;
-                _autoSaveCoordinator.QueueRolePlaySessionSave(session, "roleplay-persona-character-normalized");
-            }
-
             return session;
         }
 
         session = await _sessionService.LoadRolePlaySessionAsync(sessionId, cancellationToken);
         if (session is not null)
         {
-            if (EnsurePersonaCharacterState(session))
-            {
-                session.ModifiedAt = DateTime.UtcNow;
-                _autoSaveCoordinator.QueueRolePlaySessionSave(session, "roleplay-persona-character-normalized");
-            }
-
             Sessions[session.Id] = session;
         }
 
@@ -782,7 +706,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         var interaction = new RolePlayInteraction
         {
             InteractionType = ToInteractionType(actor),
-            ActorName = ResolveActorName(actor, customActorName),
+            ActorName = ResolveActorName(actor, customActorName, session.PersonaName),
             Content = content.Trim()
         };
 
@@ -882,7 +806,6 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         }
 
         await ValidateSessionCompatibilityOrThrowAsync(session, cancellationToken);
-        await SeedPersonaStatsFromTemplateAsync(session, cancellationToken);
 
         var promptText = string.IsNullOrWhiteSpace(instruction)
             ? "Continue the scene naturally."
@@ -891,7 +814,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             session.Id,
             "Continue",
             actor.ToString(),
-            ResolveActorName(actor, customActorName),
+            ResolveActorName(actor, customActorName, session.PersonaName),
             null,
             cancellationToken);
         session.AdaptiveState.ObservedTurnCount++;
@@ -906,7 +829,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
             var interaction = await _continuationService.ContinueNarrativeAsync(
                 session,
-                ResolveActorName(actor, customActorName),
+                ResolveActorName(actor, customActorName, session.PersonaName),
                 promptText,
                 cancellationToken);
 
@@ -1355,7 +1278,6 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             ?? throw new InvalidOperationException($"Role-play session '{request.SessionId}' not found.");
 
         await ValidateSessionCompatibilityOrThrowAsync(session, cancellationToken);
-        await SeedPersonaStatsFromTemplateAsync(session, cancellationToken);
 
         if (!_commandValidator.ValidateContinueRequest(request, session.BehaviorMode, out var validationError))
         {
@@ -1686,7 +1608,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         {
             // Fallback: single actor default
             var fallbackActor = ResolveDefaultContinueActor(session);
-            var fallbackActorName = ResolveActorName(fallbackActor, request.CustomIdentityName);
+            var fallbackActorName = ResolveActorName(fallbackActor, request.CustomIdentityName, session.PersonaName);
             await AlignPromptNarrativeStateWithV2Async(session, cancellationToken);
             var interaction = await _continuationService.ContinueAsync(
                 session,
@@ -2603,7 +2525,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             var fallback = ResolveDefaultContinueActor(session);
             actors.Add(new OverflowActorCandidate(
                 fallback,
-                ResolveActorName(fallback, null),
+                ResolveActorName(fallback, null, session.PersonaName),
                 "Fallback actor because no scenario characters were available for automatic continuation."));
             return actors;
         }
@@ -2681,7 +2603,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 var request = new ActorSelectionRequest
                 {
                     SessionId = session.Id,
-                    NarrativeSummary = BuildNarrativeSummary(session, lastN: Math.Max(3, session.SceneContinueBatchSize)),
+                    NarrativeSummary = BuildNarrativeSummary(session, lastN: 3),
                     CurrentPhase = session.AdaptiveState.CurrentPhase.ToString(),
                     CurrentLocation = currentSceneLocation,
                     CurrentTimeOfDay = session.AdaptiveState.CurrentTimeOfDay?.ToString(),
@@ -2821,45 +2743,40 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     }
 
     /// <summary>
-    /// Detects time of day from recent narrative text using keyword matching (spec FR-004).
-    /// Returns null when no signal is detected.
+    /// Enqueues a background LLM-driven location detection job.
+    /// Scenario location names must be resolved by the async caller to avoid sync-over-async deadlock.
     /// </summary>
     private void EnqueueLocationDetectionJob(RolePlaySession session, List<string> scenarioLocationNames)
     {
         if (_backgroundJobQueue is null) return;
 
         var characterNames = session.CharacterPerspectives
-            .Where(c => !string.IsNullOrWhiteSpace(c.CharacterName))
+            .Where(c => !string.IsNullOrWhiteSpace(c.CharacterName)
+                && !session.IsPersonaActor(c.CharacterName))
             .Select(c => c.CharacterName!.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        if (!string.IsNullOrWhiteSpace(session.PersonaName)
-            && !string.Equals(session.PersonaName.Trim(), "You", StringComparison.OrdinalIgnoreCase))
-            characterNames.Add(session.PersonaName.Trim());
-
-        // Send only interactions generated since the last location detection enqueue.
-        var lastCount = session.LastLocationDetectionInteractionCount;
-        var newInteractions = session.Interactions
-            .Where(i => !i.IsExcluded && !string.IsNullOrWhiteSpace(i.Content))
-            .Skip(lastCount)
+        var recentInteractions = session.Interactions
+            .Where(i => (i.InteractionType == InteractionType.Npc || i.InteractionType == InteractionType.Custom)
+                && !i.IsExcluded
+                && !string.IsNullOrWhiteSpace(i.Content))
+            .TakeLast(3)
+            .Select(i => i.Content!)
             .ToList();
-        var recentInteractionSummaries = newInteractions.Select(i => i.Content!).ToList();
-
-        // Track count so next enqueue only sends interactions from the next turn.
-        session.LastLocationDetectionInteractionCount = session.Interactions.Count;
 
         var payload = new LocationDetectionJobPayload
         {
             SessionId = session.Id,
-            RecentInteractionSummaries = recentInteractionSummaries,
+            RecentInteractionSummaries = recentInteractions,
             ScenarioLocationNames = scenarioLocationNames,
             CharacterNames = characterNames,
             PreviousLocation = session.AdaptiveState.CurrentSceneLocation
         };
+        var payloadJson = JsonSerializer.Serialize(payload);
         _backgroundJobQueue.Enqueue(
             BackgroundJobTypes.LocationDetection,
-            JsonSerializer.Serialize(payload),
+            payloadJson,
             dedupeKey: $"location:{session.Id}");
     }
 
@@ -3194,26 +3111,6 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             }
         }
 
-        // Persona
-        if (encounterProfileIds.TryGetValue("__persona__", out var personaEncProfileId)
-            && !string.IsNullOrWhiteSpace(personaEncProfileId)
-            && !string.IsNullOrWhiteSpace(session.PersonaName)
-            && session.AdaptiveState.CharacterStats.TryGetValue(session.PersonaName, out var personaBlock))
-        {
-            var personaDims = BehavioralDimensionCatalog.GetDimensions(personaBlock.CharacterRole ?? string.Empty);
-            if (personaDims.Count > 0)
-            {
-                var personaEncProfile = await _characterProfileService.GetAsync(personaEncProfileId, cancellationToken);
-                if (personaEncProfile?.EncounterStats is { Count: > 0 })
-                {
-                    personaBlock.RuntimeEncounterStats = personaDims.ToDictionary(
-                        d => d.Name,
-                        d => personaEncProfile.EncounterStats.TryGetValue(d.Name, out var v) ? v : 50,
-                        StringComparer.OrdinalIgnoreCase);
-                }
-            }
-        }
-
         // Seed any remaining characters at neutral 50 (no encounter profile selected).
         foreach (var block in session.AdaptiveState.CharacterStats.Values)
         {
@@ -3528,7 +3425,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
         if (!_enableLocationServices)
         {
-            RolePlayCharacterStateMutator.ClearLocationState(v2State);
+            ClearLocationState(v2State);
         }
         NormalizePhaseOverrideLock(v2State);
         var climaxCompletionRequested = explicitClimaxCompletionRequested || IsClimaxCompletionRequested(session);
@@ -4315,18 +4212,18 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         var directQuestionSignal = TryDetectDirectQuestionSignal(session, v2State);
 
         // Enqueue LLM-driven location detection background job (one-turn lag per spec R2).
-        if (_enableLocationServices && _backgroundJobQueue is not null)
+        if (_enableLocationServices)
         {
-            var scenarioLocationNames = new List<string>();
+            var locNames = new List<string>();
             if (!string.IsNullOrWhiteSpace(session.ScenarioId))
             {
                 var locScenario = await _scenarioService.GetScenarioAsync(session.ScenarioId);
                 if (locScenario?.Locations is { Count: > 0 })
-                    scenarioLocationNames = locScenario.Locations
+                    locNames = locScenario.Locations
                         .Select(l => l.Name).Where(n => !string.IsNullOrWhiteSpace(n)).Select(n => n!.Trim())
                         .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             }
-            EnqueueLocationDetectionJob(session, scenarioLocationNames);
+            EnqueueLocationDetectionJob(session, locNames);
         }
 
         // Synchronous keyword-based time-of-day detection (cheap, no LLM)
@@ -4789,7 +4686,10 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 ? null
                 : previousState.ActiveScenarioId ?? mapped.ActiveScenarioId;
             mapped.ActiveVariantId = previousState.ActiveVariantId ?? mapped.ActiveVariantId;
-            mapped.CurrentPhase = previousState.CurrentPhase;
+            // Don't revert phase if in-memory session already advanced past V2 snapshot
+            // (e.g. EnsureOpeningToBuildUpTransition fired before V2 hydration).
+            if (GetPhaseOrder(mapped.CurrentPhase) < GetPhaseOrder(previousState.CurrentPhase))
+                mapped.CurrentPhase = previousState.CurrentPhase;
             mapped.TurnCountInPhase = Math.Max(0, previousState.TurnCountInPhase);
         }
 
@@ -4956,7 +4856,10 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         }
 
         session.AdaptiveState.ActiveVariantId = snapshot.ActiveVariantId;
-        session.AdaptiveState.CurrentPhase = snapshot.CurrentPhase;
+        // Don't revert phase if in-memory session already advanced past V2 snapshot
+        // (e.g. EnsureOpeningToBuildUpTransition fired before V2 hydration).
+        if (GetPhaseOrder(session.AdaptiveState.CurrentPhase) < GetPhaseOrder(snapshot.CurrentPhase))
+            session.AdaptiveState.CurrentPhase = snapshot.CurrentPhase;
 
         // While the session is in its observation window the in-memory tracker owns the
         // scenario slot: the observation window reset cleared ActiveScenarioId to null and
@@ -5002,8 +4905,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         // Carry forward character snapshots from the V2 table so that async semantic deltas
         // (written by SemanticInteractionAnalysisJobHandler) are not overwritten by the session's
         // stale PayloadJson copy at the start of the next turn.  Only replace when the V2 table
-        // has entries; an empty list means this session has not been seeded yet and the in-memory
-        // state (from SeedPersonaStatsFromTemplateAsync) is the correct source of truth.
+        // has entries; an empty list means this session has not been seeded yet.
         if (snapshot.CharacterSnapshots.Count > 0)
         {
             session.AdaptiveState.CharacterSnapshots = snapshot.CharacterSnapshots;
@@ -7824,6 +7726,134 @@ Requirements:
         return new DirectQuestionSignal(true, askingActorId, targetActorId, content);
     }
 
+    private static void ClearLocationState(DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state)
+    {
+        state.CurrentSceneLocation = null;
+        state.CharacterLocations = [];
+        state.CharacterLocationPerceptions = [];
+    }
+
+    private static void EnsureCharacterLocationRows(DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state)
+    {
+        foreach (var snapshot in state.CharacterSnapshots)
+        {
+            if (string.IsNullOrWhiteSpace(snapshot.CharacterId))
+            {
+                continue;
+            }
+
+            if (!state.CharacterLocations.Any(x => string.Equals(x.CharacterId, snapshot.CharacterId, StringComparison.OrdinalIgnoreCase)))
+            {
+                state.CharacterLocations.Add(new DreamGenClone.Domain.RolePlay.CharacterLocationState
+                {
+                    CharacterId = snapshot.CharacterId,
+                    TrueLocation = null,
+                    UpdatedUtc = DateTime.UtcNow
+                });
+            }
+        }
+    }
+
+    private static void UpsertTrueLocation(
+        DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state,
+        string characterId,
+        string? trueLocation,
+        bool sourceIsHidden)
+    {
+        var row = state.CharacterLocations.FirstOrDefault(x =>
+            string.Equals(x.CharacterId, characterId, StringComparison.OrdinalIgnoreCase));
+        if (row is null)
+        {
+            row = new DreamGenClone.Domain.RolePlay.CharacterLocationState
+            {
+                CharacterId = characterId
+            };
+            state.CharacterLocations.Add(row);
+        }
+
+        row.TrueLocation = trueLocation;
+        row.IsHidden = sourceIsHidden;
+        row.UpdatedUtc = DateTime.UtcNow;
+    }
+
+    private static void UpdatePerceivedLocationsFromTruth(DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state)
+    {
+        var truthByActor = state.CharacterLocations
+            .Where(x => !string.IsNullOrWhiteSpace(x.CharacterId))
+            .ToDictionary(x => x.CharacterId, x => x, StringComparer.OrdinalIgnoreCase);
+        if (truthByActor.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var observer in truthByActor.Values)
+        {
+            foreach (var target in truthByActor.Values)
+            {
+                var row = state.CharacterLocationPerceptions.FirstOrDefault(x =>
+                    string.Equals(x.ObserverCharacterId, observer.CharacterId, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(x.TargetCharacterId, target.CharacterId, StringComparison.OrdinalIgnoreCase));
+                if (row is null)
+                {
+                    row = new DreamGenClone.Domain.RolePlay.CharacterLocationPerceptionState
+                    {
+                        ObserverCharacterId = observer.CharacterId,
+                        TargetCharacterId = target.CharacterId
+                    };
+                    state.CharacterLocationPerceptions.Add(row);
+                }
+
+                if (string.Equals(observer.CharacterId, target.CharacterId, StringComparison.OrdinalIgnoreCase))
+                {
+                    row.PerceivedLocation = observer.TrueLocation;
+                    row.Confidence = 100;
+                    row.HasLineOfSight = true;
+                    row.IsInProximity = true;
+                    row.KnowledgeSource = "self";
+                    row.UpdatedUtc = DateTime.UtcNow;
+                    continue;
+                }
+
+                var sameLocation = !string.IsNullOrWhiteSpace(observer.TrueLocation)
+                    && string.Equals(observer.TrueLocation, target.TrueLocation, StringComparison.OrdinalIgnoreCase);
+                if (sameLocation && !target.IsHidden)
+                {
+                    row.PerceivedLocation = target.TrueLocation;
+                    row.Confidence = 100;
+                    row.HasLineOfSight = true;
+                    row.IsInProximity = true;
+                    row.KnowledgeSource = "line-of-sight";
+                    row.UpdatedUtc = DateTime.UtcNow;
+                    continue;
+                }
+
+                row.HasLineOfSight = false;
+                row.IsInProximity = false;
+                if (string.IsNullOrWhiteSpace(row.PerceivedLocation))
+                {
+                    if (string.IsNullOrWhiteSpace(target.TrueLocation))
+                    {
+                        row.Confidence = 0;
+                        row.KnowledgeSource = "unknown";
+                        row.UpdatedUtc = DateTime.UtcNow;
+                        continue;
+                    }
+
+                    row.PerceivedLocation = target.TrueLocation;
+                    row.Confidence = 35;
+                    row.KnowledgeSource = "assumed";
+                }
+                else
+                {
+                    row.Confidence = Math.Clamp(row.Confidence - 15, 20, 85);
+                    row.KnowledgeSource = "last-known";
+                }
+
+                row.UpdatedUtc = DateTime.UtcNow;
+            }
+        }
+    }
+
     private static string? ResolveQuestionTargetActorId(
         RolePlaySession session,
         DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state,
@@ -7947,6 +7977,14 @@ Requirements:
         string? PromptSnippet)
     {
         public static DirectQuestionSignal None => new(false, null, null, null);
+    }
+
+    private readonly record struct SceneLocationSignal(
+        bool Changed,
+        string? PreviousLocation,
+        string? CurrentLocation)
+    {
+        public static SceneLocationSignal None => new(false, null, null);
     }
 
     private static (string? AskingActorId, string? TargetActorId) ResolveDecisionActorsFromStoryContext(
@@ -8113,8 +8151,6 @@ Requirements:
 
     private static DreamGenClone.Domain.RolePlay.AdaptiveScenarioState MapToV2State(RolePlaySession session)
     {
-        EnsurePersonaCharacterState(session);
-
         // Prefer name-keyed entries over ID-keyed duplicates when both point to the same CharacterId.
         var snapshots = session.AdaptiveState.CharacterStats
             .OrderBy(x => Guid.TryParse(x.Key, out _) ? 1 : 0)
@@ -8279,79 +8315,6 @@ Requirements:
             LastTransitionReasonCode = source.LastTransitionReasonCode,
             LastEvaluatedUtc = source.LastEvaluatedUtc
         };
-
-    private async Task SeedPersonaStatsFromTemplateAsync(RolePlaySession session, CancellationToken cancellationToken)
-    {
-        if (_templateService is null)
-        {
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(session.PersonaTemplateId)
-            || !Guid.TryParse(session.PersonaTemplateId, out var personaTemplateGuid))
-        {
-            return;
-        }
-
-        var personaName = string.IsNullOrWhiteSpace(session.PersonaName) ? "You" : session.PersonaName.Trim();
-
-        // Skip re-seeding if the persona block was already correctly seeded � indicated by
-        // a non-empty BaselineStats. BaselineStats is populated only during correct seeding;
-        // blocks created via EnsurePersonaCharacterState (when template had no BaseStats at
-        // session creation) have empty BaselineStats and will be re-seeded here on each load
-        // until a properly-seeded block replaces them.
-        if (session.AdaptiveState.CharacterStats.TryGetValue(personaName, out var existingBlock)
-            && existingBlock.BaselineStats.Count > 0)
-        {
-            return;
-        }
-
-        var personaTemplate = await _templateService.GetByIdAsync(personaTemplateGuid, cancellationToken);
-        if (personaTemplate is null || personaTemplate.BaseStats.Count == 0)
-        {
-            return;
-        }
-
-        var normalizedStats = AdaptiveStatCatalog.NormalizeComplete(personaTemplate.BaseStats);
-        var seededPersona = CharacterStatProfileV2Accessor.CreateDefault(personaName);
-        CharacterStatProfileV2Accessor.SetAllStats(seededPersona, normalizedStats);
-        seededPersona.BaselineStats = new Dictionary<string, int>(normalizedStats, StringComparer.OrdinalIgnoreCase);
-        seededPersona.UpdatedUtc = DateTime.UtcNow;
-        session.AdaptiveState.CharacterStats[personaName] = seededPersona;
-
-        _logger.LogDebug(
-            "Seeded persona '{PersonaName}' stats from template '{TemplateId}' for session {SessionId}",
-            personaName, session.PersonaTemplateId, session.Id);
-    }
-
-    private static bool EnsurePersonaCharacterState(RolePlaySession session)
-    {
-        var personaName = string.IsNullOrWhiteSpace(session.PersonaName) ? "You" : session.PersonaName.Trim();
-        if (string.IsNullOrWhiteSpace(personaName))
-        {
-            return false;
-        }
-
-        var existing = session.AdaptiveState.CharacterStats.Any(entry =>
-            string.Equals(entry.Key, personaName, StringComparison.OrdinalIgnoreCase)
-            || string.Equals(entry.Value.CharacterId, personaName, StringComparison.OrdinalIgnoreCase));
-        if (existing)
-        {
-            return false;
-        }
-
-        var seedStats = session.AdaptiveState.CharacterStats.Values.FirstOrDefault() is { } seedProfile
-            ? CharacterStatProfileV2Accessor.GetAllStats(seedProfile)
-            : new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        var normalizedStats = AdaptiveStatCatalog.NormalizeComplete(seedStats);
-
-        var ensuredProfile = CharacterStatProfileV2Accessor.CreateDefault(personaName);
-        CharacterStatProfileV2Accessor.SetAllStats(ensuredProfile, normalizedStats);
-        ensuredProfile.UpdatedUtc = DateTime.UtcNow;
-        session.AdaptiveState.CharacterStats[personaName] = ensuredProfile;
-
-        return true;
-    }
 
     private async Task<List<ScenarioDefinition>> BuildScenarioCandidatesAsync(RolePlaySession session, AdaptiveScenarioState v2State, CancellationToken cancellationToken)
     {
@@ -9196,11 +9159,11 @@ Requirements:
         };
     }
 
-    private static string ResolveActorName(ContinueAsActor actor, string? customActorName)
+    private static string ResolveActorName(ContinueAsActor actor, string? customActorName, string? personaName = null)
     {
         return actor switch
         {
-            ContinueAsActor.You => "You",
+            ContinueAsActor.You => string.IsNullOrWhiteSpace(personaName) ? "You" : personaName.Trim(),
             ContinueAsActor.Npc => "NPC",
             ContinueAsActor.Custom => string.IsNullOrWhiteSpace(customActorName) ? "Custom" : customActorName.Trim(),
             _ => "System"

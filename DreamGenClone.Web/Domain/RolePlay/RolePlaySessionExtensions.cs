@@ -4,14 +4,21 @@ public static class RolePlaySessionExtensions
 {
     /// <summary>
     /// Returns true when the given actor name or ID matches the session's persona character.
+    /// Checks PersonaCharacterId first (stable), falls back to PersonaName.
     /// </summary>
     public static bool IsPersonaActor(this RolePlaySession session, string? actorNameOrId)
     {
         if (string.IsNullOrWhiteSpace(actorNameOrId)) return false;
 
+        // Primary: match by PersonaCharacterId (survives character name changes)
+        if (!string.IsNullOrWhiteSpace(session.PersonaCharacterId)
+            && string.Equals(actorNameOrId.Trim(), session.PersonaCharacterId.Trim(), StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // Fallback: match by PersonaName (exclude "You" to avoid false positives)
         var personaName = string.IsNullOrWhiteSpace(session.PersonaName) ? "You" : session.PersonaName.Trim();
         if (string.Equals(personaName, "You", StringComparison.OrdinalIgnoreCase))
-            return false; // "You" is too generic to match
+            return false;
 
         return string.Equals(actorNameOrId.Trim(), personaName, StringComparison.OrdinalIgnoreCase);
     }

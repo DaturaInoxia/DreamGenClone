@@ -67,6 +67,17 @@
                             <label class="form-label">Description</label>
                             <textarea class="form-control" @bind="CurrentScenario.Description" rows="3"></textarea>
                         </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Default Persona Character</label>
+                            <select class="form-select" @bind="CurrentScenario.DefaultPersonaCharacterId">
+                                <option value="">(none)</option>
+                                @foreach (var c in CurrentScenario.Characters.Where(c => !string.IsNullOrWhiteSpace(c.Name)))
+                                {
+                                    <option value="@c.Id">@c.Name</option>
+                                }
+                            </select>
+                        </div>
                     </div>
                 </div>
                 
@@ -466,10 +477,6 @@
                             TemplateTypeFilter="TemplateType.Character"
                             OnEntityCreated="@OnCharacterCreated" />
 
-                        @if (CurrentScenario is not null && !CurrentScenario.Characters.Any(c => c.IsPersona))
-                        {
-                            <button class="btn btn-sm btn-outline-info mt-2" @onclick="@( () => AddPersonaCharacter() )">+ Add Persona</button>
-                        }
                     </div>
                 </div>
                 
@@ -1419,19 +1426,6 @@
     private void AddCharacter(string name, string? templateId, string? description)
     {
         AddCharacter(name, templateId, description, CharacterGenderCatalog.Unknown, CharacterRoleCatalog.Unknown, null, null);
-    }
-
-    private void AddPersonaCharacter(int preset = 0)
-    {
-        if (CurrentScenario is null) { return; }
-        if (CurrentScenario.Characters.Any(c => c.IsPersona)) { return; }
-
-        var persona = AddCharacter("You", null, "The POV persona character.",
-            CharacterGenderCatalog.Unknown, "Persona",
-            AdaptiveStatCatalog.CreateDefaultStatMap(), null);
-        persona.IsPersona = true;
-        persona.PerspectiveMode = CharacterPerspectiveMode.FirstPersonInternalMonologue;
-        CurrentScenario.EnsureSinglePersona();
     }
 
     private Character AddCharacter(string name, string? templateId, string? description, string? gender, string? role, IReadOnlyDictionary<string, int>? baseStats, DreamGenClone.Domain.Templates.PhysicalAttributes? physicalAttributes)

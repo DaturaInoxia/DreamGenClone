@@ -62,7 +62,7 @@ public sealed class ActorSelectionService : IActorSelectionService
             "Honor affinity hints: Required characters should ALWAYS be included; Excluded candidates are not in the list (filtered upstream); Preferred is a hint. " +
             "Honor time-of-day match: prefer characters whose affinity time-of-day matches the current time. " +
             "Use the baseScore as a hint, NOT as the sole determinant. " +
-            "The persona ('You' POV character) is NOT in this list — it is inserted separately. " +
+            "All characters including the persona are listed as candidates. " +
             "If no character is a good fit, return an empty 'characters' array and explain.";
 
         var candidatesText = BuildCandidatesText(request.Candidates);

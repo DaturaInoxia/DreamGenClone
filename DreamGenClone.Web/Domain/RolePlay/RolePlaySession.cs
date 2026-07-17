@@ -33,6 +33,9 @@ public sealed class RolePlaySession
 
     public DreamGenClone.Domain.Templates.PhysicalAttributes? PersonaPhysicalAttributes { get; set; }
 
+    /// <summary>The scenario character ID of the persona for this session.</summary>
+    public string? PersonaCharacterId { get; set; }
+
     public List<RolePlayInteraction> Interactions { get; set; } = [];
 
     /// <summary>Active perspective modes for scenario characters in this session.</summary>

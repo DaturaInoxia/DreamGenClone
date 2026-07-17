@@ -275,7 +275,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                 ? customActorName.Trim()
                 : actor switch
                 {
-                    ContinueAsActor.You => "You",
+                    ContinueAsActor.You => string.IsNullOrWhiteSpace(session.PersonaName) ? "You" : session.PersonaName.Trim(),
                     ContinueAsActor.Npc => "NPC",
                     _ => "Custom"
                 },

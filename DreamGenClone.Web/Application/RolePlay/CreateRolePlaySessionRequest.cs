@@ -13,6 +13,9 @@ public sealed class CreateRolePlaySessionRequest
 
     public string? ScenarioId { get; init; }
 
+    /// <summary>Character ID of the session's POV persona character.</summary>
+    public string? PersonaCharacterId { get; init; }
+
     public string PersonaName { get; init; } = "You";
     public string PersonaDescription { get; init; } = string.Empty;
     public string? PersonaTemplateId { get; init; }
