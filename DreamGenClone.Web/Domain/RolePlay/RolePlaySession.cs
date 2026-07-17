@@ -210,6 +210,30 @@ public sealed class RolePlaySession
     /// </summary>
     public int? MaxEncounterCompletionsToInject { get; set; }
 
+    // ── RP Prompt Redesign: per-session prompt configuration (seeded at creation, no code defaults) ──
+
+    /// <summary>
+    /// Maximum prompt characters allowed before budget enforcement trims Zone B slots.
+    /// Null or &lt;= 0 at runtime causes fail-fast. Seeded with
+    /// <see cref="Infrastructure.Configuration.RolePlayPromptOptions.RecommendedInitialMaxPromptChars"/> (35000).
+    /// </summary>
+    public int? MaxPromptChars { get; set; }
+
+    /// <summary>Turn-based history window for prompt building (replaces ContextWindowSize interaction count for prompts).</summary>
+    public int? ContextWindowTurns { get; set; }
+
+    /// <summary>Turn band after which scenario context compresses to 2-3 line summary (FR-012).</summary>
+    public int? ScenarioCompressionTurnThreshold { get; set; }
+
+    /// <summary>Number of recent turns with full character+narrative detail (FR-015 Layer 1).</summary>
+    public int? HistoryFullDetailTurnBand { get; set; }
+
+    /// <summary>Number of middle turns with narrative-only summaries (FR-015 Layer 2).</summary>
+    public int? HistoryNarrativeOnlyTurnBand { get; set; }
+
+    /// <summary>Turn after which long-term memory compresses (FR-016 Tier 1).</summary>
+    public int? SessionMemoryLongTermTurnThreshold { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public DateTime ModifiedAt { get; set; } = DateTime.UtcNow;

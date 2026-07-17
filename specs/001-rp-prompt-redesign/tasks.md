@@ -35,11 +35,11 @@ This is a layered .NET 9 web application. Paths use the repository's existing pr
 
 **Purpose**: Domain enums, config options, and project scaffolding for the new prompt architecture.
 
-- [ ] T001 [P] Create `PromptZone` enum (A, B, C) in `DreamGenClone.Domain/RolePlay/PromptZone.cs`
-- [ ] T002 [P] Create `PromptVariant` enum (Character, Narrative) in `DreamGenClone.Domain/RolePlay/PromptVariant.cs`
-- [ ] T003 [P] Create `ActorProfileKind` enum (Player, NpcPresent, NpcNonPresent, Narrative, Custom) in `DreamGenClone.Domain/RolePlay/ActorProfileKind.cs`
-- [ ] T004 [P] Create `PromptSlotId` enum (17 slots + WorldState conditional sub-slot) in `DreamGenClone.Domain/RolePlay/PromptSlotId.cs` per data-model.md frozen contract
-- [ ] T005 [P] Create `RolePlayPromptOptions` in `DreamGenClone.Infrastructure/Configuration/RolePlayPromptOptions.cs` with `RecommendedInitialMaxPromptChars` (35000) and recommended compression-threshold seed values — used ONLY by session-creation seeder, never by runtime prompt builder
+- [x] T001 [P] Create `PromptZone` enum (A, B, C) in `DreamGenClone.Domain/RolePlay/PromptZone.cs`
+- [x] T002 [P] Create `PromptVariant` enum (Character, Narrative) in `DreamGenClone.Domain/RolePlay/PromptVariant.cs`
+- [x] T003 [P] Create `ActorProfileKind` enum (Player, NpcPresent, NpcNonPresent, Narrative, Custom) in `DreamGenClone.Domain/RolePlay/ActorProfileKind.cs`
+- [x] T004 [P] Create `PromptSlotId` enum (17 slots + WorldState conditional sub-slot) in `DreamGenClone.Domain/RolePlay/PromptSlotId.cs` per data-model.md frozen contract
+- [x] T005 [P] Create `RolePlayPromptOptions` in `DreamGenClone.Infrastructure/Configuration/RolePlayPromptOptions.cs` with `RecommendedInitialMaxPromptChars` (35000) and recommended compression-threshold seed values — used ONLY by session-creation seeder, never by runtime prompt builder
 
 ---
 
@@ -49,20 +49,20 @@ This is a layered .NET 9 web application. Paths use the repository's existing pr
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete.
 
-- [ ] T006 Add nullable session-scoped config properties (`MaxPromptChars`, `ContextWindowTurns`, `ScenarioCompressionTurnThreshold`, `HistoryFullDetailTurnBand`, `HistoryNarrativeOnlyTurnBand`, `SessionMemoryLongTermTurnThreshold`) to `DreamGenClone.Web/Domain/RolePlay/RolePlaySession.cs`
-- [ ] T007 Add idempotent `ALTER TABLE Sessions` migrations for the 6 new columns in `DreamGenClone.Infrastructure/Persistence/SqlitePersistence.cs` (follow existing `MaxMilestonesToInject` pattern at `:1227-1235`)
-- [ ] T008 Create `PhaseRuleOfThumb` table migration + 6-row seed (Opening, BuildUp, Committed, Approaching, Climax, Reset) in `DreamGenClone.Infrastructure/Persistence/SqlitePersistence.cs`
-- [ ] T009 [P] Create `IPhaseRuleOfThumbRepository` interface + SQLite implementation in `DreamGenClone.Infrastructure/Persistence/` with `GetByPhaseAsync(string phase)`
-- [ ] T010 Extend `SessionService.SaveRolePlayAsync` in `DreamGenClone.Web/Application/Sessions/` to persist the 6 new session columns
-- [ ] T011 Extend session-creation path (`CreateRolePlaySessionRequest` / `SessionService`) to seed new sessions with `RolePlayPromptOptions` recommended values (MaxPromptChars=35000, etc.) — seeding only, NOT runtime defaults
-- [ ] T012 [P] Create `IPromptSlot` interface in `DreamGenClone.Web/Application/RolePlay/Prompts/IPromptSlot.cs` per `contracts/prompt-slot-contract.md`
-- [ ] T013 [P] Create `PromptBuildContext` immutable record in `DreamGenClone.Web/Application/RolePlay/Prompts/PromptBuildContext.cs` per `contracts/prompt-build-context.md` (includes `ResolvedScenarioData`, `ResolvedThemeData`, `ResolvedIntensityData`, `ResolvedWritingStyleData`, `WorldStateData` sub-records)
-- [ ] T014 [P] Create `ActorProfile` record in `DreamGenClone.Web/Application/RolePlay/Prompts/ActorProfile.cs` per `contracts/actor-profile-contract.md`
-- [ ] T015 Create `ActorProfileResolver` in `DreamGenClone.Web/Application/RolePlay/Prompts/ActorProfileResolver.cs` implementing resolution rules from `contracts/actor-profile-contract.md` (uses `RolePlayScenePresenceHelper`; fail-fast on unknown actor)
-- [ ] T016 [P] Create `PromptBudgetEnforcer` in `DreamGenClone.Web/Application/RolePlay/Prompts/PromptBudgetEnforcer.cs` per `contracts/token-budget-contract.md` (trim priority order, never-trim invariants, critical-overflow path)
-- [ ] T017 Create `RolePlayPromptBuilder` in `DreamGenClone.Web/Application/RolePlay/Prompts/RolePlayPromptBuilder.cs` — receives `IEnumerable<IPromptSlot>`, sorts by Zone then Order, runs slots, enforces budget, logs at Information/Warning/Critical per FR-030/FR-037. Startup assertion: exactly 17 distinct slots registered with frozen Zone/Order.
-- [ ] T018 [P] Create `SlotText` and `BudgetEnforcementResult` records in `DreamGenClone.Web/Application/RolePlay/Prompts/PromptBudgetEnforcer.cs` (same file as T016)
-- [ ] T019 [P] Create test directory `DreamGenClone.Tests/RolePlay/Prompts/` with `GlobalUsings`-compatible imports
+- [x] T006 Add nullable session-scoped config properties (`MaxPromptChars`, `ContextWindowTurns`, `ScenarioCompressionTurnThreshold`, `HistoryFullDetailTurnBand`, `HistoryNarrativeOnlyTurnBand`, `SessionMemoryLongTermTurnThreshold`) to `DreamGenClone.Web/Domain/RolePlay/RolePlaySession.cs`
+- [x] T007 Add idempotent `ALTER TABLE Sessions` migrations for the 6 new columns in `DreamGenClone.Infrastructure/Persistence/SqlitePersistence.cs` (follow existing `MaxMilestonesToInject` pattern at `:1227-1235`)
+- [x] T008 Create `PhaseRuleOfThumb` table migration + 6-row seed (Opening, BuildUp, Committed, Approaching, Climax, Reset) in `DreamGenClone.Infrastructure/Persistence/SqlitePersistence.cs`
+- [x] T009 [P] Create `IPhaseRuleOfThumbRepository` interface + SQLite implementation in `DreamGenClone.Infrastructure/Persistence/` with `GetByPhaseAsync(string phase)`
+- [x] T010 Extend `SessionService.SaveRolePlayAsync` in `DreamGenClone.Web/Application/Sessions/` to persist the 6 new session columns
+- [x] T011 Extend session-creation path (`CreateRolePlaySessionRequest` / `SessionService`) to seed new sessions with `RolePlayPromptOptions` recommended values (MaxPromptChars=35000, etc.) — seeding only, NOT runtime defaults
+- [x] T012 [P] Create `IPromptSlot` interface in `DreamGenClone.Web/Application/RolePlay/Prompts/IPromptSlot.cs` per `contracts/prompt-slot-contract.md`
+- [x] T013 [P] Create `PromptBuildContext` immutable record in `DreamGenClone.Web/Application/RolePlay/Prompts/PromptBuildContext.cs` per `contracts/prompt-build-context.md` (includes `ResolvedScenarioData`, `ResolvedThemeData`, `ResolvedIntensityData`, `ResolvedWritingStyleData`, `WorldStateData` sub-records)
+- [x] T014 [P] Create `ActorProfile` record in `DreamGenClone.Web/Application/RolePlay/Prompts/ActorProfile.cs` per `contracts/actor-profile-contract.md`
+- [x] T015 Create `ActorProfileResolver` in `DreamGenClone.Web/Application/RolePlay/Prompts/ActorProfileResolver.cs` implementing resolution rules from `contracts/actor-profile-contract.md` (uses `RolePlayScenePresenceHelper`; fail-fast on unknown actor)
+- [x] T016 [P] Create `PromptBudgetEnforcer` in `DreamGenClone.Web/Application/RolePlay/Prompts/PromptBudgetEnforcer.cs` per `contracts/token-budget-contract.md` (trim priority order, never-trim invariants, critical-overflow path)
+- [x] T017 Create `RolePlayPromptBuilder` in `DreamGenClone.Web/Application/RolePlay/Prompts/RolePlayPromptBuilder.cs` — receives `IEnumerable<IPromptSlot>`, sorts by Zone then Order, runs slots, enforces budget, logs at Information/Warning/Critical per FR-030/FR-037. Startup assertion: exactly 17 distinct slots registered with frozen Zone/Order.
+- [x] T018 [P] Create `SlotText` and `BudgetEnforcementResult` records in `DreamGenClone.Web/Application/RolePlay/Prompts/PromptBudgetEnforcer.cs` (same file as T016)
+- [x] T019 [P] Create test directory `DreamGenClone.Tests/RolePlay/Prompts/` with `GlobalUsings`-compatible imports
 
 **Checkpoint**: Foundation ready — slot implementation can now begin per user story.
 
@@ -76,28 +76,28 @@ This is a layered .NET 9 web application. Paths use the repository's existing pr
 
 ### Tests for User Story 1
 
-- [ ] T020 [P] [US1] Create `SlotContractTests.cs` scaffold in `DreamGenClone.Tests/RolePlay/Prompts/SlotContractTests.cs` with shared `PromptBuildContext` test fixture builder
-- [ ] T021 [P] [US1] Contract test for `SceneAnchorSlot` in `DreamGenClone.Tests/RolePlay/Prompts/SlotContractTests.cs` (FR-005, FR-036, SC-008)
-- [ ] T022 [P] [US1] Contract test for `ActorAssignmentSlot` in `DreamGenClone.Tests/RolePlay/Prompts/SlotContractTests.cs` (FR-006, FR-036)
-- [ ] T023 [P] [US1] Contract test for `TurnContextSlot` in `DreamGenClone.Tests/RolePlay/Prompts/SlotContractTests.cs` (FR-007, FR-036)
-- [ ] T024 [P] [US1] Contract test for `SceneLocationLockSlot` in `DreamGenClone.Tests/RolePlay/Prompts/SlotContractTests.cs` (FR-008, FR-036)
-- [ ] T025 [P] [US1] Contract test for `CharacterDataSlot` in `DreamGenClone.Tests/RolePlay/Prompts/SlotContractTests.cs` (FR-010, FR-011, FR-036)
-- [ ] T026 [P] [US1] Create `ActorProfileResolverTests.cs` in `DreamGenClone.Tests/RolePlay/Prompts/ActorProfileResolverTests.cs` covering 5 profiles × variant matrix + fail-fast on unknown actor
-- [ ] T027 [P] [US1] Create `LegacyRemovalTests.cs` in `DreamGenClone.Tests/RolePlay/Prompts/LegacyRemovalTests.cs` asserting `BuildPromptAsync` is deleted from `RolePlayContinuationService.cs` (SC-010) and `IPromptInjector`/`SceneDirectionCoordinator` are deleted
-- [ ] T028 [P] [US1] Create `PromptBuilderTests.cs` scaffold in `DreamGenClone.Tests/RolePlay/Prompts/PromptBuilderTests.cs` with end-to-end Character-variant build test asserting Zone A ordering and no "You are continuing..." header
+- [x] T020 [P] [US1] Create `SlotContractTests.cs` scaffold in `DreamGenClone.Tests/RolePlay/Prompts/SlotContractTests.cs` with shared `PromptBuildContext` test fixture builder
+- [x] T021 [P] [US1] Contract test for `SceneAnchorSlot` in `DreamGenClone.Tests/RolePlay/Prompts/SlotContractTests.cs` (FR-005, FR-036, SC-008)
+- [x] T022 [P] [US1] Contract test for `ActorAssignmentSlot` in `DreamGenClone.Tests/RolePlay/Prompts/SlotContractTests.cs` (FR-006, FR-036)
+- [x] T023 [P] [US1] Contract test for `TurnContextSlot` in `DreamGenClone.Tests/RolePlay/Prompts/SlotContractTests.cs` (FR-007, FR-036)
+- [x] T024 [P] [US1] Contract test for `SceneLocationLockSlot` in `DreamGenClone.Tests/RolePlay/Prompts/SlotContractTests.cs` (FR-008, FR-036)
+- [x] T025 [P] [US1] Contract test for `CharacterDataSlot` in `DreamGenClone.Tests/RolePlay/Prompts/SlotContractTests.cs` (FR-010, FR-011, FR-036)
+- [x] T026 [P] [US1] Create `ActorProfileResolverTests.cs` in `DreamGenClone.Tests/RolePlay/Prompts/ActorProfileResolverTests.cs` covering 5 profiles × variant matrix + fail-fast on unknown actor
+- [x] T027 [P] [US1] Create `LegacyRemovalTests.cs` in `DreamGenClone.Tests/RolePlay/Prompts/LegacyRemovalTests.cs` asserting `BuildPromptAsync` is deleted from `RolePlayContinuationService.cs` (SC-010) and `IPromptInjector`/`SceneDirectionCoordinator` are deleted
+- [x] T028 [P] [US1] Create `PromptBuilderTests.cs` scaffold in `DreamGenClone.Tests/RolePlay/Prompts/PromptBuilderTests.cs` with end-to-end Character-variant build test asserting Zone A ordering and no "You are continuing..." header
 
 ### Implementation for User Story 1
 
-- [ ] T029 [P] [US1] Implement `SceneAnchorSlot` (Slot 1, Zone A) in `DreamGenClone.Web/Application/RolePlay/Prompts/Slots/SceneAnchorSlot.cs` — location + phase one-liner replacing "You are continuing..." header (FR-005)
-- [ ] T030 [P] [US1] Implement `ActorAssignmentSlot` (Slot 2, Zone A) in `DreamGenClone.Web/Application/RolePlay/Prompts/Slots/ActorAssignmentSlot.cs` — "Continue as: {name} ({role})" for Character variant (FR-006)
-- [ ] T031 [P] [US1] Implement `TurnContextSlot` (Slot 3, Zone A) in `DreamGenClone.Web/Application/RolePlay/Prompts/Slots/TurnContextSlot.cs` — turn number, response position, pacing-aware position guidance (FR-007); replaces duplicate `TurnContextInjector`
-- [ ] T032 [P] [US1] Implement `SceneLocationLockSlot` (Slot 4, Zone A) in `DreamGenClone.Web/Application/RolePlay/Prompts/Slots/SceneLocationLockSlot.cs` — hard constraint: current location + continuity rule (FR-008)
-- [ ] T033 [P] [US1] Implement `CharacterDataSlot` (Slot 5, Zone B, trimmable) in `DreamGenClone.Web/Application/RolePlay/Prompts/Slots/CharacterDataSlot.cs` — actor-aware filtering (full self + partners, comparison-only for non-present), merged appearance + behavioral text (FR-010, FR-011)
-- [ ] T034 [US1] Refactor `RolePlayContinuationService` in `DreamGenClone.Web/Application/RolePlay/RolePlayContinuationService.cs` to delegate prompt construction to `RolePlayPromptBuilder` — delete the ~1,400-line `BuildPromptAsync` method (SC-010)
-- [ ] T035 [US1] Delete `IPromptInjector` interface, `SceneDirectionCoordinator`, `PromptInjectionContext`, and the 13 injector implementations in `DreamGenClone.Web/Application/RolePlay/` (FR-028, R5) — content absorbed into slots
-- [ ] T036 [US1] Register `IPromptSlot` implementations (Slots 1-5) and `RolePlayPromptBuilder` in `DreamGenClone.Web/Program.cs` DI (R11)
-- [ ] T037 [US1] Add Information logs for prompt build call path in `RolePlayPromptBuilder` (FR-037: SessionId, Actor, Phase, Chars, SlotsFired) and Debug logs in each Zone A slot
-- [ ] T038 [US1] Validate build: `dotnet build DreamGenClone.sln` and run `dotnet test DreamGenClone.Tests/DreamGenClone.Tests.csproj --filter "FullyQualifiedName~RolePlay.Prompts"`
+- [x] T029 [P] [US1] Implement `SceneAnchorSlot` (Slot 1, Zone A) in `DreamGenClone.Web/Application/RolePlay/Prompts/Slots/SceneAnchorSlot.cs` — location + phase one-liner replacing "You are continuing..." header (FR-005)
+- [x] T030 [P] [US1] Implement `ActorAssignmentSlot` (Slot 2, Zone A) in `DreamGenClone.Web/Application/RolePlay/Prompts/Slots/ActorAssignmentSlot.cs` — "Continue as: {name} ({role})" for Character variant (FR-006)
+- [x] T031 [P] [US1] Implement `TurnContextSlot` (Slot 3, Zone A) in `DreamGenClone.Web/Application/RolePlay/Prompts/Slots/TurnContextSlot.cs` — turn number, response position, pacing-aware position guidance (FR-007); replaces duplicate `TurnContextInjector`
+- [x] T032 [P] [US1] Implement `SceneLocationLockSlot` (Slot 4, Zone A) in `DreamGenClone.Web/Application/RolePlay/Prompts/Slots/SceneLocationLockSlot.cs` — hard constraint: current location + continuity rule (FR-008)
+- [x] T033 [P] [US1] Implement `CharacterDataSlot` (Slot 5, Zone B, trimmable) in `DreamGenClone.Web/Application/RolePlay/Prompts/Slots/CharacterDataSlot.cs` — actor-aware filtering (full self + partners, comparison-only for non-present), merged appearance + behavioral text (FR-010, FR-011)
+- [x] T034 [US1] Refactor `RolePlayContinuationService` in `DreamGenClone.Web/Application/RolePlay/RolePlayContinuationService.cs` to delegate prompt construction to `RolePlayPromptBuilder` — delete the ~1,400-line `BuildPromptAsync` method (SC-010)
+- [x] T035 [US1] Delete `IPromptInjector` interface, `SceneDirectionCoordinator`, `PromptInjectionContext`, and the 13 injector implementations in `DreamGenClone.Web/Application/RolePlay/` (FR-028, R5) — content absorbed into slots
+- [x] T036 [US1] Register `IPromptSlot` implementations (Slots 1-5) and `RolePlayPromptBuilder` in `DreamGenClone.Web/Program.cs` DI (R11)
+- [x] T037 [US1] Add Information logs for prompt build call path in `RolePlayPromptBuilder` (FR-037: SessionId, Actor, Phase, Chars, SlotsFired) and Debug logs in each Zone A slot
+- [x] T038 [US1] Validate build: `dotnet build DreamGenClone.sln` and run `dotnet test DreamGenClone.Tests/DreamGenClone.Tests.csproj --filter "FullyQualifiedName~RolePlay.Prompts"`
 
 **Checkpoint**: User Story 1 fully functional — Character-variant prompts open with scene grounding, actor filtering works, legacy path deleted.
 
@@ -111,18 +111,18 @@ This is a layered .NET 9 web application. Paths use the repository's existing pr
 
 ### Tests for User Story 6
 
-- [ ] T039 [P] [US6] Contract test for `ThemeContractSlot` in `DreamGenClone.Tests/RolePlay/Prompts/SlotContractTests.cs` (FR-018, FR-027, FR-036)
-- [ ] T040 [P] [US6] Contract test for `BehavioralFramesSlot` in `DreamGenClone.Tests/RolePlay/Prompts/SlotContractTests.cs` (FR-019, FR-027, FR-036)
-- [ ] T041 [P] [US6] Contract test for `FinalInstructionSlot` Character variant in `DreamGenClone.Tests/RolePlay/Prompts/SlotContractTests.cs` (FR-023, FR-027, FR-036)
-- [ ] T042 [P] [US6] Add deduplication assertion tests to `PromptBuilderTests.cs` — each content category appears exactly once (FR-027, SC-002)
+- [x] T039 [P] [US6] Contract test for `ThemeContractSlot` in `DreamGenClone.Tests/RolePlay/Prompts/SlotContractTests.cs` (FR-018, FR-027, FR-036)
+- [x] T040 [P] [US6] Contract test for `BehavioralFramesSlot` in `DreamGenClone.Tests/RolePlay/Prompts/SlotContractTests.cs` (FR-019, FR-027, FR-036)
+- [x] T041 [P] [US6] Contract test for `FinalInstructionSlot` Character variant in `DreamGenClone.Tests/RolePlay/Prompts/SlotContractTests.cs` (FR-023, FR-027, FR-036)
+- [x] T042 [P] [US6] Add deduplication assertion tests to `PromptBuilderTests.cs` — each content category appears exactly once (FR-027, SC-002)
 
 ### Implementation for User Story 6
 
-- [ ] T043 [P] [US6] Implement `ThemeContractSlot` (Slot 12, Zone C) in `DreamGenClone.Web/Application/RolePlay/Prompts/Slots/ThemeContractSlot.cs` — active theme + phase guidance + directives + steering rank, exactly once (FR-018); absorbs `ThemeContractInjector` + `ThemeAIGuidanceInjector`
-- [ ] T044 [P] [US6] Implement `BehavioralFramesSlot` (Slot 13, Zone C, non-present trimmable) in `DreamGenClone.Web/Application/RolePlay/Prompts/Slots/BehavioralFramesSlot.cs` — filtered by actor, NPC agency lives here, exactly once (FR-019); absorbs `BehavioralFrameInjector` + `HusbandAftermathInjector`
-- [ ] T045 [P] [US6] Implement `FinalInstructionSlot` (Slot 17, Zone C) Character variant in `DreamGenClone.Web/Application/RolePlay/Prompts/Slots/FinalInstructionSlot.cs` — POV, word target, variant constraints, last content before generation (FR-023); absorbs `FinalDirectiveInjector`
-- [ ] T046 [US6] Register Slots 12, 13, 17 in `DreamGenClone.Web/Program.cs` DI
-- [ ] T047 [US6] Verify no residual `IPromptInjector` registrations remain in `DreamGenClone.Web/Program.cs` (FR-028)
+- [x] T043 [P] [US6] Implement `ThemeContractSlot` (Slot 12, Zone C) in `DreamGenClone.Web/Application/RolePlay/Prompts/Slots/ThemeContractSlot.cs` — active theme + phase guidance + directives + steering rank, exactly once (FR-018); absorbs `ThemeContractInjector` + `ThemeAIGuidanceInjector`
+- [x] T044 [P] [US6] Implement `BehavioralFramesSlot` (Slot 13, Zone C, non-present trimmable) in `DreamGenClone.Web/Application/RolePlay/Prompts/Slots/BehavioralFramesSlot.cs` — filtered by actor, NPC agency lives here, exactly once (FR-019); absorbs `BehavioralFrameInjector` + `HusbandAftermathInjector`
+- [x] T045 [P] [US6] Implement `FinalInstructionSlot` (Slot 17, Zone C) Character variant in `DreamGenClone.Web/Application/RolePlay/Prompts/Slots/FinalInstructionSlot.cs` — POV, word target, variant constraints, last content before generation (FR-023); absorbs `FinalDirectiveInjector`
+- [x] T046 [US6] Register Slots 12, 13, 17 in `DreamGenClone.Web/Program.cs` DI
+- [x] T047 [US6] Verify no residual `IPromptInjector` registrations remain in `DreamGenClone.Web/Program.cs` (FR-028)
 
 **Checkpoint**: User Stories 1 AND 6 both work — Character-variant prompts are deduplicated and scene-grounded.
 
@@ -136,18 +136,18 @@ This is a layered .NET 9 web application. Paths use the repository's existing pr
 
 ### Tests for User Story 2
 
-- [ ] T048 [P] [US2] Add Narrative-variant contract tests for `ActorAssignmentSlot`, `CharacterDataSlot`, `BehavioralFramesSlot`, `FinalInstructionSlot` in `DreamGenClone.Tests/RolePlay/Prompts/SlotContractTests.cs` (FR-002, FR-026)
-- [ ] T049 [P] [US2] Add Narrative-variant end-to-end test to `PromptBuilderTests.cs` asserting zero "POV Persona" text (SC-004), lighter character data, zero-dialogue constraint in final instruction
-- [ ] T050 [P] [US2] Add `ActorProfileResolverTests` case for `PromptIntent.Narrative` → `ActorProfileKind.Narrative` resolution
+- [x] T048 [P] [US2] Add Narrative-variant contract tests for `ActorAssignmentSlot`, `CharacterDataSlot`, `BehavioralFramesSlot`, `FinalInstructionSlot` in `DreamGenClone.Tests/RolePlay/Prompts/SlotContractTests.cs` (FR-002, FR-026)
+- [x] T049 [P] [US2] Add Narrative-variant end-to-end test to `PromptBuilderTests.cs` asserting zero "POV Persona" text (SC-004), lighter character data, zero-dialogue constraint in final instruction
+- [x] T050 [P] [US2] Add `ActorProfileResolverTests` case for `PromptIntent.Narrative` → `ActorProfileKind.Narrative` resolution
 
 ### Implementation for User Story 2
 
-- [ ] T051 [US2] Add Narrative-variant branch to `ActorAssignmentSlot.WriteAsync` — "Write as omniscient narrator" (FR-006, R12)
-- [ ] T052 [US2] Add Narrative-variant branch to `CharacterDataSlot.WriteAsync` — all chars, lighter format, no persona, no intimate self-awareness (FR-026, R12)
-- [ ] T053 [US2] Add Narrative-variant branch to `BehavioralFramesSlot.WriteAsync` — all frames included (FR-019, FR-026, R12)
-- [ ] T054 [US2] Add Narrative-variant branch to `FinalInstructionSlot.WriteAsync` — 3rd person omniscient, 300-500 words, zero-dialogue hard constraint, physical detail checklist (positions, contact, sensations, sounds, rhythm) (FR-023, FR-026, R12)
-- [ ] T055 [US2] Ensure `ActorProfileResolver` returns `Kind == Narrative` for `PromptIntent.Narrative` and suppresses all POV persona injection across slots (S-025)
-- [ ] T056 [US2] Validate build + run Narrative-variant tests: `dotnet test --filter "FullyQualifiedName~RolePlay.Prompts"`
+- [x] T051 [US2] Add Narrative-variant branch to `ActorAssignmentSlot.WriteAsync` — "Write as omniscient narrator" (FR-006, R12)
+- [x] T052 [US2] Add Narrative-variant branch to `CharacterDataSlot.WriteAsync` — all chars, lighter format, no persona, no intimate self-awareness (FR-026, R12)
+- [x] T053 [US2] Add Narrative-variant branch to `BehavioralFramesSlot.WriteAsync` — all frames included (FR-019, FR-026, R12)
+- [x] T054 [US2] Add Narrative-variant branch to `FinalInstructionSlot.WriteAsync` — 3rd person omniscient, 300-500 words, zero-dialogue hard constraint, physical detail checklist (positions, contact, sensations, sounds, rhythm) (FR-023, FR-026, R12)
+- [x] T055 [US2] Ensure `ActorProfileResolver` returns `Kind == Narrative` for `PromptIntent.Narrative` and suppresses all POV persona injection across slots (S-025)
+- [x] T056 [US2] Validate build + run Narrative-variant tests: `dotnet test --filter "FullyQualifiedName~RolePlay.Prompts"`
 
 **Checkpoint**: User Stories 1, 6, AND 2 all work — both Character and Narrative variants produce correct, deduplicated prompts.
 
@@ -161,23 +161,23 @@ This is a layered .NET 9 web application. Paths use the repository's existing pr
 
 ### Tests for User Story 3
 
-- [ ] T057 [P] [US3] Create `PromptBudgetEnforcerTests.cs` in `DreamGenClone.Tests/RolePlay/Prompts/PromptBudgetEnforcerTests.cs` — trim priority order, never-trim invariants, critical-overflow path, fail-fast on missing/invalid `MaxPromptChars` (FR-004, FR-029, FR-030)
-- [ ] T058 [P] [US3] Contract test for `ScenarioContextSlot` in `SlotContractTests.cs` (FR-012, FR-036)
-- [ ] T059 [P] [US3] Contract test for `CurrentLocationSlot` in `SlotContractTests.cs` (FR-013, FR-036)
-- [ ] T060 [P] [US3] Contract test for `WritingStyleSlot` in `SlotContractTests.cs` (FR-014, FR-036) — includes fail-fast on missing phase Rule-of-Thumb and missing profile default
-- [ ] T061 [P] [US3] Contract test for `SceneContinuityAnchorSlot` in `SlotContractTests.cs` (FR-017, FR-036)
-- [ ] T062 [P] [US3] Add budget-enforcement end-to-end test to `PromptBuilderTests.cs` — 35K cap holds across 100 turns (SC-006), trim warning logged with SessionId/Actor/PreTrim/PostTrim (FR-030)
+- [x] T057 [P] [US3] Create `PromptBudgetEnforcerTests.cs` in `DreamGenClone.Tests/RolePlay/Prompts/PromptBudgetEnforcerTests.cs` — trim priority order, never-trim invariants, critical-overflow path, fail-fast on missing/invalid `MaxPromptChars` (FR-004, FR-029, FR-030)
+- [x] T058 [P] [US3] Contract test for `ScenarioContextSlot` in `SlotContractTests.cs` (FR-012, FR-036)
+- [x] T059 [P] [US3] Contract test for `CurrentLocationSlot` in `SlotContractTests.cs` (FR-013, FR-036)
+- [x] T060 [P] [US3] Contract test for `WritingStyleSlot` in `SlotContractTests.cs` (FR-014, FR-036) — includes fail-fast on missing phase Rule-of-Thumb and missing profile default
+- [x] T061 [P] [US3] Contract test for `SceneContinuityAnchorSlot` in `SlotContractTests.cs` (FR-017, FR-036)
+- [x] T062 [P] [US3] Add budget-enforcement end-to-end test to `PromptBuilderTests.cs` — 35K cap holds across 100 turns (SC-006), trim warning logged with SessionId/Actor/PreTrim/PostTrim (FR-030)
 
 ### Implementation for User Story 3
 
-- [ ] T063 [P] [US3] Implement `ScenarioContextSlot` (Slot 6, Zone B, trimmable) in `DreamGenClone.Web/Application/RolePlay/Prompts/Slots/ScenarioContextSlot.cs` — progressive compression using `ScenarioCompressionTurnThreshold` (full turns 1-N, compressed 2-3 lines after); fail-fast if threshold missing (FR-012, FR-012a)
-- [ ] T064 [P] [US3] Implement `CurrentLocationSlot` (Slot 7, Zone B, trimmable) in `DreamGenClone.Web/Application/RolePlay/Prompts/Slots/CurrentLocationSlot.cs` — current scene full, occupied one-line, others omitted (FR-013)
-- [ ] T065 [P] [US3] Implement `WritingStyleSlot` (Slot 8, Zone B, last-resort trim) in `DreamGenClone.Web/Application/RolePlay/Prompts/Slots/WritingStyleSlot.cs` — timeless desc/example always kept, phase Rule-of-Thumb from `PhaseRuleOfThumb` table, profile default as separate element; fail-fast on either missing (FR-014)
-- [ ] T066 [P] [US3] Implement `SceneContinuityAnchorSlot` (Slot 11, Zone B, low trim) in `DreamGenClone.Web/Application/RolePlay/Prompts/Slots/SceneContinuityAnchorSlot.cs` — cross-perceptions only, drop self-perceptions (FR-017); absorbs `ScenePresenceInjector`
-- [ ] T067 [US3] Wire `PromptBudgetEnforcer` into `RolePlayPromptBuilder.BuildAsync` post-slot assembly phase (R7) — two-phase: build all, then trim
-- [ ] T068 [US3] Add Warning log on trim and Critical log on overflow in `RolePlayPromptBuilder` per `contracts/token-budget-contract.md` (FR-030)
-- [ ] T069 [US3] Register Slots 6, 7, 8, 11 in `DreamGenClone.Web/Program.cs` DI
-- [ ] T070 [US3] Validate build + run budget tests: `dotnet test --filter "FullyQualifiedName~RolePlay.Prompts"`
+- [x] T063 [P] [US3] Implement `ScenarioContextSlot` (Slot 6, Zone B, trimmable) in `DreamGenClone.Web/Application/RolePlay/Prompts/Slots/ScenarioContextSlot.cs` — progressive compression using `ScenarioCompressionTurnThreshold` (full turns 1-N, compressed 2-3 lines after); fail-fast if threshold missing (FR-012, FR-012a)
+- [x] T064 [P] [US3] Implement `CurrentLocationSlot` (Slot 7, Zone B, trimmable) in `DreamGenClone.Web/Application/RolePlay/Prompts/Slots/CurrentLocationSlot.cs` — current scene full, occupied one-line, others omitted (FR-013)
+- [x] T065 [P] [US3] Implement `WritingStyleSlot` (Slot 8, Zone B, last-resort trim) in `DreamGenClone.Web/Application/RolePlay/Prompts/Slots/WritingStyleSlot.cs` — timeless desc/example always kept, phase Rule-of-Thumb from `PhaseRuleOfThumb` table, profile default as separate element; fail-fast on either missing (FR-014)
+- [x] T066 [P] [US3] Implement `SceneContinuityAnchorSlot` (Slot 11, Zone B, low trim) in `DreamGenClone.Web/Application/RolePlay/Prompts/Slots/SceneContinuityAnchorSlot.cs` — cross-perceptions only, drop self-perceptions (FR-017); absorbs `ScenePresenceInjector`
+- [x] T067 [US3] Wire `PromptBudgetEnforcer` into `RolePlayPromptBuilder.BuildAsync` post-slot assembly phase (R7) — two-phase: build all, then trim
+- [x] T068 [US3] Add Warning log on trim and Critical log on overflow in `RolePlayPromptBuilder` per `contracts/token-budget-contract.md` (FR-030)
+- [x] T069 [US3] Register Slots 6, 7, 8, 11 in `DreamGenClone.Web/Program.cs` DI
+- [x] T070 [US3] Validate build + run budget tests: `dotnet test --filter "FullyQualifiedName~RolePlay.Prompts"`
 
 **Checkpoint**: User Stories 1, 6, 2, AND 3 all work — prompts stay within budget with correct trim priority.
 
@@ -191,19 +191,19 @@ This is a layered .NET 9 web application. Paths use the repository's existing pr
 
 ### Tests for User Story 4
 
-- [ ] T071 [P] [US4] Contract test for `InteractionHistorySlot` in `SlotContractTests.cs` (FR-015, FR-036) — 3-tier compression using configured turn bands
-- [ ] T072 [P] [US4] Contract test for `SessionMemorySlot` in `SlotContractTests.cs` (FR-016, FR-036) — 3 tiers (long-term backstory, medium-term encounters, short-term milestones)
-- [ ] T073 [P] [US4] Create `EncounterEnrichmentPromptTests.cs` in `DreamGenClone.Tests/RolePlay/Prompts/EncounterEnrichmentPromptTests.cs` — assert 6-dimension capture, SC-009 (≥4 of 6 dimensions present)
-- [ ] T074 [P] [US4] Add tiered-history end-to-end test to `PromptBuilderTests.cs` — 15+ turn session shows correct tier boundaries
+- [x] T071 [P] [US4] Contract test for `InteractionHistorySlot` in `SlotContractTests.cs` (FR-015, FR-036) — 3-tier compression using configured turn bands
+- [x] T072 [P] [US4] Contract test for `SessionMemorySlot` in `SlotContractTests.cs` (FR-016, FR-036) — 3 tiers (long-term backstory, medium-term encounters, short-term milestones)
+- [x] T073 [P] [US4] Create `EncounterEnrichmentPromptTests.cs` in `DreamGenClone.Tests/RolePlay/Prompts/EncounterEnrichmentPromptTests.cs` — assert 6-dimension capture, SC-009 (≥4 of 6 dimensions present)
+- [x] T074 [P] [US4] Add tiered-history end-to-end test to `PromptBuilderTests.cs` — 15+ turn session shows correct tier boundaries
 
 ### Implementation for User Story 4
 
-- [ ] T075 [P] [US4] Implement `InteractionHistorySlot` (Slot 9, Zone B, trimmable priority 1) in `DreamGenClone.Web/Application/RolePlay/Prompts/Slots/InteractionHistorySlot.cs` — 3-tier compression using `HistoryFullDetailTurnBand`, `HistoryNarrativeOnlyTurnBand`, `ContextWindowTurns`; fail-fast if thresholds missing (FR-015, FR-012a, R3)
-- [ ] T076 [P] [US4] Implement `SessionMemorySlot` (Slot 10, Zone B, trimmable priority 4) in `DreamGenClone.Web/Application/RolePlay/Prompts/Slots/SessionMemorySlot.cs` — 3 tiers using `SessionMemoryLongTermTurnThreshold`; encounter summaries from `RolePlayV2EncounterSummaries`; fail-fast if threshold missing (FR-016, FR-012a)
-- [ ] T077 [US4] Rewrite enrichment prompt in `DreamGenClone.Web/Application/RolePlay/EncounterSummaryJobHandler.cs` per `contracts/encounter-enrichment-contract.md` — 6 dimensions, Narrative response as primary source (FR-033, FR-035, R9)
-- [ ] T078 [US4] Extend `TryDetectEncounterBoundaryAsync` in `DreamGenClone.Web/Application/RolePlay/RolePlayEngineService.cs` with 4 secondary signals (scene change after intimacy, time passage, boundary language, Climax→Reset phase transition); each signal writes `RolePlayDebugEventRecord` with `EventKind="EncounterBoundaryDetected"` (FR-034, R8)
-- [ ] T079 [US4] Register Slots 9, 10 in `DreamGenClone.Web/Program.cs` DI
-- [ ] T080 [US4] Validate build + run continuity tests: `dotnet test --filter "FullyQualifiedName~RolePlay.Prompts"`
+- [x] T075 [P] [US4] Implement `InteractionHistorySlot` (Slot 9, Zone B, trimmable priority 1) in `DreamGenClone.Web/Application/RolePlay/Prompts/Slots/InteractionHistorySlot.cs` — 3-tier compression using `HistoryFullDetailTurnBand`, `HistoryNarrativeOnlyTurnBand`, `ContextWindowTurns`; fail-fast if thresholds missing (FR-015, FR-012a, R3)
+- [x] T076 [P] [US4] Implement `SessionMemorySlot` (Slot 10, Zone B, trimmable priority 4) in `DreamGenClone.Web/Application/RolePlay/Prompts/Slots/SessionMemorySlot.cs` — 3 tiers using `SessionMemoryLongTermTurnThreshold`; encounter summaries from `RolePlayV2EncounterSummaries`; fail-fast if threshold missing (FR-016, FR-012a)
+- [x] T077 [US4] Rewrite enrichment prompt in `DreamGenClone.Web/Application/RolePlay/EncounterSummaryJobHandler.cs` per `contracts/encounter-enrichment-contract.md` — 6 dimensions, Narrative response as primary source (FR-033, FR-035, R9)
+- [x] T078 [US4] Extend `TryDetectEncounterBoundaryAsync` in `DreamGenClone.Web/Application/RolePlay/RolePlayEngineService.cs` with 4 secondary signals (scene change after intimacy, time passage, boundary language, Climax→Reset phase transition); each signal writes `RolePlayDebugEventRecord` with `EventKind="EncounterBoundaryDetected"` (FR-034, R8)
+- [x] T079 [US4] Register Slots 9, 10 in `DreamGenClone.Web/Program.cs` DI
+- [x] T080 [US4] Validate build + run continuity tests: `dotnet test --filter "FullyQualifiedName~RolePlay.Prompts"`
 
 **Checkpoint**: User Stories 1, 6, 2, 3, AND 4 all work — long-running sessions maintain coherent tiered memory.
 
@@ -217,14 +217,14 @@ This is a layered .NET 9 web application. Paths use the repository's existing pr
 
 ### Tests for User Story 5
 
-- [ ] T081 [P] [US5] Contract test for `WorldStateSlot` in `SlotContractTests.cs` (FR-009, FR-036) — `ShouldWrite` returns true when `WorldState` non-null, false when null; output format matches GAP-5
-- [ ] T082 [P] [US5] Add conditional-omission test to `PromptBuilderTests.cs` — slot silently omitted when `WorldState` is null
+- [x] T081 [P] [US5] Contract test for `WorldStateSlot` in `SlotContractTests.cs` (FR-009, FR-036) — `ShouldWrite` returns true when `WorldState` non-null, false when null; output format matches GAP-5
+- [x] T082 [P] [US5] Add conditional-omission test to `PromptBuilderTests.cs` — slot silently omitted when `WorldState` is null
 
 ### Implementation for User Story 5
 
-- [ ] T083 [P] [US5] Implement `WorldStateSlot` (Slot 4a, Zone A, conditional) in `DreamGenClone.Web/Application/RolePlay/Prompts/Slots/WorldStateSlot.cs` — `ShouldWrite` returns `context.WorldState is not null`; format per GAP-5 (Day N, time phase, weather, world rhythm, temporal pressure) (FR-009, R10)
-- [ ] T084 [US5] Register `WorldStateSlot` in `DreamGenClone.Web/Program.cs` DI (conditional registration acceptable)
-- [ ] T085 [US5] Validate build + run World State tests: `dotnet test --filter "FullyQualifiedName~RolePlay.Prompts"`
+- [x] T083 [P] [US5] Implement `WorldStateSlot` (Slot 4a, Zone A, conditional) in `DreamGenClone.Web/Application/RolePlay/Prompts/Slots/WorldStateSlot.cs` — `ShouldWrite` returns `context.WorldState is not null`; format per GAP-5 (Day N, time phase, weather, world rhythm, temporal pressure) (FR-009, R10)
+- [x] T084 [US5] Register `WorldStateSlot` in `DreamGenClone.Web/Program.cs` DI (conditional registration acceptable)
+- [x] T085 [US5] Validate build + run World State tests: `dotnet test --filter "FullyQualifiedName~RolePlay.Prompts"`
 
 **Checkpoint**: All 6 user stories complete — full 17-slot architecture operational.
 
@@ -234,18 +234,18 @@ This is a layered .NET 9 web application. Paths use the repository's existing pr
 
 **Purpose**: Remaining Zone C slots, engine data hygiene, final wiring, and validation.
 
-- [ ] T086 [P] Implement `ScenarioGuidanceSlot` (Slot 14, Zone C, low trim) in `DreamGenClone.Web/Application/RolePlay/Prompts/Slots/ScenarioGuidanceSlot.cs` — phase steering, suppress resistance band when threshold crossed (FR-020); absorbs `BeatStageInjector`
-- [ ] T087 [P] Implement `IntensityPacingSlot` (Slot 15, Zone C) in `DreamGenClone.Web/Application/RolePlay/Prompts/Slots/IntensityPacingSlot.cs` — merged escalation + scene-time-direction + available positions (FR-021); absorbs `IntensityContractInjector` + `EscalationInjector` + `SceneTimeDirectionInjector` + `PositionListInjector`
-- [ ] T088 [P] Implement `UserDirectionSlot` (Slot 16, Zone C, conditional) in `DreamGenClone.Web/Application/RolePlay/Prompts/Slots/UserDirectionSlot.cs` — fires only when user provided real direction; omit generic "Continue naturally" (FR-022)
-- [ ] T089 [P] Contract tests for Slots 14, 15, 16 in `DreamGenClone.Tests/RolePlay/Prompts/SlotContractTests.cs` (FR-020, FR-021, FR-022, FR-036)
-- [ ] T090 Register Slots 14, 15, 16 in `DreamGenClone.Web/Program.cs` DI
-- [ ] T091 [P] Audit all slots for engine data hygiene — no raw adaptive stat numbers, raw intensity profile GUIDs, confidence values, or uninterpreted resistance band labels in prompt output (FR-031)
-- [ ] T092 [P] Replace "HARD CONSTRAINT" label dilution (~25 instances → targeted use only where genuinely warranted) across all slot implementations (FR-032)
-- [ ] T093 Add Debug-level slot diagnostics (which slots fired, per-slot char counts) to `RolePlayPromptBuilder` and each slot (FR-037)
-- [ ] T094 Run full RP test suite: `dotnet test DreamGenClone.Tests/DreamGenClone.Tests.csproj --filter "FullyQualifiedName~RolePlay"` — fix any regressions
-- [ ] T095 Run quickstart.md validation steps 1-6 (verify 17 slots registered, no legacy path, fail-fast on missing MaxPromptChars, prompt size ≤35K, deduplication, Narrative no POV persona)
-- [ ] T096 [P] Update `specs/001-rp-prompt-redesign/quickstart.md` if any verification commands changed during implementation
-- [ ] T097 Performance validation: measure prompt build time over 100 builds, confirm ≤20% increase vs. baseline (SC-007)
+- [x] T086 [P] Implement `ScenarioGuidanceSlot` (Slot 14, Zone C, low trim) in `DreamGenClone.Web/Application/RolePlay/Prompts/Slots/ScenarioGuidanceSlot.cs` — phase steering, suppress resistance band when threshold crossed (FR-020); absorbs `BeatStageInjector`
+- [x] T087 [P] Implement `IntensityPacingSlot` (Slot 15, Zone C) in `DreamGenClone.Web/Application/RolePlay/Prompts/Slots/IntensityPacingSlot.cs` — merged escalation + scene-time-direction + available positions (FR-021); absorbs `IntensityContractInjector` + `EscalationInjector` + `SceneTimeDirectionInjector` + `PositionListInjector`
+- [x] T088 [P] Implement `UserDirectionSlot` (Slot 16, Zone C, conditional) in `DreamGenClone.Web/Application/RolePlay/Prompts/Slots/UserDirectionSlot.cs` — fires only when user provided real direction; omit generic "Continue naturally" (FR-022)
+- [x] T089 [P] Contract tests for Slots 14, 15, 16 in `DreamGenClone.Tests/RolePlay/Prompts/SlotContractTests.cs` (FR-020, FR-021, FR-022, FR-036)
+- [x] T090 Register Slots 14, 15, 16 in `DreamGenClone.Web/Program.cs` DI
+- [x] T091 [P] Audit all slots for engine data hygiene — no raw adaptive stat numbers, raw intensity profile GUIDs, confidence values, or uninterpreted resistance band labels in prompt output (FR-031)
+- [x] T092 [P] Replace "HARD CONSTRAINT" label dilution (~25 instances → targeted use only where genuinely warranted) across all slot implementations (FR-032)
+- [x] T093 Add Debug-level slot diagnostics (which slots fired, per-slot char counts) to `RolePlayPromptBuilder` and each slot (FR-037)
+- [x] T094 Run full RP test suite: `dotnet test DreamGenClone.Tests/DreamGenClone.Tests.csproj --filter "FullyQualifiedName~RolePlay"` — fix any regressions
+- [x] T095 Run quickstart.md validation steps 1-6 (verify 17 slots registered, no legacy path, fail-fast on missing MaxPromptChars, prompt size ≤35K, deduplication, Narrative no POV persona)
+- [x] T096 [P] Update `specs/001-rp-prompt-redesign/quickstart.md` if any verification commands changed during implementation
+- [x] T097 Performance validation: measure prompt build time over 100 builds, confirm ≤20% increase vs. baseline (SC-007)
 
 ---
 

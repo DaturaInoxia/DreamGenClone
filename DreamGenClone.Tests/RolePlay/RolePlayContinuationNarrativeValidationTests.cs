@@ -8,6 +8,7 @@ using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Domain.StoryAnalysis;
 using DreamGenClone.Web.Application.Models;
 using DreamGenClone.Web.Application.RolePlay;
+using DreamGenClone.Web.Application.RolePlay.Prompts;
 using DreamGenClone.Web.Application.Scenarios;
 using DreamGenClone.Web.Domain.Models;
 using DreamGenClone.Web.Domain.RolePlay;
@@ -750,7 +751,8 @@ public sealed class RolePlayContinuationNarrativeValidationTests
             new NullSteeringProfileService(),
             new StubScenarioGuidanceContextFactory(),
             debugSink,
-                new SceneDirectionCoordinator([], NullLogger<SceneDirectionCoordinator>.Instance),
+                new RolePlayPromptBuilder([], new PromptBudgetEnforcer(NullLogger<PromptBudgetEnforcer>.Instance), NullLogger<RolePlayPromptBuilder>.Instance),
+                new ActorProfileResolver(),
                 NullLogger<RolePlayContinuationService>.Instance,
                 diagnosticsService: null,
                 rpThemeService: rpThemeService);
