@@ -61,6 +61,8 @@ Auto-generated from all feature plans. Last updated: 2026-03-17
 - C# 13 / .NET 9 + ASP.NET Core Blazor, Microsoft.Data.Sqlite, Serilog, xUnit (001-replace-interactions-turns)
 - C# 12 / .NET 9 (Blazor Server + interactive server components) + Blazor Server (`DreamGenClone.Web`), SQLite via `Microsoft.Data.Sqlite`, Serilog, `IOptions<T>` configuration, existing `SemanticBackgroundJobQueue`/`IBackgroundJobHandler` infrastructure, existing `ICompletionClient` + `IModelResolutionService` model boundary (001-context-aware-actor-selection)
 - SQLite (`dreamgenclone.dev.db`) — feature persists via the already-idempotent `EnsureAdaptiveStateSchemaAsync` migration pattern in `RolePlayStateRepository.cs` (001-context-aware-actor-selection)
+- C# 13 / .NET 9 + ASP.NET Core (Blazor Server), Microsoft.Extensions.Logging, Serilog, Microsoft.Data.Sqlite, Microsoft.Extensions.Options (001-rp-prompt-redesign)
+- SQLite (default per Constitution VIII) — `Sessions` table (PayloadJson blob) + dedicated V2 tables (`RolePlayV2EncounterSummaries`, etc.). New session-level config columns added via idempotent `ALTER TABLE` migrations. (001-rp-prompt-redesign)
 
 - C# / .NET 9 (`net9.0`) + ASP.NET Core Blazor Server, `Microsoft.Data.Sqlite`, `Microsoft.Extensions.*`, Serilog (`Serilog.AspNetCore`, `Serilog.Settings.Configuration`, sinks/enrichers) (001-roleplay-session-screens)
 
@@ -81,9 +83,9 @@ tests/
 C# / .NET 9 (`net9.0`): Follow standard conventions
 
 ## Recent Changes
+- 001-rp-prompt-redesign: Added C# 13 / .NET 9 + ASP.NET Core (Blazor Server), Microsoft.Extensions.Logging, Serilog, Microsoft.Data.Sqlite, Microsoft.Extensions.Options
 - 001-context-aware-actor-selection: Added C# 12 / .NET 9 (Blazor Server + interactive server components) + Blazor Server (`DreamGenClone.Web`), SQLite via `Microsoft.Data.Sqlite`, Serilog, `IOptions<T>` configuration, existing `SemanticBackgroundJobQueue`/`IBackgroundJobHandler` infrastructure, existing `ICompletionClient` + `IModelResolutionService` model boundary
 - 001-replace-interactions-turns: Added C# 13 / .NET 9 + ASP.NET Core Blazor, Microsoft.Data.Sqlite, Serilog, xUnit
-- 001-prompt-viewer-tab: Added C# 13 / .NET 9 + ASP.NET Core, Blazor Interactive Server, Microsoft.Data.Sqlite (raw ADO.NET, no EF Core), Serilog
 
 
 <!-- MANUAL ADDITIONS START -->

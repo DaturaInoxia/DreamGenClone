@@ -5,6 +5,55 @@
 **Status**: Draft
 **Input**: User description: "Comprehensive redesign of how role-play prompts are built — replacing the current 900-line procedural BuildPromptAsync method with a slot-based template architecture across 3 attention zones (primacy/context/recency), with actor-aware filtering, token budget enforcement, deduplication, tiered history compression, Narrative-as-first-class-variant, and World State slot ready for B-062."
 
+## Clarifications
+
+### Session 2026-07-17
+
+- Q: Where should NPC Agency content live in the prompt architecture? → A: B — fold NPC Agency into behavioral frames rather than treating it as a separate slot/directive. **Design insight**: "NPC Agency" as a distinct concept is a design flaw. All characters are either NPC or You (Persona); NPC Agency is really an aspect of good behavioral frame writing (initiative, internal life, desires) rather than a separate directive or feature. The slot architecture should not introduce an "NPC Agency" slot — agency qualities belong inside each character's behavioral frame content.
+- Q: Should the 17-slot architecture be enumerated and frozen as a spec contract? → A: Yes (Option A) — enumerate all 17 slots in the spec with zone (A/B/C), order, and trim eligibility, frozen as part of the spec contract. The slot list, zone assignment, ordering, and trim eligibility are now normative: implementation must not add, remove, reorder, or re-zone slots without a spec change. World State is a conditional sub-slot (4a) of Scene Location Lock, not counted among the 17 mandatory ordered slots.
+- Q: Should compression thresholds (turn bands for scenario compression, tiered history compression, session memory tiers) be hardcoded constants or UI-backed persisted configuration? → A: Option A — all compression thresholds MUST be UI-backed persisted configuration with no hardcoded defaults; the system MUST fail fast with explicit diagnostics when required threshold configuration is missing.
+- Q: How should missing phase Rule of Thumb text be handled — fallback to the writing style profile's default, or fail fast? → A: Option A — fail fast with an explicit diagnostic when the phase Rule of Thumb is missing, aligning with the repo Hard Rule. The writing style profile's default Rule of Thumb becomes a separate always-present slot element (not a fallback path). If the profile itself lacks a default, that also fails fast.
+- Q: Should `MaxPromptChars` have a hardcoded code default (e.g., 35,000), or be UI-backed persisted config only with fail-fast when missing? → A: Option A — `MaxPromptChars` MUST be UI-backed persisted configuration only, with no hardcoded code default. The system MUST fail fast with an explicit diagnostic when `MaxPromptChars` is missing or invalid. The 35,000-character value is a documented recommended initial config value (see Assumptions), NOT a code default.
+
+## Slot Architecture Contract (17 Slots) — Frozen
+
+This section is the normative contract for the slot-based prompt architecture. The 17 slots, their zone assignment, order, and trim eligibility are frozen as part of this specification. Implementation MUST NOT add, remove, reorder, or re-zone slots without a spec amendment. Each slot is an independently testable unit (FR-003, FR-036).
+
+**Zone A — Primacy (Scene Grounding)** — never trimmed; opens the prompt.
+
+| Order | Slot | FR | Trim Eligibility | Notes |
+|-------|------|----|------------------|-------|
+| 1 | Scene Anchor | FR-005 | Never | Location + phase one-liner; replaces "You are continuing..." header. |
+| 2 | Actor Assignment | FR-006 | Never | "Continue as: X (Role)" or "Write as omniscient narrator" for Narrative. |
+| 3 | Turn Context | FR-007 | Never | Turn number, response position, pacing-aware position guidance. |
+| 4 | Scene Location Lock | FR-008 | Never | Hard constraint: current location + continuity rule. |
+| 4a | World State (conditional sub-slot) | FR-009 | N/A (conditional) | Sub-slot of Slot 4; fires only when B-062 data available; silently omitted otherwise. Not counted in the 17. |
+
+**Zone B — Context (World + History)** — trimmable per FR-029 priority order.
+
+| Order | Slot | FR | Trim Eligibility | Notes |
+|-------|------|----|------------------|-------|
+| 5 | Character Data | FR-010, FR-011 | Trimmable (priority 2) | Non-present character data trimmed before present; merged appearance + behavioral. |
+| 6 | Scenario Context | FR-012 | Trimmable (priority 3) | Progressive compression: full turns 1-10, compressed 2-3 lines turns 10+. |
+| 7 | Location | FR-013 | Trimmable (low) | Current scene full; occupied locations one-line; others omitted. |
+| 8 | Writing Style | FR-014 | Trimmable (last resort) | Timeless description/example always kept; phase Rule of Thumb trimmed only under extreme pressure. |
+| 9 | Interaction History | FR-015 | Trimmable (priority 1) | Oldest trimmed first; tiered compression (full → narrative-only → encounter memory). |
+| 10 | Session Memory | FR-016 | Trimmable (priority 4) | Three tiers: long-term backstory, medium-term encounter summaries, short-term phase milestones. |
+| 11 | Scene Continuity Anchor | FR-017 | Trimmable (low) | Cross-perceptions only; self-perceptions dropped. |
+
+**Zone C — Recency (Directives + Instruction)** — directives + final instruction close the prompt.
+
+| Order | Slot | FR | Trim Eligibility | Notes |
+|-------|------|----|------------------|-------|
+| 12 | Theme Contract | FR-018 | Never | Appears exactly once; active theme + phase guidance + steering rank. |
+| 13 | Behavioral Frames | FR-019 | Trimmable (non-present frames) | Exactly once; filtered by actor; NPC agency lives here, not as a separate slot. |
+| 14 | Scenario Guidance | FR-020 | Trimmable (low) | Phase steering; resistance band suppressed when threshold already crossed. |
+| 15 | Intensity & Pacing | FR-021 | Never | Merged escalation + scene-time-direction; resolved intensity label + contract + pacing + positions. |
+| 16 | User Direction | FR-022 | Never (when present) | Only fires when user provided real direction; generic "Continue naturally" omitted. |
+| 17 | Final Writing Instruction | FR-023 | Never | Last content before generation; POV, word target, variant constraints; Narrative adds zero-dialogue + physical detail checklist. |
+
+**Trim priority order (FR-029)**: Slot 9 (oldest history) → Slot 5 (non-present char data) → Slot 6 (scenario metadata) → Slot 10 (session memory) → remaining Zone B low-priority slots (7, 11, 8). Slots 1-4, 12, 15, 16 (when present), and 17 are never trimmed.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 — Scene-Grounded Character Continuation (Priority: P1)
@@ -109,7 +158,7 @@ As a system operator, I want each piece of prompt content to appear exactly once
 - **All locations occupied**: When every location has a tracked character, the location slot shows summaries for all locations (no location is omitted).
 - **Budget overflow with minimal content**: If the budget is set so low that even Zone A + Zone C mandatory slots exceed it, the builder logs a critical warning and still produces the prompt (mandatory slots are never trimmed).
 - **Actor profile mismatch**: If the requested actor is not found in the session's character roster, the system fails fast with an explicit diagnostic rather than silently defaulting to a different actor.
-- **Missing phase definition**: If the current phase has no configured Rule of Thumb text, the system falls back to the writing style profile's default Rule of Thumb (the one configured case where fallback is acceptable, since the style profile is a persisted configuration).
+- **Missing phase definition**: If the current phase has no configured Rule of Thumb text, the system MUST fail fast with an explicit diagnostic (session ID, phase name, missing Rule of Thumb identifier). The writing style profile's default Rule of Thumb is a separate always-present slot element, NOT a fallback path for a missing phase Rule of Thumb. If the writing style profile itself lacks a default Rule of Thumb, the system MUST also fail fast.
 - **Narrative prompt with zero character responses**: If the Narrative prompt is requested but no character responses exist for the current turn, the prompt still builds but the history slot reflects the gap.
 - **Concurrent prompt builds**: Two prompt builds for different actors in the same session must not interfere — each reads the same session state and produces actor-filtered output.
 
@@ -122,7 +171,7 @@ As a system operator, I want each piece of prompt content to appear exactly once
 - **FR-001**: The system MUST build role-play prompts using a slot-based template architecture with exactly 17 ordered slots distributed across three attention zones: Primacy (Zone A), Context (Zone B), and Recency (Zone C).
 - **FR-002**: The system MUST generate two distinct prompt variants — Character (first-person, single-character POV) and Narrative (third-person omniscient, all-character synthesis) — using the same 17-slot architecture with variant-specific content filtering per slot.
 - **FR-003**: The prompt builder MUST be implemented as a composable pipeline where each slot is an independently testable unit that receives build context (session, actor profile, phase, intent) and produces its section of the prompt.
-- **FR-004**: The system MUST enforce a configurable character-level token budget (`MaxPromptChars`) that prevents prompts from exceeding the specified limit, with a default of 35,000 characters.
+- **FR-004**: The system MUST enforce a configurable character-level token budget (`MaxPromptChars`) that prevents prompts from exceeding the specified limit. `MaxPromptChars` MUST be sourced from UI-backed persisted configuration only — there MUST be no hardcoded code default. If `MaxPromptChars` is missing or invalid for a session, the system MUST fail fast with an explicit diagnostic (session ID, missing/invalid `MaxPromptChars` identifier) rather than substituting a default. The documented recommended initial config value is 35,000 characters (see Assumptions); this value is a configuration recommendation, NOT a code default.
 
 #### Zone A — Primacy (Scene Grounding)
 
@@ -136,11 +185,12 @@ As a system operator, I want each piece of prompt content to appear exactly once
 
 - **FR-010**: The character data slot MUST filter content by actor profile: full character sheets for the writing actor and scene partners, comparison-only reference for non-present characters (endowment, stamina, skill), and lighter summary format for all characters in Narrative variant.
 - **FR-011**: The character data slot MUST merge appearance descriptions with behavioral constraint text into a single block per character, eliminating the current per-character duplication.
-- **FR-012**: The scenario context slot MUST apply progressive compression — full scenario block for turns 1-10, compressed 2-3 line world context summary for turns 10+.
+- **FR-012**: The scenario context slot MUST apply progressive compression — full scenario block for turns within the configured early-game band (default-configured band: turns 1-10), compressed 2-3 line world context summary for turns beyond the configured threshold. The turn-band threshold MUST be read from UI-backed persisted configuration; no hardcoded default. If the threshold configuration is missing or invalid, the system MUST fail fast with an explicit diagnostic rather than substituting a default band.
+- **FR-012a**: The compression turn-band thresholds for scenario context (FR-012), tiered interaction history (FR-015), and session memory tiers (FR-016) MUST all be sourced from UI-backed persisted configuration. There MUST be no hardcoded runtime defaults for these thresholds. Missing or invalid threshold configuration MUST cause a fail-fast diagnostic with the session ID, slot name, and missing threshold identifier.
 - **FR-013**: The location slot MUST filter to show the full description of the current scene location only; locations with tracked characters get a one-line summary; all other locations are omitted.
-- **FR-014**: The writing style slot MUST include the timeless style description and example text always, and a phase-aware Rule of Thumb that changes based on the current narrative phase (Opening, BuildUp, Committed, Approaching, Climax, Reset).
-- **FR-015**: The interaction history slot MUST use tiered compression: full detail (character + narrative responses) for the last 2-3 turns, narrative-only summaries for turns 4-6, and compressed encounter memory for turns 7+.
-- **FR-016**: The session memory slot MUST present three tiers: long-term (compressed character backstory), medium-term (enriched encounter summaries with emotional/sexual texture), and short-term (phase transition milestones for the current cycle).
+- **FR-014**: The writing style slot MUST include the timeless style description and example text always, a phase-aware Rule of Thumb that changes based on the current narrative phase (Opening, BuildUp, Committed, Approaching, Climax, Reset), AND the writing style profile's default Rule of Thumb as a separate always-present slot element. The phase Rule of Thumb and the profile default Rule of Thumb are distinct slot elements — the profile default is NOT a fallback for a missing phase Rule of Thumb. Missing phase Rule of Thumb configuration MUST fail fast with an explicit diagnostic (session ID, phase name). Missing profile default Rule of Thumb MUST also fail fast. No fallback path exists for either.
+- **FR-015**: The interaction history slot MUST use tiered compression with turn bands sourced from UI-backed persisted configuration (no hardcoded defaults; fail fast if missing): full detail (character + narrative responses) for the configured recent band, narrative-only summaries for the configured middle band, and compressed encounter memory for the configured long-term band. The three turn-band boundaries MUST be independently configurable.
+- **FR-016**: The session memory slot MUST present three tiers with their boundaries sourced from UI-backed persisted configuration (no hardcoded defaults; fail fast if missing): long-term (compressed character backstory), medium-term (enriched encounter summaries with emotional/sexual texture), and short-term (phase transition milestones for the current cycle).
 - **FR-017**: The scene continuity anchor MUST show cross-perceptions only (character A sees character B at location X), dropping redundant self-perception lines.
 
 #### Zone C — Recency (Directives + Instruction)
@@ -218,8 +268,9 @@ As a system operator, I want each piece of prompt content to appear exactly once
 
 1. **The slot-based architecture replaces, not augments, the current pipeline**: The existing `BuildPromptAsync` method, coordinator injectors, and inline content blocks are fully replaced. No hybrid mode where both old and new systems run side by side.
 2. **The B-062 Weather & Environmental System will provide World State data**: The World State slot is designed to consume B-062 output. Until B-062 is implemented, the slot is silently omitted. The prompt builder does not need fallback weather/time logic.
-3. **The 35,000-character default budget is appropriate for 8K-context models**: At ~4 characters per token, 35K chars ≈ 8,750 tokens, leaving ~1,250 tokens for model output within an 8K window.
-4. **Phase-specific Rule of Thumb text is configurable**: The six phase-specific Rule of Thumb variants may be stored in configuration rather than hardcoded, allowing tuning without code changes.
+3. **The 35,000-character value is the recommended initial config value for `MaxPromptChars` (not a code default)**: At ~4 characters per token, 35K chars ≈ 8,750 tokens, leaving ~1,250 tokens for model output within an 8K window. This value is a documented configuration recommendation only — `MaxPromptChars` MUST be UI-backed persisted configuration with no hardcoded code default, and missing/invalid configuration MUST fail fast (see FR-004). New sessions should be seeded with 35,000 as the initial config value unless the operator chooses otherwise.
+4. **Phase-specific Rule of Thumb text is UI-backed persisted configuration**: The six phase-specific Rule of Thumb variants MUST be stored in UI-backed persisted configuration, not hardcoded, allowing tuning without code changes. Missing Rule of Thumb configuration for a phase MUST fail fast. The writing style profile's default Rule of Thumb is a separate always-present slot element (not a fallback for a missing phase Rule of Thumb); if the profile lacks a default, that also fails fast. No fallback path exists for either value.
+8. **Compression thresholds are UI-backed persisted configuration**: All turn-band thresholds for scenario compression (FR-012), tiered history compression (FR-015), and session memory tiers (FR-016) MUST be UI-backed persisted configuration with no hardcoded defaults. Missing or invalid threshold configuration MUST fail fast with explicit diagnostics.
 5. **Narrative responses averaging ~5,000 characters remain the norm**: The tiered compression strategy depends on Narrative responses being substantially larger than character responses. If Narrative output shrinks, the tiered compression ratios may need adjustment.
 6. **Encounter detection reliability will improve with secondary signals**: The current male-orgasm-only detection misses encounters. Secondary signals (scene change, time passage, boundary language, phase transition) will increase detection rate.
 7. **Actor profiles cover all current use cases**: The five defined profiles (Player, NPC-Present, NPC-Non-Present, Narrative, Custom) cover all current continuation scenarios. New actor types may require new profiles.
@@ -229,7 +280,7 @@ As a system operator, I want each piece of prompt content to appear exactly once
 - **B-062 — Weather & Environmental System**: Provides the data that populates the World State slot (Slot 4a). The slot is designed to consume B-062 output but the prompt redesign does not depend on B-062 being complete — the slot is simply omitted until B-062 is ready.
 - **Existing RP configuration infrastructure**: Writing style profiles, theme contracts, behavioral frames, scenario metadata, and character data must remain accessible via their current configuration paths. The slot builder reads from the same sources as the current `BuildPromptAsync` method.
 - **Encounter summary storage**: The enriched encounter memory format requires the existing `RolePlayV2EncounterSummaries` table. No schema migration is needed — only the enrichment prompt changes.
-- **Session `MaxPromptChars` setting**: The token budget requires a configurable session-level property. If this property doesn't exist yet, it must be added as part of this feature.
+- **Session `MaxPromptChars` setting**: The token budget requires a configurable UI-backed persisted session-level property. If this property doesn't exist yet, it must be added as part of this feature. There MUST be no hardcoded code default — new sessions should be seeded with the documented recommended initial value of 35,000 characters (see Assumptions), but the runtime MUST read the persisted value and fail fast if it is missing or invalid (see FR-004).
 
 ## Out of Scope
 
