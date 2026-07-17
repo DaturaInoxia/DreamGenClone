@@ -163,7 +163,7 @@ public sealed class LocationDetectionJobHandler : IBackgroundJobHandler
         // Apply per-character locations from the LLM result
         // BUG-005 fix: skip entries where the LLM returned null — leave those characters
         // at their existing TrueLocation instead of applying previousLocation uniformly.
-        // Also skip persona ("You") entries — the persona is not a tracked character.
+        // Skip the literal "You" that the LLM may hallucinate as a character name.
         if (result.PerCharacterLocations is { Count: > 0 })
         {
             RolePlayCharacterStateMutator.EnsureCharacterLocationRows(adaptiveState);
@@ -174,14 +174,10 @@ public sealed class LocationDetectionJobHandler : IBackgroundJobHandler
                     // LLM didn't place this character — leave existing truth unchanged
                     continue;
                 }
-                // Never apply location for the persona. IsPersonaActor intentionally
-                // returns false for "You" to avoid false positives elsewhere, so also
-                // guard against the literal string "You" (LLM hallucinated pronoun) and
-                // exact match against the session's configured PersonaName.
+                // Only skip the literal hallucinated "You" string — persona characters
+                // (Ken, etc.) are tracked like any other character.
                 if (session is not null
-                    && (session.IsPersonaActor(kvp.Key)
-                        || string.Equals(kvp.Key, "You", StringComparison.OrdinalIgnoreCase)
-                        || string.Equals(kvp.Key, session.PersonaName, StringComparison.OrdinalIgnoreCase)))
+                    && string.Equals(kvp.Key, "You", StringComparison.OrdinalIgnoreCase))
                 {
                     _logger.LogDebug("Skipping persona actor {CharacterName} in per-character locations", kvp.Key);
                     continue;

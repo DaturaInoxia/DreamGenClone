@@ -2751,8 +2751,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         if (_backgroundJobQueue is null) return;
 
         var characterNames = session.CharacterPerspectives
-            .Where(c => !string.IsNullOrWhiteSpace(c.CharacterName)
-                && !session.IsPersonaActor(c.CharacterName))
+            .Where(c => !string.IsNullOrWhiteSpace(c.CharacterName))
             .Select(c => c.CharacterName!.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
