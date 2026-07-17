@@ -89,6 +89,7 @@ public sealed class SlotContractTests
                 LocationNames = [],
                 DefaultSteeringProfileId = null,
                 DefaultIntensityProfileId = null,
+                DefaultStartingLocationName = null,
             },
             Theme = new ResolvedThemeData(),
             Intensity = new ResolvedIntensityData(),
@@ -546,6 +547,7 @@ public sealed class SlotContractTests
                 LocationNames = ["The Cabin"],
                 DefaultSteeringProfileId = null,
                 DefaultIntensityProfileId = null,
+                DefaultStartingLocationName = null,
             },
         };
 
@@ -1190,3 +1192,4 @@ public sealed class SlotContractTests
         Assert.False(slot.IsTrimEligible);
     }
 }
+

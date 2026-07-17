@@ -26,11 +26,13 @@ public sealed class SceneLocationLockSlot : IPromptSlot
     public Task<string> WriteAsync(PromptBuildContext context, CancellationToken ct)
     {
         var location = context.Session.AdaptiveState.CurrentSceneLocation;
+        var resolvedLocation = !string.IsNullOrWhiteSpace(location) ? location
+            : context.Scenario.DefaultStartingLocationName;
 
         string text;
-        if (!string.IsNullOrWhiteSpace(location))
+        if (!string.IsNullOrWhiteSpace(resolvedLocation))
         {
-            text = $"HARD CONSTRAINT — Scene Location: The current scene is at \"{location}\". " +
+            text = $"HARD CONSTRAINT — Scene Location: The current scene is at \"{resolvedLocation}\". " +
                    "Do not move any character to a different location without writing an explicit transition " +
                    "in the narration. Do not jump to a new place between responses.";
         }

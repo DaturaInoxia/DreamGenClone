@@ -87,6 +87,7 @@ public sealed class PromptBuilderTests
                 LocationNames = [],
                 DefaultSteeringProfileId = null,
                 DefaultIntensityProfileId = null,
+                DefaultStartingLocationName = null,
             },
             Theme = new ResolvedThemeData(),
             Intensity = new ResolvedIntensityData(),
@@ -502,3 +503,4 @@ public sealed class PromptBuilderTests
         Assert.Contains("Sunny", prompt);
     }
 }
+

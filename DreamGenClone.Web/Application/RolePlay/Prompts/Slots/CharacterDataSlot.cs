@@ -95,6 +95,21 @@ public sealed class CharacterDataSlot : IPromptSlot
                 sb.AppendLine($"POV Persona: {session.PersonaName}");
             }
         }
+        else
+        {
+            // NPC actor: render self-description from character details.
+            var selfChar = characters.FirstOrDefault(c =>
+                string.Equals(c.Name, actorName, StringComparison.OrdinalIgnoreCase));
+            if (selfChar is not null && context.CharacterDetails is not null &&
+                context.CharacterDetails.TryGetValue(selfChar.Id, out var selfDetail))
+            {
+                sb.AppendLine($"POV Character: {actorName}");
+                if (!string.IsNullOrWhiteSpace(selfDetail.Description))
+                    sb.AppendLine($"  {selfDetail.Description.Trim()}");
+                if (!string.IsNullOrWhiteSpace(selfDetail.AppearanceText))
+                    sb.AppendLine($"  {selfDetail.AppearanceText}");
+            }
+        }
 
         // Other characters
         sb.AppendLine("Characters in this scene:");

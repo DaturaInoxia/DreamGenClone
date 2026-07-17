@@ -5,9 +5,12 @@ using Microsoft.Extensions.Logging;
 namespace DreamGenClone.Web.Application.RolePlay.Prompts.Slots;
 
 /// <summary>
-/// Slot 13, Zone C — Behavioral frames: character tendencies filtered by actor.
-/// Appears exactly once per FR-019, FR-027. Non-present frames are trimmable for Character variant.
+/// Slot 13, Zone C — Behavioral frames + stat state texts: character tendencies
+/// and current state filtered by actor. Appears exactly once per FR-019, FR-027.
+/// Non-present frames are trimmable for Character variant.
 /// Absorbs BehavioralFrameInjector + HusbandAftermathInjector.
+/// Stat state texts (from CharacterStatTextCatalog) are injected alongside behavioral frames
+/// as "current state" companion blocks.
 /// </summary>
 public sealed class BehavioralFramesSlot : IPromptSlot
 {
@@ -25,15 +28,15 @@ public sealed class BehavioralFramesSlot : IPromptSlot
 
     public bool ShouldWrite(PromptBuildContext context)
     {
-        // Only write if there are behavioral frames to display.
-        return context.CharacterBehavioralFrames is { Count: > 0 };
+        // Fire if either behavioral frames or stat state texts are available.
+        return (context.CharacterBehavioralFrames is { Count: > 0 })
+            || (context.CharacterStatStateTexts is { Count: > 0 });
     }
 
     public Task<string> WriteAsync(PromptBuildContext context, CancellationToken ct)
     {
         var frames = context.CharacterBehavioralFrames;
-        if (frames is null || frames.Count == 0)
-            return Task.FromResult(string.Empty);
+        var statStates = context.CharacterStatStateTexts;
 
         var profile = context.ActorProfile;
         var variant = context.Variant;
@@ -43,9 +46,36 @@ public sealed class BehavioralFramesSlot : IPromptSlot
         var sb = new StringBuilder();
         sb.AppendLine("Character Behavioral Frames (yields to theme contract):");
 
+        // ── Behavioral frames ──
+        if (frames is { Count: > 0 })
+        {
+            AppendFrames(sb, frames, profile, presentIds, isNarrative);
+        }
+
+        // ── Stat state texts (current state from runtime stats) ──
+        if (statStates is { Count: > 0 })
+        {
+            AppendStatStates(sb, statStates, profile, presentIds, isNarrative);
+        }
+
+        if (sb.Length == 0) return Task.FromResult(string.Empty);
+
+        _logger.LogDebug(
+            "BehavioralFramesSlot: SessionId={SessionId} Variant={Variant} FrameCount={FrameCount} StatStateCount={StatStateCount}",
+            context.Session.Id, variant, frames?.Count ?? 0, statStates?.Count ?? 0);
+
+        return Task.FromResult(sb.ToString().TrimEnd());
+    }
+
+    private static void AppendFrames(
+        StringBuilder sb,
+        IReadOnlyDictionary<string, string> frames,
+        ActorProfile profile,
+        HashSet<string> presentIds,
+        bool isNarrative)
+    {
         if (isNarrative)
         {
-            // Narrative: show all frames.
             foreach (var (characterId, frameText) in frames)
             {
                 if (string.IsNullOrWhiteSpace(frameText)) continue;
@@ -54,38 +84,59 @@ public sealed class BehavioralFramesSlot : IPromptSlot
         }
         else
         {
-            // Character variant: actor's own frame first (always), then other present characters.
-            // Non-present character frames are included but tagged as trimmable.
-
-            // Own frame first.
+            // Character variant: actor's own frame first, then other present characters.
             if (frames.TryGetValue(profile.ActorName, out var ownFrame) && !string.IsNullOrWhiteSpace(ownFrame))
             {
                 sb.AppendLine($"  [{profile.ActorName} — your character]: {ownFrame.Trim()}");
             }
 
-            // Present characters (not self).
             foreach (var (characterId, frameText) in frames)
             {
                 if (string.IsNullOrWhiteSpace(frameText)) continue;
                 if (string.Equals(characterId, profile.ActorName, StringComparison.OrdinalIgnoreCase)) continue;
 
                 if (presentIds.Contains(characterId))
-                {
                     sb.AppendLine($"  [{characterId}]: {frameText.Trim()}");
-                }
                 else
-                {
-                    // Non-present: included but flagged for potential trim.
                     sb.AppendLine($"  [{characterId} — not present]: {frameText.Trim()}");
-                }
             }
         }
+    }
 
-        _logger.LogDebug(
-            "BehavioralFramesSlot: SessionId={SessionId} Variant={Variant} FrameCount={FrameCount}",
-            context.Session.Id, variant, frames.Count);
+    private static void AppendStatStates(
+        StringBuilder sb,
+        IReadOnlyDictionary<string, string> statStates,
+        ActorProfile profile,
+        HashSet<string> presentIds,
+        bool isNarrative)
+    {
+        if (isNarrative)
+        {
+            foreach (var (characterLabel, stateText) in statStates)
+            {
+                if (string.IsNullOrWhiteSpace(stateText)) continue;
+                sb.AppendLine($"  [{characterLabel} current state]: {stateText.Trim()}");
+            }
+        }
+        else
+        {
+            // Actor's own state first.
+            if (statStates.TryGetValue(profile.ActorName, out var ownState) && !string.IsNullOrWhiteSpace(ownState))
+            {
+                sb.AppendLine($"  [{profile.ActorName} — your current state]: {ownState.Trim()}");
+            }
 
-        return Task.FromResult(sb.ToString().TrimEnd());
+            foreach (var (characterLabel, stateText) in statStates)
+            {
+                if (string.IsNullOrWhiteSpace(stateText)) continue;
+                if (string.Equals(characterLabel, profile.ActorName, StringComparison.OrdinalIgnoreCase)) continue;
+
+                if (presentIds.Contains(characterLabel))
+                    sb.AppendLine($"  [{characterLabel} current state]: {stateText.Trim()}");
+                else
+                    sb.AppendLine($"  [{characterLabel} — not present, current state]: {stateText.Trim()}");
+            }
+        }
     }
 
     public string Trim(string text, int maxChars)

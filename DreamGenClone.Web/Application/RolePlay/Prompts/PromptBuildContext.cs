@@ -59,6 +59,15 @@ public sealed record PromptBuildContext
     /// Used by <see cref="Slots.BehavioralFramesSlot"/> (Slot 13). Null when not yet resolved.
     /// </summary>
     public IReadOnlyDictionary<string, string>? CharacterBehavioralFrames { get; init; }
+
+    // ── Character stat state texts (pre-resolved by builder, keyed by character label) ──
+    /// <summary>
+    /// Per-character current-state text derived from runtime stats (Desire, Restraint, etc.)
+    /// via <see cref="Domain.StoryAnalysis.CharacterStatTextCatalog"/>.
+    /// Used by <see cref="Slots.BehavioralFramesSlot"/> (Slot 13) alongside behavioral frames.
+    /// Null when not yet resolved.
+    /// </summary>
+    public IReadOnlyDictionary<string, string>? CharacterStatStateTexts { get; init; }
 }
 
 // ── World State sub-record (conditional, B-062) ─────────────────
@@ -96,6 +105,7 @@ public sealed record ResolvedScenarioData
     public required IReadOnlyList<string> LocationNames { get; init; }
     public required string? DefaultSteeringProfileId { get; init; }
     public required string? DefaultIntensityProfileId { get; init; }
+    public required string? DefaultStartingLocationName { get; init; }
 }
 
 public sealed record ResolvedThemeData

@@ -37,6 +37,10 @@ public sealed class CurrentLocationSlot : IPromptSlot
         {
             sb.AppendLine($"  Scene: {currentScene.Trim()}");
         }
+        else if (!string.IsNullOrWhiteSpace(context.Scenario.DefaultStartingLocationName))
+        {
+            sb.AppendLine($"  Scene: {context.Scenario.DefaultStartingLocationName}");
+        }
         else
         {
             sb.AppendLine("  Scene: Unknown");

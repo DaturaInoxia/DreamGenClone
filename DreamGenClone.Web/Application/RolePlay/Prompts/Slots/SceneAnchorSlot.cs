@@ -27,7 +27,8 @@ public sealed class SceneAnchorSlot : IPromptSlot
     public Task<string> WriteAsync(PromptBuildContext context, CancellationToken ct)
     {
         var location = context.Session.AdaptiveState.CurrentSceneLocation;
-        var locationLabel = string.IsNullOrWhiteSpace(location) ? "Unknown location" : location;
+        var locationLabel = !string.IsNullOrWhiteSpace(location) ? location
+            : context.Scenario.DefaultStartingLocationName ?? "Unknown location";
         var phase = context.Phase;
 
         _logger.LogDebug(

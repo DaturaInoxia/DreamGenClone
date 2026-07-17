@@ -90,7 +90,7 @@ public sealed class ActorProfileResolver
         // Get the NPC actor name from the session's current turn state or last selected NPC.
         // The caller provides this via the actor name resolved from the session.
         var actorName = session.CurrentTurnState == TurnState.Any
-            ? session.PersonaName
+            ? ResolveOpeningNpcName(session, roster)
             : ResolveNpcNameFromSession(session);
 
         var sceneCharacter = roster.FirstOrDefault(c =>
@@ -138,5 +138,37 @@ public sealed class ActorProfileResolver
         throw new InvalidOperationException(
             $"ActorProfileResolver: Cannot resolve NPC actor name for session '{session.Id}'. " +
             "No NPC interactions found in session history.");
+    }
+
+    /// <summary>
+    /// Resolves the NPC actor name for the opening turn (no prior interactions exist).
+    /// Finds the spouse character — the NPC whose RelationTargetId points to the persona.
+    /// Never falls back to <see cref="RolePlaySession.PersonaName"/> — the persona is not an NPC.
+    /// </summary>
+    private static string ResolveOpeningNpcName(
+        RolePlaySession session, IReadOnlyList<ScenarioCharacter> roster)
+    {
+        var personaId = session.PersonaCharacterId;
+
+        // Find the spouse: NPC whose RelationTargetId points to the persona's character ID.
+        if (!string.IsNullOrWhiteSpace(personaId))
+        {
+            var spouse = roster.FirstOrDefault(c =>
+                string.Equals(c.Id, personaId, StringComparison.OrdinalIgnoreCase) == false &&
+                !string.Equals(c.Name, session.PersonaName, StringComparison.OrdinalIgnoreCase));
+            if (spouse is not null)
+                return spouse.Name;
+        }
+
+        // Fallback: first character that isn't the persona.
+        var firstNpc = roster.FirstOrDefault(c =>
+            !string.Equals(c.Name, session.PersonaName, StringComparison.OrdinalIgnoreCase));
+        if (firstNpc is not null)
+            return firstNpc.Name;
+
+        // Absolute last resort — should not happen in valid scenarios.
+        throw new InvalidOperationException(
+            $"ActorProfileResolver: Cannot resolve opening NPC actor name for session '{session.Id}'. " +
+            $"Roster contains no non-persona characters. Roster: {string.Join(", ", roster.Select(c => c.Name))}");
     }
 }
