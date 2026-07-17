@@ -122,11 +122,14 @@ public sealed class ActorProfileResolver
     private static string ResolveNpcNameFromSession(RolePlaySession session)
     {
         // Return the most recently acting NPC name from interactions.
+        // Skip Narrative/System interactions — they are not character actors.
         for (int i = session.Interactions.Count - 1; i >= 0; i--)
         {
             var interaction = session.Interactions[i];
             if (!string.IsNullOrWhiteSpace(interaction.ActorName) &&
-                !string.Equals(interaction.ActorName, session.PersonaName, StringComparison.OrdinalIgnoreCase))
+                !string.Equals(interaction.ActorName, "Narrative", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(interaction.ActorName, session.PersonaName, StringComparison.OrdinalIgnoreCase) &&
+                interaction.InteractionType != Domain.RolePlay.InteractionType.System)
             {
                 return interaction.ActorName;
             }

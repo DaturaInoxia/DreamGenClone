@@ -32,7 +32,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     private const int ManualOverrideSelectionLockInteractions = 8;
     private const int OpeningPeriodTurnCount = 3;
 
-    private void EnsureOpeningToBuildUpTransition(RolePlaySession session)
+    private async Task EnsureOpeningToBuildUpTransition(RolePlaySession session)
     {
         if (session.AdaptiveState.CurrentPhase == NarrativePhase.Opening
             && session.AdaptiveState.ObservedTurnCount > OpeningPeriodTurnCount)
@@ -43,6 +43,9 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 "RolePlayV2 Opening→BuildUp transition: SessionId={SessionId} ObservedTurnCount={ObservedTurns}",
                 session.Id,
                 session.AdaptiveState.ObservedTurnCount);
+
+            // Persist immediately so the V2 state doesn't revert on app restart
+            await _stateRepository.SaveAdaptiveStateAsync(session.AdaptiveState, CancellationToken.None);
         }
     }
 
@@ -149,7 +152,6 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     private readonly ISemanticInteractionAnalysisRepository? _semanticInteractionAnalysisRepository;
     private readonly IEncounterSummaryService? _encounterSummaryService;
     private readonly IOptions<RolePlayMemoryOptions>? _memoryOptions;
-    private readonly IOptions<RolePlayPromptOptions>? _promptOptions;
     private readonly IStatWillingnessProfileService? _statWillingnessProfileService;
     private readonly ISemanticEventInferenceService? _semanticEventInferenceService;
     private readonly IActorSelectionService? _actorSelectionService;
@@ -239,7 +241,6 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         ISemanticInteractionAnalysisRepository? semanticInteractionAnalysisRepository = null,
         IEncounterSummaryService? encounterSummaryService = null,
         IOptions<RolePlayMemoryOptions>? memoryOptions = null,
-        IOptions<RolePlayPromptOptions>? promptOptions = null,
         IStatWillingnessProfileService? statWillingnessProfileService = null,
         ISemanticEventInferenceService? semanticEventInferenceService = null,
         IActorSelectionService? actorSelectionService = null)
@@ -289,7 +290,6 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         _semanticInteractionAnalysisRepository = semanticInteractionAnalysisRepository;
         _encounterSummaryService = encounterSummaryService;
         _memoryOptions = memoryOptions;
-        _promptOptions = promptOptions;
         _statWillingnessProfileService = statWillingnessProfileService;
         _semanticEventInferenceService = semanticEventInferenceService;
         _actorSelectionService = actorSelectionService;
@@ -329,12 +329,6 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             MaxMilestonesToInject = request.MaxMilestonesToInject,
             MaxArcCompletionsToInject = request.MaxArcCompletionsToInject,
             MaxEncounterCompletionsToInject = request.MaxEncounterCompletionsToInject,
-            MaxPromptChars = request.MaxPromptChars ?? _promptOptions?.Value.RecommendedInitialMaxPromptChars,
-            ContextWindowTurns = request.ContextWindowTurns ?? _promptOptions?.Value.RecommendedInitialContextWindowTurns,
-            ScenarioCompressionTurnThreshold = request.ScenarioCompressionTurnThreshold ?? _promptOptions?.Value.RecommendedInitialScenarioCompressionTurnThreshold,
-            HistoryFullDetailTurnBand = request.HistoryFullDetailTurnBand ?? _promptOptions?.Value.RecommendedInitialHistoryFullDetailTurnBand,
-            HistoryNarrativeOnlyTurnBand = request.HistoryNarrativeOnlyTurnBand ?? _promptOptions?.Value.RecommendedInitialHistoryNarrativeOnlyTurnBand,
-            SessionMemoryLongTermTurnThreshold = request.SessionMemoryLongTermTurnThreshold ?? _promptOptions?.Value.RecommendedInitialSessionMemoryLongTermTurnThreshold,
         };
 
         foreach (var kvp in request.CharacterEncounterProfileIds)
@@ -727,7 +721,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             null,
             cancellationToken);
         session.AdaptiveState.ObservedTurnCount++;
-        EnsureOpeningToBuildUpTransition(session);
+        await EnsureOpeningToBuildUpTransition(session);
 
         var outputInteractionIds = new List<string>();
         var turnSucceeded = false;
@@ -827,7 +821,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             null,
             cancellationToken);
         session.AdaptiveState.ObservedTurnCount++;
-        EnsureOpeningToBuildUpTransition(session);
+        await EnsureOpeningToBuildUpTransition(session);
 
         var outputInteractionIds = new List<string>();
         var turnSucceeded = false;
@@ -972,7 +966,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             null,
             cancellationToken);
         session.AdaptiveState.ObservedTurnCount++;
-        EnsureOpeningToBuildUpTransition(session);
+        await EnsureOpeningToBuildUpTransition(session);
         var outputInteractionIds = new List<string>();
 
         var route = _promptRouter.Resolve(submission.Intent);
@@ -1323,7 +1317,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             null,
             cancellationToken);
         session.AdaptiveState.ObservedTurnCount++;
-        EnsureOpeningToBuildUpTransition(session);
+        await EnsureOpeningToBuildUpTransition(session);
         var outputInteractionIds = new List<string>();
 
         var isOverflowContinue = request.TriggeredBy == SubmissionSource.MainOverflowContinue;
@@ -5245,22 +5239,6 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             _logger.LogDebug("TryDetectEncounterBoundary: theme {ThemeId} has no encounter-completed mapping", theme.Id);
             return;
         }
-
-        // ── FR-034: Evaluate 4 secondary encounter-boundary signals ──
-        // These are lightweight pre-checks that can detect boundaries without LLM inference.
-        var secondarySignal = EvaluateSecondaryBoundarySignals(
-            session, interaction, state, cancellationToken);
-        if (secondarySignal is not null)
-        {
-            // Secondary signal detected — use it as evidence and skip LLM inference.
-            _logger.LogInformation(
-                "TryDetectEncounterBoundary: secondary signal '{Signal}' fired SessionId={SessionId}",
-                secondarySignal, session.Id);
-            await AdvanceEncounterBoundaryFromSignalAsync(
-                session, interaction, state, theme, secondarySignal, isMulti, isAftermath, cancellationToken);
-            return;
-        }
-
         var cwSize = Math.Max(12, session.ContextWindowSize);
         var ixIdx = session.Interactions.FindIndex(x => string.Equals(x.Id, interaction.Id, StringComparison.OrdinalIgnoreCase));
         var ctxStart = ixIdx >= 0 ? Math.Max(0, ixIdx - cwSize) : Math.Max(0, session.Interactions.Count - cwSize);
@@ -5279,11 +5257,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         }
         if (!inf.Success) { _logger.LogWarning("TryDetectEncounterBoundary: inference non-success SessionId={SessionId}", session.Id); return; }
         var detected = inf.Events.FirstOrDefault(x => string.Equals(x.EventId, "encounter-completed", StringComparison.OrdinalIgnoreCase) && x.Confidence >= mapping.ConfidenceMin && x.Confidence <= mapping.ConfidenceMax);
-        if (detected is null)
-        {
-            _logger.LogDebug("TryDetectEncounterBoundary: no detection SessionId={SessionId} Encounter={EncounterNumber}", session.Id, state.CurrentEncounterNumber);
-            return;
-        }
+        if (detected is null) { _logger.LogDebug("TryDetectEncounterBoundary: no detection SessionId={SessionId} Encounter={EncounterNumber}", session.Id, state.CurrentEncounterNumber); return; }
 
         // Multi-encounter premature-advance guard: only apply the min-interactions rule
         // when the multi-encounter marker is active (it guards against false-positive
@@ -5384,251 +5358,6 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             Summary = $"Encounter boundary advanced: {before} -> {state.CurrentEncounterNumber} (conf={detected.Confidence})",
             MetadataJson = JsonSerializer.Serialize(new { encounterNumberBefore = before, encounterNumberAfter = state.CurrentEncounterNumber, confidence = detected.Confidence, evidenceSpan = detected.EvidenceSpan, themeId = theme.Id, hasAftermath = isAftermath })
         }, cancellationToken);
-    }
-
-    /// <summary>
-    /// FR-034: Evaluate 4 secondary signals for encounter boundary detection.
-    /// These are lightweight pre-checks that run before the LLM-based semantic inference.
-    /// Returns the signal name if detected, null otherwise.
-    /// </summary>
-    private string? EvaluateSecondaryBoundarySignals(
-        RolePlaySession session,
-        RolePlayInteraction interaction,
-        AdaptiveScenarioState state,
-        CancellationToken cancellationToken)
-    {
-        var interactionText = interaction.Content ?? string.Empty;
-        var actorName = interaction.ActorName ?? "Unknown";
-
-        // ── Signal 1: Scene change after intimacy ──
-        // Check if CurrentSceneLocation changed and recent interactions had WasInSexScene=true.
-        var recentSexInteractions = session.Interactions
-            .Where(x => x.WasInSexScene == true)
-            .TakeLast(5)
-            .ToList();
-        if (recentSexInteractions.Count > 0)
-        {
-            var lastSexLocation = recentSexInteractions
-                .Select(x => session.AdaptiveState?.CurrentSceneLocation)
-                .LastOrDefault(l => !string.IsNullOrWhiteSpace(l));
-            var currentLocation = state.CurrentSceneLocation;
-            if (!string.IsNullOrWhiteSpace(lastSexLocation)
-                && !string.IsNullOrWhiteSpace(currentLocation)
-                && !string.Equals(lastSexLocation, currentLocation, StringComparison.OrdinalIgnoreCase))
-            {
-                _logger.LogDebug(
-                    "SecondarySignal: scene change after intimacy evaluated SessionId={SessionId}",
-                    session.Id);
-                const string signal = "SceneChangeAfterIntimacy";
-                _logger.LogInformation(
-                    "SecondarySignal: {Signal} detected SessionId={SessionId} Actor={Actor}",
-                    signal, session.Id, actorName);
-                WriteBoundaryDetectedDebugEvent(session, interaction, signal, cancellationToken);
-                return signal;
-            }
-        }
-
-        // ── Signal 2: Significant time passage ──
-        var timeSkipMarkers = new[]
-        {
-            "later that evening", "the next morning", "after a while",
-            "hours later", "the following day", "that night",
-            "by the time", "eventually", "after some time",
-            "morning came", "the sun rose", "dawn broke",
-        };
-        foreach (var marker in timeSkipMarkers)
-        {
-            if (interactionText.Contains(marker, StringComparison.OrdinalIgnoreCase))
-            {
-                _logger.LogDebug(
-                    "SecondarySignal: time passage marker '{Marker}' evaluated SessionId={SessionId}",
-                    marker, session.Id);
-                const string signal = "SignificantTimePassage";
-                _logger.LogInformation(
-                    "SecondarySignal: {Signal} detected SessionId={SessionId} Actor={Actor} Marker=\"{Marker}\"",
-                    signal, session.Id, actorName, marker);
-                WriteBoundaryDetectedDebugEvent(session, interaction, signal, cancellationToken);
-                return signal;
-            }
-        }
-
-        // ── Signal 3: Explicit encounter boundary language ──
-        var boundaryPhrases = new[]
-        {
-            "when it was over", "after they dressed", "once they had separated",
-            "after they finished", "when they were done", "afterward",
-            "in the afterglow", "they lay spent", "they collapsed together",
-            "once they had caught their breath", "after the climax",
-            "the encounter ended", "pulled apart", "broke apart",
-        };
-        foreach (var phrase in boundaryPhrases)
-        {
-            if (interactionText.Contains(phrase, StringComparison.OrdinalIgnoreCase))
-            {
-                _logger.LogDebug(
-                    "SecondarySignal: boundary phrase '{Phrase}' evaluated SessionId={SessionId}",
-                    phrase, session.Id);
-                const string signal = "ExplicitBoundaryLanguage";
-                _logger.LogInformation(
-                    "SecondarySignal: {Signal} detected SessionId={SessionId} Actor={Actor} Phrase=\"{Phrase}\"",
-                    signal, session.Id, actorName, phrase);
-                WriteBoundaryDetectedDebugEvent(session, interaction, signal, cancellationToken);
-                return signal;
-            }
-        }
-
-        // ── Signal 4: Phase transition Climax→Reset ──
-        // This fires when the current phase is Climax and the interaction suggests
-        // the encounter has concluded (same boundary phrases + orgasm keywords).
-        if (state.CurrentPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.Climax)
-        {
-            var climaxEndPhrases = new[]
-            {
-                "orgasm", "climax", "release", "finished", "spent",
-                "ejaculated", "came inside", "pulled out", "collapsed",
-                "afterglow", "shuddering", "trembling", "exhausted",
-            };
-            foreach (var phrase in climaxEndPhrases)
-            {
-                if (interactionText.Contains(phrase, StringComparison.OrdinalIgnoreCase))
-                {
-                    _logger.LogDebug(
-                        "SecondarySignal: Climax end phrase '{Phrase}' evaluated SessionId={SessionId}",
-                        phrase, session.Id);
-                    const string signal = "ClimaxToResetTransition";
-                    _logger.LogInformation(
-                        "SecondarySignal: {Signal} detected SessionId={SessionId} Actor={Actor} Phrase=\"{Phrase}\"",
-                        signal, session.Id, actorName, phrase);
-                    WriteBoundaryDetectedDebugEvent(session, interaction, signal, cancellationToken);
-                    return signal;
-                }
-            }
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// Advances the encounter boundary when a secondary signal fires.
-    /// Mirrors the LLM-based boundary advance path but uses signal metadata instead of inference results.
-    /// </summary>
-    private async Task AdvanceEncounterBoundaryFromSignalAsync(
-        RolePlaySession session,
-        RolePlayInteraction interaction,
-        AdaptiveScenarioState state,
-        RPTheme theme,
-        string signal,
-        bool isMulti,
-        bool isAftermath,
-        CancellationToken cancellationToken)
-    {
-        // Multi-encounter premature-advance guard.
-        if (isMulti)
-        {
-            const int minIxns = 4;
-            if (state.TurnsInCurrentEncounter < minIxns)
-            {
-                _logger.LogDebug(
-                    "TryDetectEncounterBoundary: below minimum encounter length ({Current}/{Min}) SessionId={SessionId} (signal={Signal})",
-                    state.TurnsInCurrentEncounter, minIxns, session.Id, signal);
-                return;
-            }
-        }
-
-        // Tag the interaction that triggered the boundary.
-        interaction.WasEncounterBoundaryDetected = true;
-
-        _logger.LogInformation(
-            "B057Trace BoundaryAdvance_Enter(SecondarySignal): Phase={Phase} Enc={Enc} Global={Global} Signal={Signal}",
-            state.CurrentPhase, state.CurrentEncounterNumber, state.GlobalEncounterCount, signal);
-
-        var before = state.CurrentEncounterNumber;
-        state.CurrentEncounterNumber++;
-        state.GlobalEncounterCount++;
-        state.IsEncounterActive = false;
-        state.TurnsInCurrentEncounter = 0;
-        state.CurrentTimeSkipPhase = TimeSkipPhase.CloseScene;
-        state.CharacterEncounterStates.Clear();
-
-        // B-057: synchronous persist.
-        await _stateRepository.SaveAdaptiveStateAsync(state, cancellationToken);
-
-        // Write EncounterCompletion memory.
-        state.LastEncounterEndInteractionIndex = session.Interactions.Count - 1;
-        try
-        {
-            await GenerateEncounterCompletionSummariesAsync(
-                session, state, encounterNumber: before,
-                detectionEvidence: $"[SecondarySignal:{signal}]",
-                startInteractionIndex: state.CurrentEncounterStartInteractionIndex,
-                endInteractionIndex: state.LastEncounterEndInteractionIndex,
-                themeId: theme.Id,
-                cancellationToken: cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex,
-                "B058 EncounterCompletion generation failed for session {SessionId} encounter {EncNum} (signal={Signal}).",
-                session.Id, before + 1, signal);
-        }
-
-        state.CurrentEncounterStartInteractionIndex = 0;
-
-        _logger.LogInformation(
-            "B057Trace BoundaryAdvance_Persisted(SecondarySignal): Phase={Phase} Enc={Enc} Global={Global} Signal={Signal}",
-            state.CurrentPhase, state.CurrentEncounterNumber, state.GlobalEncounterCount, signal);
-
-        _logger.LogInformation(
-            "EncounterBoundaryAdvanced(SecondarySignal): SessionId={SessionId} {Before} -> {After} signal={Signal}",
-            session.Id, before, state.CurrentEncounterNumber, signal);
-
-        await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
-        {
-            SessionId = session.Id,
-            InteractionId = interaction.Id,
-            EventKind = "EncounterBoundaryAdvanced",
-            Severity = "Info",
-            ActorName = interaction.ActorName,
-            Summary = $"Encounter boundary advanced via secondary signal: {before} -> {state.CurrentEncounterNumber} (signal={signal})",
-            MetadataJson = JsonSerializer.Serialize(new
-            {
-                encounterNumberBefore = before,
-                encounterNumberAfter = state.CurrentEncounterNumber,
-                signal,
-                themeId = theme.Id,
-                hasAftermath = isAftermath,
-            }),
-        }, cancellationToken);
-    }
-
-    private void WriteBoundaryDetectedDebugEvent(
-        RolePlaySession session,
-        RolePlayInteraction interaction,
-        string signal,
-        CancellationToken cancellationToken)
-    {
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
-                {
-                    SessionId = session.Id,
-                    InteractionId = interaction.Id,
-                    EventKind = "EncounterBoundaryDetected",
-                    Severity = "Info",
-                    ActorName = interaction.ActorName,
-                    Summary = $"Encounter boundary detected via secondary signal: {signal}",
-                    MetadataJson = JsonSerializer.Serialize(new { signal }),
-                }, cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex,
-                    "Failed to write EncounterBoundaryDetected debug event SessionId={SessionId} Signal={Signal}",
-                    session.Id, signal);
-            }
-        });
     }
 
     private static bool IsClimaxCompletionRequested(RolePlaySession session)

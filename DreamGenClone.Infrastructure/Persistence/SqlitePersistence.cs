@@ -1059,14 +1059,14 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 UNIQUE(Phase)
             );
 
-            INSERT OR IGNORE INTO PhaseRuleOfThumb (Id, Phase, RuleOfThumbText, CreatedUtc, UpdatedUtc)
+            INSERT OR REPLACE INTO PhaseRuleOfThumb (Id, Phase, RuleOfThumbText, CreatedUtc, UpdatedUtc)
             VALUES
-            ('phase-rot-opening',    'Opening',    'Introduce the world and characters. Establish initial dynamics, setting, and tone. Focus on natural character introductions and environmental detail.', '2026-07-17T00:00:00Z', '2026-07-17T00:00:00Z'),
-            ('phase-rot-buildup',    'BuildUp',    'Deepen character relationships and sexual tension. Escalate emotional stakes. Use charged glances, incidental touch, and proximity to build anticipation.', '2026-07-17T00:00:00Z', '2026-07-17T00:00:00Z'),
-            ('phase-rot-committed',  'Committed',  'Characters have acknowledged attraction or crossed a threshold. Physical intimacy becomes more direct. Maintain emotional complexity alongside physical progression.', '2026-07-17T00:00:00Z', '2026-07-17T00:00:00Z'),
-            ('phase-rot-approaching','Approaching','The most intense phase. Focus on detailed physical description, sensory richness, and emotional vulnerability. Positions, sensations, sounds, and rhythm are primary.', '2026-07-17T00:00:00Z', '2026-07-17T00:00:00Z'),
-            ('phase-rot-climax',     'Climax',     'The peak of physical and emotional intensity. Write with maximum sensory detail. Include the moment of release, aftermath, and immediate emotional reaction.', '2026-07-17T00:00:00Z', '2026-07-17T00:00:00Z'),
-            ('phase-rot-reset',      'Reset',      'Characters recover and reflect. Focus on tenderness, post-coital conversation, emotional processing, and re-establishing normalcy or a new dynamic.', '2026-07-17T00:00:00Z', '2026-07-17T00:00:00Z');
+            ('phase-rot-opening',    'Opening',    'Favor atmosphere and sensory grounding. Establish the world, the characters, and the mood before any tension begins. Let the reader settle into the setting.', '2026-07-17T00:00:00Z', '2026-07-17T00:00:00Z'),
+            ('phase-rot-buildup',    'BuildUp',    'Favor atmosphere, tension, and sensory detail over speed. Let desire accumulate before anything explicit happens. Build anticipation through what characters notice, feel, and almost-do.', '2026-07-17T00:00:00Z', '2026-07-17T00:00:00Z'),
+            ('phase-rot-committed',  'Committed',  'Balance atmosphere with forward momentum. The tension is established — now let it simmer. Characters are aware of the dynamic; let that awareness color their interactions without resolution.', '2026-07-17T00:00:00Z', '2026-07-17T00:00:00Z'),
+            ('phase-rot-approaching','Approaching','Tighten the pace. The tension is escalating — let proximity, accidental contact, and charged glances carry the scene. Sensory detail should heighten, not linger. The characters are drawn toward the threshold.', '2026-07-17T00:00:00Z', '2026-07-17T00:00:00Z'),
+            ('phase-rot-climax',     'Climax',     'The culmination is here. Maintain the evocative, sensory-rich style but with urgency and compression. Every sentence should advance the encounter. Do not slow for atmosphere — the atmosphere IS the encounter now.', '2026-07-17T00:00:00Z', '2026-07-17T00:00:00Z'),
+            ('phase-rot-reset',      'Reset',      'Let the emotional aftermath breathe. Sensory detail over action. The intensity has passed — now write the quiet, the guilt, the replay, the return to ordinary texture. The character is alone with what they did.', '2026-07-17T00:00:00Z', '2026-07-17T00:00:00Z');
             """;
         await phaseRuleOfThumbCommand.ExecuteNonQueryAsync(cancellationToken);
         _logger.LogInformation("Ensured PhaseRuleOfThumb table exists with 6 phase rows");

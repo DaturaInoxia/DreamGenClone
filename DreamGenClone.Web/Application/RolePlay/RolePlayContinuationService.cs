@@ -12,6 +12,7 @@ using DreamGenClone.Domain.StoryAnalysis;
 using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Infrastructure.Configuration;
 using DreamGenClone.Infrastructure.Logging;
+using DreamGenClone.Infrastructure.Persistence;
 using DreamGenClone.Web.Application.Models;
 using DreamGenClone.Web.Application.RolePlay.Prompts;
 using DreamGenClone.Web.Application.Scenarios;
@@ -58,6 +59,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
     private readonly IOptions<RolePlayMemoryOptions>? _memoryOptions;
     private readonly RolePlayPromptBuilder _promptBuilder;
     private readonly ActorProfileResolver _actorProfileResolver;
+    private readonly IPhaseRuleOfThumbRepository _phaseRuleOfThumbRepository;
     private readonly ILogger<RolePlayContinuationService> _logger;
 
     public RolePlayContinuationService(
@@ -73,6 +75,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         IRolePlayDebugEventSink debugEventSink,
         RolePlayPromptBuilder promptBuilder,
         ActorProfileResolver actorProfileResolver,
+        IPhaseRuleOfThumbRepository phaseRuleOfThumbRepository,
         ILogger<RolePlayContinuationService> logger,
         IRolePlayDiagnosticsService? diagnosticsService = null,
         IRPThemeService? rpThemeService = null,
@@ -94,6 +97,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         _debugEventSink = debugEventSink;
         _promptBuilder = promptBuilder;
         _actorProfileResolver = actorProfileResolver;
+        _phaseRuleOfThumbRepository = phaseRuleOfThumbRepository;
         _rpThemeService = rpThemeService;
         _diagnosticsService = diagnosticsService;
         _climaxBeatRepository = climaxBeatRepository;
@@ -555,7 +559,16 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             }
         }
 
-        // ── Build minimal context for MVP ──
+        // ── Resolve phase Rule-of-Thumb from DB (fail-fast if missing per FR-014) ──
+        var phaseRoTRow = await _phaseRuleOfThumbRepository.GetByPhaseAsync(phase, cancellationToken);
+        if (phaseRoTRow is null || string.IsNullOrWhiteSpace(phaseRoTRow.RuleOfThumbText))
+        {
+            throw new InvalidOperationException(
+                $"MissingPromptConfig: WritingStyle.PhaseRuleOfThumb is missing or empty. " +
+                $"Session phase: '{phase}'. FR-014 requires a PhaseRuleOfThumb row for every phase.");
+        }
+
+        // ── Build context for builder ──
         var context = new PromptBuildContext
         {
             Session = session,
@@ -588,14 +601,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             },
             Theme = new ResolvedThemeData(),
             Intensity = new ResolvedIntensityData(),
-            WritingStyle = new ResolvedWritingStyleData
-            {
-                Description = string.Empty,
-                Example = string.Empty,
-                ProfileDefaultRuleOfThumb = string.Empty,
-                PhaseRuleOfThumb = string.Empty,
-                StyleHint = string.Empty,
-            },
+            WritingStyle = await ResolveWritingStyleAsync(session, phaseRoTRow, cancellationToken),
             EncounterSummaries = [],
             RecentInteractions = [],
             CharacterDetails = charDetails,
@@ -603,6 +609,59 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
 
         // ── Delegate to builder ──
         return await _promptBuilder.BuildAsync(context, cancellationToken);
+    }
+
+    private async Task<ResolvedWritingStyleData> ResolveWritingStyleAsync(
+        RolePlaySession session,
+        PhaseRuleOfThumbRow phaseRoT,
+        CancellationToken cancellationToken)
+    {
+        var desc = string.Empty;
+        var example = string.Empty;
+        var profileDefaultRoT = string.Empty;
+        var styleHint = string.Empty;
+
+        var selectedStyleProfileId = session.SelectedSteeringProfileId;
+        if (!string.IsNullOrWhiteSpace(selectedStyleProfileId))
+        {
+            var styleProfile = await _steeringProfileService.GetAsync(selectedStyleProfileId, cancellationToken);
+            if (styleProfile is not null)
+            {
+                desc = styleProfile.Description ?? string.Empty;
+                example = styleProfile.Example ?? string.Empty;
+                profileDefaultRoT = styleProfile.RuleOfThumb ?? string.Empty;
+            }
+        }
+
+        // Resolve scenario style for hint
+        if (!string.IsNullOrWhiteSpace(session.ScenarioId))
+        {
+            var scenario = await _scenarioService.GetScenarioAsync(session.ScenarioId);
+            if (scenario is not null)
+            {
+                styleHint = string.Join(" / ", new[]
+                {
+                    scenario.Narrative.ProseStyle,
+                    scenario.Narrative.NarrativeTone
+                }.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()));
+            }
+        }
+
+        // Fail-fast on missing profile default (FR-014)
+        if (string.IsNullOrWhiteSpace(profileDefaultRoT))
+        {
+            throw new InvalidOperationException(
+                "MissingPromptConfig: WritingStyle.ProfileDefaultRuleOfThumb is missing or empty. FR-014 requires a profile default Rule-of-Thumb.");
+        }
+
+        return new ResolvedWritingStyleData
+        {
+            Description = desc,
+            Example = example,
+            ProfileDefaultRuleOfThumb = profileDefaultRoT,
+            PhaseRuleOfThumb = phaseRoT.RuleOfThumbText,
+            StyleHint = styleHint,
+        };
     }
 
     private async Task AppendObservingCandidateMenuAsync(
