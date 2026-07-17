@@ -8,7 +8,7 @@ public static class RolePlayRelationFormatter
 {
     public static string? DescribePersonaRelation(RolePlaySession session, IReadOnlyList<Character>? characters)
     {
-        return DescribeTarget(session.PersonaRelationTargetId, characters, session.PersonaName, session.PersonaRole, session.PersonaTemplateId);
+        return DescribeTarget(null, characters, session.PersonaName, CharacterRoleCatalog.Unknown, null);
     }
 
     public static string? DescribeCharacterRelation(Character character, RolePlaySession? session, IReadOnlyList<Character>? characters)
@@ -16,9 +16,8 @@ public static class RolePlayRelationFormatter
         var personaName = session is null || string.IsNullOrWhiteSpace(session.PersonaName)
             ? CharacterRelationCatalog.PersonaDisplayLabel
             : session.PersonaName;
-        var personaRole = session?.PersonaRole ?? CharacterRoleCatalog.Unknown;
-        var personaTemplateId = session?.PersonaTemplateId;
-        return DescribeTarget(character.RelationTargetId, characters, personaName, personaRole, personaTemplateId);
+        var personaRole = CharacterRoleCatalog.Unknown;
+        return DescribeTarget(character.RelationTargetId, characters, personaName, personaRole, null);
     }
 
     public static string? DescribeTarget(string? relationTargetId, IReadOnlyList<Character>? characters, string? personaName, string? personaRole, string? personaTemplateId = null)

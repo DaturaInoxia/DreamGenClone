@@ -67,6 +67,17 @@
                             <label class="form-label">Description</label>
                             <textarea class="form-control" @bind="CurrentScenario.Description" rows="3"></textarea>
                         </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Default Persona Character</label>
+                            <select class="form-select" @bind="CurrentScenario.DefaultPersonaCharacterId">
+                                <option value="">(none)</option>
+                                @foreach (var c in CurrentScenario.Characters.Where(c => !string.IsNullOrWhiteSpace(c.Name)))
+                                {
+                                    <option value="@c.Id">@c.Name</option>
+                                }
+                            </select>
+                        </div>
                     </div>
                 </div>
                 
@@ -263,6 +274,32 @@
                                 }
                             </select>
                         </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Default Time of Day</label>
+                            <select class="form-select" @bind="CurrentScenario.DefaultTimeOfDay">
+                                @foreach (var tod in Enum.GetValues<TimeOfDay>())
+                                {
+                                    <option value="@tod">@tod</option>
+                                }
+                            </select>
+                            <div class="form-text">Starting time of day for new sessions created from this scenario.</div>
+                        </div>
+
+                        @if (CurrentScenario.Locations.Any())
+                        {
+                            <div class="mb-3">
+                                <label class="form-label">Default Starting Location</label>
+                                <select class="form-select" @bind="CurrentScenario.DefaultStartingLocationId">
+                                    <option value="">(none — use opening location)</option>
+                                    @foreach (var loc in CurrentScenario.Locations.Where(l => !string.IsNullOrWhiteSpace(l.Name)))
+                                    {
+                                        <option value="@loc.Id">@(loc.Name ?? loc.Id)</option>
+                                    }
+                                </select>
+                                <div class="form-text">Seeds the initial scene location when a new session starts. Opening-level LocationId takes precedence.</div>
+                            </div>
+                        }
                         
                         <div class="mb-3">
                             <label class="form-label">Narrative Guidelines</label>
@@ -355,6 +392,70 @@
                                                             AttributesChanged="@(attrs => character.PhysicalAttributes = attrs)"
                                                             Gender="@character.Gender" />
                                                     </div>
+                                                    @* T053+T054: Per-character Location Affinities editor with time-specific rules + conflict warning *@
+                                                    @if (CurrentScenario.Locations.Any())
+                                                    {
+                                                        <div class="mt-3 border rounded p-2 bg-light-subtle">
+                                                            <label class="form-label small fw-semibold">Location Affinities</label>
+                                                            @foreach (var location in CurrentScenario.Locations.Where(l => !string.IsNullOrWhiteSpace(l.Name)))
+                                                            {
+                                                                var locName = location.Name!.Trim();
+                                                                var existingAffinities = character.LocationAffinities
+                                                                    .Where(a => string.Equals(a.LocationName, locName, StringComparison.OrdinalIgnoreCase))
+                                                                    .ToList();
+                                                                var hasExcluded = existingAffinities.Any(a => a.AffinityType == AffinityType.Excluded);
+                                                                var hasRequired = existingAffinities.Any(a => a.AffinityType == AffinityType.Required);
+                                                                var hasPreferred = existingAffinities.Any(a => a.AffinityType == AffinityType.Preferred);
+                                                                var conflictWarning = (hasExcluded && hasRequired)
+                                                                    ? $"This Excluded rule will conflict with the existing Required rule — Excluded wins."
+                                                                    : (hasExcluded && hasPreferred)
+                                                                        ? $"This Excluded rule will conflict with the existing Preferred rule — Excluded wins."
+                                                                        : null;
+
+                                                                <div class="mb-2">
+                                                                    <div class="d-flex gap-2 align-items-center mb-1">
+                                                                        <span class="small text-muted" style="min-width:100px">@locName</span>
+                                                                        <select class="form-select form-select-sm" style="width:130px"
+                                                                                @onchange="@(e => UpdateAffinityForLocation(character, locName, e.Value?.ToString()))">
+                                                                            <option value="None" selected="@(existingAffinities.Count == 0 || existingAffinities.All(a => a.AffinityType == AffinityType.None))">None</option>
+                                                                            <option value="Preferred" selected="@hasPreferred">Preferred</option>
+                                                                            <option value="Required" selected="@hasRequired">Required</option>
+                                                                            <option value="Excluded" selected="@hasExcluded">Excluded</option>
+                                                                        </select>
+                                                                        <select class="form-select form-select-sm" style="width:120px"
+                                                                                @onchange="@(e => UpdateAffinityTimeOfDay(character, locName, e.Value?.ToString()))">
+                                                                            <option value="" selected="@(existingAffinities.Count == 0 || existingAffinities.All(a => a.TimeOfDay == null))">Auto</option>
+                                                                            <option value="Morning" selected="@(existingAffinities.Any(a => a.TimeOfDay == TimeOfDay.Morning))">Morning</option>
+                                                                            <option value="Afternoon" selected="@(existingAffinities.Any(a => a.TimeOfDay == TimeOfDay.Afternoon))">Afternoon</option>
+                                                                            <option value="Evening" selected="@(existingAffinities.Any(a => a.TimeOfDay == TimeOfDay.Evening))">Evening</option>
+                                                                            <option value="Night" selected="@(existingAffinities.Any(a => a.TimeOfDay == TimeOfDay.Night))">Night</option>
+                                                                        </select>
+                                                                    </div>
+                                                                    @if (conflictWarning is not null)
+                                                                    {
+                                                                        <div class="small text-warning-emphasis">@conflictWarning</div>
+                                                                    }
+                                                                    @if (existingAffinities.Count > 0)
+                                                                    {
+                                                                        <div class="ms-3 small">
+                                                                            @foreach (var aff in existingAffinities)
+                                                                            {
+                                                                                <div class="d-flex align-items-center gap-1 mb-1">
+                                                                                    <span class="badge @((aff.AffinityType == AffinityType.Excluded) ? "bg-danger" : (aff.AffinityType == AffinityType.Required) ? "bg-primary" : (aff.AffinityType == AffinityType.Preferred) ? "bg-info" : "bg-secondary")">@aff.AffinityType</span>
+                                                                                    <span class="text-muted">@(aff.TimeOfDay?.ToString() ?? "Auto")</span>
+                                                                                    <button class="btn btn-link btn-sm py-0 px-1 text-danger" @onclick="@(() => RemoveAffinity(character, aff))">×</button>
+                                                                                </div>
+                                                                            }
+                                                                        </div>
+                                                                    }
+                                                                    <button class="btn btn-link btn-sm py-0 px-0 text-muted"
+                                                                            @onclick="@(() => AddAffinity(character, locName))">
+                                                                        + add time-specific rule
+                                                                    </button>
+                                                                </div>
+                                                            }
+                                                        </div>
+                                                    }
                                                 </div>
                                                 <div class="col-md-4 text-end">
                                                     <button class="btn btn-sm btn-outline-primary" @onclick="@(() => EditingCharacterIndex = index)">Edit</button>
@@ -375,6 +476,7 @@
                             Label="Add Character" 
                             TemplateTypeFilter="TemplateType.Character"
                             OnEntityCreated="@OnCharacterCreated" />
+
                     </div>
                 </div>
                 
@@ -848,6 +950,14 @@
     private void DeleteScenarioCharacter(int index)
     {
         if (CurrentScenario is null || index < 0 || index >= CurrentScenario.Characters.Count)
+        {
+            return;
+        }
+
+        // The persona character is required for session creation and cannot be deleted.
+        // Other characters may be re-pointed at the persona via relation targets; deleting
+        // the persona would orphan those references.
+        if (CurrentScenario.Characters[index].IsPersona)
         {
             return;
         }
@@ -1336,6 +1446,80 @@
         CurrentScenario?.Characters.Add(character);
         EnsureBaseStats(character);
         return character;
+    }
+
+    // ---- T053/T054: Location Affinity editing helpers ----
+
+    private void UpdateAffinityForLocation(Character character, string locationName, string? newValue)
+    {
+        if (string.IsNullOrWhiteSpace(newValue) || newValue == "None")
+        {
+            // Clear all wildcard (null TimeOfDay) affinity entries for this location.
+            character.LocationAffinities.RemoveAll(a =>
+                string.Equals(a.LocationName, locationName, StringComparison.OrdinalIgnoreCase)
+                && a.TimeOfDay is null);
+            return;
+        }
+
+        if (!Enum.TryParse<AffinityType>(newValue, out var parsed))
+        {
+            return;
+        }
+
+        var existing = character.LocationAffinities.FirstOrDefault(a =>
+            string.Equals(a.LocationName, locationName, StringComparison.OrdinalIgnoreCase)
+            && a.TimeOfDay is null);
+        if (existing is not null)
+        {
+            existing.AffinityType = parsed;
+        }
+        else
+        {
+            character.LocationAffinities.Add(new CharacterLocationAffinity
+            {
+                LocationName = locationName,
+                AffinityType = parsed,
+                TimeOfDay = null
+            });
+        }
+    }
+
+    private void UpdateAffinityTimeOfDay(Character character, string locationName, string? newValue)
+    {
+        var existing = character.LocationAffinities.FirstOrDefault(a =>
+            string.Equals(a.LocationName, locationName, StringComparison.OrdinalIgnoreCase)
+            && a.TimeOfDay is null);
+        if (existing is null)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(newValue))
+        {
+            existing.TimeOfDay = null;
+            return;
+        }
+
+        if (Enum.TryParse<TimeOfDay>(newValue, out var parsed))
+        {
+            existing.TimeOfDay = parsed;
+        }
+    }
+
+    private void AddAffinity(Character character, string locationName)
+    {
+        // T054: Add a new time-specific rule entry (defaults to None affinity + first TimeOfDay)
+        character.LocationAffinities.Add(new CharacterLocationAffinity
+        {
+            LocationName = locationName,
+            AffinityType = AffinityType.None,
+            TimeOfDay = TimeOfDay.Morning
+        });
+    }
+
+    private void RemoveAffinity(Character character, CharacterLocationAffinity affinity)
+    {
+        character.LocationAffinities.Remove(affinity);
     }
 
     private static DreamGenClone.Domain.Templates.PhysicalAttributes ClonePhysicalAttributes(DreamGenClone.Domain.Templates.PhysicalAttributes src) => new()

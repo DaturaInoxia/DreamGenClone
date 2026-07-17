@@ -46,12 +46,6 @@ public sealed class SessionCloneForkService : ISessionCloneForkService
             BehaviorMode = rolePlay.BehaviorMode,
             ParentSessionId = rolePlay.ParentSessionId,
             PersonaName = rolePlay.PersonaName,
-            PersonaDescription = rolePlay.PersonaDescription,
-            PersonaTemplateId = rolePlay.PersonaTemplateId,
-            PersonaGender = rolePlay.PersonaGender,
-            PersonaRole = rolePlay.PersonaRole,
-            PersonaRelationTargetId = CharacterRelationCatalog.NormalizeTargetId(rolePlay.PersonaRelationTargetId),
-            PersonaPerspectiveMode = rolePlay.PersonaPerspectiveMode,
             CharacterPerspectives = rolePlay.CharacterPerspectives.Select(ClonePerspective).ToList(),
             Interactions = rolePlay.Interactions.Select(CloneInteraction).ToList()
         };
@@ -103,12 +97,6 @@ public sealed class SessionCloneForkService : ISessionCloneForkService
             BehaviorMode = rolePlay.BehaviorMode,
             ParentSessionId = rolePlay.Id,
             PersonaName = rolePlay.PersonaName,
-            PersonaDescription = rolePlay.PersonaDescription,
-            PersonaTemplateId = rolePlay.PersonaTemplateId,
-            PersonaGender = rolePlay.PersonaGender,
-            PersonaRole = rolePlay.PersonaRole,
-            PersonaRelationTargetId = CharacterRelationCatalog.NormalizeTargetId(rolePlay.PersonaRelationTargetId),
-            PersonaPerspectiveMode = rolePlay.PersonaPerspectiveMode,
             CharacterPerspectives = rolePlay.CharacterPerspectives.Select(ClonePerspective).ToList(),
             Interactions = rpBounded >= 0
                 ? rolePlay.Interactions.Take(rpBounded + 1).Select(CloneInteraction).ToList()

@@ -231,7 +231,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 CompletedScenarios, TurnsSinceCommitment, TurnsInApproaching, ScenarioCommitmentTimeUtc,
                 SemanticStepSucceeded, SemanticDeltaBreakdownsJson, SemanticStatDeltaBreakdownsJson,
                 CurrentEncounterNumber, TurnsInCurrentEncounter, TimeSkipPending, CurrentTimeSkipPhase,
-                GlobalEncounterCount, CurrentEncounterStartInteractionIndex, IsEncounterActive,
+                GlobalEncounterCount, CurrentEncounterStartInteractionIndex, IsEncounterActive, CurrentTimeOfDay, TimeOfDayManuallySet,
                 UpdatedUtc)
             VALUES (
                 $sessionId, $activeScenarioId, $currentPhase, $TurnCountInPhase, $consecutiveLeadCount,
@@ -244,7 +244,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 $completedScenarios, $TurnsSinceCommitment, $TurnsInApproaching, $scenarioCommitmentTimeUtc,
                 $semanticStepSucceeded, $semanticDeltaBreakdownsJson, $semanticStatDeltaBreakdownsJson,
                 $currentEncounterNumber, $TurnsInCurrentEncounter, $timeSkipPending, $currentTimeSkipPhase,
-                $globalEncounterCount, $currentEncounterStartInteractionIndex, $isEncounterActive,
+                $globalEncounterCount, $currentEncounterStartInteractionIndex, $isEncounterActive, $currentTimeOfDay, $timeOfDayManuallySet,
                 $updatedUtc)
             ON CONFLICT(SessionId) DO UPDATE SET
                 ActiveScenarioId = excluded.ActiveScenarioId,
@@ -284,6 +284,8 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 GlobalEncounterCount = excluded.GlobalEncounterCount,
                 CurrentEncounterStartInteractionIndex = excluded.CurrentEncounterStartInteractionIndex,
                 IsEncounterActive = excluded.IsEncounterActive,
+                CurrentTimeOfDay = excluded.CurrentTimeOfDay,
+                TimeOfDayManuallySet = excluded.TimeOfDayManuallySet,
                 UpdatedUtc = excluded.UpdatedUtc;
             """;
 
@@ -333,6 +335,8 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
         command.Parameters.AddWithValue("$globalEncounterCount", state.GlobalEncounterCount);
         command.Parameters.AddWithValue("$currentEncounterStartInteractionIndex", state.CurrentEncounterStartInteractionIndex);
         command.Parameters.AddWithValue("$isEncounterActive", state.IsEncounterActive ? 1 : 0);
+        command.Parameters.AddWithValue("$currentTimeOfDay", state.CurrentTimeOfDay?.ToString() ?? (object)DBNull.Value);
+        command.Parameters.AddWithValue("$timeOfDayManuallySet", state.TimeOfDayManuallySet ? 1 : 0);
         command.Parameters.AddWithValue("$updatedUtc", nowUtc.ToString("O"));
         await command.ExecuteNonQueryAsync(cancellationToken);
 
@@ -528,7 +532,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                               SemanticStepSucceeded, SemanticDeltaBreakdownsJson, SemanticStatDeltaBreakdownsJson,
                               CharacterEncounterProfileIdsJson,
                               CurrentEncounterNumber, TurnsInCurrentEncounter, TimeSkipPending, CurrentTimeSkipPhase,
-                              GlobalEncounterCount, CurrentEncounterStartInteractionIndex, IsEncounterActive
+                              GlobalEncounterCount, CurrentEncounterStartInteractionIndex, IsEncounterActive, CurrentTimeOfDay, TimeOfDayManuallySet
             FROM RolePlayV2AdaptiveStates
             WHERE SessionId = $sessionId;
             """;
@@ -606,7 +610,9 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 : (TimeSkipPhase)reader.GetInt32(35),
             GlobalEncounterCount = reader.IsDBNull(36) ? 0 : reader.GetInt32(36),
             CurrentEncounterStartInteractionIndex = reader.IsDBNull(37) ? 0 : reader.GetInt32(37),
-            IsEncounterActive = reader.IsDBNull(38) ? false : reader.GetInt32(38) != 0
+            IsEncounterActive = reader.IsDBNull(38) ? false : reader.GetInt32(38) != 0,
+            CurrentTimeOfDay = reader.IsDBNull(39) ? null : Enum.TryParse<DreamGenClone.Domain.RolePlay.TimeOfDay>(reader.GetString(39), out var tod) ? tod : null,
+            TimeOfDayManuallySet = reader.IsDBNull(40) ? false : reader.GetInt32(40) != 0
         };
         await reader.CloseAsync();
 
@@ -1096,6 +1102,20 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
         {
             await using var add = connection.CreateCommand();
             add.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN IsEncounterActive INTEGER NOT NULL DEFAULT 0";
+            await add.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        // T018: Time-of-day tracking columns for open-world location detection.
+        if (!await HasColumnAsync(connection, "RolePlayV2AdaptiveStates", "CurrentTimeOfDay", cancellationToken))
+        {
+            await using var add = connection.CreateCommand();
+            add.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN CurrentTimeOfDay TEXT NULL";
+            await add.ExecuteNonQueryAsync(cancellationToken);
+        }
+        if (!await HasColumnAsync(connection, "RolePlayV2AdaptiveStates", "TimeOfDayManuallySet", cancellationToken))
+        {
+            await using var add = connection.CreateCommand();
+            add.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN TimeOfDayManuallySet INTEGER NOT NULL DEFAULT 0";
             await add.ExecuteNonQueryAsync(cancellationToken);
         }
 

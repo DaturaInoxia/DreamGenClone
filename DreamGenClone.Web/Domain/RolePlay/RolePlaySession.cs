@@ -17,32 +17,24 @@ public sealed class RolePlaySession
 
     public string? ParentSessionId { get; set; }
 
-    /// <summary>The POV persona name ("You" perspective). Defaults to "You".</summary>
     public string PersonaName { get; set; } = "You";
 
-    /// <summary>Description/content of the POV persona (from template or manual).</summary>
     public string PersonaDescription { get; set; } = string.Empty;
 
-    /// <summary>Active perspective mode for the persona in this session.</summary>
     public CharacterPerspectiveMode PersonaPerspectiveMode { get; set; } = CharacterPerspectiveMode.FirstPersonInternalMonologue;
 
-    /// <summary>Optional link to the Persona template this was sourced from.</summary>
     public string? PersonaTemplateId { get; set; }
 
-    /// <summary>Explicit persona gender used for strict adaptive profile matching.</summary>
     public string PersonaGender { get; set; } = "Unknown";
 
-    /// <summary>Explicit persona role used for strict adaptive profile matching.</summary>
     public string PersonaRole { get; set; } = "Unknown";
 
-    /// <summary>
-    /// Optional linked relation target for the persona, used to disambiguate paired roles.
-    /// Target can be a scenario character id.
-    /// </summary>
     public string? PersonaRelationTargetId { get; set; }
 
-    /// <summary>Optional physical appearance data for the POV persona in this session.</summary>
     public DreamGenClone.Domain.Templates.PhysicalAttributes? PersonaPhysicalAttributes { get; set; }
+
+    /// <summary>The scenario character ID of the persona for this session.</summary>
+    public string? PersonaCharacterId { get; set; }
 
     public List<RolePlayInteraction> Interactions { get; set; } = [];
 
@@ -224,6 +216,24 @@ public sealed class RolePlaySession
 
     /// <summary>Schema compatibility marker used by RolePlay v2 validation.</summary>
     public string RolePlayV2SchemaVersion { get; set; } = "v2";
+
+    /// <summary>
+    /// Per-character turn overrides keyed by character name (case-insensitive).
+    /// Persona ("You") is excluded from this dictionary.
+    /// </summary>
+    public Dictionary<string, CharacterTurnOverride> CharacterTurnOverrides { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Transient cache of LLM-ordered actor names from last selection. Not persisted.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public List<string>? LastActorOrdering { get; set; }
+
+    /// <summary>Transient composite fingerprint from last selection cache hit. Not persisted.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? LastContextFingerprint { get; set; }
+
+    /// <summary>Transient interaction count at last location detection enqueue. Not persisted.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public int LastLocationDetectionInteractionCount { get; set; }
 }
 
 public sealed class RolePlayAssistantChatThread

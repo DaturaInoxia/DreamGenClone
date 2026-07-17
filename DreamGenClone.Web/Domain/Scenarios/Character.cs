@@ -39,8 +39,24 @@ public class Character
     public DreamGenClone.Domain.Templates.PhysicalAttributes? PhysicalAttributes { get; set; }
 
     /// <summary>
+    /// Per-character location affinity rules. Multiple entries per (character, location)
+    /// are allowed, each with a distinct or null TimeOfDay.
+    /// Conflicts resolved by Excluded > Required > Preferred precedence,
+    /// then exact-time match over wildcard (null TimeOfDay).
+    /// </summary>
+    public List<CharacterLocationAffinity> LocationAffinities { get; set; } = [];
+
+    /// <summary>
     /// Optional default CharacterProfile (encounter profile) ID pre-selected
     /// when creating an RP session from this scenario. Can be overridden in the wizard.
     /// </summary>
     public string? DefaultEncounterProfileId { get; set; }
+
+    /// <summary>
+    /// Marks this character as the scenario's POV persona ("You").
+    /// Exactly one character per scenario may have this flag set.
+    /// The persona character is treated as a first-class character for
+    /// location gates, affinities, scoring, and candidate selection.
+    /// </summary>
+    public bool IsPersona { get; set; }
 }

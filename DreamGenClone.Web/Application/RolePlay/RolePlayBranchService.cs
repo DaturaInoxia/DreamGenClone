@@ -32,10 +32,7 @@ public sealed class RolePlayBranchService : IRolePlayBranchService
             boundedIndex = -1;
         }
 
-        var clone = await _engineService.CreateSessionAsync(
-            branchTitle, source.ScenarioId,
-            source.PersonaName, source.PersonaDescription, source.PersonaTemplateId, source.PersonaGender, source.PersonaRole, source.PersonaRelationTargetId,
-            cancellationToken);
+        var clone = await _engineService.CreateSessionAsync(branchTitle, source.ScenarioId, cancellationToken);
         clone.ParentSessionId = source.Id;
         clone.BehaviorMode = source.BehaviorMode;
 
@@ -74,10 +71,7 @@ public sealed class RolePlayBranchService : IRolePlayBranchService
             throw new ArgumentException($"Interaction {interactionId} not found as original in session {sourceSessionId}.", nameof(interactionId));
         }
 
-        var clone = await _engineService.CreateSessionAsync(
-            branchTitle, source.ScenarioId,
-            source.PersonaName, source.PersonaDescription, source.PersonaTemplateId, source.PersonaGender, source.PersonaRole, source.PersonaRelationTargetId,
-            cancellationToken);
+        var clone = await _engineService.CreateSessionAsync(branchTitle, source.ScenarioId, cancellationToken);
         clone.ParentSessionId = source.Id;
         clone.BehaviorMode = source.BehaviorMode;
 
@@ -111,10 +105,7 @@ public sealed class RolePlayBranchService : IRolePlayBranchService
             throw new ArgumentException($"Interaction {interactionId} not found as original in session {sourceSessionId}.", nameof(interactionId));
         }
 
-        var clone = await _engineService.CreateSessionAsync(
-            branchTitle, source.ScenarioId,
-            source.PersonaName, source.PersonaDescription, source.PersonaTemplateId, source.PersonaGender, source.PersonaRole, source.PersonaRelationTargetId,
-            cancellationToken);
+        var clone = await _engineService.CreateSessionAsync(branchTitle, source.ScenarioId, cancellationToken);
         clone.ParentSessionId = source.Id;
         clone.BehaviorMode = source.BehaviorMode;
 

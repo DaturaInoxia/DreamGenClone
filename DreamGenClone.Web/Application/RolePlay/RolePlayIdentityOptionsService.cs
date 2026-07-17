@@ -33,29 +33,36 @@ public sealed class RolePlayIdentityOptionsService : IRolePlayIdentityOptionsSer
                         continue;
                     }
 
+                    var isPersona = session.IsPersonaActor(character.Name);
                     options.Add(new IdentityOption
                     {
                         Id = $"scene:{character.Id}",
                         DisplayName = character.Name.Trim(),
                         SourceType = IdentityOptionSource.SceneCharacter,
-                        Actor = ContinueAsActor.Npc,
-                        IsAvailable = allowedActors.Contains(ContinueAsActor.Npc),
-                        AvailabilityReason = allowedActors.Contains(ContinueAsActor.Npc) ? null : $"Not allowed in {session.BehaviorMode} mode."
+                        Actor = isPersona ? ContinueAsActor.You : ContinueAsActor.Npc,
+                        IsAvailable = allowedActors.Contains(isPersona ? ContinueAsActor.You : ContinueAsActor.Npc),
+                        AvailabilityReason = allowedActors.Contains(isPersona ? ContinueAsActor.You : ContinueAsActor.Npc) ? null : $"Not allowed in {session.BehaviorMode} mode."
                     });
                 }
             }
         }
 
-        var personaName = string.IsNullOrWhiteSpace(session.PersonaName) ? "You" : session.PersonaName.Trim();
-        options.Add(new IdentityOption
+        // Persona identity — only add when persona is NOT a scene character.
+        // When PersonaCharacterId is set, the persona character is already in the
+        // scene characters list above under its real name (not a separate "You" entry).
+        if (string.IsNullOrWhiteSpace(session.PersonaCharacterId))
         {
-            Id = "persona:you",
-            DisplayName = personaName,
-            SourceType = IdentityOptionSource.Persona,
-            Actor = ContinueAsActor.You,
-            IsAvailable = allowedActors.Contains(ContinueAsActor.You),
-            AvailabilityReason = allowedActors.Contains(ContinueAsActor.You) ? null : $"Not allowed in {session.BehaviorMode} mode."
-        });
+            var personaName = string.IsNullOrWhiteSpace(session.PersonaName) ? "You" : session.PersonaName.Trim();
+            options.Add(new IdentityOption
+            {
+                Id = "persona:you",
+                DisplayName = personaName,
+                SourceType = IdentityOptionSource.Persona,
+                Actor = ContinueAsActor.You,
+                IsAvailable = allowedActors.Contains(ContinueAsActor.You),
+                AvailabilityReason = allowedActors.Contains(ContinueAsActor.You) ? null : $"Not allowed in {session.BehaviorMode} mode."
+            });
+        }
 
         options.Add(new IdentityOption
         {

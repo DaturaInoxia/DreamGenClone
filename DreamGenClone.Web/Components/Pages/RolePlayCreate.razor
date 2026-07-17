@@ -138,131 +138,24 @@
     {
         <!-- Persona card -->
         <div class="card mb-3">
-            <div class="card-header"><h5 class="mb-0">Persona</h5></div>
+            <div class="card-header"><h5 class="mb-0">Session Persona</h5></div>
             <div class="card-body">
-                <div class="row g-3">
-                    <div class="col-12 col-md-4">
-                        <label class="form-label">Persona Template (optional)</label>
-                        <select class="form-select" value="@_newPersonaTemplateId" @onchange="OnPersonaTemplateChanged">
-                            <option value="">(default — You)</option>
-                            @foreach (var p in _personaTemplates)
-                            {
-                                <option value="@p.Id">@p.Name</option>
-                            }
-                        </select>
-                    </div>
-                    <div class="col-12 col-md-4">
-                        <label class="form-label">Name</label>
-                        <input class="form-control" @bind="_personaName" />
-                    </div>
-                    <div class="col-12 col-md-2">
-                        <label class="form-label">Gender</label>
-                        <select class="form-select" @bind="_personaGender">
-                            <option value="Unknown">Unknown</option>
-                            @foreach (var g in CharacterGenderCatalog.CharacterGenders)
-                            {
-                                <option value="@g">@g</option>
-                            }
-                        </select>
-                    </div>
-                    <div class="col-12 col-md-2">
-                        <label class="form-label">Role <span class="text-danger">*</span></label>
-                        <select class="form-select @(_showStep3Validation && string.Equals(_personaRole, CharacterRoleCatalog.Unknown, StringComparison.OrdinalIgnoreCase) ? "is-invalid" : "")"
-                                value="@_personaRole"
-                                @onchange="OnPersonaRoleChanged">
-                            <option value="Unknown">Unknown</option>
-                            @foreach (var r in CharacterRoleCatalog.CharacterRoleOptions)
-                            {
-                                <option value="@r">@r</option>
-                            }
-                        </select>
-                        @if (_showStep3Validation && string.Equals(_personaRole, CharacterRoleCatalog.Unknown, StringComparison.OrdinalIgnoreCase))
+                <div class="mb-3">
+                    <label class="form-label">Character</label>
+                    <select class="form-select" @bind="_selectedPersonaCharacterId">
+                        <option value="">(default from scenario)</option>
+                        @if (_selectedScenario is not null)
                         {
-                            <div class="invalid-feedback d-block">Select a role.</div>
-                        }
-                    </div>
-                </div>
-
-                <!-- Persona Stat Profile (moved out of Persona Details) -->
-                <div class="mt-3">
-                    <label class="form-label fw-semibold">Stat Profile <span class="text-danger">*</span></label>
-                    @if (string.Equals(_personaRole, CharacterRoleCatalog.Unknown, StringComparison.OrdinalIgnoreCase))
-                    {
-                        <div class="text-muted small">Select a Role above to see applicable profiles.</div>
-                    }
-                    else
-                    {
-                        <select class="form-select @(_showStep3Validation && string.IsNullOrWhiteSpace(_personaStatProfileId) ? "is-invalid" : "")"
-                                value="@_personaStatProfileId"
-                                @onchange="OnPersonaStatProfileChanged">
-                            <option value="">(select a profile)</option>
-                            @foreach (var p in GetApplicableCharacterProfiles(_personaRole))
+                            @foreach (var c in _selectedScenario.Characters.Where(c => !string.IsNullOrWhiteSpace(c.Name)))
                             {
-                                <option value="@p.Id">@p.Name</option>
+                                <option value="@c.Id" selected="@(c.Id == _selectedScenario.DefaultPersonaCharacterId)">
+                                    @c.Name @(c.Id == _selectedScenario.DefaultPersonaCharacterId ? "(default)" : "")
+                                </option>
                             }
-                        </select>
-                        @if (_showStep3Validation && string.IsNullOrWhiteSpace(_personaStatProfileId))
-                        {
-                            <div class="invalid-feedback d-block">A stat profile is required.</div>
                         }
-                    }
-
-                    @* Profile detail display (Task 2.2) *@
-                    @if (_selectedPersonaProfile is not null)
-                    {
-                        <div class="mt-2 border rounded p-2 bg-dark text-light">
-                            <div class="d-flex justify-content-between align-items-center mb-1">
-                                <span class="small fw-semibold">Profile Details — @_selectedPersonaProfile.Name</span>
-                            </div>
-                            <ProfileDetailDisplay Profile="@_selectedPersonaProfile"
-                                                  State="@_personaProfileDetailState" />
-                        </div>
-                    }
+                    </select>
                 </div>
             </div>
-        </div>
-
-        <!-- Persona Details (collapsible, collapsed by default) -->
-        <div class="rw-collapsible-section mb-3">
-            <button type="button" class="rw-collapsible-header" @onclick="@(() => _personaDetailsExpanded = !_personaDetailsExpanded)">
-                <span class="rw-collapsible-chevron @(_personaDetailsExpanded ? "is-open" : "")"></span>
-                <span class="rw-collapsible-title">Persona Details</span>
-            </button>
-            @if (_personaDetailsExpanded)
-            {
-                <div class="rw-collapsible-body">
-                    <!-- Description sub-section -->
-                    <div class="rw-collapsible-section">
-                        <button type="button" class="rw-collapsible-header" @onclick="@(() => _personaDescriptionExpanded = !_personaDescriptionExpanded)">
-                            <span class="rw-collapsible-chevron @(_personaDescriptionExpanded ? "is-open" : "")"></span>
-                            <span class="rw-collapsible-title">Description</span>
-                        </button>
-                        @if (_personaDescriptionExpanded)
-                        {
-                            <div class="rw-collapsible-body">
-                                <textarea class="form-control form-control-sm" rows="2" @bind="_personaDescription"></textarea>
-                            </div>
-                        }
-                    </div>
-
-                    <!-- Physical Attributes sub-section -->
-                    <div class="rw-collapsible-section">
-                        <button type="button" class="rw-collapsible-header" @onclick="@(() => _personaPhysicalAttributesExpanded = !_personaPhysicalAttributesExpanded)">
-                            <span class="rw-collapsible-chevron @(_personaPhysicalAttributesExpanded ? "is-open" : "")"></span>
-                            <span class="rw-collapsible-title">Physical Attributes</span>
-                        </button>
-                        @if (_personaPhysicalAttributesExpanded)
-                        {
-                            <div class="rw-collapsible-body">
-                                <PhysicalAttributesEditor
-                                    Attributes="@_personaPhysicalAttributes"
-                                    AttributesChanged="@(attrs => _personaPhysicalAttributes = attrs)"
-                                    Gender="@_personaGender" />
-                            </div>
-                        }
-                    </div>
-                </div>
-            }
         </div>
 
         <!-- Character stat overrides -->
@@ -411,29 +304,12 @@
     private readonly Dictionary<string, ThemeSelectionState> _themeSelections = new(StringComparer.OrdinalIgnoreCase);
 
     // Step 3
-    private string _newPersonaTemplateId = string.Empty;
     private string _personaName = "You";
+    private string? _selectedPersonaCharacterId;
     private string _personaDescription = string.Empty;
-    private string _personaGender = CharacterGenderCatalog.Unknown;
-    private string _personaRole = CharacterRoleCatalog.Unknown;
-    private string _personaRelationTargetId = string.Empty;
-    private DreamGenClone.Domain.Templates.PhysicalAttributes? _personaPhysicalAttributes;
-    private readonly Dictionary<string, int> _personaStats = new(StringComparer.OrdinalIgnoreCase);
-    private string _personaStatProfileId = string.Empty;
     private readonly List<CharacterEditState> _characterEditStates = [];
-    private readonly List<TemplateDefinition> _personaTemplates = [];
     private readonly List<CharacterProfile> _characterProfiles = [];
     private readonly Dictionary<string, string> _characterEncounterProfileIds = new(StringComparer.OrdinalIgnoreCase);
-
-    // Persona Details collapsible section state (all collapsed by default)
-    private bool _personaDetailsExpanded;
-    private bool _personaDescriptionExpanded;
-    private bool _personaPhysicalAttributesExpanded;
-    private bool _personaStatProfileExpanded;
-
-    // Selected persona profile + its detail collapse state
-    private CharacterProfile? _selectedPersonaProfile;
-    private readonly ProfileDetailCollapseState _personaProfileDetailState = new();
 
     // Auto-Complete
     private bool _autoCompleteEnabled;
@@ -486,6 +362,16 @@
     private async Task LoadStep2DataAsync()
     {
         _selectedScenario = await ScenarioService.GetScenarioAsync(_newSessionScenarioId);
+
+        // Initialize persona character from scenario default
+        _selectedPersonaCharacterId = _selectedScenario?.DefaultPersonaCharacterId;
+        if (_selectedPersonaCharacterId is not null && _selectedScenario is not null)
+        {
+            var defaultPersona = _selectedScenario.Characters
+                .FirstOrDefault(c => c.Id == _selectedPersonaCharacterId);
+            if (defaultPersona is not null && !string.IsNullOrWhiteSpace(defaultPersona.Name))
+                _personaName = defaultPersona.Name.Trim();
+        }
 
         _allThemes.Clear();
         _allThemes.AddRange(await RPThemeService.ListThemesAsync(includeDisabled: false));
@@ -557,25 +443,9 @@
 
     private async Task LoadStep3DataAsync()
     {
-        _personaTemplates.Clear();
-        _personaTemplates.AddRange(await TemplateService.GetAllAsync(TemplateType.Persona));
-
-        // Auto-select the first persona template if there's only one
-        if (_personaTemplates.Count == 1)
-        {
-            _newPersonaTemplateId = _personaTemplates[0].Id.ToString();
-            OnPersonaTemplateChanged(new ChangeEventArgs { Value = _newPersonaTemplateId });
-        }
-
         _characterProfiles.Clear();
         _characterProfiles.AddRange(await CharacterProfileService.GetAllAsync());
         _characterEncounterProfileIds.Clear();
-
-        // Initialize persona stats with defaults if not already set
-        foreach (var statName in AdaptiveStatCatalog.CanonicalStatNames)
-        {
-            _personaStats.TryAdd(statName, AdaptiveStatCatalog.DefaultValue);
-        }
 
         _characterEditStates.Clear();
         if (_selectedScenario is null)
@@ -619,125 +489,11 @@
         }
     }
 
-    private void OnPersonaRoleChanged(ChangeEventArgs e)
-    {
-        _personaRole = e.Value?.ToString() ?? CharacterRoleCatalog.Unknown;
-        // Clear profile selection when role changes — profiles are role-filtered
-        _personaStatProfileId = string.Empty;
-        _personaStats.Clear();
-        _selectedPersonaProfile = null;
-        _characterEncounterProfileIds.Remove("__persona__");
-    }
-
-    private void OnPersonaStatProfileChanged(ChangeEventArgs e)
-    {
-        _personaStatProfileId = e.Value?.ToString() ?? string.Empty;
-        _selectedPersonaProfile = null;
-        ApplyPersonaStatProfile();
-    }
-
     private void OnCharacterStatProfileChanged(CharacterEditState cs, string? profileId)
     {
         cs.SelectedStatProfileId = profileId ?? string.Empty;
         cs.SelectedProfile = null;
         ApplyCharacterStatProfile(cs);
-    }
-
-    // ── Persona helpers ────────────────────────────────────────────
-
-    private void OnPersonaTemplateChanged(ChangeEventArgs e)
-    {
-        _newPersonaTemplateId = e.Value?.ToString() ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(_newPersonaTemplateId))
-        {
-            _personaName = "You";
-            _personaDescription = string.Empty;
-            _personaGender = CharacterGenderCatalog.Unknown;
-            _personaRole = CharacterRoleCatalog.Unknown;
-            _personaPhysicalAttributes = null;
-            return;
-        }
-
-        var persona = _personaTemplates.FirstOrDefault(p => p.Id.ToString() == _newPersonaTemplateId);
-        if (persona is null)
-        {
-            return;
-        }
-
-        _personaName = persona.Name;
-        _personaDescription = persona.Content ?? string.Empty;
-        _personaGender = CharacterGenderCatalog.NormalizeForCharacter(persona.Gender);
-        _personaRole = CharacterRoleCatalog.Normalize(persona.Role);
-        _personaPhysicalAttributes = persona.PhysicalAttributes is not null
-            ? ClonePhysicalAttributes(persona.PhysicalAttributes)
-            : null;
-    }
-
-    private static DreamGenClone.Domain.Templates.PhysicalAttributes ClonePhysicalAttributes(DreamGenClone.Domain.Templates.PhysicalAttributes src) => new()
-    {
-        Age = src.Age,
-        Height = src.Height,
-        Weight = src.Weight,
-        Ethnicity = src.Ethnicity,
-        HairColour = src.HairColour,
-        HairStyle = src.HairStyle,
-        EyeColour = src.EyeColour,
-        SkinTone = src.SkinTone,
-        SkinTexture = src.SkinTexture,
-        BodyType = src.BodyType,
-        BustSize = src.BustSize,
-        WaistSize = src.WaistSize,
-        HipSize = src.HipSize,
-        ClothingStyle = src.ClothingStyle,
-        DistinguishingMarks = src.DistinguishingMarks,
-        Piercings = src.Piercings,
-        Tattoos = src.Tattoos,
-        AttractivenessRating = src.AttractivenessRating,
-        Scent = src.Scent,
-        SexualSkill = src.SexualSkill,
-        SexualDrive = src.SexualDrive,
-        SexualConfidence = src.SexualConfidence,
-        OralSkill = src.OralSkill,
-        EndowmentLength = src.EndowmentLength,
-        EndowmentGirth = src.EndowmentGirth,
-        Stamina = src.Stamina,
-        Recovery = src.Recovery,
-        EjaculationIntensity = src.EjaculationIntensity,
-        VaginalTightness = src.VaginalTightness,
-        Sensitivity = src.Sensitivity,
-        Lubrication = src.Lubrication,
-        OrgasmicCapacity = src.OrgasmicCapacity,
-    };
-
-    private void ApplyPersonaStatProfile()
-    {
-        if (string.IsNullOrWhiteSpace(_personaStatProfileId))
-        {
-            _selectedPersonaProfile = null;
-            return;
-        }
-
-        var profile = _characterProfiles.FirstOrDefault(p =>
-            string.Equals(p.Id, _personaStatProfileId, StringComparison.OrdinalIgnoreCase)
-            && CharacterRoleCatalog.IsProfileApplicableToCharacter(p.TargetRole, _personaRole));
-
-        if (profile is null)
-        {
-            _selectedPersonaProfile = null;
-            return;
-        }
-
-        var normalized = AdaptiveStatCatalog.NormalizeComplete(profile.CharacterStats);
-        foreach (var (k, v) in normalized)
-        {
-            _personaStats[k] = v;
-        }
-
-        _personaRole = CharacterRoleCatalog.Normalize(profile.TargetRole);
-        _selectedPersonaProfile = profile;
-
-        // Store the persona's profile selection so the workspace can restore it on load.
-        _characterEncounterProfileIds["__persona__"] = profile.Id;
     }
 
     // ── Character stat helpers ─────────────────────────────────────
@@ -757,6 +513,7 @@
         if (profile is null)
         {
             cs.SelectedProfile = null;
+            cs.SelectedStatProfileId = string.Empty;
             return;
         }
 
@@ -785,9 +542,7 @@
         _showStep3Validation = true;
         _statusMessage = string.Empty;
 
-        if (string.Equals(_personaRole, CharacterRoleCatalog.Unknown, StringComparison.OrdinalIgnoreCase)
-            || string.IsNullOrWhiteSpace(_personaStatProfileId)
-            || _characterEditStates.Any(cs => string.IsNullOrWhiteSpace(cs.SelectedStatProfileId)))
+        if (_characterEditStates.Any(cs => string.IsNullOrWhiteSpace(cs.SelectedStatProfileId)))
         {
             return;
         }
@@ -814,21 +569,23 @@
                     cs => new Dictionary<string, int>(cs.Stats, StringComparer.OrdinalIgnoreCase),
                     StringComparer.OrdinalIgnoreCase);
 
+            var personaCharName = _personaName;
+            if (_selectedPersonaCharacterId is not null && _selectedScenario is not null)
+            {
+                var personaChar = _selectedScenario.Characters.FirstOrDefault(c => c.Id == _selectedPersonaCharacterId);
+                if (personaChar is not null)
+                    personaCharName = personaChar.Name?.Trim() ?? "You";
+            }
+
             var request = new CreateRolePlaySessionRequest
             {
                 Title = _newSessionTitle,
                 ScenarioId = _newSessionScenarioId,
-                PersonaName = _personaName,
-                PersonaDescription = _personaDescription,
-                PersonaTemplateId = string.IsNullOrWhiteSpace(_newPersonaTemplateId) ? null : _newPersonaTemplateId,
-                PersonaGender = _personaGender,
-                PersonaRole = _personaRole,
-                PersonaRelationTargetId = string.IsNullOrWhiteSpace(_personaRelationTargetId) ? null : _personaRelationTargetId,
+                PersonaCharacterId = _selectedPersonaCharacterId,
+                PersonaName = personaCharName,
                 ThemeSelections = themeSelections,
                 CharacterStatOverrides = charStatOverrides,
-                PersonaStatOverrides = new Dictionary<string, int>(_personaStats, StringComparer.OrdinalIgnoreCase),
                 CharacterEncounterProfileIds = new Dictionary<string, string>(_characterEncounterProfileIds, StringComparer.OrdinalIgnoreCase),
-                PersonaPhysicalAttributes = _personaPhysicalAttributes,
                 MaxMilestonesToInject = _maxMilestonesToInject,
             };
 

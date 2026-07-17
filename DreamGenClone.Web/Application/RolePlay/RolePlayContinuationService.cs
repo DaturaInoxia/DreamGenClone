@@ -275,7 +275,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                 ? customActorName.Trim()
                 : actor switch
                 {
-                    ContinueAsActor.You => "You",
+                    ContinueAsActor.You => string.IsNullOrWhiteSpace(session.PersonaName) ? "You" : session.PersonaName.Trim(),
                     ContinueAsActor.Npc => "NPC",
                     _ => "Custom"
                 },
@@ -2132,9 +2132,19 @@ var styleHint = string.IsNullOrWhiteSpace(scenarioStyle)
             ? new List<ScenarioCharacter>(scenarioCharacters)
             : [];
 
-        // Add persona as a named entry so the frame generator can resolve "__persona__"
-        // to the actual persona name rather than emitting the raw key in the prompt.
+        // The persona may already be present when the scenario's Characters list includes
+        // an IsPersona character (unified persona-as-character refactor). Only inject the
+        // legacy synthetic "__persona__" entry when no existing entry matches the persona
+        // name — this preserves the frame-generator resolution path for old sessions that
+        // still rely on the agg-slot token.
         var personaName = !string.IsNullOrWhiteSpace(session.PersonaName) ? session.PersonaName : "Persona";
+        var alreadyPresent = list.Any(c =>
+            string.Equals(c.Name, personaName, StringComparison.OrdinalIgnoreCase));
+        if (alreadyPresent)
+        {
+            return list;
+        }
+
         var personaRole = !string.IsNullOrWhiteSpace(session.PersonaRole) ? session.PersonaRole : string.Empty;
         list.Add(new ScenarioCharacter("__persona__", personaName, personaRole));
 

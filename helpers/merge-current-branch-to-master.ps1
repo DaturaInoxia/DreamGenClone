@@ -125,7 +125,7 @@ if (-not $SkipPull) {
 }
 
 Write-Host "Merging branch '$SourceBranch'..." -ForegroundColor Yellow
-Invoke-Git -Args @("merge", "--no-ff", $SourceBranch)
+Invoke-Git -Args @("merge", "--no-ff", "--no-edit", $SourceBranch)
 
 if ($Push) {
     if (-not (Test-OriginRemote)) {

@@ -14,5 +14,7 @@ public enum AppFunction
     RolePlayAssistant,
     ModelAnalysis,
     RolePlaySemanticAnalysis,
-    RolePlaySummaryEnhancement
+    RolePlaySummaryEnhancement,
+    RolePlayLocationDetection,
+    RolePlayActorSelection
 }

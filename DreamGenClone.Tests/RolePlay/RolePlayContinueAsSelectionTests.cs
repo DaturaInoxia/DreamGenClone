@@ -96,7 +96,7 @@ public sealed class RolePlayContinueAsSelectionTests
         var service = RolePlayTestFactory.CreateEngineService(
             scenarioService: new SingleScenarioService(scenario));
 
-        var session = await service.CreateSessionAsync("Overflow persona continue", scenario.Id, personaName: "Pilot");
+        var session = await service.CreateSessionAsync("Overflow persona continue", scenario.Id);
         await service.AddInteractionAsync(session.Id, ContinueAsActor.Npc, "Becky", "Becky spoke last.");
 
         var result = await service.ContinueAsAsync(new ContinueAsRequest

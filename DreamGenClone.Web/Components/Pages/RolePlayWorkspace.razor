@@ -113,7 +113,6 @@
     private int _readCursorInteractionIndex = -1;
     private bool _scenarioDirty;
     private bool _sessionStatsDirty;
-    private string? _personaProfileSelection;
     private bool _isDisposed;
     private Dictionary<string, SemanticInteractionAnalysisState> _semanticAnalysisByInteractionId = new(StringComparer.OrdinalIgnoreCase);
     private SemanticInteractionAnalysisState? _latestSemanticInteractionAnalysis;
@@ -382,7 +381,7 @@
         if (_characterLikeTemplates.Count == 0)
         {
             _characterLikeTemplates = (await TemplateService.GetAllAsync())
-                .Where(x => x.TemplateType == TemplateType.Character || x.TemplateType == TemplateType.Persona)
+                .Where(x => x.TemplateType == TemplateType.Character)
                 .OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
                 .ToList();
         }
@@ -419,38 +418,6 @@
 
         var sessionUpdated = false;
 
-        if (string.Equals(CharacterGenderCatalog.NormalizeForCharacter(_session.PersonaGender), CharacterGenderCatalog.Unknown, StringComparison.OrdinalIgnoreCase)
-            && !string.IsNullOrWhiteSpace(_session.PersonaTemplateId)
-            && Guid.TryParse(_session.PersonaTemplateId, out var personaTemplateId))
-        {
-            var personaTemplate = await TemplateService.GetByIdAsync(personaTemplateId);
-            if (personaTemplate is not null)
-            {
-                var normalizedTemplateGender = CharacterGenderCatalog.NormalizeForCharacter(personaTemplate.Gender);
-                if (!string.Equals(normalizedTemplateGender, CharacterGenderCatalog.Unknown, StringComparison.OrdinalIgnoreCase))
-                {
-                    _session.PersonaGender = normalizedTemplateGender;
-                    sessionUpdated = true;
-                }
-            }
-        }
-
-        if (string.Equals(CharacterRoleCatalog.Normalize(_session.PersonaRole), CharacterRoleCatalog.Unknown, StringComparison.OrdinalIgnoreCase)
-            && !string.IsNullOrWhiteSpace(_session.PersonaTemplateId)
-            && Guid.TryParse(_session.PersonaTemplateId, out personaTemplateId))
-        {
-            var personaTemplate = await TemplateService.GetByIdAsync(personaTemplateId);
-            if (personaTemplate is not null)
-            {
-                var normalizedTemplateRole = CharacterRoleCatalog.Normalize(personaTemplate.Role);
-                if (!string.Equals(normalizedTemplateRole, CharacterRoleCatalog.Unknown, StringComparison.OrdinalIgnoreCase))
-                {
-                    _session.PersonaRole = normalizedTemplateRole;
-                    sessionUpdated = true;
-                }
-            }
-        }
-
         if (_session.AssistantMaxTokens < 2000)
         {
             _session.AssistantMaxTokens = 2000;
@@ -462,13 +429,6 @@
             .OrderByDescending(c => c.ModifiedAt)
             .ToList();
         _activeAssistantChatId = _session.ActiveAssistantChatId;
-
-        // Restore persona profile selection from the stored profile ID (persisted during session creation).
-        if (_session.AdaptiveState.CharacterEncounterProfileIds.TryGetValue("__persona__", out var storedPersonaProfileId)
-            && !string.IsNullOrWhiteSpace(storedPersonaProfileId))
-        {
-            _personaProfileSelection = storedPersonaProfileId;
-        }
 
         if (sessionUpdated)
         {
@@ -1198,6 +1158,43 @@
             _expandedScenarioSections.Add(section);
     }
 
+    /// <summary>
+    /// Returns true when the given perspective entry is the persona (should be excluded
+    /// from the Turn Overrides panel). Matches by the persona character's scenario ID when
+    /// available, and only falls back to name-matching when no NPC shares that name.
+    /// </summary>
+    private static bool IsPersonaPerspectiveEntry(
+        RolePlayCharacterPerspective entry,
+        Character? personaChar,
+        string personaNameFallback,
+        bool hasNpcNamedLikePersona)
+    {
+        if (personaChar is not null)
+        {
+            // Match by the persona's scenario character ID (most precise, works for new sessions
+            // where the persona has a GUID Id in CharacterPerspectives).
+            if (string.Equals(entry.CharacterId, personaChar.Id, StringComparison.OrdinalIgnoreCase))
+                return true;
+            // Also match by persona name as a secondary check in case the perspective entry
+            // was seeded by name rather than ID (legacy CreateSessionAsync path).
+            if (!string.IsNullOrWhiteSpace(personaChar.Name)
+                && string.Equals(entry.CharacterName, personaChar.Name.Trim(), StringComparison.OrdinalIgnoreCase))
+                return true;
+            return false;
+        }
+
+        // No persona character defined — fall back to name match, but ONLY when it's safe:
+        // if an NPC shares the persona name, we can't distinguish and must NOT filter
+        // (avoids false positives, e.g. persona "Ken" accidentally excluding NPC "Ken").
+        if (!hasNpcNamedLikePersona
+            && string.Equals(entry.CharacterName, personaNameFallback, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
     private async Task OnSaveScenarioClicked()
     {
         // Snapshot manual stat overrides before any potential scenario rebuild
@@ -1275,6 +1272,75 @@
         {
             Logger.LogError(ex, "Failed to save session settings {SessionId}", _session.Id);
         }
+    }
+
+    // ---- T057/T058/T059: Time-of-day + Turn-override + Batch-size handlers ----
+
+    private async Task OnTimeOfDayOverrideChanged(ChangeEventArgs e)
+    {
+        if (_session is null) return;
+        var value = e.Value?.ToString();
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            _session.AdaptiveState.TimeOfDayManuallySet = false;
+        }
+        else if (Enum.TryParse<TimeOfDay>(value, out var parsed))
+        {
+            _session.AdaptiveState.TimeOfDayManuallySet = true;
+            _session.AdaptiveState.CurrentTimeOfDay = parsed;
+        }
+        MarkScenarioDirty();
+        await SaveSessionSettingsAsync();
+    }
+
+    private async Task OnSceneContinueBatchSizeChanged(ChangeEventArgs e)
+    {
+        if (_session is null) return;
+        if (int.TryParse(e.Value?.ToString(), out var parsed) && parsed >= 1 && parsed <= 6)
+        {
+            _session.SceneContinueBatchSize = parsed;
+            MarkScenarioDirty();
+            await SaveSessionSettingsAsync();
+        }
+    }
+
+    private async Task OnParticipateInAutoContinueChanged(string characterName, ChangeEventArgs e)
+    {
+        if (_session is null) return;
+        var participate = e.Value is bool b && b;
+        var ov = _session.CharacterTurnOverrides.TryGetValue(characterName, out var existing)
+            ? existing
+            : new CharacterTurnOverride { CharacterName = characterName };
+        ov.ParticipateInAutoContinue = participate;
+        _session.CharacterTurnOverrides[characterName] = ov;
+        MarkScenarioDirty();
+        await SaveSessionSettingsAsync();
+    }
+
+    private async Task OnResponsePriorityChanged(string characterName, ChangeEventArgs e)
+    {
+        if (_session is null) return;
+        var priority = int.TryParse(e.Value?.ToString(), out var p) ? Math.Clamp(p, 0, 100) : 0;
+        var ov = _session.CharacterTurnOverrides.TryGetValue(characterName, out var existing)
+            ? existing
+            : new CharacterTurnOverride { CharacterName = characterName };
+        ov.ResponsePriority = priority;
+        _session.CharacterTurnOverrides[characterName] = ov;
+        MarkScenarioDirty();
+        await SaveSessionSettingsAsync();
+    }
+
+    private async Task OnPreferredPositionChanged(string characterName, string? value)
+    {
+        if (_session is null) return;
+        var pos = Enum.TryParse<PreferredTurnPosition>(value, out var parsed) ? parsed : PreferredTurnPosition.Auto;
+        var ov = _session.CharacterTurnOverrides.TryGetValue(characterName, out var existing)
+            ? existing
+            : new CharacterTurnOverride { CharacterName = characterName };
+        ov.PreferredPosition = pos;
+        _session.CharacterTurnOverrides[characterName] = ov;
+        MarkScenarioDirty();
+        await SaveSessionSettingsAsync();
     }
 
     // Phase 3b (additive parallel): loads the V2 AdaptiveScenarioState mirror from the repository.
@@ -1732,22 +1798,6 @@
         {
             session.IntensityFloorOverride = session.IntensityCeilingOverride;
         }
-    }
-
-    private async Task OnPersonaPerspectiveChanged(ChangeEventArgs args)
-    {
-        if (_session is null)
-        {
-            return;
-        }
-
-        if (!Enum.TryParse<CharacterPerspectiveMode>(args.Value?.ToString(), out var mode))
-        {
-            mode = CharacterPerspectiveMode.FirstPersonInternalMonologue;
-        }
-
-        _session.PersonaPerspectiveMode = mode;
-        await SaveSessionSettingsAsync();
     }
 
     private string GetCharacterPerspectiveModeValue(Character character)
@@ -3688,46 +3738,23 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
         MarkSessionStatsDirty();
     }
 
-    private int GetPersonaLiveSessionStat(string statName)
-    {
-        if (_session is null) return AdaptiveStatCatalog.DefaultValue;
-        var key = string.IsNullOrWhiteSpace(_session.PersonaName) ? "You" : _session.PersonaName;
-        return GetCharacterLiveSessionStat(key, statName);
-    }
-
-    private void SetPersonaLiveSessionStat(string statName, string? rawValue)
-    {
-        if (_session is null) return;
-        var key = string.IsNullOrWhiteSpace(_session.PersonaName) ? "You" : _session.PersonaName;
-        SetCharacterLiveSessionStat(key, statName, rawValue);
-    }
-
     private string GetBaselineCharacterProfile(string actorName)
     {
         if (_session is null)
             return "(no session)";
 
         // Resolve the encounter-profile selection the user made at session creation.
-        // Key is character.Id for scenario characters, "__persona__" for the persona,
-        // and the persona block's CharacterId equals session.PersonaName.
+        // Key is character.Id for all characters including persona (persona-as-character).
         var profileIds = _session.AdaptiveState.CharacterEncounterProfileIds;
         string? selectedProfileId = null;
 
-        var personaName = string.IsNullOrWhiteSpace(_session.PersonaName) ? "You" : _session.PersonaName;
-        if (string.Equals(actorName, personaName, StringComparison.OrdinalIgnoreCase))
+        // Map actor name to character.Id via the loaded scenario
+        var characterId = _loadedScenario?.Characters
+            .FirstOrDefault(c => string.Equals(c.Name?.Trim(), actorName, StringComparison.OrdinalIgnoreCase))
+            ?.Id;
+        if (!string.IsNullOrWhiteSpace(characterId))
         {
-            profileIds.TryGetValue("__persona__", out selectedProfileId);
-        }
-        else
-        {
-            // actorName here is the character's runtime key (the name). Map to character.Id via the scenario.
-            var characterId = _loadedScenario?.Characters
-                .FirstOrDefault(c => string.Equals(c.Name?.Trim(), actorName, StringComparison.OrdinalIgnoreCase))
-                ?.Id;
-            if (!string.IsNullOrWhiteSpace(characterId))
-            {
-                profileIds.TryGetValue(characterId!, out selectedProfileId);
-            }
+            profileIds.TryGetValue(characterId!, out selectedProfileId);
         }
 
         if (string.IsNullOrWhiteSpace(selectedProfileId))
@@ -3792,19 +3819,11 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
         var profileIds = _session.AdaptiveState.CharacterEncounterProfileIds;
         string? selectedProfileId = null;
 
-        var personaName = string.IsNullOrWhiteSpace(_session.PersonaName) ? "You" : _session.PersonaName;
-        if (string.Equals(actorName, personaName, StringComparison.OrdinalIgnoreCase))
-        {
-            profileIds.TryGetValue("__persona__", out selectedProfileId);
-        }
-        else
-        {
-            var characterId = _loadedScenario?.Characters
-                .FirstOrDefault(c => string.Equals(c.Name?.Trim(), actorName, StringComparison.OrdinalIgnoreCase))
-                ?.Id;
-            if (!string.IsNullOrWhiteSpace(characterId))
-                profileIds.TryGetValue(characterId!, out selectedProfileId);
-        }
+        var characterId = _loadedScenario?.Characters
+            .FirstOrDefault(c => string.Equals(c.Name?.Trim(), actorName, StringComparison.OrdinalIgnoreCase))
+            ?.Id;
+        if (!string.IsNullOrWhiteSpace(characterId))
+            profileIds.TryGetValue(characterId!, out selectedProfileId);
 
         if (string.IsNullOrWhiteSpace(selectedProfileId)) return null;
 
@@ -4109,55 +4128,6 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
         return _baseStatProfiles.Where(profile =>
             CharacterGenderCatalog.IsProfileApplicableToCharacter(profile.TargetGender, character.Gender)
             && CharacterRoleCatalog.IsProfileApplicableToCharacter(profile.TargetRole, character.Role));
-    }
-
-    private IEnumerable<CharacterProfile> GetApplicableCharacterProfilesForPersona()
-    {
-        if (_session is null) return [];
-        return _characterProfiles.Where(profile =>
-            CharacterRoleCatalog.IsProfileApplicableToCharacter(profile.TargetRole, _session.PersonaRole));
-    }
-
-    private void ApplyPersonaProfile()
-    {
-        if (_session is null || string.IsNullOrWhiteSpace(_personaProfileSelection)) return;
-
-        var profile = _characterProfiles.FirstOrDefault(x =>
-            string.Equals(x.Id, _personaProfileSelection, StringComparison.OrdinalIgnoreCase)
-            && CharacterRoleCatalog.IsProfileApplicableToCharacter(x.TargetRole, _session.PersonaRole));
-        if (profile is null) return;
-
-        var normalizedStats = AdaptiveStatCatalog.NormalizeComplete(profile.CharacterStats);
-        var personaKey = string.IsNullOrWhiteSpace(_session.PersonaName) ? "You" : _session.PersonaName;
-        if (!_session.AdaptiveState.CharacterStats.TryGetValue(personaKey, out var block))
-        {
-            block = CharacterStatProfileV2Accessor.CreateDefault(personaKey);
-            _session.AdaptiveState.CharacterStats[personaKey] = block;
-        }
-        CharacterStatProfileV2Accessor.SetAllStats(block, normalizedStats);
-
-        // Re-seed RuntimeEncounterStats from the encounter profile that was seeded at session creation.
-        if (_session.AdaptiveState.CharacterEncounterProfileIds.TryGetValue("__persona__", out var personaApplyEncProfileId)
-            && !string.IsNullOrWhiteSpace(personaApplyEncProfileId))
-        {
-            var encProfile = _characterProfiles.FirstOrDefault(p =>
-                string.Equals(p.Id, personaApplyEncProfileId, StringComparison.OrdinalIgnoreCase));
-            if (encProfile?.EncounterStats is { Count: > 0 })
-            {
-                var personaApplyRole = CharacterRoleCatalog.Normalize(_session.PersonaRole);
-                var dims = BehavioralDimensionCatalog.GetDimensions(personaApplyRole);
-                if (dims.Count > 0)
-                {
-                    block.RuntimeEncounterStats = dims.ToDictionary(
-                        d => d.Name,
-                        d => encProfile.EncounterStats.TryGetValue(d.Name, out var v) ? v : 50,
-                        StringComparer.OrdinalIgnoreCase);
-                }
-            }
-        }
-
-        block.UpdatedUtc = DateTime.UtcNow;
-        MarkSessionStatsDirty();
     }
 
     private IReadOnlyList<string> GetCharacterRoleOptions(string? selectedRole = null)
@@ -9148,7 +9118,6 @@ private void CloseInteractionInfo()
                         <div class="rw-settings-section-label">Session Info</div>
                         <div class="rw-settings-info-row"><span>Status</span><span>@_session.Status</span></div>
                         <div class="rw-settings-info-row"><span>Mode</span><span>@_session.BehaviorMode</span></div>
-                        <div class="rw-settings-info-row"><span>Persona</span><span>@_session.PersonaName</span></div>
                         <div class="rw-settings-info-row"><span>Created</span><span>@_session.CreatedAt.ToString("MMM d")</span></div>
                     </div>
 
@@ -9413,117 +9382,94 @@ private void CloseInteractionInfo()
                             }
                         </div>
 
-                        @* -- Persona -- *@
-                        <div class="rw-collapsible-section">
-                            <button class="rw-collapsible-header" @onclick="@(() => ToggleScenarioSection("persona"))">
-                                <span class="rw-collapsible-chevron @(_expandedScenarioSections.Contains("persona") ? "is-open" : "")">›</span>
-                                <span class="rw-collapsible-title">Persona</span>
-                            </button>
-                            @if (_expandedScenarioSections.Contains("persona"))
+                        @* -- T057: Time of Day display + manual override -- *@
+                        <div class="rw-settings-section mt-3">
+                            <div class="rw-settings-section-label">Time of Day</div>
+                            <div class="rw-scenario-field">
+                                <span class="rw-adaptive-note">
+                                    Current: @(_session.AdaptiveState.CurrentTimeOfDay?.ToString() ?? "(unknown)")
+                                    @if (_session.AdaptiveState.TimeOfDayManuallySet)
+                                    {
+                                        <span class="badge bg-warning ms-2">Manual</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-secondary ms-2">Auto</span>
+                                    }
+                                </span>
+                            </div>
+                            <div class="rw-scenario-field">
+                                <label class="rw-scenario-field-label">Override</label>
+                                <select class="rw-settings-input" @onchange="@OnTimeOfDayOverrideChanged">
+                                    <option value="" selected="@(!_session.AdaptiveState.TimeOfDayManuallySet)">Auto</option>
+                                    @foreach (var tod in Enum.GetValues<TimeOfDay>())
+                                    {
+                                        <option value="@tod" selected="@(_session.AdaptiveState.TimeOfDayManuallySet && _session.AdaptiveState.CurrentTimeOfDay == tod)">@tod</option>
+                                    }
+                                </select>
+                            </div>
+                        </div>
+
+                        @* -- T059: Scene Continue Batch Size -- *@
+                        <div class="rw-settings-section mt-3">
+                            <div class="rw-settings-section-label">Overflow Continue Batch Size</div>
+                            <div class="rw-scenario-field">
+                                <input type="range" min="1" max="6" step="1"
+                                       value="@_session.SceneContinueBatchSize"
+                                       @onchange="@OnSceneContinueBatchSizeChanged"
+                                       class="rw-settings-slider" style="width:120px;" />
+                                <span class="small text-muted ms-2">@_session.SceneContinueBatchSize</span>
+                            </div>
+                        </div>
+
+                        @* -- T058: Per-character Turn Overrides -- *@
+                        <div class="rw-settings-section mt-3">
+                            <div class="rw-settings-section-label">Per-Character Turn Overrides</div>
+                            @{ var personaChar = _loadedScenario?.GetPersonaCharacter(); }
+                            @{ var personaNameForFallback = _session.PersonaName; }
+                            @{ var hasNpcNamedLikePersona = personaChar is null
+                                && _loadedScenario?.Characters.Any(c => !c.IsPersona
+                                    && !string.IsNullOrWhiteSpace(c.Name)
+                                    && string.Equals(c.Name.Trim(), personaNameForFallback, StringComparison.OrdinalIgnoreCase)) == true; }
+                            @{ var overrideEntries = _session.CharacterPerspectives
+                                .Where(c => !string.IsNullOrWhiteSpace(c.CharacterName)
+                                    && !IsPersonaPerspectiveEntry(c, personaChar, personaNameForFallback, hasNpcNamedLikePersona))
+                                .ToList(); }
+                            @if (overrideEntries.Count == 0 && _loadedScenario?.Characters.Any(c => !c.IsPersona && !string.IsNullOrWhiteSpace(c.Name)) == true)
                             {
-                                <div class="rw-collapsible-body">
-                                    <div class="rw-scenario-field">
-                                        <label class="rw-scenario-field-label">Name</label>
-                                        <input class="rw-settings-input"
-                                               value="@_session.PersonaName"
-                                               @onchange="@(e => { _session.PersonaName = e.Value?.ToString() ?? "You"; _ = SaveSessionSettingsAsync(); })" />
-                                    </div>
-                                    <div class="rw-scenario-field">
-                                        <label class="rw-scenario-field-label">Description</label>
-                                        <textarea class="rw-settings-textarea" rows="2"
-                                                  placeholder="Persona description, perspective..."
-                                                  value="@_session.PersonaDescription"
-                                                  @onchange="@(e => { _session.PersonaDescription = e.Value?.ToString() ?? ""; _ = SaveSessionSettingsAsync(); })"></textarea>
-                                    </div>
-                                    <div class="rw-scenario-field">
-                                        <label class="rw-scenario-field-label">Role</label>
-                                        <select class="rw-mode-select"
-                                                value="@CharacterRoleCatalog.Normalize(_session.PersonaRole)"
-                                                @onchange="@(e => { _session.PersonaRole = CharacterRoleCatalog.Normalize(e.Value?.ToString()); _ = SaveSessionSettingsAsync(); })">
-                                            @foreach (var option in GetCharacterRoleOptions(_session.PersonaRole))
-                                            {
-                                                <option value="@option">@option</option>
-                                            }
-                                        </select>
-                                    </div>
-                                    <div class="rw-scenario-field">
-                                        <label class="rw-scenario-field-label">Gender</label>
-                                        <select class="rw-mode-select"
-                                                value="@CharacterGenderCatalog.NormalizeForCharacter(_session.PersonaGender)"
-                                                @onchange="@(e => { _session.PersonaGender = CharacterGenderCatalog.NormalizeForCharacter(e.Value?.ToString()); _ = SaveSessionSettingsAsync(); })">
-                                            @foreach (var option in CharacterGenderCatalog.CharacterGenders)
-                                            {
-                                                <option value="@option">@option</option>
-                                            }
-                                        </select>
-                                    </div>
-                                    <div class="rw-scenario-field">
-                                        <label class="rw-scenario-field-label">Perspective</label>
-                                        <select class="rw-mode-select"
-                                                value="@_session.PersonaPerspectiveMode"
-                                                @onchange="OnPersonaPerspectiveChanged">
-                                            @foreach (var mode in CharacterPerspectiveModes.All)
-                                            {
-                                                <option value="@mode.Mode">@mode.DisplayName</option>
-                                            }
-                                        </select>
-                                    </div>
-                                    <div class="rw-scenario-field">
-                                        <label class="rw-scenario-field-label">Relation</label>
-                                        <select class="rw-mode-select"
-                                                value="@(CharacterRelationCatalog.NormalizeTargetId(_session.PersonaRelationTargetId) ?? string.Empty)"
-                                                @onchange="@(e => SetPersonaRelationTarget(e.Value?.ToString()))">
-                                            <option value="">(None)</option>
-                                            @foreach (var option in GetPersonaRelationTargetOptions())
-                                            {
-                                                <option value="@option.Value">@option.Label</option>
-                                            }
-                                        </select>
-                                    </div>
-                                    <div class="rw-scenario-field">
-                                        <label class="rw-scenario-field-label">Character Stat Profile</label>
-                                        <div class="input-group input-group-sm">
-                                            <select class="form-select"
-                                                    value="@(_personaProfileSelection ?? string.Empty)"
-                                                    @onchange="@(e => _personaProfileSelection = string.IsNullOrWhiteSpace(e.Value?.ToString()) ? null : e.Value?.ToString())">
-                                                <option value="">(Select Profile)</option>
-                                                @foreach (var profile in GetApplicableCharacterProfilesForPersona())
-                                                {
-                                                    <option value="@profile.Id">@profile.Name (@CharacterRoleCatalog.Normalize(profile.TargetRole))</option>
-                                                }
+                                <div class="rw-adaptive-note">No character perspectives loaded yet. Interact with the session to populate the character list.</div>
+                            }
+                            @foreach (var cp in overrideEntries)
+                            {
+                                var charName = cp.CharacterName!;
+                                var hasOverride = _session.CharacterTurnOverrides.TryGetValue(charName, out var turnOverride);
+                                var participate = hasOverride ? turnOverride!.ParticipateInAutoContinue : true;
+                                var priority = hasOverride ? turnOverride!.ResponsePriority ?? 0 : 0;
+                                var preferred = hasOverride ? turnOverride!.PreferredPosition : PreferredTurnPosition.Auto;
+                                <div class="rw-scenario-field">
+                                    <label class="rw-scenario-field-label">@charName</label>
+                                    <div class="d-flex gap-3 align-items-center">
+                                        <label class="form-check form-check-sm">
+                                            <input type="checkbox" class="form-check-input"
+                                                   checked="@participate"
+                                                   @onchange="@(e => OnParticipateInAutoContinueChanged(charName, e))" /> Auto-participate
+                                        </label>
+                                        <label class="small">Priority:
+                                            <input type="range" min="0" max="100" step="1"
+                                                   value="@priority"
+                                                   @onchange="@(e => OnResponsePriorityChanged(charName, e))"
+                                                   class="rw-settings-slider" style="width:100px;" />
+                                            <span class="small text-muted ms-1">@priority</span>
+                                        </label>
+                                        <label class="small">Position:
+                                            <select class="form-select form-select-sm" style="width:90px;"
+                                                    value="@preferred"
+                                                    @onchange="@(e => OnPreferredPositionChanged(charName, e.Value?.ToString()))">
+                                                <option value="Auto" selected="@(preferred == PreferredTurnPosition.Auto)">Auto</option>
+                                                <option value="First" selected="@(preferred == PreferredTurnPosition.First)">First</option>
+                                                <option value="Last" selected="@(preferred == PreferredTurnPosition.Last)">Last</option>
                                             </select>
-                                            <button class="btn btn-outline-primary" type="button" @onclick="ApplyPersonaProfile">Apply</button>
-                                        </div>
-                                    </div>
-                                    @{
-                                        var personaEncProfileIdDisplay = _session?.AdaptiveState?.CharacterEncounterProfileIds.GetValueOrDefault("__persona__") ?? string.Empty;
-                                        var personaEncProfileNameDisplay = string.IsNullOrWhiteSpace(personaEncProfileIdDisplay)
-                                            ? "(none)"
-                                            : _characterProfiles.FirstOrDefault(p => string.Equals(p.Id, personaEncProfileIdDisplay, StringComparison.OrdinalIgnoreCase))?.Name ?? "(none)";
-                                    }
-                                    <div class="rw-scenario-field">
-                                        <label class="rw-scenario-field-label">Encounter Profile (seeded)</label>
-                                        <span class="rw-adaptive-note">@personaEncProfileNameDisplay</span>
-                                    </div>
-                                    @{
-                                        var personaStatKey = string.IsNullOrWhiteSpace(_session.PersonaName) ? "You" : _session.PersonaName;
-                                        var personaHasLiveStats = _v2State?.CharacterSnapshots?.Any(c => string.Equals(c.CharacterId, personaStatKey, StringComparison.OrdinalIgnoreCase)) == true;
-                                    }
-                                    <div class="rw-scenario-field">
-                                        <label class="rw-scenario-field-label">Current Session Stats (@personaStatKey)@(personaHasLiveStats ? "" : " → not in session yet")</label>
-                                        <div class="rw-adaptive-note mb-1">These are the live adaptive stat values for the persona. Changes take effect immediately and persist to the session.</div>
-                                        @foreach (var statName in AdaptiveStatCatalog.CanonicalStatNames)
-                                        {
-                                            <div class="input-group input-group-sm mb-1" style="max-width: 360px;">
-                                                <span class="input-group-text" style="min-width: 140px;">@statName</span>
-                                                <input type="number"
-                                                       class="form-control"
-                                                       min="0"
-                                                       max="100"
-                                                       value="@GetPersonaLiveSessionStat(statName)"
-                                                       @onchange="@(e => SetPersonaLiveSessionStat(statName, e.Value?.ToString()))" />
-                                            </div>
-                                        }
+                                        </label>
                                     </div>
                                 </div>
                             }
@@ -9946,6 +9892,56 @@ private void CloseInteractionInfo()
                                                     }
                                                 </div>
                                             }
+                                        </div>
+                                    }
+                                }
+                            </div>
+                        }
+                    </div>
+
+                    @* TODO-004: Location section in Adaptive tab *@
+                    <div class="rw-collapsible-section">
+                        <button type="button" class="rw-collapsible-header" @onclick='() => ToggleAdaptiveSection("location")'>
+                            <span class="rw-collapsible-chevron @(IsAdaptiveSectionExpanded("location") ? "is-open" : "")">›</span>
+                            <span class="rw-collapsible-title">Location</span>
+                        </button>
+                        @if (IsAdaptiveSectionExpanded("location"))
+                        {
+                            <div class="rw-collapsible-body">
+                                <div class="rw-settings-info-row">
+                                    <span>Current Scene Location</span>
+                                    <span>@(_v2State?.CurrentSceneLocation ?? "(none)")</span>
+                                </div>
+                                <div class="rw-settings-info-row">
+                                    <span>Time of Day</span>
+                                    <span>
+                                        @(_v2State?.CurrentTimeOfDay?.ToString() ?? "(unknown)")
+                                        @if (_v2State?.TimeOfDayManuallySet == true)
+                                        {
+                                            <span class="badge bg-warning ms-1" style="font-size:10px;">Manual</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-secondary ms-1" style="font-size:10px;">Auto</span>
+                                        }
+                                    </span>
+                                </div>
+                                @if ((_v2State?.CharacterLocations?.Count ?? 0) > 0)
+                                {
+                                    <div class="rw-settings-info-row" style="margin-top:6px;">
+                                        <span class="fw-semibold">Character Locations</span>
+                                        <span></span>
+                                    </div>
+                                    @foreach (var loc in _v2State!.CharacterLocations)
+                                    {
+                                        <div class="rw-settings-info-row" style="padding-left:12px;">
+                                            <span>@loc.CharacterId</span>
+                                            <span>@(loc.TrueLocation ?? "(unknown)")
+                                                @if (loc.IsHidden)
+                                                {
+                                                    <span class="badge bg-secondary ms-1" style="font-size:10px;">Hidden</span>
+                                                }
+                                            </span>
                                         </div>
                                     }
                                 }

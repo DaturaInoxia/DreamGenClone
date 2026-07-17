@@ -29,6 +29,8 @@ public sealed class AdaptiveScenarioState
     public string? PhaseOverrideSource { get; set; }
     public DateTime? PhaseOverrideAppliedUtc { get; set; }
     public string? CurrentSceneLocation { get; set; }
+    public TimeOfDay? CurrentTimeOfDay { get; set; }
+    public bool TimeOfDayManuallySet { get; set; }
     public List<CharacterLocationState> CharacterLocations { get; set; } = [];
     public List<CharacterLocationPerceptionState> CharacterLocationPerceptions { get; set; } = [];
     public List<CharacterStatProfileV2> CharacterSnapshots { get; set; } = [];

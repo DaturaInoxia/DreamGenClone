@@ -13,17 +13,17 @@ public sealed class CreateRolePlaySessionRequest
 
     public string? ScenarioId { get; init; }
 
+    /// <summary>Character ID of the session's POV persona character.</summary>
+    public string? PersonaCharacterId { get; init; }
+
     public string PersonaName { get; init; } = "You";
-
     public string PersonaDescription { get; init; } = string.Empty;
-
     public string? PersonaTemplateId { get; init; }
-
     public string PersonaGender { get; init; } = "Unknown";
-
     public string PersonaRole { get; init; } = "Unknown";
-
     public string? PersonaRelationTargetId { get; init; }
+    public IReadOnlyDictionary<string, int> PersonaStatOverrides { get; init; } = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+    public DreamGenClone.Domain.Templates.PhysicalAttributes? PersonaPhysicalAttributes { get; init; }
 
     /// <summary>
     /// Explicit per-session theme selections set by the user during session create.
@@ -39,19 +39,9 @@ public sealed class CreateRolePlaySessionRequest
     public IReadOnlyDictionary<string, Dictionary<string, int>> CharacterStatOverrides { get; init; }
         = new Dictionary<string, Dictionary<string, int>>(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>
-    /// Starting stat overrides for the persona character, keyed by stat name.
-    /// Applied after the persona template stats are seeded.
-    /// </summary>
-    public IReadOnlyDictionary<string, int> PersonaStatOverrides { get; init; }
-        = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-
     /// <summary>Per-character encounter profile IDs, keyed by character ID.</summary>
     public IReadOnlyDictionary<string, string> CharacterEncounterProfileIds { get; init; }
         = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-
-    /// <summary>Optional physical appearance data for the POV persona.</summary>
-    public DreamGenClone.Domain.Templates.PhysicalAttributes? PersonaPhysicalAttributes { get; init; }
 
     /// <summary>
     /// Optional per-session override for the maximum number of phase milestones to inject into
