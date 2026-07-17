@@ -4688,8 +4688,10 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             // Don't revert phase if in-memory session already advanced past V2 snapshot
             // (e.g. EnsureOpeningToBuildUpTransition fired before V2 hydration).
             if (GetPhaseOrder(mapped.CurrentPhase) < GetPhaseOrder(previousState.CurrentPhase))
+            {
                 mapped.CurrentPhase = previousState.CurrentPhase;
-            mapped.TurnCountInPhase = Math.Max(0, previousState.TurnCountInPhase);
+                mapped.TurnCountInPhase = Math.Max(0, previousState.TurnCountInPhase);
+            }
         }
 
         mapped.ConsecutiveLeadCount = Math.Max(0, previousState.ConsecutiveLeadCount);
