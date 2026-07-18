@@ -41,6 +41,13 @@ public sealed class SceneContinuityAnchorSlot : IPromptSlot
         }
 
         // ── Character location grounding ──
+        // SKIPPED: Per-character location assertions ("Dean is at: X") removed from prompt injection.
+        // Reason: Creates a self-reinforcing lock — prompt says "Dean is at Trailer" → AI writes
+        // Dean at Trailer → location detection confirms Dean at Trailer → prompt says "Dean is at Trailer".
+        // The model should infer character presence from interaction history, like the legacy system did.
+        // Character location data is still tracked in AdaptiveState for engine use; just not injected here.
+        // To restore: uncomment the block below.
+        /*
         var characterLocations = session.AdaptiveState?.CharacterLocations;
         if (characterLocations is { Count: > 0 })
         {
@@ -57,6 +64,7 @@ public sealed class SceneContinuityAnchorSlot : IPromptSlot
             // Fallback: just note the current scene
             sb.AppendLine($"  Current scene: {currentScene.Trim()}");
         }
+        */
 
         // ── Cross-perception guidance ──
         var actorName = profile.ActorName;

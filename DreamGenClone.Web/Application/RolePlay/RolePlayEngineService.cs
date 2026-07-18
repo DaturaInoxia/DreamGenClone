@@ -39,6 +39,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         {
             session.AdaptiveState.CurrentPhase = NarrativePhase.BuildUp;
             session.AdaptiveState.TurnCountInPhase = 0;
+            session.AdaptiveState.TurnsSinceCommitment = 0;
             _logger.LogInformation(
                 "RolePlayV2 Opening→BuildUp transition: SessionId={SessionId} ObservedTurnCount={ObservedTurns}",
                 session.Id,
@@ -3446,6 +3447,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         {
             v2State.CurrentPhase = NarrativePhase.BuildUp;
             v2State.TurnCountInPhase = 0;
+            v2State.TurnsSinceCommitment = 0;
             _logger.LogInformation(
                 "RolePlayV2 Opening→BuildUp transition: SessionId={SessionId} ObservedTurnCount={ObservedTurns}",
                 session.Id,
@@ -3464,13 +3466,16 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         // interactions were generated in batch.
         var previousPhaseTurnCount = Math.Max(0, v2State.TurnCountInPhase);
         v2State.TurnCountInPhase = previousPhaseTurnCount + 1;
+        v2State.TurnsSinceCommitment = v2State.TurnCountInPhase; // BUGFIX: sync the two counters
         var generatedSinceLastEval = 1; // one turn per evaluation
 
-        _logger.LogDebug(
-            "RolePlayV2 phase turn count incremented: SessionId={SessionId} PreviousTurnCount={PreviousTurnCount} CurrentTurnCount={CurrentTurnCount}",
+        _logger.LogInformation(
+            "RolePlayV2 phase turn count incremented: SessionId={SessionId} Phase={Phase} PreviousTurnCount={PreviousTurnCount} CurrentTurnCount={CurrentTurnCount} TurnsSinceCommitment={TurnsSinceCommitment}",
             session.Id,
+            v2State.CurrentPhase,
             previousPhaseTurnCount,
-            v2State.TurnCountInPhase);
+            v2State.TurnCountInPhase,
+            v2State.TurnsSinceCommitment);
 
         if (!string.IsNullOrWhiteSpace(v2State.ActiveScenarioId))
         {
@@ -3826,6 +3831,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
                     // Reset phase interaction cadence only when a new arc is entered.
                     v2State.TurnCountInPhase = 0;
+                    v2State.TurnsSinceCommitment = 0;
 
                     // Write the BuildUp?Committed transition event and encounter summary records.
                     // This transition happens via the commit gate (not the lifecycle service), so we
@@ -3925,6 +3931,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                     // scenario was committed yet) count toward BuildUp's lifecycle gate and the
                     // phase is immediately promoted past as soon as the backfill happens.
                     v2State.TurnCountInPhase = 0;
+                    v2State.TurnsSinceCommitment = 0;
                     _logger.LogInformation(
                         "RolePlayV2 BuildUp active scenario backfilled: SessionId={SessionId} ScenarioId={ScenarioId} Reason={Reason}",
                         session.Id,
@@ -3987,6 +3994,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             var transitionSourcePhase = v2State.CurrentPhase;
             v2State.CurrentPhase = lifecycle.TargetPhase;
             v2State.TurnCountInPhase = 0;
+            v2State.TurnsSinceCommitment = 0;
 
             if (_suppressNarrativeAfterPhaseChange)
             {
@@ -4690,7 +4698,8 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             mapped.ActiveScenarioId = session.AdaptiveState.ActiveScenarioId;
             mapped.ActiveVariantId = session.AdaptiveState.ActiveVariantId;
             mapped.CurrentPhase = session.AdaptiveState.CurrentPhase;
-            mapped.TurnCountInPhase = Math.Max(0, session.AdaptiveState.TurnsSinceCommitment);
+            // Sync TurnsSinceCommitment from the authoritative TurnCountInPhase counter.
+            mapped.TurnsSinceCommitment = Math.Max(mapped.TurnsSinceCommitment, session.AdaptiveState.TurnCountInPhase);
         }
         else
         {
@@ -4910,6 +4919,14 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         session.AdaptiveState.PhaseOverrideCycleIndex = snapshot.PhaseOverrideCycleIndex;
         session.AdaptiveState.PhaseOverrideSource = snapshot.PhaseOverrideSource;
         session.AdaptiveState.PhaseOverrideAppliedUtc = snapshot.PhaseOverrideAppliedUtc;
+
+        // Sync scene location from V2 — location detection writes to V2, but prompt slots
+        // read from session.AdaptiveState.CurrentSceneLocation. Without this sync, character
+        // prompts use a stale location from before the last detection ran.
+        if (!string.IsNullOrWhiteSpace(snapshot.CurrentSceneLocation))
+        {
+            session.AdaptiveState.CurrentSceneLocation = snapshot.CurrentSceneLocation;
+        }
 
         // Multi-encounter Climax: CurrentTimeSkipPhase, CurrentEncounterNumber, and
         // TurnsInCurrentEncounter are intentionally NOT synced from the V2 snapshot.

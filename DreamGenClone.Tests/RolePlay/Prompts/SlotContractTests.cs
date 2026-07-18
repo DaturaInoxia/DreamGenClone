@@ -86,7 +86,7 @@ public sealed class SlotContractTests
                 EnvironmentalDetails = [],
                 NarrativeGuidelines = [],
                 Characters = characters ?? [],
-                LocationNames = [],
+                Locations = [],
                 DefaultSteeringProfileId = null,
                 DefaultIntensityProfileId = null,
                 DefaultStartingLocationName = null,
@@ -215,26 +215,26 @@ public sealed class SlotContractTests
     [Fact]
     public async Task SceneLocationLockSlot_WithLocation_OutputsHardConstraint()
     {
+        // SKIPPED: Location assertion commented out — slot now returns empty string.
+        // See SceneLocationLockSlot.cs for rationale.
         var slot = new SceneLocationLockSlot(NullLogger<SceneLocationLockSlot>.Instance);
         var context = CreateContext(currentSceneLocation: "The Kitchen");
 
         var text = await slot.WriteAsync(context, CancellationToken.None);
 
-        Assert.Contains("HARD CONSTRAINT", text);
-        Assert.Contains("The Kitchen", text);
-        Assert.Contains("Do not move any character", text);
+        Assert.Equal(string.Empty, text);
     }
 
     [Fact]
     public async Task SceneLocationLockSlot_WithoutLocation_OutputsContinuityRule()
     {
+        // SKIPPED: Location assertion commented out — slot now returns empty string.
         var slot = new SceneLocationLockSlot(NullLogger<SceneLocationLockSlot>.Instance);
         var context = CreateContext(currentSceneLocation: "");
 
         var text = await slot.WriteAsync(context, CancellationToken.None);
 
-        Assert.Contains("Location Continuity", text);
-        Assert.Contains("Do not silently relocate", text);
+        Assert.Equal(string.Empty, text);
     }
 
     // ── T025: CharacterDataSlot (FR-010, FR-011, FR-036) ───────
@@ -354,8 +354,9 @@ public sealed class SlotContractTests
 
         Assert.Contains("Theme Contract:", text);
         Assert.Contains("Temptation", text);
-        Assert.Contains("Phase Guidance:", text);
-        Assert.Contains("Build tension through proximity", text);
+        // Phase Guidance moved to FinalInstructionSlot — no longer in ThemeContractSlot
+        Assert.DoesNotContain("Phase Guidance:", text);
+        Assert.DoesNotContain("Build tension through proximity", text);
         Assert.Contains("Theme Directives:", text);
         Assert.Contains("Focus on unspoken attraction", text);
         Assert.Contains("AI Guidance Notes:", text);
@@ -481,7 +482,9 @@ public sealed class SlotContractTests
 
         Assert.Contains("third-person omniscient", text);
         Assert.Contains("HARD CONSTRAINT: Zero dialogue", text);
-        Assert.Contains("300-500 words", text);
+        Assert.Contains("200-400 words", text);
+        Assert.Contains("Synthesize only what the characters have already expressed", text);
+        Assert.Contains("Do not introduce new events", text);
         Assert.Contains("Physical Detail Checklist", text);
         Assert.Contains("Body positions", text);
         Assert.Contains("Physical contact", text);
@@ -544,7 +547,7 @@ public sealed class SlotContractTests
                 EnvironmentalDetails = ["Forest environment"],
                 NarrativeGuidelines = ["Stay grounded"],
                 Characters = [],
-                LocationNames = ["The Cabin"],
+                Locations = [new("The Cabin", null)],
                 DefaultSteeringProfileId = null,
                 DefaultIntensityProfileId = null,
                 DefaultStartingLocationName = null,

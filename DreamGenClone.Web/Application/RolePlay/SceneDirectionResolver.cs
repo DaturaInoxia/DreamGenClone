@@ -37,6 +37,7 @@ public static class SceneDirectionResolver
         var timeShift = ResolveTimeShift(normalizedPhase, activeTheme, climaxSubPhase);
         var deepening = ResolveDeepening(normalizedPhase, activeTheme);
         var requireScenePresence = ResolveScenePresence(normalizedPhase, activeTheme);
+        var granularity = ResolveGranularity(normalizedPhase, activeTheme);
 
         return new SceneDirection
         {
@@ -45,6 +46,7 @@ public static class SceneDirectionResolver
             TimeShift = timeShift,
             Deepening = deepening,
             RequireScenePresence = requireScenePresence,
+            Granularity = granularity,
             ClimaxSubPhase = normalizedPhase == NarrativePhase.Climax ? climaxSubPhase : ClimaxSubPhase.None
         };
     }
@@ -97,10 +99,20 @@ public static class SceneDirectionResolver
     private static TimeShiftPolicy ResolveTimeShift(
         NarrativePhase? normalizedPhase, RPTheme? activeTheme, ClimaxSubPhase climaxSubPhase)
     {
-        // Tier 2: Theme marker [TimeShift:within-timeframe] → TimeShiftPolicy.Small.
+        // Tier 2: Theme markers [TimeShift:none], [TimeShift:small],
+        // [TimeShift:medium], [TimeShift:large].
         if (activeTheme is not null && normalizedPhase.HasValue)
         {
-            var phase = normalizedPhase?.ToString() ?? "";
+            var phase = normalizedPhase.Value.ToString();
+            if (HasMarker(activeTheme, phase, "TimeShift:none"))
+                return TimeShiftPolicy.None;
+            if (HasMarker(activeTheme, phase, "TimeShift:small"))
+                return TimeShiftPolicy.Small;
+            if (HasMarker(activeTheme, phase, "TimeShift:medium"))
+                return TimeShiftPolicy.Medium;
+            if (HasMarker(activeTheme, phase, "TimeShift:large"))
+                return TimeShiftPolicy.Large;
+            // Legacy marker
             if (HasMarker(activeTheme, phase, "TimeShift:within-timeframe"))
                 return TimeShiftPolicy.Small;
         }
@@ -169,8 +181,8 @@ public static class SceneDirectionResolver
         [NarrativePhase.BuildUp] = ScenePacing.Medium,
         [NarrativePhase.Committed] = ScenePacing.Medium,
         [NarrativePhase.Approaching] = ScenePacing.Medium,
-        [NarrativePhase.Climax] = ScenePacing.Fast,
-        [NarrativePhase.Reset] = ScenePacing.Slow
+        [NarrativePhase.Climax] = ScenePacing.Medium,
+        [NarrativePhase.Reset] = ScenePacing.Medium
     };
 
     private static ScenePacing PhaseDefaultPacing(NarrativePhase? normalizedPhase)
@@ -184,7 +196,7 @@ public static class SceneDirectionResolver
         [NarrativePhase.Committed] = BeatScope.Short,
         [NarrativePhase.Approaching] = BeatScope.Short,
         [NarrativePhase.Climax] = BeatScope.Short,
-        [NarrativePhase.Reset] = BeatScope.Single
+        [NarrativePhase.Reset] = BeatScope.Short
     };
 
     private static BeatScope PhaseDefaultBeatScope(NarrativePhase? normalizedPhase)
@@ -193,15 +205,53 @@ public static class SceneDirectionResolver
 
     private static readonly Dictionary<NarrativePhase, TimeShiftPolicy> PhaseDefaultTimeShiftMap = new()
     {
-        [NarrativePhase.Opening] = TimeShiftPolicy.Small,
-        [NarrativePhase.BuildUp] = TimeShiftPolicy.Small,
-        [NarrativePhase.Committed] = TimeShiftPolicy.Small,
-        [NarrativePhase.Approaching] = TimeShiftPolicy.Small,
+        [NarrativePhase.Opening] = TimeShiftPolicy.Medium,
+        [NarrativePhase.BuildUp] = TimeShiftPolicy.Medium,
+        [NarrativePhase.Committed] = TimeShiftPolicy.Medium,
+        [NarrativePhase.Approaching] = TimeShiftPolicy.Medium,
         [NarrativePhase.Climax] = TimeShiftPolicy.Medium,
-        [NarrativePhase.Reset] = TimeShiftPolicy.None
+        [NarrativePhase.Reset] = TimeShiftPolicy.Medium
     };
 
     private static TimeShiftPolicy PhaseDefaultTimeShift(NarrativePhase? normalizedPhase)
         => normalizedPhase.HasValue && PhaseDefaultTimeShiftMap.TryGetValue(normalizedPhase.Value, out var t)
-            ? t : TimeShiftPolicy.Small;
+            ? t : TimeShiftPolicy.Medium;
+
+    // ── Granularity resolution ─────────────────────────────────────
+
+    private static NarrativeGranularity ResolveGranularity(
+        NarrativePhase? normalizedPhase, RPTheme? activeTheme)
+    {
+        // Tier 2: Theme markers [Granularity:micro], [Granularity:meso],
+        // [Granularity:macro], [Granularity:montage].
+        if (activeTheme is not null && normalizedPhase.HasValue)
+        {
+            var phase = normalizedPhase.Value.ToString();
+            if (HasMarker(activeTheme, phase, "Granularity:micro"))
+                return NarrativeGranularity.Micro;
+            if (HasMarker(activeTheme, phase, "Granularity:montage"))
+                return NarrativeGranularity.Montage;
+            if (HasMarker(activeTheme, phase, "Granularity:macro"))
+                return NarrativeGranularity.Macro;
+            if (HasMarker(activeTheme, phase, "Granularity:meso"))
+                return NarrativeGranularity.Meso;
+        }
+
+        // Tier 3: Phase-based defaults.
+        return PhaseDefaultGranularity(normalizedPhase);
+    }
+
+    private static readonly Dictionary<NarrativePhase, NarrativeGranularity> PhaseDefaultGranularityMap = new()
+    {
+        [NarrativePhase.Opening] = NarrativeGranularity.Meso,
+        [NarrativePhase.BuildUp] = NarrativeGranularity.Meso,
+        [NarrativePhase.Committed] = NarrativeGranularity.Meso,
+        [NarrativePhase.Approaching] = NarrativeGranularity.Meso,
+        [NarrativePhase.Climax] = NarrativeGranularity.Meso,
+        [NarrativePhase.Reset] = NarrativeGranularity.Meso
+    };
+
+    private static NarrativeGranularity PhaseDefaultGranularity(NarrativePhase? normalizedPhase)
+        => normalizedPhase.HasValue && PhaseDefaultGranularityMap.TryGetValue(normalizedPhase.Value, out var g)
+            ? g : NarrativeGranularity.Meso;
 }

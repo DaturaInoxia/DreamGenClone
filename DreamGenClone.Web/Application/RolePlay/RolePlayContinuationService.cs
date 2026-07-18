@@ -655,18 +655,21 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             Scenario = new ResolvedScenarioData
             {
                 ScenarioId = session.ScenarioId,
-                Name = string.Empty,
-                Description = string.Empty,
-                PlotDescription = string.Empty,
-                WorldDescription = string.Empty,
-                TimeFrame = null,
-                Goals = [],
-                Conflicts = [],
-                WorldRules = [],
-                EnvironmentalDetails = [],
-                NarrativeGuidelines = [],
+                Name = scenario?.Name ?? string.Empty,
+                Description = scenario?.Description ?? string.Empty,
+                PlotDescription = scenario?.Plot?.Description ?? string.Empty,
+                WorldDescription = scenario?.Setting?.WorldDescription ?? string.Empty,
+                TimeFrame = scenario?.Setting?.TimeFrame,
+                Goals = scenario?.Plot?.Goals ?? [],
+                Conflicts = scenario?.Plot?.Conflicts ?? [],
+                WorldRules = scenario?.Setting?.WorldRules ?? [],
+                EnvironmentalDetails = scenario?.Setting?.EnvironmentalDetails ?? [],
+                NarrativeGuidelines = scenario?.Narrative?.NarrativeGuidelines ?? [],
                 Characters = scenarioCharacters,
-                LocationNames = [],
+                Locations = scenario?.Locations
+                    .Where(l => !string.IsNullOrWhiteSpace(l.Name))
+                    .Select(l => new ResolvedLocationData(l.Name!.Trim(), l.Description?.Trim()))
+                    .ToList() ?? [],
                 DefaultSteeringProfileId = null,
                 DefaultIntensityProfileId = null,
                 DefaultStartingLocationName = defaultStartingLocationName,

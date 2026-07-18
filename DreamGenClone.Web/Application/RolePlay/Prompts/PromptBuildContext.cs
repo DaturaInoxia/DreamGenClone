@@ -102,11 +102,18 @@ public sealed record ResolvedScenarioData
     public required IReadOnlyList<string> EnvironmentalDetails { get; init; }
     public required IReadOnlyList<string> NarrativeGuidelines { get; init; }
     public required IReadOnlyList<ScenarioCharacter> Characters { get; init; }
-    public required IReadOnlyList<string> LocationNames { get; init; }
+    public required IReadOnlyList<ResolvedLocationData> Locations { get; init; }
     public required string? DefaultSteeringProfileId { get; init; }
     public required string? DefaultIntensityProfileId { get; init; }
     public required string? DefaultStartingLocationName { get; init; }
 }
+
+/// <summary>
+/// A scenario location resolved for prompt injection. Carries both the name
+/// (always present) and the description (present only for the current scene
+/// to save tokens; other locations are listed by name only).
+/// </summary>
+public sealed record ResolvedLocationData(string Name, string? Description);
 
 public sealed record ResolvedThemeData
 {

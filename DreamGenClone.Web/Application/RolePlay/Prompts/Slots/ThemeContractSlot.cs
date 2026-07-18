@@ -41,6 +41,11 @@ public sealed class ThemeContractSlot : IPromptSlot
         }
 
         // ── Phase guidance prose ──
+        // MOVED: Phase guidance now appears in FinalInstructionSlot (Slot 17) right before
+        // the writing instruction, giving it maximum recency priority. The model reads it
+        // last, making it the most influential directive for what should happen next.
+        // To restore here: uncomment the block below and remove from FinalInstructionSlot.
+        /*
         if (theme.PhaseGuidanceLines.Count > 0)
         {
             sb.AppendLine();
@@ -51,6 +56,7 @@ public sealed class ThemeContractSlot : IPromptSlot
                     sb.AppendLine($"  {line.Trim()}");
             }
         }
+        */
 
         // ── Theme directives ──
         if (theme.PhaseDirectiveLines.Count > 0)

@@ -4,7 +4,8 @@ using Microsoft.Extensions.Logging;
 namespace DreamGenClone.Web.Application.RolePlay.Prompts.Slots;
 
 /// <summary>
-/// Slot 4, Zone A — Hard constraint: current location + continuity rule.
+/// Slot 4, Zone A — Last known location as factual context.
+/// No lock, no directive — just where things were last detected.
 /// Never trimmed. FR-008.
 /// </summary>
 public sealed class SceneLocationLockSlot : IPromptSlot
@@ -25,6 +26,13 @@ public sealed class SceneLocationLockSlot : IPromptSlot
 
     public Task<string> WriteAsync(PromptBuildContext context, CancellationToken ct)
     {
+        // SKIPPED: Location assertion ("Last known location: X") removed from prompt injection.
+        // Reason: Creates a self-reinforcing lock — prompt says "scene is at X" → AI writes
+        // all characters at X → location detection confirms X → prompt says "scene is at X".
+        // The model should infer location from interaction history, like the legacy system did.
+        // Location data is still tracked in AdaptiveState for engine use; just not injected here.
+        // To restore: uncomment the block below.
+        /*
         var location = context.Session.AdaptiveState.CurrentSceneLocation;
         var resolvedLocation = !string.IsNullOrWhiteSpace(location) ? location
             : context.Scenario.DefaultStartingLocationName;
@@ -32,15 +40,11 @@ public sealed class SceneLocationLockSlot : IPromptSlot
         string text;
         if (!string.IsNullOrWhiteSpace(resolvedLocation))
         {
-            text = $"HARD CONSTRAINT — Scene Location: The current scene is at \"{resolvedLocation}\". " +
-                   "Do not move any character to a different location without writing an explicit transition " +
-                   "in the narration. Do not jump to a new place between responses.";
+            text = $"Last known location: {resolvedLocation}";
         }
         else
         {
-            text = "HARD CONSTRAINT — Location Continuity: The physical setting established in the previous " +
-                   "response must be maintained in this response. Do not silently relocate any character to a " +
-                   "different place. If a character moves, write the transition explicitly in the narration.";
+            text = "Last known location: unknown";
         }
 
         _logger.LogDebug(
@@ -48,6 +52,9 @@ public sealed class SceneLocationLockSlot : IPromptSlot
             context.Session.Id, location ?? "(none)");
 
         return Task.FromResult(text);
+        */
+
+        return Task.FromResult(string.Empty);
     }
 
     public string Trim(string text, int maxChars)

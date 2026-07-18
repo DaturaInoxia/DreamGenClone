@@ -84,7 +84,7 @@ public sealed class PromptBuilderTests
                 EnvironmentalDetails = [],
                 NarrativeGuidelines = [],
                 Characters = characters,
-                LocationNames = [],
+                Locations = [],
                 DefaultSteeringProfileId = null,
                 DefaultIntensityProfileId = null,
                 DefaultStartingLocationName = null,
@@ -132,20 +132,18 @@ public sealed class PromptBuilderTests
         var sceneAnchorIndex = prompt.IndexOf("Current scene:", StringComparison.Ordinal);
         var actorIndex = prompt.IndexOf("Continue as:", StringComparison.Ordinal);
         var turnContextIndex = prompt.IndexOf("Turn Context:", StringComparison.Ordinal);
-        var locationLockIndex = prompt.IndexOf("HARD CONSTRAINT", StringComparison.Ordinal);
+        // Location lock commented out — no longer injected
         var charDataIndex = prompt.IndexOf("POV Persona", StringComparison.Ordinal);
 
         Assert.True(sceneAnchorIndex >= 0, "Scene anchor missing");
         Assert.True(actorIndex >= 0, "Actor assignment missing");
         Assert.True(turnContextIndex >= 0, "Turn context missing");
-        Assert.True(locationLockIndex >= 0, "Location lock missing");
         Assert.True(charDataIndex >= 0, "Character data missing");
 
         // Zone A slots appear before Zone B (CharacterData).
         Assert.True(sceneAnchorIndex < charDataIndex, "Scene anchor should be before character data");
         Assert.True(actorIndex < charDataIndex, "Actor assignment should be before character data");
         Assert.True(turnContextIndex < charDataIndex, "Turn context should be before character data");
-        Assert.True(locationLockIndex < charDataIndex, "Location lock should be before character data");
     }
 
     [Fact]

@@ -87,6 +87,7 @@ public sealed class ScenarioContextSlot : IPromptSlot
             if (!string.IsNullOrWhiteSpace(scenario.TimeFrame))
             {
                 sb.AppendLine($"    Time: {scenario.TimeFrame.Trim()}");
+                sb.AppendLine("    Time Span Reminder: This story takes place within this time frame. Scenes may skip forward in time.");
             }
         }
         else
@@ -101,6 +102,7 @@ public sealed class ScenarioContextSlot : IPromptSlot
             if (!string.IsNullOrWhiteSpace(scenario.TimeFrame))
             {
                 sb.AppendLine($"  Time Frame: {scenario.TimeFrame.Trim()}");
+                sb.AppendLine("  Time Span Reminder: This entire story takes place within the time frame above. Scenes may skip forward in time; a new response does not have to be the immediate continuation of the last moment.");
             }
 
             if (scenario.Goals.Count > 0)
@@ -156,10 +158,12 @@ public sealed class ScenarioContextSlot : IPromptSlot
         }
 
         // Locations list.
-        if (scenario.LocationNames.Count > 0)
+        if (scenario.Locations.Count > 0)
         {
             sb.Append("  Locations: ");
-            sb.AppendLine(string.Join(", ", scenario.LocationNames.Where(l => !string.IsNullOrWhiteSpace(l))));
+            sb.AppendLine(string.Join(", ", scenario.Locations
+                .Where(l => !string.IsNullOrWhiteSpace(l.Name))
+                .Select(l => l.Name!.Trim())));
         }
 
         return Task.FromResult(sb.ToString().TrimEnd());

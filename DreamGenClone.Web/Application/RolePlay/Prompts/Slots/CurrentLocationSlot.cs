@@ -33,34 +33,43 @@ public sealed class CurrentLocationSlot : IPromptSlot
         var sb = new StringBuilder();
         sb.AppendLine("Current Location:");
 
-        if (!string.IsNullOrWhiteSpace(currentScene))
+        // ── Current scene: full name + full description ──
+        var currentLocationName = !string.IsNullOrWhiteSpace(currentScene)
+            ? currentScene.Trim()
+            : context.Scenario.DefaultStartingLocationName;
+
+        if (!string.IsNullOrWhiteSpace(currentLocationName))
         {
-            sb.AppendLine($"  Scene: {currentScene.Trim()}");
-        }
-        else if (!string.IsNullOrWhiteSpace(context.Scenario.DefaultStartingLocationName))
-        {
-            sb.AppendLine($"  Scene: {context.Scenario.DefaultStartingLocationName}");
+            sb.AppendLine($"  Scene: {currentLocationName}");
+
+            // Find the full description for the current location from the scenario locations list.
+            var currentLocationData = scenario.Locations
+                .FirstOrDefault(l => string.Equals(l.Name, currentLocationName, StringComparison.OrdinalIgnoreCase));
+            if (currentLocationData is not null && !string.IsNullOrWhiteSpace(currentLocationData.Description))
+            {
+                sb.AppendLine($"  {currentLocationData.Description!.Trim()}");
+            }
         }
         else
         {
             sb.AppendLine("  Scene: Unknown");
         }
 
-        // Occupied locations: one-line summaries for other known locations.
-        var locationNames = scenario.LocationNames;
-        if (locationNames.Count > 0)
-        {
-            var otherLocations = locationNames
-                .Where(l => !string.IsNullOrWhiteSpace(l) &&
-                            !string.Equals(l.Trim(), currentScene?.Trim(), StringComparison.OrdinalIgnoreCase))
-                .ToList();
+        // ── Other locations: full name + full description ──
+        var otherLocations = scenario.Locations
+            .Where(l => !string.IsNullOrWhiteSpace(l.Name) &&
+                        !string.Equals(l.Name.Trim(), currentLocationName, StringComparison.OrdinalIgnoreCase))
+            .ToList();
 
-            if (otherLocations.Count > 0)
+        if (otherLocations.Count > 0)
+        {
+            sb.AppendLine("  Other locations in this world:");
+            foreach (var loc in otherLocations)
             {
-                sb.AppendLine("  Other available locations:");
-                foreach (var loc in otherLocations)
+                sb.AppendLine($"    - {loc.Name!.Trim()}");
+                if (!string.IsNullOrWhiteSpace(loc.Description))
                 {
-                    sb.AppendLine($"    - {loc.Trim()}");
+                    sb.AppendLine($"      {loc.Description!.Trim()}");
                 }
             }
         }
@@ -73,7 +82,7 @@ public sealed class CurrentLocationSlot : IPromptSlot
         if (string.IsNullOrEmpty(text) || text.Length <= maxChars)
             return text;
 
-        // Keep the header + current scene only, drop other locations.
+        // Keep the header + current scene + description. Drop other locations first.
         var lines = text.Split('\n');
         var sb = new StringBuilder();
         var remaining = maxChars;
@@ -86,17 +95,23 @@ public sealed class CurrentLocationSlot : IPromptSlot
             remaining -= headerLine.Length + Environment.NewLine.Length;
         }
 
-        // Keep current scene line if it fits.
-        if (lines.Length > 1 && remaining > 0)
+        // Keep current scene + description lines until we run out of budget.
+        for (var i = 1; i < lines.Length && remaining > 0; i++)
         {
-            var sceneLine = lines[1].TrimEnd('\r');
-            if (sceneLine.Length <= remaining)
+            var line = lines[i].TrimEnd('\r');
+            // Stop at the "Other locations" section — drop it first under trim pressure.
+            if (line.StartsWith("  Other locations", StringComparison.OrdinalIgnoreCase))
+                break;
+
+            if (line.Length + Environment.NewLine.Length <= remaining)
             {
-                sb.Append(sceneLine);
+                sb.AppendLine(line);
+                remaining -= line.Length + Environment.NewLine.Length;
             }
             else if (remaining > 20)
             {
-                sb.Append(sceneLine[..remaining]);
+                sb.Append(line[..remaining]);
+                remaining = 0;
             }
         }
 
