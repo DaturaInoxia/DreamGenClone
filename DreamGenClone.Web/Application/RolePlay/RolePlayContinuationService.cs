@@ -544,6 +544,29 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             ? allScenarioCharacters.Where(c => openingCoupleIds.Contains(c.Id)).ToList()
             : allScenarioCharacters;
 
+        // ── Filter characters excluded from current scene location by affinity ──
+        // Characters with an Excluded affinity for the current location must not
+        // appear in character data, behavioral frames, or any prompt content.
+        // This prevents the AI from writing excluded characters into the scene,
+        // which would then cause location detection to incorrectly place them there.
+        var currentLocation = session.AdaptiveState.CurrentSceneLocation;
+        if (!string.IsNullOrWhiteSpace(currentLocation) && scenario is not null)
+        {
+            var excludedIds = scenario.Characters
+                .Where(c => c.LocationAffinities.Any(a =>
+                    a.AffinityType == DreamGenClone.Web.Domain.Scenarios.AffinityType.Excluded &&
+                    string.Equals(a.LocationName, currentLocation, StringComparison.OrdinalIgnoreCase)))
+                .Select(c => c.Id)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            if (excludedIds.Count > 0)
+            {
+                scenarioCharacters = scenarioCharacters
+                    .Where(c => !excludedIds.Contains(c.Id))
+                    .ToList();
+            }
+        }
+
         // ── Resolve MaxPromptChars (fail-fast if missing) ──
         var maxPromptChars = session.MaxPromptChars ?? 35000;
 
@@ -652,7 +675,10 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             Intensity = await ResolveIntensityAsync(session, phase, cancellationToken),
             WritingStyle = await ResolveWritingStyleAsync(session, phaseRoTRow, cancellationToken),
             EncounterSummaries = [],
-            RecentInteractions = [],
+            RecentInteractions = session.Interactions
+                .Where(i => !i.IsExcluded)
+                .TakeLast(session.ContextWindowSize > 0 ? session.ContextWindowSize : 12)
+                .ToList(),
             CharacterDetails = charDetails,
             CharacterBehavioralFrames = characterBehavioralFrames,
             CharacterStatStateTexts = characterStatStateTexts,
@@ -787,12 +813,19 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             "ResolveIntensity: SessionId={SessionId} Phase={Phase} Base={Base} Offset={Offset} Resolved={Resolved}",
             session.Id, phase, profile.Intensity, offset, resolvedLabel);
 
+        // Resolve scene direction from phase + active theme
+        var activeTheme = session.AdaptiveState.PrimaryThemeId is not null
+            ? await _rpThemeService?.GetThemeAsync(session.AdaptiveState.PrimaryThemeId, cancellationToken)
+            : null;
+        var sceneDirection = SceneDirectionResolver.Resolve(phase, activeTheme, ClimaxSubPhase.None, PromptIntent.Message);
+
         return new ResolvedIntensityData
         {
             BaseLevel = profile.Intensity,
             Description = profile.Description,
             AdaptiveLevel = (IntensityLevel)adjustedValue,
             ResolvedLabel = resolvedLabel,
+            SceneDirection = sceneDirection,
         };
     }
 
@@ -803,6 +836,14 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             return new ResolvedThemeData();
 
         var themeId = session.AdaptiveState.PrimaryThemeId;
+
+        // Fallback: if PrimaryThemeId isn't synced from the V2 tracker yet,
+        // use the first active theme from ThemeScores (set by theme machine).
+        if (string.IsNullOrWhiteSpace(themeId) && session.AdaptiveState.ThemeScores is { Count: > 0 })
+        {
+            themeId = session.AdaptiveState.ThemeScores.Keys.First();
+        }
+
         if (string.IsNullOrWhiteSpace(themeId))
             return new ResolvedThemeData();
 

@@ -152,6 +152,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     private readonly ISemanticInteractionAnalysisRepository? _semanticInteractionAnalysisRepository;
     private readonly IEncounterSummaryService? _encounterSummaryService;
     private readonly IOptions<RolePlayMemoryOptions>? _memoryOptions;
+    private readonly IOptions<RolePlayPromptOptions>? _promptOptions;
     private readonly IStatWillingnessProfileService? _statWillingnessProfileService;
     private readonly ISemanticEventInferenceService? _semanticEventInferenceService;
     private readonly IActorSelectionService? _actorSelectionService;
@@ -241,6 +242,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         ISemanticInteractionAnalysisRepository? semanticInteractionAnalysisRepository = null,
         IEncounterSummaryService? encounterSummaryService = null,
         IOptions<RolePlayMemoryOptions>? memoryOptions = null,
+        IOptions<RolePlayPromptOptions>? promptOptions = null,
         IStatWillingnessProfileService? statWillingnessProfileService = null,
         ISemanticEventInferenceService? semanticEventInferenceService = null,
         IActorSelectionService? actorSelectionService = null)
@@ -290,6 +292,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         _semanticInteractionAnalysisRepository = semanticInteractionAnalysisRepository;
         _encounterSummaryService = encounterSummaryService;
         _memoryOptions = memoryOptions;
+        _promptOptions = promptOptions;
         _statWillingnessProfileService = statWillingnessProfileService;
         _semanticEventInferenceService = semanticEventInferenceService;
         _actorSelectionService = actorSelectionService;
@@ -329,6 +332,12 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             MaxMilestonesToInject = request.MaxMilestonesToInject,
             MaxArcCompletionsToInject = request.MaxArcCompletionsToInject,
             MaxEncounterCompletionsToInject = request.MaxEncounterCompletionsToInject,
+            MaxPromptChars = request.MaxPromptChars ?? _promptOptions?.Value.RecommendedInitialMaxPromptChars,
+            ContextWindowTurns = request.ContextWindowTurns ?? _promptOptions?.Value.RecommendedInitialContextWindowTurns,
+            ScenarioCompressionTurnThreshold = request.ScenarioCompressionTurnThreshold ?? _promptOptions?.Value.RecommendedInitialScenarioCompressionTurnThreshold,
+            HistoryFullDetailTurnBand = request.HistoryFullDetailTurnBand ?? _promptOptions?.Value.RecommendedInitialHistoryFullDetailTurnBand,
+            HistoryNarrativeOnlyTurnBand = request.HistoryNarrativeOnlyTurnBand ?? _promptOptions?.Value.RecommendedInitialHistoryNarrativeOnlyTurnBand,
+            SessionMemoryLongTermTurnThreshold = request.SessionMemoryLongTermTurnThreshold ?? _promptOptions?.Value.RecommendedInitialSessionMemoryLongTermTurnThreshold,
         };
 
         foreach (var kvp in request.CharacterEncounterProfileIds)

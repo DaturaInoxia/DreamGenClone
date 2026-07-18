@@ -58,7 +58,7 @@ public sealed class ActorProfileResolver
                 };
 
             case ContinueAsActor.Npc:
-                return ResolveNpcProfile(session, roster, allIds);
+                return ResolveNpcProfile(session, roster, allIds, customActorName);
 
             case ContinueAsActor.Custom:
                 var customName = customActorName?.Trim();
@@ -85,13 +85,16 @@ public sealed class ActorProfileResolver
     private ActorProfile ResolveNpcProfile(
         RolePlaySession session,
         IReadOnlyList<ScenarioCharacter> roster,
-        IReadOnlyList<string> allIds)
+        IReadOnlyList<string> allIds,
+        string? customActorName = null)
     {
-        // Get the NPC actor name from the session's current turn state or last selected NPC.
-        // The caller provides this via the actor name resolved from the session.
-        var actorName = session.CurrentTurnState == TurnState.Any
-            ? ResolveOpeningNpcName(session, roster)
-            : ResolveNpcNameFromSession(session);
+        // When the engine explicitly provides an actor name (e.g. "Dean"), use it directly.
+        // Only fall back to session-based resolution when no name was provided.
+        var actorName = !string.IsNullOrWhiteSpace(customActorName)
+            ? customActorName.Trim()
+            : session.CurrentTurnState == TurnState.Any
+                ? ResolveOpeningNpcName(session, roster)
+                : ResolveNpcNameFromSession(session);
 
         var sceneCharacter = roster.FirstOrDefault(c =>
             string.Equals(c.Name, actorName, StringComparison.OrdinalIgnoreCase));

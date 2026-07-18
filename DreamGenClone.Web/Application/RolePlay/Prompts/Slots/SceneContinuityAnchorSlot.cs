@@ -33,33 +33,48 @@ public sealed class SceneContinuityAnchorSlot : IPromptSlot
         var sb = new StringBuilder();
         sb.AppendLine("Scene Continuity:");
 
-        // Always include current scene location.
-        if (!string.IsNullOrWhiteSpace(currentScene))
+        // ── Time of day grounding ──
+        var timeOfDay = session.AdaptiveState?.CurrentTimeOfDay;
+        if (timeOfDay.HasValue)
         {
+            sb.AppendLine($"  Time: {timeOfDay.Value.ToString().ToLowerInvariant()}");
+        }
+
+        // ── Character location grounding ──
+        var characterLocations = session.AdaptiveState?.CharacterLocations;
+        if (characterLocations is { Count: > 0 })
+        {
+            foreach (var cl in characterLocations)
+            {
+                if (!string.IsNullOrWhiteSpace(cl.TrueLocation) && !cl.IsHidden)
+                {
+                    sb.AppendLine($"  {cl.CharacterId} is at: {cl.TrueLocation.Trim()}");
+                }
+            }
+        }
+        else if (!string.IsNullOrWhiteSpace(currentScene))
+        {
+            // Fallback: just note the current scene
             sb.AppendLine($"  Current scene: {currentScene.Trim()}");
         }
 
-        // Cross-perceptions: what other characters perceive (not self-perceptions).
-        // This slot focuses on scene-level continuity — what happened from others' perspective.
+        // ── Cross-perception guidance ──
         var actorName = profile.ActorName;
 
         if (profile.Kind == ActorProfileKind.Player)
         {
-            // Player: note other characters' perspective on the scene.
             sb.AppendLine($"  Focus on what other characters perceive of {actorName}, not {actorName}'s own thoughts.");
         }
         else if (profile.Kind == ActorProfileKind.NpcPresent || profile.Kind == ActorProfileKind.NpcNonPresent)
         {
-            // NPC: note cross-perceptions from other characters.
             sb.AppendLine($"  Focus on what others perceive of {actorName}, not {actorName}'s self-reflection.");
         }
         else if (profile.Kind == ActorProfileKind.Narrative)
         {
-            // Narrative: omniscient cross-perceptions.
             sb.AppendLine("  Describe what each character perceives of the others in the scene.");
         }
 
-        // Continuity rule: anchor to the last interaction.
+        // ── Last beat anchor ──
         if (context.RecentInteractions is { Count: > 0 })
         {
             var lastInteraction = context.RecentInteractions[^1];

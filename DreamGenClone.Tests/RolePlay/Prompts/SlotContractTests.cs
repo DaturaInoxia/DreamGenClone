@@ -1125,7 +1125,8 @@ public sealed class SlotContractTests
         Assert.Contains("Intensity & Pacing:", text);
         Assert.Contains("Passionate", text);
         Assert.Contains("High emotional charge", text);
-        Assert.Contains("Pacing: medium", text);
+        Assert.Contains("Scene pacing:", text);
+        Assert.Contains("Medium pace", text);
         Assert.Contains("Available positions:", text);
     }
 

@@ -43,6 +43,7 @@ public sealed class TurnContextSlot : IPromptSlot
             sb.AppendLine("- Write an omniscient account: setting, character positions, sensations, atmosphere.");
             sb.AppendLine("- Synthesize character perspectives into a rich, unified picture.");
             sb.AppendLine("- Do NOT advance the scene beyond what the characters established this turn.");
+            sb.AppendLine("- Stay in the exact locations and moments described. No time jumps, no new characters.");
         }
         else
         {
@@ -53,20 +54,22 @@ public sealed class TurnContextSlot : IPromptSlot
             if (pos == 1)
             {
                 sb.AppendLine("- You are first this turn. Establish the scene beat — advance from where the previous turn left off.");
+                sb.AppendLine("- Stay in this moment. Do NOT jump ahead in time or introduce new characters. Ground the scene in sensory and emotional detail before any progression.");
                 if (turnActorCount > 1)
-                    sb.AppendLine($"- The other {turnActorCount - 1} character(s) will describe this same moment from their perspectives after you.");
+                    sb.AppendLine($"- The other {turnActorCount - 1} character(s) will describe this same moment from their perspectives after you. Give them clear context to react to.");
                 sb.AppendLine("- Do not leave the beat unresolved — give it clear shape so others can react to it.");
             }
             else if (pos == turnActorCount)
             {
                 sb.AppendLine("- Continue from your character's perspective — what you observe, feel, or what occupies your attention in this moment.");
+                sb.AppendLine("- Deepen the established beat from your POV. Do NOT advance location, time, or introduce new characters. React to what was already placed in the scene.");
                 sb.AppendLine("- The narrative closes the turn after your response.");
             }
             else
             {
                 sb.AppendLine("- Describe the same scene beat established this turn, from your character's perspective.");
                 sb.AppendLine("- Give your sensations, reactions, dialogue, and internal experience of this exact moment.");
-                sb.AppendLine("- Do NOT advance to a new act, position, or story beat.");
+                sb.AppendLine("- Do NOT advance to a new act, position, location, or story beat. Deepen what exists.");
             }
         }
 
