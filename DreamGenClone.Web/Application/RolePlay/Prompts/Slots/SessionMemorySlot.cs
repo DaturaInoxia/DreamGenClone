@@ -53,27 +53,36 @@ public sealed class SessionMemorySlot : IPromptSlot
             return Task.FromResult(string.Empty);
 
         var actorName = context.ActorProfile.ActorName;
+        var isNarrative = context.Variant == PromptVariant.Narrative;
+
+        // Filter to actor's own memories unless Narrative (which synthesises all perspectives).
+        var actorSummaries = isNarrative
+            ? summaries
+            : summaries.Where(s => string.Equals(s.CharacterId, actorName, StringComparison.OrdinalIgnoreCase)).ToList();
+
+        if (actorSummaries.Count == 0)
+            return Task.FromResult(string.Empty);
 
         // Partition summaries by age relative to the long-term threshold.
         // Long-term: encounter summaries from before the threshold (by encounter number).
-        var thresholdEncounterNumber = Math.Max(1, summaries.Max(s => s.EncounterNumber) - longTermThreshold.Value + 1);
+        var thresholdEncounterNumber = Math.Max(1, actorSummaries.Max(s => s.EncounterNumber) - longTermThreshold.Value + 1);
 
-        var longTermSummaries = summaries
+        var longTermSummaries = actorSummaries
             .Where(s => s.EncounterNumber < thresholdEncounterNumber)
             .OrderBy(s => s.EncounterNumber)
             .ToList();
 
-        var mediumTermSummaries = summaries
+        var mediumTermSummaries = actorSummaries
             .Where(s => s.EncounterNumber >= thresholdEncounterNumber
                      && s.SummaryType == EncounterSummaryType.EncounterCompletion)
             .OrderBy(s => s.EncounterNumber)
             .ToList();
 
-        var shortTermMilestones = summaries
+        var shortTermMilestones = actorSummaries
             .Where(s => s.SummaryType == EncounterSummaryType.PhaseMilestone
                      || s.SummaryType == EncounterSummaryType.ArcCompletion)
             .OrderByDescending(s => s.OccurredUtc)
-            .Take(3) // Keep most recent milestones only
+            .Take(3)
             .ToList();
 
         if (longTermSummaries.Count == 0 && mediumTermSummaries.Count == 0 && shortTermMilestones.Count == 0)
@@ -91,10 +100,7 @@ public sealed class SessionMemorySlot : IPromptSlot
                 var summaryText = summary.LlmSummary?.Trim() ?? summary.TemplateSummary.Trim();
                 if (string.IsNullOrWhiteSpace(summaryText)) continue;
 
-                // Prefer actor's own memories, but include others for context.
-                var label = string.Equals(summary.CharacterId, actorName, StringComparison.OrdinalIgnoreCase)
-                    ? summary.CharacterId
-                    : $"{summary.CharacterId} (other perspective)";
+                var label = isNarrative ? summary.CharacterId : summary.CharacterId;
                 sb.AppendLine($"    [{label}] {summaryText}");
             }
         }

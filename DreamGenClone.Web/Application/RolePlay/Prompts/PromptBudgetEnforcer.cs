@@ -34,7 +34,7 @@ public sealed class PromptBudgetEnforcer
         if (totalChars <= maxPromptChars)
         {
             return new BudgetEnforcementResult(
-                string.Concat(slotTexts.Select(s => s.Text)),
+                string.Join("\n\n", slotTexts.Select(s => s.Text)),
                 totalChars,
                 totalChars,
                 []);
@@ -63,7 +63,7 @@ public sealed class PromptBudgetEnforcer
                 maxPromptChars, mandatoryChars);
 
             // Critical overflow: return mandatory slots only.
-            var mandatoryText = string.Concat(neverTrim.Select(s => s.Text));
+            var mandatoryText = string.Join("\n\n", neverTrim.Select(s => s.Text));
             return new BudgetEnforcementResult(mandatoryText, totalChars, mandatoryText.Length, []);
         }
 
@@ -115,7 +115,7 @@ public sealed class PromptBudgetEnforcer
             return GetSlotOrder(a.SlotId).CompareTo(GetSlotOrder(b.SlotId));
         });
 
-        var finalText = string.Concat(finalSlots.Select(s => s.Text));
+        var finalText = string.Join("\n\n", finalSlots.Select(s => s.Text));
         var postChars = finalText.Length;
 
         _logger.LogWarning(

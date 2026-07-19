@@ -66,16 +66,18 @@ public sealed class SceneContinuityAnchorSlot : IPromptSlot
         }
         */
 
-        // ── Cross-perception guidance ──
+        // ── Cross-perception guidance (FR-017) ──
+        // The writing actor should focus on what THEY perceive of other characters,
+        // not what other characters perceive of them (self-perceptions are dropped).
         var actorName = profile.ActorName;
 
         if (profile.Kind == ActorProfileKind.Player)
         {
-            sb.AppendLine($"  Focus on what other characters perceive of {actorName}, not {actorName}'s own thoughts.");
+            sb.AppendLine($"  Focus on what {actorName} perceives of the other characters in this scene.");
         }
         else if (profile.Kind == ActorProfileKind.NpcPresent || profile.Kind == ActorProfileKind.NpcNonPresent)
         {
-            sb.AppendLine($"  Focus on what others perceive of {actorName}, not {actorName}'s self-reflection.");
+            sb.AppendLine($"  Focus on what {actorName} perceives of the other characters in this scene.");
         }
         else if (profile.Kind == ActorProfileKind.Narrative)
         {

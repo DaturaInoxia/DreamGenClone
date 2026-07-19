@@ -198,9 +198,11 @@ As a system operator, I want each piece of prompt content to appear exactly once
 - **FR-018**: The theme contract MUST appear exactly once in the prompt, positioned in Zone C, containing the active theme name, description, phase guidance prose, theme directives, and steering rank statement.
 - **FR-019**: The behavioral frames slot MUST appear exactly once in Zone C, filtered to show frames only for characters the current actor will interact with (for Character variant) or all frames (for Narrative variant).
 - **FR-020**: The scenario guidance slot MUST provide phase-appropriate steering direction and suppress or weaken the resistance band when narrative state shows the threshold has already been crossed.
+  - **Revision note (debug#13)**: Narrative variant intentionally omits Scenario Guidance — Narrative only summarizes the turn's interactions and does not receive phase steering.
 - **FR-021**: The intensity and pacing slot MUST merge the previously separate escalation and scene-time-direction injectors into a single block providing resolved intensity label, intensity writing contract, pacing directive, and available positions.
 - **FR-022**: The user direction slot MUST only appear when the user has provided actual direction content; the generic "Continue naturally" default MUST be omitted.
 - **FR-023**: The final writing instruction MUST be the last content the model reads before generating, specifying POV (first-person for Character, third-person omniscient for Narrative), word target range, and variant-specific constraints. The Narrative variant MUST include a zero-dialogue hard constraint and a physical detail checklist.
+  - **Revision note (debug#12)**: Phase Directive now intentionally placed AFTER the Writing Instruction to improve model compliance — the model was not following Phase Guidance when positioned inside the Theme Contract slot. FR-023 should be revisited to allow this ordering.
 
 #### Actor Awareness
 
@@ -211,6 +213,7 @@ As a system operator, I want each piece of prompt content to appear exactly once
 #### Deduplication
 
 - **FR-027**: Each category of prompt content (theme contract, behavioral frames, turn context, intensity directives, final writing instruction) MUST appear exactly once in any built prompt.
+  - **Revision note (debug#16)**: Static behavioral frames and dynamic runtime state texts coexist in the same slot and can contradict (e.g. character baseline "completely unaware" vs current state "actively engaged"). Need to revisit dynamic behavior texts to address contradictions.
 - **FR-028**: The system MUST remove the duplicate Turn Context injector, the duplicate Behavioral Frame injector stub, the duplicate Narrative directive, and all other coordinator-injected duplicates of inline content.
 
 #### Token Budget & Trimming

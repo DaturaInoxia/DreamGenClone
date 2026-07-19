@@ -892,7 +892,7 @@ public sealed class SlotContractTests
             SessionMemoryLongTermTurnThreshold = 10,
         };
 
-        var context = CreateContext();
+        var context = CreateContext(actorName: "Becky");
         context = context with
         {
             Session = session,
@@ -904,9 +904,9 @@ public sealed class SlotContractTests
         var text = await slot.WriteAsync(context, CancellationToken.None);
 
         Assert.Contains("Session Memory", text);
-        // Should contain encounter memory content.
+        // Should contain Becky's memories only, not Dean's.
         Assert.Contains("Becky", text);
-        Assert.Contains("Dean", text);
+        Assert.DoesNotContain("Dean", text);
     }
 
     [Fact]

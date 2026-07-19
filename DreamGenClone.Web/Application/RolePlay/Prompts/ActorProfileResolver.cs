@@ -36,7 +36,7 @@ public sealed class ActorProfileResolver
                 Kind = ActorProfileKind.Narrative,
                 ActorName = "omniscient narrator",
                 ActorRole = "narrator",
-                PresentCharacterIds = roster.Select(c => c.Id).ToList(),
+                PresentCharacterIds = BuildPresentIds(roster),
                 AllCharacterIds = roster.Select(c => c.Id).ToList(),
             };
         }
@@ -51,9 +51,11 @@ public sealed class ActorProfileResolver
                 return new ActorProfile
                 {
                     Kind = ActorProfileKind.Player,
-                    ActorName = session.PersonaName,
-                    ActorRole = session.PersonaRole,
-                    PresentCharacterIds = allIds,
+                    ActorName = personaCharacter is not null
+                        ? $"{personaCharacter.Name} ({personaCharacter.Role})"
+                        : session.PersonaName,
+                    ActorRole = personaCharacter?.Role ?? session.PersonaRole,
+                    PresentCharacterIds = BuildPresentIds(roster),
                     AllCharacterIds = allIds,
                 };
 
@@ -72,7 +74,7 @@ public sealed class ActorProfileResolver
                     Kind = ActorProfileKind.Custom,
                     ActorName = customName,
                     ActorRole = "custom",
-                    PresentCharacterIds = allIds,
+                    PresentCharacterIds = BuildPresentIds(roster),
                     AllCharacterIds = allIds,
                 };
 
@@ -107,10 +109,10 @@ public sealed class ActorProfileResolver
         }
 
         var inScene = RolePlayScenePresenceHelper.IsActorInScene(session, actorName) ?? false;
+        var label = $"{sceneCharacter.Name} ({sceneCharacter.Role})";
         var presentIds = inScene
-            ? allIds
-            : allIds.Where(id =>
-                string.Equals(id, sceneCharacter.Id, StringComparison.OrdinalIgnoreCase)).ToList();
+            ? BuildPresentIds(roster)
+            : new List<string> { sceneCharacter.Id, label };
 
         return new ActorProfile
         {
@@ -120,6 +122,22 @@ public sealed class ActorProfileResolver
             PresentCharacterIds = presentIds,
             AllCharacterIds = allIds,
         };
+    }
+
+    /// <summary>
+    /// Builds a list of present character identifiers including both GUIDs and display labels
+    /// ("Name (Role)") so that behavioral frame and character data lookups work regardless of
+    /// which key format the upstream data uses.
+    /// </summary>
+    private static List<string> BuildPresentIds(IReadOnlyList<ScenarioCharacter> roster)
+    {
+        var ids = new List<string>(roster.Count * 2);
+        foreach (var c in roster)
+        {
+            ids.Add(c.Id);
+            ids.Add($"{c.Name} ({c.Role})");
+        }
+        return ids;
     }
 
     private static string ResolveNpcNameFromSession(RolePlaySession session)

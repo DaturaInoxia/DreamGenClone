@@ -149,7 +149,6 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         
         if (diagnostics is not null)
         {
-            prompt = $"[V2 Diagnostics: candidates={diagnostics.CandidateEvaluations.Count}, transitions={diagnostics.TransitionEvents.Count}, decisions={diagnostics.DecisionPoints.Count}]\n{prompt}";
             _logger.LogInformation(
                 RolePlayV2LogEvents.DiagnosticsSnapshotPublished,
                 diagnostics.SessionId,
@@ -616,6 +615,15 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             var avgDominance = snapshots.Count > 0 ? snapshots.Average(s => s.Dominance) : 50.0;
             var avgLoyalty = snapshots.Count > 0 ? snapshots.Average(s => s.Loyalty) : 50.0;
 
+            // Filter encounter profile IDs to match the affinity-filtered scenarioCharacters.
+            // Prevents excluded characters from appearing in behavioral frames as raw GUIDs.
+            var scenarioCharacterIds = scenarioCharacters
+                .Select(c => c.Id)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var filteredEncounterProfileIds = session.AdaptiveState.CharacterEncounterProfileIds
+                .Where(kvp => scenarioCharacterIds.Contains(kvp.Key))
+                .ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.OrdinalIgnoreCase);
+
             var guidanceInput = new ScenarioGuidanceInput(
                 SessionId: session.Id,
                 CurrentPhase: phase,
@@ -626,7 +634,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                 AverageDominance: avgDominance,
                 AverageLoyalty: avgLoyalty,
                 SelectedWillingnessProfileId: session.AdaptiveState.SelectedWillingnessProfileId,
-                CharacterEncounterProfileIds: session.AdaptiveState.CharacterEncounterProfileIds,
+                CharacterEncounterProfileIds: filteredEncounterProfileIds,
                 Characters: scenarioCharacters,
                 SuppressedScenarioIds: [],
                 CharacterRuntimeStats: runtimeStats,
@@ -677,7 +685,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             Theme = await ResolveThemeAsync(session, phase, cancellationToken),
             Intensity = await ResolveIntensityAsync(session, phase, cancellationToken),
             WritingStyle = await ResolveWritingStyleAsync(session, phaseRoTRow, cancellationToken),
-            EncounterSummaries = [],
+            EncounterSummaries = session.AdaptiveState.EncounterSummaries,
             RecentInteractions = session.Interactions
                 .Where(i => !i.IsExcluded)
                 .TakeLast(session.ContextWindowSize > 0 ? session.ContextWindowSize : 12)
@@ -816,6 +824,24 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             "ResolveIntensity: SessionId={SessionId} Phase={Phase} Base={Base} Offset={Offset} Resolved={Resolved}",
             session.Id, phase, profile.Intensity, offset, resolvedLabel);
 
+        // Resolve the contract Description from the profile matching the phase-adjusted level.
+        // The selected profile's Description stays with its base level; when the phase offset
+        // changes the effective level, the contract text must match the resolved label.
+        var description = profile.Description;
+        var resolvedLevel = (IntensityLevel)adjustedValue;
+        if (resolvedLevel != profile.Intensity)
+        {
+            var allProfiles = await _intensityProfileService.ListAsync(cancellationToken);
+            var matchingProfile = allProfiles.FirstOrDefault(p => p.Intensity == resolvedLevel);
+            if (matchingProfile is not null)
+            {
+                description = matchingProfile.Description;
+                _logger.LogDebug(
+                    "ResolveIntensity: contract text swapped from {SelectedName} to {MatchedName} for phase {Phase}",
+                    profile.Name, matchingProfile.Name, phase);
+            }
+        }
+
         // Resolve scene direction from phase + active theme
         var activeTheme = session.AdaptiveState.PrimaryThemeId is not null
             ? await _rpThemeService?.GetThemeAsync(session.AdaptiveState.PrimaryThemeId, cancellationToken)
@@ -825,7 +851,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         return new ResolvedIntensityData
         {
             BaseLevel = profile.Intensity,
-            Description = profile.Description,
+            Description = description,
             AdaptiveLevel = (IntensityLevel)adjustedValue,
             ResolvedLabel = resolvedLabel,
             SceneDirection = sceneDirection,
