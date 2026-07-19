@@ -48,6 +48,12 @@ public sealed class SessionService : ISessionService
             session.MaxMilestonesToInject,
             session.MaxArcCompletionsToInject,
             session.MaxEncounterCompletionsToInject,
+            session.MaxPromptChars,
+            session.ContextWindowTurns,
+            session.ScenarioCompressionTurnThreshold,
+            session.HistoryFullDetailTurnBand,
+            session.HistoryNarrativeOnlyTurnBand,
+            session.SessionMemoryLongTermTurnThreshold,
             cancellationToken);
     }
 
@@ -214,7 +220,7 @@ public sealed class SessionService : ISessionService
         _logger.LogInformation(SessionLogEvents.PersistedSession, "Persisted session {SessionId} as {SessionType}", id, sessionType);
     }
 
-    private async Task SaveRolePlayAsync(string id, string name, string payloadJson, string? adaptiveStateJson, int? maxMilestonesToInject, int? maxArcCompletionsToInject, int? maxEncounterCompletionsToInject, CancellationToken cancellationToken)
+    private async Task SaveRolePlayAsync(string id, string name, string payloadJson, string? adaptiveStateJson, int? maxMilestonesToInject, int? maxArcCompletionsToInject, int? maxEncounterCompletionsToInject, int? maxPromptChars, int? contextWindowTurns, int? scenarioCompressionTurnThreshold, int? historyFullDetailTurnBand, int? historyNarrativeOnlyTurnBand, int? sessionMemoryLongTermTurnThreshold, CancellationToken cancellationToken)
     {
         await using var connection = new SqliteConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
@@ -224,8 +230,8 @@ public sealed class SessionService : ISessionService
         {
             command.Transaction = tx;
             command.CommandText = """
-                INSERT INTO Sessions (Id, SessionType, Name, PayloadJson, AdaptiveStateJson, MaxMilestonesToInject, MaxArcCompletionsToInject, MaxEncounterCompletionsToInject, UpdatedUtc)
-                VALUES ($id, $sessionType, $name, $payloadJson, $adaptiveStateJson, $maxMilestonesToInject, $maxArcCompletionsToInject, $maxEncounterCompletionsToInject, $updatedUtc)
+                INSERT INTO Sessions (Id, SessionType, Name, PayloadJson, AdaptiveStateJson, MaxMilestonesToInject, MaxArcCompletionsToInject, MaxEncounterCompletionsToInject, MaxPromptChars, ContextWindowTurns, ScenarioCompressionTurnThreshold, HistoryFullDetailTurnBand, HistoryNarrativeOnlyTurnBand, SessionMemoryLongTermTurnThreshold, UpdatedUtc)
+                VALUES ($id, $sessionType, $name, $payloadJson, $adaptiveStateJson, $maxMilestonesToInject, $maxArcCompletionsToInject, $maxEncounterCompletionsToInject, $maxPromptChars, $contextWindowTurns, $scenarioCompressionTurnThreshold, $historyFullDetailTurnBand, $historyNarrativeOnlyTurnBand, $sessionMemoryLongTermTurnThreshold, $updatedUtc)
                 ON CONFLICT(Id) DO UPDATE SET
                     SessionType = excluded.SessionType,
                     Name = excluded.Name,
@@ -234,6 +240,12 @@ public sealed class SessionService : ISessionService
                     MaxMilestonesToInject = excluded.MaxMilestonesToInject,
                     MaxArcCompletionsToInject = excluded.MaxArcCompletionsToInject,
                     MaxEncounterCompletionsToInject = excluded.MaxEncounterCompletionsToInject,
+                    MaxPromptChars = excluded.MaxPromptChars,
+                    ContextWindowTurns = excluded.ContextWindowTurns,
+                    ScenarioCompressionTurnThreshold = excluded.ScenarioCompressionTurnThreshold,
+                    HistoryFullDetailTurnBand = excluded.HistoryFullDetailTurnBand,
+                    HistoryNarrativeOnlyTurnBand = excluded.HistoryNarrativeOnlyTurnBand,
+                    SessionMemoryLongTermTurnThreshold = excluded.SessionMemoryLongTermTurnThreshold,
                     UpdatedUtc = excluded.UpdatedUtc;
                 """;
 
@@ -245,6 +257,12 @@ public sealed class SessionService : ISessionService
             command.Parameters.AddWithValue("$maxMilestonesToInject", (object?)maxMilestonesToInject ?? DBNull.Value);
             command.Parameters.AddWithValue("$maxArcCompletionsToInject", (object?)maxArcCompletionsToInject ?? DBNull.Value);
             command.Parameters.AddWithValue("$maxEncounterCompletionsToInject", (object?)maxEncounterCompletionsToInject ?? DBNull.Value);
+            command.Parameters.AddWithValue("$maxPromptChars", (object?)maxPromptChars ?? DBNull.Value);
+            command.Parameters.AddWithValue("$contextWindowTurns", (object?)contextWindowTurns ?? DBNull.Value);
+            command.Parameters.AddWithValue("$scenarioCompressionTurnThreshold", (object?)scenarioCompressionTurnThreshold ?? DBNull.Value);
+            command.Parameters.AddWithValue("$historyFullDetailTurnBand", (object?)historyFullDetailTurnBand ?? DBNull.Value);
+            command.Parameters.AddWithValue("$historyNarrativeOnlyTurnBand", (object?)historyNarrativeOnlyTurnBand ?? DBNull.Value);
+            command.Parameters.AddWithValue("$sessionMemoryLongTermTurnThreshold", (object?)sessionMemoryLongTermTurnThreshold ?? DBNull.Value);
             command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
 
             await command.ExecuteNonQueryAsync(cancellationToken);

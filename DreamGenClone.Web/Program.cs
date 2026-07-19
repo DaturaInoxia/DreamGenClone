@@ -19,7 +19,8 @@ using DreamGenClone.Web.Application.Export;
 using DreamGenClone.Web.Application.Import;
 using DreamGenClone.Web.Application.Models;
 using DreamGenClone.Web.Application.RolePlay;
-using DreamGenClone.Web.Application.RolePlay.Injectors;
+using DreamGenClone.Web.Application.RolePlay.Prompts;
+using DreamGenClone.Web.Application.RolePlay.Prompts.Slots;
 using DreamGenClone.Web.Application.Scenarios;
 using DreamGenClone.Web.Application.Sessions;
 using DreamGenClone.Web.Application.StoryParser;
@@ -53,6 +54,7 @@ builder.Services.Configure<ScenarioAdaptationOptions>(builder.Configuration.GetS
 builder.Services.Configure<RolePlayDecisionOptions>(builder.Configuration.GetSection(RolePlayDecisionOptions.SectionName));
 builder.Services.Configure<RolePlayFeatureFlagsOptions>(builder.Configuration.GetSection(RolePlayFeatureFlagsOptions.SectionName));
 builder.Services.Configure<RolePlayMemoryOptions>(builder.Configuration.GetSection(RolePlayMemoryOptions.SectionName));
+builder.Services.Configure<RolePlayPromptOptions>(builder.Configuration.GetSection(RolePlayPromptOptions.SectionName));
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
@@ -121,21 +123,44 @@ builder.Services.AddScoped<IThemeMachineEvaluator, ThemeMachineEvaluator>();
 builder.Services.AddScoped<IRPThemeService, RPThemeService>();
 builder.Services.AddScoped<IRolePlayStateRepository, RolePlayStateRepository>();
 
-// B-052: SceneDirectionCoordinator + prompt injectors
-builder.Services.AddScoped<SceneDirectionCoordinator>();
-builder.Services.AddScoped<IPromptInjector, TurnContextInjector>();
-builder.Services.AddScoped<IPromptInjector, TimeLocationInjector>();
-builder.Services.AddScoped<IPromptInjector, BehavioralFrameInjector>();
-builder.Services.AddScoped<IPromptInjector, ThemeContractInjector>();
-builder.Services.AddScoped<IPromptInjector, ThemeAIGuidanceInjector>();
-builder.Services.AddScoped<IPromptInjector, IntensityContractInjector>();
-builder.Services.AddScoped<IPromptInjector, EscalationInjector>();
-builder.Services.AddScoped<IPromptInjector, SceneTimeDirectionInjector>();
-builder.Services.AddScoped<IPromptInjector, ScenePresenceInjector>();
-builder.Services.AddScoped<IPromptInjector, PositionListInjector>();
-builder.Services.AddScoped<IPromptInjector, HusbandAftermathInjector>();
-builder.Services.AddScoped<IPromptInjector, BeatStageInjector>();
-builder.Services.AddScoped<IPromptInjector, FinalDirectiveInjector>();
+// RP Prompt Redesign (001-rp-prompt-redesign): new prompt architecture
+// Phase 1-2: Foundation
+builder.Services.AddScoped<IPhaseRuleOfThumbRepository>(sp =>
+    new PhaseRuleOfThumbRepository(sp.GetRequiredService<IOptions<PersistenceOptions>>().Value.ConnectionString));
+builder.Services.AddScoped<ActorProfileResolver>();
+builder.Services.AddScoped<PromptBudgetEnforcer>();
+builder.Services.AddScoped<RolePlayPromptBuilder>();
+
+// Phase 3 (US1): Zone A slots + Character Data
+builder.Services.AddScoped<IPromptSlot, SceneAnchorSlot>();
+builder.Services.AddScoped<IPromptSlot, ActorAssignmentSlot>();
+builder.Services.AddScoped<IPromptSlot, TurnContextSlot>();
+builder.Services.AddScoped<IPromptSlot, SceneLocationLockSlot>();
+builder.Services.AddScoped<IPromptSlot, CharacterDataSlot>();
+
+// Phase 4 (US6): Zone C directive slots (Theme Contract, Behavioral Frames, Final Instruction)
+builder.Services.AddScoped<IPromptSlot, ThemeContractSlot>();
+builder.Services.AddScoped<IPromptSlot, BehavioralFramesSlot>();
+builder.Services.AddScoped<IPromptSlot, FinalInstructionSlot>();
+
+// Phase 6 (US3): Zone B trimmable slots (Scenario Context, Current Location, Writing Style, Scene Continuity Anchor)
+builder.Services.AddScoped<IPromptSlot, ScenarioContextSlot>();
+builder.Services.AddScoped<IPromptSlot, CurrentLocationSlot>();
+builder.Services.AddScoped<IPromptSlot, WritingStyleSlot>();
+builder.Services.AddScoped<IPromptSlot, SceneContinuityAnchorSlot>();
+
+// Phase 7 (US4): Zone B tiered-history slots (Interaction History, Session Memory)
+builder.Services.AddScoped<IPromptSlot, InteractionHistorySlot>();
+builder.Services.AddScoped<IPromptSlot, SessionMemorySlot>();
+
+// Phase 8 (US5): Zone A conditional World State slot (FR-009, B-062)
+builder.Services.AddScoped<IPromptSlot, WorldStateSlot>();
+
+// Phase 9 (Polish): Zone C remaining slots (Scenario Guidance, Intensity Pacing, User Direction)
+builder.Services.AddScoped<IPromptSlot, ScenarioGuidanceSlot>();
+builder.Services.AddScoped<IPromptSlot, IntensityPacingSlot>();
+builder.Services.AddScoped<IPromptSlot, UserDirectionSlot>();
+
 builder.Services.AddScoped<IEncounterSummaryService, EncounterSummaryService>();
 builder.Services.AddScoped<ISemanticInteractionAnalysisRepository, SemanticInteractionAnalysisRepository>();
 builder.Services.AddScoped<IRolePlayDiagnosticsRepository, RolePlayDiagnosticsRepository>();

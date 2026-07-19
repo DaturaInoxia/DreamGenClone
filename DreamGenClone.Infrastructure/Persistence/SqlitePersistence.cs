@@ -1046,6 +1046,31 @@ public sealed class SqlitePersistence : ISqlitePersistence
             """;
         await metadataCommand.ExecuteNonQueryAsync(cancellationToken);
 
+        // RP Prompt Redesign (001-rp-prompt-redesign): PhaseRuleOfThumb config table with
+        // 6-row seed (Opening, BuildUp, Committed, Approaching, Climax, Reset).
+        var phaseRuleOfThumbCommand = connection.CreateCommand();
+        phaseRuleOfThumbCommand.CommandText = """
+            CREATE TABLE IF NOT EXISTS PhaseRuleOfThumb (
+                Id TEXT NOT NULL PRIMARY KEY,
+                Phase TEXT NOT NULL,
+                RuleOfThumbText TEXT NOT NULL,
+                CreatedUtc TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL,
+                UNIQUE(Phase)
+            );
+
+            INSERT OR REPLACE INTO PhaseRuleOfThumb (Id, Phase, RuleOfThumbText, CreatedUtc, UpdatedUtc)
+            VALUES
+            ('phase-rot-opening',    'Opening',    'Favor atmosphere and sensory grounding. Establish the world, the characters, and the mood before any tension begins. Let the reader settle into the setting.', '2026-07-17T00:00:00Z', '2026-07-17T00:00:00Z'),
+            ('phase-rot-buildup',    'BuildUp',    'Favor atmosphere, tension, and sensory detail over speed. Let desire accumulate before anything explicit happens. Build anticipation through what characters notice, feel, and almost-do.', '2026-07-17T00:00:00Z', '2026-07-17T00:00:00Z'),
+            ('phase-rot-committed',  'Committed',  'Balance atmosphere with forward momentum. The tension is established — now let it simmer. Characters are aware of the dynamic; let that awareness color their interactions without resolution.', '2026-07-17T00:00:00Z', '2026-07-17T00:00:00Z'),
+            ('phase-rot-approaching','Approaching','Tighten the pace. The tension is escalating — let proximity, accidental contact, and charged glances carry the scene. Sensory detail should heighten, not linger. The characters are drawn toward the threshold.', '2026-07-17T00:00:00Z', '2026-07-17T00:00:00Z'),
+            ('phase-rot-climax',     'Climax',     'The culmination is here. Maintain the evocative, sensory-rich style but with urgency and compression. Every sentence should advance the encounter. Do not slow for atmosphere — the atmosphere IS the encounter now.', '2026-07-17T00:00:00Z', '2026-07-17T00:00:00Z'),
+            ('phase-rot-reset',      'Reset',      'Let the emotional aftermath breathe. Sensory detail over action. The intensity has passed — now write the quiet, the guilt, the replay, the return to ordinary texture. The character is alone with what they did.', '2026-07-17T00:00:00Z', '2026-07-17T00:00:00Z');
+            """;
+        await phaseRuleOfThumbCommand.ExecuteNonQueryAsync(cancellationToken);
+        _logger.LogInformation("Ensured PhaseRuleOfThumb table exists with 6 phase rows");
+
         // Always apply V2 decision-point additive schema updates, even when legacy migrations are skipped.
         var ensureDecisionContextSummaryColumn = connection.CreateCommand();
         ensureDecisionContextSummaryColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RolePlayV2DecisionPoints') WHERE name='ContextSummary'";
@@ -1242,6 +1267,30 @@ public sealed class SqlitePersistence : ISqlitePersistence
             ("MaxEncounterCompletionsToInject", "ALTER TABLE Sessions ADD COLUMN MaxEncounterCompletionsToInject INTEGER NULL"),
         };
         foreach (var (column, ddl) in sessionOverrideColumns)
+        {
+            var checkCmd = connection.CreateCommand();
+            checkCmd.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('Sessions') WHERE name='{column}'";
+            var present = Convert.ToInt64(await checkCmd.ExecuteScalarAsync(cancellationToken)) > 0;
+            if (!present)
+            {
+                var alter = connection.CreateCommand();
+                alter.CommandText = ddl;
+                await alter.ExecuteNonQueryAsync(cancellationToken);
+                _logger.LogInformation("Migrated Sessions table: added {Column} column", column);
+            }
+        }
+
+        // RP Prompt Redesign (001-rp-prompt-redesign): 6 new per-session prompt config columns.
+        var promptConfigColumns = new (string Column, string Ddl)[]
+        {
+            ("MaxPromptChars", "ALTER TABLE Sessions ADD COLUMN MaxPromptChars INTEGER NULL"),
+            ("ContextWindowTurns", "ALTER TABLE Sessions ADD COLUMN ContextWindowTurns INTEGER NULL"),
+            ("ScenarioCompressionTurnThreshold", "ALTER TABLE Sessions ADD COLUMN ScenarioCompressionTurnThreshold INTEGER NULL"),
+            ("HistoryFullDetailTurnBand", "ALTER TABLE Sessions ADD COLUMN HistoryFullDetailTurnBand INTEGER NULL"),
+            ("HistoryNarrativeOnlyTurnBand", "ALTER TABLE Sessions ADD COLUMN HistoryNarrativeOnlyTurnBand INTEGER NULL"),
+            ("SessionMemoryLongTermTurnThreshold", "ALTER TABLE Sessions ADD COLUMN SessionMemoryLongTermTurnThreshold INTEGER NULL"),
+        };
+        foreach (var (column, ddl) in promptConfigColumns)
         {
             var checkCmd = connection.CreateCommand();
             checkCmd.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('Sessions') WHERE name='{column}'";

@@ -231,9 +231,8 @@ public sealed class EncounterSummaryJobHandler : IBackgroundJobHandler
     }
 
     /// <summary>
-    /// B-058 Phase 3.1: dedicated prompt for EncounterCompletion records. Instead of
-    /// TakeLast(30) on all interactions, load the actual interactions in the encounter's
-    /// inclusive index range so the LLM has the complete encounter history.
+    /// Rewritten enrichment prompt per contracts/encounter-enrichment-contract.md.
+    /// Captures 6 dimensions (FR-033) using Narrative response as primary source (FR-035).
     /// </summary>
     /// <returns>Null when character has zero interactions in the encounter range — no memory to generate.</returns>
     private static string? BuildEncounterCompletionPrompt(
@@ -241,55 +240,77 @@ public sealed class EncounterSummaryJobHandler : IBackgroundJobHandler
         RolePlaySession session)
     {
         var rangeCount = Math.Max(0, record.EndInteractionIndex - record.StartInteractionIndex + 1);
-        var encounterInteractions = session.Interactions
+        var allEncounterInteractions = session.Interactions
             .Where(x => !x.IsExcluded)
             .Skip(record.StartInteractionIndex)
             .Take(rangeCount)
-            // Filter to this character's own perspective only — prevents POV confusion
-            // where Dean's memory prompt would include Becky's first-person text.
-            .Where(x => string.Equals(x.ActorName, record.CharacterId, StringComparison.OrdinalIgnoreCase))
-            .Select(x => $"[{x.InteractionType}] {x.ActorName}: {x.Content}")
             .ToList();
 
-        if (encounterInteractions.Count == 0)
-            return null; // No interactions = no memory to generate
+        // All interactions in the encounter range (in order) — used as context for enrichment.
+        var allContextText = string.Join("\n", allEncounterInteractions
+            .Where(x => !x.IsExcluded)
+            .Select(x => $"[{x.InteractionType}] {x.ActorName}: {x.Content}"));
 
-        var interactionsText = string.Join("\n", encounterInteractions);
+        // Use all encounter context as the narrative account (FR-035: omniscient view of the encounter).
+        var narrativeResponseText = allContextText.Length > 0
+            ? allContextText
+            : "(no interactions recorded for this encounter)";
 
-        var totalInArc = session.AdaptiveState?.GlobalEncounterCount > 0
-            ? session.AdaptiveState.GlobalEncounterCount
-            : record.EncounterNumber;
+        // Character responses for this character's perspective.
+        var characterResponses = allEncounterInteractions
+            .Where(x => string.Equals(x.ActorName, record.CharacterId, StringComparison.OrdinalIgnoreCase))
+            .Select(x => x.Content?.Trim())
+            .Where(c => !string.IsNullOrWhiteSpace(c))
+            .ToList();
 
-        var characterRole = session.AdaptiveState?.CharacterStats
-            .TryGetValue(record.CharacterId, out var statBlock) == true
-            ? statBlock.CharacterRole ?? "Unknown"
-            : "Unknown";
+        if (characterResponses.Count == 0 && string.IsNullOrWhiteSpace(allContextText))
+            return null; // No content = no memory to generate
 
+        var characterResponseTexts = characterResponses.Count > 0
+            ? string.Join("\n", characterResponses.Select(r => $"[{record.CharacterId}]: {r}"))
+            : $"(no direct responses recorded for {record.CharacterId})";
+
+        // Previous encounter summaries for comparison (dimension 6).
+        var previousSummaries = session.AdaptiveState?.EncounterSummaries
+            ?.Where(s => s.EncounterNumber < record.EncounterNumber
+                      && s.LlmSummary is not null)
+            .OrderBy(s => s.EncounterNumber)
+            .ToList();
+
+        string previousEncounterContext;
+        if (previousSummaries is { Count: > 0 })
+        {
+            var previousLines = previousSummaries.Select(s =>
+                $"Encounter {s.EncounterNumber} ({s.CharacterId}): {s.LlmSummary!.Trim()}");
+            previousEncounterContext = "Previous encounters:\n" + string.Join("\n", previousLines) + "\n";
+        }
+        else
+        {
+            previousEncounterContext = "";
+        }
+
+        // ── Build 6-dimension enrichment prompt per contract ──
         return $"""
-            You are writing a first-person memory for {record.CharacterId}.
-            Describe what they actually experienced, saw, heard, felt, noticed.
+            You are writing a sexual encounter memory for {record.CharacterId} in an ongoing role-play.
 
-            If interactions involve sexual activity, be explicit and vivid:
-            - WHO was involved and their roles
-            - WHAT physical acts occurred and in which SEX POSITIONS (missionary, doggy, cowgirl, standing, etc.)
-            - FEMALE ORGASMS — did she come, how many times, physical evidence
-            - MALE ORGASM — did he ejaculate, and WHERE (inside her, on her body, pulled out, elsewhere)
-            - SENSORY & EMOTIONAL details
+            Encounter {record.EncounterNumber} at {(string.IsNullOrWhiteSpace(record.SceneLocation) ? "unknown location" : record.SceneLocation)}.
 
-            If nothing notable occurred, describe their ordinary experience.
-            For unusual observations (sounds, absences, changes in others),
-            include those naturally.
+            Narrative account (omniscient):
+            {narrativeResponseText}
 
-            Character: {record.CharacterId}
-            Character role: {characterRole}
-            Encounter number: {record.EncounterNumber} of {totalInArc} in this arc
-            Location: {(string.IsNullOrWhiteSpace(record.SceneLocation) ? "unknown location" : record.SceneLocation)}
+            {record.CharacterId}'s responses during this encounter:
+            {characterResponseTexts}
 
-            The interactions involving {record.CharacterId} during this encounter (in order):
-            {interactionsText}
+            {previousEncounterContext}
+            Write a 3-5 sentence first-person memory from {record.CharacterId}'s perspective that captures:
+            1. What happened — the key physical and emotional beats of this encounter
+            2. What they felt — the dominant emotional texture (guilt, thrill, shame, desire, satisfaction)
+            3. What they learned — any sexual self-knowledge gained (what felt good, what surprised them, what they want again)
+            4. What changed — how this encounter shifted the relationship dynamic or their self-image
+            5. What risk was taken — any near-miss, discovery risk, or boundary crossed
+            6. Sexual comparison — if this is not the first encounter, how it compared to previous ones (more confident? more guilty? more physically intense?)
 
-            Write 2-4 sentences in FIRST PERSON ("I...") from {record.CharacterId}'s perspective.
-            Base the memory ONLY on the interactions above.
+            Write in {record.CharacterId}'s voice. Be specific and sensory. This memory will be injected into future prompts to maintain continuity across encounters.
             """;
     }
 

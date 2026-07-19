@@ -63,4 +63,27 @@ public sealed class CreateRolePlaySessionRequest
     /// <c>RolePlayMemoryOptions.MaxEncounterCompletionsToInject</c> default is used.
     /// </summary>
     public int? MaxEncounterCompletionsToInject { get; init; }
+
+    // ── RP Prompt Redesign (001-rp-prompt-redesign): per-session prompt config options ──
+
+    /// <summary>
+    /// Maximum prompt characters before budget enforcement. When null at creation,
+    /// seeded from <c>RolePlayPromptOptions.RecommendedInitialMaxPromptChars</c> (35000).
+    /// </summary>
+    public int? MaxPromptChars { get; init; }
+
+    /// <summary>Turn-based history window for prompt building. When null, seeded from options.</summary>
+    public int? ContextWindowTurns { get; init; }
+
+    /// <summary>Turn band after which scenario context compresses. When null, seeded from options.</summary>
+    public int? ScenarioCompressionTurnThreshold { get; init; }
+
+    /// <summary>Recent turns with full detail. When null, seeded from options.</summary>
+    public int? HistoryFullDetailTurnBand { get; init; }
+
+    /// <summary>Middle turns with narrative-only summaries. When null, seeded from options.</summary>
+    public int? HistoryNarrativeOnlyTurnBand { get; init; }
+
+    /// <summary>Turn threshold for long-term memory compression. When null, seeded from options.</summary>
+    public int? SessionMemoryLongTermTurnThreshold { get; init; }
 }

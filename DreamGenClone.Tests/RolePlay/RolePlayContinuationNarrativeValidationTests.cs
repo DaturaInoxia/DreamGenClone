@@ -6,8 +6,10 @@ using DreamGenClone.Application.StoryAnalysis.Models;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Domain.StoryAnalysis;
+using DreamGenClone.Infrastructure.Persistence;
 using DreamGenClone.Web.Application.Models;
 using DreamGenClone.Web.Application.RolePlay;
+using DreamGenClone.Web.Application.RolePlay.Prompts;
 using DreamGenClone.Web.Application.Scenarios;
 using DreamGenClone.Web.Domain.Models;
 using DreamGenClone.Web.Domain.RolePlay;
@@ -750,7 +752,9 @@ public sealed class RolePlayContinuationNarrativeValidationTests
             new NullSteeringProfileService(),
             new StubScenarioGuidanceContextFactory(),
             debugSink,
-                new SceneDirectionCoordinator([], NullLogger<SceneDirectionCoordinator>.Instance),
+                new RolePlayPromptBuilder([], new PromptBudgetEnforcer(NullLogger<PromptBudgetEnforcer>.Instance), NullLogger<RolePlayPromptBuilder>.Instance),
+                new ActorProfileResolver(),
+                new StubPhaseRuleOfThumbRepository(),
                 NullLogger<RolePlayContinuationService>.Instance,
                 diagnosticsService: null,
                 rpThemeService: rpThemeService);
@@ -813,6 +817,15 @@ public sealed class RolePlayContinuationNarrativeValidationTests
         public Task<(bool Success, string Message)> CheckModelHealthAsync(string providerBaseUrl, string chatCompletionsPath, int timeoutSeconds, string? decryptedApiKey, string modelIdentifier, CancellationToken cancellationToken = default)
             => Task.FromResult((true, "ok"));
 
+    }
+
+    private sealed class StubPhaseRuleOfThumbRepository : IPhaseRuleOfThumbRepository
+    {
+        public Task<PhaseRuleOfThumbRow?> GetByPhaseAsync(string phase, CancellationToken ct = default)
+            => Task.FromResult<PhaseRuleOfThumbRow?>(new PhaseRuleOfThumbRow(
+                $"phase-rot-{phase.ToLowerInvariant()}",
+                phase,
+                $"Rule of Thumb for {phase}"));
     }
 
     private sealed class StubModelResolutionService : IModelResolutionService

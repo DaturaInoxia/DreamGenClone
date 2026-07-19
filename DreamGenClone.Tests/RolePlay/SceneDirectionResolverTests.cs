@@ -23,8 +23,10 @@ public sealed class SceneDirectionResolverTests
     public void NormalizePhase_Climax_ReturnsClimaxDefaults()
     {
         var result = SceneDirectionResolver.Resolve("Climax", null, ClimaxSubPhase.None, PromptIntent.Message);
-        Assert.Equal(ScenePacing.Fast, result.Pacing);
+        Assert.Equal(ScenePacing.Medium, result.Pacing);
         Assert.Equal(TimeShiftPolicy.Medium, result.TimeShift);
+        Assert.Equal(BeatScope.Short, result.BeatScope);
+        Assert.Equal(NarrativeGranularity.Meso, result.Granularity);
     }
 
     [Fact]
@@ -33,7 +35,8 @@ public sealed class SceneDirectionResolverTests
         var result = SceneDirectionResolver.Resolve("nonexistent", null, ClimaxSubPhase.None, PromptIntent.Message);
         Assert.Equal(ScenePacing.Medium, result.Pacing);
         Assert.Equal(BeatScope.Short, result.BeatScope);
-        Assert.Equal(TimeShiftPolicy.Small, result.TimeShift);
+        Assert.Equal(TimeShiftPolicy.Medium, result.TimeShift);
+        Assert.Equal(NarrativeGranularity.Meso, result.Granularity);
     }
 
     // ── Phase defaults ──────────────────────────────────────────
@@ -44,26 +47,30 @@ public sealed class SceneDirectionResolverTests
         var result = SceneDirectionResolver.Resolve("BuildUp", null, ClimaxSubPhase.None, PromptIntent.Message);
         Assert.Equal(ScenePacing.Medium, result.Pacing);
         Assert.Equal(BeatScope.Short, result.BeatScope);
-        Assert.Equal(TimeShiftPolicy.Small, result.TimeShift);
+        Assert.Equal(TimeShiftPolicy.Medium, result.TimeShift);
         Assert.Equal(DeepeningPolicy.None, result.Deepening);
+        Assert.Equal(NarrativeGranularity.Meso, result.Granularity);
     }
 
     [Fact]
     public void NoTheme_NoMarkers_Climax_ReturnsPhaseDefaults()
     {
         var result = SceneDirectionResolver.Resolve("Climax", null, ClimaxSubPhase.None, PromptIntent.Message);
-        Assert.Equal(ScenePacing.Fast, result.Pacing);
+        Assert.Equal(ScenePacing.Medium, result.Pacing);
+        Assert.Equal(BeatScope.Short, result.BeatScope);
         Assert.Equal(TimeShiftPolicy.Medium, result.TimeShift);
         Assert.Equal(DeepeningPolicy.None, result.Deepening);
+        Assert.Equal(NarrativeGranularity.Meso, result.Granularity);
     }
 
     [Fact]
     public void NoTheme_NoMarkers_Reset_ReturnsPhaseDefaults()
     {
         var result = SceneDirectionResolver.Resolve("Reset", null, ClimaxSubPhase.None, PromptIntent.Message);
-        Assert.Equal(ScenePacing.Slow, result.Pacing);
-        Assert.Equal(BeatScope.Single, result.BeatScope);
-        Assert.Equal(TimeShiftPolicy.None, result.TimeShift);
+        Assert.Equal(ScenePacing.Medium, result.Pacing);
+        Assert.Equal(BeatScope.Short, result.BeatScope);
+        Assert.Equal(TimeShiftPolicy.Medium, result.TimeShift);
+        Assert.Equal(NarrativeGranularity.Meso, result.Granularity);
     }
 
     // ── Theme markers ───────────────────────────────────────────
@@ -209,7 +216,7 @@ public sealed class SceneDirectionResolverTests
             ]
         };
         var result = SceneDirectionResolver.Resolve("Climax", theme, ClimaxSubPhase.None, PromptIntent.Message);
-        Assert.Equal(ScenePacing.Fast, result.Pacing); // Climax default, not BuildUp's slow
+        Assert.Equal(ScenePacing.Medium, result.Pacing); // Climax default, not BuildUp's slow
     }
 
     // ── Conflicting markers: Deepening overrides pacing for position 2+ ──

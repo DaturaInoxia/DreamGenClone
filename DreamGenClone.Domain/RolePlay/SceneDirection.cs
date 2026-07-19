@@ -46,6 +46,31 @@ public enum TimeShiftPolicy
 }
 
 /// <summary>
+/// Controls the narrative density within a single response — how much story time and
+/// action the model should cover in one generation. Orthogonal to time-shifting
+/// (which controls when the next scene starts) and beat scope (which controls how
+/// many turns to spend in a moment).
+/// </summary>
+public enum NarrativeGranularity
+{
+    /// <summary>One response = one moment. Deep sensory/emotional detail.
+    /// Use for tense, pivotal, or intimate scenes where every heartbeat counts.</summary>
+    Micro = 0,
+
+    /// <summary>One response = one scene/beat. Natural scene-length narration.
+    /// Covers a breakfast, a beach visit, an evening conversation. Default for most phases.</summary>
+    Meso = 1,
+
+    /// <summary>One response = a day or significant span. Morning to evening arc.
+    /// Summarize routines; focus on the moments that matter. Use for transitions and aftermath.</summary>
+    Macro = 2,
+
+    /// <summary>One response = multiple days to weeks. Selected highlights across time.
+    /// "Over the next few days..." "By the weekend..." Skip the ordinary, keep the meaningful.</summary>
+    Montage = 3
+}
+
+/// <summary>
 /// Controls whether subsequent actors in a turn should deepen existing beats from their
 /// POV rather than advancing to new beats or positions.
 /// </summary>
@@ -86,4 +111,5 @@ public sealed record SceneDirection
     public ClimaxSubPhase ClimaxSubPhase { get; init; } = ClimaxSubPhase.None;
     public DeepeningPolicy Deepening { get; init; } = DeepeningPolicy.None;
     public bool RequireScenePresence { get; init; } = false;
+    public NarrativeGranularity Granularity { get; init; } = NarrativeGranularity.Meso;
 }
