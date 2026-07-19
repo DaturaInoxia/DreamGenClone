@@ -788,8 +788,10 @@ public sealed class SlotContractTests
             interactions.Add(new RolePlayInteraction
             {
                 Id = $"ixn-{i}",
-                ActorName = i % 2 == 0 ? "Becky" : "Dean",
-                Content = $"Interaction {i} content. Some detailed text here for testing.",
+                ActorName = i == 6 ? "Narrative" : (i % 2 == 0 ? "Becky" : "Dean"),
+                Content = i == 6
+                    ? "The scene settled into a quiet tension, the weight of earlier words still hanging between them like humidity before a storm."
+                    : $"Interaction {i} content. Some detailed text here for testing.",
                 IsExcluded = false,
             });
         }
@@ -815,8 +817,8 @@ public sealed class SlotContractTests
         Assert.Contains("Interaction 9", text);
         Assert.Contains("Interaction 10", text);
 
-        // Layer 2 (narrative-only): interactions 4-6 should be compressed.
-        Assert.Contains("Earlier Interactions", text);
+        // Layer 2 removed — Narrative fragments delegated to Session Memory (Slot 10).
+        Assert.DoesNotContain("Earlier Interactions", text);
     }
 
     [Fact]

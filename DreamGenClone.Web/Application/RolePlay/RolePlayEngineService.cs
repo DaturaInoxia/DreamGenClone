@@ -2829,6 +2829,27 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         return RolePlayScenePresenceHelper.IsActorInScene(session, actorName) ?? false;
     }
 
+    /// <summary>
+    /// Returns the set of character names that have appeared in at least one interaction
+    /// (including persona), used to scope encounter summary generation to active characters only.
+    /// </summary>
+    private static HashSet<string> GetActiveCharacterNames(RolePlaySession session)
+    {
+        var active = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var ix in session.Interactions)
+        {
+            if (!ix.IsExcluded && !string.IsNullOrWhiteSpace(ix.ActorName)
+                && !string.Equals(ix.ActorName, "Narrative", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(ix.ActorName, "Instruction", StringComparison.OrdinalIgnoreCase))
+            {
+                active.Add(ix.ActorName.Trim());
+            }
+        }
+        if (!string.IsNullOrWhiteSpace(session.PersonaName))
+            active.Add(session.PersonaName.Trim());
+        return active;
+    }
+
     private static bool ShouldIncludePersonaInAutoRotation(RolePlaySession session, string personaName, string? currentSceneLocation)
     {
         var personaInScene = IsActorInCurrentScene(session, personaName, currentSceneLocation);
@@ -3855,10 +3876,8 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                             if (commitScenario is not null)
                             {
                                 var allowed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                                foreach (var c in commitScenario.Characters)
-                                    if (!string.IsNullOrWhiteSpace(c.Name)) allowed.Add(c.Name);
-                                if (!string.IsNullOrWhiteSpace(session.PersonaName))
-                                    allowed.Add(session.PersonaName);
+                                foreach (var name in GetActiveCharacterNames(session))
+                                    allowed.Add(name);
                                 commitAllowedIds = allowed;
                             }
                         }
@@ -4059,13 +4078,8 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                         if (scenarioForSummary is not null)
                         {
                             var allowed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                            foreach (var c in scenarioForSummary.Characters)
-                            {
-                                if (!string.IsNullOrWhiteSpace(c.Name))
-                                    allowed.Add(c.Name);
-                            }
-                            if (!string.IsNullOrWhiteSpace(session.PersonaName))
-                                allowed.Add(session.PersonaName);
+                            foreach (var name in GetActiveCharacterNames(session))
+                                allowed.Add(name);
                             allowedCharacterIds = allowed;
                         }
                     }
@@ -5437,11 +5451,8 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             var scenario = await _scenarioService.GetScenarioAsync(session.ScenarioId);
             if (scenario is not null)
             {
-                foreach (var c in scenario.Characters)
-                {
-                    if (!string.IsNullOrWhiteSpace(c.Name))
-                        allowed.Add(c.Name);
-                }
+                foreach (var name in GetActiveCharacterNames(session))
+                    allowed.Add(name);
             }
         }
 

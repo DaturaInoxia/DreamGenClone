@@ -43,14 +43,6 @@ public sealed class InteractionHistorySlot : IPromptSlot
                 "no hardcoded default is permitted (FR-012a).");
         }
 
-        var narrativeOnlyBand = session.HistoryNarrativeOnlyTurnBand;
-        if (narrativeOnlyBand is null or <= 0)
-        {
-            throw new InvalidOperationException(
-                $"MissingPromptConfig: session '{session.Id}' HistoryNarrativeOnlyTurnBand must be a positive integer; " +
-                "no hardcoded default is permitted (FR-012a).");
-        }
-
         var contextWindowTurns = session.ContextWindowTurns;
         if (contextWindowTurns is null or <= 0)
         {
@@ -73,8 +65,8 @@ public sealed class InteractionHistorySlot : IPromptSlot
         var reversed = Enumerable.Reverse(interactions).ToList();
 
         var fullDetailCount = Math.Min(fullDetailBand.Value, reversed.Count);
-        var narrativeOnlyStart = fullDetailCount;
-        var narrativeOnlyEnd = Math.Min(fullDetailCount + narrativeOnlyBand.Value, reversed.Count);
+        // Layer 2 (middle band) removed — Narrative fragments carried no useful signal.
+        // Long-term continuity is handled by Slot 10 (Session Memory, FR-016).
         // total window cap handled by ContextWindowTurns — anything beyond is omitted.
 
         // ── Layer 1: Full detail (most recent interactions) ──
@@ -89,25 +81,9 @@ public sealed class InteractionHistorySlot : IPromptSlot
             }
         }
 
-        // ── Layer 2: Narrative-only summaries (1-2 lines each) ──
-        var narrativeItems = reversed.Skip(narrativeOnlyStart).Take(narrativeOnlyEnd - narrativeOnlyStart).Reverse().ToList();
-        if (narrativeItems.Count > 0)
-        {
-            sb.AppendLine("  Earlier Interactions:");
-            foreach (var interaction in narrativeItems)
-            {
-                var content = interaction.Content?.Trim() ?? "";
-                // Compress to ~80 chars max for narrative-only summary.
-                var summary = content.Length > 80
-                    ? content[..80] + "..."
-                    : content;
-                sb.AppendLine($"    [{interaction.ActorName}]: {summary}");
-            }
-        }
-
         _logger.LogDebug(
-            "InteractionHistorySlot: SessionId={SessionId} FullDetail={FullDetail} NarrativeOnly={NarrativeOnly} Total={Total}",
-            session.Id, fullDetailItems.Count, narrativeItems.Count, interactions.Count);
+            "InteractionHistorySlot: SessionId={SessionId} FullDetail={FullDetail} Total={Total}",
+            session.Id, fullDetailItems.Count, interactions.Count);
 
         return Task.FromResult(sb.ToString().TrimEnd());
     }
