@@ -8,10 +8,22 @@
 
 ## 1. Overview
 
+This plan builds on the foundation established by the [001-rp-prompt-redesign](../spec.md) feature, which defined the 17-slot prompt architecture, the actor profile system, and the token budget contract. The current prompt structure — Slots 8 (WritingStyle), 15 (IntensityPacing), and 17 (FinalInstruction) — was implemented per that spec. This plan addresses gaps discovered during implementation and usage.
+
 Three related problems:
 1. The app's writing-related terminology is confused — table names, model names, and prompt labels don't align with writer-standard terms
 2. Some `ToneProfiles` (Intensity) contain prose-style language; one profile (`Atmospheric`) is entirely miscategorized
 3. The Final Writing Instruction (Slot 17) is hardcoded with no POV awareness, no component breakdown, no configuration
+
+### Relationship to 001-rp-prompt-redesign
+
+This plan is a targeted amendment to the slot architecture defined in `001-rp-prompt-redesign`. The 17-slot registry, zone system, budget enforcement, and actor profile resolution remain canonical. This plan changes:
+- Content distribution across Slots 8, 12, 15, and 17
+- Data model for `NarrativeSettings`, `SteeringProfile`
+- Prompt-facing terminology (labels only, no code renames)
+- FR-014, FR-018, FR-021, FR-023 (spec amendments)
+
+All other aspects of `001-rp-prompt-redesign` — including its research decisions (R1-R6), data model, contracts, and implementation architecture — remain authoritative and unchanged.
 
 ---
 
