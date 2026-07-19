@@ -2,6 +2,10 @@
 
 These rules are mandatory for all coding tasks in this repository.
 
+## Hard Rule: Never Use Git Restore
+- Do NOT use `git restore`, `git checkout --`, `git reset --hard`, or any equivalent to revert files.
+- All fixes are forward-only code changes. If a change was wrong, fix it with another forward code edit.
+
 ## Hard Rule: No Fallbacks For Gate Values
 - For roleplay narrative gate thresholds, always use configured source values.
 - Do not introduce fallback/default/backup threshold logic.
@@ -18,6 +22,12 @@ These rules are mandatory for all coding tasks in this repository.
 - Treat explicit user constraints as requirements, not suggestions.
 - Do not re-introduce behavior the user explicitly removed.
 - If a requested behavior conflicts with existing code patterns, follow the user requirement and surface the conflict in plain language.
+
+## Hard Rule: No RP Engine Code Changes Without Plan + Confirmation
+- Before ANY code change to RP engine files (`RolePlayEngineService.cs`, `RolePlayContinuationService.cs`, prompt slots, etc.), present: root cause, proposed fix with file list, and blast radius.
+- Wait for explicit "go ahead" or "yes" before touching any code.
+- This applies even when the fix seems obvious.
+- If the root cause is a config/data issue (not a code bug), state that and do not change code.
 
 ## Required Verification Before Declaring A Fix
 - Show where the value source is resolved.

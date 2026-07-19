@@ -26,16 +26,20 @@ public sealed class SceneAnchorSlot : IPromptSlot
 
     public Task<string> WriteAsync(PromptBuildContext context, CancellationToken ct)
     {
-        var location = context.Session.AdaptiveState.CurrentSceneLocation;
-        var locationLabel = !string.IsNullOrWhiteSpace(location) ? location
-            : context.Scenario.DefaultStartingLocationName ?? "Unknown location";
         var phase = context.Phase;
 
         _logger.LogDebug(
-            "SceneAnchorSlot: SessionId={SessionId} Location={Location} Phase={Phase}",
-            context.Session.Id, locationLabel, phase);
+            "SceneAnchorSlot: SessionId={SessionId} Phase={Phase}",
+            context.Session.Id, phase);
 
-        var text = $"Current scene: {locationLabel} — {phase} phase.";
+        // DEBUG: Commented out — "Current scene: X" location line may be causing
+        // character location lock by telling the model where a character "is" instead
+        // of letting the character's own writing drive location detection.
+        // var location = context.Session.AdaptiveState.CurrentSceneLocation;
+        // var locationLabel = !string.IsNullOrWhiteSpace(location) ? location
+        //     : context.Scenario.DefaultStartingLocationName ?? "Unknown location";
+        // var text = $"Current scene: {locationLabel} — {phase} phase.";
+        var text = $"Phase: {phase}.";
         return Task.FromResult(text);
     }
 

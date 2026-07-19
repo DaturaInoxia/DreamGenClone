@@ -26,39 +26,41 @@ public sealed class CurrentLocationSlot : IPromptSlot
 
     public Task<string> WriteAsync(PromptBuildContext context, CancellationToken ct)
     {
-        var session = context.Session;
-        var currentScene = session.AdaptiveState?.CurrentSceneLocation;
+        // var currentScene = session.AdaptiveState?.CurrentSceneLocation;  // DEBUG: commented out
         var scenario = context.Scenario;
 
         var sb = new StringBuilder();
         sb.AppendLine("Current Location:");
 
-        // ── Current scene: full name + full description ──
-        var currentLocationName = !string.IsNullOrWhiteSpace(currentScene)
-            ? currentScene.Trim()
-            : context.Scenario.DefaultStartingLocationName;
+        // DEBUG: Commented out — "Scene: X" with full layout description tells the model
+        // which specific location it "is" at, overriding character-written location cues.
+        // Characters should drive location through their own writing; the prompt should
+        // provide world awareness without dictating position.
+        //
+        // var currentLocationName = !string.IsNullOrWhiteSpace(currentScene)
+        //     ? currentScene.Trim()
+        //     : context.Scenario.DefaultStartingLocationName;
+        //
+        // if (!string.IsNullOrWhiteSpace(currentLocationName))
+        // {
+        //     sb.AppendLine($"  Scene: {currentLocationName}");
+        //     var currentLocationData = scenario.Locations
+        //         .FirstOrDefault(l => string.Equals(l.Name, currentLocationName, StringComparison.OrdinalIgnoreCase));
+        //     if (currentLocationData is not null && !string.IsNullOrWhiteSpace(currentLocationData.Description))
+        //     {
+        //         sb.AppendLine($"  {currentLocationData.Description!.Trim()}");
+        //     }
+        // }
+        // else
+        // {
+        //     sb.AppendLine("  Scene: Unknown");
+        // }
 
-        if (!string.IsNullOrWhiteSpace(currentLocationName))
-        {
-            sb.AppendLine($"  Scene: {currentLocationName}");
+        // Keep other locations for world awareness (no current-scene designation).
 
-            // Find the full description for the current location from the scenario locations list.
-            var currentLocationData = scenario.Locations
-                .FirstOrDefault(l => string.Equals(l.Name, currentLocationName, StringComparison.OrdinalIgnoreCase));
-            if (currentLocationData is not null && !string.IsNullOrWhiteSpace(currentLocationData.Description))
-            {
-                sb.AppendLine($"  {currentLocationData.Description!.Trim()}");
-            }
-        }
-        else
-        {
-            sb.AppendLine("  Scene: Unknown");
-        }
-
-        // ── Other locations: full name + full description ──
+        // ── All locations: full name + full description ──
         var otherLocations = scenario.Locations
-            .Where(l => !string.IsNullOrWhiteSpace(l.Name) &&
-                        !string.Equals(l.Name.Trim(), currentLocationName, StringComparison.OrdinalIgnoreCase))
+            .Where(l => !string.IsNullOrWhiteSpace(l.Name))
             .ToList();
 
         if (otherLocations.Count > 0)

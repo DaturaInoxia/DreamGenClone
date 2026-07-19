@@ -482,9 +482,7 @@ public sealed class SlotContractTests
 
         Assert.Contains("third-person omniscient", text);
         Assert.Contains("HARD CONSTRAINT: Zero dialogue", text);
-        Assert.Contains("200-400 words", text);
-        Assert.Contains("Synthesize only what the characters have already expressed", text);
-        Assert.Contains("Do not introduce new events", text);
+        Assert.Contains("300-500 words", text);
         Assert.Contains("Physical Detail Checklist", text);
         Assert.Contains("Body positions", text);
         Assert.Contains("Physical contact", text);

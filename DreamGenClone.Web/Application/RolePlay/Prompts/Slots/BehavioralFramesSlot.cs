@@ -44,7 +44,7 @@ public sealed class BehavioralFramesSlot : IPromptSlot
         var presentIds = new HashSet<string>(profile.PresentCharacterIds, StringComparer.OrdinalIgnoreCase);
 
         var sb = new StringBuilder();
-        sb.AppendLine("Character Behavioral Frames (yields to theme contract):");
+        sb.AppendLine("Character Behavioral Frames:");
 
         // ── Behavioral frames ──
         if (frames is { Count: > 0 })
