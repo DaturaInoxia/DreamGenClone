@@ -685,6 +685,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             Theme = await ResolveThemeAsync(session, phase, cancellationToken),
             Intensity = await ResolveIntensityAsync(session, phase, cancellationToken),
             WritingStyle = await ResolveWritingStyleAsync(session, phaseRoTRow, cancellationToken),
+            NarrativeTone = ResolveNarrativeTone(scenario),
             EncounterSummaries = session.AdaptiveState.EncounterSummaries,
             RecentInteractions = session.Interactions
                 .Where(i => !i.IsExcluded)
@@ -758,16 +759,31 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         var example = string.Empty;
         var profileDefaultRoT = string.Empty;
         var styleHint = string.Empty;
+        var profileName = string.Empty;
+        var immersionDirective = string.Empty;
+        var actionDirective = string.Empty;
+        var wordTargetMin = 0;
+        var wordTargetMax = 0;
+        var narrativeWordTargetMin = 0;
+        var narrativeWordTargetMax = 0;
 
         var selectedStyleProfileId = session.SelectedSteeringProfileId;
+        SteeringProfile? styleProfile = null;
         if (!string.IsNullOrWhiteSpace(selectedStyleProfileId))
         {
-            var styleProfile = await _steeringProfileService.GetAsync(selectedStyleProfileId, cancellationToken);
+            styleProfile = await _steeringProfileService.GetAsync(selectedStyleProfileId, cancellationToken);
             if (styleProfile is not null)
             {
                 desc = styleProfile.Description ?? string.Empty;
                 example = styleProfile.Example ?? string.Empty;
                 profileDefaultRoT = styleProfile.RuleOfThumb ?? string.Empty;
+                profileName = styleProfile.Name ?? string.Empty;
+                immersionDirective = styleProfile.ImmersionDirective ?? string.Empty;
+                actionDirective = styleProfile.ActionDirective ?? string.Empty;
+                wordTargetMin = styleProfile.WordTargetMin;
+                wordTargetMax = styleProfile.WordTargetMax;
+                narrativeWordTargetMin = styleProfile.NarrativeWordTargetMin;
+                narrativeWordTargetMax = styleProfile.NarrativeWordTargetMax;
             }
         }
 
@@ -792,6 +808,26 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                 "MissingPromptConfig: WritingStyle.ProfileDefaultRuleOfThumb is missing or empty. FR-014 requires a profile default Rule-of-Thumb.");
         }
 
+        // Fail-fast on missing new SteeringProfile fields (FR-006)
+        if (styleProfile is not null)
+        {
+            if (string.IsNullOrWhiteSpace(styleProfile.ImmersionDirective))
+                throw new InvalidOperationException(
+                    $"MissingPromptConfig: SteeringProfile '{styleProfile.Name}' (Id={styleProfile.Id}) is missing required field 'ImmersionDirective'. FR-006 requires this field to be populated. No hardcoded fallback is permitted. Populate the field via the Style Profile management UI or a DB update.");
+
+            if (string.IsNullOrWhiteSpace(styleProfile.ActionDirective))
+                throw new InvalidOperationException(
+                    $"MissingPromptConfig: SteeringProfile '{styleProfile.Name}' (Id={styleProfile.Id}) is missing required field 'ActionDirective'. FR-006 requires this field to be populated. No hardcoded fallback is permitted. Populate the field via the Style Profile management UI or a DB update.");
+
+            if (styleProfile.WordTargetMin <= 0 || styleProfile.WordTargetMax <= 0 || styleProfile.WordTargetMin >= styleProfile.WordTargetMax)
+                throw new InvalidOperationException(
+                    $"MissingPromptConfig: SteeringProfile '{styleProfile.Name}' (Id={styleProfile.Id}) has invalid WordTarget range (Min={styleProfile.WordTargetMin}, Max={styleProfile.WordTargetMax}). FR-006 requires a valid range. No hardcoded fallback is permitted. Populate the field via the Style Profile management UI or a DB update.");
+
+            if (styleProfile.NarrativeWordTargetMin <= 0 || styleProfile.NarrativeWordTargetMax <= 0 || styleProfile.NarrativeWordTargetMin >= styleProfile.NarrativeWordTargetMax)
+                throw new InvalidOperationException(
+                    $"MissingPromptConfig: SteeringProfile '{styleProfile.Name}' (Id={styleProfile.Id}) has invalid NarrativeWordTarget range (Min={styleProfile.NarrativeWordTargetMin}, Max={styleProfile.NarrativeWordTargetMax}). FR-006 requires a valid range. No hardcoded fallback is permitted. Populate the field via the Style Profile management UI or a DB update.");
+        }
+
         return new ResolvedWritingStyleData
         {
             Description = desc,
@@ -799,7 +835,52 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             ProfileDefaultRuleOfThumb = profileDefaultRoT,
             PhaseRuleOfThumb = phaseRoT.RuleOfThumbText,
             StyleHint = styleHint,
+            ProfileName = profileName,
+            ImmersionDirective = immersionDirective,
+            ActionDirective = actionDirective,
+            WordTargetMin = wordTargetMin,
+            WordTargetMax = wordTargetMax,
+            NarrativeWordTargetMin = narrativeWordTargetMin,
+            NarrativeWordTargetMax = narrativeWordTargetMax,
         };
+    }
+
+    /// <summary>
+    /// Resolves narrative tone data using 3-tier logic (FR-008):
+    /// new Tone → legacy NarrativeTone → null (silent omit).
+    /// </summary>
+    private static ResolvedNarrativeToneData ResolveNarrativeTone(
+        DreamGenClone.Web.Domain.Scenarios.Scenario? scenario)
+    {
+        if (scenario?.Narrative is null)
+            return new ResolvedNarrativeToneData();
+
+        var narrative = scenario.Narrative;
+
+        // Tier 1: new decomposed fields
+        if (!string.IsNullOrWhiteSpace(narrative.Tone))
+        {
+            return new ResolvedNarrativeToneData
+            {
+                Tone = narrative.Tone.Trim(),
+                Register = narrative.Register?.Trim(),
+                Focus = narrative.Focus?.Trim(),
+            };
+        }
+
+        // Tier 2: fall back to legacy NarrativeTone
+        if (!string.IsNullOrWhiteSpace(narrative.NarrativeTone))
+        {
+            return new ResolvedNarrativeToneData
+            {
+                Tone = narrative.NarrativeTone.Trim(),
+                Register = null,
+                Focus = null,
+            };
+        }
+
+        // Tier 3: silent omit
+        return new ResolvedNarrativeToneData();
     }
 
     private async Task<ResolvedIntensityData> ResolveIntensityAsync(

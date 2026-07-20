@@ -100,7 +100,15 @@ public sealed class SlotContractTests
                 ProfileDefaultRuleOfThumb = "Default RoT",
                 PhaseRuleOfThumb = "Phase RoT",
                 StyleHint = "Test hint",
+                ProfileName = "TestProfile",
+                ImmersionDirective = "Stay in character.",
+                ActionDirective = "Respond naturally.",
+                WordTargetMin = 200,
+                WordTargetMax = 400,
+                NarrativeWordTargetMin = 300,
+                NarrativeWordTargetMax = 500,
             },
+            NarrativeTone = new ResolvedNarrativeToneData(),
             EncounterSummaries = [],
             RecentInteractions = recentInteractions ?? [],
             CharacterDetails = null,
@@ -627,40 +635,24 @@ public sealed class SlotContractTests
     // ── T060: WritingStyleSlot (FR-014, FR-036) ─────────────────
 
     [Fact]
-    public async Task WritingStyleSlot_OutputsTimelessDescriptionAndExample()
+    public async Task WritingStyleSlot_OutputsReferenceLine()
     {
         var slot = new WritingStyleSlot(NullLogger<WritingStyleSlot>.Instance);
         var context = CreateContext();
-        context = context with
-        {
-            WritingStyle = new ResolvedWritingStyleData
-            {
-                Description = "A timeless prose style.",
-                Example = "She walked through the door.",
-                ProfileDefaultRuleOfThumb = "Default RoT text",
-                PhaseRuleOfThumb = "Phase RoT text for BuildUp",
-                StyleHint = "Tone: warm and intimate",
-            },
-        };
 
         Assert.True(slot.ShouldWrite(context));
 
         var text = await slot.WriteAsync(context, CancellationToken.None);
 
-        Assert.Contains("Writing Style:", text);
-        Assert.Contains("timeless prose style", text);
-        Assert.Contains("She walked through the door", text);
-        Assert.Contains("Phase Rule of Thumb", text);
-        Assert.Contains("Phase RoT text for BuildUp", text);
-        Assert.Contains("Profile Default", text);
-        Assert.Contains("Default RoT text", text);
-        Assert.Contains("Style Hint", text);
-        Assert.Contains("warm and intimate", text);
+        Assert.Contains("Writing direction: see Writing Instruction below.", text);
     }
 
     [Fact]
-    public async Task WritingStyleSlot_FailsFast_OnMissingPhaseRuleOfThumb()
+    public async Task WritingStyleSlot_NoFailFastOnMissingFields()
     {
+        // After consolidation, WritingStyleSlot no longer fail-fasts on missing
+        // PhaseRuleOfThumb or ProfileDefault — validation moved to the builder (FR-006).
+        // The slot silently emits its reference line regardless of field values.
         var slot = new WritingStyleSlot(NullLogger<WritingStyleSlot>.Instance);
         var context = CreateContext();
         context = context with
@@ -669,41 +661,22 @@ public sealed class SlotContractTests
             {
                 Description = "Timeless prose.",
                 Example = "Example prose.",
-                ProfileDefaultRuleOfThumb = "Default RoT",
-                PhaseRuleOfThumb = "", // Empty — should fail fast
+                ProfileDefaultRuleOfThumb = "", // Empty — no fail-fast at slot level
+                PhaseRuleOfThumb = "",           // Empty — no fail-fast at slot level
                 StyleHint = "Hint",
+                ProfileName = "TestProfile",
+                ImmersionDirective = "Stay in character.",
+                ActionDirective = "Respond naturally.",
+                WordTargetMin = 200,
+                WordTargetMax = 400,
+                NarrativeWordTargetMin = 300,
+                NarrativeWordTargetMax = 500,
             },
         };
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            slot.WriteAsync(context, CancellationToken.None));
+        var text = await slot.WriteAsync(context, CancellationToken.None);
 
-        Assert.Contains("PhaseRuleOfThumb", ex.Message);
-        Assert.Contains("FR-014", ex.Message);
-    }
-
-    [Fact]
-    public async Task WritingStyleSlot_FailsFast_OnMissingProfileDefault()
-    {
-        var slot = new WritingStyleSlot(NullLogger<WritingStyleSlot>.Instance);
-        var context = CreateContext();
-        context = context with
-        {
-            WritingStyle = new ResolvedWritingStyleData
-            {
-                Description = "Timeless prose.",
-                Example = "Example prose.",
-                ProfileDefaultRuleOfThumb = "", // Empty — should fail fast
-                PhaseRuleOfThumb = "Phase RoT",
-                StyleHint = "Hint",
-            },
-        };
-
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            slot.WriteAsync(context, CancellationToken.None));
-
-        Assert.Contains("ProfileDefaultRuleOfThumb", ex.Message);
-        Assert.Contains("FR-014", ex.Message);
+        Assert.Contains("Writing direction: see Writing Instruction below.", text);
     }
 
     [Fact]
@@ -1101,7 +1074,7 @@ public sealed class SlotContractTests
     // ── T089: IntensityPacingSlot (FR-021, FR-036) ────────────
 
     [Fact]
-    public async Task IntensityPacingSlot_OutputsMergedBlock()
+    public async Task IntensityPacingSlot_OutputsPositionsOnly()
     {
         var slot = new IntensityPacingSlot(NullLogger<IntensityPacingSlot>.Instance);
         var context = CreateContext();
@@ -1125,12 +1098,14 @@ public sealed class SlotContractTests
 
         var text = await slot.WriteAsync(context, CancellationToken.None);
 
-        Assert.Contains("Intensity & Pacing:", text);
-        Assert.Contains("Passionate", text);
-        Assert.Contains("High emotional charge", text);
-        Assert.Contains("Scene pacing:", text);
-        Assert.Contains("Medium pace", text);
+        // After consolidation, only available positions remain (structural data).
+        // Heat Level, contract, and pacing have moved to Slot 17.
+        Assert.DoesNotContain("Intensity & Pacing:", text);
+        Assert.DoesNotContain("Passionate", text);
+        Assert.DoesNotContain("Scene pacing:", text);
         Assert.Contains("Available positions:", text);
+        Assert.Contains("Missionary", text);
+        Assert.Contains("Cowgirl", text);
     }
 
     [Fact]

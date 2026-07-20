@@ -5,9 +5,9 @@ using Microsoft.Extensions.Logging;
 namespace DreamGenClone.Web.Application.RolePlay.Prompts.Slots;
 
 /// <summary>
-/// Slot 12, Zone C — Theme contract: active theme + phase guidance + directives + steering rank.
-/// Appears exactly once per FR-018, FR-027. Never trimmed.
-/// Absorbs ThemeContractInjector + ThemeAIGuidanceInjector.
+/// Slot 12, Zone C — Theme contract: active theme + directives + AI guidance + hard constraints + steering rank.
+/// Phase guidance has moved to FinalInstructionSlot (Slot 17) as "Scene Direction."
+/// Never trimmed.
 /// </summary>
 public sealed class ThemeContractSlot : IPromptSlot
 {
@@ -39,24 +39,6 @@ public sealed class ThemeContractSlot : IPromptSlot
                 sb.AppendLine(theme.ActiveTheme.Description.Trim());
             }
         }
-
-        // ── Phase guidance prose ──
-        // MOVED: Phase guidance now appears in FinalInstructionSlot (Slot 17) right before
-        // the writing instruction, giving it maximum recency priority. The model reads it
-        // last, making it the most influential directive for what should happen next.
-        // To restore here: uncomment the block below and remove from FinalInstructionSlot.
-        /*
-        if (theme.PhaseGuidanceLines.Count > 0)
-        {
-            sb.AppendLine();
-            sb.AppendLine("Phase Guidance:");
-            foreach (var line in theme.PhaseGuidanceLines)
-            {
-                if (!string.IsNullOrWhiteSpace(line))
-                    sb.AppendLine($"  {line.Trim()}");
-            }
-        }
-        */
 
         // ── Theme directives ──
         if (theme.PhaseDirectiveLines.Count > 0)

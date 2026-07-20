@@ -41,6 +41,7 @@ public sealed record PromptBuildContext
     public required ResolvedThemeData Theme { get; init; }
     public required ResolvedIntensityData Intensity { get; init; }
     public required ResolvedWritingStyleData WritingStyle { get; init; }
+    public required ResolvedNarrativeToneData NarrativeTone { get; init; }
 
     // ── Memory ─────────────────────────────────────────────────
     public required IReadOnlyList<EncounterSummaryRecord> EncounterSummaries { get; init; }
@@ -144,7 +145,7 @@ public sealed record ResolvedWritingStyleData
     /// <summary>Timeless example — always kept, never trimmed.</summary>
     public required string Example { get; init; }
 
-    /// <summary>Writing style profile's default Rule-of-Thumb. Fail-fast if missing (FR-014).</summary>
+    /// <summary>Writing style profile's default Rule-of-Thumb (Voice). Fail-fast if missing (FR-014).</summary>
     public required string ProfileDefaultRuleOfThumb { get; init; }
 
     /// <summary>Phase-specific Rule-of-Thumb from PhaseRuleOfThumb table. Fail-fast if missing (FR-014).</summary>
@@ -152,6 +153,48 @@ public sealed record ResolvedWritingStyleData
 
     /// <summary>Merged prose style + tone hint.</summary>
     public required string StyleHint { get; init; }
+
+    // ── New SteeringProfile fields (FR-005, FR-006) ────────────────
+    // Fail-fast at prompt build time if empty/zero.
+
+    /// <summary>Style profile name (for "Prose Style: {Name} — {Description}" label).</summary>
+    public required string ProfileName { get; init; }
+
+    /// <summary>Immersion rule for Character variant. Fail-fast if empty (FR-006).</summary>
+    public required string ImmersionDirective { get; init; }
+
+    /// <summary>Action rule for Character variant. Fail-fast if empty (FR-006).</summary>
+    public required string ActionDirective { get; init; }
+
+    /// <summary>Minimum word count for Character variant. Fail-fast if &lt;= 0 (FR-006).</summary>
+    public required int WordTargetMin { get; init; }
+
+    /// <summary>Maximum word count for Character variant. Fail-fast if &lt;= 0 (FR-006).</summary>
+    public required int WordTargetMax { get; init; }
+
+    /// <summary>Minimum word count for Narrative variant. Fail-fast if &lt;= 0 (FR-006).</summary>
+    public required int NarrativeWordTargetMin { get; init; }
+
+    /// <summary>Maximum word count for Narrative variant. Fail-fast if &lt;= 0 (FR-006).</summary>
+    public required int NarrativeWordTargetMax { get; init; }
+}
+
+// ── Narrative tone sub-record (FR-007, FR-008) ──────────────────
+
+/// <summary>
+/// Resolved narrative tone data from <see cref="NarrativeSettings"/>.
+/// Uses 3-tier resolution: new Tone → legacy NarrativeTone → null.
+/// </summary>
+public sealed record ResolvedNarrativeToneData
+{
+    /// <summary>Resolved tone (mood/attitude). Null if all sources empty.</summary>
+    public string? Tone { get; init; }
+
+    /// <summary>Language complexity. Null if not configured.</summary>
+    public string? Register { get; init; }
+
+    /// <summary>Subject emphasis. Null if not configured.</summary>
+    public string? Focus { get; init; }
 }
 
 // ── Character detail sub-record ────────────────────────────────

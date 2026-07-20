@@ -5,9 +5,10 @@ using Microsoft.Extensions.Logging;
 namespace DreamGenClone.Web.Application.RolePlay.Prompts.Slots;
 
 /// <summary>
-/// Slot 17, Zone C — Final writing instruction: POV, word target, variant constraints.
-/// Last content before generation per FR-023. Never trimmed.
-/// Absorbs FinalDirectiveInjector.
+/// Slot 17, Zone C — Consolidated writing instruction: all writing direction in one block.
+/// Scene Direction (Character only, when phase active) positioned BEFORE Writing Instruction.
+/// Writing Instruction is the absolute last content the model reads (per R1).
+/// Never trimmed.
 /// </summary>
 public sealed class FinalInstructionSlot : IPromptSlot
 {
@@ -30,22 +31,110 @@ public sealed class FinalInstructionSlot : IPromptSlot
         var variant = context.Variant;
         var profile = context.ActorProfile;
         var isNarrative = variant == PromptVariant.Narrative || profile.Kind == ActorProfileKind.Narrative;
+        var style = context.WritingStyle;
+        var intensity = context.Intensity;
+        var theme = context.Theme;
+        var narrativeTone = context.NarrativeTone;
 
         var sb = new StringBuilder();
 
+        // ── Scene Direction (Character only, before Writing Instruction per R1) ──
+        if (!isNarrative && theme.PhaseGuidanceLines.Count > 0)
+        {
+            sb.AppendLine("Scene Direction:");
+            foreach (var line in theme.PhaseGuidanceLines)
+            {
+                if (!string.IsNullOrWhiteSpace(line))
+                    sb.AppendLine($"  {line.Trim()}");
+            }
+            sb.AppendLine();
+        }
+
+        // ── Writing Instruction (consolidated 9-component block) ──
+        sb.AppendLine("Writing Instruction:");
+
+        // 1. Prose Style
+        if (!string.IsNullOrWhiteSpace(style.ProfileName))
+        {
+            sb.Append($"  Prose Style: {style.ProfileName}");
+            if (!string.IsNullOrWhiteSpace(style.Description))
+                sb.Append($" — {style.Description.Trim()}");
+            sb.AppendLine();
+        }
+        else if (!string.IsNullOrWhiteSpace(style.Description))
+        {
+            sb.AppendLine($"  Prose Style: {style.Description.Trim()}");
+        }
+
+        // 2. Voice
+        if (!string.IsNullOrWhiteSpace(style.ProfileDefaultRuleOfThumb))
+            sb.AppendLine($"  Voice: {style.ProfileDefaultRuleOfThumb.Trim()}");
+
+        // 3. Tone (+ Register)
+        if (!string.IsNullOrWhiteSpace(narrativeTone?.Tone))
+        {
+            sb.Append($"  Tone: {narrativeTone.Tone.Trim()}");
+            if (!string.IsNullOrWhiteSpace(narrativeTone.Register))
+                sb.Append($" — {narrativeTone.Register.Trim()}");
+            sb.AppendLine();
+        }
+
+        // 4. Focus
+        if (!string.IsNullOrWhiteSpace(narrativeTone?.Focus))
+            sb.AppendLine($"  Focus: {narrativeTone.Focus.Trim()}");
+
+        // 5. Heat Level
+        if (!string.IsNullOrWhiteSpace(intensity.ResolvedLabel))
+        {
+            sb.Append($"  Heat Level: {intensity.ResolvedLabel}");
+            if (!string.IsNullOrWhiteSpace(intensity.Description))
+                sb.Append($" — {intensity.Description.Trim()}");
+            sb.AppendLine();
+        }
+
+        // 6. Pacing
+        if (intensity.SceneDirection is not null)
+        {
+            var pacingText = intensity.SceneDirection.Pacing switch
+            {
+                ScenePacing.Slow => "Slow pace — linger on sensory detail, internal reflection, and atmosphere. Let moments stretch.",
+                ScenePacing.Fast => "Fast pace — drive toward the next beat. Keep actions crisp and dialogue forward-moving.",
+                _ => "Medium pace — advance the scene naturally, not rushed, not stalled. Let moments breathe without dragging."
+            };
+            sb.AppendLine($"  Pacing: {pacingText}");
+        }
+
+        // 7. POV
         if (isNarrative)
         {
-            // ── Narrative variant: third-person omniscient scene synthesis ──
-            // Narrative summarizes what characters already wrote in this turn — it does NOT
-            // invent new events, advance the plot independently, or introduce unplayed character
-            // actions. Characters drive the story; Narrative synthesizes their interactions
-            // into a unified third-person scene description.
-            sb.AppendLine("Writing Instruction:");
-            sb.AppendLine("  Write in third-person omniscient point of view.");
+            sb.AppendLine("  POV: Write in third-person omniscient point of view.");
+        }
+        else
+        {
+            var actorName = profile.ActorName;
+            sb.AppendLine($"  POV: Write in first-person from {actorName}'s point of view.");
+        }
+
+        // 8. Immersion (Character only)
+        if (!isNarrative && !string.IsNullOrWhiteSpace(style.ImmersionDirective))
+            sb.AppendLine($"  Immersion: {style.ImmersionDirective.Trim()}");
+
+        // 9. Word Target
+        if (isNarrative)
+        {
+            sb.AppendLine($"  Word Target: Target {style.NarrativeWordTargetMin}-{style.NarrativeWordTargetMax} words of scene synthesis.");
+        }
+        else
+        {
+            sb.AppendLine($"  Word Target: Target {style.WordTargetMin}-{style.WordTargetMax} words.");
+        }
+
+        // 10. Action (Character) or Narrative Constraints
+        if (isNarrative)
+        {
             sb.AppendLine("  HARD CONSTRAINT: Zero dialogue. No character speech, no thoughts quoted, no inner monologue.");
             sb.AppendLine("  Synthesize only what the characters have already expressed in this turn.");
             sb.AppendLine("  Do not introduce new events, advance the plot, or have characters take new actions.");
-            sb.AppendLine("  Target 200-400 words of scene synthesis.");
             sb.AppendLine();
             sb.AppendLine("  Physical Detail Checklist (MUST cover from what was described):");
             sb.AppendLine("    - Body positions and spatial arrangement");
@@ -54,30 +143,9 @@ public sealed class FinalInstructionSlot : IPromptSlot
             sb.AppendLine("    - Rhythm and pacing of movement");
             sb.AppendLine("    - Environmental atmosphere and ambient details");
         }
-        else
+        else if (!string.IsNullOrWhiteSpace(style.ActionDirective))
         {
-            // ── Phase guidance directive (moved from ThemeContractSlot for recency priority) ──
-            // Characters get the phase directive to drive story progression.
-            // Narrative does NOT get this — it summarizes, characters advance the story.
-            var theme = context.Theme;
-            if (theme.PhaseGuidanceLines.Count > 0)
-            {
-                sb.AppendLine("Phase Directive (incorporate into this response):");
-                foreach (var line in theme.PhaseGuidanceLines)
-                {
-                    if (!string.IsNullOrWhiteSpace(line))
-                        sb.AppendLine($"  {line.Trim()}");
-                }
-                sb.AppendLine();
-            }
-
-            // ── Character variant: first-person POV ──
-            var actorName = profile.ActorName;
-            sb.AppendLine("Writing Instruction:");
-            sb.AppendLine($"  Write in first-person from {actorName}'s point of view.");
-            sb.AppendLine("  Stay inside this character's perceptions, thoughts, feelings, and physical sensations.");
-            sb.AppendLine("  Target 200-400 words.");
-            sb.AppendLine("  Respond to the scene naturally.");
+            sb.AppendLine($"  Action: {style.ActionDirective.Trim()}");
         }
 
         _logger.LogDebug(
