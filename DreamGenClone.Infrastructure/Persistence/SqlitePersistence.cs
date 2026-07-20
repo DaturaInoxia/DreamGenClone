@@ -4282,8 +4282,8 @@ public sealed class SqlitePersistence : ISqlitePersistence
 
         var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO StyleProfiles (Id, Name, Description, Example, RuleOfThumb, ThemeAffinities, EscalatingThemeIds, StatBias, CreatedUtc, UpdatedUtc)
-            VALUES ($id, $name, $description, $example, $ruleOfThumb, $themeAffinities, $escalatingThemeIds, $statBias, $createdUtc, $updatedUtc)
+            INSERT INTO StyleProfiles (Id, Name, Description, Example, RuleOfThumb, ThemeAffinities, EscalatingThemeIds, StatBias, CreatedUtc, UpdatedUtc, ImmersionDirective, ActionDirective, WordTargetMin, WordTargetMax, NarrativeWordTargetMin, NarrativeWordTargetMax)
+            VALUES ($id, $name, $description, $example, $ruleOfThumb, $themeAffinities, $escalatingThemeIds, $statBias, $createdUtc, $updatedUtc, $immersionDirective, $actionDirective, $wordTargetMin, $wordTargetMax, $narrativeWordTargetMin, $narrativeWordTargetMax)
             ON CONFLICT(Id) DO UPDATE SET
                 Name = $name,
                 Description = $description,
@@ -4292,7 +4292,13 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 ThemeAffinities = $themeAffinities,
                 EscalatingThemeIds = $escalatingThemeIds,
                 StatBias = $statBias,
-                UpdatedUtc = $updatedUtc;
+                UpdatedUtc = $updatedUtc,
+                ImmersionDirective = $immersionDirective,
+                ActionDirective = $actionDirective,
+                WordTargetMin = $wordTargetMin,
+                WordTargetMax = $wordTargetMax,
+                NarrativeWordTargetMin = $narrativeWordTargetMin,
+                NarrativeWordTargetMax = $narrativeWordTargetMax;
             """;
 
         command.Parameters.AddWithValue("$id", profile.Id);
@@ -4305,6 +4311,12 @@ public sealed class SqlitePersistence : ISqlitePersistence
         command.Parameters.AddWithValue("$statBias", JsonSerializer.Serialize(profile.StatBias));
         command.Parameters.AddWithValue("$createdUtc", profile.CreatedUtc.ToString("O"));
         command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
+        command.Parameters.AddWithValue("$immersionDirective", profile.ImmersionDirective ?? string.Empty);
+        command.Parameters.AddWithValue("$actionDirective", profile.ActionDirective ?? string.Empty);
+        command.Parameters.AddWithValue("$wordTargetMin", profile.WordTargetMin);
+        command.Parameters.AddWithValue("$wordTargetMax", profile.WordTargetMax);
+        command.Parameters.AddWithValue("$narrativeWordTargetMin", profile.NarrativeWordTargetMin);
+        command.Parameters.AddWithValue("$narrativeWordTargetMax", profile.NarrativeWordTargetMax);
 
         await command.ExecuteNonQueryAsync(cancellationToken);
         _logger.LogInformation("Style profile persisted: {StyleProfileId}, Name={Name}", profile.Id, profile.Name);
@@ -4316,7 +4328,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
         await connection.OpenAsync(cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, Name, Description, Example, RuleOfThumb, ThemeAffinities, EscalatingThemeIds, StatBias, CreatedUtc, UpdatedUtc FROM StyleProfiles WHERE Id = $id";
+        command.CommandText = "SELECT Id, Name, Description, Example, RuleOfThumb, ThemeAffinities, EscalatingThemeIds, StatBias, CreatedUtc, UpdatedUtc, ImmersionDirective, ActionDirective, WordTargetMin, WordTargetMax, NarrativeWordTargetMin, NarrativeWordTargetMax FROM StyleProfiles WHERE Id = $id";
         command.Parameters.AddWithValue("$id", id);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -4334,7 +4346,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
         await connection.OpenAsync(cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, Name, Description, Example, RuleOfThumb, ThemeAffinities, EscalatingThemeIds, StatBias, CreatedUtc, UpdatedUtc FROM StyleProfiles ORDER BY Name";
+        command.CommandText = "SELECT Id, Name, Description, Example, RuleOfThumb, ThemeAffinities, EscalatingThemeIds, StatBias, CreatedUtc, UpdatedUtc, ImmersionDirective, ActionDirective, WordTargetMin, WordTargetMax, NarrativeWordTargetMin, NarrativeWordTargetMax FROM StyleProfiles ORDER BY Name";
 
         var results = new List<SteeringProfile>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -4373,7 +4385,13 @@ public sealed class SqlitePersistence : ISqlitePersistence
             EscalatingThemeIds = JsonSerializer.Deserialize<List<string>>(reader.GetString(6)) ?? [],
             StatBias = JsonSerializer.Deserialize<Dictionary<string, int>>(reader.GetString(7)) ?? new(StringComparer.OrdinalIgnoreCase),
             CreatedUtc = DateTime.TryParse(reader.GetString(8), out var created) ? created : DateTime.UtcNow,
-            UpdatedUtc = DateTime.TryParse(reader.GetString(9), out var updated) ? updated : DateTime.UtcNow
+            UpdatedUtc = DateTime.TryParse(reader.GetString(9), out var updated) ? updated : DateTime.UtcNow,
+            ImmersionDirective = reader.FieldCount > 10 ? reader.GetString(10) : string.Empty,
+            ActionDirective = reader.FieldCount > 11 ? reader.GetString(11) : string.Empty,
+            WordTargetMin = reader.FieldCount > 12 ? reader.GetInt32(12) : 0,
+            WordTargetMax = reader.FieldCount > 13 ? reader.GetInt32(13) : 0,
+            NarrativeWordTargetMin = reader.FieldCount > 14 ? reader.GetInt32(14) : 0,
+            NarrativeWordTargetMax = reader.FieldCount > 15 ? reader.GetInt32(15) : 0,
         };
     }
 

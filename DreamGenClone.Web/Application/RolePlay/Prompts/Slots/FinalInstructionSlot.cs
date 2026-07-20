@@ -1,5 +1,6 @@
 using System.Text;
 using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Web.Domain.RolePlay;
 using Microsoft.Extensions.Logging;
 
 namespace DreamGenClone.Web.Application.RolePlay.Prompts.Slots;
@@ -104,7 +105,7 @@ public sealed class FinalInstructionSlot : IPromptSlot
             sb.AppendLine($"  Pacing: {pacingText}");
         }
 
-        // 7. POV
+        // 7. POV — derived from the actor's CharacterPerspectiveMode (FR-011)
         if (isNarrative)
         {
             sb.AppendLine("  POV: Write in third-person omniscient point of view.");
@@ -112,7 +113,19 @@ public sealed class FinalInstructionSlot : IPromptSlot
         else
         {
             var actorName = profile.ActorName;
-            sb.AppendLine($"  POV: Write in first-person from {actorName}'s point of view.");
+            var povText = profile.PerspectiveMode switch
+            {
+                CharacterPerspectiveMode.FirstPersonInternalMonologue =>
+                    $"Write in first-person from {actorName}'s point of view with internal monologue.",
+                CharacterPerspectiveMode.FirstPersonExternalOnly =>
+                    $"Write in first-person from {actorName}'s point of view without internal monologue.",
+                CharacterPerspectiveMode.ThirdPersonLimited =>
+                    $"Write in third-person limited from {actorName}'s point of view.",
+                CharacterPerspectiveMode.ThirdPersonExternalOnly =>
+                    $"Write in third-person from {actorName}'s external actions only.",
+                _ => $"Write in first-person from {actorName}'s point of view."
+            };
+            sb.AppendLine($"  POV: {povText}");
         }
 
         // 8. Immersion (Character only)

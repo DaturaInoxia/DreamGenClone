@@ -47,11 +47,12 @@ public sealed class CharacterBehavioralFrameGenerator : IBehavioralFrameGenerato
             }
 
             var label = character is not null
-                ? $"{character.Name} ({character.Role})"
+                ? $"{character.Name} ({character.Role}) — {profile.Name}"
                 : characterId;
 
             // Resolve runtime encounter stats: try display label first, then characterId, then bare character name.
             // CharacterStats is keyed by character name ("Becky"), not label ("Becky (Wife)") or character GUID.
+            // Note: runtime stat lookup uses simple label (without profile name suffix).
             CharacterStatProfileV2? runtimeSnapshot = null;
             if (characterRuntimeStats is not null)
             {

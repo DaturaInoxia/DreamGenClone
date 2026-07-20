@@ -9146,10 +9146,28 @@ private void CloseInteractionInfo()
                                         </select>
                                     </div>
                                     <div class="rw-scenario-field">
-                                        <label class="rw-scenario-field-label">Narrative Tone</label>
-                                        <input class="rw-settings-input" placeholder="e.g. slow-burn, tense, playful"
+                                        <label class="rw-scenario-field-label">Narrative Tone (legacy)</label>
+                                        <input class="rw-settings-input" placeholder="Deprecated — use Tone/Register/Focus below"
                                                value="@_loadedScenario.Narrative.NarrativeTone"
-                                               @onchange="@(e => { _loadedScenario.Narrative.NarrativeTone = e.Value?.ToString(); MarkScenarioDirty(); })" />
+                                               disabled />
+                                    </div>
+                                    <div class="rw-scenario-field">
+                                        <label class="rw-scenario-field-label">Tone</label>
+                                        <input class="rw-settings-input" placeholder="e.g. erotic, conversational, playful"
+                                               value="@_loadedScenario.Narrative.Tone"
+                                               @onchange="@(e => { _loadedScenario.Narrative.Tone = e.Value?.ToString(); MarkScenarioDirty(); })" />
+                                    </div>
+                                    <div class="rw-scenario-field">
+                                        <label class="rw-scenario-field-label">Register</label>
+                                        <input class="rw-settings-input" placeholder="e.g. low to moderate language complexity"
+                                               value="@_loadedScenario.Narrative.Register"
+                                               @onchange="@(e => { _loadedScenario.Narrative.Register = e.Value?.ToString(); MarkScenarioDirty(); })" />
+                                    </div>
+                                    <div class="rw-scenario-field">
+                                        <label class="rw-scenario-field-label">Focus</label>
+                                        <input class="rw-settings-input" placeholder="e.g. physical pleasure"
+                                               value="@_loadedScenario.Narrative.Focus"
+                                               @onchange="@(e => { _loadedScenario.Narrative.Focus = e.Value?.ToString(); MarkScenarioDirty(); })" />
                                     </div>
                                     <div class="rw-scenario-field">
                                         <label class="rw-scenario-field-label">Prose Style</label>

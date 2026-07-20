@@ -239,8 +239,27 @@
                         </div>
 
                         <div class="mb-3">
-                            <label class="form-label">Narrative Tone</label>
-                            <input type="text" class="form-control" @bind="CurrentScenario.Narrative.NarrativeTone" placeholder="e.g., Dark, Humorous, Serious" />
+                            <label class="form-label">Narrative Tone (deprecated — use Tone below)</label>
+                            <input type="text" class="form-control" @bind="CurrentScenario.Narrative.NarrativeTone" placeholder="Legacy combined tone string" disabled />
+                            <div class="form-text text-muted">Deprecated. Use the separate Tone, Register, and Focus fields below.</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Tone</label>
+                            <input type="text" class="form-control" @bind="CurrentScenario.Narrative.Tone" placeholder="e.g., Erotic, conversational, playful" />
+                            <div class="form-text">Mood/attitude of the narrative.</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Register</label>
+                            <input type="text" class="form-control" @bind="CurrentScenario.Narrative.Register" placeholder="e.g., Low to moderate language complexity" />
+                            <div class="form-text">Language complexity level.</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Focus</label>
+                            <input type="text" class="form-control" @bind="CurrentScenario.Narrative.Focus" placeholder="e.g., Physical pleasure" />
+                            <div class="form-text">Subject emphasis for the narrative.</div>
                         </div>
                         
                         <div class="mb-3">

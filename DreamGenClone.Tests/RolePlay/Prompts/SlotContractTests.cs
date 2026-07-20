@@ -56,6 +56,7 @@ public sealed class SlotContractTests
             Kind = actorKind,
             ActorName = actorName,
             ActorRole = actorRole,
+            PerspectiveMode = CharacterPerspectiveMode.FirstPersonInternalMonologue,
             PresentCharacterIds = characters?.Select(c => c.Id).ToList() ?? [],
             AllCharacterIds = characters?.Select(c => c.Id).ToList() ?? [],
         };

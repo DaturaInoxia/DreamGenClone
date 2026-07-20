@@ -525,6 +525,18 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
 
         var actorProfile = _actorProfileResolver.Resolve(actor, customActorName, intent, session, allScenarioCharacters);
 
+        // ── Resolve PerspectiveMode from the scenario character roster (FR-011) ──
+        // The ActorProfileResolver uses minimal ScenarioCharacter records without PerspectiveMode.
+        // We resolve it here from the full domain Character objects.
+        if (actorProfile.Kind != ActorProfileKind.Narrative && scenario?.Characters is not null)
+        {
+            var matchedChar = FindCharacterForProfile(actorProfile, scenario.Characters);
+            if (matchedChar is not null)
+            {
+                actorProfile = actorProfile with { PerspectiveMode = matchedChar.PerspectiveMode };
+            }
+        }
+
         // ── Resolve phase ──
         var phase = session.AdaptiveState.CurrentPhase.ToString();
 
@@ -698,6 +710,31 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
 
         // ── Delegate to builder ──
         return await _promptBuilder.BuildAsync(context, cancellationToken);
+    }
+
+    /// <summary>
+    /// Matches an actor profile to a scenario character by name for PerspectiveMode resolution (FR-011).
+    /// </summary>
+    private static DreamGenClone.Web.Domain.Scenarios.Character? FindCharacterForProfile(
+        ActorProfile profile,
+        IReadOnlyList<DreamGenClone.Web.Domain.Scenarios.Character> characters)
+    {
+        // Try exact name match first (actor name is in "Name (Role)" format from resolver)
+        var actorName = profile.ActorName;
+        foreach (var c in characters)
+        {
+            if (c.Name is not null && actorName.Contains(c.Name, StringComparison.OrdinalIgnoreCase))
+                return c;
+        }
+
+        // Fallback: match by role
+        foreach (var c in characters)
+        {
+            if (string.Equals(c.Role, profile.ActorRole, StringComparison.OrdinalIgnoreCase))
+                return c;
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -949,13 +986,42 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
 
         // Fallback: if PrimaryThemeId isn't synced from the V2 tracker yet,
         // use the first active theme from ThemeScores (set by theme machine).
-        if (string.IsNullOrWhiteSpace(themeId) && session.AdaptiveState.ThemeScores is { Count: > 0 })
+        // During Opening phase, themes are not selected yet — skip fallback.
+        if (string.IsNullOrWhiteSpace(themeId)
+            && !string.Equals(phase, nameof(NarrativePhase.Opening), StringComparison.OrdinalIgnoreCase)
+            && session.AdaptiveState.ThemeScores is { Count: > 0 })
         {
             themeId = session.AdaptiveState.ThemeScores.Keys.First();
         }
 
         if (string.IsNullOrWhiteSpace(themeId))
+        {
+            // During Opening, populate potential arcs from the session's theme selections
+            // so the model knows what narrative directions are available.
+            if (string.Equals(phase, nameof(NarrativePhase.Opening), StringComparison.OrdinalIgnoreCase)
+                && session.SessionThemeSelections is { Count: > 0 })
+            {
+                var themes = new List<RPTheme>(session.SessionThemeSelections.Count);
+                foreach (var s in session.SessionThemeSelections)
+                {
+                    var t = await _rpThemeService.GetThemeAsync(s.ThemeId, cancellationToken);
+                    if (t is not null) themes.Add(t);
+                }
+
+                if (themes.Count > 0)
+                {
+                    return new ResolvedThemeData
+                    {
+                        AvailableArcLabels = themes
+                            .Where(t => !string.IsNullOrWhiteSpace(t.Label))
+                            .Select(t => (t.Label.Trim(), t.Description?.Trim() ?? string.Empty))
+                            .ToList(),
+                    };
+                }
+            }
+
             return new ResolvedThemeData();
+        }
 
         var theme = await _rpThemeService.GetThemeAsync(themeId, cancellationToken);
         if (theme is null)

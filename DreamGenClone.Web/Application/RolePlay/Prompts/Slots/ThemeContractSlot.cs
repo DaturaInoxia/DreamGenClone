@@ -39,6 +39,20 @@ public sealed class ThemeContractSlot : IPromptSlot
                 sb.AppendLine(theme.ActiveTheme.Description.Trim());
             }
         }
+        // ── Opening phase: Potential Arcs (session profile themes, no commitment) ──
+        else if (theme.AvailableArcLabels is { Count: > 0 })
+        {
+            sb.AppendLine("Potential Arcs (available narrative directions — none selected yet):");
+            foreach (var arc in theme.AvailableArcLabels)
+            {
+                sb.Append($"  {arc.Label}");
+                if (!string.IsNullOrWhiteSpace(arc.Description))
+                {
+                    sb.Append($" — {arc.Description}");
+                }
+                sb.AppendLine();
+            }
+        }
 
         // ── Theme directives ──
         if (theme.PhaseDirectiveLines.Count > 0)

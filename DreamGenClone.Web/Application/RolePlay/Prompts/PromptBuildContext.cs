@@ -123,6 +123,9 @@ public sealed record ResolvedThemeData
     public IReadOnlyList<string> PhaseDirectiveLines { get; init; } = [];
     public IReadOnlyList<RPThemeAIGuidanceNote> AiGuidanceNotes { get; init; } = [];
     public IReadOnlyList<string> HardConstraintLines { get; init; } = [];
+
+    /// <summary>Available theme arcs for Opening phase (Label, Description). Null when no themes available or phase is not Opening.</summary>
+    public IReadOnlyList<(string Label, string Description)>? AvailableArcLabels { get; init; }
 }
 
 public sealed record ResolvedIntensityData

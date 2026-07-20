@@ -283,8 +283,8 @@ public sealed class StoryAnalysisFacade
         => _intensityProfileService.DeleteAsync(id, cancellationToken);
 
     // Steering Profiles
-    public Task<SteeringProfile> CreateSteeringProfileAsync(string name, string description, string example, string ruleOfThumb, Dictionary<string, int>? themeAffinities = null, List<string>? escalatingThemeIds = null, Dictionary<string, int>? statBias = null, CancellationToken cancellationToken = default)
-        => _steeringProfileService.CreateAsync(name, description, example, ruleOfThumb, themeAffinities, escalatingThemeIds, statBias, cancellationToken);
+    public Task<SteeringProfile> CreateSteeringProfileAsync(string name, string description, string example, string ruleOfThumb, Dictionary<string, int>? themeAffinities = null, List<string>? escalatingThemeIds = null, Dictionary<string, int>? statBias = null, string immersionDirective = "", string actionDirective = "", int wordTargetMin = 0, int wordTargetMax = 0, int narrativeWordTargetMin = 0, int narrativeWordTargetMax = 0, CancellationToken cancellationToken = default)
+        => _steeringProfileService.CreateAsync(name, description, example, ruleOfThumb, themeAffinities, escalatingThemeIds, statBias, immersionDirective, actionDirective, wordTargetMin, wordTargetMax, narrativeWordTargetMin, narrativeWordTargetMax, cancellationToken);
 
     public Task<List<SteeringProfile>> ListSteeringProfilesAsync(CancellationToken cancellationToken = default)
         => _steeringProfileService.ListAsync(cancellationToken);
@@ -292,8 +292,8 @@ public sealed class StoryAnalysisFacade
     public Task<SteeringProfile?> GetSteeringProfileAsync(string id, CancellationToken cancellationToken = default)
         => _steeringProfileService.GetAsync(id, cancellationToken);
 
-    public Task<SteeringProfile?> UpdateSteeringProfileAsync(string id, string name, string description, string example, string ruleOfThumb, Dictionary<string, int>? themeAffinities = null, List<string>? escalatingThemeIds = null, Dictionary<string, int>? statBias = null, CancellationToken cancellationToken = default)
-        => _steeringProfileService.UpdateAsync(id, name, description, example, ruleOfThumb, themeAffinities, escalatingThemeIds, statBias, cancellationToken);
+    public Task<SteeringProfile?> UpdateSteeringProfileAsync(string id, string name, string description, string example, string ruleOfThumb, Dictionary<string, int>? themeAffinities = null, List<string>? escalatingThemeIds = null, Dictionary<string, int>? statBias = null, string immersionDirective = "", string actionDirective = "", int wordTargetMin = 0, int wordTargetMax = 0, int narrativeWordTargetMin = 0, int narrativeWordTargetMax = 0, CancellationToken cancellationToken = default)
+        => _steeringProfileService.UpdateAsync(id, name, description, example, ruleOfThumb, themeAffinities, escalatingThemeIds, statBias, immersionDirective, actionDirective, wordTargetMin, wordTargetMax, narrativeWordTargetMin, narrativeWordTargetMax, cancellationToken);
 
     public Task<bool> DeleteSteeringProfileAsync(string id, CancellationToken cancellationToken = default)
         => _steeringProfileService.DeleteAsync(id, cancellationToken);

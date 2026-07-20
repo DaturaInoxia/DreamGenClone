@@ -54,6 +54,7 @@ public sealed class PromptBuilderTests
             Kind = ActorProfileKind.Player,
             ActorName = "Ken",
             ActorRole = "Hero",
+            PerspectiveMode = CharacterPerspectiveMode.FirstPersonInternalMonologue,
             PresentCharacterIds = characters.Select(c => c.Id).ToList(),
             AllCharacterIds = characters.Select(c => c.Id).ToList(),
         };

@@ -1,4 +1,5 @@
 using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Web.Domain.RolePlay;
 
 namespace DreamGenClone.Web.Application.RolePlay.Prompts;
 
@@ -13,4 +14,7 @@ public sealed record ActorProfile
     public required string ActorRole { get; init; }
     public required IReadOnlyList<string> PresentCharacterIds { get; init; }
     public required IReadOnlyList<string> AllCharacterIds { get; init; }
+
+    /// <summary>Character's perspective mode (FR-011). Resolved post-construction from scenario roster.</summary>
+    public CharacterPerspectiveMode PerspectiveMode { get; init; } = CharacterPerspectiveMode.FirstPersonInternalMonologue;
 }
