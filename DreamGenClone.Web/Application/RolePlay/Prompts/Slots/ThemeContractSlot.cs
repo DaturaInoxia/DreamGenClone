@@ -30,17 +30,8 @@ public sealed class ThemeContractSlot : IPromptSlot
         var theme = context.Theme;
         var sb = new StringBuilder();
 
-        // ── Active theme header ──
-        if (theme.ActiveTheme is not null)
-        {
-            sb.AppendLine($"Theme Contract: {theme.ActiveTheme.Label}");
-            if (!string.IsNullOrWhiteSpace(theme.ActiveTheme.Description))
-            {
-                sb.AppendLine(theme.ActiveTheme.Description.Trim());
-            }
-        }
         // ── Opening phase: Potential Arcs (session profile themes, no commitment) ──
-        else if (theme.AvailableArcLabels is { Count: > 0 })
+        if (theme.ActiveTheme is null && theme.AvailableArcLabels is { Count: > 0 })
         {
             sb.AppendLine("Potential Arcs (available narrative directions — none selected yet):");
             foreach (var arc in theme.AvailableArcLabels)
@@ -54,17 +45,9 @@ public sealed class ThemeContractSlot : IPromptSlot
             }
         }
 
-        // ── Theme directives ──
-        if (theme.PhaseDirectiveLines.Count > 0)
-        {
-            sb.AppendLine();
-            sb.AppendLine("Theme Directives:");
-            foreach (var line in theme.PhaseDirectiveLines)
-            {
-                if (!string.IsNullOrWhiteSpace(line))
-                    sb.AppendLine($"  {line.Trim()}");
-            }
-        }
+        // Note: Theme Contract, Scene Guidance, and Scene Direction have moved to
+        // FinalInstructionSlot (Slot 17) for maximum recency. This slot now only
+        // handles Potential Arcs (Opening phase) and AI Guidance Notes / Hard Constraints.
 
         // ── AI guidance notes ──
         if (theme.AiGuidanceNotes.Count > 0)

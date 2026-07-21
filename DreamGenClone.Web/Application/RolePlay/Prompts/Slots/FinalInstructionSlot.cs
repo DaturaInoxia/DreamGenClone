@@ -39,11 +39,34 @@ public sealed class FinalInstructionSlot : IPromptSlot
 
         var sb = new StringBuilder();
 
-        // ── Scene Direction (Character only, before Writing Instruction per R1) ──
+        // ── Pre-Writing-Instruction blocks (Character only, max recency) ──
+
+        // Theme Contract — what theme is active, what it means
+        if (!isNarrative && theme.ActiveTheme is not null)
+        {
+            sb.AppendLine($"Theme Contract: {theme.ActiveTheme.Label}");
+            if (!string.IsNullOrWhiteSpace(theme.ActiveTheme.Description))
+                sb.AppendLine($"  {theme.ActiveTheme.Description.Trim()}");
+            sb.AppendLine();
+        }
+
+        // Scene Guidance — longer prose about what this phase should accomplish
         if (!isNarrative && theme.PhaseGuidanceLines.Count > 0)
         {
-            sb.AppendLine("Scene Direction:");
+            sb.AppendLine("Scene Guidance:");
             foreach (var line in theme.PhaseGuidanceLines)
+            {
+                if (!string.IsNullOrWhiteSpace(line))
+                    sb.AppendLine($"  {line.Trim()}");
+            }
+            sb.AppendLine();
+        }
+
+        // Scene Direction — short explicit beats to hit this turn
+        if (!isNarrative && theme.PhaseDirectiveLines.Count > 0)
+        {
+            sb.AppendLine("Scene Direction:");
+            foreach (var line in theme.PhaseDirectiveLines)
             {
                 if (!string.IsNullOrWhiteSpace(line))
                     sb.AppendLine($"  {line.Trim()}");

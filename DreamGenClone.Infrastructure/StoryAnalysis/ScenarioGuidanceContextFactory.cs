@@ -139,10 +139,10 @@ public sealed class ScenarioGuidanceContextFactory : IScenarioGuidanceContextFac
             {
                 var value = CharacterStatProfileV2Accessor.GetStatOrDefault(profile, statName);
                 var text = CharacterStatTextCatalog.ResolveText(statName, role, value);
-                if (!string.IsNullOrWhiteSpace(text)) texts.Add(text);
+                if (!string.IsNullOrWhiteSpace(text)) texts.Add($"  {statName} — {text}");
             }
 
-            if (texts.Count > 0) result[label] = string.Join(' ', texts);
+            if (texts.Count > 0) result[label] = string.Join('\n', texts);
         }
 
         return result;
