@@ -1202,6 +1202,35 @@ public sealed class SqlitePersistence : ISqlitePersistence
             _logger.LogInformation("Migrated ToneProfiles table: added phase offset columns");
         }
 
+        // Always ensure ToneProfiles has the 5 writing directive columns (plan-amendment 2026-07-22).
+        var ensureToneProseStyleDir = connection.CreateCommand();
+        ensureToneProseStyleDir.CommandText = "SELECT COUNT(*) FROM pragma_table_info('ToneProfiles') WHERE name='ProseStyleDirective'";
+        var hasToneProseStyleDir = Convert.ToInt64(await ensureToneProseStyleDir.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasToneProseStyleDir)
+        {
+            var alterToneProseStyle = connection.CreateCommand();
+            alterToneProseStyle.CommandText = "ALTER TABLE ToneProfiles ADD COLUMN ProseStyleDirective TEXT NOT NULL DEFAULT ''";
+            await alterToneProseStyle.ExecuteNonQueryAsync(cancellationToken);
+
+            var alterToneVoice = connection.CreateCommand();
+            alterToneVoice.CommandText = "ALTER TABLE ToneProfiles ADD COLUMN VoiceDirective TEXT NOT NULL DEFAULT ''";
+            await alterToneVoice.ExecuteNonQueryAsync(cancellationToken);
+
+            var alterToneTone = connection.CreateCommand();
+            alterToneTone.CommandText = "ALTER TABLE ToneProfiles ADD COLUMN ToneDirective TEXT NOT NULL DEFAULT ''";
+            await alterToneTone.ExecuteNonQueryAsync(cancellationToken);
+
+            var alterToneFocus = connection.CreateCommand();
+            alterToneFocus.CommandText = "ALTER TABLE ToneProfiles ADD COLUMN FocusDirective TEXT NOT NULL DEFAULT ''";
+            await alterToneFocus.ExecuteNonQueryAsync(cancellationToken);
+
+            var alterToneHeatLevel = connection.CreateCommand();
+            alterToneHeatLevel.CommandText = "ALTER TABLE ToneProfiles ADD COLUMN HeatLevelDirective TEXT NOT NULL DEFAULT ''";
+            await alterToneHeatLevel.ExecuteNonQueryAsync(cancellationToken);
+
+            _logger.LogInformation("Migrated ToneProfiles table: added 5 writing directive columns");
+        }
+
         // Always ensure RPFinishingMoveMatrixRows has WifeReceptivity column.
         var ensureFinishingMoveWifeReceptivityColumn = connection.CreateCommand();
         ensureFinishingMoveWifeReceptivityColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RPFinishingMoveMatrixRows') WHERE name='WifeReceptivity'";
@@ -2934,10 +2963,12 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 INSERT INTO ToneProfiles (
                     Id, Name, Description, Intensity,
                     BuildUpPhaseOffset, CommittedPhaseOffset, ApproachingPhaseOffset, ClimaxPhaseOffset, ResetPhaseOffset,
+                    ProseStyleDirective, VoiceDirective, ToneDirective, FocusDirective, HeatLevelDirective,
                     CreatedUtc, UpdatedUtc)
                 VALUES (
                     $id, $name, $description, $intensity,
                     $buildUpPhaseOffset, $committedPhaseOffset, $approachingPhaseOffset, $climaxPhaseOffset, $resetPhaseOffset,
+                    $proseStyleDirective, $voiceDirective, $toneDirective, $focusDirective, $heatLevelDirective,
                     $createdUtc, $updatedUtc)
                 ON CONFLICT(Id) DO UPDATE SET
                     Name = $name,
@@ -2948,6 +2979,11 @@ public sealed class SqlitePersistence : ISqlitePersistence
                     ApproachingPhaseOffset = $approachingPhaseOffset,
                     ClimaxPhaseOffset = $climaxPhaseOffset,
                     ResetPhaseOffset = $resetPhaseOffset,
+                    ProseStyleDirective = $proseStyleDirective,
+                    VoiceDirective = $voiceDirective,
+                    ToneDirective = $toneDirective,
+                    FocusDirective = $focusDirective,
+                    HeatLevelDirective = $heatLevelDirective,
                     UpdatedUtc = $updatedUtc;
                 """;
         }
@@ -2976,6 +3012,11 @@ public sealed class SqlitePersistence : ISqlitePersistence
             command.Parameters.AddWithValue("$approachingPhaseOffset", profile.ApproachingPhaseOffset);
             command.Parameters.AddWithValue("$climaxPhaseOffset", profile.ClimaxPhaseOffset);
             command.Parameters.AddWithValue("$resetPhaseOffset", profile.ResetPhaseOffset);
+            command.Parameters.AddWithValue("$proseStyleDirective", profile.ProseStyleDirective);
+            command.Parameters.AddWithValue("$voiceDirective", profile.VoiceDirective);
+            command.Parameters.AddWithValue("$toneDirective", profile.ToneDirective);
+            command.Parameters.AddWithValue("$focusDirective", profile.FocusDirective);
+            command.Parameters.AddWithValue("$heatLevelDirective", profile.HeatLevelDirective);
         }
         command.Parameters.AddWithValue("$createdUtc", profile.CreatedUtc.ToString("O"));
         command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
@@ -2993,7 +3034,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
 
         var command = connection.CreateCommand();
         command.CommandText = hasPhaseOffsets
-            ? "SELECT Id, Name, Description, Intensity, BuildUpPhaseOffset, CommittedPhaseOffset, ApproachingPhaseOffset, ClimaxPhaseOffset, ResetPhaseOffset, CreatedUtc, UpdatedUtc FROM ToneProfiles WHERE Id = $id"
+            ? "SELECT Id, Name, Description, Intensity, BuildUpPhaseOffset, CommittedPhaseOffset, ApproachingPhaseOffset, ClimaxPhaseOffset, ResetPhaseOffset, ProseStyleDirective, VoiceDirective, ToneDirective, FocusDirective, HeatLevelDirective, CreatedUtc, UpdatedUtc FROM ToneProfiles WHERE Id = $id"
             : "SELECT Id, Name, Description, Intensity, CreatedUtc, UpdatedUtc FROM ToneProfiles WHERE Id = $id";
         command.Parameters.AddWithValue("$id", id);
 
@@ -3015,7 +3056,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
 
         var command = connection.CreateCommand();
         command.CommandText = hasPhaseOffsets
-            ? "SELECT Id, Name, Description, Intensity, BuildUpPhaseOffset, CommittedPhaseOffset, ApproachingPhaseOffset, ClimaxPhaseOffset, ResetPhaseOffset, CreatedUtc, UpdatedUtc FROM ToneProfiles ORDER BY Name"
+            ? "SELECT Id, Name, Description, Intensity, BuildUpPhaseOffset, CommittedPhaseOffset, ApproachingPhaseOffset, ClimaxPhaseOffset, ResetPhaseOffset, ProseStyleDirective, VoiceDirective, ToneDirective, FocusDirective, HeatLevelDirective, CreatedUtc, UpdatedUtc FROM ToneProfiles ORDER BY Name"
             : "SELECT Id, Name, Description, Intensity, CreatedUtc, UpdatedUtc FROM ToneProfiles ORDER BY Name";
 
         var results = new List<IntensityProfile>();
@@ -3044,8 +3085,10 @@ public sealed class SqlitePersistence : ISqlitePersistence
 
     private static IntensityProfile ReadToneProfile(SqliteDataReader reader, bool hasPhaseOffsets)
     {
-        var createdColumnIndex = hasPhaseOffsets ? 9 : 4;
-        var updatedColumnIndex = hasPhaseOffsets ? 10 : 5;
+        // hasDirectivesNew: true when the 5 directive columns were added (after phase offsets at cols 4-8, col 9+)
+        var hasDirectivesNew = hasPhaseOffsets && reader.FieldCount > 11; // 12+ cols includes directives
+        var createdColBase = hasPhaseOffsets ? (hasDirectivesNew ? 14 : 9) : 4;
+        var updatedCol = createdColBase + 1;
 
         return new IntensityProfile
         {
@@ -3060,8 +3103,13 @@ public sealed class SqlitePersistence : ISqlitePersistence
             ApproachingPhaseOffset = hasPhaseOffsets ? reader.GetInt32(6) : 1,
             ClimaxPhaseOffset = hasPhaseOffsets ? reader.GetInt32(7) : 2,
             ResetPhaseOffset = hasPhaseOffsets ? reader.GetInt32(8) : -1,
-            CreatedUtc = DateTime.TryParse(reader.GetString(createdColumnIndex), out var created) ? created : DateTime.UtcNow,
-            UpdatedUtc = DateTime.TryParse(reader.GetString(updatedColumnIndex), out var updated) ? updated : DateTime.UtcNow
+            ProseStyleDirective = hasDirectivesNew ? reader.GetString(9) : string.Empty,
+            VoiceDirective = hasDirectivesNew ? reader.GetString(10) : string.Empty,
+            ToneDirective = hasDirectivesNew ? reader.GetString(11) : string.Empty,
+            FocusDirective = hasDirectivesNew ? reader.GetString(12) : string.Empty,
+            HeatLevelDirective = hasDirectivesNew ? reader.GetString(13) : string.Empty,
+            CreatedUtc = DateTime.TryParse(reader.GetString(createdColBase), out var created) ? created : DateTime.UtcNow,
+            UpdatedUtc = DateTime.TryParse(reader.GetString(updatedCol), out var updated) ? updated : DateTime.UtcNow
         };
     }
 

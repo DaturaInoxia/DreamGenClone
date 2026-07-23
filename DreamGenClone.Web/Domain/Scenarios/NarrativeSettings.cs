@@ -6,22 +6,26 @@ namespace DreamGenClone.Web.Domain.Scenarios;
 /// </summary>
 public class NarrativeSettings
 {
-    // ── New decomposed fields (FR-007, FR-008) ──────────────────────
-    // These take precedence over the deprecated NarrativeTone field.
-    // Resolution: Tone → NarrativeTone (fallback) → null (silent omit).
+    // ── New decomposed fields (deprecated per plan-amendment 2026-07-22) ──
+    // These were scenario-level overrides that now belong to IntensityProfile.
+    // Marked [Obsolete] — prompt builder no longer reads them.
 
-    /// <summary>Mood/attitude (e.g., "Erotic, conversational, playful").</summary>
+    /// <summary>[DEPRECATED] Mood/attitude. Moved to IntensityProfile.ToneDirective.</summary>
+    [Obsolete("Moved to IntensityProfile.ToneDirective per plan-amendment 2026-07-22")]
     public string? Tone { get; set; }
 
-    /// <summary>Language complexity (e.g., "Low to moderate language complexity").</summary>
+    /// <summary>[DEPRECATED] Language complexity. Moved to IntensityProfile.</summary>
+    [Obsolete("Moved to IntensityProfile per plan-amendment 2026-07-22")]
     public string? Register { get; set; }
 
-    /// <summary>Subject emphasis (e.g., "Physical pleasure").</summary>
+    /// <summary>[DEPRECATED] Subject emphasis. Moved to IntensityProfile.FocusDirective.</summary>
+    [Obsolete("Moved to IntensityProfile.FocusDirective per plan-amendment 2026-07-22")]
     public string? Focus { get; set; }
 
-    // ── Legacy field (deprecated, retained for backward compat) ─────
+    // ── Legacy field (deprecated) ──
 
-    /// <summary>[DEPRECATED] Legacy combined tone string. Use <see cref="Tone"/>, <see cref="Register"/>, <see cref="Focus"/> instead.</summary>
+    /// <summary>[DEPRECATED] Legacy combined tone string. Use IntensityProfile.ToneDirective instead.</summary>
+    [Obsolete("Moved to IntensityProfile per plan-amendment 2026-07-22")]
     public string? NarrativeTone { get; set; }
 
     // ── Existing fields ─────────────────────────────────────────────

@@ -285,58 +285,14 @@ public sealed class SemanticInteractionAnalysisJobHandler : IBackgroundJobHandle
                     payload.SessionId, payload.InteractionId);
             }
 
-            // Persist ONLY the adaptive-state slice to V2 tables. Background semantic analysis
-            // must never write the session blob (PayloadJson) because doing so would overwrite
-            // interactions / decision points appended by the foreground engine while this
-            // long-running LLM inference call was in flight.
-            //
-            // Additionally, reload the latest V2 state immediately before saving and overwrite
-            // every pipeline-managed field in session.AdaptiveState with the freshly loaded
-            // values. ApplyInferredSemanticEvidenceAsync never touches these fields, but the
-            // long-running LLM inference above may have allowed RunRolePlayV2PipelinesAsync to
-            // run on a new foreground turn, advancing TurnCountInPhase, LastEvaluationUtc,
-            // CurrentPhase, etc. Without this refresh the background save would clobber the
-            // pipeline's updates and reset TurnCountInPhase back to its pre-inference
-            // value — permanently stalling phase-transition gate evaluation.
-            var latestStateBeforeSave = await _stateRepository.LoadAdaptiveStateAsync(payload.SessionId, cancellationToken);
-            if (latestStateBeforeSave is not null)
-            {
-                var updated = session.AdaptiveState;
-                updated.ActiveScenarioId              = latestStateBeforeSave.ActiveScenarioId;
-                updated.ActiveVariantId               = latestStateBeforeSave.ActiveVariantId;
-                updated.CurrentPhase                  = latestStateBeforeSave.CurrentPhase;
-                updated.TurnCountInPhase        = latestStateBeforeSave.TurnCountInPhase;
-                updated.ConsecutiveLeadCount           = latestStateBeforeSave.ConsecutiveLeadCount;
-                updated.LastEvaluationUtc              = latestStateBeforeSave.LastEvaluationUtc;
-                updated.CycleIndex                    = latestStateBeforeSave.CycleIndex;
-                updated.ActiveFormulaVersion           = latestStateBeforeSave.ActiveFormulaVersion;
-                updated.SelectedWillingnessProfileId  = latestStateBeforeSave.SelectedWillingnessProfileId;
-                updated.SelectedNarrativeGateProfileId = latestStateBeforeSave.SelectedNarrativeGateProfileId;
-                updated.CharacterEncounterProfileIds   = new Dictionary<string, string>(latestStateBeforeSave.CharacterEncounterProfileIds, StringComparer.OrdinalIgnoreCase);
-                updated.PhaseOverrideFloor             = latestStateBeforeSave.PhaseOverrideFloor;
-                updated.PhaseOverrideScenarioId        = latestStateBeforeSave.PhaseOverrideScenarioId;
-                updated.PhaseOverrideCycleIndex        = latestStateBeforeSave.PhaseOverrideCycleIndex;
-                updated.PhaseOverrideSource            = latestStateBeforeSave.PhaseOverrideSource;
-                updated.PhaseOverrideAppliedUtc        = latestStateBeforeSave.PhaseOverrideAppliedUtc;
-                updated.CurrentSceneLocation           = latestStateBeforeSave.CurrentSceneLocation;
-                updated.CharacterLocations             = latestStateBeforeSave.CharacterLocations;
-                updated.CharacterLocationPerceptions   = latestStateBeforeSave.CharacterLocationPerceptions;
-                updated.CurrentBeatCode                = latestStateBeforeSave.CurrentBeatCode;
-                updated.TurnsInCurrentBeat             = latestStateBeforeSave.TurnsInCurrentBeat;
-                updated.CompletedScenarios             = latestStateBeforeSave.CompletedScenarios;
-                updated.TurnsSinceCommitment    = latestStateBeforeSave.TurnsSinceCommitment;
-                updated.TurnsInApproaching      = latestStateBeforeSave.TurnsInApproaching;
-                updated.ScenarioCommitmentTimeUtc      = latestStateBeforeSave.ScenarioCommitmentTimeUtc;
-                updated.CurrentTimeSkipPhase          = latestStateBeforeSave.CurrentTimeSkipPhase;
-                updated.CurrentEncounterNumber        = latestStateBeforeSave.CurrentEncounterNumber;
-                updated.TurnsInCurrentEncounter = latestStateBeforeSave.TurnsInCurrentEncounter;
-                updated.GlobalEncounterCount          = latestStateBeforeSave.GlobalEncounterCount;
-                updated.CurrentEncounterStartInteractionIndex = latestStateBeforeSave.CurrentEncounterStartInteractionIndex;
-                updated.IsEncounterActive             = latestStateBeforeSave.IsEncounterActive;
-                session.AdaptiveState = updated;
-            }
-
-            await _stateRepository.SaveAdaptiveStateAsync(session.AdaptiveState, cancellationToken);
+            // Persist ONLY the semantic-owned adaptive-state fields to V2 tables. Background
+            // semantic analysis must never write the session blob (PayloadJson) or touch
+            // pipeline-managed columns (CurrentPhase, TurnCountInPhase, ActiveScenarioId,
+            // TimeSkipPhase, etc.). SaveAdaptiveStateSemanticFieldsAsync updates only
+            // CharacterSnapshots, ThemeScores, ThemeTrackerMeta, SemanticEvents, and
+            // breakdowns — leaving all pipeline fields intact so the foreground engine's
+            // phase transitions and turn counts are never overwritten by a background job.
+            await _stateRepository.SaveAdaptiveStateSemanticFieldsAsync(session.AdaptiveState, cancellationToken);
 
             // Background semantic-analysis writes happen on a copy loaded directly from the store.
             // Drop the engine's in-memory cache for this session so the next UI read pulls the

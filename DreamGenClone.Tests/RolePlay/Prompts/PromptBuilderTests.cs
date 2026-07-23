@@ -91,15 +91,19 @@ public sealed class PromptBuilderTests
                 DefaultStartingLocationName = null,
             },
             Theme = new ResolvedThemeData(),
-            Intensity = new ResolvedIntensityData(),
+            Intensity = new ResolvedIntensityData
+            {
+                ProseStyleDirective = "Test prose style.",
+                VoiceDirective = "Test voice.",
+                ToneDirective = "Test tone.",
+                FocusDirective = "Test focus.",
+                HeatLevelDirective = "Test heat.",
+            },
             WritingStyle = new ResolvedWritingStyleData
             {
-                Description = "Style desc",
                 Example = "Style example",
-                ProfileDefaultRuleOfThumb = "Default RoT",
                 PhaseRuleOfThumb = "Phase RoT",
                 StyleHint = "Hint",
-                ProfileName = "TestProfile",
                 ImmersionDirective = "Stay in character.",
                 ActionDirective = "Respond naturally.",
                 WordTargetMin = 200,

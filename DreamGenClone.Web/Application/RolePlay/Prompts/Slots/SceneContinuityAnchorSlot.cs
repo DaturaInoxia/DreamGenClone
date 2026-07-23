@@ -31,7 +31,7 @@ public sealed class SceneContinuityAnchorSlot : IPromptSlot
         var currentScene = session.AdaptiveState?.CurrentSceneLocation;
 
         var sb = new StringBuilder();
-        sb.AppendLine("Scene Continuity:");
+        sb.AppendLine("Scene Context:");
 
         // ── Time of day grounding ──
         var timeOfDay = session.AdaptiveState?.CurrentTimeOfDay;
@@ -65,24 +65,6 @@ public sealed class SceneContinuityAnchorSlot : IPromptSlot
             sb.AppendLine($"  Current scene: {currentScene.Trim()}");
         }
         */
-
-        // ── Cross-perception guidance (FR-017) ──
-        // The writing actor should focus on what THEY perceive of other characters,
-        // not what other characters perceive of them (self-perceptions are dropped).
-        var actorName = profile.ActorName;
-
-        if (profile.Kind == ActorProfileKind.Player)
-        {
-            sb.AppendLine($"  Focus on what {actorName} perceives of the other characters in this scene.");
-        }
-        else if (profile.Kind == ActorProfileKind.NpcPresent || profile.Kind == ActorProfileKind.NpcNonPresent)
-        {
-            sb.AppendLine($"  Focus on what {actorName} perceives of the other characters in this scene.");
-        }
-        else if (profile.Kind == ActorProfileKind.Narrative)
-        {
-            sb.AppendLine("  Describe what each character perceives of the others in the scene.");
-        }
 
         // ── Last beat anchor ──
         if (context.RecentInteractions is { Count: > 0 })

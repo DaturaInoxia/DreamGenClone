@@ -37,6 +37,23 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         if (session.AdaptiveState.CurrentPhase == NarrativePhase.Opening
             && session.AdaptiveState.ObservedTurnCount > OpeningPeriodTurnCount)
         {
+            // Guard: check the authoritative V2 DB state before transitioning.
+            // The in-memory session's PayloadJson may be stale (debounced save hasn't
+            // flushed yet), but the V2 table is always up-to-date. If the V2 state is
+            // already BuildUp or beyond, the transition already happened in a prior turn
+            // — do not re-transition and do not reset TurnCountInPhase.
+            var v2State = await _stateRepository.LoadAdaptiveStateAsync(session.Id, CancellationToken.None);
+            if (v2State is not null && v2State.CurrentPhase >= NarrativePhase.BuildUp)
+            {
+                // Sync the in-memory phase to match V2 without resetting the counter.
+                session.AdaptiveState.CurrentPhase = v2State.CurrentPhase;
+                _logger.LogDebug(
+                    "RolePlayV2 EnsureOpeningToBuildUpTransition skipped — V2 state already at {Phase}: SessionId={SessionId}",
+                    v2State.CurrentPhase,
+                    session.Id);
+                return;
+            }
+
             session.AdaptiveState.CurrentPhase = NarrativePhase.BuildUp;
             session.AdaptiveState.TurnCountInPhase = 0;
             _logger.LogInformation(
@@ -1581,9 +1598,14 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 }
                 else
                 {
-                    promptText = i == 0
-                        ? "Continue the scene naturally with the next character response."
-                        : "Continue the conversation naturally, building on the previous response.";
+                    promptText = i switch
+                    {
+                        // Actor 1 advances: the lead character drives the scene forward —
+                        // move to new locations, advance time, escalate the dynamic.
+                        0 => "Advance the scene by one beat. Move the story forward — shift locations, advance time (days or hours may pass between scenes — let the Phase Guidance and Time Frame above set the pace), escalate the dynamic, or introduce a new element. Use the Environment and Locations in the Scenario section as hints for activities and places. Do not re-describe what was already established.",
+                        // Actors 2+ react to what the previous character established.
+                        _ => "React to the previous character's action from your own perspective, building on the new direction they established. Do not reset the scene or re-describe what came before."
+                    };
                 }
 
                 await AlignPromptNarrativeStateWithV2Async(session, cancellationToken);
@@ -1627,7 +1649,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 fallbackActor,
                 fallbackActorName,
                 PromptIntent.Message,
-                "Continue naturally with the next interaction that best fits recent context.",
+                "Advance the scene by one beat. Move the story forward — shift locations, advance time, escalate the dynamic, or introduce a new element.",
                 onChunk,
                 cancellationToken);
 
@@ -1692,7 +1714,6 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
         session.Status = RolePlaySessionStatus.InProgress;
         session.ModifiedAt = DateTime.UtcNow;
-        _autoSaveCoordinator.QueueRolePlaySessionSave(session, "roleplay-continueas-generated");
 
         _logger.LogInformation(
             "Continue As executed for session {SessionId}: participants={ParticipantCount}, includeNarrative={IncludeNarrative}, source={Source}, isUserTurn={IsUserTurn}",
@@ -1702,11 +1723,15 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             request.TriggeredBy,
             result.IsUserTurn);
 
-        // Redundant — time-skip mutations persist synchronously at their mutation sites.
+        // V2 pipeline runs first so TurnCountInPhase, phase transitions, and adaptive updates
+        // are captured in the session save that follows.
         await RunRolePlayV2PipelinesAsync(session, DecisionTrigger.InteractionStart, cancellationToken);
-        // Flush the pending session save to DB before enqueueing semantic analysis jobs.
-        // The job handler loads the session from DB; if we only queue the save (debounced 1s),
-        // the background runner will read a stale snapshot that does not contain the new interactions.
+        // Flush the session save to DB immediately after the pipeline so background jobs
+        // (semantic analysis) and subsequent turns always read a consistent snapshot. The
+        // debounced save path would leave the DB stale for ~1s, which is long enough for
+        // fast loops (AutoComplete) and cache eviction (InvalidateSessionCache) to reload
+        // a snapshot missing the pipeline's TurnCountInPhase increment.
+        _autoSaveCoordinator.QueueRolePlaySessionSave(session, "roleplay-continueas-generated");
         await _autoSaveCoordinator.FlushAsync(cancellationToken);
         foreach (var generatedInteraction in outputInteractionIds
             .Select(id => session.Interactions.FirstOrDefault(x => string.Equals(x.Id, id, StringComparison.OrdinalIgnoreCase)))
@@ -1715,7 +1740,6 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         {
             await QueueSemanticInteractionAnalysisAsync(session, generatedInteraction, cancellationToken);
         }
-        _autoSaveCoordinator.QueueRolePlaySessionSave(session, "roleplay-continueas-v2-processed");
 
         if (session.AdaptiveState.IsStateDirty)
         {
@@ -2553,22 +2577,20 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             ? session.AdaptiveState.CurrentSceneLocation
             : null;
 
-        // B-049: Count all non-system interactions (Npc, You, Custom) to decide whether OtherMan is eligible.
-        // Using only Npc type caused a chicken-and-egg: Dean never got turns so the count never reached threshold.
-        var totalInteractions = session.Interactions.Count(i =>
-            i.InteractionType != InteractionType.System && !i.IsExcluded);
-
-        // Hard-exclude OtherMan for the first 6 interactions so Husband+Wife establish first.
-        // With batchSize=2 (Ken+Becky per turn), 3 turns = 6 interactions ? Dean eligible on turn 4.
+        // Hard-exclude OtherMan during the opening period so Husband+Wife establish
+        // their dynamic first. Uses the same turn-based threshold as the
+        // Opening→BuildUp phase gate (OpeningPeriodTurnCount = 3).
+        // Dean becomes eligible at the start of turn 4 (ObservedTurnCount = 4).
         var eligibleCharacterNames = sceneCharacterNames.Where(name =>
         {
             session.AdaptiveState.CharacterStats.TryGetValue(name, out var statProfile);
             var role = statProfile?.CharacterRole;
-            if (totalInteractions < 6 && string.Equals(role, "OtherMan", StringComparison.OrdinalIgnoreCase))
+            if (session.AdaptiveState.ObservedTurnCount <= OpeningPeriodTurnCount
+                && string.Equals(role, "OtherMan", StringComparison.OrdinalIgnoreCase))
             {
                 _logger.LogDebug(
-                    "OverflowActor: excluding OtherMan {ActorName} at interaction offset {Offset} for SessionId={SessionId}",
-                    name, totalInteractions, session.Id);
+                    "OverflowActor: excluding OtherMan {ActorName} during opening period (turn {Turn}) for SessionId={SessionId}",
+                    name, session.AdaptiveState.ObservedTurnCount, session.Id);
                 return false;
             }
             return true;
@@ -2715,7 +2737,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 ? "Persona auto candidate (in-scene)."
                 : "Persona auto candidate (not in scene but always included).";
 
-            if (totalInteractions < 6)
+            if (session.AdaptiveState.ObservedTurnCount <= OpeningPeriodTurnCount)
             {
                 // Initial setup: persona leads to establish husband-wife dynamic
                 actors.Insert(0, new OverflowActorCandidate(ContinueAsActor.You, personaName,
@@ -4733,8 +4755,15 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             if (GetPhaseOrder(mapped.CurrentPhase) < GetPhaseOrder(previousState.CurrentPhase))
             {
                 mapped.CurrentPhase = previousState.CurrentPhase;
-                mapped.TurnCountInPhase = Math.Max(0, previousState.TurnCountInPhase);
             }
+
+            // TurnCountInPhase from the V2 persistent table is always authoritative.
+            // The PayloadJson copy can be stale — the debounced session save may not have
+            // flushed before the next turn, and cache eviction (InvalidateSessionCache from
+            // background semantic analysis) forces a DB reload that misses recent pipeline
+            // increments. Use Max so EnsureOpeningToBuildUpTransition (which runs before
+            // hydration) can still zero the counter on a phase change.
+            mapped.TurnCountInPhase = Math.Max(mapped.TurnCountInPhase, previousState.TurnCountInPhase);
         }
 
         mapped.ConsecutiveLeadCount = Math.Max(0, previousState.ConsecutiveLeadCount);
@@ -9371,6 +9400,7 @@ Requirements:
         public Task CompleteTurnAsync(string sessionId, string turnId, IReadOnlyList<string> outputInteractionIds, bool succeeded, string? failureReason = null, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task<IReadOnlyList<DreamGenClone.Domain.RolePlay.RolePlayTurn>> LoadTurnsAsync(string sessionId, int take = 100, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<DreamGenClone.Domain.RolePlay.RolePlayTurn>>([]);
         public Task SaveAdaptiveStateAsync(DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task SaveAdaptiveStateSemanticFieldsAsync(DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task<DreamGenClone.Domain.RolePlay.AdaptiveScenarioState?> LoadAdaptiveStateAsync(string sessionId, CancellationToken cancellationToken = default) => Task.FromResult<DreamGenClone.Domain.RolePlay.AdaptiveScenarioState?>(null);
         public Task SaveCandidateEvaluationsAsync(IReadOnlyList<DreamGenClone.Domain.RolePlay.ScenarioCandidateEvaluation> evaluations, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task<IReadOnlyList<DreamGenClone.Domain.RolePlay.ScenarioCandidateEvaluation>> LoadCandidateEvaluationsAsync(string sessionId, int take = 50, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<DreamGenClone.Domain.RolePlay.ScenarioCandidateEvaluation>>([]);

@@ -903,6 +903,11 @@ public sealed class RolePlayContinuationNarrativeValidationTests
             int approachingPhaseOffset,
             int climaxPhaseOffset,
             int resetPhaseOffset,
+            string proseStyleDirective = "",
+            string voiceDirective = "",
+            string toneDirective = "",
+            string focusDirective = "",
+            string heatLevelDirective = "",
             CancellationToken cancellationToken = default)
             => throw new NotImplementedException();
 
@@ -922,6 +927,11 @@ public sealed class RolePlayContinuationNarrativeValidationTests
             int approachingPhaseOffset,
             int climaxPhaseOffset,
             int resetPhaseOffset,
+            string? proseStyleDirective = null,
+            string? voiceDirective = null,
+            string? toneDirective = null,
+            string? focusDirective = null,
+            string? heatLevelDirective = null,
             CancellationToken cancellationToken = default)
             => Task.FromResult<IntensityProfile?>(null);
 

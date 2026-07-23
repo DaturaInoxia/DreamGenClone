@@ -20,6 +20,13 @@ public interface IRolePlayStateRepository
         CancellationToken cancellationToken = default);
     Task<IReadOnlyList<RolePlayTurn>> LoadTurnsAsync(string sessionId, int take = 100, CancellationToken cancellationToken = default);
     Task SaveAdaptiveStateAsync(AdaptiveScenarioState state, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Persists only the semantic-analysis-owned fields (character snapshots, theme scores,
+    /// tracker meta, semantic events, and breakdowns). Pipeline-managed fields (CurrentPhase,
+    /// TurnCountInPhase, ActiveScenarioId, TimeSkipPhase, etc.) are intentionally left
+    /// untouched — the background semantic job must never overwrite them.
+    /// </summary>
+    Task SaveAdaptiveStateSemanticFieldsAsync(AdaptiveScenarioState state, CancellationToken cancellationToken = default);
     Task<AdaptiveScenarioState?> LoadAdaptiveStateAsync(string sessionId, CancellationToken cancellationToken = default);
     Task SaveCandidateEvaluationsAsync(IReadOnlyList<ScenarioCandidateEvaluation> evaluations, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<ScenarioCandidateEvaluation>> LoadCandidateEvaluationsAsync(string sessionId, int take = 50, CancellationToken cancellationToken = default);

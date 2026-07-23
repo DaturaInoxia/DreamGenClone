@@ -238,6 +238,11 @@ public sealed class StoryAnalysisFacade
         int approachingPhaseOffset,
         int climaxPhaseOffset,
         int resetPhaseOffset,
+        string proseStyleDirective = "",
+        string voiceDirective = "",
+        string toneDirective = "",
+        string focusDirective = "",
+        string heatLevelDirective = "",
         CancellationToken cancellationToken = default)
         => _intensityProfileService.CreateAsync(
             name,
@@ -248,6 +253,11 @@ public sealed class StoryAnalysisFacade
             approachingPhaseOffset,
             climaxPhaseOffset,
             resetPhaseOffset,
+            proseStyleDirective,
+            voiceDirective,
+            toneDirective,
+            focusDirective,
+            heatLevelDirective,
             cancellationToken);
 
     public Task<List<IntensityProfile>> ListIntensityProfilesAsync(CancellationToken cancellationToken = default)
@@ -266,6 +276,11 @@ public sealed class StoryAnalysisFacade
         int approachingPhaseOffset,
         int climaxPhaseOffset,
         int resetPhaseOffset,
+        string proseStyleDirective = "",
+        string voiceDirective = "",
+        string toneDirective = "",
+        string focusDirective = "",
+        string heatLevelDirective = "",
         CancellationToken cancellationToken = default)
         => _intensityProfileService.UpdateAsync(
             id,
@@ -277,6 +292,11 @@ public sealed class StoryAnalysisFacade
             approachingPhaseOffset,
             climaxPhaseOffset,
             resetPhaseOffset,
+            proseStyleDirective,
+            voiceDirective,
+            toneDirective,
+            focusDirective,
+            heatLevelDirective,
             cancellationToken);
 
     public Task<bool> DeleteIntensityProfileAsync(string id, CancellationToken cancellationToken = default)

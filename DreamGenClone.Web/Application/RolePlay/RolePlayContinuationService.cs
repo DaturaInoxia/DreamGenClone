@@ -792,11 +792,8 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         PhaseRuleOfThumbRow phaseRoT,
         CancellationToken cancellationToken)
     {
-        var desc = string.Empty;
         var example = string.Empty;
-        var profileDefaultRoT = string.Empty;
         var styleHint = string.Empty;
-        var profileName = string.Empty;
         var immersionDirective = string.Empty;
         var actionDirective = string.Empty;
         var wordTargetMin = 0;
@@ -811,10 +808,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             styleProfile = await _steeringProfileService.GetAsync(selectedStyleProfileId, cancellationToken);
             if (styleProfile is not null)
             {
-                desc = styleProfile.Description ?? string.Empty;
                 example = styleProfile.Example ?? string.Empty;
-                profileDefaultRoT = styleProfile.RuleOfThumb ?? string.Empty;
-                profileName = styleProfile.Name ?? string.Empty;
                 immersionDirective = styleProfile.ImmersionDirective ?? string.Empty;
                 actionDirective = styleProfile.ActionDirective ?? string.Empty;
                 wordTargetMin = styleProfile.WordTargetMin;
@@ -836,13 +830,6 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                     scenario.Narrative.NarrativeTone
                 }.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()));
             }
-        }
-
-        // Fail-fast on missing profile default (FR-014)
-        if (string.IsNullOrWhiteSpace(profileDefaultRoT))
-        {
-            throw new InvalidOperationException(
-                "MissingPromptConfig: WritingStyle.ProfileDefaultRuleOfThumb is missing or empty. FR-014 requires a profile default Rule-of-Thumb.");
         }
 
         // Fail-fast on missing new SteeringProfile fields (FR-006)
@@ -867,12 +854,9 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
 
         return new ResolvedWritingStyleData
         {
-            Description = desc,
             Example = example,
-            ProfileDefaultRuleOfThumb = profileDefaultRoT,
             PhaseRuleOfThumb = phaseRoT.RuleOfThumbText,
             StyleHint = styleHint,
-            ProfileName = profileName,
             ImmersionDirective = immersionDirective,
             ActionDirective = actionDirective,
             WordTargetMin = wordTargetMin,
@@ -924,11 +908,11 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         RolePlaySession session, string phase, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(session.SelectedIntensityProfileId))
-            return new ResolvedIntensityData();
+            return CreateEmptyResolvedIntensity();
 
         var profile = await _intensityProfileService.GetAsync(session.SelectedIntensityProfileId, cancellationToken);
         if (profile is null)
-            return new ResolvedIntensityData();
+            return CreateEmptyResolvedIntensity();
 
         // Compute phase-adjusted intensity level
         var phaseEnum = global::DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Opening;
@@ -942,11 +926,18 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             "ResolveIntensity: SessionId={SessionId} Phase={Phase} Base={Base} Offset={Offset} Resolved={Resolved}",
             session.Id, phase, profile.Intensity, offset, resolvedLabel);
 
-        // Resolve the contract Description from the profile matching the phase-adjusted level.
-        // The selected profile's Description stays with its base level; when the phase offset
-        // changes the effective level, the contract text must match the resolved label.
+        // Start with the selected profile's values
         var description = profile.Description;
+        var proseStyle = profile.ProseStyleDirective;
+        var voice = profile.VoiceDirective;
+        var tone = profile.ToneDirective;
+        var focus = profile.FocusDirective;
+        var heatLevel = profile.HeatLevelDirective;
         var resolvedLevel = (IntensityLevel)adjustedValue;
+
+        // When the phase offset changes the effective level, swap ALL directives to the
+        // matching profile — not just Description. Otherwise the model gets mismatched
+        // Prose Style from one level and Heat Level from another.
         if (resolvedLevel != profile.Intensity)
         {
             var allProfiles = await _intensityProfileService.ListAsync(cancellationToken);
@@ -954,6 +945,11 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             if (matchingProfile is not null)
             {
                 description = matchingProfile.Description;
+                proseStyle = matchingProfile.ProseStyleDirective;
+                voice = matchingProfile.VoiceDirective;
+                tone = matchingProfile.ToneDirective;
+                focus = matchingProfile.FocusDirective;
+                heatLevel = matchingProfile.HeatLevelDirective;
                 _logger.LogDebug(
                     "ResolveIntensity: contract text swapped from {SelectedName} to {MatchedName} for phase {Phase}",
                     profile.Name, matchingProfile.Name, phase);
@@ -973,6 +969,23 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             AdaptiveLevel = (IntensityLevel)adjustedValue,
             ResolvedLabel = resolvedLabel,
             SceneDirection = sceneDirection,
+            ProseStyleDirective = proseStyle,
+            VoiceDirective = voice,
+            ToneDirective = tone,
+            FocusDirective = focus,
+            HeatLevelDirective = heatLevel,
+        };
+    }
+
+    private static ResolvedIntensityData CreateEmptyResolvedIntensity()
+    {
+        return new ResolvedIntensityData
+        {
+            ProseStyleDirective = string.Empty,
+            VoiceDirective = string.Empty,
+            ToneDirective = string.Empty,
+            FocusDirective = string.Empty,
+            HeatLevelDirective = string.Empty,
         };
     }
 

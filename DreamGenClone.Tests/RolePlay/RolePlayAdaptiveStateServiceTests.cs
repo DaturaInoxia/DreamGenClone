@@ -1131,6 +1131,11 @@ public sealed class RolePlayAdaptiveStateServiceTests
             int approachingPhaseOffset,
             int climaxPhaseOffset,
             int resetPhaseOffset,
+            string proseStyleDirective = "",
+            string voiceDirective = "",
+            string toneDirective = "",
+            string focusDirective = "",
+            string heatLevelDirective = "",
             CancellationToken cancellationToken = default)
         {
             var created = new IntensityProfile
@@ -1166,6 +1171,11 @@ public sealed class RolePlayAdaptiveStateServiceTests
             int approachingPhaseOffset,
             int climaxPhaseOffset,
             int resetPhaseOffset,
+            string? proseStyleDirective = null,
+            string? voiceDirective = null,
+            string? toneDirective = null,
+            string? focusDirective = null,
+            string? heatLevelDirective = null,
             CancellationToken cancellationToken = default)
         {
             var existing = _profiles.FirstOrDefault(x => string.Equals(x.Id, id, StringComparison.OrdinalIgnoreCase));
@@ -1182,6 +1192,11 @@ public sealed class RolePlayAdaptiveStateServiceTests
             existing.ApproachingPhaseOffset = approachingPhaseOffset;
             existing.ClimaxPhaseOffset = climaxPhaseOffset;
             existing.ResetPhaseOffset = resetPhaseOffset;
+            existing.ProseStyleDirective = proseStyleDirective ?? existing.ProseStyleDirective;
+            existing.VoiceDirective = voiceDirective ?? existing.VoiceDirective;
+            existing.ToneDirective = toneDirective ?? existing.ToneDirective;
+            existing.FocusDirective = focusDirective ?? existing.FocusDirective;
+            existing.HeatLevelDirective = heatLevelDirective ?? existing.HeatLevelDirective;
             existing.UpdatedUtc = DateTime.UtcNow;
             return Task.FromResult<IntensityProfile?>(existing);
         }

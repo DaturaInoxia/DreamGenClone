@@ -1222,6 +1222,30 @@
                                 </div>
                                 <div class="form-text">Per-phase baseline deltas applied before stat modifiers. Typical defaults: 0, 0, +1, +2, -1.</div>
                             </div>
+                            <div class="col-12">
+                                <hr class="my-2" />
+                                <h6>Writing Directives</h6>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Prose Style</label>
+                                <textarea class="form-control" rows="2" @bind="_toneFormProseStyleDirective" placeholder="e.g. Sensory-driven prose. The body's experience of desire."></textarea>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Voice</label>
+                                <textarea class="form-control" rows="2" @bind="_toneFormVoiceDirective" placeholder="e.g. Build anticipation through physical detail."></textarea>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Tone</label>
+                                <textarea class="form-control" rows="2" @bind="_toneFormToneDirective" placeholder="e.g. Warm and intimate."></textarea>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Focus</label>
+                                <textarea class="form-control" rows="2" @bind="_toneFormFocusDirective" placeholder="e.g. The progression of physical intimacy."></textarea>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Heat Level</label>
+                                <textarea class="form-control" rows="3" @bind="_toneFormHeatLevelDirective" placeholder="e.g. Sensual intimacy. Passionate kissing, caressing."></textarea>
+                            </div>
                         </div>
                         @if (!string.IsNullOrEmpty(_toneError))
                         {
@@ -3063,6 +3087,13 @@
     private int _toneResetOffset = -1;
     private string? _toneError;
 
+    // ── Writing directive fields (plan-amendment 2026-07-22) ──
+    private string _toneFormProseStyleDirective = string.Empty;
+    private string _toneFormVoiceDirective = string.Empty;
+    private string _toneFormToneDirective = string.Empty;
+    private string _toneFormFocusDirective = string.Empty;
+    private string _toneFormHeatLevelDirective = string.Empty;
+
     private List<SteeringProfile> _steeringProfiles = [];
     private string? _selectedStyleId;
     private string _styleFormName = string.Empty;
@@ -4654,6 +4685,11 @@
         _toneClimaxOffset = 2;
         _toneResetOffset = -1;
         _toneError = null;
+        _toneFormProseStyleDirective = string.Empty;
+        _toneFormVoiceDirective = string.Empty;
+        _toneFormToneDirective = string.Empty;
+        _toneFormFocusDirective = string.Empty;
+        _toneFormHeatLevelDirective = string.Empty;
     }
 
     private void SelectIntensity(string toneId)
@@ -4674,6 +4710,11 @@
         _toneClimaxOffset = tone.ClimaxPhaseOffset;
         _toneResetOffset = tone.ResetPhaseOffset;
         _toneError = null;
+        _toneFormProseStyleDirective = tone.ProseStyleDirective;
+        _toneFormVoiceDirective = tone.VoiceDirective;
+        _toneFormToneDirective = tone.ToneDirective;
+        _toneFormFocusDirective = tone.FocusDirective;
+        _toneFormHeatLevelDirective = tone.HeatLevelDirective;
     }
 
     private async Task SaveIntensity()
@@ -4698,7 +4739,12 @@
                     _toneCommittedOffset,
                     _toneApproachingOffset,
                     _toneClimaxOffset,
-                    _toneResetOffset);
+                    _toneResetOffset,
+                    _toneFormProseStyleDirective,
+                    _toneFormVoiceDirective,
+                    _toneFormToneDirective,
+                    _toneFormFocusDirective,
+                    _toneFormHeatLevelDirective);
                 await ReloadAsync();
                 SelectIntensity(created.Id);
             }
@@ -4713,7 +4759,12 @@
                     _toneCommittedOffset,
                     _toneApproachingOffset,
                     _toneClimaxOffset,
-                    _toneResetOffset);
+                    _toneResetOffset,
+                    _toneFormProseStyleDirective,
+                    _toneFormVoiceDirective,
+                    _toneFormToneDirective,
+                    _toneFormFocusDirective,
+                    _toneFormHeatLevelDirective);
                 await ReloadAsync();
                 SelectIntensity(_selectedToneId);
             }

@@ -138,18 +138,19 @@ public sealed record ResolvedIntensityData
     public string? CeilingOverride { get; init; }
     public SceneDirection? SceneDirection { get; init; }
     public IReadOnlyList<string> AvailablePositions { get; init; } = [];
+
+    // ── Writing directives from IntensityProfile (plan-amendment 2026-07-22) ──
+    public required string ProseStyleDirective { get; init; }
+    public required string VoiceDirective { get; init; }
+    public required string ToneDirective { get; init; }
+    public required string FocusDirective { get; init; }
+    public required string HeatLevelDirective { get; init; }
 }
 
 public sealed record ResolvedWritingStyleData
 {
-    /// <summary>Timeless description — always kept, never trimmed.</summary>
-    public required string Description { get; init; }
-
     /// <summary>Timeless example — always kept, never trimmed.</summary>
     public required string Example { get; init; }
-
-    /// <summary>Writing style profile's default Rule-of-Thumb (Voice). Fail-fast if missing (FR-014).</summary>
-    public required string ProfileDefaultRuleOfThumb { get; init; }
 
     /// <summary>Phase-specific Rule-of-Thumb from PhaseRuleOfThumb table. Fail-fast if missing (FR-014).</summary>
     public required string PhaseRuleOfThumb { get; init; }
@@ -159,9 +160,6 @@ public sealed record ResolvedWritingStyleData
 
     // ── New SteeringProfile fields (FR-005, FR-006) ────────────────
     // Fail-fast at prompt build time if empty/zero.
-
-    /// <summary>Style profile name (for "Prose Style: {Name} — {Description}" label).</summary>
-    public required string ProfileName { get; init; }
 
     /// <summary>Immersion rule for Character variant. Fail-fast if empty (FR-006).</summary>
     public required string ImmersionDirective { get; init; }

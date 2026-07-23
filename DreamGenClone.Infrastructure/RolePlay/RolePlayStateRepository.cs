@@ -208,6 +208,52 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
         return turns;
     }
 
+    /// <summary>
+    /// Persists only the semantic-analysis-owned columns. Pipeline-managed fields
+    /// (CurrentPhase, TurnCountInPhase, ActiveScenarioId, TimeSkipPhase, etc.) are
+    /// intentionally left untouched — the background semantic job must never overwrite them.
+    /// Updates: CharacterSnapshots, SemanticDeltaBreakdowns, SemanticStatDeltaBreakdowns,
+    /// ThemeScores, ThemeTrackerMeta, SemanticEvents.
+    /// </summary>
+    public async Task SaveAdaptiveStateSemanticFieldsAsync(AdaptiveScenarioState state, CancellationToken cancellationToken = default)
+    {
+        state.SyncCharacterSnapshots();
+
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await EnsureAdaptiveStateSchemaAsync(connection, cancellationToken);
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+
+        var nowUtc = DateTime.UtcNow;
+
+        // UPDATE only the semantic-managed columns — never touch pipeline fields.
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            UPDATE RolePlayV2AdaptiveStates SET
+                CharacterSnapshotsJson = $characterSnapshotsJson,
+                SemanticDeltaBreakdownsJson = $semanticDeltaBreakdownsJson,
+                SemanticStatDeltaBreakdownsJson = $semanticStatDeltaBreakdownsJson,
+                SemanticStepSucceeded = $semanticStepSucceeded,
+                UpdatedUtc = $updatedUtc
+            WHERE SessionId = $sessionId;
+            """;
+        command.Parameters.AddWithValue("$characterSnapshotsJson", JsonSerializer.Serialize(state.CharacterSnapshots));
+        command.Parameters.AddWithValue("$semanticDeltaBreakdownsJson", JsonSerializer.Serialize(state.SemanticDeltaBreakdowns));
+        command.Parameters.AddWithValue("$semanticStatDeltaBreakdownsJson", JsonSerializer.Serialize(state.SemanticStatDeltaBreakdowns));
+        command.Parameters.AddWithValue("$semanticStepSucceeded", state.SemanticStepSucceeded ? 1 : 0);
+        command.Parameters.AddWithValue("$updatedUtc", nowUtc.ToString("O"));
+        command.Parameters.AddWithValue("$sessionId", state.SessionId);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+
+        // Theme scores and tracker meta are updated by semantic analysis (score deltas,
+        // RecalculateSelectedThemes). These tables are also semantic-owned.
+        await ReplaceThemeScoresAsync(connection, transaction, state, nowUtc, cancellationToken);
+        await ReplaceThemeTrackerMetaAsync(connection, transaction, state, nowUtc, cancellationToken);
+        await ReplaceSemanticEventsAsync(connection, transaction, state, cancellationToken);
+
+        await transaction.CommitAsync(cancellationToken);
+    }
+
     public async Task SaveAdaptiveStateAsync(AdaptiveScenarioState state, CancellationToken cancellationToken = default)
     {
         // Ensure the CharacterSnapshots list is in sync with the runtime CharacterStats dictionary

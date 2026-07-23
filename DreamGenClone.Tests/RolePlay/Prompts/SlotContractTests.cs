@@ -93,15 +93,19 @@ public sealed class SlotContractTests
                 DefaultStartingLocationName = null,
             },
             Theme = new ResolvedThemeData(),
-            Intensity = new ResolvedIntensityData(),
+            Intensity = new ResolvedIntensityData
+            {
+                ProseStyleDirective = "Test prose.",
+                VoiceDirective = "Test voice.",
+                ToneDirective = "Test tone.",
+                FocusDirective = "Test focus.",
+                HeatLevelDirective = "Test heat.",
+            },
             WritingStyle = new ResolvedWritingStyleData
             {
-                Description = "Test style",
                 Example = "Test example",
-                ProfileDefaultRuleOfThumb = "Default RoT",
                 PhaseRuleOfThumb = "Phase RoT",
                 StyleHint = "Test hint",
-                ProfileName = "TestProfile",
                 ImmersionDirective = "Stay in character.",
                 ActionDirective = "Respond naturally.",
                 WordTargetMin = 200,
@@ -651,21 +655,17 @@ public sealed class SlotContractTests
     [Fact]
     public async Task WritingStyleSlot_NoFailFastOnMissingFields()
     {
-        // After consolidation, WritingStyleSlot no longer fail-fasts on missing
-        // PhaseRuleOfThumb or ProfileDefault — validation moved to the builder (FR-006).
-        // The slot silently emits its reference line regardless of field values.
+        // After plan-amendment, WritingStyleSlot emits the full Style Guide from
+        // Intensity fields — it does not fail-fast on empty StyleProfile fields.
         var slot = new WritingStyleSlot(NullLogger<WritingStyleSlot>.Instance);
         var context = CreateContext();
         context = context with
         {
             WritingStyle = new ResolvedWritingStyleData
             {
-                Description = "Timeless prose.",
                 Example = "Example prose.",
-                ProfileDefaultRuleOfThumb = "", // Empty — no fail-fast at slot level
-                PhaseRuleOfThumb = "",           // Empty — no fail-fast at slot level
+                PhaseRuleOfThumb = "",
                 StyleHint = "Hint",
-                ProfileName = "TestProfile",
                 ImmersionDirective = "Stay in character.",
                 ActionDirective = "Respond naturally.",
                 WordTargetMin = 200,
@@ -677,7 +677,8 @@ public sealed class SlotContractTests
 
         var text = await slot.WriteAsync(context, CancellationToken.None);
 
-        Assert.Contains("Writing direction: see Writing Instruction below.", text);
+        Assert.Contains("Style Guide:", text);
+        Assert.DoesNotContain("Prose Style:", text); // Empty in intensity, skipped
     }
 
     [Fact]
@@ -1092,6 +1093,11 @@ public sealed class SlotContractTests
                     TimeShift = TimeShiftPolicy.None,
                     Deepening = DeepeningPolicy.None,
                 },
+                ProseStyleDirective = "Test prose.",
+                VoiceDirective = "Test voice.",
+                ToneDirective = "Test tone.",
+                FocusDirective = "Test focus.",
+                HeatLevelDirective = "Test heat.",
             },
         };
 
@@ -1114,7 +1120,7 @@ public sealed class SlotContractTests
     {
         var slot = new IntensityPacingSlot(NullLogger<IntensityPacingSlot>.Instance);
         var context = CreateContext();
-        context = context with { Intensity = new ResolvedIntensityData() };
+        context = context with { Intensity = new ResolvedIntensityData { ProseStyleDirective = "", VoiceDirective = "", ToneDirective = "", FocusDirective = "", HeatLevelDirective = "" } };
 
         // Should still write — at minimum provides pacing guidance.
         Assert.True(slot.ShouldWrite(context));
