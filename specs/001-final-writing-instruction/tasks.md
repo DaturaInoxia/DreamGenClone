@@ -47,20 +47,20 @@
 
 ### Slot 17 — Consolidated Writing Instruction
 
-- [ ] T010 [US4] Add `ResolvedNarrativeToneData` sub-record and field to `DreamGenClone.Web/Application/RolePlay/Prompts/PromptBuildContext.cs`; extend `ResolvedWritingStyleData` with `ProfileName`, `ImmersionDirective`, `ActionDirective`, `WordTargetMin`, `WordTargetMax`, `NarrativeWordTargetMin`, `NarrativeWordTargetMax`
-- [ ] T011 [US4] Implement 3-tier Tone resolution (new Tone → legacy NarrativeTone → null) in prompt builder or resolver; resolve SteeringProfile new fields with fail-fast validation (FR-006, FR-008)
-- [ ] T012 [US1] [US2] Rewrite `DreamGenClone.Web/Application/RolePlay/Prompts/Slots/FinalInstructionSlot.cs`: consolidated 9-component output per contracts/slot-17-output-contract.md (Scene Direction before Writing Instruction per R1; Writing Instruction at absolute end; Character + Narrative variants)
-- [ ] T013 [US1] Update all prompt-facing labels to writer-standard terms in `FinalInstructionSlot.cs`: "Prose Style", "Voice", "Tone", "Heat Level", "Pacing", "Scene Direction" (per contracts/terminology-mapping.md)
+- [x] T010 [US4] Add `ResolvedNarrativeToneData` sub-record and field to `DreamGenClone.Web/Application/RolePlay/Prompts/PromptBuildContext.cs`; extend `ResolvedWritingStyleData` with `ProfileName`, `ImmersionDirective`, `ActionDirective`, `WordTargetMin`, `WordTargetMax`, `NarrativeWordTargetMin`, `NarrativeWordTargetMax`
+- [x] T011 [US4] Implement 3-tier Tone resolution (new Tone → legacy NarrativeTone → null) in prompt builder or resolver; resolve SteeringProfile new fields with fail-fast validation (FR-006, FR-008)
+- [x] T012 [US1] [US2] Rewrite `DreamGenClone.Web/Application/RolePlay/Prompts/Slots/FinalInstructionSlot.cs`: consolidated 9-component output per contracts/slot-17-output-contract.md (Scene Direction before Writing Instruction per R1; Writing Instruction at absolute end; Character + Narrative variants)
+- [x] T013 [US1] Update all prompt-facing labels to writer-standard terms in `FinalInstructionSlot.cs`: "Prose Style", "Voice", "Tone", "Heat Level", "Pacing", "Scene Direction" (per contracts/terminology-mapping.md)
 
 ### Slots 8, 12, 15 — Remove Writing Direction
 
-- [ ] T014 [US2] Rewrite `DreamGenClone.Web/Application/RolePlay/Prompts/Slots/WritingStyleSlot.cs`: remove writing direction emission; emit only single reference line "Writing direction: see Writing Instruction below." (or empty)
-- [ ] T015 [US2] Rewrite `DreamGenClone.Web/Application/RolePlay/Prompts/Slots/IntensityPacingSlot.cs`: remove heat level, contract, pacing emission; retain only available positions
-- [ ] T016 [US2] Clean up `DreamGenClone.Web/Application/RolePlay/Prompts/Slots/ThemeContractSlot.cs`: confirm phase guidance prose is removed (already commented out — remove dead code comments)
+- [x] T014 [US2] Rewrite `DreamGenClone.Web/Application/RolePlay/Prompts/Slots/WritingStyleSlot.cs`: remove writing direction emission; emit only single reference line "Writing direction: see Writing Instruction below." (or empty)
+- [x] T015 [US2] Rewrite `DreamGenClone.Web/Application/RolePlay/Prompts/Slots/IntensityPacingSlot.cs`: remove heat level, contract, pacing emission; retain only available positions
+- [x] T016 [US2] Clean up `DreamGenClone.Web/Application/RolePlay/Prompts/Slots/ThemeContractSlot.cs`: confirm phase guidance prose is removed (already commented out — remove dead code comments)
 
 ### Tests
 
-- [ ] T017 [US1] [US2] Update `DreamGenClone.Tests/RolePlay/Prompts/SlotContractTests.cs`: update expected strings for new labels (US1), consolidated Slot 17 output (US2), stripped-down Slots 8/15 output (US2)
+- [x] T017 [US1] [US2] Update `DreamGenClone.Tests/RolePlay/Prompts/SlotContractTests.cs`: update expected strings for new labels (US1), consolidated Slot 17 output (US2), stripped-down Slots 8/15 output (US2)
 
 **Checkpoint**: All writing direction consolidated into Slot 17. Slots 8 and 15 are structural only. Slot 12 no longer emits phase guidance. Labels use writer-standard terms. Contract tests pass.
 
@@ -70,8 +70,8 @@
 
 **Purpose**: Expose new SteeringProfile and NarrativeSettings fields in the UI per spec clarification (all UI grouped, sequenced last).
 
-- [ ] T018 [US3] Add editable fields for `ImmersionDirective`, `ActionDirective`, `WordTargetMin`, `WordTargetMax`, `NarrativeWordTargetMin`, `NarrativeWordTargetMax` to the Style Profile management Razor page
-- [ ] T019 [US4] Add editable fields for `Tone`, `Register`, `Focus` to the Scenario narrative settings Razor page; deprecate/hide legacy `NarrativeTone` field
+- [x] T018 [US3] Add editable fields for `ImmersionDirective`, `ActionDirective`, `WordTargetMin`, `WordTargetMax`, `NarrativeWordTargetMin`, `NarrativeWordTargetMax` to the Style Profile management Razor page
+- [x] T019 [US4] Add editable fields for `Tone`, `Register`, `Focus` to the Scenario narrative settings Razor page; deprecate/hide legacy `NarrativeTone` field
 
 **Checkpoint**: Writers can configure all new fields via the UI. Values persist and are reflected in the next built prompt.
 
@@ -81,10 +81,10 @@
 
 **Purpose**: Verify the implementation works end-to-end and the Scene Direction ↔ Writing Instruction ordering passes validation.
 
-- [ ] T020 Build solution: `dotnet build DreamGenClone.sln`
-- [ ] T021 Run slot contract tests: `dotnet test DreamGenClone.Tests --filter "SlotContractTests"`
-- [ ] T022 Run full role-play test suite: `dotnet test DreamGenClone.Tests --filter "RolePlay"`
-- [ ] T023 Integration testing for Scene Direction ↔ Writing Instruction ordering per FR-013: (A) manual qualitative review of N sample generations per ordering against 4-item checklist; (B) automated scoring script for objective markers; (C) single-author subjective review. Chosen ordering must pass all three.
+- [x] T020 Build solution: `dotnet build DreamGenClone.sln`
+- [x] T021 Run slot contract tests: `dotnet test DreamGenClone.Tests --filter "SlotContractTests"`
+- [x] T022 Run full role-play test suite: `dotnet test DreamGenClone.Tests --filter "RolePlay"`
+- [x] T023 Integration testing for Scene Direction ↔ Writing Instruction ordering per FR-013: (A) manual qualitative review of N sample generations per ordering against 4-item checklist; (B) automated scoring script for objective markers; (C) single-author subjective review. Chosen ordering must pass all three.
 
 **Checkpoint**: All tests pass. Ordering validated. Feature ready for spec amendment.
 
