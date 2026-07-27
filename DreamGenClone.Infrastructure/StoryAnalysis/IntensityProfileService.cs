@@ -45,6 +45,11 @@ public sealed class IntensityProfileService : IIntensityProfileService
         int approachingPhaseOffset,
         int climaxPhaseOffset,
         int resetPhaseOffset,
+        string proseStyleDirective = "",
+        string voiceDirective = "",
+        string toneDirective = "",
+        string focusDirective = "",
+        string heatLevelDirective = "",
         CancellationToken cancellationToken = default)
     {
         await EnsureDefaultProfilesAsync(cancellationToken);
@@ -87,6 +92,11 @@ public sealed class IntensityProfileService : IIntensityProfileService
             ApproachingPhaseOffset = approachingPhaseOffset,
             ClimaxPhaseOffset = climaxPhaseOffset,
             ResetPhaseOffset = resetPhaseOffset,
+            ProseStyleDirective = proseStyleDirective?.Trim() ?? string.Empty,
+            VoiceDirective = voiceDirective?.Trim() ?? string.Empty,
+            ToneDirective = toneDirective?.Trim() ?? string.Empty,
+            FocusDirective = focusDirective?.Trim() ?? string.Empty,
+            HeatLevelDirective = heatLevelDirective?.Trim() ?? string.Empty,
             CreatedUtc = DateTime.UtcNow,
             UpdatedUtc = DateTime.UtcNow
         };
@@ -116,6 +126,11 @@ public sealed class IntensityProfileService : IIntensityProfileService
         int approachingPhaseOffset,
         int climaxPhaseOffset,
         int resetPhaseOffset,
+        string proseStyleDirective = "",
+        string voiceDirective = "",
+        string toneDirective = "",
+        string focusDirective = "",
+        string heatLevelDirective = "",
         CancellationToken cancellationToken = default)
     {
         await EnsureDefaultProfilesAsync(cancellationToken);
@@ -158,6 +173,11 @@ public sealed class IntensityProfileService : IIntensityProfileService
         existing.ApproachingPhaseOffset = approachingPhaseOffset;
         existing.ClimaxPhaseOffset = climaxPhaseOffset;
         existing.ResetPhaseOffset = resetPhaseOffset;
+        existing.ProseStyleDirective = proseStyleDirective?.Trim() ?? string.Empty;
+        existing.VoiceDirective = voiceDirective?.Trim() ?? string.Empty;
+        existing.ToneDirective = toneDirective?.Trim() ?? string.Empty;
+        existing.FocusDirective = focusDirective?.Trim() ?? string.Empty;
+        existing.HeatLevelDirective = heatLevelDirective?.Trim() ?? string.Empty;
         existing.UpdatedUtc = DateTime.UtcNow;
 
         await _persistence.SaveToneProfileAsync(existing, cancellationToken);

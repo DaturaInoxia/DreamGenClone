@@ -37,7 +37,7 @@ public sealed class SteeringProfileService : ISteeringProfileService
         _logger = logger;
     }
 
-    public async Task<SteeringProfile> CreateAsync(string name, string description, string example, string ruleOfThumb, Dictionary<string, int>? themeAffinities = null, List<string>? escalatingThemeIds = null, Dictionary<string, int>? statBias = null, CancellationToken cancellationToken = default)
+    public async Task<SteeringProfile> CreateAsync(string name, string description, string example, string ruleOfThumb, Dictionary<string, int>? themeAffinities = null, List<string>? escalatingThemeIds = null, Dictionary<string, int>? statBias = null, string immersionDirective = "", string actionDirective = "", int wordTargetMin = 0, int wordTargetMax = 0, int narrativeWordTargetMin = 0, int narrativeWordTargetMax = 0, CancellationToken cancellationToken = default)
     {
         await EnsureDefaultProfilesAsync(cancellationToken);
 
@@ -62,6 +62,12 @@ public sealed class SteeringProfileService : ISteeringProfileService
             ThemeAffinities = themeAffinities ?? new(StringComparer.OrdinalIgnoreCase),
             EscalatingThemeIds = escalatingThemeIds ?? [],
             StatBias = statBias ?? new(StringComparer.OrdinalIgnoreCase),
+            ImmersionDirective = immersionDirective?.Trim() ?? string.Empty,
+            ActionDirective = actionDirective?.Trim() ?? string.Empty,
+            WordTargetMin = wordTargetMin,
+            WordTargetMax = wordTargetMax,
+            NarrativeWordTargetMin = narrativeWordTargetMin,
+            NarrativeWordTargetMax = narrativeWordTargetMax,
             CreatedUtc = DateTime.UtcNow,
             UpdatedUtc = DateTime.UtcNow
         };
@@ -77,7 +83,7 @@ public sealed class SteeringProfileService : ISteeringProfileService
     public Task<SteeringProfile?> GetAsync(string id, CancellationToken cancellationToken = default)
         => _persistence.LoadStyleProfileAsync(id, cancellationToken);
 
-    public async Task<SteeringProfile?> UpdateAsync(string id, string name, string description, string example, string ruleOfThumb, Dictionary<string, int>? themeAffinities = null, List<string>? escalatingThemeIds = null, Dictionary<string, int>? statBias = null, CancellationToken cancellationToken = default)
+    public async Task<SteeringProfile?> UpdateAsync(string id, string name, string description, string example, string ruleOfThumb, Dictionary<string, int>? themeAffinities = null, List<string>? escalatingThemeIds = null, Dictionary<string, int>? statBias = null, string immersionDirective = "", string actionDirective = "", int wordTargetMin = 0, int wordTargetMax = 0, int narrativeWordTargetMin = 0, int narrativeWordTargetMax = 0, CancellationToken cancellationToken = default)
     {
         await EnsureDefaultProfilesAsync(cancellationToken);
 
@@ -107,6 +113,12 @@ public sealed class SteeringProfileService : ISteeringProfileService
         if (themeAffinities is not null) existing.ThemeAffinities = themeAffinities;
         if (escalatingThemeIds is not null) existing.EscalatingThemeIds = escalatingThemeIds;
         if (statBias is not null) existing.StatBias = statBias;
+        existing.ImmersionDirective = immersionDirective?.Trim() ?? string.Empty;
+        existing.ActionDirective = actionDirective?.Trim() ?? string.Empty;
+        existing.WordTargetMin = wordTargetMin;
+        existing.WordTargetMax = wordTargetMax;
+        existing.NarrativeWordTargetMin = narrativeWordTargetMin;
+        existing.NarrativeWordTargetMax = narrativeWordTargetMax;
         existing.UpdatedUtc = DateTime.UtcNow;
 
         await _persistence.SaveStyleProfileAsync(existing, cancellationToken);

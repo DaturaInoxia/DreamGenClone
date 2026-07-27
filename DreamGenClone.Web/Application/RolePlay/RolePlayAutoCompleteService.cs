@@ -130,8 +130,9 @@ public sealed class RolePlayAutoCompleteService : IRolePlayAutoCompleteService
 
                 state.CurrentTurn++;
 
-                // Small delay between turns
-                await Task.Delay(500, cancellationToken);
+                // Delay between turns to allow background jobs (semantic analysis,
+                // debounced session save to PayloadJson) to complete before reload.
+                await Task.Delay(3000, cancellationToken);
             }
 
             // Max turns reached

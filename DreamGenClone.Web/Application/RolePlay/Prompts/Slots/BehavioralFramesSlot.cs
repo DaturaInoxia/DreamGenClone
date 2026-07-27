@@ -79,7 +79,8 @@ public sealed class BehavioralFramesSlot : IPromptSlot
             foreach (var (characterId, frameText) in frames)
             {
                 if (string.IsNullOrWhiteSpace(frameText)) continue;
-                sb.AppendLine($"  [{characterId}]: {frameText.Trim()}");
+                sb.AppendLine($"  [{characterId}]:");
+                sb.AppendLine(frameText);
             }
         }
         else
@@ -87,7 +88,8 @@ public sealed class BehavioralFramesSlot : IPromptSlot
             // Character variant: actor's own frame first, then other present characters.
             if (frames.TryGetValue(profile.ActorName, out var ownFrame) && !string.IsNullOrWhiteSpace(ownFrame))
             {
-                sb.AppendLine($"  [{profile.ActorName} — your character]: {ownFrame.Trim()}");
+                sb.AppendLine($"  [{profile.ActorName} — your character]:");
+                sb.AppendLine(ownFrame);
             }
 
             foreach (var (characterId, frameText) in frames)
@@ -96,9 +98,15 @@ public sealed class BehavioralFramesSlot : IPromptSlot
                 if (string.Equals(characterId, profile.ActorName, StringComparison.OrdinalIgnoreCase)) continue;
 
                 if (presentIds.Contains(characterId))
-                    sb.AppendLine($"  [{characterId}]: {frameText.Trim()}");
+                {
+                    sb.AppendLine($"  [{characterId}]:");
+                    sb.AppendLine(frameText);
+                }
                 else
-                    sb.AppendLine($"  [{characterId} — not present]: {frameText.Trim()}");
+                {
+                    sb.AppendLine($"  [{characterId} — not present]:");
+                    sb.AppendLine(frameText);
+                }
             }
         }
     }
@@ -115,7 +123,8 @@ public sealed class BehavioralFramesSlot : IPromptSlot
             foreach (var (characterLabel, stateText) in statStates)
             {
                 if (string.IsNullOrWhiteSpace(stateText)) continue;
-                sb.AppendLine($"  [{characterLabel} current state]: {stateText.Trim()}");
+                sb.AppendLine($"  [{characterLabel} current state]:");
+                sb.AppendLine(stateText);
             }
         }
         else
@@ -123,7 +132,8 @@ public sealed class BehavioralFramesSlot : IPromptSlot
             // Actor's own state first.
             if (statStates.TryGetValue(profile.ActorName, out var ownState) && !string.IsNullOrWhiteSpace(ownState))
             {
-                sb.AppendLine($"  [{profile.ActorName} — your current state]: {ownState.Trim()}");
+                sb.AppendLine($"  [{profile.ActorName} — your current state]:");
+                sb.AppendLine(ownState);
             }
 
             foreach (var (characterLabel, stateText) in statStates)
@@ -132,9 +142,15 @@ public sealed class BehavioralFramesSlot : IPromptSlot
                 if (string.Equals(characterLabel, profile.ActorName, StringComparison.OrdinalIgnoreCase)) continue;
 
                 if (presentIds.Contains(characterLabel))
-                    sb.AppendLine($"  [{characterLabel} current state]: {stateText.Trim()}");
+                {
+                    sb.AppendLine($"  [{characterLabel} current state]:");
+                    sb.AppendLine(stateText);
+                }
                 else
-                    sb.AppendLine($"  [{characterLabel} — not present, current state]: {stateText.Trim()}");
+                {
+                    sb.AppendLine($"  [{characterLabel} — not present, current state]:");
+                    sb.AppendLine(stateText);
+                }
             }
         }
     }

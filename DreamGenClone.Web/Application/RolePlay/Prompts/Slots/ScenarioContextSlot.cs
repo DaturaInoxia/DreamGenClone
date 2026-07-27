@@ -47,6 +47,11 @@ public sealed class ScenarioContextSlot : IPromptSlot
                 "no hardcoded default is permitted (FR-012a).");
         }
 
+        // Compression disabled — always use full detail. Re-enable by setting
+        // isCompressed = turnIndex >= compressionThreshold.Value when threshold
+        // behaviour is tested and calibrated.
+        var isCompressed = false;
+
         var sb = new StringBuilder();
         sb.AppendLine("Scenario:");
 
@@ -60,9 +65,6 @@ public sealed class ScenarioContextSlot : IPromptSlot
         {
             sb.AppendLine($"  Plot: {scenario.PlotDescription.Trim()}");
         }
-
-        // Progressive compression: full detail for early turns, compressed summary after threshold.
-        var isCompressed = turnIndex >= compressionThreshold.Value;
 
         if (isCompressed)
         {
@@ -88,6 +90,19 @@ public sealed class ScenarioContextSlot : IPromptSlot
             {
                 sb.AppendLine($"    Time: {scenario.TimeFrame.Trim()}");
                 sb.AppendLine("    Time Span Reminder: This story takes place within this time frame. Scenes may skip forward in time.");
+            }
+
+            // Environment details — activity/location hints (compact, one line).
+            if (scenario.EnvironmentalDetails.Count > 0)
+            {
+                var envItems = scenario.EnvironmentalDetails
+                    .Where(d => !string.IsNullOrWhiteSpace(d))
+                    .Select(d => d.Trim())
+                    .ToList();
+                if (envItems.Count > 0)
+                {
+                    sb.AppendLine($"    Environment: {string.Join("; ", envItems)}");
+                }
             }
         }
         else

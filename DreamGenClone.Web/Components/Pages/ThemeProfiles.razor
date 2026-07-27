@@ -1222,6 +1222,30 @@
                                 </div>
                                 <div class="form-text">Per-phase baseline deltas applied before stat modifiers. Typical defaults: 0, 0, +1, +2, -1.</div>
                             </div>
+                            <div class="col-12">
+                                <hr class="my-2" />
+                                <h6>Writing Directives</h6>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Prose Style</label>
+                                <textarea class="form-control" rows="2" @bind="_toneFormProseStyleDirective" placeholder="e.g. Sensory-driven prose. The body's experience of desire."></textarea>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Voice</label>
+                                <textarea class="form-control" rows="2" @bind="_toneFormVoiceDirective" placeholder="e.g. Build anticipation through physical detail."></textarea>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Tone</label>
+                                <textarea class="form-control" rows="2" @bind="_toneFormToneDirective" placeholder="e.g. Warm and intimate."></textarea>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Focus</label>
+                                <textarea class="form-control" rows="2" @bind="_toneFormFocusDirective" placeholder="e.g. The progression of physical intimacy."></textarea>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Heat Level</label>
+                                <textarea class="form-control" rows="3" @bind="_toneFormHeatLevelDirective" placeholder="e.g. Sensual intimacy. Passionate kissing, caressing."></textarea>
+                            </div>
                         </div>
                         @if (!string.IsNullOrEmpty(_toneError))
                         {
@@ -1329,6 +1353,30 @@
                             <div class="col-12">
                                 <label class="form-label">Rule of Thumb</label>
                                 <textarea class="form-control" rows="2" @bind="_styleFormRuleOfThumb"></textarea>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Immersion Directive</label>
+                                <textarea class="form-control" rows="2" @bind="_styleFormImmersionDirective" placeholder="e.g. Stay inside this character's perceptions. Show, don't tell."></textarea>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Action Directive</label>
+                                <textarea class="form-control" rows="2" @bind="_styleFormActionDirective" placeholder="e.g. Respond to the scene naturally."></textarea>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">Character Min Words</label>
+                                <input type="number" class="form-control" min="1" max="2000" @bind="_styleFormWordTargetMin" />
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">Character Max Words</label>
+                                <input type="number" class="form-control" min="1" max="2000" @bind="_styleFormWordTargetMax" />
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">Narrative Min Words</label>
+                                <input type="number" class="form-control" min="1" max="2000" @bind="_styleFormNarrativeWordTargetMin" />
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">Narrative Max Words</label>
+                                <input type="number" class="form-control" min="1" max="2000" @bind="_styleFormNarrativeWordTargetMax" />
                             </div>
                             <div class="col-12">
                                 <label class="form-label">Theme Affinities</label>
@@ -3039,12 +3087,25 @@
     private int _toneResetOffset = -1;
     private string? _toneError;
 
+    // ── Writing directive fields (plan-amendment 2026-07-22) ──
+    private string _toneFormProseStyleDirective = string.Empty;
+    private string _toneFormVoiceDirective = string.Empty;
+    private string _toneFormToneDirective = string.Empty;
+    private string _toneFormFocusDirective = string.Empty;
+    private string _toneFormHeatLevelDirective = string.Empty;
+
     private List<SteeringProfile> _steeringProfiles = [];
     private string? _selectedStyleId;
     private string _styleFormName = string.Empty;
     private string _styleFormDescription = string.Empty;
     private string _styleFormExample = string.Empty;
     private string _styleFormRuleOfThumb = string.Empty;
+    private string _styleFormImmersionDirective = string.Empty;
+    private string _styleFormActionDirective = string.Empty;
+    private int _styleFormWordTargetMin;
+    private int _styleFormWordTargetMax;
+    private int _styleFormNarrativeWordTargetMin;
+    private int _styleFormNarrativeWordTargetMax;
     private Dictionary<string, int> _styleFormThemeAffinities = new(StringComparer.OrdinalIgnoreCase);
     private HashSet<string> _styleFormEscalatingThemeIds = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, int> _styleFormStatBias = new(StringComparer.OrdinalIgnoreCase);
@@ -4624,6 +4685,11 @@
         _toneClimaxOffset = 2;
         _toneResetOffset = -1;
         _toneError = null;
+        _toneFormProseStyleDirective = string.Empty;
+        _toneFormVoiceDirective = string.Empty;
+        _toneFormToneDirective = string.Empty;
+        _toneFormFocusDirective = string.Empty;
+        _toneFormHeatLevelDirective = string.Empty;
     }
 
     private void SelectIntensity(string toneId)
@@ -4644,6 +4710,11 @@
         _toneClimaxOffset = tone.ClimaxPhaseOffset;
         _toneResetOffset = tone.ResetPhaseOffset;
         _toneError = null;
+        _toneFormProseStyleDirective = tone.ProseStyleDirective;
+        _toneFormVoiceDirective = tone.VoiceDirective;
+        _toneFormToneDirective = tone.ToneDirective;
+        _toneFormFocusDirective = tone.FocusDirective;
+        _toneFormHeatLevelDirective = tone.HeatLevelDirective;
     }
 
     private async Task SaveIntensity()
@@ -4668,7 +4739,12 @@
                     _toneCommittedOffset,
                     _toneApproachingOffset,
                     _toneClimaxOffset,
-                    _toneResetOffset);
+                    _toneResetOffset,
+                    _toneFormProseStyleDirective,
+                    _toneFormVoiceDirective,
+                    _toneFormToneDirective,
+                    _toneFormFocusDirective,
+                    _toneFormHeatLevelDirective);
                 await ReloadAsync();
                 SelectIntensity(created.Id);
             }
@@ -4683,7 +4759,12 @@
                     _toneCommittedOffset,
                     _toneApproachingOffset,
                     _toneClimaxOffset,
-                    _toneResetOffset);
+                    _toneResetOffset,
+                    _toneFormProseStyleDirective,
+                    _toneFormVoiceDirective,
+                    _toneFormToneDirective,
+                    _toneFormFocusDirective,
+                    _toneFormHeatLevelDirective);
                 await ReloadAsync();
                 SelectIntensity(_selectedToneId);
             }
@@ -4737,6 +4818,12 @@
         _styleFormDescription = string.Empty;
         _styleFormExample = string.Empty;
         _styleFormRuleOfThumb = string.Empty;
+        _styleFormImmersionDirective = string.Empty;
+        _styleFormActionDirective = string.Empty;
+        _styleFormWordTargetMin = 0;
+        _styleFormWordTargetMax = 0;
+        _styleFormNarrativeWordTargetMin = 0;
+        _styleFormNarrativeWordTargetMax = 0;
         _styleFormThemeAffinities = new(StringComparer.OrdinalIgnoreCase);
         _styleFormEscalatingThemeIds = new(StringComparer.OrdinalIgnoreCase);
         _styleFormStatBias = new(StringComparer.OrdinalIgnoreCase);
@@ -4756,6 +4843,12 @@
         _styleFormDescription = style.Description;
         _styleFormExample = style.Example;
         _styleFormRuleOfThumb = style.RuleOfThumb;
+        _styleFormImmersionDirective = style.ImmersionDirective ?? string.Empty;
+        _styleFormActionDirective = style.ActionDirective ?? string.Empty;
+        _styleFormWordTargetMin = style.WordTargetMin;
+        _styleFormWordTargetMax = style.WordTargetMax;
+        _styleFormNarrativeWordTargetMin = style.NarrativeWordTargetMin;
+        _styleFormNarrativeWordTargetMax = style.NarrativeWordTargetMax;
         _styleFormThemeAffinities = new(style.ThemeAffinities, StringComparer.OrdinalIgnoreCase);
         _styleFormEscalatingThemeIds = new(style.EscalatingThemeIds, StringComparer.OrdinalIgnoreCase);
         _styleFormStatBias = new(style.StatBias, StringComparer.OrdinalIgnoreCase);
@@ -4780,13 +4873,13 @@
 
             if (_selectedStyleId is null)
             {
-                var created = await Facade.CreateSteeringProfileAsync(_styleFormName, _styleFormDescription, _styleFormExample, _styleFormRuleOfThumb, affinities, escalating, bias);
+                var created = await Facade.CreateSteeringProfileAsync(_styleFormName, _styleFormDescription, _styleFormExample, _styleFormRuleOfThumb, affinities, escalating, bias, _styleFormImmersionDirective, _styleFormActionDirective, _styleFormWordTargetMin, _styleFormWordTargetMax, _styleFormNarrativeWordTargetMin, _styleFormNarrativeWordTargetMax);
                 await ReloadAsync();
                 SelectSteering(created.Id);
             }
             else
             {
-                await Facade.UpdateSteeringProfileAsync(_selectedStyleId, _styleFormName, _styleFormDescription, _styleFormExample, _styleFormRuleOfThumb, affinities, escalating, bias);
+                await Facade.UpdateSteeringProfileAsync(_selectedStyleId, _styleFormName, _styleFormDescription, _styleFormExample, _styleFormRuleOfThumb, affinities, escalating, bias, _styleFormImmersionDirective, _styleFormActionDirective, _styleFormWordTargetMin, _styleFormWordTargetMax, _styleFormNarrativeWordTargetMin, _styleFormNarrativeWordTargetMax);
                 await ReloadAsync();
                 SelectSteering(_selectedStyleId);
             }

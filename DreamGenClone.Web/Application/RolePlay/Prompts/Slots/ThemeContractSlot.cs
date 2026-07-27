@@ -5,9 +5,9 @@ using Microsoft.Extensions.Logging;
 namespace DreamGenClone.Web.Application.RolePlay.Prompts.Slots;
 
 /// <summary>
-/// Slot 12, Zone C — Theme contract: active theme + phase guidance + directives + steering rank.
-/// Appears exactly once per FR-018, FR-027. Never trimmed.
-/// Absorbs ThemeContractInjector + ThemeAIGuidanceInjector.
+/// Slot 12, Zone C — Theme contract: active theme + directives + AI guidance + hard constraints + steering rank.
+/// Phase guidance has moved to FinalInstructionSlot (Slot 17) as "Scene Direction."
+/// Never trimmed.
 /// </summary>
 public sealed class ThemeContractSlot : IPromptSlot
 {
@@ -30,45 +30,24 @@ public sealed class ThemeContractSlot : IPromptSlot
         var theme = context.Theme;
         var sb = new StringBuilder();
 
-        // ── Active theme header ──
-        if (theme.ActiveTheme is not null)
+        // ── Opening phase: Potential Arcs (session profile themes, no commitment) ──
+        if (theme.ActiveTheme is null && theme.AvailableArcLabels is { Count: > 0 })
         {
-            sb.AppendLine($"Theme Contract: {theme.ActiveTheme.Label}");
-            if (!string.IsNullOrWhiteSpace(theme.ActiveTheme.Description))
+            sb.AppendLine("Potential Arcs (available narrative directions — none selected yet):");
+            foreach (var arc in theme.AvailableArcLabels)
             {
-                sb.AppendLine(theme.ActiveTheme.Description.Trim());
+                sb.Append($"  {arc.Label}");
+                if (!string.IsNullOrWhiteSpace(arc.Description))
+                {
+                    sb.Append($" — {arc.Description}");
+                }
+                sb.AppendLine();
             }
         }
 
-        // ── Phase guidance prose ──
-        // MOVED: Phase guidance now appears in FinalInstructionSlot (Slot 17) right before
-        // the writing instruction, giving it maximum recency priority. The model reads it
-        // last, making it the most influential directive for what should happen next.
-        // To restore here: uncomment the block below and remove from FinalInstructionSlot.
-        /*
-        if (theme.PhaseGuidanceLines.Count > 0)
-        {
-            sb.AppendLine();
-            sb.AppendLine("Phase Guidance:");
-            foreach (var line in theme.PhaseGuidanceLines)
-            {
-                if (!string.IsNullOrWhiteSpace(line))
-                    sb.AppendLine($"  {line.Trim()}");
-            }
-        }
-        */
-
-        // ── Theme directives ──
-        if (theme.PhaseDirectiveLines.Count > 0)
-        {
-            sb.AppendLine();
-            sb.AppendLine("Theme Directives:");
-            foreach (var line in theme.PhaseDirectiveLines)
-            {
-                if (!string.IsNullOrWhiteSpace(line))
-                    sb.AppendLine($"  {line.Trim()}");
-            }
-        }
+        // Note: Theme Contract, Scene Guidance, and Scene Direction have moved to
+        // FinalInstructionSlot (Slot 17) for maximum recency. This slot now only
+        // handles Potential Arcs (Opening phase) and AI Guidance Notes / Hard Constraints.
 
         // ── AI guidance notes ──
         if (theme.AiGuidanceNotes.Count > 0)

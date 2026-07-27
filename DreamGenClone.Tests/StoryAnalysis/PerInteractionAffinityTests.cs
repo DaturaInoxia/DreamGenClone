@@ -36,7 +36,7 @@ public sealed class PerInteractionAffinityTests
 
         public void Add(SteeringProfile profile) => _profiles[profile.Id] = profile;
 
-        public Task<SteeringProfile> CreateAsync(string name, string description, string example, string ruleOfThumb, Dictionary<string, int>? themeAffinities = null, List<string>? escalatingThemeIds = null, Dictionary<string, int>? statBias = null, CancellationToken ct = default)
+        public Task<SteeringProfile> CreateAsync(string name, string description, string example, string ruleOfThumb, Dictionary<string, int>? themeAffinities = null, List<string>? escalatingThemeIds = null, Dictionary<string, int>? statBias = null, string immersionDirective = "", string actionDirective = "", int wordTargetMin = 0, int wordTargetMax = 0, int narrativeWordTargetMin = 0, int narrativeWordTargetMax = 0, CancellationToken ct = default)
             => Task.FromResult(new SteeringProfile { Name = name });
 
         public Task<List<SteeringProfile>> ListAsync(CancellationToken ct = default)
@@ -45,7 +45,7 @@ public sealed class PerInteractionAffinityTests
         public Task<SteeringProfile?> GetAsync(string id, CancellationToken ct = default)
             => Task.FromResult(_profiles.GetValueOrDefault(id));
 
-        public Task<SteeringProfile?> UpdateAsync(string id, string name, string description, string example, string ruleOfThumb, Dictionary<string, int>? themeAffinities = null, List<string>? escalatingThemeIds = null, Dictionary<string, int>? statBias = null, CancellationToken ct = default)
+        public Task<SteeringProfile?> UpdateAsync(string id, string name, string description, string example, string ruleOfThumb, Dictionary<string, int>? themeAffinities = null, List<string>? escalatingThemeIds = null, Dictionary<string, int>? statBias = null, string immersionDirective = "", string actionDirective = "", int wordTargetMin = 0, int wordTargetMax = 0, int narrativeWordTargetMin = 0, int narrativeWordTargetMax = 0, CancellationToken ct = default)
             => Task.FromResult<SteeringProfile?>(null);
 
         public Task<bool> DeleteAsync(string id, CancellationToken ct = default) => Task.FromResult(false);

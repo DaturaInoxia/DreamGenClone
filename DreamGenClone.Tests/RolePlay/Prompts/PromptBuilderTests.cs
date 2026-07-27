@@ -54,6 +54,7 @@ public sealed class PromptBuilderTests
             Kind = ActorProfileKind.Player,
             ActorName = "Ken",
             ActorRole = "Hero",
+            PerspectiveMode = CharacterPerspectiveMode.FirstPersonInternalMonologue,
             PresentCharacterIds = characters.Select(c => c.Id).ToList(),
             AllCharacterIds = characters.Select(c => c.Id).ToList(),
         };
@@ -90,15 +91,27 @@ public sealed class PromptBuilderTests
                 DefaultStartingLocationName = null,
             },
             Theme = new ResolvedThemeData(),
-            Intensity = new ResolvedIntensityData(),
+            Intensity = new ResolvedIntensityData
+            {
+                ProseStyleDirective = "Test prose style.",
+                VoiceDirective = "Test voice.",
+                ToneDirective = "Test tone.",
+                FocusDirective = "Test focus.",
+                HeatLevelDirective = "Test heat.",
+            },
             WritingStyle = new ResolvedWritingStyleData
             {
-                Description = "Style desc",
                 Example = "Style example",
-                ProfileDefaultRuleOfThumb = "Default RoT",
                 PhaseRuleOfThumb = "Phase RoT",
                 StyleHint = "Hint",
+                ImmersionDirective = "Stay in character.",
+                ActionDirective = "Respond naturally.",
+                WordTargetMin = 200,
+                WordTargetMax = 400,
+                NarrativeWordTargetMin = 300,
+                NarrativeWordTargetMax = 500,
             },
+            NarrativeTone = new ResolvedNarrativeToneData(),
             EncounterSummaries = [],
             RecentInteractions = [],
             CharacterDetails = null,

@@ -41,6 +41,7 @@ public sealed record PromptBuildContext
     public required ResolvedThemeData Theme { get; init; }
     public required ResolvedIntensityData Intensity { get; init; }
     public required ResolvedWritingStyleData WritingStyle { get; init; }
+    public required ResolvedNarrativeToneData NarrativeTone { get; init; }
 
     // ── Memory ─────────────────────────────────────────────────
     public required IReadOnlyList<EncounterSummaryRecord> EncounterSummaries { get; init; }
@@ -122,6 +123,9 @@ public sealed record ResolvedThemeData
     public IReadOnlyList<string> PhaseDirectiveLines { get; init; } = [];
     public IReadOnlyList<RPThemeAIGuidanceNote> AiGuidanceNotes { get; init; } = [];
     public IReadOnlyList<string> HardConstraintLines { get; init; } = [];
+
+    /// <summary>Available theme arcs for Opening phase (Label, Description). Null when no themes available or phase is not Opening.</summary>
+    public IReadOnlyList<(string Label, string Description)>? AvailableArcLabels { get; init; }
 }
 
 public sealed record ResolvedIntensityData
@@ -134,24 +138,64 @@ public sealed record ResolvedIntensityData
     public string? CeilingOverride { get; init; }
     public SceneDirection? SceneDirection { get; init; }
     public IReadOnlyList<string> AvailablePositions { get; init; } = [];
+
+    // ── Writing directives from IntensityProfile (plan-amendment 2026-07-22) ──
+    public required string ProseStyleDirective { get; init; }
+    public required string VoiceDirective { get; init; }
+    public required string ToneDirective { get; init; }
+    public required string FocusDirective { get; init; }
+    public required string HeatLevelDirective { get; init; }
 }
 
 public sealed record ResolvedWritingStyleData
 {
-    /// <summary>Timeless description — always kept, never trimmed.</summary>
-    public required string Description { get; init; }
-
     /// <summary>Timeless example — always kept, never trimmed.</summary>
     public required string Example { get; init; }
-
-    /// <summary>Writing style profile's default Rule-of-Thumb. Fail-fast if missing (FR-014).</summary>
-    public required string ProfileDefaultRuleOfThumb { get; init; }
 
     /// <summary>Phase-specific Rule-of-Thumb from PhaseRuleOfThumb table. Fail-fast if missing (FR-014).</summary>
     public required string PhaseRuleOfThumb { get; init; }
 
     /// <summary>Merged prose style + tone hint.</summary>
     public required string StyleHint { get; init; }
+
+    // ── New SteeringProfile fields (FR-005, FR-006) ────────────────
+    // Fail-fast at prompt build time if empty/zero.
+
+    /// <summary>Immersion rule for Character variant. Fail-fast if empty (FR-006).</summary>
+    public required string ImmersionDirective { get; init; }
+
+    /// <summary>Action rule for Character variant. Fail-fast if empty (FR-006).</summary>
+    public required string ActionDirective { get; init; }
+
+    /// <summary>Minimum word count for Character variant. Fail-fast if &lt;= 0 (FR-006).</summary>
+    public required int WordTargetMin { get; init; }
+
+    /// <summary>Maximum word count for Character variant. Fail-fast if &lt;= 0 (FR-006).</summary>
+    public required int WordTargetMax { get; init; }
+
+    /// <summary>Minimum word count for Narrative variant. Fail-fast if &lt;= 0 (FR-006).</summary>
+    public required int NarrativeWordTargetMin { get; init; }
+
+    /// <summary>Maximum word count for Narrative variant. Fail-fast if &lt;= 0 (FR-006).</summary>
+    public required int NarrativeWordTargetMax { get; init; }
+}
+
+// ── Narrative tone sub-record (FR-007, FR-008) ──────────────────
+
+/// <summary>
+/// Resolved narrative tone data from <see cref="NarrativeSettings"/>.
+/// Uses 3-tier resolution: new Tone → legacy NarrativeTone → null.
+/// </summary>
+public sealed record ResolvedNarrativeToneData
+{
+    /// <summary>Resolved tone (mood/attitude). Null if all sources empty.</summary>
+    public string? Tone { get; init; }
+
+    /// <summary>Language complexity. Null if not configured.</summary>
+    public string? Register { get; init; }
+
+    /// <summary>Subject emphasis. Null if not configured.</summary>
+    public string? Focus { get; init; }
 }
 
 // ── Character detail sub-record ────────────────────────────────

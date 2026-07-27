@@ -50,18 +50,15 @@ public sealed class TurnContextSlot : IPromptSlot
 
             if (pos == 1)
             {
-                sb.AppendLine("- You are first this turn. Establish the scene — continue naturally from where the previous turn left off.");
-                if (turnActorCount > 1)
-                    sb.AppendLine($"- The other {turnActorCount - 1} character(s) will respond to this same beat from their perspectives.");
+                sb.AppendLine($"- You are position {pos} of {turnActorCount}.");
             }
             else if (pos == turnActorCount)
             {
-                sb.AppendLine("- Continue from your character's perspective.");
-                sb.AppendLine("- The narrative closes the turn after your response.");
+                sb.AppendLine($"- You are position {pos} of {turnActorCount}. The narrative closes the turn after your response.");
             }
             else
             {
-                sb.AppendLine("- Continue from your character's perspective.");
+                sb.AppendLine($"- You are position {pos} of {turnActorCount}.");
             }
         }
 

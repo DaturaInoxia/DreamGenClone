@@ -525,6 +525,18 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
 
         var actorProfile = _actorProfileResolver.Resolve(actor, customActorName, intent, session, allScenarioCharacters);
 
+        // ── Resolve PerspectiveMode from the scenario character roster (FR-011) ──
+        // The ActorProfileResolver uses minimal ScenarioCharacter records without PerspectiveMode.
+        // We resolve it here from the full domain Character objects.
+        if (actorProfile.Kind != ActorProfileKind.Narrative && scenario?.Characters is not null)
+        {
+            var matchedChar = FindCharacterForProfile(actorProfile, scenario.Characters);
+            if (matchedChar is not null)
+            {
+                actorProfile = actorProfile with { PerspectiveMode = matchedChar.PerspectiveMode };
+            }
+        }
+
         // ── Resolve phase ──
         var phase = session.AdaptiveState.CurrentPhase.ToString();
 
@@ -685,6 +697,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             Theme = await ResolveThemeAsync(session, phase, cancellationToken),
             Intensity = await ResolveIntensityAsync(session, phase, cancellationToken),
             WritingStyle = await ResolveWritingStyleAsync(session, phaseRoTRow, cancellationToken),
+            NarrativeTone = ResolveNarrativeTone(scenario),
             EncounterSummaries = session.AdaptiveState.EncounterSummaries,
             RecentInteractions = session.Interactions
                 .Where(i => !i.IsExcluded)
@@ -697,6 +710,31 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
 
         // ── Delegate to builder ──
         return await _promptBuilder.BuildAsync(context, cancellationToken);
+    }
+
+    /// <summary>
+    /// Matches an actor profile to a scenario character by name for PerspectiveMode resolution (FR-011).
+    /// </summary>
+    private static DreamGenClone.Web.Domain.Scenarios.Character? FindCharacterForProfile(
+        ActorProfile profile,
+        IReadOnlyList<DreamGenClone.Web.Domain.Scenarios.Character> characters)
+    {
+        // Try exact name match first (actor name is in "Name (Role)" format from resolver)
+        var actorName = profile.ActorName;
+        foreach (var c in characters)
+        {
+            if (c.Name is not null && actorName.Contains(c.Name, StringComparison.OrdinalIgnoreCase))
+                return c;
+        }
+
+        // Fallback: match by role
+        foreach (var c in characters)
+        {
+            if (string.Equals(c.Role, profile.ActorRole, StringComparison.OrdinalIgnoreCase))
+                return c;
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -754,20 +792,29 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         PhaseRuleOfThumbRow phaseRoT,
         CancellationToken cancellationToken)
     {
-        var desc = string.Empty;
         var example = string.Empty;
-        var profileDefaultRoT = string.Empty;
         var styleHint = string.Empty;
+        var immersionDirective = string.Empty;
+        var actionDirective = string.Empty;
+        var wordTargetMin = 0;
+        var wordTargetMax = 0;
+        var narrativeWordTargetMin = 0;
+        var narrativeWordTargetMax = 0;
 
         var selectedStyleProfileId = session.SelectedSteeringProfileId;
+        SteeringProfile? styleProfile = null;
         if (!string.IsNullOrWhiteSpace(selectedStyleProfileId))
         {
-            var styleProfile = await _steeringProfileService.GetAsync(selectedStyleProfileId, cancellationToken);
+            styleProfile = await _steeringProfileService.GetAsync(selectedStyleProfileId, cancellationToken);
             if (styleProfile is not null)
             {
-                desc = styleProfile.Description ?? string.Empty;
                 example = styleProfile.Example ?? string.Empty;
-                profileDefaultRoT = styleProfile.RuleOfThumb ?? string.Empty;
+                immersionDirective = styleProfile.ImmersionDirective ?? string.Empty;
+                actionDirective = styleProfile.ActionDirective ?? string.Empty;
+                wordTargetMin = styleProfile.WordTargetMin;
+                wordTargetMax = styleProfile.WordTargetMax;
+                narrativeWordTargetMin = styleProfile.NarrativeWordTargetMin;
+                narrativeWordTargetMax = styleProfile.NarrativeWordTargetMax;
             }
         }
 
@@ -785,32 +832,87 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             }
         }
 
-        // Fail-fast on missing profile default (FR-014)
-        if (string.IsNullOrWhiteSpace(profileDefaultRoT))
+        // Fail-fast on missing new SteeringProfile fields (FR-006)
+        if (styleProfile is not null)
         {
-            throw new InvalidOperationException(
-                "MissingPromptConfig: WritingStyle.ProfileDefaultRuleOfThumb is missing or empty. FR-014 requires a profile default Rule-of-Thumb.");
+            if (string.IsNullOrWhiteSpace(styleProfile.ImmersionDirective))
+                throw new InvalidOperationException(
+                    $"MissingPromptConfig: SteeringProfile '{styleProfile.Name}' (Id={styleProfile.Id}) is missing required field 'ImmersionDirective'. FR-006 requires this field to be populated. No hardcoded fallback is permitted. Populate the field via the Style Profile management UI or a DB update.");
+
+            if (string.IsNullOrWhiteSpace(styleProfile.ActionDirective))
+                throw new InvalidOperationException(
+                    $"MissingPromptConfig: SteeringProfile '{styleProfile.Name}' (Id={styleProfile.Id}) is missing required field 'ActionDirective'. FR-006 requires this field to be populated. No hardcoded fallback is permitted. Populate the field via the Style Profile management UI or a DB update.");
+
+            if (styleProfile.WordTargetMin <= 0 || styleProfile.WordTargetMax <= 0 || styleProfile.WordTargetMin >= styleProfile.WordTargetMax)
+                throw new InvalidOperationException(
+                    $"MissingPromptConfig: SteeringProfile '{styleProfile.Name}' (Id={styleProfile.Id}) has invalid WordTarget range (Min={styleProfile.WordTargetMin}, Max={styleProfile.WordTargetMax}). FR-006 requires a valid range. No hardcoded fallback is permitted. Populate the field via the Style Profile management UI or a DB update.");
+
+            if (styleProfile.NarrativeWordTargetMin <= 0 || styleProfile.NarrativeWordTargetMax <= 0 || styleProfile.NarrativeWordTargetMin >= styleProfile.NarrativeWordTargetMax)
+                throw new InvalidOperationException(
+                    $"MissingPromptConfig: SteeringProfile '{styleProfile.Name}' (Id={styleProfile.Id}) has invalid NarrativeWordTarget range (Min={styleProfile.NarrativeWordTargetMin}, Max={styleProfile.NarrativeWordTargetMax}). FR-006 requires a valid range. No hardcoded fallback is permitted. Populate the field via the Style Profile management UI or a DB update.");
         }
 
         return new ResolvedWritingStyleData
         {
-            Description = desc,
             Example = example,
-            ProfileDefaultRuleOfThumb = profileDefaultRoT,
             PhaseRuleOfThumb = phaseRoT.RuleOfThumbText,
             StyleHint = styleHint,
+            ImmersionDirective = immersionDirective,
+            ActionDirective = actionDirective,
+            WordTargetMin = wordTargetMin,
+            WordTargetMax = wordTargetMax,
+            NarrativeWordTargetMin = narrativeWordTargetMin,
+            NarrativeWordTargetMax = narrativeWordTargetMax,
         };
+    }
+
+    /// <summary>
+    /// Resolves narrative tone data using 3-tier logic (FR-008):
+    /// new Tone → legacy NarrativeTone → null (silent omit).
+    /// </summary>
+    private static ResolvedNarrativeToneData ResolveNarrativeTone(
+        DreamGenClone.Web.Domain.Scenarios.Scenario? scenario)
+    {
+        if (scenario?.Narrative is null)
+            return new ResolvedNarrativeToneData();
+
+        var narrative = scenario.Narrative;
+
+        // Tier 1: new decomposed fields
+        if (!string.IsNullOrWhiteSpace(narrative.Tone))
+        {
+            return new ResolvedNarrativeToneData
+            {
+                Tone = narrative.Tone.Trim(),
+                Register = narrative.Register?.Trim(),
+                Focus = narrative.Focus?.Trim(),
+            };
+        }
+
+        // Tier 2: fall back to legacy NarrativeTone
+        if (!string.IsNullOrWhiteSpace(narrative.NarrativeTone))
+        {
+            return new ResolvedNarrativeToneData
+            {
+                Tone = narrative.NarrativeTone.Trim(),
+                Register = null,
+                Focus = null,
+            };
+        }
+
+        // Tier 3: silent omit
+        return new ResolvedNarrativeToneData();
     }
 
     private async Task<ResolvedIntensityData> ResolveIntensityAsync(
         RolePlaySession session, string phase, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(session.SelectedIntensityProfileId))
-            return new ResolvedIntensityData();
+            return CreateEmptyResolvedIntensity();
 
         var profile = await _intensityProfileService.GetAsync(session.SelectedIntensityProfileId, cancellationToken);
         if (profile is null)
-            return new ResolvedIntensityData();
+            return CreateEmptyResolvedIntensity();
 
         // Compute phase-adjusted intensity level
         var phaseEnum = global::DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Opening;
@@ -824,11 +926,18 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             "ResolveIntensity: SessionId={SessionId} Phase={Phase} Base={Base} Offset={Offset} Resolved={Resolved}",
             session.Id, phase, profile.Intensity, offset, resolvedLabel);
 
-        // Resolve the contract Description from the profile matching the phase-adjusted level.
-        // The selected profile's Description stays with its base level; when the phase offset
-        // changes the effective level, the contract text must match the resolved label.
+        // Start with the selected profile's values
         var description = profile.Description;
+        var proseStyle = profile.ProseStyleDirective;
+        var voice = profile.VoiceDirective;
+        var tone = profile.ToneDirective;
+        var focus = profile.FocusDirective;
+        var heatLevel = profile.HeatLevelDirective;
         var resolvedLevel = (IntensityLevel)adjustedValue;
+
+        // When the phase offset changes the effective level, swap ALL directives to the
+        // matching profile — not just Description. Otherwise the model gets mismatched
+        // Prose Style from one level and Heat Level from another.
         if (resolvedLevel != profile.Intensity)
         {
             var allProfiles = await _intensityProfileService.ListAsync(cancellationToken);
@@ -836,6 +945,11 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             if (matchingProfile is not null)
             {
                 description = matchingProfile.Description;
+                proseStyle = matchingProfile.ProseStyleDirective;
+                voice = matchingProfile.VoiceDirective;
+                tone = matchingProfile.ToneDirective;
+                focus = matchingProfile.FocusDirective;
+                heatLevel = matchingProfile.HeatLevelDirective;
                 _logger.LogDebug(
                     "ResolveIntensity: contract text swapped from {SelectedName} to {MatchedName} for phase {Phase}",
                     profile.Name, matchingProfile.Name, phase);
@@ -855,6 +969,23 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             AdaptiveLevel = (IntensityLevel)adjustedValue,
             ResolvedLabel = resolvedLabel,
             SceneDirection = sceneDirection,
+            ProseStyleDirective = proseStyle,
+            VoiceDirective = voice,
+            ToneDirective = tone,
+            FocusDirective = focus,
+            HeatLevelDirective = heatLevel,
+        };
+    }
+
+    private static ResolvedIntensityData CreateEmptyResolvedIntensity()
+    {
+        return new ResolvedIntensityData
+        {
+            ProseStyleDirective = string.Empty,
+            VoiceDirective = string.Empty,
+            ToneDirective = string.Empty,
+            FocusDirective = string.Empty,
+            HeatLevelDirective = string.Empty,
         };
     }
 
@@ -868,13 +999,42 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
 
         // Fallback: if PrimaryThemeId isn't synced from the V2 tracker yet,
         // use the first active theme from ThemeScores (set by theme machine).
-        if (string.IsNullOrWhiteSpace(themeId) && session.AdaptiveState.ThemeScores is { Count: > 0 })
+        // During Opening phase, themes are not selected yet — skip fallback.
+        if (string.IsNullOrWhiteSpace(themeId)
+            && !string.Equals(phase, nameof(NarrativePhase.Opening), StringComparison.OrdinalIgnoreCase)
+            && session.AdaptiveState.ThemeScores is { Count: > 0 })
         {
             themeId = session.AdaptiveState.ThemeScores.Keys.First();
         }
 
         if (string.IsNullOrWhiteSpace(themeId))
+        {
+            // During Opening, populate potential arcs from the session's theme selections
+            // so the model knows what narrative directions are available.
+            if (string.Equals(phase, nameof(NarrativePhase.Opening), StringComparison.OrdinalIgnoreCase)
+                && session.SessionThemeSelections is { Count: > 0 })
+            {
+                var themes = new List<RPTheme>(session.SessionThemeSelections.Count);
+                foreach (var s in session.SessionThemeSelections)
+                {
+                    var t = await _rpThemeService.GetThemeAsync(s.ThemeId, cancellationToken);
+                    if (t is not null) themes.Add(t);
+                }
+
+                if (themes.Count > 0)
+                {
+                    return new ResolvedThemeData
+                    {
+                        AvailableArcLabels = themes
+                            .Where(t => !string.IsNullOrWhiteSpace(t.Label))
+                            .Select(t => (t.Label.Trim(), t.Description?.Trim() ?? string.Empty))
+                            .ToList(),
+                    };
+                }
+            }
+
             return new ResolvedThemeData();
+        }
 
         var theme = await _rpThemeService.GetThemeAsync(themeId, cancellationToken);
         if (theme is null)

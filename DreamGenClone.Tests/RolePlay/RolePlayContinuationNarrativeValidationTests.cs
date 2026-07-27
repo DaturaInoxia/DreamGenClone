@@ -903,6 +903,11 @@ public sealed class RolePlayContinuationNarrativeValidationTests
             int approachingPhaseOffset,
             int climaxPhaseOffset,
             int resetPhaseOffset,
+            string proseStyleDirective = "",
+            string voiceDirective = "",
+            string toneDirective = "",
+            string focusDirective = "",
+            string heatLevelDirective = "",
             CancellationToken cancellationToken = default)
             => throw new NotImplementedException();
 
@@ -922,6 +927,11 @@ public sealed class RolePlayContinuationNarrativeValidationTests
             int approachingPhaseOffset,
             int climaxPhaseOffset,
             int resetPhaseOffset,
+            string? proseStyleDirective = null,
+            string? voiceDirective = null,
+            string? toneDirective = null,
+            string? focusDirective = null,
+            string? heatLevelDirective = null,
             CancellationToken cancellationToken = default)
             => Task.FromResult<IntensityProfile?>(null);
 
@@ -931,7 +941,7 @@ public sealed class RolePlayContinuationNarrativeValidationTests
 
     private sealed class NullSteeringProfileService : ISteeringProfileService
     {
-        public Task<SteeringProfile> CreateAsync(string name, string description, string example, string ruleOfThumb, Dictionary<string, int>? themeAffinities = null, List<string>? escalatingThemeIds = null, Dictionary<string, int>? statBias = null, CancellationToken cancellationToken = default)
+        public Task<SteeringProfile> CreateAsync(string name, string description, string example, string ruleOfThumb, Dictionary<string, int>? themeAffinities = null, List<string>? escalatingThemeIds = null, Dictionary<string, int>? statBias = null, string immersionDirective = "", string actionDirective = "", int wordTargetMin = 0, int wordTargetMax = 0, int narrativeWordTargetMin = 0, int narrativeWordTargetMax = 0, CancellationToken cancellationToken = default)
             => throw new NotImplementedException();
 
         public Task<List<SteeringProfile>> ListAsync(CancellationToken cancellationToken = default)
@@ -940,7 +950,7 @@ public sealed class RolePlayContinuationNarrativeValidationTests
         public Task<SteeringProfile?> GetAsync(string id, CancellationToken cancellationToken = default)
             => Task.FromResult<SteeringProfile?>(null);
 
-        public Task<SteeringProfile?> UpdateAsync(string id, string name, string description, string example, string ruleOfThumb, Dictionary<string, int>? themeAffinities = null, List<string>? escalatingThemeIds = null, Dictionary<string, int>? statBias = null, CancellationToken cancellationToken = default)
+        public Task<SteeringProfile?> UpdateAsync(string id, string name, string description, string example, string ruleOfThumb, Dictionary<string, int>? themeAffinities = null, List<string>? escalatingThemeIds = null, Dictionary<string, int>? statBias = null, string immersionDirective = "", string actionDirective = "", int wordTargetMin = 0, int wordTargetMax = 0, int narrativeWordTargetMin = 0, int narrativeWordTargetMax = 0, CancellationToken cancellationToken = default)
             => Task.FromResult<SteeringProfile?>(null);
 
         public Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default)

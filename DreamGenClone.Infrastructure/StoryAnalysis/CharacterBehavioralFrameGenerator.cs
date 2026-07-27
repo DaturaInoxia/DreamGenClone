@@ -4,6 +4,7 @@ using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Domain.StoryAnalysis;
 using Microsoft.Extensions.Logging;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace DreamGenClone.Infrastructure.StoryAnalysis;
 
@@ -104,8 +105,8 @@ public sealed class CharacterBehavioralFrameGenerator : IBehavioralFrameGenerato
             return profile.AdditionalNotes?.Trim() ?? string.Empty;
         }
 
-        // Build dimension text from all tier sentences
-        // Use runtimeEncounterStats values when provided; fall back to profile.EncounterStats
+        // Build dimension text: one line per dimension with PascalCase name split into words.
+        // Format: "  Discovery Caution — She is highly vigilant..."
         var sb = new StringBuilder();
         foreach (var dim in dimensions)
         {
@@ -122,18 +123,23 @@ public sealed class CharacterBehavioralFrameGenerator : IBehavioralFrameGenerato
             var tierText = BehavioralDimensionCatalog.ResolveTierText(profile.TargetRole!, dim.Name, value);
             if (!string.IsNullOrWhiteSpace(tierText))
             {
-                if (sb.Length > 0) sb.Append(' ');
-                sb.Append(tierText);
+                var displayName = SplitPascalCase(dim.Name);
+                sb.AppendLine($"  {displayName} — {tierText}");
             }
         }
 
         // Append AdditionalNotes if present and not FullOverride
         if (!string.IsNullOrWhiteSpace(profile.AdditionalNotes))
         {
-            if (sb.Length > 0) sb.AppendLine();
-            sb.Append(profile.AdditionalNotes.Trim());
+            sb.Append($"  {profile.AdditionalNotes.Trim()}");
         }
 
-        return sb.ToString();
+        return sb.ToString().TrimEnd();
+    }
+
+    private static string SplitPascalCase(string name)
+    {
+        // "DiscoveryCaution" → "Discovery Caution"
+        return Regex.Replace(name, "([a-z])([A-Z])", "$1 $2");
     }
 }

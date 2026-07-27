@@ -56,6 +56,7 @@ public sealed class SlotContractTests
             Kind = actorKind,
             ActorName = actorName,
             ActorRole = actorRole,
+            PerspectiveMode = CharacterPerspectiveMode.FirstPersonInternalMonologue,
             PresentCharacterIds = characters?.Select(c => c.Id).ToList() ?? [],
             AllCharacterIds = characters?.Select(c => c.Id).ToList() ?? [],
         };
@@ -92,15 +93,27 @@ public sealed class SlotContractTests
                 DefaultStartingLocationName = null,
             },
             Theme = new ResolvedThemeData(),
-            Intensity = new ResolvedIntensityData(),
+            Intensity = new ResolvedIntensityData
+            {
+                ProseStyleDirective = "Test prose.",
+                VoiceDirective = "Test voice.",
+                ToneDirective = "Test tone.",
+                FocusDirective = "Test focus.",
+                HeatLevelDirective = "Test heat.",
+            },
             WritingStyle = new ResolvedWritingStyleData
             {
-                Description = "Test style",
                 Example = "Test example",
-                ProfileDefaultRuleOfThumb = "Default RoT",
                 PhaseRuleOfThumb = "Phase RoT",
                 StyleHint = "Test hint",
+                ImmersionDirective = "Stay in character.",
+                ActionDirective = "Respond naturally.",
+                WordTargetMin = 200,
+                WordTargetMax = 400,
+                NarrativeWordTargetMin = 300,
+                NarrativeWordTargetMax = 500,
             },
+            NarrativeTone = new ResolvedNarrativeToneData(),
             EncounterSummaries = [],
             RecentInteractions = recentInteractions ?? [],
             CharacterDetails = null,
@@ -627,83 +640,45 @@ public sealed class SlotContractTests
     // ── T060: WritingStyleSlot (FR-014, FR-036) ─────────────────
 
     [Fact]
-    public async Task WritingStyleSlot_OutputsTimelessDescriptionAndExample()
+    public async Task WritingStyleSlot_OutputsReferenceLine()
     {
         var slot = new WritingStyleSlot(NullLogger<WritingStyleSlot>.Instance);
         var context = CreateContext();
-        context = context with
-        {
-            WritingStyle = new ResolvedWritingStyleData
-            {
-                Description = "A timeless prose style.",
-                Example = "She walked through the door.",
-                ProfileDefaultRuleOfThumb = "Default RoT text",
-                PhaseRuleOfThumb = "Phase RoT text for BuildUp",
-                StyleHint = "Tone: warm and intimate",
-            },
-        };
 
         Assert.True(slot.ShouldWrite(context));
 
         var text = await slot.WriteAsync(context, CancellationToken.None);
 
-        Assert.Contains("Writing Style:", text);
-        Assert.Contains("timeless prose style", text);
-        Assert.Contains("She walked through the door", text);
-        Assert.Contains("Phase Rule of Thumb", text);
-        Assert.Contains("Phase RoT text for BuildUp", text);
-        Assert.Contains("Profile Default", text);
-        Assert.Contains("Default RoT text", text);
-        Assert.Contains("Style Hint", text);
-        Assert.Contains("warm and intimate", text);
+        Assert.Contains("Writing direction: see Writing Instruction below.", text);
     }
 
     [Fact]
-    public async Task WritingStyleSlot_FailsFast_OnMissingPhaseRuleOfThumb()
+    public async Task WritingStyleSlot_NoFailFastOnMissingFields()
     {
+        // After plan-amendment, WritingStyleSlot emits the full Style Guide from
+        // Intensity fields — it does not fail-fast on empty StyleProfile fields.
         var slot = new WritingStyleSlot(NullLogger<WritingStyleSlot>.Instance);
         var context = CreateContext();
         context = context with
         {
             WritingStyle = new ResolvedWritingStyleData
             {
-                Description = "Timeless prose.",
                 Example = "Example prose.",
-                ProfileDefaultRuleOfThumb = "Default RoT",
-                PhaseRuleOfThumb = "", // Empty — should fail fast
+                PhaseRuleOfThumb = "",
                 StyleHint = "Hint",
+                ImmersionDirective = "Stay in character.",
+                ActionDirective = "Respond naturally.",
+                WordTargetMin = 200,
+                WordTargetMax = 400,
+                NarrativeWordTargetMin = 300,
+                NarrativeWordTargetMax = 500,
             },
         };
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            slot.WriteAsync(context, CancellationToken.None));
+        var text = await slot.WriteAsync(context, CancellationToken.None);
 
-        Assert.Contains("PhaseRuleOfThumb", ex.Message);
-        Assert.Contains("FR-014", ex.Message);
-    }
-
-    [Fact]
-    public async Task WritingStyleSlot_FailsFast_OnMissingProfileDefault()
-    {
-        var slot = new WritingStyleSlot(NullLogger<WritingStyleSlot>.Instance);
-        var context = CreateContext();
-        context = context with
-        {
-            WritingStyle = new ResolvedWritingStyleData
-            {
-                Description = "Timeless prose.",
-                Example = "Example prose.",
-                ProfileDefaultRuleOfThumb = "", // Empty — should fail fast
-                PhaseRuleOfThumb = "Phase RoT",
-                StyleHint = "Hint",
-            },
-        };
-
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            slot.WriteAsync(context, CancellationToken.None));
-
-        Assert.Contains("ProfileDefaultRuleOfThumb", ex.Message);
-        Assert.Contains("FR-014", ex.Message);
+        Assert.Contains("Style Guide:", text);
+        Assert.DoesNotContain("Prose Style:", text); // Empty in intensity, skipped
     }
 
     [Fact]
@@ -1101,7 +1076,7 @@ public sealed class SlotContractTests
     // ── T089: IntensityPacingSlot (FR-021, FR-036) ────────────
 
     [Fact]
-    public async Task IntensityPacingSlot_OutputsMergedBlock()
+    public async Task IntensityPacingSlot_OutputsPositionsOnly()
     {
         var slot = new IntensityPacingSlot(NullLogger<IntensityPacingSlot>.Instance);
         var context = CreateContext();
@@ -1118,6 +1093,11 @@ public sealed class SlotContractTests
                     TimeShift = TimeShiftPolicy.None,
                     Deepening = DeepeningPolicy.None,
                 },
+                ProseStyleDirective = "Test prose.",
+                VoiceDirective = "Test voice.",
+                ToneDirective = "Test tone.",
+                FocusDirective = "Test focus.",
+                HeatLevelDirective = "Test heat.",
             },
         };
 
@@ -1125,12 +1105,14 @@ public sealed class SlotContractTests
 
         var text = await slot.WriteAsync(context, CancellationToken.None);
 
-        Assert.Contains("Intensity & Pacing:", text);
-        Assert.Contains("Passionate", text);
-        Assert.Contains("High emotional charge", text);
-        Assert.Contains("Scene pacing:", text);
-        Assert.Contains("Medium pace", text);
+        // After consolidation, only available positions remain (structural data).
+        // Heat Level, contract, and pacing have moved to Slot 17.
+        Assert.DoesNotContain("Intensity & Pacing:", text);
+        Assert.DoesNotContain("Passionate", text);
+        Assert.DoesNotContain("Scene pacing:", text);
         Assert.Contains("Available positions:", text);
+        Assert.Contains("Missionary", text);
+        Assert.Contains("Cowgirl", text);
     }
 
     [Fact]
@@ -1138,7 +1120,7 @@ public sealed class SlotContractTests
     {
         var slot = new IntensityPacingSlot(NullLogger<IntensityPacingSlot>.Instance);
         var context = CreateContext();
-        context = context with { Intensity = new ResolvedIntensityData() };
+        context = context with { Intensity = new ResolvedIntensityData { ProseStyleDirective = "", VoiceDirective = "", ToneDirective = "", FocusDirective = "", HeatLevelDirective = "" } };
 
         // Should still write — at minimum provides pacing guidance.
         Assert.True(slot.ShouldWrite(context));

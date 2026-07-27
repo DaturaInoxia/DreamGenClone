@@ -2,7 +2,6 @@ using DreamGenClone.Web.Application.Scenarios;
 using DreamGenClone.Web.Application.Sessions;
 using DreamGenClone.Web.Domain.RolePlay;
 using Microsoft.Extensions.Logging;
-using System.Collections.Concurrent;
 using System.Text.Json;
 using DreamGenClone.Application.Abstractions;
 using DreamGenClone.Application.ModelManager;
@@ -34,6 +33,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
     private async Task EnsureOpeningToBuildUpTransition(RolePlaySession session)
     {
+        // AdaptiveState is loaded from authoritative V2 tables — no stale blob to compensate for.
         if (session.AdaptiveState.CurrentPhase == NarrativePhase.Opening
             && session.AdaptiveState.ObservedTurnCount > OpeningPeriodTurnCount)
         {
@@ -43,13 +43,11 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 "RolePlayV2 Opening→BuildUp transition: SessionId={SessionId} ObservedTurnCount={ObservedTurns}",
                 session.Id,
                 session.AdaptiveState.ObservedTurnCount);
-
-            // Persist immediately so the V2 state doesn't revert on app restart
-            await _stateRepository.SaveAdaptiveStateAsync(session.AdaptiveState, CancellationToken.None);
         }
     }
 
-    private static readonly ConcurrentDictionary<string, RolePlaySession> Sessions = new();
+    // In-memory session cache removed — V2 tables are the single source of truth.
+    // Every GetSessionAsync call loads from DB via LoadRolePlaySessionAsync.
     private static readonly IReadOnlyDictionary<string, (string Label, IReadOnlyDictionary<string, int> Deltas)> DecisionOptionCatalog =
         new Dictionary<string, (string Label, IReadOnlyDictionary<string, int> Deltas)>(StringComparer.OrdinalIgnoreCase)
         {
@@ -517,7 +515,6 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         session.AdaptiveState.SessionId = session.Id;
         session.AdaptiveState.SyncCharacterSnapshots();
 
-        Sessions[session.Id] = session;
         _autoSaveCoordinator.QueueRolePlaySessionSave(session, "roleplay-session-created");
 
         // Eagerly write the initial V2 state row so the workspace Adaptive panel can display
@@ -546,40 +543,31 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
     public async Task<IReadOnlyList<RolePlaySession>> GetSessionsAsync(CancellationToken cancellationToken = default)
     {
-        await EnsurePersistedSessionsLoadedAsync(cancellationToken);
-
-        IReadOnlyList<RolePlaySession> results = Sessions.Values
-            .OrderByDescending(x => x.ModifiedAt)
-            .ToList();
+        var items = await _sessionService.GetSessionsByTypeAsync(SessionService.RolePlaySessionType, cancellationToken);
+        var results = new List<RolePlaySession>();
+        foreach (var item in items)
+        {
+            var session = await _sessionService.LoadRolePlaySessionAsync(item.Id, cancellationToken);
+            if (session is not null)
+            {
+                if (session.Status == RolePlaySessionStatus.NotStarted && session.Interactions.Count > 0)
+                    session.Status = RolePlaySessionStatus.InProgress;
+                results.Add(session);
+            }
+        }
 
         _logger.LogInformation("Retrieved {Count} role-play sessions", results.Count);
-        return results;
+        return results.OrderByDescending(x => x.ModifiedAt).ToList();
     }
 
     public void InvalidateSessionCache(string sessionId)
     {
-        if (string.IsNullOrWhiteSpace(sessionId))
-        {
-            return;
-        }
-
-        Sessions.TryRemove(sessionId, out _);
+        // No in-memory cache — no-op. V2 tables are loaded fresh on every request.
     }
 
     public async Task<RolePlaySession?> GetSessionAsync(string sessionId, CancellationToken cancellationToken = default)
     {
-        if (Sessions.TryGetValue(sessionId, out var session))
-        {
-            return session;
-        }
-
-        session = await _sessionService.LoadRolePlaySessionAsync(sessionId, cancellationToken);
-        if (session is not null)
-        {
-            Sessions[session.Id] = session;
-        }
-
-        return session;
+        return await _sessionService.LoadRolePlaySessionAsync(sessionId, cancellationToken);
     }
 
     public async Task<RolePlaySession> OpenSessionAsync(
@@ -618,7 +606,6 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     public Task<RolePlaySession> SaveSessionAsync(RolePlaySession session, CancellationToken cancellationToken = default)
     {
         session.ModifiedAt = DateTime.UtcNow;
-        Sessions[session.Id] = session;
         _autoSaveCoordinator.QueueRolePlaySessionSave(session, "roleplay-session-updated");
         _logger.LogInformation("Role-play session saved: {SessionId}, interactions={Count}, mode={Mode}", session.Id, session.Interactions.Count, session.BehaviorMode);
         return Task.FromResult(session);
@@ -666,11 +653,9 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
     public async Task<bool> DeleteSessionAsync(string sessionId, CancellationToken cancellationToken = default)
     {
-        var removedFromCache = Sessions.TryRemove(sessionId, out _);
         var deletedPersisted = await _sessionService.DeleteAsync(sessionId, cancellationToken);
-        var deleted = removedFromCache || deletedPersisted;
 
-        if (deleted)
+        if (deletedPersisted)
         {
             _logger.LogInformation(SessionLogEvents.DeleteRolePlaySession, "Role-play session hard-deleted: {SessionId}", sessionId);
         }
@@ -679,7 +664,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             _logger.LogWarning("Role-play session delete requested for missing session: {SessionId}", sessionId);
         }
 
-        return deleted;
+        return deletedPersisted;
     }
 
     public async Task<bool> UpdateBehaviorModeAsync(string sessionId, BehaviorMode mode, CancellationToken cancellationToken = default)
@@ -1113,7 +1098,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
             if (session.AdaptiveState.IsStateDirty)
             {
-                await _stateRepository.SaveAdaptiveStateAsync(session.AdaptiveState, cancellationToken);
+                // Pipeline saves at end of RunRolePlayV2PipelinesAsync — no dirty save needed.
                 session.AdaptiveState.IsStateDirty = false;
             }
             await _stateRepository.CompleteTurnAsync(
@@ -1266,7 +1251,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
         if (session.AdaptiveState.IsStateDirty)
         {
-            await _stateRepository.SaveAdaptiveStateAsync(session.AdaptiveState, cancellationToken);
+            // Pipeline saves at end of RunRolePlayV2PipelinesAsync — no dirty save needed.
             session.AdaptiveState.IsStateDirty = false;
         }
         await _stateRepository.CompleteTurnAsync(
@@ -1459,8 +1444,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                             session.AdaptiveState.CurrentTimeSkipPhase = hasAftermath
                                 ? TimeSkipPhase.AftermathCoupleInteraction
                                 : TimeSkipPhase.AdvanceTime;
-                            // B-057: synchronous persist — DB is always authoritative for time-skip state.
-                            await _stateRepository.SaveAdaptiveStateAsync(session.AdaptiveState, cancellationToken);
+                            // Pipeline persists time-skip state at end of turn.
                             _logger.LogInformation(
                                 "B057Trace Overflow_CloseScene_To_{Next}: Phase={Phase} Enc={Enc} Global={Global} TimeSkip={TimeSkip} IxnInEnc={IxnInEnc}",
                                 session.AdaptiveState.CurrentTimeSkipPhase, session.AdaptiveState.CurrentPhase,
@@ -1476,8 +1460,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                             session.AdaptiveState.CurrentTimeSkipPhase = hasMulti
                                 ? TimeSkipPhase.AdvanceTime
                                 : TimeSkipPhase.None;
-                            // B-057: synchronous persist — DB is always authoritative for time-skip state.
-                            await _stateRepository.SaveAdaptiveStateAsync(session.AdaptiveState, cancellationToken);
+                            // Pipeline persists time-skip state at end of turn.
                             _logger.LogInformation(
                                 "B057Trace Overflow_Aftermath_To_{Next}: Phase={Phase} Enc={Enc} Global={Global} TimeSkip={TimeSkip} IxnInEnc={IxnInEnc}",
                                 session.AdaptiveState.CurrentTimeSkipPhase, session.AdaptiveState.CurrentPhase,
@@ -1493,10 +1476,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                             // interaction-list index BEFORE that next interaction is appended.
                             session.AdaptiveState.CurrentEncounterStartInteractionIndex = session.Interactions.Count;
                             session.AdaptiveState.IsEncounterActive = true; // Next encounter is now active
-                            // B-057: synchronous persist — DB is always authoritative for time-skip state.
-                            // MUST save AFTER setting CurrentEncounterStartInteractionIndex and
-                            // IsEncounterActive so V2 captures the correct values.
-                            await _stateRepository.SaveAdaptiveStateAsync(session.AdaptiveState, cancellationToken);
+                            // Pipeline persists time-skip state at end of turn.
                             _logger.LogInformation(
                                 "B057Trace Overflow_AdvanceTime_To_None: Phase={Phase} Enc={Enc} Global={Global} TimeSkip={TimeSkip} IxnInEnc={IxnInEnc}",
                                 session.AdaptiveState.CurrentPhase, session.AdaptiveState.CurrentEncounterNumber,
@@ -1581,9 +1561,14 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 }
                 else
                 {
-                    promptText = i == 0
-                        ? "Continue the scene naturally with the next character response."
-                        : "Continue the conversation naturally, building on the previous response.";
+                    promptText = i switch
+                    {
+                        // Actor 1 advances: the lead character drives the scene forward —
+                        // move to new locations, advance time, escalate the dynamic.
+                        0 => "Advance the scene by one beat. Move the story forward — shift locations, advance time (days or hours may pass between scenes — let the Phase Guidance and Time Frame above set the pace), escalate the dynamic, or introduce a new element. Use the Environment and Locations in the Scenario section as hints for activities and places. Do not re-describe what was already established.",
+                        // Actors 2+ react to what the previous character established.
+                        _ => "React to the previous character's action from your own perspective, building on the new direction they established. Do not reset the scene or re-describe what came before."
+                    };
                 }
 
                 await AlignPromptNarrativeStateWithV2Async(session, cancellationToken);
@@ -1627,7 +1612,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 fallbackActor,
                 fallbackActorName,
                 PromptIntent.Message,
-                "Continue naturally with the next interaction that best fits recent context.",
+                "Advance the scene by one beat. Move the story forward — shift locations, advance time, escalate the dynamic, or introduce a new element.",
                 onChunk,
                 cancellationToken);
 
@@ -1692,7 +1677,6 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
         session.Status = RolePlaySessionStatus.InProgress;
         session.ModifiedAt = DateTime.UtcNow;
-        _autoSaveCoordinator.QueueRolePlaySessionSave(session, "roleplay-continueas-generated");
 
         _logger.LogInformation(
             "Continue As executed for session {SessionId}: participants={ParticipantCount}, includeNarrative={IncludeNarrative}, source={Source}, isUserTurn={IsUserTurn}",
@@ -1702,11 +1686,15 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             request.TriggeredBy,
             result.IsUserTurn);
 
-        // Redundant — time-skip mutations persist synchronously at their mutation sites.
+        // V2 pipeline runs first so TurnCountInPhase, phase transitions, and adaptive updates
+        // are captured in the session save that follows.
         await RunRolePlayV2PipelinesAsync(session, DecisionTrigger.InteractionStart, cancellationToken);
-        // Flush the pending session save to DB before enqueueing semantic analysis jobs.
-        // The job handler loads the session from DB; if we only queue the save (debounced 1s),
-        // the background runner will read a stale snapshot that does not contain the new interactions.
+        // Flush the session save to DB immediately after the pipeline so background jobs
+        // (semantic analysis) and subsequent turns always read a consistent snapshot. The
+        // debounced save path would leave the DB stale for ~1s, which is long enough for
+        // fast loops (AutoComplete) and cache eviction (InvalidateSessionCache) to reload
+        // a snapshot missing the pipeline's TurnCountInPhase increment.
+        _autoSaveCoordinator.QueueRolePlaySessionSave(session, "roleplay-continueas-generated");
         await _autoSaveCoordinator.FlushAsync(cancellationToken);
         foreach (var generatedInteraction in outputInteractionIds
             .Select(id => session.Interactions.FirstOrDefault(x => string.Equals(x.Id, id, StringComparison.OrdinalIgnoreCase)))
@@ -1715,11 +1703,10 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         {
             await QueueSemanticInteractionAnalysisAsync(session, generatedInteraction, cancellationToken);
         }
-        _autoSaveCoordinator.QueueRolePlaySessionSave(session, "roleplay-continueas-v2-processed");
 
         if (session.AdaptiveState.IsStateDirty)
         {
-            await _stateRepository.SaveAdaptiveStateAsync(session.AdaptiveState, cancellationToken);
+            // Pipeline saves at end of RunRolePlayV2PipelinesAsync — no dirty save needed.
             session.AdaptiveState.IsStateDirty = false;
         }
         await _stateRepository.CompleteTurnAsync(
@@ -2553,22 +2540,20 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             ? session.AdaptiveState.CurrentSceneLocation
             : null;
 
-        // B-049: Count all non-system interactions (Npc, You, Custom) to decide whether OtherMan is eligible.
-        // Using only Npc type caused a chicken-and-egg: Dean never got turns so the count never reached threshold.
-        var totalInteractions = session.Interactions.Count(i =>
-            i.InteractionType != InteractionType.System && !i.IsExcluded);
-
-        // Hard-exclude OtherMan for the first 6 interactions so Husband+Wife establish first.
-        // With batchSize=2 (Ken+Becky per turn), 3 turns = 6 interactions ? Dean eligible on turn 4.
+        // Hard-exclude OtherMan during the opening period so Husband+Wife establish
+        // their dynamic first. Uses the same turn-based threshold as the
+        // Opening→BuildUp phase gate (OpeningPeriodTurnCount = 3).
+        // Dean becomes eligible at the start of turn 4 (ObservedTurnCount = 4).
         var eligibleCharacterNames = sceneCharacterNames.Where(name =>
         {
             session.AdaptiveState.CharacterStats.TryGetValue(name, out var statProfile);
             var role = statProfile?.CharacterRole;
-            if (totalInteractions < 6 && string.Equals(role, "OtherMan", StringComparison.OrdinalIgnoreCase))
+            if (session.AdaptiveState.ObservedTurnCount <= OpeningPeriodTurnCount
+                && string.Equals(role, "OtherMan", StringComparison.OrdinalIgnoreCase))
             {
                 _logger.LogDebug(
-                    "OverflowActor: excluding OtherMan {ActorName} at interaction offset {Offset} for SessionId={SessionId}",
-                    name, totalInteractions, session.Id);
+                    "OverflowActor: excluding OtherMan {ActorName} during opening period (turn {Turn}) for SessionId={SessionId}",
+                    name, session.AdaptiveState.ObservedTurnCount, session.Id);
                 return false;
             }
             return true;
@@ -2715,7 +2700,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 ? "Persona auto candidate (in-scene)."
                 : "Persona auto candidate (not in scene but always included).";
 
-            if (totalInteractions < 6)
+            if (session.AdaptiveState.ObservedTurnCount <= OpeningPeriodTurnCount)
             {
                 // Initial setup: persona leads to establish husband-wife dynamic
                 actors.Insert(0, new OverflowActorCandidate(ContinueAsActor.You, personaName,
@@ -2885,14 +2870,25 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
     private async Task RebuildAdaptiveStateInternalAsync(RolePlaySession session, CancellationToken cancellationToken)
     {
-        // Preserve encounter profile selections before discarding adaptive state �
-        // CharacterEncounterProfileIds is stored on AdaptiveState and would be lost on reset.
+        // Preserve pipeline-critical fields from the existing state before rebuild.
+        // The rebuild reseeds theme scores and replays interactions — it must not
+        // overwrite CurrentPhase, TurnCountInPhase, ActiveScenarioId, or encounter
+        // tracking fields that the pipeline owns.
+        var existingState = session.AdaptiveState;
+        var savedPhase = existingState.CurrentPhase;
+        var savedTurnCount = existingState.TurnCountInPhase;
+        var savedActiveScenarioId = existingState.ActiveScenarioId;
         var savedEncounterProfileIds = new Dictionary<string, string>(
-            session.AdaptiveState.CharacterEncounterProfileIds, StringComparer.OrdinalIgnoreCase);
+            existingState.CharacterEncounterProfileIds, StringComparer.OrdinalIgnoreCase);
 
         session.AdaptiveState = new AdaptiveScenarioState();
 
-        // Restore so SeedRuntimeEncounterStatsAsync can seed behavioral stats from the original profiles.
+        // Restore pipeline fields so the rebuilt state reflects the session's actual phase.
+        session.AdaptiveState.CurrentPhase = savedPhase;
+        session.AdaptiveState.TurnCountInPhase = savedTurnCount;
+        session.AdaptiveState.ActiveScenarioId = savedActiveScenarioId;
+
+        // Restore encounter profile ids for runtime stat seeding.
         foreach (var kvp in savedEncounterProfileIds)
             session.AdaptiveState.CharacterEncounterProfileIds[kvp.Key] = kvp.Value;
 
@@ -2911,12 +2907,22 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             session.AdaptiveState = await UpdateAdaptiveStateWithSemanticDiagnosticsAsync(session, interaction, cancellationToken);
         }
 
+        // Restore pipeline fields — the replay loop returns new state objects that
+        // lose CurrentPhase, TurnCountInPhase, and ActiveScenarioId.
+        session.AdaptiveState.CurrentPhase = savedPhase;
+        session.AdaptiveState.TurnCountInPhase = savedTurnCount;
+        session.AdaptiveState.ActiveScenarioId = savedActiveScenarioId;
+
+        // Persist the rebuilt state to the V2 table so DB stays in sync.
+        await _stateRepository.SaveAdaptiveStateAsync(session.AdaptiveState, cancellationToken);
+
         _logger.LogInformation(
-            "Adaptive state rebuilt for session {SessionId}: interactionsReplayed={InteractionCount}, primaryTheme={PrimaryTheme}, secondaryTheme={SecondaryTheme}",
+            "Adaptive state rebuilt for session {SessionId}: interactionsReplayed={InteractionCount}, primaryTheme={PrimaryTheme}, secondaryTheme={SecondaryTheme}, phase={Phase}",
             session.Id,
             session.Interactions.Count(x => !x.IsExcluded),
             session.AdaptiveState.PrimaryThemeId ?? "(none)",
-            session.AdaptiveState.SecondaryThemeId ?? "(none)");
+            session.AdaptiveState.SecondaryThemeId ?? "(none)",
+            session.AdaptiveState.CurrentPhase);
     }
 
 
@@ -3408,31 +3414,8 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         };
     }
 
-    private async Task EnsurePersistedSessionsLoadedAsync(CancellationToken cancellationToken)
-    {
-        var persisted = await _sessionService.GetSessionsByTypeAsync(SessionService.RolePlaySessionType, cancellationToken);
-        foreach (var item in persisted)
-        {
-            if (Sessions.ContainsKey(item.Id))
-            {
-                continue;
-            }
+    // In-memory cache removed — sessions are loaded from DB on every request.
 
-            var loaded = await _sessionService.LoadRolePlaySessionAsync(item.Id, cancellationToken);
-            if (loaded is not null)
-            {
-                if (loaded.Status == RolePlaySessionStatus.NotStarted && loaded.Interactions.Count > 0)
-                {
-                    loaded.Status = RolePlaySessionStatus.InProgress;
-                }
-
-                loaded.AdaptiveState.RebuildCharacterStatsCache();
-                Sessions.TryAdd(loaded.Id, loaded);
-            }
-        }
-    }
-
-    // Schema compatibility check removed � there is only one session schema now.
     private static Task ValidateSessionCompatibilityOrThrowAsync(RolePlaySession session, CancellationToken cancellationToken)
         => Task.CompletedTask;
 
@@ -3444,11 +3427,12 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         DreamGenClone.Domain.RolePlay.NarrativePhase? manualPhaseAdvanceTarget = null)
     {
         var previousV2State = await _stateRepository.LoadAdaptiveStateAsync(session.Id, cancellationToken);
-        _logger.LogInformation(
-            "B057Trace Pipeline_LoadedFromDB: Phase={Phase} Enc={Enc} Global={Global} TimeSkip={TimeSkip} IxnInEnc={IxnInEnc} Loaded={Loaded}",
-            previousV2State?.CurrentPhase.ToString() ?? "(null)", previousV2State?.CurrentEncounterNumber ?? -1,
-            previousV2State?.GlobalEncounterCount ?? -1, previousV2State?.CurrentTimeSkipPhase ?? (object)"(null)",
-            previousV2State?.TurnsInCurrentEncounter ?? -1, previousV2State is not null);
+        _logger.LogWarning(
+            "DIAG:V2Loaded Phase={Phase} TurnCount={TurnCount} ScenarioId={Scenario} SessionId={SessionId}",
+            previousV2State?.CurrentPhase.ToString() ?? "(null)",
+            previousV2State?.TurnCountInPhase ?? -1,
+            previousV2State?.ActiveScenarioId ?? "(null)",
+            session.Id);
 
         var v2State = HydrateV2State(session, previousV2State);
 
@@ -4005,6 +3989,10 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             var transitionSourcePhase = v2State.CurrentPhase;
             v2State.CurrentPhase = lifecycle.TargetPhase;
             v2State.TurnCountInPhase = 0;
+
+            _logger.LogWarning(
+                "DIAG:LifecycleTransition SessionId={SessionId} From={From} To={To}",
+                session.Id, transitionSourcePhase, lifecycle.TargetPhase);
 
             if (_suppressNarrativeAfterPhaseChange)
             {
@@ -4676,6 +4664,9 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             v2State.CurrentPhase, v2State.CurrentEncounterNumber, v2State.GlobalEncounterCount,
             v2State.CurrentTimeSkipPhase, v2State.TurnsInCurrentEncounter);
 
+        _logger.LogWarning(
+            "DIAG:PipelineSave Phase={Phase} TurnCount={TurnCount} ActiveScenario={Scenario} SessionId={SessionId}",
+            v2State.CurrentPhase, v2State.TurnCountInPhase, v2State.ActiveScenarioId, session.Id);
         await _stateRepository.SaveAdaptiveStateAsync(v2State, cancellationToken);
         SyncSessionAdaptiveStateFromV2(session, v2State);
 
@@ -4690,184 +4681,36 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         RolePlaySession session,
         DreamGenClone.Domain.RolePlay.AdaptiveScenarioState? previousState)
     {
+        // V2 tables are the single source of truth. session.AdaptiveState was loaded
+        // from V2 by LoadRolePlaySessionAsync. No merge needed — just sync snapshots.
         var mapped = session.AdaptiveState;
         mapped.SyncCharacterSnapshots();
-        if (previousState is null)
-        {
-            return mapped;
-        }
 
-        var manualOverrideLocked = IsManualThemeOverrideLockActive(session);
-        if (manualOverrideLocked)
+        // If a background semantic job wrote fresher CharacterSnapshots between
+        // LoadRolePlaySessionAsync and this pipeline call, use them.
+        if (previousState is not null && previousState.CharacterSnapshots.Count > 0)
         {
-            mapped.ActiveScenarioId = session.AdaptiveState.ActiveScenarioId;
-            mapped.ActiveVariantId = session.AdaptiveState.ActiveVariantId;
-            mapped.CurrentPhase = session.AdaptiveState.CurrentPhase;
-            mapped.TurnCountInPhase = Math.Max(0, session.AdaptiveState.TurnsSinceCommitment);
-        }
-        else
-        {
-            // V2 ThemeSelectionRule is authoritative. PayloadJson can lag � e.g. retaining
-            // "Observing" after the background job has advanced the tracker to
-            // "ActiveScenarioLock". Using the stale PayloadJson value makes isObservingWindow=true,
-            // which nulls ActiveScenarioId and triggers false scenario re-selection on every
-            // pipeline run, resetting TurnCountInPhase to 0 each time.
-            //
-            // Still respect the original guard: while the session is genuinely in its
-            // observation window, do not restore ActiveScenarioId from the V2 snapshot.
-            // The snapshot may hold the just-completed scenario from the previous cycle
-            // (saved before ExecuteResetAsync cleared it). Restoring it here would defeat the
-            // Reset?Observer?BuildUp re-selection flow. The reset pipeline explicitly writes
-            // ThemeSelectionRule="Observing" into V2 (line ~2956), so V2 is correct for that case.
-            if (!string.IsNullOrWhiteSpace(previousState.ThemeSelectionRule))
-                mapped.ThemeSelectionRule = previousState.ThemeSelectionRule;
-            var isObservingWindow = string.Equals(
-                mapped.ThemeSelectionRule, "Observing",
-                StringComparison.OrdinalIgnoreCase);
-            mapped.ActiveScenarioId = isObservingWindow
-                ? null
-                : previousState.ActiveScenarioId ?? mapped.ActiveScenarioId;
-            mapped.ActiveVariantId = previousState.ActiveVariantId ?? mapped.ActiveVariantId;
-            // Don't revert phase if in-memory session already advanced past V2 snapshot
-            // (e.g. EnsureOpeningToBuildUpTransition fired before V2 hydration).
-            if (GetPhaseOrder(mapped.CurrentPhase) < GetPhaseOrder(previousState.CurrentPhase))
-            {
-                mapped.CurrentPhase = previousState.CurrentPhase;
-                mapped.TurnCountInPhase = Math.Max(0, previousState.TurnCountInPhase);
-            }
-        }
-
-        mapped.ConsecutiveLeadCount = Math.Max(0, previousState.ConsecutiveLeadCount);
-        mapped.CycleIndex = Math.Max(mapped.CycleIndex, previousState.CycleIndex);
-        mapped.ActiveFormulaVersion = string.IsNullOrWhiteSpace(previousState.ActiveFormulaVersion)
-            ? mapped.ActiveFormulaVersion
-            : previousState.ActiveFormulaVersion;
-        mapped.SelectedNarrativeGateProfileId = previousState.SelectedNarrativeGateProfileId ?? mapped.SelectedNarrativeGateProfileId;
-        // PhaseOverride fields are authoritative in the V2 live store (RolePlayV2AdaptiveStates).
-        // null is a valid cleared state (set by ClearPhaseOverrideLock). Do NOT fall back to the
-        // session payload here � it may be stale and would re-activate a cleared floor override.
-        mapped.PhaseOverrideFloor = previousState.PhaseOverrideFloor;
-        mapped.PhaseOverrideScenarioId = previousState.PhaseOverrideScenarioId;
-        mapped.PhaseOverrideCycleIndex = previousState.PhaseOverrideCycleIndex;
-        mapped.PhaseOverrideSource = previousState.PhaseOverrideSource;
-        mapped.PhaseOverrideAppliedUtc = previousState.PhaseOverrideAppliedUtc;
-        mapped.LastEvaluationUtc = previousState.LastEvaluationUtc;
-        mapped.CurrentSceneLocation = previousState.CurrentSceneLocation;
-        mapped.CharacterLocations = previousState.CharacterLocations
-            .Select(x => new DreamGenClone.Domain.RolePlay.CharacterLocationState
-            {
-                CharacterId = x.CharacterId,
-                TrueLocation = x.TrueLocation,
-                IsHidden = x.IsHidden,
-                UpdatedUtc = x.UpdatedUtc
-            })
-            .ToList();
-        mapped.CharacterLocationPerceptions = previousState.CharacterLocationPerceptions
-            .Select(x => new DreamGenClone.Domain.RolePlay.CharacterLocationPerceptionState
-            {
-                ObserverCharacterId = x.ObserverCharacterId,
-                TargetCharacterId = x.TargetCharacterId,
-                PerceivedLocation = x.PerceivedLocation,
-                Confidence = x.Confidence,
-                HasLineOfSight = x.HasLineOfSight,
-                IsInProximity = x.IsInProximity,
-                KnowledgeSource = x.KnowledgeSource,
-                UpdatedUtc = x.UpdatedUtc
-            })
-            .ToList();
-        // CharacterSnapshots: carry forward the V2-persisted values so stat deltas applied by
-        // the background semantic analysis (ApplyInferredSemanticEvidenceAsync) are not
-        // overwritten by the stale PayloadJson baseline when the foreground pipeline saves.
-        // Must deep-copy to avoid shared-reference side effects between the V2 store and the
-        // in-memory session state.
-        mapped.CharacterSnapshots = previousState.CharacterSnapshots
-            .Select(s => new DreamGenClone.Domain.RolePlay.CharacterStatProfileV2
-            {
-                CharacterId = s.CharacterId,
-                Desire = s.Desire,
-                Restraint = s.Restraint,
-                Dominance = s.Dominance,
-                Loyalty = s.Loyalty,
-                SelfRespect = s.SelfRespect,
-                SnapshotUtc = s.SnapshotUtc,
-                BaselineStats = new Dictionary<string, int>(s.BaselineStats, StringComparer.OrdinalIgnoreCase),
-                LastStatDeltas = new Dictionary<string, int>(s.LastStatDeltas, StringComparer.OrdinalIgnoreCase),
-                LastStatDeltaUpdatedUtc = s.LastStatDeltaUpdatedUtc,
-                UpdatedUtc = s.UpdatedUtc,
-                RuntimeEncounterStats = s.RuntimeEncounterStats is not null
-                    ? new Dictionary<string, int>(s.RuntimeEncounterStats, StringComparer.OrdinalIgnoreCase)
-                    : null,
-                CharacterRole = s.CharacterRole
-            })
-            .ToList();
-        mapped.RebuildCharacterStatsCache();
-
-        // B-057: Restore time-skip and encounter tracking state from the V2 snapshot.
-        // DB is always authoritative for these fields because every mutation sync-persists.
-        // Note: detection (UpdateStateAndDetectEncounterAsync) runs AFTER the pipeline
-        // in the same turn (ContinueAsAsync multi-actor loop, SubmitPromptAsync),
-        // so the V2 snapshot loaded here reflects the PREVIOUS turn's detection state.
-        // That is correct — this turn's detection persists for the NEXT turn's pipeline.
-        // GlobalEncounterCount must also be restored so the Climax entry code
-        // can compute CurrentEncounterNumber = GlobalEncounterCount + 1 correctly.
-        mapped.CurrentTimeSkipPhase = previousState.CurrentTimeSkipPhase;
-        // B-057 race guard: detection runs BEFORE the pipeline in ContinueAsAsync's for-loop,
-        // so CurrentEncounterNumber may have been set by TryDetectEncounterStartAsync already.
-        // Only restore from V2 when the in-memory value hasn't advanced past it.
-        if (mapped.CurrentEncounterNumber <= previousState.CurrentEncounterNumber)
-            mapped.CurrentEncounterNumber = previousState.CurrentEncounterNumber;
-        // Same guard for TurnsInCurrentEncounter (incremented per-interaction in for-loop).
-        if (mapped.TurnsInCurrentEncounter <= previousState.TurnsInCurrentEncounter)
-            mapped.TurnsInCurrentEncounter = previousState.TurnsInCurrentEncounter;
-        // B-058 Phase 5.3: LastEncounterEvidenceSpan removed; the HusbandAftermathInjector now
-        // reads from EncounterCompletion summaries (already restored via LoadEncounterSummariesAsync).
-        mapped.GlobalEncounterCount = previousState.GlobalEncounterCount;
-        // B-059 Issue 1: restore from V2 column so encounter-boundary detection uses
-        // the correct interaction index, not 0 (which would span the entire session).
-        mapped.CurrentEncounterStartInteractionIndex = previousState.CurrentEncounterStartInteractionIndex;
-        // IsEncounterActive: only restore from V2 when in-memory hasn't been set yet
-        // (fresh session load). After detection fires within a turn, the in-memory true
-        // must not be overwritten by the previous turn's V2 snapshot (which may be stale).
-        if (!mapped.IsEncounterActive && previousState.IsEncounterActive)
-            mapped.IsEncounterActive = true;
-
-        mapped.CurrentBeatCode = previousState.CurrentBeatCode;
-        mapped.TurnsInCurrentBeat = previousState.TurnsInCurrentBeat;
-        mapped.ThemeMachineSnapshot = previousState.ThemeMachineSnapshot is null
-            ? null
-            : CloneThemeMachineSnapshot(previousState.ThemeMachineSnapshot);
-
-        // Theme scores and metadata: if the fresh V1 map has no themes yet (pre-seed),
-        // carry forward the persisted V2 scores so display stays consistent.
-        if (mapped.ThemeScores.Count == 0 && previousState.ThemeScores.Count > 0)
-        {
-            mapped.ThemeScores = previousState.ThemeScores;
-            mapped.PrimaryThemeId ??= previousState.PrimaryThemeId;
-            mapped.SecondaryThemeId ??= previousState.SecondaryThemeId;
-            mapped.ThemeSelectionRule = previousState.ThemeSelectionRule;
-            mapped.ObservedTurnCount = Math.Max(mapped.ObservedTurnCount, previousState.ObservedTurnCount);
-            mapped.SelectionMinimumTurns = Math.Max(mapped.SelectionMinimumTurns, previousState.SelectionMinimumTurns);
-            mapped.RecentEvidence = previousState.RecentEvidence;
-        }
-        else if (previousState.ThemeScores.Count > 0)
-        {
-            // When themes are already seeded in the current state, carry forward the accumulated
-            // InteractionEvidenceSignal from the V2-persisted state. IES is incremented
-            // exclusively by the async background semantic job. Without this merge every foreground
-            // pipeline turn resets V2ThemeScores back to the stale PayloadJson baseline (IES=0),
-            // causing background-job accumulations to be overwritten and IES to never rise above
-            // a single per-run delta. The merge is monotone (only increases IES/Score) so it
-            // cannot undo inline-regex contributions applied earlier in this turn.
-            foreach (var (themeId, prevScore) in previousState.ThemeScores)
-            {
-                if (mapped.ThemeScores.TryGetValue(themeId, out var cur) &&
-                    prevScore.Breakdown.InteractionEvidenceSignal > cur.Breakdown.InteractionEvidenceSignal)
+            mapped.CharacterSnapshots = previousState.CharacterSnapshots
+                .Select(s => new DreamGenClone.Domain.RolePlay.CharacterStatProfileV2
                 {
-                    var iesDelta = prevScore.Breakdown.InteractionEvidenceSignal - cur.Breakdown.InteractionEvidenceSignal;
-                    cur.Breakdown.InteractionEvidenceSignal = prevScore.Breakdown.InteractionEvidenceSignal;
-                    cur.Score = Math.Clamp(cur.Score + iesDelta, 0, 100);
-                }
-            }
+                    CharacterId = s.CharacterId,
+                    Desire = s.Desire,
+                    Restraint = s.Restraint,
+                    Dominance = s.Dominance,
+                    Loyalty = s.Loyalty,
+                    SelfRespect = s.SelfRespect,
+                    SnapshotUtc = s.SnapshotUtc,
+                    BaselineStats = new Dictionary<string, int>(s.BaselineStats, StringComparer.OrdinalIgnoreCase),
+                    LastStatDeltas = new Dictionary<string, int>(s.LastStatDeltas, StringComparer.OrdinalIgnoreCase),
+                    LastStatDeltaUpdatedUtc = s.LastStatDeltaUpdatedUtc,
+                    UpdatedUtc = s.UpdatedUtc,
+                    RuntimeEncounterStats = s.RuntimeEncounterStats is not null
+                        ? new Dictionary<string, int>(s.RuntimeEncounterStats, StringComparer.OrdinalIgnoreCase)
+                        : null,
+                    CharacterRole = s.CharacterRole
+                })
+                .ToList();
+            mapped.RebuildCharacterStatsCache();
         }
 
         return mapped;
@@ -4893,95 +4736,21 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         RolePlaySession session,
         CancellationToken cancellationToken)
     {
-        var snapshot = await _stateRepository.LoadAdaptiveStateAsync(session.Id, cancellationToken);
-        if (snapshot is null)
-        {
-            return;
-        }
-
-        session.AdaptiveState.ActiveVariantId = snapshot.ActiveVariantId;
-        // Don't revert phase if in-memory session already advanced past V2 snapshot
-        // (e.g. EnsureOpeningToBuildUpTransition fired before V2 hydration).
-        if (GetPhaseOrder(session.AdaptiveState.CurrentPhase) < GetPhaseOrder(snapshot.CurrentPhase))
-            session.AdaptiveState.CurrentPhase = snapshot.CurrentPhase;
-
-        // While the session is in its observation window the in-memory tracker owns the
-        // scenario slot: the observation window reset cleared ActiveScenarioId to null and
-        // set ThemeSelectionRule="Observing". The V2 snapshot may still hold the just-
-        // completed scenario from the previous cycle (written before ExecuteResetAsync
-        // replaced session.AdaptiveState). Restoring it here would re-lock the tracker onto
-        // the old scenario and defeat the observation period entirely.
-        var isObservingWindow = string.Equals(
-            session.AdaptiveState.ThemeSelectionRule, "Observing",
-            StringComparison.OrdinalIgnoreCase);
-        if (!isObservingWindow)
-        {
-            session.AdaptiveState.ActiveScenarioId = snapshot.ActiveScenarioId;
-        }
-        session.AdaptiveState.PhaseOverrideFloor = snapshot.PhaseOverrideFloor;
-        session.AdaptiveState.PhaseOverrideScenarioId = snapshot.PhaseOverrideScenarioId;
-        session.AdaptiveState.PhaseOverrideCycleIndex = snapshot.PhaseOverrideCycleIndex;
-        session.AdaptiveState.PhaseOverrideSource = snapshot.PhaseOverrideSource;
-        session.AdaptiveState.PhaseOverrideAppliedUtc = snapshot.PhaseOverrideAppliedUtc;
-
-        // Multi-encounter Climax: CurrentTimeSkipPhase, CurrentEncounterNumber, and
-        // TurnsInCurrentEncounter are intentionally NOT synced from the V2 snapshot.
-        // These fields are owned by the in-memory pipeline during overflow/generation and
-        // must not be overwritten by the DB snapshot (which may lag behind the pipeline's
-        // real-time phase transitions like CloseScene → AdvanceTime → None).
-        //
-        // IsEncounterActive is an exception: it's [JsonIgnore] so fresh payload loads
-        // always have false, but the re-entry guard in TryDetectEncounterStartAsync depends
-        // on it. Restore from V2 when in-memory hasn't been set yet by detection.
-        if (!session.AdaptiveState.IsEncounterActive && snapshot.IsEncounterActive)
-            session.AdaptiveState.IsEncounterActive = true;
-
-        var interactionCount = Math.Max(0, snapshot.TurnCountInPhase);
-        session.AdaptiveState.TurnsSinceCommitment = snapshot.CurrentPhase == NarrativePhase.BuildUp
-            ? 0
-            : interactionCount;
-        session.AdaptiveState.TurnsInApproaching = snapshot.CurrentPhase == NarrativePhase.Approaching
-            ? interactionCount
-            : 0;
-        session.AdaptiveState.ThemeMachineSnapshot = snapshot.ThemeMachineSnapshot;
-        SyncThemeTrackerFromV2State(session, snapshot);
-
-        // Carry forward character snapshots from the V2 table so that async semantic deltas
-        // (written by SemanticInteractionAnalysisJobHandler) are not overwritten by the session's
-        // stale PayloadJson copy at the start of the next turn.  Only replace when the V2 table
-        // has entries; an empty list means this session has not been seeded yet.
-        if (snapshot.CharacterSnapshots.Count > 0)
-        {
-            session.AdaptiveState.CharacterSnapshots = snapshot.CharacterSnapshots;
-            session.AdaptiveState.RebuildCharacterStatsCache();
-        }
-
-        // Always refresh encounter summaries from the V2 table snapshot. The LLM enhancement
-        // job writes LlmSummary asynchronously after the session was last saved to PayloadJson,
-        // so the PayloadJson copy may be stale (LlmSummary=null). The V2 snapshot is the
-        // authoritative, up-to-date source.
-        if (snapshot.EncounterSummaries.Count > 0)
-        {
-            session.AdaptiveState.EncounterSummaries = snapshot.EncounterSummaries;
-        }
+        // V2 tables are the single source of truth. session.AdaptiveState was loaded
+        // from V2 by LoadRolePlaySessionAsync. No merge needed.
+        await Task.CompletedTask;
     }
 
     private static void SyncSessionAdaptiveStateFromV2(
         RolePlaySession session,
         DreamGenClone.Domain.RolePlay.AdaptiveScenarioState v2State)
     {
-        // In V2, session.AdaptiveState IS AdaptiveScenarioState. Just assign and rebuild cache.
-        session.AdaptiveState = v2State;
+        // V2 tables are the single source of truth. session.AdaptiveState IS v2State
+        // (same reference from HydrateV2State). Just rebuild cache.
         v2State.RebuildCharacterStatsCache();
     }
 
-    private static void SyncThemeTrackerFromV2State(
-        RolePlaySession session,
-        DreamGenClone.Domain.RolePlay.AdaptiveScenarioState v2State)
-    {
-        // No-op: theme state is stored as flat fields on AdaptiveScenarioState.
-        // session.AdaptiveState and v2State are the same object in V2.
-    }
+    // SyncThemeTrackerFromV2State removed — theme state is flat fields on AdaptiveScenarioState.
 
     private static string ResolveAdaptiveCharacterStatsKey(RolePlaySession session, string characterId)
     {
@@ -9371,6 +9140,8 @@ Requirements:
         public Task CompleteTurnAsync(string sessionId, string turnId, IReadOnlyList<string> outputInteractionIds, bool succeeded, string? failureReason = null, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task<IReadOnlyList<DreamGenClone.Domain.RolePlay.RolePlayTurn>> LoadTurnsAsync(string sessionId, int take = 100, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<DreamGenClone.Domain.RolePlay.RolePlayTurn>>([]);
         public Task SaveAdaptiveStateAsync(DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task SaveAdaptiveStateSemanticFieldsAsync(DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task SaveAdaptiveStateLocationFieldsAsync(DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task<DreamGenClone.Domain.RolePlay.AdaptiveScenarioState?> LoadAdaptiveStateAsync(string sessionId, CancellationToken cancellationToken = default) => Task.FromResult<DreamGenClone.Domain.RolePlay.AdaptiveScenarioState?>(null);
         public Task SaveCandidateEvaluationsAsync(IReadOnlyList<DreamGenClone.Domain.RolePlay.ScenarioCandidateEvaluation> evaluations, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task<IReadOnlyList<DreamGenClone.Domain.RolePlay.ScenarioCandidateEvaluation>> LoadCandidateEvaluationsAsync(string sessionId, int take = 50, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<DreamGenClone.Domain.RolePlay.ScenarioCandidateEvaluation>>([]);

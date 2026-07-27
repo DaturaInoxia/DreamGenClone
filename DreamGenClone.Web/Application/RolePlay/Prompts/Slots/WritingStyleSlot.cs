@@ -1,14 +1,15 @@
 using System.Text;
 using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Web.Domain.RolePlay;
 using Microsoft.Extensions.Logging;
 
 namespace DreamGenClone.Web.Application.RolePlay.Prompts.Slots;
 
 /// <summary>
-/// Slot 8, Zone B — Writing style: timeless description + example always kept,
-/// phase Rule-of-Thumb from config, profile default as separate element.
-/// Last-resort trimmable (priority 7). Fail-fast on missing phase RoT or profile default.
-/// FR-014.
+/// Slot 8, Zone B — Style Guide: frame directives (Prose Style, Voice, Tone, Focus,
+/// Heat Level, POV, Immersion, Word Target). Model sees these first (primacy)
+/// to set the mood boundary. Operational directives (Action) remain in Slot 17 (recency).
+/// Trimmable under budget pressure.
 /// </summary>
 public sealed class WritingStyleSlot : IPromptSlot
 {
@@ -29,47 +30,72 @@ public sealed class WritingStyleSlot : IPromptSlot
     public Task<string> WriteAsync(PromptBuildContext context, CancellationToken ct)
     {
         var style = context.WritingStyle;
+        var intensity = context.Intensity;
+        var profile = context.ActorProfile;
+        var isNarrative = context.Variant == PromptVariant.Narrative || profile.Kind == ActorProfileKind.Narrative;
 
-        // Fail-fast on missing phase Rule-of-Thumb (FR-014).
-        if (string.IsNullOrWhiteSpace(style.PhaseRuleOfThumb))
-        {
-            throw new InvalidOperationException(
-                $"MissingPromptConfig: WritingStyle.PhaseRuleOfThumb is missing or empty. " +
-                $"Session phase: '{context.Phase}'. FR-014 requires a PhaseRuleOfThumb row for every phase.");
-        }
-
-        // Fail-fast on missing profile default (FR-014).
-        if (string.IsNullOrWhiteSpace(style.ProfileDefaultRuleOfThumb))
-        {
-            throw new InvalidOperationException(
-                "MissingPromptConfig: WritingStyle.ProfileDefaultRuleOfThumb is missing or empty. FR-014 requires a profile default Rule-of-Thumb.");
-        }
+        _logger.LogDebug(
+            "WritingStyleSlot: SessionId={SessionId} — emitting style guide frame",
+            context.Session.Id);
 
         var sb = new StringBuilder();
-        sb.AppendLine("Writing Style:");
+        sb.AppendLine("Style Guide:");
 
-        // ── Timeless description (always kept) ──
-        if (!string.IsNullOrWhiteSpace(style.Description))
+        // 1. Prose Style — from IntensityProfile
+        if (!string.IsNullOrWhiteSpace(intensity.ProseStyleDirective))
+            sb.AppendLine($"  Prose Style: {intensity.ProseStyleDirective.Trim()}");
+
+        // 2. Voice — from IntensityProfile
+        if (!string.IsNullOrWhiteSpace(intensity.VoiceDirective))
+            sb.AppendLine($"  Voice: {intensity.VoiceDirective.Trim()}");
+
+        // 3. Tone — from IntensityProfile
+        if (!string.IsNullOrWhiteSpace(intensity.ToneDirective))
+            sb.AppendLine($"  Tone: {intensity.ToneDirective.Trim()}");
+
+        // 4. Focus — from IntensityProfile
+        if (!string.IsNullOrWhiteSpace(intensity.FocusDirective))
+            sb.AppendLine($"  Focus: {intensity.FocusDirective.Trim()}");
+
+        // 5. Heat Level — from IntensityProfile
+        if (!string.IsNullOrWhiteSpace(intensity.HeatLevelDirective))
+            sb.AppendLine($"  Heat Level: {intensity.HeatLevelDirective.Trim()}");
+
+        // 6. POV — from ActorProfile
+        if (isNarrative)
         {
-            sb.AppendLine($"  {style.Description.Trim()}");
+            sb.AppendLine("  POV: Write in third-person omniscient point of view.");
+        }
+        else
+        {
+            var actorName = profile.ActorName;
+            var povText = profile.PerspectiveMode switch
+            {
+                CharacterPerspectiveMode.FirstPersonInternalMonologue =>
+                    $"Write in first-person from {actorName}'s point of view with internal monologue.",
+                CharacterPerspectiveMode.FirstPersonExternalOnly =>
+                    $"Write in first-person from {actorName}'s point of view without internal monologue.",
+                CharacterPerspectiveMode.ThirdPersonLimited =>
+                    $"Write in third-person limited from {actorName}'s point of view.",
+                CharacterPerspectiveMode.ThirdPersonExternalOnly =>
+                    $"Write in third-person from {actorName}'s external actions only.",
+                _ => $"Write in first-person from {actorName}'s point of view."
+            };
+            sb.AppendLine($"  POV: {povText}");
         }
 
-        // ── Timeless example (always kept) ──
-        if (!string.IsNullOrWhiteSpace(style.Example))
+        // 7. Immersion — from StyleProfile (stays on StyleProfile)
+        if (!isNarrative && !string.IsNullOrWhiteSpace(style.ImmersionDirective))
+            sb.AppendLine($"  Immersion: {style.ImmersionDirective.Trim()}");
+
+        // 8. Word Target — from StyleProfile
+        if (isNarrative)
         {
-            sb.AppendLine($"  Example: {style.Example.Trim()}");
+            sb.AppendLine($"  Word Target: Target {style.NarrativeWordTargetMin}-{style.NarrativeWordTargetMax} words of scene synthesis.");
         }
-
-        // ── Phase Rule-of-Thumb (trimmed only under extreme pressure) ──
-        sb.AppendLine($"  Phase Rule of Thumb: {style.PhaseRuleOfThumb.Trim()}");
-
-        // ── Profile default (separate element) ──
-        sb.AppendLine($"  Profile Default: {style.ProfileDefaultRuleOfThumb.Trim()}");
-
-        // ── Style hint ──
-        if (!string.IsNullOrWhiteSpace(style.StyleHint))
+        else
         {
-            sb.AppendLine($"  Style Hint: {style.StyleHint.Trim()}");
+            sb.AppendLine($"  Word Target: Target {style.WordTargetMin}-{style.WordTargetMax} words.");
         }
 
         return Task.FromResult(sb.ToString().TrimEnd());
@@ -77,66 +103,7 @@ public sealed class WritingStyleSlot : IPromptSlot
 
     public string Trim(string text, int maxChars)
     {
-        if (string.IsNullOrEmpty(text) || text.Length <= maxChars)
-            return text;
-
-        // Priority: keep timeless description + example, drop phase RoT first, then profile default.
-        var lines = text.Split('\n');
-        var sb = new StringBuilder();
-        var remaining = maxChars;
-
-        // Phase 1: include timeless elements (description + example + header).
-        foreach (var line in lines)
-        {
-            var trimmed = line.TrimEnd('\r');
-            if (trimmed.StartsWith("  Phase Rule of Thumb:") || trimmed.StartsWith("  Profile Default:"))
-                continue; // Skip trimmables first.
-
-            if (remaining <= 0)
-                break;
-
-            if (trimmed.Length + Environment.NewLine.Length <= remaining)
-            {
-                sb.AppendLine(trimmed);
-                remaining -= trimmed.Length + Environment.NewLine.Length;
-            }
-        }
-
-        // Phase 2: include profile default if room.
-        foreach (var line in lines)
-        {
-            var trimmed = line.TrimEnd('\r');
-            if (!trimmed.StartsWith("  Profile Default:"))
-                continue;
-
-            if (remaining <= 0)
-                break;
-
-            if (trimmed.Length + Environment.NewLine.Length <= remaining)
-            {
-                sb.AppendLine(trimmed);
-                remaining -= trimmed.Length + Environment.NewLine.Length;
-            }
-        }
-
-        // Phase 3: include phase RoT (last resort) if room.
-        foreach (var line in lines)
-        {
-            var trimmed = line.TrimEnd('\r');
-            if (!trimmed.StartsWith("  Phase Rule of Thumb:"))
-                continue;
-
-            if (remaining <= 0)
-                break;
-
-            if (trimmed.Length + Environment.NewLine.Length <= remaining)
-            {
-                sb.AppendLine(trimmed);
-            }
-            // Don't update remaining — last element.
-        }
-
-        var result = sb.ToString().TrimEnd();
-        return string.IsNullOrEmpty(result) ? text[..Math.Min(maxChars, text.Length)] : result;
+        if (text.Length <= maxChars) return text;
+        return text[..Math.Max(1, maxChars)];
     }
 }
