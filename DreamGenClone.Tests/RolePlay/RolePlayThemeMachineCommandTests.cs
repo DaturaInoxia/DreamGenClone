@@ -609,6 +609,9 @@ public sealed class RolePlayThemeMachineCommandTests
         public Task SaveAdaptiveStateSemanticFieldsAsync(AdaptiveScenarioState state, CancellationToken cancellationToken = default)
             => Task.CompletedTask;
 
+        public Task SaveAdaptiveStateLocationFieldsAsync(AdaptiveScenarioState state, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
         public Task<AdaptiveScenarioState?> LoadAdaptiveStateAsync(string sessionId, CancellationToken cancellationToken = default)
             => throw new NotImplementedException();
 

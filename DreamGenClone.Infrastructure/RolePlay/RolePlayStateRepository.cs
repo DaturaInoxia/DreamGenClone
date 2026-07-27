@@ -254,6 +254,38 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
         await transaction.CommitAsync(cancellationToken);
     }
 
+    public async Task SaveAdaptiveStateLocationFieldsAsync(AdaptiveScenarioState state, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await EnsureAdaptiveStateSchemaAsync(connection, cancellationToken);
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+
+        var nowUtc = DateTime.UtcNow;
+
+        // UPDATE only location/TOD columns — never touch pipeline-managed fields
+        // (CurrentPhase, TurnCountInPhase, ActiveScenarioId, etc.).
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            UPDATE RolePlayV2AdaptiveStates SET
+                CurrentSceneLocation = $currentSceneLocation,
+                CharacterLocationsJson = $characterLocationsJson,
+                CharacterLocationPerceptionsJson = $characterLocationPerceptionsJson,
+                CurrentTimeOfDay = $currentTimeOfDay,
+                UpdatedUtc = $updatedUtc
+            WHERE SessionId = $sessionId;
+            """;
+        command.Parameters.AddWithValue("$currentSceneLocation", (object?)state.CurrentSceneLocation ?? DBNull.Value);
+        command.Parameters.AddWithValue("$characterLocationsJson", JsonSerializer.Serialize(state.CharacterLocations));
+        command.Parameters.AddWithValue("$characterLocationPerceptionsJson", JsonSerializer.Serialize(state.CharacterLocationPerceptions));
+        command.Parameters.AddWithValue("$currentTimeOfDay", state.CurrentTimeOfDay.ToString());
+        command.Parameters.AddWithValue("$updatedUtc", nowUtc.ToString("O"));
+        command.Parameters.AddWithValue("$sessionId", state.SessionId);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+
+        await transaction.CommitAsync(cancellationToken);
+    }
+
     public async Task SaveAdaptiveStateAsync(AdaptiveScenarioState state, CancellationToken cancellationToken = default)
     {
         // Ensure the CharacterSnapshots list is in sync with the runtime CharacterStats dictionary

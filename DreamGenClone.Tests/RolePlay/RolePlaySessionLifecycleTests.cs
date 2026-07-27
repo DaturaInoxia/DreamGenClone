@@ -1374,6 +1374,9 @@ public sealed class RolePlaySessionLifecycleTests
         public Task SaveAdaptiveStateSemanticFieldsAsync(AdaptiveScenarioState state, CancellationToken cancellationToken = default)
             => SaveAdaptiveStateAsync(state, cancellationToken);
 
+        public Task SaveAdaptiveStateLocationFieldsAsync(AdaptiveScenarioState state, CancellationToken cancellationToken = default)
+            => SaveAdaptiveStateAsync(state, cancellationToken);
+
         public Task<AdaptiveScenarioState?> LoadAdaptiveStateAsync(string sessionId, CancellationToken cancellationToken = default)
             => Task.FromResult(_states.TryGetValue(sessionId, out var state)
                 ? CloneState(state)

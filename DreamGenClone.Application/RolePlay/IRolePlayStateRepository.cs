@@ -27,6 +27,13 @@ public interface IRolePlayStateRepository
     /// untouched — the background semantic job must never overwrite them.
     /// </summary>
     Task SaveAdaptiveStateSemanticFieldsAsync(AdaptiveScenarioState state, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Persists only location-owned fields (CurrentSceneLocation, CharacterLocationsJson,
+    /// CharacterLocationPerceptionsJson, CurrentTimeOfDay, UpdatedUtc). Pipeline-managed
+    /// fields (CurrentPhase, TurnCountInPhase, ActiveScenarioId, etc.) are intentionally
+    /// left untouched — the background location-detection job must never overwrite them.
+    /// </summary>
+    Task SaveAdaptiveStateLocationFieldsAsync(AdaptiveScenarioState state, CancellationToken cancellationToken = default);
     Task<AdaptiveScenarioState?> LoadAdaptiveStateAsync(string sessionId, CancellationToken cancellationToken = default);
     Task SaveCandidateEvaluationsAsync(IReadOnlyList<ScenarioCandidateEvaluation> evaluations, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<ScenarioCandidateEvaluation>> LoadCandidateEvaluationsAsync(string sessionId, int take = 50, CancellationToken cancellationToken = default);

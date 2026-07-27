@@ -155,7 +155,8 @@ public sealed class RolePlaySession
     /// <summary>Recent adaptive intensity transition records for diagnostics and UI transparency.</summary>
     public List<AdaptiveIntensityTransitionRecord> AdaptiveIntensityTransitions { get; set; } = [];
 
-    /// <summary>Adaptive theme and stat state updated per interaction.</summary>
+    /// <summary>Adaptive theme and stat state updated per interaction. Lives exclusively in V2 tables (RolePlayV2AdaptiveStates); not serialized into PayloadJson.</summary>
+    [JsonIgnore]
     public AdaptiveScenarioState AdaptiveState { get; set; } = new();
 
     /// <summary>

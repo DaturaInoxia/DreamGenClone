@@ -294,10 +294,8 @@ public sealed class SemanticInteractionAnalysisJobHandler : IBackgroundJobHandle
             // phase transitions and turn counts are never overwritten by a background job.
             await _stateRepository.SaveAdaptiveStateSemanticFieldsAsync(session.AdaptiveState, cancellationToken);
 
-            // Background semantic-analysis writes happen on a copy loaded directly from the store.
-            // Drop the engine's in-memory cache for this session so the next UI read pulls the
-            // freshly-persisted CharacterStats (otherwise the adaptive tab keeps showing stale
-            // pre-delta values until the user navigates away and back).
+            // V2 tables are the single source of truth — no cache to invalidate.
+            // The next UI read loads fresh V2 state directly from the DB.
             _engineService.InvalidateSessionCache(session.Id);
 
             var resultJson = JsonSerializer.Serialize(new SemanticInteractionAnalysisResult

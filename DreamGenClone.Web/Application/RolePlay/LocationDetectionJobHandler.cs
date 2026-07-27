@@ -200,7 +200,7 @@ public sealed class LocationDetectionJobHandler : IBackgroundJobHandler
             adaptiveState.CurrentTimeOfDay = tod;
         }
 
-        await _stateRepository.SaveAdaptiveStateAsync(adaptiveState, cancellationToken);
+        await _stateRepository.SaveAdaptiveStateLocationFieldsAsync(adaptiveState, cancellationToken);
 
         _logger.LogInformation(
             "LocationDetection completed SessionId={SessionId} PreviousLocation={PreviousLocation} DetectedLocation={DetectedLocation} Confidence={Confidence} LocationChanged={LocationChanged}",

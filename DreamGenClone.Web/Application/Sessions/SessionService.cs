@@ -1,4 +1,5 @@
 using System.Text.Json;
+using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Domain.StoryAnalysis;
 using DreamGenClone.Infrastructure.Configuration;
@@ -19,11 +20,16 @@ public sealed class SessionService : ISessionService
 
     private readonly string _connectionString;
     private readonly ILogger<SessionService> _logger;
+    private readonly IRolePlayStateRepository? _rpStateRepository;
 
-    public SessionService(IOptions<PersistenceOptions> options, ILogger<SessionService> logger)
+    public SessionService(
+        IOptions<PersistenceOptions> options,
+        ILogger<SessionService> logger,
+        IRolePlayStateRepository? rpStateRepository = null)
     {
         _connectionString = options.Value.ConnectionString;
         _logger = logger;
+        _rpStateRepository = rpStateRepository;
     }
 
     public Task SaveStorySessionAsync(StorySession session, CancellationToken cancellationToken = default)
@@ -33,12 +39,9 @@ public sealed class SessionService : ISessionService
 
     public Task SaveRolePlaySessionAsync(RolePlaySession session, CancellationToken cancellationToken = default)
     {
-        // RP sessions persist the full session blob in PayloadJson. V2 adaptive state is
-        // persisted exclusively to dedicated V2 tables via IRolePlayStateRepository.
-        // AdaptiveStateJson is a legacy column; pass null to clear any stale data on each save.
-        // Sync the runtime CharacterStats dictionary into CharacterSnapshots so the persisted
-        // blob always contains up-to-date character data (CharacterStats is [JsonIgnore]).
-        session.AdaptiveState.SyncCharacterSnapshots();
+        // AdaptiveState is [JsonIgnore] — it lives exclusively in V2 tables and is
+        // not serialized into the session blob. CharacterSnapshots sync is handled
+        // by IRolePlayStateRepository.SaveAdaptiveStateAsync.
         var payloadJson = JsonSerializer.Serialize(session, JsonOptions);
         return SaveRolePlayAsync(
             session.Id,
@@ -77,12 +80,18 @@ public sealed class SessionService : ISessionService
         }
 
         var session = JsonSerializer.Deserialize<RolePlaySession>(row.PayloadJson, JsonOptions);
-        // AdaptiveStateJson is a legacy V1 column. V2 adaptive state is loaded exclusively from
-        // dedicated V2 tables via IRolePlayStateRepository. Do not overlay from this column.
-        //
-        // PromptText invariant: Old interactions (created before B-053) will have null PromptText.
-        // We do NOT retroactively populate PromptText for these interactions. Only new interactions
-        // created after the feature implementation will have PromptText populated.
+
+        // AdaptiveState is [JsonIgnore] — load from the authoritative V2 tables.
+        // The V2 store is the single source of truth for adaptive state.
+        if (session is not null && _rpStateRepository is not null)
+        {
+            var v2State = await _rpStateRepository.LoadAdaptiveStateAsync(session.Id, cancellationToken);
+            if (v2State is not null)
+            {
+                session.AdaptiveState = v2State;
+            }
+        }
+
         NormalizeRolePlaySession(session);
         return session;
     }
@@ -306,7 +315,6 @@ public sealed class SessionService : ISessionService
         }
 
         session.AdaptiveState ??= new AdaptiveScenarioState();
-        // V2 AdaptiveScenarioState initializes all collections in its constructor; no ??= guards needed.
 
         // SessionId in AdaptiveScenarioState is the foreign-key used by SaveAdaptiveStateAsync.
         // It is not set in old PayloadJson blobs; always stamp it from the authoritative session Id.
@@ -327,50 +335,8 @@ public sealed class SessionService : ISessionService
             session.AdaptiveIntensityProfileId = session.SelectedIntensityProfileId;
         }
 
-        {
-            var state = session.AdaptiveState;
-            var isObserving = string.Equals(state.ThemeSelectionRule, "Observing", StringComparison.OrdinalIgnoreCase);
-
-            if (isObserving && !string.IsNullOrWhiteSpace(state.ActiveScenarioId))
-            {
-                // Clear any stale ActiveScenarioId that leaked into PayloadJson while the tracker
-                // is in its observation window. A non-null ActiveScenarioId in Observing state is a
-                // race-condition artefact: background jobs loading this payload would see a live
-                // scenario, call RecalculateSelectedThemes, and immediately re-lock onto the just-
-                // completed scenario — defeating the observation period entirely.
-                session.AdaptiveState.ActiveScenarioId = null;
-            }
-            else if (!isObserving && string.IsNullOrWhiteSpace(state.ActiveScenarioId))
-            {
-                // Only attempt to repair ActiveScenarioId when the theme tracker has already
-                // completed its observation window and promoted a primary theme. While the rule
-                // is "Observing" the scenario race is still open; injecting an ActiveScenarioId
-                // here would bypass the observation gate and cause the tracker to jump straight
-                // to ActiveScenarioLock on the next RecalculateSelectedThemes call.
-                var repairedScenarioId = ResolveScenarioIdFromState(state);
-                if (!string.IsNullOrWhiteSpace(repairedScenarioId))
-                {
-                    session.AdaptiveState.ActiveScenarioId = repairedScenarioId;
-                }
-            }
-        }
-    }
-
-
-    private static string? ResolveScenarioIdFromState(AdaptiveScenarioState state)
-    {
-        if (!string.IsNullOrWhiteSpace(state.PrimaryThemeId)
-            && state.ThemeScores.TryGetValue(state.PrimaryThemeId, out var primaryTheme)
-            && !primaryTheme.Blocked)
-        {
-            return primaryTheme.ThemeId;
-        }
-
-        return state.ThemeScores.Values
-            .Where(x => !x.Blocked)
-            .OrderByDescending(x => x.Score)
-            .ThenBy(x => x.ThemeId, StringComparer.OrdinalIgnoreCase)
-            .Select(x => x.ThemeId)
-            .FirstOrDefault();
+        // V2 tables are the single source of truth for adaptive state.
+        // No repair logic needed — ActiveScenarioId, ThemeSelectionRule, and
+        // CurrentPhase are loaded directly from RolePlayV2AdaptiveStates.
     }
 }
