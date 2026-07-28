@@ -685,7 +685,7 @@ public sealed class SlotContractTests
     public async Task WritingStyleSlot_IsTrimEligible()
     {
         var slot = new WritingStyleSlot(NullLogger<WritingStyleSlot>.Instance);
-        Assert.True(slot.IsTrimEligible);
+        Assert.False(slot.IsTrimEligible);
     }
 
     [Fact]

@@ -18,7 +18,7 @@ public sealed class WritingStyleSlot : IPromptSlot
     public PromptSlotId Id => PromptSlotId.WritingStyle;
     public PromptZone Zone => PromptZone.B;
     public int Order => 8;
-    public bool IsTrimEligible => true;
+    public bool IsTrimEligible => false;
 
     public WritingStyleSlot(ILogger<WritingStyleSlot> logger)
     {

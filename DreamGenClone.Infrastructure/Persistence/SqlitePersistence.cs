@@ -732,6 +732,26 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 CheckedUtc TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS PromptTestRuns (
+                Id TEXT PRIMARY KEY NOT NULL,
+                Comment TEXT NULL,
+                ModelIdentifier TEXT NOT NULL,
+                ModelDisplayName TEXT NOT NULL,
+                ProviderName TEXT NOT NULL,
+                SystemMessage TEXT NULL,
+                UserPrompt TEXT NOT NULL,
+                Temperature REAL NOT NULL DEFAULT 0.7,
+                TopP REAL NOT NULL DEFAULT 0.9,
+                MaxTokens INTEGER NOT NULL DEFAULT 500,
+                ResultText TEXT NULL,
+                ResultError TEXT NULL,
+                PromptCharCount INTEGER NOT NULL DEFAULT 0,
+                ResultWordCount INTEGER NOT NULL DEFAULT 0,
+                ResultCharCount INTEGER NOT NULL DEFAULT 0,
+                ElapsedSeconds REAL NOT NULL DEFAULT 0,
+                CreatedUtc TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS RolePlayDebugEvents (
                 Id TEXT PRIMARY KEY NOT NULL,
                 SessionId TEXT NOT NULL,

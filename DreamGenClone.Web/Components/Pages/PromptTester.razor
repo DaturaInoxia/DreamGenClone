@@ -1,0 +1,519 @@
+@page "/prompt-tester"
+@rendermode InteractiveServer
+@using DreamGenClone.Application.Abstractions
+@using DreamGenClone.Application.ModelManager
+@using DreamGenClone.Application.PromptTester
+@using DreamGenClone.Domain.ModelManager
+@using DreamGenClone.Domain.PromptTester
+@using DreamGenClone.Web.Application.ModelManager
+
+@inject ModelManagerFacade Facade
+@inject ICompletionClient CompletionClient
+@inject IApiKeyEncryptionService EncryptionService
+@inject IPromptTestRunRepository PromptTestRunRepo
+
+<PageTitle>Prompt Tester - DreamGenClone</PageTitle>
+
+<div class="container-fluid mt-4">
+    <h1 class="mb-4"><i class="bi bi-terminal"></i> Prompt Tester</h1>
+    <p class="text-muted mb-4">Send a raw prompt to any registered model and inspect the response. Useful for testing prompt phrasing, injection wording, and model behaviour in isolation.</p>
+
+    @if (!string.IsNullOrEmpty(_globalError))
+    {
+        <div class="alert alert-danger alert-dismissible fade show">
+            @_globalError
+            <button type="button" class="btn-close" @onclick="() => _globalError = null"></button>
+        </div>
+    }
+
+    <ul class="nav nav-tabs mb-3">
+        <li class="nav-item">
+            <button type="button" class="nav-link @(_activeTab == "previous" ? "active" : "")" @onclick='() => _activeTab = "previous"'>
+                <i class="bi bi-clock-history me-1"></i> Previous Runs
+            </button>
+        </li>
+        <li class="nav-item">
+            <button type="button" class="nav-link @(_activeTab == "tester" ? "active" : "")" @onclick='() => _activeTab = "tester"'>
+                <i class="bi bi-terminal me-1"></i> Prompt Tester
+            </button>
+        </li>
+    </ul>
+
+    @if (_activeTab == "previous")
+    {
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-clock-history"></i> Previous Runs</h5>
+                <button class="btn btn-outline-secondary btn-sm" @onclick="LoadPreviousRuns" disabled="@_isLoadingRuns">
+                    @if (_isLoadingRuns) { <span class="spinner-border spinner-border-sm"></span> }
+                    else { <i class="bi bi-arrow-clockwise"></i> }
+                </button>
+            </div>
+            <div class="card-body">
+                @if (_previousRuns.Count == 0)
+                {
+                    <div class="text-muted">No saved runs yet. Execute a prompt and save it to see it here.</div>
+                }
+                @foreach (var run in _previousRuns)
+                {
+                    var isActive = _loadedRunId == run.Id;
+                    <div class="card mb-2 @(isActive ? "border-primary" : "")">
+                        <div class="card-body py-2 px-3">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <div class="flex-grow-1 me-2">
+                                    <small class="text-muted">@FormatTimestamp(run.CreatedUtc)</small>
+                                    <div class="fw-semibold small">@run.ModelDisplayName</div>
+                                    @if (!string.IsNullOrWhiteSpace(run.Comment))
+                                    {
+                                        <div class="small text-truncate" style="max-width: 500px;" title="@run.Comment">
+                                            <i class="bi bi-chat-left-text me-1"></i>@run.Comment
+                                        </div>
+                                    }
+                                    <div class="small text-muted">
+                                        @run.PromptCharCount chars &middot; @run.ResultWordCount words &middot; @run.ElapsedSeconds.ToString("F1")s
+                                    </div>
+                                </div>
+                                <div class="d-flex gap-1 flex-shrink-0">
+                                    <button class="btn btn-outline-primary btn-sm" @onclick="() => LoadRun(run)" title="Load this run">
+                                        <i class="bi bi-arrow-down-circle me-1"></i> Load
+                                    </button>
+                                    <button class="btn btn-outline-danger btn-sm" @onclick="() => DeleteRun(run)" title="Delete this run">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+    else
+    {
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0"><i class="bi bi-cpu"></i> Model</h5>
+        </div>
+        <div class="card-body">
+            @if (_modelsDropdown.Count == 0)
+            {
+                <div class="alert alert-info mb-0">No enabled models found. Register and enable a model in <a href="model-manager">Model Manager</a>.</div>
+            }
+            else
+            {
+                <div class="row g-3">
+                    <div class="col-md-8">
+                        <label class="form-label">Model</label>
+                        <select class="form-select" @bind="_selectedModelKey">
+                            <option value="">-- Select a model --</option>
+                            @foreach (var entry in _modelsDropdown)
+                            {
+                                <option value="@entry.Key">@(entry.Label)</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Temperature</label>
+                        <input type="number" class="form-control" @bind="_temperature" min="0" max="2" step="0.05" />
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">TopP</label>
+                        <input type="number" class="form-control" @bind="_topP" min="0" max="1" step="0.05" />
+                    </div>
+                </div>
+                <div class="row g-3 mt-1">
+                    <div class="col-md-2">
+                        <label class="form-label">MaxTokens</label>
+                        <input type="number" class="form-control" @bind="_maxTokens" min="1" max="8192" step="50" />
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0"><i class="bi bi-chat-left-text"></i> Prompt</h5>
+        </div>
+        <div class="card-body">
+            <div class="mb-3">
+                <label class="form-label">System Message <small class="text-muted">(optional)</small></label>
+                <textarea class="form-control" rows="4" @bind="_systemMessage"
+                          placeholder="Optional system instructions for the model..."></textarea>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">User Prompt <small class="text-muted">(required)</small></label>
+                <textarea class="form-control" rows="12" style="font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 0.9em;"
+                          @bind="_userPrompt" placeholder="Enter your prompt here..."></textarea>
+            </div>
+            <div class="d-flex align-items-center gap-3">
+                <button class="btn btn-primary" @onclick="ExecutePrompt" disabled="@(!CanExecute || _isExecuting)">
+                    @if (_isExecuting)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1"></span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-play-fill me-1"></i>
+                    }
+                    Execute
+                </button>
+                @if (!CanExecute && !_isExecuting)
+                {
+                    <small class="text-muted">@(string.IsNullOrEmpty(_selectedModelKey) ? "Select a model to enable execution." : "Enter a prompt to enable execution.")</small>
+                }
+                @if (_elapsedMs.HasValue)
+                {
+                    <small class="text-muted"><i class="bi bi-stopwatch me-1"></i>@(_elapsedMs.Value.ToString("F2"))s</small>
+                }
+            </div>
+        </div>
+    </div>
+
+    @if (_resultText is not null || _resultError is not null)
+    {
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-eye"></i> Result</h5>
+                <div class="d-flex align-items-center gap-3">
+                    @if (_resultText is not null)
+                    {
+                        <span class="badge bg-secondary">Prompt: @_promptCharCount chars</span>
+                        <span class="badge bg-secondary">Output: @_resultWordCount words</span>
+                        <button class="btn btn-outline-secondary btn-sm" @onclick="CopyResult">
+                            <i class="bi bi-clipboard me-1"></i> Copy
+                        </button>
+                    }
+                </div>
+            </div>
+            <div class="card-body">
+                @if (_resultError is not null)
+                {
+                    <div class="alert alert-danger mb-0">
+                        <i class="bi bi-exclamation-triangle me-1"></i> @_resultError
+                    </div>
+                }
+                else
+                {
+                    <pre class="mb-0" style="white-space: pre-wrap; word-wrap: break-word; max-height: 600px; overflow-y: auto; background: #1e1e1e; color: #d4d4d4; padding: 1rem; border-radius: 0.375rem; font-size: 0.9em;">@_resultText</pre>
+                }
+            </div>
+        </div>
+
+        @* ═══════════════ SAVE RUN ═══════════════ *@
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-bookmark"></i> Save Run</h5>
+            </div>
+            <div class="card-body">
+                @if (!string.IsNullOrEmpty(_saveError))
+                {
+                    <div class="alert alert-danger mb-3">@_saveError</div>
+                }
+                @if (_saveSuccess)
+                {
+                    <div class="alert alert-success mb-3"><i class="bi bi-check-circle me-1"></i> Run saved successfully.</div>
+                }
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-9">
+                        <label class="form-label">Comment <small class="text-muted">(optional — e.g. "added pacing directive")</small></label>
+                        <input type="text" class="form-control" @bind="_comment" maxlength="500"
+                               placeholder="What changed? Why did you run this test?" />
+                    </div>
+                    <div class="col-md-3">
+                        <button class="btn btn-success w-100" @onclick="SaveRun" disabled="@_isSaving">
+                            @if (_isSaving)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1"></span>
+                            }
+                            else
+                            {
+                                <i class="bi bi-bookmark-fill me-1"></i>
+                            }
+                            Save Run
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+    }
+</div>
+
+@code {
+    private readonly Dictionary<string, (string ProviderName, Provider Provider, RegisteredModel Model)> _resolvedModels = [];
+    private List<(string Key, string Label)> _modelsDropdown = [];
+
+    // Tabs
+    private string _activeTab = "previous";
+
+    private string _selectedModelKey = string.Empty;
+    private double _temperature = 0.7;
+    private double _topP = 0.9;
+    private int _maxTokens = 500;
+    private string _systemMessage = string.Empty;
+    private string _userPrompt = string.Empty;
+
+    private bool _isExecuting;
+    private string? _resultText;
+    private string? _resultError;
+    private double? _elapsedMs;
+    private string? _globalError;
+
+    // Metrics
+    private int _promptCharCount;
+    private int _resultWordCount;
+    private int _resultCharCount;
+
+    // Save
+    private string _comment = string.Empty;
+    private bool _isSaving;
+    private bool _saveSuccess;
+    private string? _saveError;
+
+    // Previous runs
+    private List<PromptTestRun> _previousRuns = [];
+    private string? _loadedRunId;
+    private bool _isLoadingRuns;
+
+    private bool CanExecute => !string.IsNullOrEmpty(_selectedModelKey) && !string.IsNullOrWhiteSpace(_userPrompt) && !_isExecuting;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var grouped = await Facade.GetAllModelsGroupedByProviderAsync();
+
+            foreach (var (provider, models) in grouped)
+            {
+                if (!provider.IsEnabled) continue;
+
+                foreach (var model in models.Where(m => m.IsEnabled))
+                {
+                    var key = model.Id;
+                    var label = $"{provider.Name} / {model.DisplayName}";
+                    _modelsDropdown.Add((key, label));
+                    _resolvedModels[key] = (provider.Name, provider, model);
+                }
+            }
+
+            await LoadPreviousRuns();
+        }
+        catch (Exception ex)
+        {
+            _globalError = $"Failed to load models: {ex.Message}";
+        }
+    }
+
+    private async Task ExecutePrompt()
+    {
+        if (!CanExecute) return;
+
+        _resultText = null;
+        _resultError = null;
+        _isExecuting = true;
+        _elapsedMs = null;
+        _saveSuccess = false;
+        _saveError = null;
+        _loadedRunId = null;
+        _activeTab = "tester";
+        StateHasChanged();
+
+        try
+        {
+            var (_, provider, model) = _resolvedModels[_selectedModelKey];
+
+            var resolved = new ResolvedModel(
+                ProviderBaseUrl: provider.BaseUrl,
+                ChatCompletionsPath: provider.ChatCompletionsPath,
+                ProviderTimeoutSeconds: provider.TimeoutSeconds,
+                ApiKeyEncrypted: provider.ApiKeyEncrypted,
+                ModelIdentifier: model.ModelIdentifier,
+                Temperature: _temperature,
+                TopP: _topP,
+                MaxTokens: _maxTokens,
+                ProviderName: provider.Name,
+                IsSessionOverride: false);
+
+            _promptCharCount = string.IsNullOrWhiteSpace(_systemMessage)
+                ? _userPrompt.Length
+                : _systemMessage.Length + _userPrompt.Length;
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+
+            string result;
+            if (string.IsNullOrWhiteSpace(_systemMessage))
+            {
+                result = await CompletionClient.GenerateAsync(_userPrompt, resolved);
+            }
+            else
+            {
+                result = await CompletionClient.GenerateAsync(_systemMessage, _userPrompt, resolved);
+            }
+
+            sw.Stop();
+            _elapsedMs = sw.Elapsed.TotalSeconds;
+            _resultText = result;
+            _resultCharCount = result.Length;
+            _resultWordCount = CountWords(result);
+        }
+        catch (Exception ex)
+        {
+            _resultError = $"Execution failed: {ex.Message}";
+            _resultCharCount = 0;
+            _resultWordCount = 0;
+        }
+        finally
+        {
+            _isExecuting = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SaveRun()
+    {
+        if (_resultText is null && _resultError is null) return;
+
+        _isSaving = true;
+        _saveSuccess = false;
+        _saveError = null;
+        StateHasChanged();
+
+        try
+        {
+            var (_, provider, model) = _resolvedModels[_selectedModelKey];
+
+            var run = new PromptTestRun
+            {
+                Comment = string.IsNullOrWhiteSpace(_comment) ? null : _comment.Trim(),
+                ModelIdentifier = model.ModelIdentifier,
+                ModelDisplayName = model.DisplayName,
+                ProviderName = provider.Name,
+                SystemMessage = string.IsNullOrWhiteSpace(_systemMessage) ? null : _systemMessage,
+                UserPrompt = _userPrompt,
+                Temperature = _temperature,
+                TopP = _topP,
+                MaxTokens = _maxTokens,
+                ResultText = _resultText,
+                ResultError = _resultError,
+                PromptCharCount = _promptCharCount,
+                ResultWordCount = _resultWordCount,
+                ResultCharCount = _resultCharCount,
+                ElapsedSeconds = _elapsedMs ?? 0,
+                CreatedUtc = DateTime.UtcNow.ToString("o")
+            };
+
+            await PromptTestRunRepo.SaveAsync(run);
+            _saveSuccess = true;
+            _loadedRunId = run.Id;
+
+            await LoadPreviousRuns();
+        }
+        catch (Exception ex)
+        {
+            _saveError = $"Failed to save: {ex.Message}";
+        }
+        finally
+        {
+            _isSaving = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadPreviousRuns()
+    {
+        _isLoadingRuns = true;
+        StateHasChanged();
+
+        try
+        {
+            _previousRuns = await PromptTestRunRepo.GetAllAsync(50);
+        }
+        catch (Exception)
+        {
+            // Silent fail for previous runs list
+        }
+        finally
+        {
+            _isLoadingRuns = false;
+            StateHasChanged();
+        }
+    }
+
+    private void LoadRun(PromptTestRun run)
+    {
+        var matchingKey = _modelsDropdown
+            .FirstOrDefault(e => _resolvedModels.ContainsKey(e.Key) &&
+                                 (_resolvedModels[e.Key].Model.Id == run.ModelIdentifier ||
+                                  _resolvedModels[e.Key].Model.ModelIdentifier == run.ModelIdentifier)).Key;
+
+        if (!string.IsNullOrEmpty(matchingKey))
+        {
+            _selectedModelKey = matchingKey;
+        }
+
+        _systemMessage = run.SystemMessage ?? string.Empty;
+        _userPrompt = run.UserPrompt;
+        _temperature = run.Temperature;
+        _topP = run.TopP;
+        _maxTokens = run.MaxTokens;
+        _resultText = run.ResultText;
+        _resultError = run.ResultError;
+        _elapsedMs = run.ElapsedSeconds;
+        _promptCharCount = run.PromptCharCount;
+        _resultWordCount = run.ResultWordCount;
+        _resultCharCount = run.ResultCharCount;
+        _loadedRunId = run.Id;
+        _comment = string.Empty;
+        _saveSuccess = false;
+        _saveError = null;
+        _activeTab = "tester";
+
+        StateHasChanged();
+    }
+
+    private async Task DeleteRun(PromptTestRun run)
+    {
+        try
+        {
+            await PromptTestRunRepo.DeleteAsync(run.Id);
+            _previousRuns.RemoveAll(r => r.Id == run.Id);
+
+            if (_loadedRunId == run.Id)
+            {
+                _loadedRunId = null;
+            }
+
+            StateHasChanged();
+        }
+        catch (Exception)
+        {
+            // Silent fail for delete
+        }
+    }
+
+    private async Task CopyResult()
+    {
+        if (_resultText is not null)
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", _resultText);
+        }
+    }
+
+    private static int CountWords(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return 0;
+        return text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Length;
+    }
+
+    private static string FormatTimestamp(string utc)
+    {
+        if (DateTime.TryParse(utc, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var dt))
+        {
+            return dt.ToLocalTime().ToString("g");
+        }
+        return utc;
+    }
+
+    [Inject] private IJSRuntime JS { get; set; } = default!;
+}

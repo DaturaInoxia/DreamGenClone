@@ -10,10 +10,9 @@ public sealed class RolePlayPromptOptions
     public const string SectionName = "RolePlayPrompt";
 
     /// <summary>
-    /// Recommended initial max prompt characters for new sessions (~8,750 tokens at ~4 chars/token,
-    /// leaving ~1,250 tokens for output within an 8K window).
+    /// Recommended initial max prompt characters for new sessions (~20,000 tokens at ~4 chars/token).
     /// </summary>
-    public int RecommendedInitialMaxPromptChars { get; init; } = 35000;
+    public int RecommendedInitialMaxPromptChars { get; init; } = 80000;
 
     /// <summary>Recommended initial context window turns for new sessions.</summary>
     public int RecommendedInitialContextWindowTurns { get; init; } = 8;
