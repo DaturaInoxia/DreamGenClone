@@ -30,7 +30,7 @@ public enum PromptSlotId
     /// <summary>Zone B, order 7 — current location details (FR-013).</summary>
     CurrentLocation = 8,
 
-    /// <summary>Zone B, order 8 — writing style with phase Rule-of-Thumb (FR-014).</summary>
+    /// <summary>Zone C, order 18 — style guide moved to end of prompt (recency position).</summary>
     WritingStyle = 9,
 
     /// <summary>Zone B, order 9 — tiered interaction history (FR-015).</summary>

@@ -128,6 +128,34 @@ public static class RolePlayAssistantPrompts
         return null;
     }
 
+    /// <summary>
+    /// Returns the word target marker declared by [targetwords:small], [targetwords:medium],
+    /// or [targetwords:large] in the theme's phase guidance for the given phase.
+    /// Returns null if no marker is present — the caller applies the default [small].
+    /// </summary>
+    public static string? GetWordTargetMarker(RPTheme? activeTheme, string phase)
+    {
+        if (activeTheme is null || activeTheme.PhaseGuidance.Count == 0)
+            return null;
+
+        var guidanceTexts = activeTheme.PhaseGuidance
+            .Where(x => string.Equals(x.Phase.ToString(), phase, StringComparison.OrdinalIgnoreCase))
+            .Select(x => x.GuidanceText)
+            .Where(x => !string.IsNullOrWhiteSpace(x));
+
+        foreach (var text in guidanceTexts)
+        {
+            if (text.Contains("[targetwords:large]", StringComparison.OrdinalIgnoreCase))
+                return "large";
+            if (text.Contains("[targetwords:medium]", StringComparison.OrdinalIgnoreCase))
+                return "medium";
+            if (text.Contains("[targetwords:small]", StringComparison.OrdinalIgnoreCase))
+                return "small";
+        }
+
+        return null;
+    }
+
     public static IReadOnlyList<RPThemeAIGuidanceNote> GetPhaseRelevantThemeAIGuidanceNotes(
         RPTheme? activeTheme,
         string phase,

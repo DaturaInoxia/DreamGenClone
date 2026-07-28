@@ -135,12 +135,12 @@ public sealed class PromptBudgetEnforcer
         PromptSlotId.SessionMemory => 4,            // session memory
         PromptSlotId.CurrentLocation => 5,          // location summaries
         PromptSlotId.SceneContinuityAnchor => 6,    // cross-perceptions
-        PromptSlotId.WritingStyle => 7,             // last resort
         _ => int.MaxValue,                          // never trimmed
     };
 
     private static PromptZone GetSlotZone(PromptSlotId slotId) => slotId switch
     {
+        PromptSlotId.WritingStyle => PromptZone.C,
         <= PromptSlotId.WorldState => PromptZone.A,
         <= PromptSlotId.SceneContinuityAnchor => PromptZone.B,
         _ => PromptZone.C,
@@ -156,7 +156,6 @@ public sealed class PromptBudgetEnforcer
         PromptSlotId.CharacterData => 5,
         PromptSlotId.ScenarioContext => 6,
         PromptSlotId.CurrentLocation => 7,
-        PromptSlotId.WritingStyle => 8,
         PromptSlotId.InteractionHistory => 9,
         PromptSlotId.SessionMemory => 10,
         PromptSlotId.SceneContinuityAnchor => 11,

@@ -1,5 +1,6 @@
 using System.Text;
 using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Web.Domain.RolePlay;
 using Microsoft.Extensions.Logging;
 
 namespace DreamGenClone.Web.Application.RolePlay.Prompts.Slots;
@@ -73,11 +74,28 @@ public sealed class InteractionHistorySlot : IPromptSlot
         var fullDetailItems = reversed.Take(fullDetailCount).Reverse().ToList();
         if (fullDetailItems.Count > 0)
         {
+            // Resolve per-interaction turn metadata and role annotations.
+            var roleMap = context.ActorRoleMap;
+            var entries = context.RecentInteractionEntries;
+            var entryLookup = entries?.ToDictionary(e => e.Interaction.Id, StringComparer.OrdinalIgnoreCase);
+
             sb.AppendLine("  Recent Interactions:");
             foreach (var interaction in fullDetailItems)
             {
                 var content = interaction.Content?.Trim() ?? "";
-                sb.AppendLine($"    [{interaction.ActorName}]: {content}");
+
+                // Resolve role from map, or use interaction type as fallback.
+                var role = ResolveInteractionRole(interaction, roleMap);
+                var rolePart = string.IsNullOrEmpty(role) ? "" : $" ({role})";
+
+                // Resolve turn metadata from pre-computed entries.
+                string turnAnnotation = "";
+                if (entryLookup is not null && entryLookup.TryGetValue(interaction.Id, out var entry))
+                {
+                    turnAnnotation = $" Turn {entry.TurnNumber}, Interaction {entry.PositionInTurn}/{entry.TurnActorCount}";
+                }
+
+                sb.AppendLine($"    [{interaction.ActorName}{rolePart}]{turnAnnotation}: {content}");
             }
         }
 
@@ -86,6 +104,26 @@ public sealed class InteractionHistorySlot : IPromptSlot
             session.Id, fullDetailItems.Count, interactions.Count);
 
         return Task.FromResult(sb.ToString().TrimEnd());
+    }
+
+    /// <summary>
+    /// Resolves a human-readable role label for an interaction, preferring the actor role map
+    /// from scenario characters, falling back to interaction type.
+    /// </summary>
+    private static string ResolveInteractionRole(
+        RolePlayInteraction interaction,
+        IReadOnlyDictionary<string, string>? roleMap)
+    {
+        var actorName = interaction.ActorName?.Trim() ?? "";
+        if (roleMap is not null && roleMap.TryGetValue(actorName, out var role))
+            return role;
+
+        return interaction.InteractionType switch
+        {
+            InteractionType.System => "Narrative",
+            InteractionType.User => "You",
+            _ => "",
+        };
     }
 
     public string Trim(string text, int maxChars)

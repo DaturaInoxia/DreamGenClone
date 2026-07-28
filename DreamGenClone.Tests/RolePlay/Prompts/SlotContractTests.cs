@@ -640,7 +640,7 @@ public sealed class SlotContractTests
     // ── T060: WritingStyleSlot (FR-014, FR-036) ─────────────────
 
     [Fact]
-    public async Task WritingStyleSlot_OutputsReferenceLine()
+    public async Task WritingStyleSlot_OutputsStyleGuide()
     {
         var slot = new WritingStyleSlot(NullLogger<WritingStyleSlot>.Instance);
         var context = CreateContext();
@@ -649,14 +649,16 @@ public sealed class SlotContractTests
 
         var text = await slot.WriteAsync(context, CancellationToken.None);
 
-        Assert.Contains("Writing direction: see Writing Instruction below.", text);
+        Assert.Contains("Style Guide:", text);
+        Assert.Contains("POV:", text);
+        Assert.Contains("Word Target:", text);
     }
 
     [Fact]
     public async Task WritingStyleSlot_NoFailFastOnMissingFields()
     {
-        // After plan-amendment, WritingStyleSlot emits the full Style Guide from
-        // Intensity fields — it does not fail-fast on empty StyleProfile fields.
+        // WritingStyleSlot emits the full Style Guide from Intensity fields —
+        // it does not fail-fast on empty StyleProfile fields.
         var slot = new WritingStyleSlot(NullLogger<WritingStyleSlot>.Instance);
         var context = CreateContext();
         context = context with
@@ -672,12 +674,22 @@ public sealed class SlotContractTests
                 WordTargetMax = 400,
                 NarrativeWordTargetMin = 300,
                 NarrativeWordTargetMax = 500,
+                WordTargetMarker = "small",
+            },
+            Intensity = new ResolvedIntensityData
+            {
+                ProseStyleDirective = "",
+                VoiceDirective = "",
+                ToneDirective = "",
+                FocusDirective = "",
+                HeatLevelDirective = "",
             },
         };
 
         var text = await slot.WriteAsync(context, CancellationToken.None);
 
         Assert.Contains("Style Guide:", text);
+        Assert.Contains("Word Target:", text);
         Assert.DoesNotContain("Prose Style:", text); // Empty in intensity, skipped
     }
 
@@ -693,8 +705,8 @@ public sealed class SlotContractTests
     {
         var slot = new WritingStyleSlot(NullLogger<WritingStyleSlot>.Instance);
         Assert.Equal(PromptSlotId.WritingStyle, slot.Id);
-        Assert.Equal(PromptZone.B, slot.Zone);
-        Assert.Equal(8, slot.Order);
+        Assert.Equal(PromptZone.C, slot.Zone);
+        Assert.Equal(18, slot.Order);
     }
 
     // ── T061: SceneContinuityAnchorSlot (FR-017, FR-036) ───────

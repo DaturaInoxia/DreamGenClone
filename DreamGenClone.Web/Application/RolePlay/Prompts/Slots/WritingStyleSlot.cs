@@ -6,18 +6,17 @@ using Microsoft.Extensions.Logging;
 namespace DreamGenClone.Web.Application.RolePlay.Prompts.Slots;
 
 /// <summary>
-/// Slot 8, Zone B — Style Guide: frame directives (Prose Style, Voice, Tone, Focus,
-/// Heat Level, POV, Immersion, Word Target). Model sees these first (primacy)
-/// to set the mood boundary. Operational directives (Action) remain in Slot 17 (recency).
-/// Trimmable under budget pressure.
+/// Slot 18, Zone C — Style Guide: frame directives (Prose Style, Voice, Tone, Focus,
+/// Heat Level, POV, Immersion, Word Target [marker-driven]). Moved to end of prompt
+/// (recency position). Not trimmable.
 /// </summary>
 public sealed class WritingStyleSlot : IPromptSlot
 {
     private readonly ILogger<WritingStyleSlot> _logger;
 
     public PromptSlotId Id => PromptSlotId.WritingStyle;
-    public PromptZone Zone => PromptZone.B;
-    public int Order => 8;
+    public PromptZone Zone => PromptZone.C;
+    public int Order => 18;
     public bool IsTrimEligible => false;
 
     public WritingStyleSlot(ILogger<WritingStyleSlot> logger)
@@ -88,12 +87,8 @@ public sealed class WritingStyleSlot : IPromptSlot
         if (!isNarrative && !string.IsNullOrWhiteSpace(style.ImmersionDirective))
             sb.AppendLine($"  Immersion: {style.ImmersionDirective.Trim()}");
 
-        // 8. Word Target — from StyleProfile
-        if (isNarrative)
-        {
-            sb.AppendLine($"  Word Target: Target {style.NarrativeWordTargetMin}-{style.NarrativeWordTargetMax} words of scene synthesis.");
-        }
-        else
+        // 8. Word Target — marker-driven, no Word Target on Narrative
+        if (!isNarrative)
         {
             sb.AppendLine($"  Word Target: Target {style.WordTargetMin}-{style.WordTargetMax} words.");
         }

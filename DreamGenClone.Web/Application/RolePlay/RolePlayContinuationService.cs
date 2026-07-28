@@ -657,6 +657,10 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             characterStatStateTexts = guidance.CharacterStatStateTexts;
         }
 
+        // ── Resolve theme + intensity (needed for word target marker) ──
+        var resolvedTheme = await ResolveThemeAsync(session, phase, cancellationToken);
+        var resolvedIntensity = await ResolveIntensityAsync(session, phase, cancellationToken);
+
         // ── Build context for builder ──
         var defaultStartingLocationName = await ResolveDefaultStartingLocationAsync(
             session.ScenarioId, session.AdaptiveState.CurrentSceneLocation, cancellationToken);
@@ -694,9 +698,11 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                 DefaultIntensityProfileId = null,
                 DefaultStartingLocationName = defaultStartingLocationName,
             },
-            Theme = await ResolveThemeAsync(session, phase, cancellationToken),
-            Intensity = await ResolveIntensityAsync(session, phase, cancellationToken),
-            WritingStyle = await ResolveWritingStyleAsync(session, phaseRoTRow, cancellationToken),
+            Theme = resolvedTheme,
+            Intensity = resolvedIntensity,
+            WritingStyle = await ResolveWritingStyleAsync(session, phaseRoTRow,
+                RolePlayAssistantPrompts.GetWordTargetMarker(resolvedTheme.ActiveTheme, phase),
+                cancellationToken),
             NarrativeTone = ResolveNarrativeTone(scenario),
             EncounterSummaries = session.AdaptiveState.EncounterSummaries,
             RecentInteractions = session.Interactions
@@ -706,10 +712,91 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             CharacterDetails = charDetails,
             CharacterBehavioralFrames = characterBehavioralFrames,
             CharacterStatStateTexts = characterStatStateTexts,
+            ActorRoleMap = BuildActorRoleMap(scenarioCharacters),
+            RecentInteractionEntries = null,
+        };
+
+        // ── Compute turn metadata for interaction history ──
+        context = context with
+        {
+            RecentInteractionEntries = ComputeRecentInteractionEntries(context.RecentInteractions),
         };
 
         // ── Delegate to builder ──
         return await _promptBuilder.BuildAsync(context, cancellationToken);
+    }
+
+    /// <summary>
+    /// Builds a name→role lookup from scenario characters for interaction history enrichment.
+    /// </summary>
+    private static IReadOnlyDictionary<string, string>? BuildActorRoleMap(
+        IReadOnlyList<ScenarioCharacter> scenarioCharacters)
+    {
+        if (scenarioCharacters.Count == 0) return null;
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var c in scenarioCharacters)
+        {
+            if (!string.IsNullOrWhiteSpace(c.Name) && !string.IsNullOrWhiteSpace(c.Role))
+                map[c.Name.Trim()] = c.Role.Trim();
+        }
+        return map.Count > 0 ? map : null;
+    }
+
+    /// <summary>
+    /// Groups recent interactions into turns and computes per-interaction turn metadata.
+    /// A new turn starts when an actor who already appeared in the current turn appears again.
+    /// </summary>
+    private static IReadOnlyList<RecentInteractionEntry> ComputeRecentInteractionEntries(
+        IReadOnlyList<RolePlayInteraction> interactions)
+    {
+        if (interactions.Count == 0) return [];
+
+        var entries = new List<RecentInteractionEntry>();
+        var turns = new List<List<int>>(); // turn index → list of interaction indices
+        var currentTurnActorNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var currentTurnIndices = new List<int>();
+
+        for (int i = 0; i < interactions.Count; i++)
+        {
+            var actorName = interactions[i].ActorName?.Trim() ?? "";
+
+            // New turn boundary: actor already appeared in this turn
+            if (currentTurnActorNames.Contains(actorName) && currentTurnIndices.Count > 0)
+            {
+                turns.Add(currentTurnIndices);
+                currentTurnActorNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                currentTurnIndices = new List<int>();
+            }
+
+            currentTurnActorNames.Add(actorName);
+            currentTurnIndices.Add(i);
+        }
+
+        // Final turn
+        if (currentTurnIndices.Count > 0)
+            turns.Add(currentTurnIndices);
+
+        // Build entries with turn metadata
+        for (int turnIdx = 0; turnIdx < turns.Count; turnIdx++)
+        {
+            var turnIndices = turns[turnIdx];
+            var turnNumber = turnIdx + 1;
+            var actorCount = turnIndices.Count;
+
+            for (int pos = 0; pos < turnIndices.Count; pos++)
+            {
+                var interactionIdx = turnIndices[pos];
+                entries.Add(new RecentInteractionEntry
+                {
+                    Interaction = interactions[interactionIdx],
+                    TurnNumber = turnNumber,
+                    PositionInTurn = pos + 1,
+                    TurnActorCount = actorCount,
+                });
+            }
+        }
+
+        return entries;
     }
 
     /// <summary>
@@ -787,9 +874,22 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         return location?.Name;
     }
 
+    /// <summary>
+    /// Mapping from [targetwords:*] marker to word count range.
+    /// Default [small] is used when no marker is present.
+    /// </summary>
+    private static readonly IReadOnlyDictionary<string, (int Min, int Max)> WordTargetMarkerRanges =
+        new Dictionary<string, (int, int)>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["small"] = (200, 400),
+            ["medium"] = (300, 700),
+            ["large"] = (500, 1000),
+        };
+
     private async Task<ResolvedWritingStyleData> ResolveWritingStyleAsync(
         RolePlaySession session,
         PhaseRuleOfThumbRow phaseRoT,
+        string? wordTargetMarker,
         CancellationToken cancellationToken)
     {
         var example = string.Empty;
@@ -852,6 +952,15 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                     $"MissingPromptConfig: SteeringProfile '{styleProfile.Name}' (Id={styleProfile.Id}) has invalid NarrativeWordTarget range (Min={styleProfile.NarrativeWordTargetMin}, Max={styleProfile.NarrativeWordTargetMax}). FR-006 requires a valid range. No hardcoded fallback is permitted. Populate the field via the Style Profile management UI or a DB update.");
         }
 
+        // Apply word target marker override: when a marker is present, use the mapped range.
+        // When absent, use SteeringProfile values as-is (backward compat).
+        var resolvedMarker = wordTargetMarker ?? "small";
+        if (WordTargetMarkerRanges.TryGetValue(resolvedMarker, out var markerRange))
+        {
+            wordTargetMin = markerRange.Min;
+            wordTargetMax = markerRange.Max;
+        }
+
         return new ResolvedWritingStyleData
         {
             Example = example,
@@ -863,6 +972,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             WordTargetMax = wordTargetMax,
             NarrativeWordTargetMin = narrativeWordTargetMin,
             NarrativeWordTargetMax = narrativeWordTargetMax,
+            WordTargetMarker = resolvedMarker,
         };
     }
 

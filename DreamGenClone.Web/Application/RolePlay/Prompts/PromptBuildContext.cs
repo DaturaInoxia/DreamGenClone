@@ -47,6 +47,20 @@ public sealed record PromptBuildContext
     public required IReadOnlyList<EncounterSummaryRecord> EncounterSummaries { get; init; }
     public required IReadOnlyList<RolePlayInteraction> RecentInteractions { get; init; }
 
+    // ── Interaction history enrichment ─────────────────────────
+    /// <summary>
+    /// Actor name → role mapping resolved from scenario characters.
+    /// Used by <see cref="Slots.InteractionHistorySlot"/> to annotate each interaction.
+    /// </summary>
+    public IReadOnlyDictionary<string, string>? ActorRoleMap { get; init; }
+
+    /// <summary>
+    /// Recent interactions wrapped with turn metadata (turn number, position, actor count).
+    /// Computed by the builder from <see cref="RecentInteractions"/> ordering.
+    /// Null when not yet resolved — slots should fall back to <see cref="RecentInteractions"/>.
+    /// </summary>
+    public IReadOnlyList<RecentInteractionEntry>? RecentInteractionEntries { get; init; }
+
     // ── Character details (pre-resolved by builder, indexed by character ID) ──
     /// <summary>
     /// Rich character detail keyed by character ID. Populated by the builder from scenario character data.
@@ -178,6 +192,13 @@ public sealed record ResolvedWritingStyleData
 
     /// <summary>Maximum word count for Narrative variant. Fail-fast if &lt;= 0 (FR-006).</summary>
     public required int NarrativeWordTargetMax { get; init; }
+
+    /// <summary>
+    /// Word target marker resolved from phase guidance ([targetwords:small/medium/large]).
+    /// When non-null, the WordTargetMin/Max values have been overridden from the marker mapping.
+    /// Defaults to "small" when no marker is present.
+    /// </summary>
+    public string? WordTargetMarker { get; init; }
 }
 
 // ── Narrative tone sub-record (FR-007, FR-008) ──────────────────
@@ -196,6 +217,20 @@ public sealed record ResolvedNarrativeToneData
 
     /// <summary>Subject emphasis. Null if not configured.</summary>
     public string? Focus { get; init; }
+}
+
+// ── Interaction history enrichment sub-record ──────────────────
+
+/// <summary>
+/// A single recent interaction wrapped with turn metadata for enriched
+/// interaction history output in <see cref="Slots.InteractionHistorySlot"/>.
+/// </summary>
+public sealed record RecentInteractionEntry
+{
+    public required RolePlayInteraction Interaction { get; init; }
+    public required int TurnNumber { get; init; }
+    public required int PositionInTurn { get; init; }
+    public required int TurnActorCount { get; init; }
 }
 
 // ── Character detail sub-record ────────────────────────────────
