@@ -3351,7 +3351,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
         if (string.Equals(session.AdaptiveState.CurrentPhase.ToString(), "Climax", StringComparison.OrdinalIgnoreCase))
         {
-            return "Write an omniscient narrative description of the full scene as it stands this turn. Describe the physical moment, setting, character positions, sensations, and atmosphere in explicit detail. All participants have already described this same moment from their own perspectives � your role is to close the turn with a rich, omniscient account of what is happening right now. Do not advance the scene beyond what the characters have already established. Use direct, explicit language.";
+            return "Write an omniscient narrative description of the full scene as it stands this turn. Describe the physical moment, setting, character positions, sensations, and atmosphere in explicit detail. All participants have already described this same moment from their own perspectives. Your role is to close the turn with a rich, omniscient account of what is happening right now. HARD CONSTRAINT: Do not advance the scene beyond what the characters have already established. Do not introduce new events, characters, or actions. Synthesize only what the characters described. Use direct, explicit language.";
         }
 
         return lastInteraction.InteractionType switch

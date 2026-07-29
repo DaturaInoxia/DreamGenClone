@@ -6,6 +6,9 @@ namespace DreamGenClone.Domain.RolePlay;
 /// </summary>
 public enum PromptSlotId
 {
+    /// <summary>Zone A, order 0 — prompt primer explaining sections and priority.</summary>
+    SystemPrimer = 0,
+
     /// <summary>Zone A, order 1 — location + phase one-liner (FR-005).</summary>
     SceneAnchor = 1,
 

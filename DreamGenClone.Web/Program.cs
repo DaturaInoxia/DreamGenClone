@@ -134,6 +134,7 @@ builder.Services.AddScoped<PromptBudgetEnforcer>();
 builder.Services.AddScoped<RolePlayPromptBuilder>();
 
 // Phase 3 (US1): Zone A slots + Character Data
+builder.Services.AddScoped<IPromptSlot, SystemPrimerSlot>();
 builder.Services.AddScoped<IPromptSlot, SceneAnchorSlot>();
 builder.Services.AddScoped<IPromptSlot, ActorAssignmentSlot>();
 builder.Services.AddScoped<IPromptSlot, TurnContextSlot>();

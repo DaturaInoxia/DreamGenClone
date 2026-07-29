@@ -469,10 +469,12 @@ public sealed class PromptBuilderTests
 
         var prompt = await builder.BuildAsync(context, CancellationToken.None);
 
-        // Turn-grouped format: last N turns shown with correct turn numbers.
+        // Turn-grouped format: completed turns shown with correct turn numbers.
         Assert.Contains("Turn 51:", prompt);
         Assert.Contains("Turn 52:", prompt);
-        Assert.Contains("Turn 53:", prompt);
+
+        // Current turn (53) excluded from history.
+        Assert.DoesNotContain("Turn 53:", prompt);
 
         // Interactions present with role labels.
         Assert.Contains("[Dean]", prompt);

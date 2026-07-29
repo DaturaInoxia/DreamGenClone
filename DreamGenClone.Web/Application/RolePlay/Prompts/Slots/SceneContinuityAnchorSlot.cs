@@ -1,5 +1,6 @@
 using System.Text;
 using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Web.Domain.RolePlay;
 using Microsoft.Extensions.Logging;
 
 namespace DreamGenClone.Web.Application.RolePlay.Prompts.Slots;
@@ -26,10 +27,7 @@ public sealed class SceneContinuityAnchorSlot : IPromptSlot
 
     public Task<string> WriteAsync(PromptBuildContext context, CancellationToken ct)
     {
-        var profile = context.ActorProfile;
         var session = context.Session;
-        var currentScene = session.AdaptiveState?.CurrentSceneLocation;
-
         var sb = new StringBuilder();
         sb.AppendLine("Scene Context:");
 
@@ -40,44 +38,53 @@ public sealed class SceneContinuityAnchorSlot : IPromptSlot
             sb.AppendLine($"  Time: {timeOfDay.Value.ToString().ToLowerInvariant()}");
         }
 
-        // ── Character location grounding ──
-        // SKIPPED: Per-character location assertions ("Dean is at: X") removed from prompt injection.
-        // Reason: Creates a self-reinforcing lock — prompt says "Dean is at Trailer" → AI writes
-        // Dean at Trailer → location detection confirms Dean at Trailer → prompt says "Dean is at Trailer".
-        // The model should infer character presence from interaction history, like the legacy system did.
-        // Character location data is still tracked in AdaptiveState for engine use; just not injected here.
-        // To restore: uncomment the block below.
-        /*
-        var characterLocations = session.AdaptiveState?.CharacterLocations;
-        if (characterLocations is { Count: > 0 })
+        // ── Last Narrative (full synthesized omniscient close from previous turn) ──
+        var lastNarrative = session.Interactions
+            .LastOrDefault(i => i.InteractionType == InteractionType.System
+                && string.Equals(i.ActorName, "Narrative", StringComparison.OrdinalIgnoreCase)
+                && !i.IsExcluded);
+        if (lastNarrative is not null && !string.IsNullOrWhiteSpace(lastNarrative.Content))
         {
-            foreach (var cl in characterLocations)
-            {
-                if (!string.IsNullOrWhiteSpace(cl.TrueLocation) && !cl.IsHidden)
-                {
-                    sb.AppendLine($"  {cl.CharacterId} is at: {cl.TrueLocation.Trim()}");
-                }
-            }
+            sb.AppendLine("  Last Narrative:");
+            sb.AppendLine($"    {lastNarrative.Content.Trim()}");
+            sb.AppendLine();
         }
-        else if (!string.IsNullOrWhiteSpace(currentScene))
-        {
-            // Fallback: just note the current scene
-            sb.AppendLine($"  Current scene: {currentScene.Trim()}");
-        }
-        */
 
-        // ── Last beat anchor ──
+        // ── Current turn interactions ──
+        // Take the last N-1 interactions for character variant, all for Narrative.
+        var positionInTurn = context.PositionInTurn;
+        var totalInTurn = context.TurnActorCount;
         if (context.RecentInteractions is { Count: > 0 })
         {
-            var lastInteraction = context.RecentInteractions[^1];
-            if (!string.IsNullOrWhiteSpace(lastInteraction.Content))
+            var priorCount = positionInTurn.HasValue
+                ? positionInTurn.Value - 1
+                : (totalInTurn ?? 0);
+
+            _logger.LogDebug(
+                "SceneContinuityAnchor: SessionId={SessionId} Pos={Pos} TotalInTurn={TotalInTurn} RecentCount={RecentCount} PriorCount={PriorCount}",
+                session.Id, positionInTurn, totalInTurn, context.RecentInteractions.Count, priorCount);
+
+            if (priorCount > 0)
             {
-                var snippet = lastInteraction.Content.Trim();
-                if (snippet.Length > 120)
+                var priorInteractions = context.RecentInteractions
+                    .TakeLast(priorCount)
+                    .ToList();
+
+                if (priorInteractions.Count > 0)
                 {
-                    snippet = snippet[..120] + "...";
+                    sb.AppendLine("  Current Turn:");
+                    for (int i = 0; i < priorInteractions.Count; i++)
+                    {
+                        var interaction = priorInteractions[i];
+                        var content = interaction.Content?.Trim() ?? "";
+                        var pos = i + 1;
+                        var annotation = totalInTurn.HasValue
+                            ? $" Interaction {pos}/{totalInTurn.Value}"
+                            : "";
+                        sb.AppendLine($"    [{interaction.ActorName}]{annotation}: {content}");
+                    }
+                    sb.AppendLine();
                 }
-                sb.AppendLine($"  Last beat: [{lastInteraction.ActorName}] {snippet}");
             }
         }
 

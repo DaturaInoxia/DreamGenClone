@@ -144,6 +144,7 @@ public sealed class RolePlayPromptBuilder
 
     private static int GetExpectedOrder(PromptSlotId id) => id switch
     {
+        PromptSlotId.SystemPrimer => 0,
         PromptSlotId.SceneAnchor => 1,
         PromptSlotId.ActorAssignment => 2,
         PromptSlotId.TurnContext => 3,

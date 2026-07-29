@@ -818,16 +818,13 @@ public sealed class SlotContractTests
 
         var text = await slot.WriteAsync(context, CancellationToken.None);
 
-        // Turn-grouped format: each turn gets its own header.
+        // Turn-grouped format: each completed turn gets its own header.
         Assert.Contains("Turn 1:", text);
         Assert.Contains("Turn 2:", text);
-        Assert.Contains("Turn 3:", text);
 
         // All recent interactions present.
         Assert.Contains("Turn 1 Dean", text);
-        Assert.Contains("Turn 1 Becky", text);
-        Assert.Contains("Turn 3 Dean", text);
-        Assert.Contains("Turn 3 Becky", text);
+        Assert.Contains("Turn 2 Becky", text);
     }
 
     [Fact]
