@@ -860,7 +860,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                    StartInteractionIndex, EndInteractionIndex,
                    SceneLocation, ActiveThemeId,
                    FinishingMoveId, PositionIdsJson, CharacterStatsSnapshotJson,
-                   TemplateSummary, LlmSummary, LlmEnhancedUtc
+                   TemplateSummary, LlmSummary, LlmEnhancedUtc, EnrichmentPrompt
             FROM RolePlayV2EncounterSummaries
             WHERE SessionId = $sessionId
             ORDER BY OccurredUtc ASC;
@@ -891,7 +891,8 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 CharacterStatsSnapshotJson = rdr.IsDBNull(16) ? "{}" : rdr.GetString(16),
                 TemplateSummary         = rdr.IsDBNull(17) ? string.Empty : rdr.GetString(17),
                 LlmSummary              = rdr.IsDBNull(18) ? null : rdr.GetString(18),
-                LlmEnhancedUtc          = rdr.IsDBNull(19) ? null : ParseUtcTimestamp(rdr.GetString(19), state.SessionId)
+                LlmEnhancedUtc          = rdr.IsDBNull(19) ? null : ParseUtcTimestamp(rdr.GetString(19), state.SessionId),
+                EnrichmentPrompt        = rdr.IsDBNull(20) ? null : rdr.GetString(20)
             });
         }
     }
@@ -1872,18 +1873,19 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
         await cmd.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    public async Task UpdateEncounterSummaryLlmAsync(string summaryId, string llmSummary, DateTime llmEnhancedUtc, CancellationToken cancellationToken = default)
+    public async Task UpdateEncounterSummaryLlmAsync(string summaryId, string llmSummary, DateTime llmEnhancedUtc, string? enrichmentPrompt = null, CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenConnectionAsync(cancellationToken);
         await using var cmd = connection.CreateCommand();
         cmd.CommandText = """
             UPDATE RolePlayV2EncounterSummaries
-            SET LlmSummary = $llmSummary, LlmEnhancedUtc = $llmEnhancedUtc
+            SET LlmSummary = $llmSummary, LlmEnhancedUtc = $llmEnhancedUtc, EnrichmentPrompt = $enrichmentPrompt
             WHERE Id = $id;
             """;
         cmd.Parameters.AddWithValue("$id", summaryId);
         cmd.Parameters.AddWithValue("$llmSummary", llmSummary);
         cmd.Parameters.AddWithValue("$llmEnhancedUtc", llmEnhancedUtc.ToString("O"));
+        cmd.Parameters.AddWithValue("$enrichmentPrompt", (object?)enrichmentPrompt ?? DBNull.Value);
         await cmd.ExecuteNonQueryAsync(cancellationToken);
     }
 
@@ -1899,7 +1901,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                    StartInteractionIndex, EndInteractionIndex,
                    SceneLocation, ActiveThemeId,
                    FinishingMoveId, PositionIdsJson, CharacterStatsSnapshotJson,
-                   TemplateSummary, LlmSummary, LlmEnhancedUtc
+                   TemplateSummary, LlmSummary, LlmEnhancedUtc, EnrichmentPrompt
             FROM RolePlayV2EncounterSummaries
             WHERE SessionId = $sessionId
             ORDER BY OccurredUtc ASC;
@@ -1930,7 +1932,8 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 CharacterStatsSnapshotJson = rdr.IsDBNull(16) ? "{}" : rdr.GetString(16),
                 TemplateSummary         = rdr.IsDBNull(17) ? string.Empty : rdr.GetString(17),
                 LlmSummary              = rdr.IsDBNull(18) ? null : rdr.GetString(18),
-                LlmEnhancedUtc          = rdr.IsDBNull(19) ? null : ParseUtcTimestamp(rdr.GetString(19), sessionId)
+                LlmEnhancedUtc          = rdr.IsDBNull(19) ? null : ParseUtcTimestamp(rdr.GetString(19), sessionId),
+                EnrichmentPrompt        = rdr.IsDBNull(20) ? null : rdr.GetString(20)
             });
         }
         return results;

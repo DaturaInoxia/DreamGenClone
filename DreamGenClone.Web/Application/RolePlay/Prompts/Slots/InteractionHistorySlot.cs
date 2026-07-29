@@ -36,19 +36,11 @@ public sealed class InteractionHistorySlot : IPromptSlot
         var session = context.Session;
 
         // ── Fail-fast on missing thresholds (FR-012a, FR-015) ──
-        var fullDetailBand = session.HistoryFullDetailTurnBand;
-        if (fullDetailBand is null or <= 0)
+        var fullDetailTurns = session.HistoryFullDetailTurnBand;
+        if (fullDetailTurns is null or <= 0)
         {
             throw new InvalidOperationException(
                 $"MissingPromptConfig: session '{session.Id}' HistoryFullDetailTurnBand must be a positive integer; " +
-                "no hardcoded default is permitted (FR-012a).");
-        }
-
-        var contextWindowTurns = session.ContextWindowTurns;
-        if (contextWindowTurns is null or <= 0)
-        {
-            throw new InvalidOperationException(
-                $"MissingPromptConfig: session '{session.Id}' ContextWindowTurns must be a positive integer; " +
                 "no hardcoded default is permitted (FR-012a).");
         }
 
@@ -59,49 +51,51 @@ public sealed class InteractionHistorySlot : IPromptSlot
         if (interactions.Count == 0)
             return Task.FromResult(string.Empty);
 
+        var entries = context.RecentInteractionEntries;
+        var entryLookup = entries is not null
+            ? entries.ToDictionary(e => e.Interaction.Id, StringComparer.OrdinalIgnoreCase)
+            : new Dictionary<string, RecentInteractionEntry>(StringComparer.OrdinalIgnoreCase);
+
+        // Group interactions by turn number (from pre-computed entries),
+        // take the last N turns, render all interactions within those turns.
+        var turnGroups = new List<(int TurnNumber, List<(RolePlayInteraction Interaction, RecentInteractionEntry? Entry)> Items)>();
+        foreach (var interaction in interactions)
+        {
+            entryLookup.TryGetValue(interaction.Id, out var entry);
+            var turnNum = entry?.TurnNumber ?? 0;
+            if (turnGroups.Count == 0 || turnGroups[^1].TurnNumber != turnNum)
+            {
+                turnGroups.Add((turnNum, new List<(RolePlayInteraction, RecentInteractionEntry?)>()));
+            }
+            turnGroups[^1].Items.Add((interaction, entry));
+        }
+
+        var recentTurns = turnGroups.Count <= fullDetailTurns.Value
+            ? turnGroups
+            : turnGroups.GetRange(turnGroups.Count - fullDetailTurns.Value, fullDetailTurns.Value);
+
         var sb = new StringBuilder();
         sb.AppendLine("Interaction History:");
 
-        // Reverse so we process newest first, then reverse output for chronological order.
-        var reversed = Enumerable.Reverse(interactions).ToList();
-
-        var fullDetailCount = Math.Min(fullDetailBand.Value, reversed.Count);
-        // Layer 2 (middle band) removed — Narrative fragments carried no useful signal.
-        // Long-term continuity is handled by Slot 10 (Session Memory, FR-016).
-        // total window cap handled by ContextWindowTurns — anything beyond is omitted.
-
-        // ── Layer 1: Full detail (most recent interactions) ──
-        var fullDetailItems = reversed.Take(fullDetailCount).Reverse().ToList();
-        if (fullDetailItems.Count > 0)
+        var roleMap = context.ActorRoleMap;
+        foreach (var turn in recentTurns)
         {
-            // Resolve per-interaction turn metadata and role annotations.
-            var roleMap = context.ActorRoleMap;
-            var entries = context.RecentInteractionEntries;
-            var entryLookup = entries?.ToDictionary(e => e.Interaction.Id, StringComparer.OrdinalIgnoreCase);
-
-            sb.AppendLine("  Recent Interactions:");
-            foreach (var interaction in fullDetailItems)
+            sb.AppendLine($"  Turn {turn.TurnNumber}:");
+            foreach (var (interaction, entry) in turn.Items)
             {
                 var content = interaction.Content?.Trim() ?? "";
-
-                // Resolve role from map, or use interaction type as fallback.
                 var role = ResolveInteractionRole(interaction, roleMap);
                 var rolePart = string.IsNullOrEmpty(role) ? "" : $" ({role})";
-
-                // Resolve turn metadata from pre-computed entries.
-                string turnAnnotation = "";
-                if (entryLookup is not null && entryLookup.TryGetValue(interaction.Id, out var entry))
-                {
-                    turnAnnotation = $" Turn {entry.TurnNumber}, Interaction {entry.PositionInTurn}/{entry.TurnActorCount}";
-                }
-
+                var turnAnnotation = entry is not null
+                    ? $" Interaction {entry.PositionInTurn}/{entry.TurnActorCount}"
+                    : "";
                 sb.AppendLine($"    [{interaction.ActorName}{rolePart}]{turnAnnotation}: {content}");
             }
         }
 
         _logger.LogDebug(
-            "InteractionHistorySlot: SessionId={SessionId} FullDetail={FullDetail} Total={Total}",
-            session.Id, fullDetailItems.Count, interactions.Count);
+            "InteractionHistorySlot: SessionId={SessionId} Turns={Turns} Interactions={Interactions}",
+            session.Id, recentTurns.Count, interactions.Count);
 
         return Task.FromResult(sb.ToString().TrimEnd());
     }

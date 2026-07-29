@@ -706,7 +706,10 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             NarrativeTone = ResolveNarrativeTone(scenario),
             EncounterSummaries = session.AdaptiveState.EncounterSummaries,
             RecentInteractions = session.Interactions
-                .Where(i => !i.IsExcluded)
+                .Where(i => !i.IsExcluded
+                    && (i.InteractionType == InteractionType.Npc
+                        || i.InteractionType == InteractionType.Custom
+                        || i.InteractionType == InteractionType.User))
                 .TakeLast(session.ContextWindowSize > 0 ? session.ContextWindowSize : 12)
                 .ToList(),
             CharacterDetails = charDetails,
@@ -719,7 +722,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         // ── Compute turn metadata for interaction history ──
         context = context with
         {
-            RecentInteractionEntries = ComputeRecentInteractionEntries(context.RecentInteractions),
+            RecentInteractionEntries = ComputeRecentInteractionEntries(context.RecentInteractions, turnIndex),
         };
 
         // ── Delegate to builder ──
@@ -747,7 +750,8 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
     /// A new turn starts when an actor who already appeared in the current turn appears again.
     /// </summary>
     private static IReadOnlyList<RecentInteractionEntry> ComputeRecentInteractionEntries(
-        IReadOnlyList<RolePlayInteraction> interactions)
+        IReadOnlyList<RolePlayInteraction> interactions,
+        int? currentTurnIndex)
     {
         if (interactions.Count == 0) return [];
 
@@ -776,11 +780,15 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         if (currentTurnIndices.Count > 0)
             turns.Add(currentTurnIndices);
 
+        // Compute absolute turn numbers: last turn = currentTurnIndex, previous turns decrement
+        var lastTurnIndex = currentTurnIndex ?? turns.Count;
+        var startTurnIndex = lastTurnIndex - turns.Count + 1;
+
         // Build entries with turn metadata
         for (int turnIdx = 0; turnIdx < turns.Count; turnIdx++)
         {
             var turnIndices = turns[turnIdx];
-            var turnNumber = turnIdx + 1;
+            var turnNumber = startTurnIndex + turnIdx;
             var actorCount = turnIndices.Count;
 
             for (int pos = 0; pos < turnIndices.Count; pos++)

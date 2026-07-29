@@ -198,7 +198,7 @@ public sealed class SlotContractTests
 
         Assert.Contains("turn 5", text);
         Assert.Contains("response 1 of 3", text);
-        Assert.Contains("You are first this turn", text);
+        Assert.Contains("You are position 1 of 3", text);
     }
 
     [Fact]
@@ -769,16 +769,22 @@ public sealed class SlotContractTests
     public async Task InteractionHistorySlot_ThreeTierCompression_FullDetailForRecent()
     {
         var slot = new InteractionHistorySlot(NullLogger<InteractionHistorySlot>.Instance);
+        // Create 3 turns with 2 actors each (Dean + Becky per turn = 6 interactions).
         var interactions = new List<RolePlayInteraction>();
-        for (int i = 1; i <= 10; i++)
+        for (int turn = 1; turn <= 3; turn++)
         {
             interactions.Add(new RolePlayInteraction
             {
-                Id = $"ixn-{i}",
-                ActorName = i == 6 ? "Narrative" : (i % 2 == 0 ? "Becky" : "Dean"),
-                Content = i == 6
-                    ? "The scene settled into a quiet tension, the weight of earlier words still hanging between them like humidity before a storm."
-                    : $"Interaction {i} content. Some detailed text here for testing.",
+                Id = $"t{turn}-ixn1",
+                ActorName = "Dean",
+                Content = $"Turn {turn} Dean content.",
+                IsExcluded = false,
+            });
+            interactions.Add(new RolePlayInteraction
+            {
+                Id = $"t{turn}-ixn2",
+                ActorName = "Becky",
+                Content = $"Turn {turn} Becky content.",
                 IsExcluded = false,
             });
         }
@@ -791,21 +797,37 @@ public sealed class SlotContractTests
             ContextWindowTurns = 8,
         };
 
+        // Build entries so the slot has turn metadata
+        var entries = new List<RecentInteractionEntry>();
+        for (int i = 0; i < interactions.Count; i++)
+        {
+            var turnNum = (i / 2) + 1;
+            entries.Add(new RecentInteractionEntry
+            {
+                Interaction = interactions[i],
+                TurnNumber = turnNum,
+                PositionInTurn = (i % 2) + 1,
+                TurnActorCount = 2,
+            });
+        }
+
         var context = CreateContext(recentInteractions: interactions);
-        context = context with { Session = session };
+        context = context with { Session = session, RecentInteractionEntries = entries };
 
         Assert.True(slot.ShouldWrite(context));
 
         var text = await slot.WriteAsync(context, CancellationToken.None);
 
-        // Layer 1 (full detail): last 3 interactions should be present in full.
-        Assert.Contains("Recent Interactions", text);
-        Assert.Contains("Interaction 8", text);
-        Assert.Contains("Interaction 9", text);
-        Assert.Contains("Interaction 10", text);
+        // Turn-grouped format: each turn gets its own header.
+        Assert.Contains("Turn 1:", text);
+        Assert.Contains("Turn 2:", text);
+        Assert.Contains("Turn 3:", text);
 
-        // Layer 2 removed — Narrative fragments delegated to Session Memory (Slot 10).
-        Assert.DoesNotContain("Earlier Interactions", text);
+        // All recent interactions present.
+        Assert.Contains("Turn 1 Dean", text);
+        Assert.Contains("Turn 1 Becky", text);
+        Assert.Contains("Turn 3 Dean", text);
+        Assert.Contains("Turn 3 Becky", text);
     }
 
     [Fact]

@@ -51,19 +51,6 @@ public sealed class UserDirectionSlot : IPromptSlot
 
         var sb = new System.Text.StringBuilder();
         sb.AppendLine("User Direction:");
-
-        // Prepend pacing directive before the per-turn prompt
-        if (context.Intensity.SceneDirection is not null)
-        {
-            var pacingText = context.Intensity.SceneDirection.Pacing switch
-            {
-                ScenePacing.Slow => "Slow pace — advance the scene deliberately. Let each moment land before moving to the next.",
-                ScenePacing.Fast => "Fast pace — advance the scene briskly. Keep the momentum going.",
-                _ => "Medium pace — advance the story forward without rushing or stalling."
-            };
-            sb.AppendLine($"  {pacingText}");
-        }
-
         sb.AppendLine(context.PromptText.Trim());
 
         return Task.FromResult(sb.ToString().TrimEnd());

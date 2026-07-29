@@ -7238,6 +7238,8 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
     private string? _infoPopupInteractionId;
     private string _infoPopupTab = "info";
     private string? _semanticDetailInteractionId;
+    private string? _memoryInfoPopupId;
+    private string _memoryInfoPopupTab = "summary";
     private readonly Dictionary<string, string> _editSnapshots = new();
     private readonly Dictionary<string, string> _editContent = new();
     private string? _retryMenuInteractionId;
@@ -8454,6 +8456,78 @@ private void CloseInteractionInfo()
                                     </div>
                                     <div class="rw-modal-actions">
                                         <button class="rw-btn rw-btn-secondary" @onclick="CloseSemanticDetail">Close</button>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    }
+
+                    @* ─── Memory Info Modal ─── *@
+                    @if (_memoryInfoPopupId is not null && _v2State is not null)
+                    {
+                        var memRecord = _v2State.EncounterSummaries.FirstOrDefault(e => e.Id == _memoryInfoPopupId);
+                        if (memRecord is not null)
+                        {
+                            <div class="rw-modal-overlay" @onclick='() => _memoryInfoPopupId = null'>
+                                <div class="rw-modal rw-modal-info" @onclick:stopPropagation>
+                                    <div class="rw-modal-header">
+                                        <span class="rw-modal-title">Memory Info</span>
+                                        <div class="rw-modal-tabs">
+                                            <button class="rw-tab @(_memoryInfoPopupTab == "summary" ? "rw-tab-active" : "")" @onclick='() => _memoryInfoPopupTab = "summary"'>Summary</button>
+                                            <button class="rw-tab @(_memoryInfoPopupTab == "prompt" ? "rw-tab-active" : "")" @onclick='() => _memoryInfoPopupTab = "prompt"'>LLM Prompt</button>
+                                            <button class="rw-tab @(_memoryInfoPopupTab == "info" ? "rw-tab-active" : "")" @onclick='() => _memoryInfoPopupTab = "info"'>Info</button>
+                                        </div>
+                                    </div>
+                                    <div class="rw-modal-body">
+                                        @if (_memoryInfoPopupTab == "summary")
+                                        {
+                                            <div class="rw-info-value" style="white-space: pre-wrap;">@memRecord.ActiveSummary</div>
+                                        }
+                                        @if (_memoryInfoPopupTab == "prompt")
+                                        {
+                                            @if (!string.IsNullOrWhiteSpace(memRecord.EnrichmentPrompt))
+                                            {
+                                                <div style="margin-bottom: 0.5rem;">
+                                                    <button class="rw-btn rw-btn-secondary" @onclick='() => CopyPromptToClipboard(memRecord.EnrichmentPrompt!)'>
+                                                        <i class="fas fa-copy"></i> Copy to Clipboard
+                                                    </button>
+                                                </div>
+                                                <div class="rw-info-value-mono rw-prompt-viewer">@memRecord.EnrichmentPrompt</div>
+                                            }
+                                            else
+                                            {
+                                                <div class="rw-info-value" style="font-style: italic; color: #888;">
+                                                    No prompt data — enrichment has not run yet.
+                                                </div>
+                                            }
+                                        }
+                                        @if (_memoryInfoPopupTab == "info")
+                                        {
+                                            <div class="rw-info-grid">
+                                                <div class="rw-info-row"><span class="rw-info-label">Type</span><span class="rw-info-value">@memRecord.SummaryType</span></div>
+                                                <div class="rw-info-row"><span class="rw-info-label">Character</span><span class="rw-info-value">@memRecord.CharacterId</span></div>
+                                                <div class="rw-info-row"><span class="rw-info-label">Phases</span><span class="rw-info-value">@memRecord.FromPhase → @memRecord.ToPhase</span></div>
+                                                <div class="rw-info-row"><span class="rw-info-label">Arc</span><span class="rw-info-value">@(memRecord.CycleIndex + 1)</span></div>
+                                                @if (memRecord.EncounterNumber > 0)
+                                                {
+                                                    <div class="rw-info-row"><span class="rw-info-label">Encounter</span><span class="rw-info-value">#@memRecord.EncounterNumber</span></div>
+                                                }
+                                                <div class="rw-info-row"><span class="rw-info-label">Occurred</span><span class="rw-info-value">@memRecord.OccurredUtc.ToString("yyyy-MM-dd HH:mm:ss")</span></div>
+                                                <div class="rw-info-row"><span class="rw-info-label">Enhanced</span><span class="rw-info-value">@(memRecord.IsEnhanced ? "Yes" : "No")</span></div>
+                                                @if (memRecord.LlmEnhancedUtc is not null)
+                                                {
+                                                    <div class="rw-info-row"><span class="rw-info-label">Enhanced At</span><span class="rw-info-value">@memRecord.LlmEnhancedUtc.Value.ToString("yyyy-MM-dd HH:mm:ss")</span></div>
+                                                }
+                                                <div class="rw-info-row"><span class="rw-info-label">Turns in Phase</span><span class="rw-info-value">@memRecord.TurnCountInPhase</span></div>
+                                                @if (!string.IsNullOrWhiteSpace(memRecord.SceneLocation))
+                                                {
+                                                    <div class="rw-info-row"><span class="rw-info-label">Scene</span><span class="rw-info-value">@memRecord.SceneLocation</span></div>
+                                                }
+                                            </div>
+                                        }
+                                    </div>
+                                    <div class="rw-modal-actions">
+                                        <button class="rw-btn rw-btn-secondary" @onclick='() => _memoryInfoPopupId = null'>Close</button>
                                     </div>
                                 </div>
                             </div>
@@ -10245,15 +10319,18 @@ private void CloseInteractionInfo()
                                                             {
                                                             @foreach (var mem in charMemory)
                                                             {
-                                                                <div class="rw-char-memory-entry @(mem.SummaryType == DreamGenClone.Domain.RolePlay.EncounterSummaryType.ArcCompletion ? "rw-char-memory-arc" : "rw-char-memory-milestone")">
+                                                                <div class="rw-char-memory-entry @(mem.SummaryType == DreamGenClone.Domain.RolePlay.EncounterSummaryType.ArcCompletion ? "rw-char-memory-arc" : (mem.SummaryType == DreamGenClone.Domain.RolePlay.EncounterSummaryType.EncounterCompletion ? "rw-char-memory-encounter" : "rw-char-memory-milestone"))">
                                                                     <div class="rw-char-memory-meta">
-                                                                        <span class="rw-char-memory-type">@(mem.SummaryType == DreamGenClone.Domain.RolePlay.EncounterSummaryType.ArcCompletion ? "Arc" : "Milestone")</span>
+                                                                        <span class="rw-char-memory-type">@(mem.SummaryType == DreamGenClone.Domain.RolePlay.EncounterSummaryType.ArcCompletion ? "Arc" : (mem.SummaryType == DreamGenClone.Domain.RolePlay.EncounterSummaryType.EncounterCompletion ? "Encounter" : "Milestone"))</span>
                                                                         <span class="rw-char-memory-arc-label">Arc @(mem.CycleIndex + 1)</span>
                                                                         <span class="rw-char-memory-phases">@mem.FromPhase → @mem.ToPhase</span>
                                                                         @if (mem.IsEnhanced)
                                                                         {
                                                                             <span class="rw-char-memory-enhanced" title="LLM-enhanced prose">✦</span>
                                                                         }
+                                                                        <button class="rw-toolbar-btn" title="Memory info" @onclick='() => { _memoryInfoPopupId = mem.Id; _memoryInfoPopupTab = "summary"; }' @onclick:stopPropagation>
+                                                                            <svg class="rw-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                                                                        </button>
                                                                     </div>
                                                                     <div class="rw-char-memory-text">@mem.ActiveSummary</div>
                                                                 </div>

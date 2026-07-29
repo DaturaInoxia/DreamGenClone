@@ -1538,38 +1538,14 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 var actorName = candidate.Name;
                 var positionInTurn = i + 1; // 1-based
 
-                // Multi-encounter Climax: adjust the per-position prompt to reflect encounter state.
-                string promptText;
-                if (isClimaxPhase)
+                string promptText = i switch
                 {
-                    if (i == 0)
-                    {
-                        // FR-011: only treat as new-encounter-start when no time-skip phase is active.
-                        var isNewEncounterStart = session.AdaptiveState.CurrentTimeSkipPhase == TimeSkipPhase.None
-                            && session.AdaptiveState.CurrentEncounterNumber > 0
-                            && session.AdaptiveState.TurnsInCurrentEncounter == 0;
-                        promptText = isNewEncounterStart
-                            ? "Begin a new encounter — a discrete event in a new context, escalated from the previous encounter. Establish the new time, place, and circumstance before the exposure begins."
-                            : session.AdaptiveState.IsEncounterActive
-                                ? "Continue the current encounter naturally from where it left off, building toward the male character reaching his climax."
-                                : "Continue the current encounter naturally from where it left off.";
-                    }
-                    else
-                    {
-                        promptText = "Describe this same moment from your character's perspective.";
-                    }
-                }
-                else
-                {
-                    promptText = i switch
-                    {
-                        // Actor 1 advances: the lead character drives the scene forward —
-                        // move to new locations, advance time, escalate the dynamic.
-                        0 => "Advance the scene by one beat. Move the story forward — shift locations, advance time (days or hours may pass between scenes — let the Phase Guidance and Time Frame above set the pace), escalate the dynamic, or introduce a new element. Use the Environment and Locations in the Scenario section as hints for activities and places. Do not re-describe what was already established.",
-                        // Actors 2+ react to what the previous character established.
-                        _ => "React to the previous character's action from your own perspective, building on the new direction they established. Do not reset the scene or re-describe what came before."
-                    };
-                }
+                    // Actor 1: the lead character drives the scene forward —
+                    // move to new locations, advance time, escalate the dynamic.
+                    0 => "You are the first response this turn. Move the story forward — shift locations, advance time (days or hours may pass between scenes — let the Phase Guidance and Time Frame above set the pace), escalate the dynamic, or introduce a new element. Use the Environment and Locations in the Scenario section as hints for activities and places. Do not re-describe what was already established.",
+                    // Actors 2+ react to what the previous character established.
+                    _ => "React to the previous character's action from your own perspective, building on the new direction they established. Do not reset the scene or re-describe what came before."
+                };
 
                 await AlignPromptNarrativeStateWithV2Async(session, cancellationToken);
                 var interaction = await _continuationService.ContinueAsync(
@@ -1612,7 +1588,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 fallbackActor,
                 fallbackActorName,
                 PromptIntent.Message,
-                "Advance the scene by one beat. Move the story forward — shift locations, advance time, escalate the dynamic, or introduce a new element.",
+                "Continue the scene from your character's perspective. Move the story forward — shift locations, advance time, escalate the dynamic, or introduce a new element.",
                 onChunk,
                 cancellationToken);
 
@@ -2145,6 +2121,8 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     private const double ScoreAffinityTimeMatch = 100.0;
     private const double ScorePreferredPositionFirst = 50.0;
     private const double ScorePreferredPositionLast = -50.0;
+    private const double ScoreRoleHusband = -5000.0;
+    private const double ScoreRoleLead = 100.0;
 
     /// <summary>
     /// Internal mirror of <see cref="AffinityType"/> plus None, used for scoring.
@@ -2350,6 +2328,13 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 _ => 0.0
             };
         }
+
+        // Role-based priority: Wife/OtherMan lead, Husband trails (B-069)
+        if (string.Equals(character.Role, "Husband", StringComparison.OrdinalIgnoreCase))
+            score += ScoreRoleHusband;
+        else if (string.Equals(character.Role, "Wife", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(character.Role, "OtherMan", StringComparison.OrdinalIgnoreCase))
+            score += ScoreRoleLead;
 
         return score;
     }
@@ -9158,7 +9143,7 @@ Requirements:
         public Task SaveThemeMachineDiagnosticEventsAsync(IReadOnlyList<DreamGenClone.Domain.RolePlay.ThemeMachineDiagnosticEvent> events, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task<IReadOnlyList<DreamGenClone.Domain.RolePlay.ThemeMachineDiagnosticEvent>> LoadThemeMachineDiagnosticEventsAsync(string sessionId, int take = 100, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<DreamGenClone.Domain.RolePlay.ThemeMachineDiagnosticEvent>>([]);
         public Task SaveEncounterSummaryAsync(DreamGenClone.Domain.RolePlay.EncounterSummaryRecord record, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task UpdateEncounterSummaryLlmAsync(string summaryId, string llmSummary, DateTime llmEnhancedUtc, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task UpdateEncounterSummaryLlmAsync(string summaryId, string llmSummary, DateTime llmEnhancedUtc, string? enrichmentPrompt = null, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task<IReadOnlyList<DreamGenClone.Domain.RolePlay.EncounterSummaryRecord>> LoadEncounterSummariesForSessionAsync(string sessionId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<DreamGenClone.Domain.RolePlay.EncounterSummaryRecord>>([]);
     }
 }

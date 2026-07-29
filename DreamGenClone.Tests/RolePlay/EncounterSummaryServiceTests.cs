@@ -130,7 +130,7 @@ public sealed class EncounterSummaryServiceTests
     private sealed class NullRepository : IRolePlayStateRepository
     {
         public Task SaveEncounterSummaryAsync(EncounterSummaryRecord record, CancellationToken ct = default) => Task.CompletedTask;
-        public Task UpdateEncounterSummaryLlmAsync(string id, string llm, DateTime utc, CancellationToken ct = default) => Task.CompletedTask;
+        public Task UpdateEncounterSummaryLlmAsync(string id, string llm, DateTime utc, string? enrichmentPrompt = null, CancellationToken ct = default) => Task.CompletedTask;
         public Task<IReadOnlyList<EncounterSummaryRecord>> LoadEncounterSummariesForSessionAsync(string sessionId, CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<EncounterSummaryRecord>>([]);
 

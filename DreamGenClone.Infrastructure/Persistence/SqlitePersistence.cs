@@ -1041,7 +1041,8 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 CharacterStatsSnapshotJson  TEXT NOT NULL DEFAULT '{}',
                 TemplateSummary             TEXT NOT NULL DEFAULT '',
                 LlmSummary                  TEXT NULL,
-                LlmEnhancedUtc              TEXT NULL
+                LlmEnhancedUtc              TEXT NULL,
+                EnrichmentPrompt            TEXT NULL
             );
             CREATE INDEX IF NOT EXISTS IX_RolePlayV2EncounterSummaries_Session_OccurredUtc
                 ON RolePlayV2EncounterSummaries (SessionId, OccurredUtc DESC);
@@ -1361,6 +1362,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
             ("DetectionEvidence", "ALTER TABLE RolePlayV2EncounterSummaries ADD COLUMN DetectionEvidence TEXT NULL"),
             ("StartInteractionIndex", "ALTER TABLE RolePlayV2EncounterSummaries ADD COLUMN StartInteractionIndex INTEGER NOT NULL DEFAULT 0"),
             ("EndInteractionIndex", "ALTER TABLE RolePlayV2EncounterSummaries ADD COLUMN EndInteractionIndex INTEGER NOT NULL DEFAULT 0"),
+            ("EnrichmentPrompt", "ALTER TABLE RolePlayV2EncounterSummaries ADD COLUMN EnrichmentPrompt TEXT NULL"),
         };
         foreach (var (column, ddl) in encounterSummaryColumns)
         {

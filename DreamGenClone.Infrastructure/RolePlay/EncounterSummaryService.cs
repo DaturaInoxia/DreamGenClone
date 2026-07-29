@@ -102,8 +102,8 @@ public sealed class EncounterSummaryService : IEncounterSummaryService
             record.Id, record.SummaryType, record.CharacterId, record.SessionId, record.CycleIndex);
     }
 
-    public Task UpdateLlmSummaryAsync(string summaryId, string llmSummary, DateTime llmEnhancedUtc, CancellationToken cancellationToken = default)
-        => _repository.UpdateEncounterSummaryLlmAsync(summaryId, llmSummary, llmEnhancedUtc, cancellationToken);
+    public Task UpdateLlmSummaryAsync(string summaryId, string llmSummary, DateTime llmEnhancedUtc, string? enrichmentPrompt = null, CancellationToken cancellationToken = default)
+        => _repository.UpdateEncounterSummaryLlmAsync(summaryId, llmSummary, llmEnhancedUtc, enrichmentPrompt, cancellationToken);
 
     public async Task<IReadOnlyList<EncounterSummaryRecord>> LoadForSessionAsync(
         string sessionId,

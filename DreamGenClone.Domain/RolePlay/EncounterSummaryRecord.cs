@@ -85,6 +85,9 @@ public sealed class EncounterSummaryRecord
     /// <summary>UTC timestamp when LlmSummary was written.</summary>
     public DateTime? LlmEnhancedUtc { get; set; }
 
+    /// <summary>Full enrichment prompt sent to the LLM. Null until enhanced.</summary>
+    public string? EnrichmentPrompt { get; set; }
+
     /// <summary>Returns LLM prose if available, otherwise template text.</summary>
     public string ActiveSummary => LlmSummary ?? TemplateSummary;
 

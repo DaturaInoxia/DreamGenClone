@@ -21,6 +21,24 @@ public sealed class PromptBuilderTests
         return new RolePlayPromptBuilder(slots, enforcer, logger);
     }
 
+    private static IReadOnlyList<RecentInteractionEntry> BuildTurnEntries(
+        IReadOnlyList<RolePlayInteraction> interactions, int startTurn)
+    {
+        var entries = new List<RecentInteractionEntry>();
+        for (int i = 0; i < interactions.Count; i++)
+        {
+            var turnNum = startTurn + (i / 2);
+            entries.Add(new RecentInteractionEntry
+            {
+                Interaction = interactions[i],
+                TurnNumber = turnNum,
+                PositionInTurn = (i % 2) + 1,
+                TurnActorCount = 2,
+            });
+        }
+        return entries;
+    }
+
     private static PromptBuildContext CreateCharacterContext(
         string phase = "BuildUp",
         string location = "The Cabin",
@@ -400,15 +418,22 @@ public sealed class PromptBuilderTests
     [Fact]
     public async Task BuildAsync_TieredHistory_ShowsCorrectTierBoundaries()
     {
-        // Build 16 interactions spanning multiple "turns".
+        // Build 6 interactions across 3 turns (Dean + Becky per turn).
         var interactions = new List<RolePlayInteraction>();
-        for (int i = 1; i <= 16; i++)
+        for (int turn = 1; turn <= 3; turn++)
         {
             interactions.Add(new RolePlayInteraction
             {
-                Id = $"ixn-{i}",
-                ActorName = i % 2 == 0 ? "Becky" : "Dean",
-                Content = $"Turn {i} interaction content with sufficient detail for testing tiered compression boundaries.",
+                Id = $"t{turn}-ixn1",
+                ActorName = "Dean",
+                Content = $"Turn {turn} Dean content.",
+                IsExcluded = false,
+            });
+            interactions.Add(new RolePlayInteraction
+            {
+                Id = $"t{turn}-ixn2",
+                ActorName = "Becky",
+                Content = $"Turn {turn} Becky content.",
                 IsExcluded = false,
             });
         }
@@ -426,7 +451,7 @@ public sealed class PromptBuilderTests
         };
 
         var builder = CreateBuilder(slots);
-        var context = CreateCharacterContext(turnIndex: 16);
+        var context = CreateCharacterContext(turnIndex: 53);
         var session = context.Session;
         session.HistoryFullDetailTurnBand = 3;
         session.HistoryNarrativeOnlyTurnBand = 3;
@@ -435,6 +460,7 @@ public sealed class PromptBuilderTests
         {
             Session = session,
             RecentInteractions = interactions,
+            RecentInteractionEntries = BuildTurnEntries(interactions, 51),
             Theme = new ResolvedThemeData
             {
                 ActiveTheme = new RPTheme { Id = "t1", Label = "Test", Description = "Testing." },
@@ -443,16 +469,14 @@ public sealed class PromptBuilderTests
 
         var prompt = await builder.BuildAsync(context, CancellationToken.None);
 
-        // Layer 1 (full detail): last 3 interactions should be in full.
-        Assert.Contains("Turn 14", prompt);
-        Assert.Contains("Turn 15", prompt);
-        Assert.Contains("Turn 16", prompt);
+        // Turn-grouped format: last N turns shown with correct turn numbers.
+        Assert.Contains("Turn 51:", prompt);
+        Assert.Contains("Turn 52:", prompt);
+        Assert.Contains("Turn 53:", prompt);
 
-        // Layer 2 (narrative-only): interactions 11-13 should be in compressed section.
-        Assert.Contains("Earlier Interactions", prompt);
-
-        // Zone A content must still be present (never trimmed).
-        Assert.Contains("Current scene:", prompt);
+        // Interactions present with role labels.
+        Assert.Contains("[Dean]", prompt);
+        Assert.Contains("[Becky]", prompt);
 
         // No legacy header.
         Assert.DoesNotContain("You are continuing", prompt);

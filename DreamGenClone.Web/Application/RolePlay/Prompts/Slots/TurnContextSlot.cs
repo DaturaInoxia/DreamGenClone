@@ -32,6 +32,8 @@ public sealed class TurnContextSlot : IPromptSlot
         var turnActorCount = context.TurnActorCount!.Value;
         var positionInTurn = context.PositionInTurn;
         var variant = context.Variant;
+        var sceneDirection = context.Intensity.SceneDirection;
+        var deepening = sceneDirection?.Deepening;
 
         var sb = new StringBuilder();
 
@@ -59,6 +61,12 @@ public sealed class TurnContextSlot : IPromptSlot
             else
             {
                 sb.AppendLine($"- You are position {pos} of {turnActorCount}.");
+            }
+
+            // Deepening policy: position 2+ constrained from advancing
+            if (pos > 1 && deepening == DeepeningPolicy.SubsequentActors)
+            {
+                sb.AppendLine("- You are a subsequent actor this turn. Deepen the moment established by the first response from your character's perspective. Do not advance to a new beat or position.");
             }
         }
 

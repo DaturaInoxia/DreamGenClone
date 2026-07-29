@@ -62,6 +62,7 @@ public interface IEncounterSummaryService
         string summaryId,
         string llmSummary,
         DateTime llmEnhancedUtc,
+        string? enrichmentPrompt = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

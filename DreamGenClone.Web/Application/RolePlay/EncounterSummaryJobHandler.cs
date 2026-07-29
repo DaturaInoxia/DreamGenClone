@@ -340,7 +340,7 @@ public sealed class EncounterSummaryJobHandler : IBackgroundJobHandler
                     _logger.LogInformation(
                         "EncounterSummaryJobHandler: enrichment response record={RecordId}{NewLine}--- RESPONSE ---{NewLine}{Response}{NewLine}--- END RESPONSE ---",
                         record.Id, Environment.NewLine, llmSummary, Environment.NewLine);
-                    await _encounterSummaryService.UpdateLlmSummaryAsync(record.Id, llmSummary.Trim(), DateTime.UtcNow, cancellationToken);
+                    await _encounterSummaryService.UpdateLlmSummaryAsync(record.Id, llmSummary.Trim(), DateTime.UtcNow, prompt, cancellationToken);
                     _logger.LogInformation(
                         "Encounter summary LLM enhancement complete: {RecordId} type={SummaryType} charId={CharacterId} session={SessionId} cycle={CycleIndex}",
                         record.Id, record.SummaryType, record.CharacterId, payload.SessionId, payload.CycleIndex);

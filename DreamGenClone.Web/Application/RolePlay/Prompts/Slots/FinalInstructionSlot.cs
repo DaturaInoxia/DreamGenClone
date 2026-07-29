@@ -72,6 +72,19 @@ public sealed class FinalInstructionSlot : IPromptSlot
             sb.AppendLine();
         }
 
+        // ── Pacing direction (Character position 1 only, near end of prompt for recency) ──
+        if (!isNarrative && context.PositionInTurn == 1 && context.Intensity.SceneDirection is not null)
+        {
+            var pacingText = context.Intensity.SceneDirection.Pacing switch
+            {
+                ScenePacing.Slow => "HARD CONSTRAINT — Scene Pacing: Slow pacing — advance within the current beat. Do not leap to a new beat or position.",
+                ScenePacing.Fast => "HARD CONSTRAINT — Scene Pacing: Fast pacing — advance through multiple beats. Push the story forward rapidly.",
+                _ => "HARD CONSTRAINT — Scene Pacing: Medium pacing — advance the scene by one beat. Move the story forward."
+            };
+            sb.AppendLine(pacingText);
+            sb.AppendLine();
+        }
+
         // ── Operational directive ──
         // Action is suppressed for Character variant — UserDirection is the
         // sole operational instruction for character actors. Only Narrative
