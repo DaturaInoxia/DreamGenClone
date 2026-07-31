@@ -31,19 +31,109 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     private const int ManualOverrideSelectionLockInteractions = 8;
     private const int OpeningPeriodTurnCount = 3;
 
-    private async Task EnsureOpeningToBuildUpTransition(RolePlaySession session)
+    private async Task EnsureOpeningToBuildUpTransition(RolePlaySession session, CancellationToken cancellationToken)
     {
         // AdaptiveState is loaded from authoritative V2 tables — no stale blob to compensate for.
-        if (session.AdaptiveState.CurrentPhase == NarrativePhase.Opening
-            && session.AdaptiveState.ObservedTurnCount > OpeningPeriodTurnCount)
+        await TryTransitionOpeningToBuildUpAsync(session, session.AdaptiveState, cancellationToken);
+    }
+
+    /// <summary>
+    /// Opening → BuildUp: after the opening period (OpeningPeriodTurnCount) elapses, advance the
+    /// phase and record a PhaseMilestone memory — the same pipeline as every other phase
+    /// transition (transition event + encounter summary records + LLM enhancement job).
+    /// Idempotent: once the phase is BuildUp this no-ops, so it is safe to call from both the
+    /// turn-entry paths (via EnsureOpeningToBuildUpTransition) and the main-pipeline fallback.
+    /// </summary>
+    private async Task<bool> TryTransitionOpeningToBuildUpAsync(
+        RolePlaySession session,
+        AdaptiveScenarioState v2State,
+        CancellationToken cancellationToken)
+    {
+        if (v2State.CurrentPhase != NarrativePhase.Opening
+            || session.AdaptiveState.ObservedTurnCount <= OpeningPeriodTurnCount)
         {
-            session.AdaptiveState.CurrentPhase = NarrativePhase.BuildUp;
-            session.AdaptiveState.TurnCountInPhase = 0;
-            _logger.LogInformation(
-                "RolePlayV2 Opening→BuildUp transition: SessionId={SessionId} ObservedTurnCount={ObservedTurns}",
-                session.Id,
-                session.AdaptiveState.ObservedTurnCount);
+            return false;
         }
+
+        v2State.CurrentPhase = NarrativePhase.BuildUp;
+        v2State.TurnCountInPhase = 0;
+        _logger.LogInformation(
+            "RolePlayV2 Opening→BuildUp transition: SessionId={SessionId} ObservedTurnCount={ObservedTurns}",
+            session.Id,
+            session.AdaptiveState.ObservedTurnCount);
+
+        var transitionEvent = new NarrativePhaseTransitionEvent
+        {
+            TransitionId = Guid.NewGuid().ToString("N"),
+            SessionId    = session.Id,
+            FromPhase    = NarrativePhase.Opening,
+            ToPhase      = NarrativePhase.BuildUp,
+            TriggerType  = TransitionTriggerType.Threshold,
+            ReasonCode   = "OPENING_TO_BUILDUP",
+            EvidencePayload = JsonSerializer.Serialize(new
+            {
+                observedTurnCount = session.AdaptiveState.ObservedTurnCount,
+                openingPeriodTurnCount = OpeningPeriodTurnCount
+            }),
+            OccurredUtc = DateTime.UtcNow
+        };
+        await _stateRepository.SaveTransitionEventAsync(transitionEvent, cancellationToken);
+
+        if (_encounterSummaryService is not null)
+        {
+            // Build an allowlist of characters that belong to the scenario and persona.
+            IReadOnlySet<string>? allowedCharacterIds = null;
+            if (!string.IsNullOrWhiteSpace(session.ScenarioId))
+            {
+                var scenarioForSummary = await _scenarioService.GetScenarioAsync(session.ScenarioId);
+                if (scenarioForSummary is not null)
+                {
+                    var allowed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var name in GetActiveCharacterNames(session))
+                        allowed.Add(name);
+                    allowedCharacterIds = allowed;
+                }
+            }
+
+            var summaries = await _encounterSummaryService.GenerateTemplatesAsync(
+                transitionEvent, v2State, allowedCharacterIds, cancellationToken);
+            foreach (var summary in summaries)
+            {
+                await _encounterSummaryService.SaveAsync(summary, cancellationToken);
+                v2State.EncounterSummaries.Add(summary);
+            }
+            if (summaries.Count > 0)
+            {
+                _logger.LogInformation(
+                    "Encounter summaries written: {Count} records for session {SessionId} cycle {CycleIndex} transition {FromPhase}?{ToPhase}",
+                    summaries.Count, session.Id, v2State.CycleIndex,
+                    transitionEvent.FromPhase, transitionEvent.ToPhase);
+            }
+
+            if (_backgroundJobQueue is not null
+                && _memoryOptions?.Value.EnableLlmSummaryEnhancement == true)
+            {
+                foreach (var summary in summaries)
+                {
+                    _backgroundJobQueue.Enqueue(
+                        BackgroundJobTypes.EncounterSummaryEnhancement,
+                        JsonSerializer.Serialize(new EncounterSummaryJobPayload
+                        {
+                            SessionId   = session.Id,
+                            CycleIndex  = v2State.CycleIndex,
+                            SummaryId   = summary.Id,
+                            SummaryType = summary.SummaryType.ToString()
+                        }),
+                        dedupeKey: $"enc-summary:{session.Id}:{summary.Id}");
+                }
+                _logger.LogInformation(
+                    "Enqueued {Count} encounter summary enhancement job(s) for session {SessionId} cycle {CycleIndex} transition {FromPhase}?{ToPhase}",
+                    summaries.Count, session.Id, v2State.CycleIndex,
+                    transitionEvent.FromPhase, transitionEvent.ToPhase);
+            }
+        }
+
+        return true;
     }
 
     // In-memory session cache removed — V2 tables are the single source of truth.
@@ -411,6 +501,36 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                     })
                     .ToList();
 
+                // Default turn position overrides by role.
+                // Wife defaults to First (drives the scene), Husband defaults to Last (observer).
+                // Users can change these per-session in the workspace settings panel.
+                foreach (var character in scenario.Characters)
+                {
+                    if (string.IsNullOrWhiteSpace(character.Name) || string.IsNullOrWhiteSpace(character.Role))
+                        continue;
+
+                    if (string.Equals(character.Role, "Wife", StringComparison.OrdinalIgnoreCase))
+                    {
+                        session.CharacterTurnOverrides[character.Name.Trim()] = new CharacterTurnOverride
+                        {
+                            CharacterName = character.Name.Trim(),
+                            PreferredPosition = PreferredTurnPosition.First,
+                            ParticipateInAutoContinue = true,
+                            ResponsePriority = null
+                        };
+                    }
+                    else if (string.Equals(character.Role, "Husband", StringComparison.OrdinalIgnoreCase))
+                    {
+                        session.CharacterTurnOverrides[character.Name.Trim()] = new CharacterTurnOverride
+                        {
+                            CharacterName = character.Name.Trim(),
+                            PreferredPosition = PreferredTurnPosition.Last,
+                            ParticipateInAutoContinue = true,
+                            ResponsePriority = null
+                        };
+                    }
+                }
+
                 foreach (var character in scenario.Characters)
                 {
                     if (string.IsNullOrWhiteSpace(character.Name))
@@ -715,7 +835,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             null,
             cancellationToken);
         session.AdaptiveState.ObservedTurnCount++;
-        await EnsureOpeningToBuildUpTransition(session);
+        await EnsureOpeningToBuildUpTransition(session, cancellationToken);
 
         var outputInteractionIds = new List<string>();
         var turnSucceeded = false;
@@ -815,7 +935,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             null,
             cancellationToken);
         session.AdaptiveState.ObservedTurnCount++;
-        await EnsureOpeningToBuildUpTransition(session);
+        await EnsureOpeningToBuildUpTransition(session, cancellationToken);
 
         var outputInteractionIds = new List<string>();
         var turnSucceeded = false;
@@ -960,7 +1080,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             null,
             cancellationToken);
         session.AdaptiveState.ObservedTurnCount++;
-        await EnsureOpeningToBuildUpTransition(session);
+        await EnsureOpeningToBuildUpTransition(session, cancellationToken);
         var outputInteractionIds = new List<string>();
 
         var route = _promptRouter.Resolve(submission.Intent);
@@ -1311,7 +1431,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             null,
             cancellationToken);
         session.AdaptiveState.ObservedTurnCount++;
-        await EnsureOpeningToBuildUpTransition(session);
+        await EnsureOpeningToBuildUpTransition(session, cancellationToken);
         var outputInteractionIds = new List<string>();
 
         var isOverflowContinue = request.TriggeredBy == SubmissionSource.MainOverflowContinue;
@@ -2119,10 +2239,8 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     private const double ScoreAffinityExcluded = -1000.0;
     private const double ScoreAffinityTimeMismatch = -500.0;
     private const double ScoreAffinityTimeMatch = 100.0;
-    private const double ScorePreferredPositionFirst = 50.0;
-    private const double ScorePreferredPositionLast = -50.0;
-    private const double ScoreRoleHusband = -5000.0;
-    private const double ScoreRoleLead = 100.0;
+
+    private const double PreferredPositionOverrideChanceDefault = 0.15;
 
     /// <summary>
     /// Internal mirror of <see cref="AffinityType"/> plus None, used for scoring.
@@ -2313,28 +2431,14 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             };
         }
 
-        // Per-character turn overrides
+        // Per-character turn overrides: Response priority (0-100 additive boost for participation).
+        // PreferredPosition is NOT applied here — it is handled by the ordering pass.
         if (overrides.TryGetValue(character.Name, out var turnOverride))
         {
-            // Response priority (0-100 additive boost)
+            // Response priority (0-100 additive boost) — influences participation
             if (turnOverride.ResponsePriority.HasValue)
                 score += Math.Clamp(turnOverride.ResponsePriority.Value, 0, 100);
-
-            // Preferred position hint
-            score += turnOverride.PreferredPosition switch
-            {
-                PreferredTurnPosition.First => ScorePreferredPositionFirst,
-                PreferredTurnPosition.Last => ScorePreferredPositionLast,
-                _ => 0.0
-            };
         }
-
-        // Role-based priority: Wife/OtherMan lead, Husband trails (B-069)
-        if (string.Equals(character.Role, "Husband", StringComparison.OrdinalIgnoreCase))
-            score += ScoreRoleHusband;
-        else if (string.Equals(character.Role, "Wife", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(character.Role, "OtherMan", StringComparison.OrdinalIgnoreCase))
-            score += ScoreRoleLead;
 
         return score;
     }
@@ -2373,11 +2477,13 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     }
 
     /// <summary>
-    /// Maps ordered names from LLM/scoring back to candidate names, filtering out unknowns.
+    /// Filters LLM-selected names to the available candidate set.
+    /// When the LLM returns nothing, falls back to the participation-scored order.
     /// </summary>
     private static List<string> MapOrderedNamesToCandidates(
         IReadOnlyList<string> orderedNames,
-        List<AvailableCharacter> available)
+        List<AvailableCharacter> available,
+        List<(AvailableCharacter Character, double Score)>? scoredFallback = null)
     {
         var availableNames = available
             .Select(c => c.Name)
@@ -2385,18 +2491,137 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
         var mapped = orderedNames
             .Where(n => availableNames.Contains(n))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        // If LLM returned nothing useful, fall back to scoring order
+        // If LLM returned nothing useful, fall back to participation-scored order
         if (mapped.Count == 0)
         {
-            mapped = available
-                .Where(c => c.IsAvailable && !c.AffinityStatus.Equals(AffinityStatus.Excluded))
-                .Select(c => c.Name)
-                .ToList();
+            if (scoredFallback is not null)
+            {
+                mapped = scoredFallback
+                    .Where(x => x.Character.IsAvailable && !x.Character.AffinityStatus.Equals(AffinityStatus.Excluded))
+                    .OrderByDescending(x => x.Score)
+                    .Select(x => x.Character.Name)
+                    .ToList();
+            }
+            else
+            {
+                mapped = available
+                    .Where(c => c.IsAvailable && !c.AffinityStatus.Equals(AffinityStatus.Excluded))
+                    .Select(c => c.Name)
+                    .ToList();
+            }
         }
 
         return mapped;
+    }
+
+    /// <summary>
+    /// Orders the selected participant set using per-character PreferredPosition overrides.
+    /// Participation is determined upstream (LLM or scoring). This method determines the
+    /// speaking sequence with a strong bias toward the configured First/Last positions,
+    /// with a configurable override chance that lets the highest-scoring character lead.
+    /// </summary>
+    private static List<string> OrderSelectedActors(
+        List<string> participants,
+        List<(AvailableCharacter Character, double Score)> scored,
+        Dictionary<string, CharacterTurnOverride> overrides,
+        string sessionId,
+        int turnNumber,
+        double overrideChance)
+    {
+        if (participants.Count <= 1) return participants;
+
+        // Build a lookup: name → (score, PreferredPosition)
+        var scoreLookup = scored
+            .Where(x => participants.Contains(x.Character.Name, StringComparer.OrdinalIgnoreCase))
+            .ToDictionary(
+                x => x.Character.Name,
+                x => x.Score,
+                StringComparer.OrdinalIgnoreCase);
+
+        var firstGroup = new List<string>();
+        var lastGroup = new List<string>();
+        var middleGroup = new List<string>();
+
+        foreach (var name in participants)
+        {
+            var position = PreferredTurnPosition.Auto;
+            if (overrides.TryGetValue(name, out var turnOverride))
+                position = turnOverride.PreferredPosition;
+
+            switch (position)
+            {
+                case PreferredTurnPosition.First:
+                    firstGroup.Add(name);
+                    break;
+                case PreferredTurnPosition.Last:
+                    lastGroup.Add(name);
+                    break;
+                default:
+                    middleGroup.Add(name);
+                    break;
+            }
+        }
+
+        // Sort each group by participation score descending
+        double GetScore(string name) => scoreLookup.TryGetValue(name, out var s) ? s : 0.0;
+        firstGroup.Sort((a, b) => GetScore(b).CompareTo(GetScore(a)));
+        middleGroup.Sort((a, b) => GetScore(b).CompareTo(GetScore(a)));
+        lastGroup.Sort((a, b) => GetScore(b).CompareTo(GetScore(a)));
+
+        // Strong bias, not absolute: with probability overrideChance, let a
+        // random character from the First or Auto groups lead the turn instead
+        // of the First-group leader. This is a pure ordering shuffle — it does
+        // not use participation scores, respecting the participation-vs-ordering
+        // separation. Last-position characters are NEVER promoted to first.
+        // Seed is deterministic from session ID + turn number so same turn
+        // is reproducible but varies across turns.
+        var seed = HashCode.Combine(sessionId, turnNumber);
+        var rng = new Random(seed);
+        if (rng.NextDouble() < overrideChance && firstGroup.Count > 0)
+        {
+            // Case 1: First group exists — a random Auto character may leapfrog
+            // the First group and lead the turn.
+            if (middleGroup.Count > 0)
+            {
+                var pickIndex = rng.Next(middleGroup.Count);
+                var pick = middleGroup[pickIndex];
+                middleGroup.RemoveAt(pickIndex);
+                middleGroup.Insert(0, pick);
+
+                var result = new List<string>();
+                result.Add(pick);                          // random Auto leads
+                foreach (var n in middleGroup) if (n != pick) result.Add(n);
+                result.AddRange(firstGroup);               // First group follows
+                result.AddRange(lastGroup);                // Last always last
+                return result;
+            }
+
+            // No Auto characters to promote — fall through to standard order
+        }
+        else if (rng.NextDouble() < overrideChance && firstGroup.Count == 0 && middleGroup.Count > 1)
+        {
+            // Case 2: No First/Last groups — everyone is Auto. Occasionally pick
+            // a random character to lead instead of always using score order.
+            var pickIndex = rng.Next(middleGroup.Count);
+            var pick = middleGroup[pickIndex];
+            middleGroup.RemoveAt(pickIndex);
+            middleGroup.Insert(0, pick);
+
+            var result = new List<string>();
+            result.AddRange(middleGroup);                  // shuffled Auto group
+            result.AddRange(lastGroup);                    // Last (empty here, but safe)
+            return result;
+        }
+
+        // Standard order: First group ++ Middle group ++ Last group
+        var ordered = new List<string>();
+        ordered.AddRange(firstGroup);
+        ordered.AddRange(middleGroup);
+        ordered.AddRange(lastGroup);
+        return ordered;
     }
 
     /// <summary>
@@ -2544,7 +2769,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             return true;
         }).ToList();
 
-        // ── New pipeline: ResolveAvailableCharacters → ScoreActorForAutoSelection → ActorSelectionService ──
+        // ── New pipeline: ResolveAvailableCharacters → ScoreActorForAutoSelection → ActorSelectionService → OrderSelectedActors ──
         DreamGenClone.Web.Domain.Scenarios.Scenario? overflowScenario = null;
         if (!string.IsNullOrWhiteSpace(session.ScenarioId))
         {
@@ -2552,9 +2777,27 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         }
 
         List<string> ordered;
+        string orderingSource = "Fallback";
+        List<object>? candidateDebugEntries = null;
         if (overflowScenario is not null && _actorSelectionService is not null)
         {
             var availableCharacters = ResolveAvailableCharacters(session, overflowScenario, currentSceneLocation, session.AdaptiveState);
+
+            // ── ParticipateInAutoContinue hard filter (spec FR-008, data-model.md:125) ──
+            // Applied after affinity resolution but before scoring/LLM.
+            availableCharacters = availableCharacters.Where(c =>
+            {
+                if (session.CharacterTurnOverrides.TryGetValue(c.Name, out var turnOverride)
+                    && !turnOverride.ParticipateInAutoContinue)
+                {
+                    _logger.LogDebug(
+                        "OverflowActor: excluding {ActorName} — ParticipateInAutoContinue=false, SessionId={SessionId}",
+                        c.Name, session.Id);
+                    return false;
+                }
+                return true;
+            }).ToList();
+
             var availableForSelection = availableCharacters
                 .Where(c => c.IsAvailable && eligibleCharacterNames.Contains(c.Name, StringComparer.OrdinalIgnoreCase))
                 .ToList();
@@ -2595,7 +2838,14 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
                 var selection = await _actorSelectionService.SelectActorsAsync(request, cancellationToken);
 
-                ordered = MapOrderedNamesToCandidates(selection.OrderedNames, availableForSelection);
+                // LLM picks WHO participates (unordered set). MapOrderedNamesToCandidates filters to valid names.
+                var participants = MapOrderedNamesToCandidates(selection.OrderedNames, availableForSelection, scored);
+
+                // Deterministic ordering pass: PreferredPosition controls order, not participation.
+                var overrideChance = session.PreferredPositionOverrideChance;
+                var observedTurns = session.AdaptiveState.ObservedTurnCount;
+                ordered = OrderSelectedActors(participants, scored, session.CharacterTurnOverrides, session.Id, observedTurns, overrideChance);
+                orderingSource = "Deterministic";
 
                 // Persist cache for LLM/Cache sources
                 if (selection.Source is ActorSelectionSource.LLM or ActorSelectionSource.Cache)
@@ -2604,26 +2854,45 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                     session.LastContextFingerprint = fingerprint;
                 }
 
+                // Build enriched debug entries with ordering metadata
+                var finalOrderLookup = ordered
+                    .Select((name, idx) => (Name: name, Position: idx))
+                    .ToDictionary(x => x.Name, x => x.Position, StringComparer.OrdinalIgnoreCase);
+                candidateDebugEntries = candidateInfos.Select(c =>
+                {
+                    var hasOverride = session.CharacterTurnOverrides.TryGetValue(c.Name, out var ov);
+                    return (object)new
+                    {
+                        name = c.Name,
+                        role = c.Role,
+                        score = c.BaseScore,
+                        affinityStatus = c.AffinityStatus,
+                        inScene = c.IsInScene,
+                        timeOfDayMatch = c.TimeOfDayMatch,
+                        responsePriority = ov?.ResponsePriority,
+                        preferredPosition = ov?.PreferredPosition.ToString() ?? "Auto",
+                        participateInAutoContinue = ov?.ParticipateInAutoContinue ?? true,
+                        finalPosition = finalOrderLookup.TryGetValue(c.Name, out var pos) ? pos : (int?)null
+                    };
+                }).ToList();
+
                 // Emit debug event
                 await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
                 {
                     SessionId = session.Id,
                     EventKind = "OverflowActorSelection",
                         Severity = "Information",
-                        Summary = $"Source={selection.Source}, Candidates={candidateInfos.Count}, Ordered={ordered.Count}",
+                        Summary = $"Source={selection.Source}, OrderingSource={orderingSource}, Candidates={candidateInfos.Count}, Ordered={ordered.Count}",
                         MetadataJson = JsonSerializer.Serialize(new
                         {
-                            source = selection.Source.ToString(),
+                            selectionSource = selection.Source.ToString(),
+                            orderingSource,
+                            overrideChance,
                             sessionId = session.Id,
                             availableCount = availableForSelection.Count,
                             totalCharacters = overflowScenario.Characters.Count,
-                            candidates = candidateInfos.Select(c => new
-                            {
-                                name = c.Name,
-                                score = c.BaseScore,
-                                affinityStatus = c.AffinityStatus,
-                                inScene = c.IsInScene
-                            }).ToList(),
+                            candidates = candidateDebugEntries,
+                            orderedFinal = ordered.Select((name, idx) => new { position = idx, name }),
                             reasoning = selection.Reasoning,
                             cacheKey = fingerprint
                         })
@@ -2866,6 +3135,13 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         var savedEncounterProfileIds = new Dictionary<string, string>(
             existingState.CharacterEncounterProfileIds, StringComparer.OrdinalIgnoreCase);
 
+        // ---- Preserve universal encounter tracking fields (not phase-gated) ----
+        var savedGlobalEncounterCount = existingState.GlobalEncounterCount;
+        var savedCurrentEncounterNumber = existingState.CurrentEncounterNumber;
+        var savedTurnsInCurrentEncounter = existingState.TurnsInCurrentEncounter;
+        var savedCurrentTimeSkipPhase = existingState.CurrentTimeSkipPhase;
+        var savedCurrentEncounterStartInteractionIndex = existingState.CurrentEncounterStartInteractionIndex;
+
         session.AdaptiveState = new AdaptiveScenarioState();
 
         // Restore pipeline fields so the rebuilt state reflects the session's actual phase.
@@ -2876,6 +3152,13 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         // Restore encounter profile ids for runtime stat seeding.
         foreach (var kvp in savedEncounterProfileIds)
             session.AdaptiveState.CharacterEncounterProfileIds[kvp.Key] = kvp.Value;
+
+        // ---- Restore universal encounter tracking fields ----
+        session.AdaptiveState.GlobalEncounterCount = savedGlobalEncounterCount;
+        session.AdaptiveState.CurrentEncounterNumber = savedCurrentEncounterNumber;
+        session.AdaptiveState.TurnsInCurrentEncounter = savedTurnsInCurrentEncounter;
+        session.AdaptiveState.CurrentTimeSkipPhase = savedCurrentTimeSkipPhase;
+        session.AdaptiveState.CurrentEncounterStartInteractionIndex = savedCurrentEncounterStartInteractionIndex;
 
         if (!string.IsNullOrWhiteSpace(session.ScenarioId))
         {
@@ -2893,10 +3176,17 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         }
 
         // Restore pipeline fields — the replay loop returns new state objects that
-        // lose CurrentPhase, TurnCountInPhase, and ActiveScenarioId.
+        // lose CurrentPhase, TurnCountInPhase, ActiveScenarioId, and encounter tracking fields.
         session.AdaptiveState.CurrentPhase = savedPhase;
         session.AdaptiveState.TurnCountInPhase = savedTurnCount;
         session.AdaptiveState.ActiveScenarioId = savedActiveScenarioId;
+
+        // ---- Restore universal encounter tracking fields after replay loop ----
+        session.AdaptiveState.GlobalEncounterCount = savedGlobalEncounterCount;
+        session.AdaptiveState.CurrentEncounterNumber = savedCurrentEncounterNumber;
+        session.AdaptiveState.TurnsInCurrentEncounter = savedTurnsInCurrentEncounter;
+        session.AdaptiveState.CurrentTimeSkipPhase = savedCurrentTimeSkipPhase;
+        session.AdaptiveState.CurrentEncounterStartInteractionIndex = savedCurrentEncounterStartInteractionIndex;
 
         // Persist the rebuilt state to the V2 table so DB stays in sync.
         await _stateRepository.SaveAdaptiveStateAsync(session.AdaptiveState, cancellationToken);
@@ -3428,18 +3718,10 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
         // Opening → BuildUp: the opening period runs for the first 3 turns with husband-wife
         // guidance. After ObservedTurnCount exceeds OpeningPeriodTurnCount, advance to BuildUp
-        // where the observer or theme guidance pipeline takes over.
+        // and record a PhaseMilestone memory (same pipeline as every other phase transition).
         // Must run immediately after Hydrate, before any downstream code reads or overwrites CurrentPhase.
-        if (v2State.CurrentPhase == NarrativePhase.Opening
-            && session.AdaptiveState.ObservedTurnCount > OpeningPeriodTurnCount)
-        {
-            v2State.CurrentPhase = NarrativePhase.BuildUp;
-            v2State.TurnCountInPhase = 0;
-            _logger.LogInformation(
-                "RolePlayV2 Opening→BuildUp transition: SessionId={SessionId} ObservedTurnCount={ObservedTurns}",
-                session.Id,
-                session.AdaptiveState.ObservedTurnCount);
-        }
+        // Idempotent — no-ops when the turn-entry paths already handled the transition.
+        await TryTransitionOpeningToBuildUpAsync(session, v2State, cancellationToken);
 
         if (!_enableLocationServices)
         {
@@ -5001,6 +5283,20 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             return;
         }
 
+        // Encounter must be active to end. Prevents spurious re-firing on every orgasm
+        // reference in a continuing scene: a boundary can only fire after a start was
+        // detected (IsEncounterActive=true), then the boundary sets it false, and a new
+        // boundary requires a fresh start. Without this, overlapping content in
+        // multi-participant scenes produced one boundary per orgasm, flooding
+        // EncounterCompletion memory records.
+        if (!state.IsEncounterActive)
+        {
+            _logger.LogDebug(
+                "TryDetectEncounterBoundary: skipped — no active encounter (IsEncounterActive=false) for SessionId={SessionId}",
+                session.Id);
+            return;
+        }
+
         // ---- Gate: only detect boundaries for characters actively in the encounter ----
         // Skip the sex-flag gate when EnableAdaptiveStateUpdates=false — the character
         // encounter states are never populated by the inline path, so IsCharacterHavingSex
@@ -5099,7 +5395,14 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         state.GlobalEncounterCount++;
         state.IsEncounterActive = false; // Encounter is no longer active — gates counter, stamps, and re-entry
         state.TurnsInCurrentEncounter = 0;
-        state.CurrentTimeSkipPhase = TimeSkipPhase.CloseScene;
+        // Only engage the time-skip state machine for themes that use it.
+        // Without a multi-encounter or aftermath marker, the encounter simply completes
+        // without entering CloseScene — preventing orphaned time-skip phases on themes
+        // whose overflow cleanup never runs (the overflow is Climax-gated).
+        if (isMulti || isAftermath)
+        {
+            state.CurrentTimeSkipPhase = TimeSkipPhase.CloseScene;
+        }
         state.CharacterEncounterStates.Clear();
 
         // B-057: synchronous persist — DB is always authoritative for time-skip state.

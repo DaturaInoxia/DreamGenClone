@@ -121,6 +121,12 @@ public sealed record ResolvedScenarioData
     public required string? DefaultSteeringProfileId { get; init; }
     public required string? DefaultIntensityProfileId { get; init; }
     public required string? DefaultStartingLocationName { get; init; }
+
+    /// <summary>
+    /// Opening-period guidance text (001-opening-period). Populated from the scenario
+    /// definition; when null, the opening-guidance slot falls back to the default constant.
+    /// </summary>
+    public string? OpeningGuidanceText { get; init; }
 }
 
 /// <summary>

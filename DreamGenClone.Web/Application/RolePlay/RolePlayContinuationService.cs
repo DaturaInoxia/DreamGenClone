@@ -30,11 +30,6 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
     private const int NarrativeQuotedBlockHardViolationThreshold = 4;
     private const double NarrativeQuotedTextRatioRetryThreshold = 0.20;
 
-    // Number of non-excluded interactions during which other characters are suppressed from
-    // narrative focus, allowing the persona-partner relationship to be established first.
-    // Other characters remain in the scene but unnamed and unaddressed until this threshold is passed.
-    private const int OpeningPeripheralTurnCount = 6;
-
     private static readonly Regex QuotedBlockRegex = new("\"[^\"\\r\\n]{2,}\"", RegexOptions.Compiled);
     private static readonly Regex FirstPersonLeakRegex = new("\\b(I|me|my|mine|myself)\\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex CharacterInteriorityRegex = new("\\b[A-Z][a-zA-Z'-]{1,}\\s+(thought|felt|wondered|remembered|realized|decided|knew)\\b", RegexOptions.Compiled);
@@ -697,6 +692,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                 DefaultSteeringProfileId = null,
                 DefaultIntensityProfileId = null,
                 DefaultStartingLocationName = defaultStartingLocationName,
+                OpeningGuidanceText = scenario?.OpeningGuidanceText,
             },
             Theme = resolvedTheme,
             Intensity = resolvedIntensity,
@@ -706,10 +702,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             NarrativeTone = ResolveNarrativeTone(scenario),
             EncounterSummaries = session.AdaptiveState.EncounterSummaries,
             RecentInteractions = session.Interactions
-                .Where(i => !i.IsExcluded
-                    && (i.InteractionType == InteractionType.Npc
-                        || i.InteractionType == InteractionType.Custom
-                        || i.InteractionType == InteractionType.User))
+                .Where(i => !i.IsExcluded)
                 .TakeLast(session.ContextWindowSize > 0 ? session.ContextWindowSize : 12)
                 .ToList(),
             CharacterDetails = charDetails,

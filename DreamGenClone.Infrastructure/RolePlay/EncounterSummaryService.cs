@@ -248,7 +248,8 @@ public sealed class EncounterSummaryService : IEncounterSummaryService
     {
         var location = string.IsNullOrWhiteSpace(v2State.CurrentSceneLocation) ? "unknown" : v2State.CurrentSceneLocation;
         return $"{snapshot.CharacterId} — phase moved from {transitionEvent.FromPhase} to {transitionEvent.ToPhase}. " +
-               $"Scene: {location}. Arc {v2State.CycleIndex + 1}, turn {v2State.TurnCountInPhase} in phase.";
+               $"Scene: {location}. Arc {v2State.CycleIndex + 1}, turn {v2State.TurnCountInPhase} in phase. " +
+               $"Desire {snapshot.Desire}, Restraint {snapshot.Restraint}.";
     }
 
     private static string BuildArcCompletionTemplate(
@@ -259,6 +260,7 @@ public sealed class EncounterSummaryService : IEncounterSummaryService
         var themeName = v2State.PrimaryThemeId ?? "none";
         return $"{snapshot.CharacterId} completed arc {v2State.CycleIndex + 1}. Peak phase: Climax. " +
                $"Beat reached: {beatCode}. " +
-               $"Theme: {themeName}. Finishing move: unknown.";
+               $"Theme: {themeName}. Finishing move: unknown. " +
+               $"Desire {snapshot.Desire}, Restraint {snapshot.Restraint}.";
     }
 }

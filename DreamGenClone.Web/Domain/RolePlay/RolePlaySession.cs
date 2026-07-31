@@ -248,6 +248,13 @@ public sealed class RolePlaySession
     /// </summary>
     public Dictionary<string, CharacterTurnOverride> CharacterTurnOverrides { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Probability (0.0–1.0) that the highest participation-scoring character
+    /// leads the turn regardless of PreferredPosition groups. Default 0.15 means
+    /// the First/Last position bias is overridden ~15% of turns. Clamped to [0,1] on save.
+    /// </summary>
+    public double PreferredPositionOverrideChance { get; set; } = 0.15;
+
     /// <summary>Transient cache of LLM-ordered actor names from last selection. Not persisted.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public List<string>? LastActorOrdering { get; set; }

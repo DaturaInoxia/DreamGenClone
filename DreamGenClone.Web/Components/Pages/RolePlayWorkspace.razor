@@ -1304,6 +1304,20 @@
         }
     }
 
+    private async Task OnPreferredPositionOverrideChanceChanged(ChangeEventArgs e)
+    {
+        if (_session is null) return;
+        if (double.TryParse(e.Value?.ToString(),
+                System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var parsed))
+        {
+            _session.PreferredPositionOverrideChance = Math.Clamp(parsed, 0.0, 1.0);
+            MarkScenarioDirty();
+            await SaveSessionSettingsAsync();
+        }
+    }
+
     private async Task OnParticipateInAutoContinueChanged(string characterName, ChangeEventArgs e)
     {
         if (_session is null) return;
@@ -9511,6 +9525,19 @@ private void CloseInteractionInfo()
                                        @onchange="@OnSceneContinueBatchSizeChanged"
                                        class="rw-settings-slider" style="width:120px;" />
                                 <span class="small text-muted ms-2">@_session.SceneContinueBatchSize</span>
+                            </div>
+                        </div>
+
+                        @* -- PreferredPosition Override Chance -- *@
+                        <div class="rw-settings-section mt-3">
+                            <div class="rw-settings-section-label">Position Override Chance</div>
+                            <div class="small text-muted mb-1">Probability the highest-scoring character leads the turn regardless of PreferredPosition groups. 0 = always honor First/Last positions, 1 = always let highest score lead.</div>
+                            <div class="rw-scenario-field">
+                                <input type="range" min="0" max="1" step="0.05"
+                                       value="@_session.PreferredPositionOverrideChance.ToString(System.Globalization.CultureInfo.InvariantCulture)"
+                                       @onchange="@OnPreferredPositionOverrideChanceChanged"
+                                       class="rw-settings-slider" style="width:120px;" />
+                                <span class="small text-muted ms-2">@(_session.PreferredPositionOverrideChance.ToString("F2", System.Globalization.CultureInfo.InvariantCulture))</span>
                             </div>
                         </div>
 

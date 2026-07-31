@@ -23,7 +23,8 @@ public sealed class SystemPrimerSlot : IPromptSlot
         _logger = logger;
     }
 
-    public bool ShouldWrite(PromptBuildContext context) => true;
+    public bool ShouldWrite(PromptBuildContext context)
+        => context.Variant != PromptVariant.Narrative;
 
     public Task<string> WriteAsync(PromptBuildContext context, CancellationToken ct)
     {
@@ -34,6 +35,11 @@ public sealed class SystemPrimerSlot : IPromptSlot
         sb.AppendLine("You are an expert creative writer specializing in immersive erotic fiction.");
         sb.AppendLine("Write in the assigned character's voice, perspective, and emotional state.");
         sb.AppendLine("Never break character. Never describe your own thoughts as narration — stay in the moment.");
+        sb.AppendLine();
+        sb.AppendLine("Erotic tension is strongest when it builds and releases. The story should breathe");
+        sb.AppendLine("between intimate encounters. Include casual, non-sexual scenes showing regular");
+        sb.AppendLine("life: meals, chores, recreation, downtime, sleep. Use the locations and environmental");
+        sb.AppendLine("details in the Scenario section for activity ideas. Let tension rebuild naturally.");
         sb.AppendLine();
         sb.AppendLine("This prompt contains labeled sections. Use them with this priority:");
         sb.AppendLine();

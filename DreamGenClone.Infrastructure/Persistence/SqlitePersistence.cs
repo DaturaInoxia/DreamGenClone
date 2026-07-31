@@ -2005,25 +2005,25 @@ public sealed class SqlitePersistence : ISqlitePersistence
 
         await MarkLegacyMigrationsCompleteAsync(connection, cancellationToken);
 
-        // 001-opening-period: add OpeningGuidanceText column to Scenarios table
-        var checkOpeningGuidanceColumn = connection.CreateCommand();
-        checkOpeningGuidanceColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('Scenarios') WHERE name='OpeningGuidanceText'";
-        var hasOpeningGuidanceColumn = Convert.ToInt64(await checkOpeningGuidanceColumn.ExecuteScalarAsync(cancellationToken)) > 0;
-        if (!hasOpeningGuidanceColumn)
-        {
-            var alterOpeningGuidance = connection.CreateCommand();
-            alterOpeningGuidance.CommandText = "ALTER TABLE Scenarios ADD COLUMN OpeningGuidanceText TEXT NULL";
-            await alterOpeningGuidance.ExecuteNonQueryAsync(cancellationToken);
-            _logger.LogInformation("001-opening-period: Added OpeningGuidanceText column to Scenarios table");
-
-            // Seed all existing scenarios with default opening-period guidance text
-            var seedOpeningGuidance = connection.CreateCommand();
-            seedOpeningGuidance.CommandText = "UPDATE Scenarios SET OpeningGuidanceText = 'Focus on the couple''s relationship and their current life together. Include a brief sense of their intimate life from her point of view — the rhythm of it, what she feels about it, what she wants or doesn''t get — grounding these details in the character profiles and their descriptions. Describe their routines, interactions, and daily rhythms. Establish the setting, mood, and any relevant history. Other characters remain in the background.'";
-            await seedOpeningGuidance.ExecuteNonQueryAsync(cancellationToken);
-            _logger.LogInformation("001-opening-period: Seeded OpeningGuidanceText on all existing scenarios");
-        }
-
     AfterLegacyMigrations:
+
+        // 001-opening-period: seed OpeningGuidanceText into scenario payload JSON.
+        // Runs unconditionally (outside the legacy-migration gate) so existing DBs get seeded.
+        // Idempotent: only sets the field when missing/empty. The value flows to the prompt
+        // builder via Scenario.OpeningGuidanceText (deserialized from PayloadJson).
+        var openingGuidanceSeed = connection.CreateCommand();
+        openingGuidanceSeed.CommandText = """
+            UPDATE Scenarios
+            SET PayloadJson = json_set(
+                PayloadJson,
+                '$.OpeningGuidanceText',
+                'Introduce the characters and the scenario — who they are, how they fit into their world, and the situation they are in now — grounded in the character profiles and descriptions. State the marriage as it currently is: a settled, long-established couple with a sex life that matches their stats. When their Desire is high and their Restraint is low, they are sexually active and recently intimate — comfortable with each other''s bodies, past courtship and discovery. When their stats are muted, show that instead: a physical life that is routine or subdued. On-screen intimacy is allowed in the opening only when their profiles and current state support it. This is not about them reconnecting or reaching for emotional closeness; their dynamic is already fixed. Sketch their routines, the rhythm of their days, and the setting. Let the potential arcs foreshadow quietly in the background. Keep the focus on the husband and wife; other characters remain in the background.'
+            )
+            WHERE json_extract(PayloadJson, '$.OpeningGuidanceText') IS NULL
+               OR json_extract(PayloadJson, '$.OpeningGuidanceText') = '';
+            """;
+        var openingGuidanceSeeded = await openingGuidanceSeed.ExecuteNonQueryAsync(cancellationToken);
+        _logger.LogInformation("001-opening-period: Seeded OpeningGuidanceText on {ScenarioCount} scenario(s)", openingGuidanceSeeded);
 
         // Seed Model Manager tables on first run (empty Providers table)
         var checkProviders = connection.CreateCommand();

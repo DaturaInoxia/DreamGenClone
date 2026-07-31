@@ -34,6 +34,11 @@ public sealed class UserDirectionSlot : IPromptSlot
 
     public bool ShouldWrite(PromptBuildContext context)
     {
+        // Narrative variant has no character-specific user direction.
+        // Operational directives come from FinalInstructionSlot (Slot 17).
+        if (context.Variant == PromptVariant.Narrative)
+            return false;
+
         if (string.IsNullOrWhiteSpace(context.PromptText))
             return false;
 

@@ -237,8 +237,15 @@ public sealed class CompletionClient : ICompletionClient
                 Messages = messages,
                 Temperature = resolved.Temperature,
                 TopP = resolved.TopP,
-                MaxTokens = resolved.MaxTokens
+                MaxTokens = resolved.MaxTokens,
+                ChatTemplateKwargs = resolved.DisableThinking
+                    ? new Dictionary<string, object> { ["thinking"] = false }
+                    : null
             };
+
+            _logger.LogDebug(
+                "Completion request built: Model={ModelIdentifier}, DisableThinking={DisableThinking}",
+                resolved.ModelIdentifier, resolved.DisableThinking);
 
             // Strip leading "/" from path so it resolves relative to BaseAddress, not root
             var relativePath = resolved.ChatCompletionsPath.TrimStart('/');
@@ -1003,6 +1010,10 @@ public sealed class CompletionClient : ICompletionClient
         [JsonPropertyName("stream")]
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public bool? Stream { get; init; }
+
+        [JsonPropertyName("chat_template_kwargs")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public Dictionary<string, object>? ChatTemplateKwargs { get; init; }
     }
 
     private sealed record ChatMessage(

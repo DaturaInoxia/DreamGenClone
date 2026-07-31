@@ -129,14 +129,6 @@ public sealed class EncounterSummaryJobHandler : IBackgroundJobHandler
             .Select(x => $"[{x.InteractionType}] {x.ActorName}: {x.Content}")
             .ToList();
 
-        // Phase summaries for this arc (used as structured input for arc completion consolidation)
-        var arcPhaseSummaries = allSummaries
-            .Where(s => s.SummaryType == EncounterSummaryType.PhaseMilestone
-                     && s.CycleIndex == payload.CycleIndex
-                     && s.LlmSummary is not null)
-            .OrderBy(s => s.OccurredUtc)
-            .ToList();
-
         foreach (var record in recordsToEnhance)
         {
             if (record.LlmEnhancedUtc.HasValue)
@@ -152,7 +144,7 @@ public sealed class EncounterSummaryJobHandler : IBackgroundJobHandler
                 EncounterSummaryType.PhaseMilestone =>
                     BuildMilestonePrompt(record, recentInteractions),
                 EncounterSummaryType.ArcCompletion =>
-                    BuildArcCompletionPrompt(record, arcPhaseSummaries, recentInteractions),
+                    BuildArcCompletionPrompt(record, BuildCharacterMemorySet(allSummaries, record), recentInteractions),
                 EncounterSummaryType.EncounterCompletion =>
                     BuildEncounterCompletionPrompt(record, session),
                 _ => throw new InvalidOperationException($"Unsupported summary type {record.SummaryType}")
@@ -177,34 +169,54 @@ public sealed class EncounterSummaryJobHandler : IBackgroundJobHandler
         var interactionsText = recentInteractions.Count > 0
             ? string.Join("\n", recentInteractions)
             : "(no interactions available)";
+        var statsContext = GetStatsContext(record, "Character stats at transition");
 
         return $"""
-            You are writing a short memory record for a roleplay session.
+            You are writing a durable phase memory for {record.CharacterId} in an ongoing role-play.
+            This is a memory-generation task, not a scene response: you are producing a compact internal record of one phase, not continuing the story.
 
-            Character: {record.CharacterId}
+            Write from inside {record.CharacterId}'s mind as this phase closes, recalling what this stretch of the story meant to them. Use {record.CharacterId}'s own inner voice and emotional register. Be specific, concrete, and sensory. The memory will be injected into future prompts to maintain continuity, so it must stand alone as a self-contained record.
+
             Phase transition: {record.FromPhase} → {record.ToPhase} (Arc {record.CycleIndex + 1})
             Scene: {(string.IsNullOrWhiteSpace(record.SceneLocation) ? "unknown location" : record.SceneLocation)}
-
+            {statsContext}
+            Phase record — story material for this phase (for reference only; do not repeat verbatim):
             Recent story interactions:
             {interactionsText}
 
-            Write 1-2 sentences describing specifically what {record.CharacterId} did or experienced during the {record.FromPhase} phase before this transition. Focus on physical actions, emotional state, and who was involved. Be specific and concrete. Write in third person past tense. Do not summarize the whole story — only what happened in this phase.
+            ## INSTRUCTIONS
+
+            Write 4-6 sentences from {record.CharacterId}'s perspective recalling the {record.FromPhase} phase before this transition. Capture:
+            1. What happened — the key physical actions and beats across this phase.
+            2. What they felt — the dominant emotional texture and how it shifted as the phase unfolded.
+            3. Who was involved — which characters shaped this phase and how they interacted.
+            4. What shifted — how the dynamic, the tension, or their own state moved during this phase.
+            5. What stands out — the single moment or realization that defined this phase.
+
+            Rules:
+            - Write in {record.CharacterId}'s voice — first person, past-tense reflection.
+            - Be specific and concrete; favor lived detail over summary.
+            - Cover this phase only — do not summarize the whole story.
+            - Do not mention this memory system or the act of remembering. Just be the memory.
+            - Output only the memory — no headings, labels, or extra text.
             """;
     }
 
     private static string BuildArcCompletionPrompt(
         EncounterSummaryRecord record,
-        List<EncounterSummaryRecord> arcPhaseSummaries,
+        IReadOnlyList<EncounterSummaryRecord> characterMemories,
         List<string> recentInteractions)
     {
+        var statsContext = GetStatsContext(record, "Character stats at close");
+
         string contextBlock;
-        if (arcPhaseSummaries.Count > 0)
+        if (characterMemories.Count > 0)
         {
-            var phaseSummaryText = string.Join("\n\n", arcPhaseSummaries.Select(s =>
-                $"[{s.FromPhase} phase — {s.CharacterId}]\n{s.LlmSummary}"));
+            var memoryText = string.Join("\n", characterMemories.Select(s =>
+                $"[{GetMemoryLabel(s)}] {s.LlmSummary}"));
             contextBlock = $"""
-                Phase-by-phase memories for this arc:
-                {phaseSummaryText}
+                {record.CharacterId}'s memory records so far (oldest to newest) — for reference only; do not repeat verbatim:
+                {memoryText}
                 """;
         }
         else
@@ -219,20 +231,92 @@ public sealed class EncounterSummaryJobHandler : IBackgroundJobHandler
         }
 
         return $"""
-            You are writing a consolidated memory record for a roleplay session.
+            You are writing a durable arc memory for {record.CharacterId} in an ongoing role-play.
+            This is a memory-generation task, not a scene response: you are producing a permanent internal record of a complete arc, not continuing the story.
+
+            Write from inside {record.CharacterId}'s mind as the arc closes, looking back on everything that happened from beginning to end. Use {record.CharacterId}'s own inner voice and emotional register. Be specific, concrete, and sensory. The memory will be injected into future prompts and carried into future sessions to maintain continuity, so it must stand alone as a self-contained record.
 
             Character: {record.CharacterId}
             Arc {record.CycleIndex + 1} — full arc summary
-
+            Scene: {(string.IsNullOrWhiteSpace(record.SceneLocation) ? "unknown location" : record.SceneLocation)}
+            {statsContext}
+            Source material — arc record (for reference only; do not repeat verbatim):
             {contextBlock}
 
-            Write 3-4 sentences from {record.CharacterId}'s perspective summarizing the complete arc: how the encounter began, what physical acts took place across all phases (note positions, partners, sequence), and how it concluded. This is a permanent memory that will be referenced in future sessions to ensure continuity. Be specific and explicit. Write in third person past tense.
+            ## INSTRUCTIONS
+
+            Write 5-7 sentences from {record.CharacterId}'s perspective recalling the complete arc. Capture:
+            1. What happened — how the arc began and how the encounter unfolded across all phases.
+            2. What they felt — the dominant emotional texture and how it evolved from start to finish.
+            3. Who was involved — which characters shaped the arc and how they interacted.
+            4. Physical specifics — positions, partners, sequence, and where his release occurred.
+            5. What changed — how the relationship dynamic or their self-image shifted by the end.
+            6. The aftermath — the feeling left behind as the arc concluded.
+
+            Rules:
+            - Write in {record.CharacterId}'s voice — first person, past-tense reflection.
+            - Be specific and explicit; favor concrete memory over summary.
+            - This is a permanent memory — it will be referenced in future sessions to ensure continuity.
+            - Do not mention this memory system or the act of remembering. Just be the memory.
+            - Output only the memory — no headings, labels, or extra text.
             """;
     }
 
     /// <summary>
+    /// B-058: Gather every enriched memory the character has accumulated so far (phase
+    /// milestones, encounter completions, and prior arc completions) oldest → newest, so the
+    /// arc consolidation prompt has the full picture of this character's remembered history.
+    /// Excludes the record currently being written.
+    /// </summary>
+    private static List<EncounterSummaryRecord> BuildCharacterMemorySet(
+        IReadOnlyList<EncounterSummaryRecord> allSummaries,
+        EncounterSummaryRecord current)
+    {
+        return allSummaries
+            .Where(s => string.Equals(s.CharacterId, current.CharacterId, StringComparison.OrdinalIgnoreCase)
+                     && s.LlmSummary is not null
+                     && s.Id != current.Id)
+            .OrderBy(s => s.OccurredUtc)
+            .ToList();
+    }
+
+    private static string GetMemoryLabel(EncounterSummaryRecord s) => s.SummaryType switch
+    {
+        EncounterSummaryType.PhaseMilestone => $"Phase {s.FromPhase} → {s.ToPhase}, Arc {s.CycleIndex + 1}",
+        EncounterSummaryType.EncounterCompletion => $"Encounter {s.EncounterNumber}, Arc {s.CycleIndex + 1}",
+        EncounterSummaryType.ArcCompletion => $"Arc {s.CycleIndex + 1} completion",
+        _ => "Memory"
+    };
+
+    private static string GetStatsContext(EncounterSummaryRecord record, string header)
+    {
+        var statsLine = GetStatsLine(record);
+        return string.IsNullOrWhiteSpace(statsLine)
+            ? ""
+            : $"{header}: {statsLine}\n";
+    }
+
+    private static string GetStatsLine(EncounterSummaryRecord record)
+    {
+        if (string.IsNullOrWhiteSpace(record.CharacterStatsSnapshotJson))
+            return "";
+        try
+        {
+            var snapshot = JsonSerializer.Deserialize<CharacterStatProfileV2>(
+                record.CharacterStatsSnapshotJson, JsonOptions);
+            return snapshot is null
+                ? ""
+                : $"Desire {snapshot.Desire}, Restraint {snapshot.Restraint}";
+        }
+        catch (Exception)
+        {
+            return "";
+        }
+    }
+
+    /// <summary>
     /// Rewritten enrichment prompt per contracts/encounter-enrichment-contract.md.
-    /// Captures 6 dimensions (FR-033) using Narrative response as primary source (FR-035).
+    /// Captures 8 dimensions (FR-033) using Narrative response as primary source (FR-035).
     /// </summary>
     /// <returns>Null when character has zero interactions in the encounter range — no memory to generate.</returns>
     private static string? BuildEncounterCompletionPrompt(
@@ -289,12 +373,16 @@ public sealed class EncounterSummaryJobHandler : IBackgroundJobHandler
             previousEncounterContext = "";
         }
 
-        // ── Build 6-dimension enrichment prompt per contract ──
+        // ── Build 8-dimension enrichment prompt per contract ──
         return $"""
-            You are writing a sexual encounter memory for {record.CharacterId} in an ongoing role-play.
+            You are writing a private, first-person memory for {record.CharacterId} in an ongoing role-play.
+            This is a memory-generation task, not a scene response: you are producing a durable internal record, not continuing the story.
+
+            Write from inside {record.CharacterId}'s mind after the encounter has ended — {record.CharacterId} looking back on what just happened. Use {record.CharacterId}'s own inner voice, vocabulary, and emotional register. Be specific, concrete, and sensory; think and feel from the inside, not narrate from the outside. The finished memory will be injected into future prompts to maintain continuity across encounters, so it must stand alone as one self-contained paragraph.
 
             Encounter {record.EncounterNumber} at {(string.IsNullOrWhiteSpace(record.SceneLocation) ? "unknown location" : record.SceneLocation)}.
 
+            Source material — encounter record (for reference only; do not repeat verbatim):
             Narrative account (omniscient):
             {narrativeResponseText}
 
@@ -302,15 +390,24 @@ public sealed class EncounterSummaryJobHandler : IBackgroundJobHandler
             {characterResponseTexts}
 
             {previousEncounterContext}
-            Write a 3-5 sentence first-person memory from {record.CharacterId}'s perspective that captures:
-            1. What happened — the key physical and emotional beats of this encounter
-            2. What they felt — the dominant emotional texture (guilt, thrill, shame, desire, satisfaction)
-            3. What they learned — any sexual self-knowledge gained (what felt good, what surprised them, what they want again)
-            4. What changed — how this encounter shifted the relationship dynamic or their self-image
-            5. What risk was taken — any near-miss, discovery risk, or boundary crossed
-            6. Sexual comparison — if this is not the first encounter, how it compared to previous ones (more confident? more guilty? more physically intense?)
+            ## INSTRUCTIONS
 
-            Write in {record.CharacterId}'s voice. Be specific and sensory. This memory will be injected into future prompts to maintain continuity across encounters.
+            Write a 3-5 sentence first-person memory from {record.CharacterId}'s perspective that captures:
+            1. What happened — the key physical and emotional beats of this encounter.
+            2. What they felt — the dominant emotional texture (guilt, thrill, shame, desire, satisfaction).
+            3. What they learned — any sexual self-knowledge gained: what felt good, what surprised them, what they want again.
+            4. What changed — how this encounter shifted the relationship dynamic or their self-image.
+            5. What risk was taken — any near-miss, discovery risk, or boundary crossed.
+            6. Sexual comparison — if this is not the first encounter, how it compared to previous ones (more confident? more guilty? more physically intense?).
+            7. Comparison to husband and past experiences — how this encounter measured up against her marriage and her broader sexual history.
+            8. Physical specifics — name the actual positions and movements from the encounter (e.g., bent over the table, on hands and knees, legs stretched wide), capture her climax as it truly happened, and record where his release occurred (e.g., inside her, across her skin, in her mouth). These belong in the memory itself as concrete, lived detail — not as descriptive writing direction.
+
+            Rules:
+            - Write in {record.CharacterId}'s voice — first person, past-tense reflection.
+            - Be specific and sensory; favor concrete memory over summary.
+            - Weave the dimensions into one flowing 3-5 sentence paragraph — do not number them or write a checklist.
+            - Do not mention this memory system, this prompt, or the act of remembering. Just be the memory.
+            - Output only the memory paragraph — no headings, labels, or extra text.
             """;
     }
 

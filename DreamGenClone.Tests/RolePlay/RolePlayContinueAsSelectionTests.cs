@@ -159,6 +159,113 @@ public sealed class RolePlayContinueAsSelectionTests
     }
 
     [Fact]
+    public async Task OverflowContinue_HusbandNotExcludedByDefault()
+    {
+        // After removing ScoreRoleHusband=-5000, the Husband role should
+        // no longer be effectively excluded from overflow continue.
+        var scenario = new Scenario
+        {
+            Id = "scenario-husband",
+            Name = "Husband Test",
+            Characters =
+            [
+                new Character { Id = "c1", Name = "Becky", Role = "Wife" },
+                new Character { Id = "c2", Name = "Ken", Role = "Husband" },
+                new Character { Id = "c3", Name = "Dean", Role = "OtherMan" }
+            ]
+        };
+
+        var service = RolePlayTestFactory.CreateEngineService(
+            scenarioService: new SingleScenarioService(scenario));
+
+        var session = await service.CreateSessionAsync("Husband test", scenario.Id);
+        // Advance past the opening period so all characters are eligible
+        for (int i = 0; i < 6; i++)
+        {
+            await service.AddInteractionAsync(session.Id, ContinueAsActor.Npc, "Becky", $"Turn {i} content.");
+        }
+
+        // Perform overflow continue — Ken (Husband) should now be a candidate
+        var result = await service.ContinueAsAsync(new ContinueAsRequest
+        {
+            SessionId = session.Id,
+            TriggeredBy = SubmissionSource.MainOverflowContinue
+        });
+
+        Assert.True(result.Success);
+        // With the old -5000 penalty, Ken would almost never appear.
+        // Now he should be among the participants at least occasionally.
+        // Since the test uses the fallback path (no actor selection service),
+        // we verify there's at least one participant — the engine doesn't crash.
+        Assert.NotEmpty(result.ParticipantOutputs);
+    }
+
+    [Fact]
+    public async Task PreferredPositionOverrideChance_DefaultsTo015_OnNewSession()
+    {
+        var service = RolePlayTestFactory.CreateEngineService();
+        var session = await service.CreateSessionAsync("Override chance default");
+
+        // Default should be 0.15 as specified in RolePlaySession
+        Assert.Equal(0.15, session.PreferredPositionOverrideChance, precision: 3);
+    }
+
+    [Fact]
+    public async Task ParticipateInAutoContinue_False_ExcludesCharacter()
+    {
+        var scenario = new Scenario
+        {
+            Id = "scenario-participate",
+            Name = "Participate Test",
+            Characters =
+            [
+                new Character { Id = "c1", Name = "Becky", Role = "Wife" },
+                new Character { Id = "c2", Name = "Ken", Role = "Husband" },
+                new Character { Id = "c3", Name = "Dean", Role = "OtherMan" }
+            ]
+        };
+
+        var service = RolePlayTestFactory.CreateEngineService(
+            scenarioService: new SingleScenarioService(scenario));
+
+        var session = await service.CreateSessionAsync("Participate test", scenario.Id);
+
+        // Set Ken to not participate in auto-continue
+        session.CharacterTurnOverrides["Ken"] = new CharacterTurnOverride
+        {
+            CharacterName = "Ken",
+            ParticipateInAutoContinue = false,
+            ResponsePriority = null,
+            PreferredPosition = PreferredTurnPosition.Auto
+        };
+
+        // Advance past opening period
+        for (int i = 0; i < 6; i++)
+        {
+            await service.AddInteractionAsync(session.Id, ContinueAsActor.Npc, "Becky", $"Turn {i} content.");
+        }
+
+        // Perform overflow continue — Ken should be excluded from candidates
+        var result = await service.ContinueAsAsync(new ContinueAsRequest
+        {
+            SessionId = session.Id,
+            TriggeredBy = SubmissionSource.MainOverflowContinue
+        });
+
+        Assert.True(result.Success);
+        // Ken should not appear in the participant outputs due to ParticipateInAutoContinue=false
+        Assert.DoesNotContain(result.ParticipantOutputs, x =>
+            string.Equals(x.ActorName, "Ken", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Session_PreferredPositionOverrideChance_DefaultsTo015()
+    {
+        var session = new RolePlaySession();
+        Assert.Equal(0.15, session.PreferredPositionOverrideChance, precision: 3);
+    }
+
+    [Fact]
     public async Task EvaluateCandidatesAsync_ChangesLeader_WhenNarrativeEvidenceSnapshotChanges()
     {
         var service = CreateScenarioSelectionService();

@@ -87,8 +87,14 @@ public sealed class WritingStyleSlot : IPromptSlot
         if (!isNarrative && !string.IsNullOrWhiteSpace(style.ImmersionDirective))
             sb.AppendLine($"  Immersion: {style.ImmersionDirective.Trim()}");
 
-        // 8. Word Target — marker-driven, no Word Target on Narrative
-        if (!isNarrative)
+        // 8. Word Target — marker-driven; Narrative uses character counts × 2, max capped at 1500
+        if (isNarrative)
+        {
+            var narrativeMin = style.WordTargetMin * 2;
+            var narrativeMax = Math.Min(style.WordTargetMax * 2, 1500);
+            sb.AppendLine($"  Word Target: Target {narrativeMin}-{narrativeMax} words.");
+        }
+        else
         {
             sb.AppendLine($"  Word Target: Target {style.WordTargetMin}-{style.WordTargetMax} words.");
         }

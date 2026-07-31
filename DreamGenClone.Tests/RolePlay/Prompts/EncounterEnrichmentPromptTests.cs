@@ -7,7 +7,7 @@ namespace DreamGenClone.Tests.RolePlay.Prompts;
 
 /// <summary>
 /// T073: Contract tests for the rewritten encounter enrichment prompt.
-/// Asserts 6-dimension capture (FR-033) and SC-009 (≥4 of 6 dimensions present).
+/// Asserts 8-dimension capture (FR-033) and SC-009 (≥5 of 8 dimensions present).
 /// </summary>
 public sealed class EncounterEnrichmentPromptTests
 {
@@ -22,17 +22,21 @@ public sealed class EncounterEnrichmentPromptTests
         int encounterNumber = 2,
         string sceneLocation = "The Bedroom")
     {
-        // The new enrichment prompt template for EncounterCompletion uses 6 dimensions.
+        // The new enrichment prompt template for EncounterCompletion uses 8 dimensions.
         // We construct it directly to validate dimension coverage.
         var previous = string.IsNullOrWhiteSpace(previousEncounterContext)
             ? ""
             : $"Previous encounters:\n{previousEncounterContext}\n";
 
         return $"""
-            You are writing a sexual encounter memory for {characterName} in an ongoing role-play.
+            You are writing a private, first-person memory for {characterName} in an ongoing role-play.
+            This is a memory-generation task, not a scene response: you are producing a durable internal record, not continuing the story.
+
+            Write from inside {characterName}'s mind after the encounter has ended — {characterName} looking back on what just happened. Use {characterName}'s own inner voice, vocabulary, and emotional register. Be specific, concrete, and sensory; think and feel from the inside, not narrate from the outside. The finished memory will be injected into future prompts to maintain continuity across encounters, so it must stand alone as one self-contained paragraph.
 
             Encounter {encounterNumber} at {sceneLocation}.
 
+            Source material — encounter record (for reference only; do not repeat verbatim):
             Narrative account (omniscient):
             {narrativeResponse}
 
@@ -40,20 +44,29 @@ public sealed class EncounterEnrichmentPromptTests
             {characterResponses}
 
             {previous}
-            Write a 3-5 sentence first-person memory from {characterName}'s perspective that captures:
-            1. What happened — the key physical and emotional beats of this encounter
-            2. What they felt — the dominant emotional texture (guilt, thrill, shame, desire, satisfaction)
-            3. What they learned — any sexual self-knowledge gained (what felt good, what surprised them, what they want again)
-            4. What changed — how this encounter shifted the relationship dynamic or their self-image
-            5. What risk was taken — any near-miss, discovery risk, or boundary crossed
-            6. Sexual comparison — if this is not the first encounter, how it compared to previous ones (more confident? more guilty? more physically intense?)
+            ## INSTRUCTIONS
 
-            Write in {characterName}'s voice. Be specific and sensory. This memory will be injected into future prompts to maintain continuity across encounters.
+            Write a 3-5 sentence first-person memory from {characterName}'s perspective that captures:
+            1. What happened — the key physical and emotional beats of this encounter.
+            2. What they felt — the dominant emotional texture (guilt, thrill, shame, desire, satisfaction).
+            3. What they learned — any sexual self-knowledge gained: what felt good, what surprised them, what they want again.
+            4. What changed — how this encounter shifted the relationship dynamic or their self-image.
+            5. What risk was taken — any near-miss, discovery risk, or boundary crossed.
+            6. Sexual comparison — if this is not the first encounter, how it compared to previous ones (more confident? more guilty? more physically intense?).
+            7. Comparison to husband and past experiences — how this encounter measured up against her marriage and her broader sexual history.
+            8. Physical specifics — name the actual positions and movements from the encounter (e.g., bent over the table, on hands and knees, legs stretched wide), capture her climax as it truly happened, and record where his release occurred (e.g., inside her, across her skin, in her mouth). These belong in the memory itself as concrete, lived detail — not as descriptive writing direction.
+
+            Rules:
+            - Write in {characterName}'s voice — first person, past-tense reflection.
+            - Be specific and sensory; favor concrete memory over summary.
+            - Weave the dimensions into one flowing 3-5 sentence paragraph — do not number them or write a checklist.
+            - Do not mention this memory system, this prompt, or the act of remembering. Just be the memory.
+            - Output only the memory paragraph — no headings, labels, or extra text.
             """;
     }
 
     [Fact]
-    public void EnrichmentPrompt_ContainsAllSixDimensions()
+    public void EnrichmentPrompt_ContainsAllDimensions()
     {
         var prompt = BuildPromptViaReflection();
 
@@ -64,6 +77,17 @@ public sealed class EncounterEnrichmentPromptTests
         Assert.Contains("4. What changed", prompt);
         Assert.Contains("5. What risk was taken", prompt);
         Assert.Contains("6. Sexual comparison", prompt);
+        Assert.Contains("7. Comparison to husband and past experiences", prompt);
+        Assert.Contains("8. Physical specifics", prompt);
+    }
+
+    [Fact]
+    public void EnrichmentPrompt_HasLabeledInstructionsSection()
+    {
+        var prompt = BuildPromptViaReflection();
+
+        // The instruction block must be clearly labeled so it is not read as narrative.
+        Assert.Contains("## INSTRUCTIONS", prompt);
     }
 
     [Fact]
@@ -118,7 +142,7 @@ public sealed class EncounterEnrichmentPromptTests
             encounterNumber: 1,
             previousEncounterContext: "");
 
-        // Should still request all 6 dimensions, including comparison.
+        // Should still request all 8 dimensions, including comparison.
         Assert.Contains("6. Sexual comparison", prompt);
         // Should not have "Previous encounters:" section if empty.
         Assert.DoesNotContain("Previous encounters:", prompt);

@@ -52,12 +52,12 @@ public sealed class ActorSelectionService : IActorSelectionService
         }
 
         var systemMessage =
-            "You are a narrative director selecting which characters speak next in a roleplay story. " +
+            "You are a narrative director selecting which characters should participate in the next roleplay turn. " +
             "Output ONLY strict JSON. Never include markdown. " +
             "Schema: {\"characters\":[\"Name1\",\"Name2\",...],\"reasoning\":\"<one or two sentences>\"}. " +
             "Rules: Characters MUST be a subset of the provided candidates (case-sensitive names). " +
-            "Order characters by dramatic importance to the current scene. " +
             "Select at most the requested batch size. " +
+            "The speaking order will be determined by the system — you only select WHO participates, not the order. " +
             "Prefer characters who are in-scene and who have not spoken recently. " +
             "Honor affinity hints: Required characters should ALWAYS be included; Excluded candidates are not in the list (filtered upstream); Preferred is a hint. " +
             "Honor time-of-day match: prefer characters whose affinity time-of-day matches the current time. " +

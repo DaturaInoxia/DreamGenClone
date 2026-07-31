@@ -33,6 +33,8 @@ public sealed class SlotContractTests
         string personaDescription = "A brave adventurer.",
         string promptText = "Continue naturally.",
         int maxPromptChars = 35000,
+        int observedTurnCount = 1,
+        string? openingGuidanceText = null,
         List<ScenarioCharacter>? characters = null,
         IReadOnlyList<RolePlayInteraction>? recentInteractions = null)
     {
@@ -48,6 +50,7 @@ public sealed class SlotContractTests
             {
                 CurrentPhase = NarrativePhase.BuildUp,
                 CurrentSceneLocation = currentSceneLocation,
+                ObservedTurnCount = observedTurnCount,
             },
         };
 
@@ -91,6 +94,7 @@ public sealed class SlotContractTests
                 DefaultSteeringProfileId = null,
                 DefaultIntensityProfileId = null,
                 DefaultStartingLocationName = null,
+                OpeningGuidanceText = openingGuidanceText,
             },
             Theme = new ResolvedThemeData(),
             Intensity = new ResolvedIntensityData
@@ -1092,6 +1096,46 @@ public sealed class SlotContractTests
 
         Assert.Contains("Scenario Guidance:", text);
         Assert.Contains("BuildUp", text);
+    }
+
+    // ── 001-opening-period: opening-period direction injection (FR-003 / FR-016) ───
+
+    [Fact]
+    public async Task ScenarioGuidanceSlot_OpeningPeriod_InjectsOpeningDirection()
+    {
+        var slot = new ScenarioGuidanceSlot(NullLogger<ScenarioGuidanceSlot>.Instance);
+        var context = CreateContext(phase: "Opening", observedTurnCount: 2);
+
+        var text = await slot.WriteAsync(context, CancellationToken.None);
+
+        Assert.Contains("HARD CONSTRAINT — Opening Period Direction:", text);
+        Assert.Contains("settled, long-established couple", text);
+        Assert.DoesNotContain("Establish the scene, introduce characters", text);
+    }
+
+    [Fact]
+    public async Task ScenarioGuidanceSlot_OpeningPeriod_UsesScenarioTextWhenPresent()
+    {
+        var slot = new ScenarioGuidanceSlot(NullLogger<ScenarioGuidanceSlot>.Instance);
+        var context = CreateContext(phase: "Opening", observedTurnCount: 1,
+            openingGuidanceText: "Custom couple baseline direction.");
+
+        var text = await slot.WriteAsync(context, CancellationToken.None);
+
+        Assert.Contains("Custom couple baseline direction.", text);
+        Assert.DoesNotContain("settled, long-established couple", text);
+    }
+
+    [Fact]
+    public async Task ScenarioGuidanceSlot_AfterOpeningPeriod_NoOpeningDirection()
+    {
+        var slot = new ScenarioGuidanceSlot(NullLogger<ScenarioGuidanceSlot>.Instance);
+        var context = CreateContext(phase: "Opening", observedTurnCount: 4);
+
+        var text = await slot.WriteAsync(context, CancellationToken.None);
+
+        Assert.DoesNotContain("HARD CONSTRAINT — Opening Period Direction:", text);
+        Assert.Contains("Establish the scene, introduce characters", text);
     }
 
     [Fact]

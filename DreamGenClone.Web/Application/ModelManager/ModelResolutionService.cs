@@ -84,7 +84,11 @@ public sealed class ModelResolutionService : IModelResolutionService
                 functionDefaultLookupStopwatch.ElapsedMilliseconds,
                 totalStopwatch.ElapsedMilliseconds);
 
-            return resolved;
+            // Scoped thinking suppression: RolePlaySemanticAnalysis emits deterministic JSON and
+            // extended reasoning produced unparseable 30K+ char traces.
+            return function == AppFunction.RolePlaySemanticAnalysis
+                ? resolved with { DisableThinking = true }
+                : resolved;
         }
 
         // Function default path
@@ -139,6 +143,10 @@ public sealed class ModelResolutionService : IModelResolutionService
             providerLookupStopwatchDefaultPath.ElapsedMilliseconds,
             totalStopwatch.ElapsedMilliseconds);
 
-        return result;
+        // Scoped thinking suppression: RolePlaySemanticAnalysis emits deterministic JSON and
+        // extended reasoning produced unparseable 30K+ char traces.
+        return function == AppFunction.RolePlaySemanticAnalysis
+            ? result with { DisableThinking = true }
+            : result;
     }
 }

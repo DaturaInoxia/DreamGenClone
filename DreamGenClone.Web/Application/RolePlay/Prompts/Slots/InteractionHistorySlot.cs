@@ -52,16 +52,15 @@ public sealed class InteractionHistorySlot : IPromptSlot
             return Task.FromResult(string.Empty);
 
         var entries = context.RecentInteractionEntries;
-        var entryLookup = entries is not null
-            ? entries.ToDictionary(e => e.Interaction.Id, StringComparer.OrdinalIgnoreCase)
-            : new Dictionary<string, RecentInteractionEntry>(StringComparer.OrdinalIgnoreCase);
+        var entryLookup = entries?.ToDictionary(e => e.Interaction.Id, StringComparer.OrdinalIgnoreCase);
 
         // Group interactions by turn number (from pre-computed entries),
         // take the last N turns, render all interactions within those turns.
         var turnGroups = new List<(int TurnNumber, List<(RolePlayInteraction Interaction, RecentInteractionEntry? Entry)> Items)>();
         foreach (var interaction in interactions)
         {
-            entryLookup.TryGetValue(interaction.Id, out var entry);
+            RecentInteractionEntry? entry = null;
+            entryLookup?.TryGetValue(interaction.Id, out entry);
             var turnNum = entry?.TurnNumber ?? 0;
             if (turnGroups.Count == 0 || turnGroups[^1].TurnNumber != turnNum)
             {
@@ -70,22 +69,19 @@ public sealed class InteractionHistorySlot : IPromptSlot
             turnGroups[^1].Items.Add((interaction, entry));
         }
 
-        var recentTurns = turnGroups.Count <= fullDetailTurns.Value
-            ? turnGroups
-            : turnGroups.GetRange(turnGroups.Count - fullDetailTurns.Value, fullDetailTurns.Value);
-
-        // Exclude the current in-progress turn from history —
-        // its interactions live in SceneContext (Last beats) instead.
-        var currentTurnIndex = context.TurnIndex;
-        var completedTurns = currentTurnIndex.HasValue
-            ? recentTurns.Where(t => t.TurnNumber < currentTurnIndex.Value).ToList()
-            : recentTurns;
+        // Narrative variant: only the current (last) turn — prior turns are
+        // already captured by each previous turn's narrative close.
+        var recentTurns = context.Variant == PromptVariant.Narrative && turnGroups.Count > 0
+            ? [turnGroups[^1]]
+            : turnGroups.Count <= fullDetailTurns.Value
+                ? turnGroups
+                : turnGroups.GetRange(turnGroups.Count - fullDetailTurns.Value, fullDetailTurns.Value);
 
         var sb = new StringBuilder();
         sb.AppendLine("Interaction History:");
 
         var roleMap = context.ActorRoleMap;
-        foreach (var turn in completedTurns)
+        foreach (var turn in recentTurns)
         {
             sb.AppendLine($"  Turn {turn.TurnNumber}:");
             foreach (var (interaction, entry) in turn.Items)
@@ -102,7 +98,7 @@ public sealed class InteractionHistorySlot : IPromptSlot
 
         _logger.LogDebug(
             "InteractionHistorySlot: SessionId={SessionId} Turns={Turns} Interactions={Interactions}",
-            session.Id, completedTurns.Count, interactions.Count);
+            session.Id, recentTurns.Count, interactions.Count);
 
         return Task.FromResult(sb.ToString().TrimEnd());
     }
