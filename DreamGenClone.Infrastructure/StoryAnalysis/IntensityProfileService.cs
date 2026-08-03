@@ -15,16 +15,46 @@ public sealed class IntensityProfileService : IIntensityProfileService
         int CommittedPhaseOffset = 0,
         int ApproachingPhaseOffset = 1,
         int ClimaxPhaseOffset = 2,
-        int ResetPhaseOffset = -1);
+        int ResetPhaseOffset = -1,
+        string ProseStyleDirective = "",
+        string VoiceDirective = "",
+        string ToneDirective = "",
+        string FocusDirective = "",
+        string HeatLevelDirective = "");
 
     private static readonly DefaultToneProfile[] PocDefaultProfiles =
     [
         new(IntensityLadder.GetLabel(IntensityLevel.Emotional), IntensityLadder.GetDefaultDescription(IntensityLevel.Emotional), IntensityLevel.Emotional,
-            BuildUpPhaseOffset: 1, CommittedPhaseOffset: 2, ApproachingPhaseOffset: 3, ClimaxPhaseOffset: 4, ResetPhaseOffset: 0),
-        new(IntensityLadder.GetLabel(IntensityLevel.SuggestivePg12), IntensityLadder.GetDefaultDescription(IntensityLevel.SuggestivePg12), IntensityLevel.SuggestivePg12),
-        new(IntensityLadder.GetLabel(IntensityLevel.SensualMature), IntensityLadder.GetDefaultDescription(IntensityLevel.SensualMature), IntensityLevel.SensualMature),
-        new(IntensityLadder.GetLabel(IntensityLevel.Explicit), IntensityLadder.GetDefaultDescription(IntensityLevel.Explicit), IntensityLevel.Explicit),
-        new(IntensityLadder.GetLabel(IntensityLevel.Hardcore), IntensityLadder.GetDefaultDescription(IntensityLevel.Hardcore), IntensityLevel.Hardcore)
+            BuildUpPhaseOffset: 1, CommittedPhaseOffset: 2, ApproachingPhaseOffset: 3, ClimaxPhaseOffset: 4, ResetPhaseOffset: 0,
+            ProseStyleDirective: "Intimate, tender prose. Connection revealed through small gestures and vulnerability.",
+            VoiceDirective: "Favor emotional depth. Reveal the internal experience of intimacy.",
+            ToneDirective: "Intimate and warm. Emotionally charged but restrained.",
+            FocusDirective: "The deepening bond between characters. Trust, vulnerability, the risk of opening up.",
+            HeatLevelDirective: "Emotional intimacy. Tender gestures, eye contact, hand-holding, closeness. Physical expressions are meaningful but limited — let emotional connection lead."),
+        new(IntensityLadder.GetLabel(IntensityLevel.SuggestivePg12), IntensityLadder.GetDefaultDescription(IntensityLevel.SuggestivePg12), IntensityLevel.SuggestivePg12,
+            ProseStyleDirective: "Playful, charged prose. Attraction conveyed through subtext and what goes unsaid.",
+            VoiceDirective: "Express desire through suggestion and implication. Bodies speak where words do not.",
+            ToneDirective: "Flirtatious and suggestive. Light but electric.",
+            FocusDirective: "The thrill of the unspoken. Lingering glances, charged proximity, the anticipation of what might happen.",
+            HeatLevelDirective: "Suggestive only. Flirtation, teasing dialogue, casual touch, brief kisses. Maintain erotic tension through subtext — no explicit physical content."),
+        new(IntensityLadder.GetLabel(IntensityLevel.SensualMature), IntensityLadder.GetDefaultDescription(IntensityLevel.SensualMature), IntensityLevel.SensualMature,
+            ProseStyleDirective: "Sensory-driven prose. The body's experience of desire — what is touched, tasted, felt.",
+            VoiceDirective: "Build anticipation through physical detail. Describe each escalation as it happens.",
+            ToneDirective: "Warm and intimate. The heat of a touch, the weight of a look.",
+            FocusDirective: "The progression of physical intimacy. From tension to touch to the edge of surrender.",
+            HeatLevelDirective: "Sensual intimacy. Passionate kissing, caressing, exploration. Describe physical sensation and responsiveness. Avoid graphic anatomical detail."),
+        new(IntensityLadder.GetLabel(IntensityLevel.Explicit), IntensityLadder.GetDefaultDescription(IntensityLevel.Explicit), IntensityLevel.Explicit,
+            ProseStyleDirective: "Direct, visceral prose. Bodies and pleasure described without euphemism.",
+            VoiceDirective: "Stay grounded in physical reality. Describe each act as it unfolds.",
+            ToneDirective: "Raw and intimate. The physical truth of the moment.",
+            FocusDirective: "Physical pleasure. Arousal, penetration, response, climax — what the body experiences.",
+            HeatLevelDirective: "Explicit intimacy. Clear descriptions of sexual acts, arousal, penetration, and orgasm. Direct language. Graphic when the scene demands it."),
+        new(IntensityLadder.GetLabel(IntensityLevel.Hardcore), IntensityLadder.GetDefaultDescription(IntensityLevel.Hardcore), IntensityLevel.Hardcore,
+            ProseStyleDirective: "Unflinching, explicit prose. Anatomical detail, raw language, no softening.",
+            VoiceDirective: "Prioritize physical description and sensation. Bodies in motion, pleasure unfiltered.",
+            ToneDirective: "Raw, intense, unapologetically explicit.",
+            FocusDirective: "Maximum physical detail. Every act, every reaction, every sensation — breasts, genitals, penetration, oral sex, orgasms, cum shots.",
+            HeatLevelDirective: "Hardcore. Graphic descriptions of all sexual acts and anatomy. Raw language throughout. Emphasis on visual detail, physical sensation, and female pleasure. No romantic filters — pure, intense erotica.")
     ];
 
     private readonly ISqlitePersistence _persistence;
@@ -220,6 +250,11 @@ public sealed class IntensityProfileService : IIntensityProfileService
                     ApproachingPhaseOffset = item.ApproachingPhaseOffset,
                     ClimaxPhaseOffset = item.ClimaxPhaseOffset,
                     ResetPhaseOffset = item.ResetPhaseOffset,
+                    ProseStyleDirective = item.ProseStyleDirective,
+                    VoiceDirective = item.VoiceDirective,
+                    ToneDirective = item.ToneDirective,
+                    FocusDirective = item.FocusDirective,
+                    HeatLevelDirective = item.HeatLevelDirective,
                     CreatedUtc = DateTime.UtcNow,
                     UpdatedUtc = DateTime.UtcNow
                 };
@@ -231,7 +266,12 @@ public sealed class IntensityProfileService : IIntensityProfileService
 
             var shouldBackfillName = string.IsNullOrWhiteSpace(existing.Name);
             var shouldBackfillDescription = string.IsNullOrWhiteSpace(existing.Description);
-            if (shouldBackfillName || shouldBackfillDescription)
+            var shouldBackfillProse = string.IsNullOrWhiteSpace(existing.ProseStyleDirective);
+            var shouldBackfillVoice = string.IsNullOrWhiteSpace(existing.VoiceDirective);
+            var shouldBackfillTone = string.IsNullOrWhiteSpace(existing.ToneDirective);
+            var shouldBackfillFocus = string.IsNullOrWhiteSpace(existing.FocusDirective);
+            var shouldBackfillHeat = string.IsNullOrWhiteSpace(existing.HeatLevelDirective);
+            if (shouldBackfillName || shouldBackfillDescription || shouldBackfillProse || shouldBackfillVoice || shouldBackfillTone || shouldBackfillFocus || shouldBackfillHeat)
             {
                 if (shouldBackfillName)
                 {
@@ -241,6 +281,31 @@ public sealed class IntensityProfileService : IIntensityProfileService
                 if (shouldBackfillDescription)
                 {
                     existing.Description = item.Description;
+                }
+
+                if (shouldBackfillProse)
+                {
+                    existing.ProseStyleDirective = item.ProseStyleDirective;
+                }
+
+                if (shouldBackfillVoice)
+                {
+                    existing.VoiceDirective = item.VoiceDirective;
+                }
+
+                if (shouldBackfillTone)
+                {
+                    existing.ToneDirective = item.ToneDirective;
+                }
+
+                if (shouldBackfillFocus)
+                {
+                    existing.FocusDirective = item.FocusDirective;
+                }
+
+                if (shouldBackfillHeat)
+                {
+                    existing.HeatLevelDirective = item.HeatLevelDirective;
                 }
 
                 existing.UpdatedUtc = DateTime.UtcNow;

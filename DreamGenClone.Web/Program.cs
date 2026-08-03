@@ -298,6 +298,17 @@ using (var scope = app.Services.CreateScope())
     var themePreferenceService = scope.ServiceProvider.GetRequiredService<IThemePreferenceService>();
     await themePreferenceService.AutoLinkToCatalogAsync();
 
+    // Seed a default ScenarioEngineSettings row if none exists (fail-fast LoadAsync requires a row).
+    var engineSettingsRepository = scope.ServiceProvider.GetRequiredService<IScenarioEngineSettingsRepository>();
+    try
+    {
+        await engineSettingsRepository.LoadAsync();
+    }
+    catch (InvalidOperationException)
+    {
+        await engineSettingsRepository.SaveAsync(new DreamGenClone.Domain.RolePlay.ScenarioEngineSettings());
+    }
+
     var characterProfileService = scope.ServiceProvider.GetRequiredService<ICharacterProfileService>();
     await characterProfileService.EnsureDefaultsAsync();
 }

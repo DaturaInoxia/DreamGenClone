@@ -1941,6 +1941,53 @@ public sealed class SqlitePersistence : ISqlitePersistence
             _logger.LogInformation("Migrated StyleProfiles table: added ThemeAffinities, EscalatingThemeIds, StatBias columns");
         }
 
+        // Migrate: add ImmersionDirective, ActionDirective, WordTargetMin, WordTargetMax,
+        // NarrativeWordTargetMin, NarrativeWordTargetMax columns to StyleProfiles if missing
+        var checkImmersionDirective = connection.CreateCommand();
+        checkImmersionDirective.CommandText = "SELECT COUNT(*) FROM pragma_table_info('StyleProfiles') WHERE name='ImmersionDirective'";
+        var hasImmersionDirective = Convert.ToInt64(await checkImmersionDirective.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasImmersionDirective)
+        {
+            var alterImmersion = connection.CreateCommand();
+            alterImmersion.CommandText = "ALTER TABLE StyleProfiles ADD COLUMN ImmersionDirective TEXT NOT NULL DEFAULT ''";
+            await alterImmersion.ExecuteNonQueryAsync(cancellationToken);
+
+            var alterAction = connection.CreateCommand();
+            alterAction.CommandText = "ALTER TABLE StyleProfiles ADD COLUMN ActionDirective TEXT NOT NULL DEFAULT ''";
+            await alterAction.ExecuteNonQueryAsync(cancellationToken);
+
+            var alterWordMin = connection.CreateCommand();
+            alterWordMin.CommandText = "ALTER TABLE StyleProfiles ADD COLUMN WordTargetMin INTEGER NOT NULL DEFAULT 0";
+            await alterWordMin.ExecuteNonQueryAsync(cancellationToken);
+
+            var alterWordMax = connection.CreateCommand();
+            alterWordMax.CommandText = "ALTER TABLE StyleProfiles ADD COLUMN WordTargetMax INTEGER NOT NULL DEFAULT 0";
+            await alterWordMax.ExecuteNonQueryAsync(cancellationToken);
+
+            var alterNarrMin = connection.CreateCommand();
+            alterNarrMin.CommandText = "ALTER TABLE StyleProfiles ADD COLUMN NarrativeWordTargetMin INTEGER NOT NULL DEFAULT 0";
+            await alterNarrMin.ExecuteNonQueryAsync(cancellationToken);
+
+            var alterNarrMax = connection.CreateCommand();
+            alterNarrMax.CommandText = "ALTER TABLE StyleProfiles ADD COLUMN NarrativeWordTargetMax INTEGER NOT NULL DEFAULT 0";
+            await alterNarrMax.ExecuteNonQueryAsync(cancellationToken);
+
+            _logger.LogInformation("Migrated StyleProfiles table: added ImmersionDirective, ActionDirective, WordTargetMin, WordTargetMax, NarrativeWordTargetMin, NarrativeWordTargetMax columns");
+        }
+
+        // Migrate: add DirectiveText column to RPThemePhaseGuidance if missing
+        var checkPhaseDirective = connection.CreateCommand();
+        checkPhaseDirective.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RPThemePhaseGuidance') WHERE name='DirectiveText'";
+        var hasPhaseDirective = Convert.ToInt64(await checkPhaseDirective.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasPhaseDirective)
+        {
+            var alterPhaseDirective = connection.CreateCommand();
+            alterPhaseDirective.CommandText = "ALTER TABLE RPThemePhaseGuidance ADD COLUMN DirectiveText TEXT NOT NULL DEFAULT ''";
+            await alterPhaseDirective.ExecuteNonQueryAsync(cancellationToken);
+
+            _logger.LogInformation("Migrated RPThemePhaseGuidance table: added DirectiveText column");
+        }
+
         // Migrate: add CatalogId column to ThemePreferences if missing
         var checkCatalogId = connection.CreateCommand();
         checkCatalogId.CommandText = "SELECT COUNT(*) FROM pragma_table_info('ThemePreferences') WHERE name='CatalogId'";

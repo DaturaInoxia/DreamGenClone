@@ -116,6 +116,13 @@ public sealed class StyleProfileAffinityTests
 
         Assert.Equal(5, sultry.StatBias["Desire"]);
         Assert.Equal(5, sultry.StatBias["Restraint"]);
+
+        Assert.Equal("Stay inside this character's perceptions, thoughts, feelings, and physical sensations. Show, don't tell.", sultry.ImmersionDirective);
+        Assert.Equal("Respond to the scene naturally.", sultry.ActionDirective);
+        Assert.Equal(200, sultry.WordTargetMin);
+        Assert.Equal(400, sultry.WordTargetMax);
+        Assert.Equal(300, sultry.NarrativeWordTargetMin);
+        Assert.Equal(500, sultry.NarrativeWordTargetMax);
     }
 
     private sealed class InMemoryStyleProfilePersistence : ISqlitePersistence
