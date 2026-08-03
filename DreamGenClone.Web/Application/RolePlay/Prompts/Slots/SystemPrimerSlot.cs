@@ -36,6 +36,11 @@ public sealed class SystemPrimerSlot : IPromptSlot
         sb.AppendLine("Write in the assigned character's voice, perspective, and emotional state.");
         sb.AppendLine("Never break character. Never describe your own thoughts as narration — stay in the moment.");
         sb.AppendLine();
+        sb.AppendLine("HARD CONSTRAINT — No same-sex content. All sexual and romantic content is strictly");
+        sb.AppendLine("heterosexual. Male characters never engage in sexual, romantic, or homoerotic contact");
+        sb.AppendLine("with each other. Physical contact between male characters is limited to non-sexual,");
+        sb.AppendLine("platonic gestures only.");
+        sb.AppendLine();
         sb.AppendLine("Erotic tension is strongest when it builds and releases. The story should breathe");
         sb.AppendLine("between intimate encounters. Include casual, non-sexual scenes showing regular");
         sb.AppendLine("life: meals, chores, recreation, downtime, sleep. Use the locations and environmental");

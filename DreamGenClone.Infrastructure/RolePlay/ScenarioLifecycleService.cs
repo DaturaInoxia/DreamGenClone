@@ -347,6 +347,10 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
         return new CharacterStatProfileV2
         {
             CharacterId = snapshot.CharacterId,
+            // Preserve the narrative role across the cycle boundary. The gate's average-stat
+            // computation only includes characters with a non-empty CharacterRole, so dropping
+            // it here would silently zero out gate metrics (e.g. Avg Desire) on the next arc.
+            CharacterRole = snapshot.CharacterRole,
             Desire = MoveTowardBaseline(snapshot.Desire, ResolveBaseline("Desire"), EffectivePull("Desire")),
             Restraint = MoveTowardBaseline(snapshot.Restraint, ResolveBaseline("Restraint"), EffectivePull("Restraint")),
             Dominance = MoveTowardBaseline(snapshot.Dominance, ResolveBaseline("Dominance"), EffectivePull("Dominance")),

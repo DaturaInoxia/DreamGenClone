@@ -253,6 +253,7 @@ public sealed class PhaseLifecycleTransitionTests
         state.CycleIndex = 4;
         state.ActiveFormulaVersion = "custom-v2";
         var snapshot = state.CharacterSnapshots[0];
+        snapshot.CharacterRole = "Wife";
 
         var reset = await _service.ExecuteResetAsync(state, ResetReason.Completion);
         var decayed = reset.CharacterSnapshots[0];
@@ -262,6 +263,7 @@ public sealed class PhaseLifecycleTransitionTests
         Assert.Equal("custom-v2", reset.ActiveFormulaVersion);
         Assert.Single(reset.CharacterSnapshots);
         Assert.Equal(snapshot.CharacterId, reset.CharacterSnapshots[0].CharacterId);
+        Assert.Equal("Wife", reset.CharacterSnapshots[0].CharacterRole);
         Assert.True(decayed.Desire < snapshot.Desire);
         Assert.Equal(snapshot.RuntimeEncounterStats?.GetValueOrDefault("Tension") ?? 50, decayed.RuntimeEncounterStats?.GetValueOrDefault("Tension") ?? 50);
         Assert.True(decayed.Dominance <= snapshot.Dominance);
