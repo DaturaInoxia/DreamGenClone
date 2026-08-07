@@ -700,6 +700,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 ModelIdentifier TEXT NOT NULL,
                 DisplayName TEXT NOT NULL,
                 IsEnabled INTEGER NOT NULL DEFAULT 1,
+                SupportsThinkingControl INTEGER NOT NULL DEFAULT 0,
                 CreatedUtc TEXT NOT NULL,
                 ContextWindowSize INTEGER NOT NULL DEFAULT 0,
                 Quantization TEXT NOT NULL DEFAULT '',
@@ -716,6 +717,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 Temperature REAL NOT NULL DEFAULT 0.7,
                 TopP REAL NOT NULL DEFAULT 0.9,
                 MaxTokens INTEGER NOT NULL DEFAULT 500,
+                ThinkingMode INTEGER NOT NULL DEFAULT 0,
                 MaxConcurrentJobs INTEGER NULL,
                 UpdatedUtc TEXT NOT NULL,
                 FOREIGN KEY (ModelId) REFERENCES RegisteredModels(Id)
@@ -2053,6 +2055,30 @@ public sealed class SqlitePersistence : ISqlitePersistence
         await MarkLegacyMigrationsCompleteAsync(connection, cancellationToken);
 
     AfterLegacyMigrations:
+
+        // Thinking-control migrations must run for every database, including databases whose
+        // legacy migration version is already complete.
+        var checkThinkingControl = connection.CreateCommand();
+        checkThinkingControl.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RegisteredModels') WHERE name='SupportsThinkingControl'";
+        var hasThinkingControl = Convert.ToInt64(await checkThinkingControl.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasThinkingControl)
+        {
+            var alterThinkingControl = connection.CreateCommand();
+            alterThinkingControl.CommandText = "ALTER TABLE RegisteredModels ADD COLUMN SupportsThinkingControl INTEGER NOT NULL DEFAULT 0";
+            await alterThinkingControl.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated RegisteredModels table: added SupportsThinkingControl column");
+        }
+
+        var checkThinkingMode = connection.CreateCommand();
+        checkThinkingMode.CommandText = "SELECT COUNT(*) FROM pragma_table_info('FunctionModelDefaults') WHERE name='ThinkingMode'";
+        var hasThinkingMode = Convert.ToInt64(await checkThinkingMode.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasThinkingMode)
+        {
+            var addThinkingMode = connection.CreateCommand();
+            addThinkingMode.CommandText = "ALTER TABLE FunctionModelDefaults ADD COLUMN ThinkingMode INTEGER NOT NULL DEFAULT 0";
+            await addThinkingMode.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated FunctionModelDefaults: added ThinkingMode column");
+        }
 
         // 001-opening-period: seed OpeningGuidanceText into scenario payload JSON.
         // Runs unconditionally (outside the legacy-migration gate) so existing DBs get seeded.

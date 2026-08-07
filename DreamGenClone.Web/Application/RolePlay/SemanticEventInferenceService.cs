@@ -143,7 +143,15 @@ public sealed class SemanticEventInferenceService : ISemanticEventInferenceServi
                 request.InteractionId,
                 ex.Message,
                 output ?? string.Empty);
-            throw;
+            return new SemanticEventInferenceResult
+            {
+                Success = false,
+                ErrorMessage = ex.Message,
+                Events = Array.Empty<SemanticInferredEvent>(),
+                RawModelOutput = output ?? string.Empty,
+                PromptSystem = systemMessage,
+                PromptUser = userMessage
+            };
         }
 
         _logger?.LogInformation(

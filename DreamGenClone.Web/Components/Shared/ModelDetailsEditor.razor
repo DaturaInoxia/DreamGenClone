@@ -45,6 +45,14 @@
                     </label>
                 </div>
             </div>
+            <div class="col-md-4">
+                <label class="form-label">Thinking Control</label>
+                <div class="form-check form-switch mt-2">
+                    <input class="form-check-input" type="checkbox" @bind="_supportsThinkingControl" id="details-thinking-control" />
+                    <label class="form-check-label" for="details-thinking-control">Supported by chat template</label>
+                </div>
+                <div class="form-text">Enable only when the provider supports chat_template_kwargs.thinking.</div>
+            </div>
             <div class="col-12">
                 <label class="form-label">Notes</label>
                 <textarea class="form-control" rows="2" @bind="_notes" maxlength="1000"
@@ -266,6 +274,7 @@
     private string _modelIdentifier = "";
     private string _displayName = "";
     private bool _isEnabled;
+    private bool _supportsThinkingControl;
     private int _contextWindowSize;
     private string _parameterCount = "";
     private string _quantization = "";
@@ -288,6 +297,7 @@
         _modelIdentifier = Model.ModelIdentifier;
         _displayName = Model.DisplayName;
         _isEnabled = Model.IsEnabled;
+        _supportsThinkingControl = Model.SupportsThinkingControl;
         _contextWindowSize = Model.ContextWindowSize;
         _parameterCount = Model.ParameterCount;
         _quantization = Model.Quantization;
@@ -316,6 +326,7 @@
             Model.ModelIdentifier = _modelIdentifier.Trim();
             Model.DisplayName = _displayName.Trim();
             Model.IsEnabled = _isEnabled;
+            Model.SupportsThinkingControl = _supportsThinkingControl;
             Model.ContextWindowSize = _contextWindowSize;
             Model.ParameterCount = _parameterCount.Trim();
             Model.Quantization = _quantization.Trim();
@@ -351,6 +362,7 @@
             Model.ModelIdentifier = _modelIdentifier.Trim();
             Model.DisplayName = _displayName.Trim();
             Model.IsEnabled = _isEnabled;
+            Model.SupportsThinkingControl = _supportsThinkingControl;
             Model.ContextWindowSize = _contextWindowSize;
             Model.ParameterCount = _parameterCount.Trim();
             Model.Quantization = _quantization.Trim();

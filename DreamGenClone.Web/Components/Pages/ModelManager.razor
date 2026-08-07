@@ -276,6 +276,14 @@
                                     <label class="form-label">Display Name <span class="text-danger">*</span></label>
                                     <input type="text" class="form-control" @bind="_editingModel!.DisplayName" maxlength="200" />
                                 </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Thinking Control</label>
+                                    <div class="form-check form-switch mt-2">
+                                        <input class="form-check-input" type="checkbox" @bind="_editingModel!.SupportsThinkingControl" id="model-thinking-control" />
+                                        <label class="form-check-label" for="model-thinking-control">Supported by chat template</label>
+                                    </div>
+                                    <div class="form-text">Enable only when the provider supports chat_template_kwargs.thinking.</div>
+                                </div>
                             </div>
                             @if (!string.IsNullOrEmpty(_modelFormError))
                             {
@@ -369,6 +377,7 @@
                                 <th style="width:120px">Temperature</th>
                                 <th style="width:100px">Top P</th>
                                 <th style="width:100px">Max Tokens</th>
+                                <th style="width:120px">Thinking</th>
                                 <th style="width:100px">Max Parallel</th>
                                 <th style="width:80px"></th>
                             </tr>
@@ -410,6 +419,13 @@
                                     <td>
                                         <input type="number" class="form-control form-control-sm" min="1" max="8000"
                                                value="@state.MaxTokens" @onchange="e => state.MaxTokens = ParseInt(e, 500)" />
+                                    </td>
+                                    <td>
+                                        <select class="form-select form-select-sm" value="@state.ThinkingMode" @onchange="e => state.ThinkingMode = ParseThinkingMode(e)">
+                                            <option value="Default">Default (omit)</option>
+                                            <option value="Enabled">Enabled</option>
+                                            <option value="Disabled">Disabled</option>
+                                        </select>
                                     </td>
                                     <td>
                                         @if (func == AppFunction.RolePlaySemanticAnalysis)
@@ -542,6 +558,7 @@
                     Temperature = fd?.Temperature ?? 0.7,
                     TopP = fd?.TopP ?? 0.9,
                     MaxTokens = fd?.MaxTokens ?? 500,
+                    ThinkingMode = fd?.ThinkingMode ?? ThinkingMode.Default,
                     MaxConcurrentJobs = fd?.MaxConcurrentJobs,
                     HasBeenSaved = fd is not null,
                     ExistingId = fd?.Id
@@ -731,6 +748,7 @@
             ModelIdentifier = model.ModelIdentifier,
             DisplayName = model.DisplayName,
             IsEnabled = model.IsEnabled,
+            SupportsThinkingControl = model.SupportsThinkingControl,
             CreatedUtc = model.CreatedUtc
         };
         _modelFormError = null;
@@ -822,6 +840,7 @@
             IsEnabled = model.IsEnabled,
             CreatedUtc = model.CreatedUtc,
             ProviderName = model.ProviderName,
+            SupportsThinkingControl = model.SupportsThinkingControl,
             ContextWindowSize = model.ContextWindowSize,
             Quantization = model.Quantization,
             ParameterCount = model.ParameterCount,
@@ -902,6 +921,7 @@
                 Temperature = state.Temperature,
                 TopP = state.TopP,
                 MaxTokens = state.MaxTokens,
+                ThinkingMode = state.ThinkingMode,
                 MaxConcurrentJobs = state.MaxConcurrentJobs
             };
             await Facade.SaveFunctionDefaultAsync(fd);
@@ -977,6 +997,13 @@
         return string.IsNullOrWhiteSpace(s) ? null : int.TryParse(s, out var v) ? v : null;
     }
 
+    private static ThinkingMode ParseThinkingMode(ChangeEventArgs e)
+    {
+        return Enum.TryParse<ThinkingMode>(e.Value?.ToString(), out var value)
+            ? value
+            : ThinkingMode.Default;
+    }
+
     private static string FormatTimestamp(string isoTimestamp)
     {
         return DateTime.TryParse(isoTimestamp, out var dt)
@@ -990,6 +1017,7 @@
         public double Temperature { get; set; } = 0.7;
         public double TopP { get; set; } = 0.9;
         public int MaxTokens { get; set; } = 500;
+        public ThinkingMode ThinkingMode { get; set; } = ThinkingMode.Default;
         public int? MaxConcurrentJobs { get; set; }
         public bool HasBeenSaved { get; set; }
         public string? ExistingId { get; set; }

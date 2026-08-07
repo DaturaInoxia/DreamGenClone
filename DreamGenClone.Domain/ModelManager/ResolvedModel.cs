@@ -19,5 +19,6 @@ public sealed record ResolvedModel(
     /// its event-extraction task is deterministic JSON output and extended reasoning was
     /// producing 30K+ char traces that failed JSON parsing.
     /// </summary>
-    public bool DisableThinking { get; init; }
+    public bool SupportsThinkingControl { get; init; }
+    public ThinkingMode ThinkingMode { get; init; }
 }

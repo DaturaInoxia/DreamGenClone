@@ -278,13 +278,30 @@ public sealed class ThemeMachineEvaluator : IThemeMachineEvaluator
                 ex);
         }
 
-        if (!root.TryGetProperty("minimumInteractions", out var minimumInteractionsProperty)
-            || minimumInteractionsProperty.ValueKind != JsonValueKind.Number
-            || !minimumInteractionsProperty.TryGetInt32(out var minimumInteractions)
-            || minimumInteractions < 0)
+        // Prefer the canonical post-migration turn threshold (minimumTurns). Legacy rows that
+        // predate the B-044 interaction→turn migration store minimumInteractions; accept those
+        // ÷3 ceiling (the one permitted runtime interaction→turn conversion, legacy-read path
+        // only — spec 001-replace-interactions-turns R5/T026).
+        int minimumTurns = -1;
+        var hasCanonicalTurns = root.TryGetProperty("minimumTurns", out var minimumTurnsProperty)
+            && minimumTurnsProperty.ValueKind == JsonValueKind.Number
+            && minimumTurnsProperty.TryGetInt32(out minimumTurns)
+            && minimumTurns >= 0;
+        int legacyInteractions = -1;
+        var hasLegacyInteractions = root.TryGetProperty("minimumInteractions", out var legacyInteractionsProperty)
+            && legacyInteractionsProperty.ValueKind == JsonValueKind.Number
+            && legacyInteractionsProperty.TryGetInt32(out legacyInteractions)
+            && legacyInteractions >= 0;
+
+        if (!hasCanonicalTurns && !hasLegacyInteractions)
         {
             throw new InvalidOperationException(
-                $"Theme machine evaluation failed for session '{sessionId}': cooldown transition '{transition.TransitionId}' is missing required integer minimumInteractions >= 0.");
+                $"Theme machine evaluation failed for session '{sessionId}': cooldown transition '{transition.TransitionId}' is missing required integer minimumTurns >= 0.");
+        }
+
+        if (!hasCanonicalTurns)
+        {
+            minimumTurns = Math.Max(0, (legacyInteractions + 2) / 3);
         }
 
         if (!root.TryGetProperty("requireReturnBeatCompleted", out var requireReturnBeatCompletedProperty)
@@ -301,9 +318,9 @@ public sealed class ThemeMachineEvaluator : IThemeMachineEvaluator
             _ = ResolveConfiguredReturnBeatCompletionSignals(root, transition.TransitionId, sessionId);
         }
 
-        var interactionsGatePassed = snapshot.TurnsInCurrentState >= minimumInteractions;
+        var turnsGatePassed = snapshot.TurnsInCurrentState >= minimumTurns;
         var returnBeatGatePassed = !requireReturnBeatCompleted || snapshot.ReturnBeatCompleted;
-        if (interactionsGatePassed && returnBeatGatePassed)
+        if (turnsGatePassed && returnBeatGatePassed)
         {
             return GateEvaluationResult.EligibleResult;
         }

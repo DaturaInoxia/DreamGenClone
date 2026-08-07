@@ -4505,12 +4505,23 @@ public sealed partial class RPThemeService : IRPThemeService
         string transitionId,
         JsonElement gateConfig)
     {
-        if (!gateConfig.TryGetProperty("minimumInteractions", out var minimumInteractionsProperty)
-            || minimumInteractionsProperty.ValueKind != JsonValueKind.Number
-            || !minimumInteractionsProperty.TryGetInt32(out var minimumInteractions)
-            || minimumInteractions < 0)
+        // Prefer the canonical post-migration turn threshold (minimumTurns); accept legacy
+        // minimumInteractions (÷3 ceiling) for rows that predate the B-044 interaction→turn
+        // migration (spec 001-replace-interactions-turns T025).
+        int minimumTurns = -1;
+        var hasCanonicalTurns = gateConfig.TryGetProperty("minimumTurns", out var minimumTurnsProperty)
+            && minimumTurnsProperty.ValueKind == JsonValueKind.Number
+            && minimumTurnsProperty.TryGetInt32(out minimumTurns)
+            && minimumTurns >= 0;
+        int legacyInteractions = -1;
+        var hasLegacyInteractions = gateConfig.TryGetProperty("minimumInteractions", out var legacyInteractionsProperty)
+            && legacyInteractionsProperty.ValueKind == JsonValueKind.Number
+            && legacyInteractionsProperty.TryGetInt32(out legacyInteractions)
+            && legacyInteractions >= 0;
+
+        if (!hasCanonicalTurns && !hasLegacyInteractions)
         {
-            errors.Add($"Transition '{transitionId}' cooldown gate config must include integer minimumInteractions >= 0.");
+            errors.Add($"Transition '{transitionId}' cooldown gate config must include integer minimumTurns >= 0.");
         }
 
         if (!gateConfig.TryGetProperty("requireReturnBeatCompleted", out var requireReturnBeatCompletedProperty)

@@ -33,6 +33,9 @@ public sealed class SemanticInteractionAnalysisRepository : ISemanticInteraction
                 Status,
                 ErrorMessage,
                 ResultJson,
+                PromptSystem,
+                PromptUser,
+                RawModelOutput,
                 CreatedUtc,
                 UpdatedUtc,
                 AnalyzedUtc)
@@ -44,6 +47,9 @@ public sealed class SemanticInteractionAnalysisRepository : ISemanticInteraction
                 $status,
                 $errorMessage,
                 $resultJson,
+                $promptSystem,
+                $promptUser,
+                $rawModelOutput,
                 $createdUtc,
                 $updatedUtc,
                 $analyzedUtc)
@@ -52,6 +58,9 @@ public sealed class SemanticInteractionAnalysisRepository : ISemanticInteraction
                 Status = excluded.Status,
                 ErrorMessage = excluded.ErrorMessage,
                 ResultJson = excluded.ResultJson,
+                PromptSystem = excluded.PromptSystem,
+                PromptUser = excluded.PromptUser,
+                RawModelOutput = excluded.RawModelOutput,
                 UpdatedUtc = excluded.UpdatedUtc,
                 AnalyzedUtc = excluded.AnalyzedUtc;
             """;
@@ -62,6 +71,9 @@ public sealed class SemanticInteractionAnalysisRepository : ISemanticInteraction
         command.Parameters.AddWithValue("$status", state.Status.ToString());
         command.Parameters.AddWithValue("$errorMessage", (object?)state.ErrorMessage ?? DBNull.Value);
         command.Parameters.AddWithValue("$resultJson", (object?)state.ResultJson ?? DBNull.Value);
+        command.Parameters.AddWithValue("$promptSystem", (object?)state.PromptSystem ?? DBNull.Value);
+        command.Parameters.AddWithValue("$promptUser", (object?)state.PromptUser ?? DBNull.Value);
+        command.Parameters.AddWithValue("$rawModelOutput", (object?)state.RawModelOutput ?? DBNull.Value);
         command.Parameters.AddWithValue("$createdUtc", state.CreatedUtc.ToString("O"));
         command.Parameters.AddWithValue("$updatedUtc", state.UpdatedUtc.ToString("O"));
         command.Parameters.AddWithValue("$analyzedUtc", state.AnalyzedUtc?.ToString("O") ?? (object)DBNull.Value);
@@ -84,7 +96,7 @@ public sealed class SemanticInteractionAnalysisRepository : ISemanticInteraction
 
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT Id, SessionId, InteractionId, CharacterId, Status, ErrorMessage, ResultJson, CreatedUtc, UpdatedUtc, AnalyzedUtc
+            SELECT Id, SessionId, InteractionId, CharacterId, Status, ErrorMessage, ResultJson, PromptSystem, PromptUser, RawModelOutput, CreatedUtc, UpdatedUtc, AnalyzedUtc
             FROM RolePlaySemanticInteractionAnalysisState
             WHERE SessionId = $sessionId
             ORDER BY UpdatedUtc DESC;
@@ -104,11 +116,14 @@ public sealed class SemanticInteractionAnalysisRepository : ISemanticInteraction
                 Status = ParseStatus(reader.GetString(4), reader.GetString(1), reader.GetString(2)),
                 ErrorMessage = reader.IsDBNull(5) ? null : reader.GetString(5),
                 ResultJson = reader.IsDBNull(6) ? null : reader.GetString(6),
-                CreatedUtc = ParseUtc(reader.GetString(7), reader.GetString(1), reader.GetString(2), "CreatedUtc"),
-                UpdatedUtc = ParseUtc(reader.GetString(8), reader.GetString(1), reader.GetString(2), "UpdatedUtc"),
-                AnalyzedUtc = reader.IsDBNull(9)
+                PromptSystem = reader.IsDBNull(7) ? null : reader.GetString(7),
+                PromptUser = reader.IsDBNull(8) ? null : reader.GetString(8),
+                RawModelOutput = reader.IsDBNull(9) ? null : reader.GetString(9),
+                CreatedUtc = ParseUtc(reader.GetString(10), reader.GetString(1), reader.GetString(2), "CreatedUtc"),
+                UpdatedUtc = ParseUtc(reader.GetString(11), reader.GetString(1), reader.GetString(2), "UpdatedUtc"),
+                AnalyzedUtc = reader.IsDBNull(12)
                     ? null
-                    : ParseUtc(reader.GetString(9), reader.GetString(1), reader.GetString(2), "AnalyzedUtc")
+                    : ParseUtc(reader.GetString(12), reader.GetString(1), reader.GetString(2), "AnalyzedUtc")
             });
         }
 
@@ -136,7 +151,7 @@ public sealed class SemanticInteractionAnalysisRepository : ISemanticInteraction
 
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT Id, SessionId, InteractionId, CharacterId, Status, ErrorMessage, ResultJson, CreatedUtc, UpdatedUtc, AnalyzedUtc
+            SELECT Id, SessionId, InteractionId, CharacterId, Status, ErrorMessage, ResultJson, PromptSystem, PromptUser, RawModelOutput, CreatedUtc, UpdatedUtc, AnalyzedUtc
             FROM RolePlaySemanticInteractionAnalysisState
             WHERE SessionId = $sessionId AND InteractionId = $interactionId
             LIMIT 1;
@@ -159,11 +174,14 @@ public sealed class SemanticInteractionAnalysisRepository : ISemanticInteraction
             Status = ParseStatus(reader.GetString(4), reader.GetString(1), reader.GetString(2)),
             ErrorMessage = reader.IsDBNull(5) ? null : reader.GetString(5),
             ResultJson = reader.IsDBNull(6) ? null : reader.GetString(6),
-            CreatedUtc = ParseUtc(reader.GetString(7), reader.GetString(1), reader.GetString(2), "CreatedUtc"),
-            UpdatedUtc = ParseUtc(reader.GetString(8), reader.GetString(1), reader.GetString(2), "UpdatedUtc"),
-            AnalyzedUtc = reader.IsDBNull(9)
+            PromptSystem = reader.IsDBNull(7) ? null : reader.GetString(7),
+            PromptUser = reader.IsDBNull(8) ? null : reader.GetString(8),
+            RawModelOutput = reader.IsDBNull(9) ? null : reader.GetString(9),
+            CreatedUtc = ParseUtc(reader.GetString(10), reader.GetString(1), reader.GetString(2), "CreatedUtc"),
+            UpdatedUtc = ParseUtc(reader.GetString(11), reader.GetString(1), reader.GetString(2), "UpdatedUtc"),
+            AnalyzedUtc = reader.IsDBNull(12)
                 ? null
-                : ParseUtc(reader.GetString(9), reader.GetString(1), reader.GetString(2), "AnalyzedUtc")
+                : ParseUtc(reader.GetString(12), reader.GetString(1), reader.GetString(2), "AnalyzedUtc")
         };
     }
 
@@ -196,7 +214,7 @@ public sealed class SemanticInteractionAnalysisRepository : ISemanticInteraction
 
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT Id, SessionId, InteractionId, CharacterId, Status, ErrorMessage, ResultJson, CreatedUtc, UpdatedUtc, AnalyzedUtc
+            SELECT Id, SessionId, InteractionId, CharacterId, Status, ErrorMessage, ResultJson, PromptSystem, PromptUser, RawModelOutput, CreatedUtc, UpdatedUtc, AnalyzedUtc
             FROM RolePlaySemanticInteractionAnalysisState
             WHERE SessionId = $sessionId AND CharacterId = $characterId
             ORDER BY UpdatedUtc DESC
@@ -220,11 +238,14 @@ public sealed class SemanticInteractionAnalysisRepository : ISemanticInteraction
             Status = ParseStatus(reader.GetString(4), reader.GetString(1), reader.GetString(2)),
             ErrorMessage = reader.IsDBNull(5) ? null : reader.GetString(5),
             ResultJson = reader.IsDBNull(6) ? null : reader.GetString(6),
-            CreatedUtc = ParseUtc(reader.GetString(7), reader.GetString(1), reader.GetString(2), "CreatedUtc"),
-            UpdatedUtc = ParseUtc(reader.GetString(8), reader.GetString(1), reader.GetString(2), "UpdatedUtc"),
-            AnalyzedUtc = reader.IsDBNull(9)
+            PromptSystem = reader.IsDBNull(7) ? null : reader.GetString(7),
+            PromptUser = reader.IsDBNull(8) ? null : reader.GetString(8),
+            RawModelOutput = reader.IsDBNull(9) ? null : reader.GetString(9),
+            CreatedUtc = ParseUtc(reader.GetString(10), reader.GetString(1), reader.GetString(2), "CreatedUtc"),
+            UpdatedUtc = ParseUtc(reader.GetString(11), reader.GetString(1), reader.GetString(2), "UpdatedUtc"),
+            AnalyzedUtc = reader.IsDBNull(12)
                 ? null
-                : ParseUtc(reader.GetString(9), reader.GetString(1), reader.GetString(2), "AnalyzedUtc")
+                : ParseUtc(reader.GetString(12), reader.GetString(1), reader.GetString(2), "AnalyzedUtc")
         };
     }
 
@@ -258,6 +279,9 @@ public sealed class SemanticInteractionAnalysisRepository : ISemanticInteraction
                 Status TEXT NOT NULL,
                 ErrorMessage TEXT NULL,
                 ResultJson TEXT NULL,
+                PromptSystem TEXT NULL,
+                PromptUser TEXT NULL,
+                RawModelOutput TEXT NULL,
                 CreatedUtc TEXT NOT NULL,
                 UpdatedUtc TEXT NOT NULL,
                 AnalyzedUtc TEXT NULL,
@@ -268,6 +292,25 @@ public sealed class SemanticInteractionAnalysisRepository : ISemanticInteraction
                 ON RolePlaySemanticInteractionAnalysisState (SessionId, UpdatedUtc DESC);
             """;
         await command.ExecuteNonQueryAsync(cancellationToken);
+
+        // Migration: add PromptSystem, PromptUser, RawModelOutput columns to pre-existing tables.
+        await MigrateAddColumnAsync(connection, "PromptSystem", "TEXT NULL", cancellationToken);
+        await MigrateAddColumnAsync(connection, "PromptUser", "TEXT NULL", cancellationToken);
+        await MigrateAddColumnAsync(connection, "RawModelOutput", "TEXT NULL", cancellationToken);
+    }
+
+    private static async Task MigrateAddColumnAsync(SqliteConnection connection, string column, string columnDef, CancellationToken cancellationToken)
+    {
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = $"ALTER TABLE RolePlaySemanticInteractionAnalysisState ADD COLUMN {column} {columnDef}";
+        try
+        {
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+        catch (SqliteException ex) when (ex.Message.Contains("duplicate column", StringComparison.OrdinalIgnoreCase))
+        {
+            // Column already exists — migration already applied.
+        }
     }
 
     private static SemanticAnalysisStatus ParseStatus(string value, string sessionId, string interactionId)

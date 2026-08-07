@@ -99,17 +99,14 @@ public sealed class EncounterSummaryJobHandler : IBackgroundJobHandler
         ResolvedModel resolvedModel;
         try
         {
-            // B-058 Phase 7.1: ArcCompletion + EncounterCompletion use the dedicated summary
-            // enhancement model slot, isolated from RolePlaySemanticAnalysis so its concurrency
-            // limits / model selection can be tuned independently. PhaseMilestone still uses the
-            // semantic analysis slot to preserve existing behavior (a single-slot config is fine
-            // for the cheaper milestone prompt).
-            var appFunction = recordsToEnhance.Any(r => r.SummaryType == EncounterSummaryType.PhaseMilestone
-                                                      && r.SummaryType != EncounterSummaryType.EncounterCompletion)
-                && recordsToEnhance.All(r => r.SummaryType == EncounterSummaryType.PhaseMilestone)
-                ? AppFunction.RolePlaySemanticAnalysis
-                : AppFunction.RolePlaySummaryEnhancement;
-            resolvedModel = await _modelResolutionService.ResolveAsync(appFunction, cancellationToken: cancellationToken);
+            // All memory enrichment (PhaseMilestone, ArcCompletion, EncounterCompletion) uses the
+            // dedicated summary-enhancement slot. PhaseMilestone prompts include up to 30 recent
+            // interactions and can exceed the RolePlaySemanticAnalysis model's context, so they
+            // must not share that slot. Interaction-phase semantic analysis
+            // (SemanticEventInferenceService) stays on RolePlaySemanticAnalysis.
+            resolvedModel = await _modelResolutionService.ResolveAsync(
+                AppFunction.RolePlaySummaryEnhancement,
+                cancellationToken: cancellationToken);
         }
         catch (Exception ex)
         {

@@ -19,7 +19,8 @@ public static class RolePlayAssistantPrompts
         return activeTheme.PhaseGuidance
             .Where(x => string.Equals(x.Phase.ToString(), phase, StringComparison.OrdinalIgnoreCase))
             .Where(x => !string.IsNullOrWhiteSpace(x.GuidanceText))
-            .Select(x => Regex.Replace(x.GuidanceText.Trim(), @"\[Aftermath:husband-contrast\]", "", RegexOptions.IgnoreCase).Trim())
+            .Select(x => StripPhaseGuidanceMarkers(x.GuidanceText.Trim()))
+            .Where(x => !string.IsNullOrWhiteSpace(x))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
@@ -36,10 +37,34 @@ public static class RolePlayAssistantPrompts
         return activeTheme.PhaseGuidance
             .Where(x => string.Equals(x.Phase.ToString(), phase, StringComparison.OrdinalIgnoreCase))
             .Where(x => !string.IsNullOrWhiteSpace(x.DirectiveText))
-            .Select(x => x.DirectiveText.Trim())
+            .Select(x => StripPhaseGuidanceMarkers(x.DirectiveText.Trim()))
+            .Where(x => !string.IsNullOrWhiteSpace(x))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
+
+    /// <summary>
+    /// Removes theme phase-guidance markers (<c>[BeatStyle:*]</c>, <c>[Pacing:*]</c>,
+    /// <c>[TimeShift:*]</c>, <c>[Granularity:*]</c>, <c>[ClimaxMode:*]</c>,
+    /// <c>[Aftermath:*]</c>, <c>[Deepening:*]</c>, <c>[ScenePresence]</c>) from guidance
+    /// prose before it is rendered to the model or UI. Markers are engine-side control
+    /// signals parsed from <see cref="RPTheme.PhaseGuidance"/> by the scene-direction
+    /// resolver — they must not leak as literal text into prompts. Marker parsing is
+    /// unaffected: resolution reads the raw guidance text, not these rendered lines.
+    /// </summary>
+    public static string StripPhaseGuidanceMarkers(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return string.Empty;
+        }
+
+        return PhaseGuidanceMarkerRegex.Replace(text, string.Empty).Trim();
+    }
+
+    private static readonly Regex PhaseGuidanceMarkerRegex = new(
+        @"\[(BeatStyle|Pacing|TimeShift|Granularity|ClimaxMode|Aftermath|Deepening|ScenePresence)(?::[A-Za-z0-9-]+)?\]",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     public static bool IsEpisodicBeatStyle(RPTheme? activeTheme, string phase)
     {

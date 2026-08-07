@@ -1163,12 +1163,14 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             PhaseGuidanceLines = phaseGuidance
                 .Select(g => g.GuidanceText)
                 .Where(t => !string.IsNullOrWhiteSpace(t))
-                .Select(t => t!.Trim())
+                .Select(t => RolePlayAssistantPrompts.StripPhaseGuidanceMarkers(t!.Trim()))
+                .Where(t => !string.IsNullOrWhiteSpace(t))
                 .ToList(),
             PhaseDirectiveLines = phaseGuidance
                 .Select(g => g.DirectiveText)
                 .Where(t => !string.IsNullOrWhiteSpace(t))
-                .Select(t => t!.Trim())
+                .Select(t => RolePlayAssistantPrompts.StripPhaseGuidanceMarkers(t!.Trim()))
+                .Where(t => !string.IsNullOrWhiteSpace(t))
                 .ToList(),
             AiGuidanceNotes = theme.AIGenerationNotes
                 .Where(n => !string.IsNullOrWhiteSpace(n.Text))

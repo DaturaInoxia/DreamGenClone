@@ -238,14 +238,16 @@ public sealed class CompletionClient : ICompletionClient
                 Temperature = resolved.Temperature,
                 TopP = resolved.TopP,
                 MaxTokens = resolved.MaxTokens,
-                ChatTemplateKwargs = resolved.DisableThinking
-                    ? new Dictionary<string, object> { ["thinking"] = false }
+                ChatTemplateKwargs = resolved.SupportsThinkingControl && resolved.ThinkingMode != ThinkingMode.Default
+                    ? new Dictionary<string, object> { ["thinking"] = resolved.ThinkingMode == ThinkingMode.Enabled }
                     : null
             };
 
             _logger.LogDebug(
-                "Completion request built: Model={ModelIdentifier}, DisableThinking={DisableThinking}",
-                resolved.ModelIdentifier, resolved.DisableThinking);
+                "Completion request built: Model={ModelIdentifier}, SupportsThinkingControl={SupportsThinkingControl}, ThinkingMode={ThinkingMode}",
+                resolved.ModelIdentifier,
+                resolved.SupportsThinkingControl,
+                resolved.ThinkingMode);
 
             // Strip leading "/" from path so it resolves relative to BaseAddress, not root
             var relativePath = resolved.ChatCompletionsPath.TrimStart('/');

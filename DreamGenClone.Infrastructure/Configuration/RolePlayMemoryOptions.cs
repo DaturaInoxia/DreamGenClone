@@ -48,4 +48,22 @@ public sealed class RolePlayMemoryOptions
     /// Default: 0.70.
     /// </summary>
     public decimal EncounterStartConfidenceThreshold { get; init; } = 0.70m;
+
+    /// <summary>
+    /// Number of prior interactions to include as context for semantic
+    /// encounter-start and encounter-completed detection inference. The current
+    /// interaction is always included separately as InteractionText. Keeping this
+    /// small keeps the inference prompt fast enough for the semantic model.
+    /// Default: 4.
+    /// </summary>
+    public int EncounterStartContextTurns { get; init; } = 4;
+
+    /// <summary>
+    /// Global confidence threshold for semantic encounter-completed (boundary) detection
+    /// when the theme has no explicit encounter-completed mapping. Themes WITH a mapping
+    /// use their per-theme ConfidenceMin/ConfidenceMax instead. Applied universally so
+    /// encounter-end detection works for all themes.
+    /// Default: 0.70.
+    /// </summary>
+    public decimal EncounterEndConfidenceThreshold { get; init; } = 0.70m;
 }

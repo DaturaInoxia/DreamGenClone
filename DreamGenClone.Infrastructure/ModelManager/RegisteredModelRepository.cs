@@ -25,13 +25,14 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
 
         var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO RegisteredModels (Id, ProviderId, ModelIdentifier, DisplayName, IsEnabled, CreatedUtc, ContextWindowSize, Quantization, ParameterCount, Notes)
-            VALUES ($id, $providerId, $identifier, $displayName, $enabled, $created, $ctxWindow, $quant, $paramCount, $notes)
+            INSERT INTO RegisteredModels (Id, ProviderId, ModelIdentifier, DisplayName, IsEnabled, SupportsThinkingControl, CreatedUtc, ContextWindowSize, Quantization, ParameterCount, Notes)
+            VALUES ($id, $providerId, $identifier, $displayName, $enabled, $supportsThinkingControl, $created, $ctxWindow, $quant, $paramCount, $notes)
             ON CONFLICT(Id) DO UPDATE SET
                 ProviderId = $providerId,
                 ModelIdentifier = $identifier,
                 DisplayName = $displayName,
                 IsEnabled = $enabled,
+                SupportsThinkingControl = $supportsThinkingControl,
                 ContextWindowSize = $ctxWindow,
                 Quantization = $quant,
                 ParameterCount = $paramCount,
@@ -43,6 +44,7 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
         command.Parameters.AddWithValue("$identifier", model.ModelIdentifier);
         command.Parameters.AddWithValue("$displayName", model.DisplayName);
         command.Parameters.AddWithValue("$enabled", model.IsEnabled ? 1 : 0);
+        command.Parameters.AddWithValue("$supportsThinkingControl", model.SupportsThinkingControl ? 1 : 0);
         command.Parameters.AddWithValue("$created", model.CreatedUtc);
         command.Parameters.AddWithValue("$ctxWindow", model.ContextWindowSize);
         command.Parameters.AddWithValue("$quant", model.Quantization);
@@ -60,7 +62,7 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
         await connection.OpenAsync(cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, ProviderId, ModelIdentifier, DisplayName, IsEnabled, CreatedUtc, ContextWindowSize, Quantization, ParameterCount, Notes FROM RegisteredModels WHERE Id = $id";
+        command.CommandText = "SELECT Id, ProviderId, ModelIdentifier, DisplayName, IsEnabled, SupportsThinkingControl, CreatedUtc, ContextWindowSize, Quantization, ParameterCount, Notes FROM RegisteredModels WHERE Id = $id";
         command.Parameters.AddWithValue("$id", id);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -78,7 +80,7 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
         await connection.OpenAsync(cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, ProviderId, ModelIdentifier, DisplayName, IsEnabled, CreatedUtc, ContextWindowSize, Quantization, ParameterCount, Notes FROM RegisteredModels WHERE ProviderId = $providerId ORDER BY DisplayName";
+        command.CommandText = "SELECT Id, ProviderId, ModelIdentifier, DisplayName, IsEnabled, SupportsThinkingControl, CreatedUtc, ContextWindowSize, Quantization, ParameterCount, Notes FROM RegisteredModels WHERE ProviderId = $providerId ORDER BY DisplayName";
         command.Parameters.AddWithValue("$providerId", providerId);
 
         var models = new List<RegisteredModel>();
@@ -98,7 +100,7 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
 
         var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT rm.Id, rm.ProviderId, rm.ModelIdentifier, rm.DisplayName, rm.IsEnabled, rm.CreatedUtc,
+            SELECT rm.Id, rm.ProviderId, rm.ModelIdentifier, rm.DisplayName, rm.IsEnabled, rm.SupportsThinkingControl, rm.CreatedUtc,
                    rm.ContextWindowSize, rm.Quantization, rm.ParameterCount, rm.Notes, p.Name AS ProviderName
             FROM RegisteredModels rm
             INNER JOIN Providers p ON rm.ProviderId = p.Id
@@ -154,10 +156,11 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
         ModelIdentifier = reader.GetString(2),
         DisplayName = reader.GetString(3),
         IsEnabled = reader.GetInt32(4) == 1,
-        CreatedUtc = reader.GetString(5),
-        ContextWindowSize = reader.GetInt32(6),
-        Quantization = reader.GetString(7),
-        ParameterCount = reader.GetString(8),
-        Notes = reader.IsDBNull(9) ? null : reader.GetString(9)
+        SupportsThinkingControl = reader.GetInt32(5) == 1,
+        CreatedUtc = reader.GetString(6),
+        ContextWindowSize = reader.GetInt32(7),
+        Quantization = reader.GetString(8),
+        ParameterCount = reader.GetString(9),
+        Notes = reader.IsDBNull(10) ? null : reader.GetString(10)
     };
 }

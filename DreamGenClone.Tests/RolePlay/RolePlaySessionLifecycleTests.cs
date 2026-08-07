@@ -143,7 +143,7 @@ public sealed class RolePlaySessionLifecycleTests
             ToStateCode = "NextDisappearanceEligible",
             Priority = 10,
             TriggerType = "cooldown-eligibility",
-            GateConfigJson = "{\"minimumInteractions\":4,\"requireReturnBeatCompleted\":true,\"returnBeatCompletionSignals\":[\"returned\"],\"returnBeatTransgressorRole\":\"Wife\",\"returnBeatPartnerRole\":\"Husband\"}",
+            GateConfigJson = "{\"minimumTurns\":2,\"requireReturnBeatCompleted\":true,\"returnBeatCompletionSignals\":[\"returned\"],\"returnBeatTransgressorRole\":\"Wife\",\"returnBeatPartnerRole\":\"Husband\"}",
             BlockReasonCode = "ReintegrationCooldownGateBlocked",
             IsEnabled = true
         };
@@ -186,7 +186,7 @@ public sealed class RolePlaySessionLifecycleTests
             ToStateCode = "NextDisappearanceEligible",
             Priority = 10,
             TriggerType = "cooldown-eligibility",
-            GateConfigJson = "{\"minimumInteractions\":4,\"requireReturnBeatCompleted\":true,\"returnBeatCompletionSignals\":[\"returned\"],\"returnBeatTransgressorRole\":\"Wife\",\"returnBeatPartnerRole\":\"Husband\"}",
+            GateConfigJson = "{\"minimumTurns\":2,\"requireReturnBeatCompleted\":true,\"returnBeatCompletionSignals\":[\"returned\"],\"returnBeatTransgressorRole\":\"Wife\",\"returnBeatPartnerRole\":\"Husband\"}",
             BlockReasonCode = "ReintegrationCooldownGateBlocked",
             IsEnabled = true
         };
@@ -702,6 +702,11 @@ public sealed class RolePlaySessionLifecycleTests
         Assert.NotNull(session);
         session!.AdaptiveState.ActiveScenarioId = "scenario-a";
         session.AdaptiveState.CurrentPhase = DreamGenClone.Domain.RolePlay.NarrativePhase.BuildUp;
+        session.AdaptiveState.PhaseOverrideFloor = NarrativePhase.Approaching;
+        session.AdaptiveState.PhaseOverrideScenarioId = "scenario-a";
+        session.AdaptiveState.PhaseOverrideCycleIndex = 0;
+        session.AdaptiveState.PhaseOverrideSource = "/nextphase";
+        session.AdaptiveState.PhaseOverrideAppliedUtc = DateTime.UtcNow;
         await service.SaveSessionAsync(session);
 
         await service.SubmitPromptAsync(new UnifiedPromptSubmission
@@ -774,6 +779,74 @@ public sealed class RolePlaySessionLifecycleTests
         {
             Assert.False(string.IsNullOrWhiteSpace(reloaded.AdaptiveState.ActiveScenarioId));
         }
+    }
+
+    [Fact]
+    public async Task SubmitPromptAsync_Instruction_DoesNotAdvanceCountersOrCreateTurn()
+    {
+        var repository = new FakeRolePlayStateRepository();
+        var (service, _) = CreateService(repository);
+        var created = await service.CreateSessionAsync("Instruction Counter Session");
+
+        await repository.SaveAdaptiveStateAsync(new AdaptiveScenarioState
+        {
+            SessionId = created.Id,
+            ActiveScenarioId = "scenario-a",
+            CurrentPhase = NarrativePhase.Committed,
+            TurnCountInPhase = 7,
+            ObservedTurnCount = 4,
+            ActiveFormulaVersion = "rpv2-default",
+            LastEvaluationUtc = DateTime.UtcNow
+        });
+
+        var session = await service.GetSessionAsync(created.Id);
+        Assert.NotNull(session);
+        session!.AdaptiveState.ActiveScenarioId = "scenario-a";
+        session.AdaptiveState.CurrentPhase = NarrativePhase.Committed;
+        session.AdaptiveState.TurnCountInPhase = 7;
+        session.AdaptiveState.ObservedTurnCount = 4;
+        await service.SaveSessionAsync(session);
+
+        await service.SubmitPromptAsync(new UnifiedPromptSubmission
+        {
+            SessionId = created.Id,
+            PromptText = "continue naturally",
+            Intent = PromptIntent.Instruction,
+            SelectedIdentityId = string.Empty,
+            SelectedIdentityType = IdentityOptionSource.Persona,
+            BehaviorModeAtSubmit = BehaviorMode.TakeTurns,
+            SubmittedVia = SubmissionSource.SendButton
+        });
+
+        var persisted = await repository.LoadAdaptiveStateAsync(created.Id);
+        Assert.NotNull(persisted);
+        Assert.Equal(7, persisted!.TurnCountInPhase);
+        Assert.Equal(4, persisted.ObservedTurnCount);
+        Assert.Empty(await repository.LoadTurnsAsync(created.Id));
+    }
+
+    [Fact]
+    public async Task SubmitPromptAsync_Instruction_InteractionIsStillPersisted()
+    {
+        var repository = new FakeRolePlayStateRepository();
+        var (service, _) = CreateService(repository);
+        var created = await service.CreateSessionAsync("Instruction Persistence Session");
+
+        await service.SubmitPromptAsync(new UnifiedPromptSubmission
+        {
+            SessionId = created.Id,
+            PromptText = "remember this direction",
+            Intent = PromptIntent.Instruction,
+            SelectedIdentityId = string.Empty,
+            SelectedIdentityType = IdentityOptionSource.Persona,
+            BehaviorModeAtSubmit = BehaviorMode.TakeTurns,
+            SubmittedVia = SubmissionSource.SendButton
+        });
+
+        var reloaded = await service.GetSessionAsync(created.Id);
+        Assert.NotNull(reloaded);
+        var instruction = Assert.Single(reloaded!.Interactions.Where(x => x.ActorName == "Instruction"));
+        Assert.Equal("remember this direction", instruction.Content);
     }
 
     [Fact]
@@ -1430,6 +1503,7 @@ public sealed class RolePlaySessionLifecycleTests
                 ActiveVariantId = state.ActiveVariantId,
                 CurrentPhase = state.CurrentPhase,
                 TurnCountInPhase = state.TurnCountInPhase,
+                ObservedTurnCount = state.ObservedTurnCount,
                 ConsecutiveLeadCount = state.ConsecutiveLeadCount,
                 LastEvaluationUtc = state.LastEvaluationUtc,
                 CycleIndex = state.CycleIndex,

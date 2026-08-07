@@ -117,6 +117,48 @@ public sealed class RolePlayContinuationScenarioGuidanceTests
     }
 
     [Fact]
+    public void StripPhaseGuidanceMarkers_RemovesKnownMarkers_KeepsProse()
+    {
+        var stripped = RolePlayAssistantPrompts.StripPhaseGuidanceMarkers(
+            "[Pacing:medium] [Aftermath:husband-contrast]\n\n**Phase Context:** The event is in progress.");
+
+        Assert.DoesNotContain("[Pacing:medium]", stripped, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("[Aftermath:husband-contrast]", stripped, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("[BeatStyle:episodic]", stripped, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("**Phase Context:** The event is in progress.", stripped, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GetThemePhaseGuidanceLines_StripsMarkers_AndDropsMarkerOnlyLines()
+    {
+        var theme = new RPTheme
+        {
+            Id = "infidelity-brief-disappearance",
+            PhaseGuidance =
+            [
+                // Marker-only line — must be dropped after stripping.
+                new RPThemePhaseGuidance
+                {
+                    Phase = NarrativePhase.Climax,
+                    GuidanceText = "[BeatStyle:episodic] [Pacing:slow] [ClimaxMode:multi-encounter] [Aftermath:husband-contrast] [Deepening:subsequent-actors]"
+                },
+                // Marker + prose on the same line — markers removed, prose kept.
+                new RPThemePhaseGuidance
+                {
+                    Phase = NarrativePhase.Climax,
+                    GuidanceText = "[Pacing:slow] Write each act in full physical detail."
+                }
+            ]
+        };
+
+        var lines = RolePlayAssistantPrompts.GetThemePhaseGuidanceLines(theme, "Climax");
+
+        Assert.Single(lines);
+        Assert.DoesNotContain(lines, x => x.Contains('[', StringComparison.Ordinal));
+        Assert.Contains("Write each act in full physical detail.", lines[0], StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void GetPhaseRelevantThemeAIGuidanceNotes_PrioritizesPhaseRelevantSections()
     {
         var theme = new RPTheme

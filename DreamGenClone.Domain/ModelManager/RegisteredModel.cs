@@ -7,6 +7,8 @@ public sealed class RegisteredModel
     public string ModelIdentifier { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
     public bool IsEnabled { get; set; } = true;
+    /// <summary>Whether this model's chat template supports chat_template_kwargs.thinking.</summary>
+    public bool SupportsThinkingControl { get; set; }
     public string CreatedUtc { get; set; } = DateTime.UtcNow.ToString("o");
 
     /// <summary>Context window size in tokens (e.g. 4096, 8192, 32768, 131072). 0 = unknown.</summary>

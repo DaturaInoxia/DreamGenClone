@@ -69,6 +69,18 @@ A permanent .NET 9 console project lives at `artifacts/tmp/dbquery/dbquery.cspro
 - Full schema, all commands, and usage examples are in `.github/instructions/dbquery-reference.instructions.md`.
 - **Do not recreate this project.** It already exists in the solution and is ready to use.
 
+## DB Snapshot & Portable Database (IMPORTANT)
+
+- There are TWO databases in `DreamGenClone.Web/data/`:
+  - `dreamgenclone.dev.db` — the **live working DB** (has encrypted API keys). Git-ignored and untracked.
+  - `dreamgenclone.snapshot.db` — a **sanitized snapshot** (same content, API keys blanked). **This is the only DB tracked by git.**
+- **NEVER** commit `dreamgenclone.dev.db` or any other `.db`/`.bak` file — only `dreamgenclone.snapshot.db` is allowed in git.
+- **NEVER run `git clean -fd` / `git clean -fdx`** — it deletes ignored files, including the live `dreamgenclone.dev.db`.
+- A `git pull` never touches `dev.db` (it is ignored); it only updates `snapshot.db` and the rest of the repo.
+- The app resolves its DB path **relative to the working directory + environment**: Development → `data/dreamgenclone.dev.db`, Production → `data/dreamgenclone.db`. Always start the app from `DreamGenClone.Web` with `ASPNETCORE_ENVIRONMENT=Development` (as `helpers/start-webapp-dev-clean.ps1` does). Starting it from the repo root, or without the env var, reads the WRONG near-empty DB.
+- The dev DB balloons because `RolePlayDebugEvents.MetadataJson` stores full built LLM prompts (600 KB+ each); keep session data out of git via the snapshot model.
+- Full workflow (why the DB grows, pruning, snapshot refresh, other-machine setup) is in `.github/instructions/db-snapshot-workflow.instructions.md` and `docs/db-snapshot-setup.md`.
+
 ## Project Backlog
 
 The project backlog is at `specs/Planning/backlog.md`.

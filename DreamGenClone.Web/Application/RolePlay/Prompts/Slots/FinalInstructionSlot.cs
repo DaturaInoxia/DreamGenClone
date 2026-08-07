@@ -72,6 +72,14 @@ public sealed class FinalInstructionSlot : IPromptSlot
             sb.AppendLine();
         }
 
+        // Theme Machine Continuity — active machine obligations (return-beat / cooldown).
+        // Rendered only when the session has a theme machine snapshot (dormant otherwise).
+        if (!isNarrative && context.Session.AdaptiveState.ThemeMachineSnapshot is not null)
+        {
+            RolePlayAssistantPrompts.AppendThemeMachineGuidance(sb, context.Session.AdaptiveState.ThemeMachineSnapshot);
+            sb.AppendLine();
+        }
+
         // ── Pacing direction (Character position 1 only, near end of prompt for recency) ──
         if (!isNarrative && context.PositionInTurn == 1 && context.Intensity.SceneDirection is not null)
         {

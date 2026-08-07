@@ -7252,6 +7252,7 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
     private string? _infoPopupInteractionId;
     private string _infoPopupTab = "info";
     private string? _semanticDetailInteractionId;
+    private string _semanticDetailTab = "interaction";
     private string? _memoryInfoPopupId;
     private string _memoryInfoPopupTab = "summary";
     private readonly Dictionary<string, string> _editSnapshots = new();
@@ -7355,11 +7356,13 @@ private void CloseInteractionInfo()
     private void ShowSemanticDetail(string interactionId)
     {
         _semanticDetailInteractionId = interactionId;
+        _semanticDetailTab = "interaction";
     }
 
     private void CloseSemanticDetail()
     {
         _semanticDetailInteractionId = null;
+        _semanticDetailTab = "interaction";
     }
 
     private void ShowDeleteAlternativeConfirmation(string interactionId)
@@ -8372,8 +8375,12 @@ private void CloseInteractionInfo()
                                     </div>
                                     @*└─ Tab bar ──*@
                                     <div class="rw-semantic-tabs">
-                                        <button class="rw-semantic-tab rw-semantic-tab-active"
-                                                @onclick="@(() => { })">Interaction</button>
+                                        <button class="rw-semantic-tab @(_semanticDetailTab == "interaction" ? "rw-semantic-tab-active" : "")"
+                                            @onclick='() => _semanticDetailTab = "interaction"'>Interaction</button>
+                                        <button class="rw-semantic-tab @(_semanticDetailTab == "prompt" ? "rw-semantic-tab-active" : "")"
+                                            @onclick='() => _semanticDetailTab = "prompt"'>Prompt</button>
+                                        <button class="rw-semantic-tab @(_semanticDetailTab == "response" ? "rw-semantic-tab-active" : "")"
+                                            @onclick='() => _semanticDetailTab = "response"'>Response</button>
                                     </div>
                                     <div class="rw-modal-body rw-modal-body-scroll">
                                         @if (sdState.Status == SemanticAnalysisStatus.Error)
@@ -8382,7 +8389,47 @@ private void CloseInteractionInfo()
                                                 <strong>Error:</strong> @(sdState.ErrorMessage ?? "Unknown error")
                                             </div>
                                         }
-                                        @if (sdDetail is not null)
+                                        @if (_semanticDetailTab == "prompt")
+                                        {
+                                            var hasDetailPrompt = sdDetail is not null && (!string.IsNullOrWhiteSpace(sdDetail.PromptSystem) || !string.IsNullOrWhiteSpace(sdDetail.PromptUser));
+                                            var hasStatePrompt = !string.IsNullOrWhiteSpace(sdState.PromptSystem) || !string.IsNullOrWhiteSpace(sdState.PromptUser);
+                                            @if (hasDetailPrompt || hasStatePrompt)
+                                            {
+                                                var promptSystem = sdDetail?.PromptSystem ?? sdState.PromptSystem;
+                                                var promptUser = sdDetail?.PromptUser ?? sdState.PromptUser;
+                                                @if (!string.IsNullOrWhiteSpace(promptSystem))
+                                                {
+                                                    <div class="rw-scenario-field">
+                                                        <label class="rw-scenario-field-label">System Prompt</label>
+                                                        <div class="rw-info-value-mono rw-prompt-viewer">@promptSystem</div>
+                                                    </div>
+                                                }
+                                                @if (!string.IsNullOrWhiteSpace(promptUser))
+                                                {
+                                                    <div class="rw-scenario-field" style="margin-top:12px;">
+                                                        <label class="rw-scenario-field-label">User Prompt</label>
+                                                        <div class="rw-info-value-mono rw-prompt-viewer">@promptUser</div>
+                                                    </div>
+                                                }
+                                            }
+                                            else
+                                            {
+                                                <div class="rw-semantic-detail-empty">Prompt data is not available for this record.</div>
+                                            }
+                                        }
+                                        else if (_semanticDetailTab == "response")
+                                        {
+                                            var rawOutput = sdDetail?.InferenceRawOutput ?? sdState.RawModelOutput;
+                                            @if (!string.IsNullOrWhiteSpace(rawOutput))
+                                            {
+                                                <div class="rw-info-value-mono rw-prompt-viewer">@rawOutput</div>
+                                            }
+                                            else
+                                            {
+                                                <div class="rw-semantic-detail-empty">Raw response data is not available for this record.</div>
+                                            }
+                                        }
+                                        else if (sdDetail is not null)
                                         {
                                             <div class="rw-info-grid" style="margin-bottom:12px;">
                                                 <div class="rw-info-row"><span class="rw-info-label">Actor</span><span class="rw-info-value">@sdDetail.ActorName</span></div>
@@ -10651,6 +10698,9 @@ private void CloseInteractionInfo()
         public DateTime CompletedUtc { get; set; }
         public int InferredEventCount { get; set; }
         public int ContextTurnsCount { get; set; }
+        public string? PromptSystem { get; set; }
+        public string? PromptUser { get; set; }
+        public string? InferenceRawOutput { get; set; }
         public List<SemanticDetailEvent> InferredEvents { get; set; } = [];
     }
 

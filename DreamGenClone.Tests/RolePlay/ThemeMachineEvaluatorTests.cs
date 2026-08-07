@@ -79,7 +79,7 @@ public sealed class ThemeMachineEvaluatorTests
             TriggerType = "cooldown-eligibility",
             GateConfigJson = JsonSerializer.Serialize(new
             {
-                minimumInteractions = 3,
+                minimumTurns = 3,
                 requireReturnBeatCompleted = true,
                 returnBeatCompletionSignals = new[] { "returned to the room" },
                 returnBeatTransgressorRole = "Wife",
@@ -138,6 +138,119 @@ public sealed class ThemeMachineEvaluatorTests
         Assert.True(eligibleResult.TransitionApplied);
         Assert.Equal("NextDisappearanceEligible", eligibleResult.UpdatedSnapshot.CurrentStateCode);
         Assert.False(eligibleResult.Directive.BlockDisappearanceCandidates);
+    }
+
+    [Fact]
+    public async Task EvaluateAsync_CooldownTransition_LegacyMinimumInteractions_ConvertsToTurns()
+    {
+        var evaluator = new ThemeMachineEvaluator(NullLogger<ThemeMachineEvaluator>.Instance);
+        var now = DateTime.UtcNow;
+
+        // Legacy pre-migration config: minimumInteractions=3 maps to minimumTurns=1 (÷3 ceiling).
+        var legacyTransition = new RPThemeMachineTransition
+        {
+            TransitionId = "cooldown-legacy",
+            FromStateCode = "ReintegrationCooldown",
+            ToStateCode = "NextDisappearanceEligible",
+            Priority = 5,
+            TriggerType = "cooldown-eligibility",
+            GateConfigJson = JsonSerializer.Serialize(new
+            {
+                minimumInteractions = 3,
+                requireReturnBeatCompleted = true,
+                returnBeatCompletionSignals = new[] { "returned safely" },
+                returnBeatTransgressorRole = "Wife",
+                returnBeatPartnerRole = "Husband"
+            }),
+            BlockReasonCode = "ReintegrationCooldownGateBlocked"
+        };
+
+        var belowThreshold = new ThemeMachineEvaluationContext
+        {
+            SessionId = "session-1",
+            ActiveScenarioId = "theme-1",
+            ThemeId = "theme-1",
+            Snapshot = new ThemeMachineSessionSnapshot
+            {
+                MachineKey = "infidelity-brief-disappearance",
+                ThemeId = "theme-1",
+                DefinitionId = "def-1",
+                DefinitionVersion = 1,
+                CurrentStateCode = "ReintegrationCooldown",
+                TurnsInCurrentState = 0,
+                ReturnBeatCompleted = true,
+                LastEvaluatedUtc = now
+            },
+            Transitions = [legacyTransition]
+        };
+
+        var blocked = await evaluator.EvaluateAsync(new AdaptiveScenarioState { SessionId = "session-1" }, belowThreshold);
+        Assert.False(blocked.TransitionApplied);
+        Assert.Equal("ReintegrationCooldown", blocked.UpdatedSnapshot.CurrentStateCode);
+
+        var atThreshold = new ThemeMachineEvaluationContext
+        {
+            SessionId = "session-1",
+            ActiveScenarioId = "theme-1",
+            ThemeId = "theme-1",
+            Snapshot = new ThemeMachineSessionSnapshot
+            {
+                MachineKey = "infidelity-brief-disappearance",
+                ThemeId = "theme-1",
+                DefinitionId = "def-1",
+                DefinitionVersion = 1,
+                CurrentStateCode = "ReintegrationCooldown",
+                TurnsInCurrentState = 1,
+                ReturnBeatCompleted = true,
+                LastEvaluatedUtc = now
+            },
+            Transitions = [legacyTransition]
+        };
+
+        var eligible = await evaluator.EvaluateAsync(new AdaptiveScenarioState { SessionId = "session-1" }, atThreshold);
+        Assert.True(eligible.TransitionApplied);
+        Assert.Equal("NextDisappearanceEligible", eligible.UpdatedSnapshot.CurrentStateCode);
+    }
+
+    [Fact]
+    public async Task EvaluateAsync_CooldownTransition_Throws_WhenNoTurnThresholdConfigured()
+    {
+        var evaluator = new ThemeMachineEvaluator(NullLogger<ThemeMachineEvaluator>.Instance);
+
+        var transition = new RPThemeMachineTransition
+        {
+            TransitionId = "cooldown-missing-threshold",
+            FromStateCode = "ReintegrationCooldown",
+            ToStateCode = "NextDisappearanceEligible",
+            Priority = 5,
+            TriggerType = "cooldown-eligibility",
+            GateConfigJson = "{\"requireReturnBeatCompleted\":true,\"returnBeatCompletionSignals\":[\"returned\"]}",
+            BlockReasonCode = "ReintegrationCooldownGateBlocked"
+        };
+
+        var context = new ThemeMachineEvaluationContext
+        {
+            SessionId = "session-1",
+            ActiveScenarioId = "theme-1",
+            ThemeId = "theme-1",
+            Snapshot = new ThemeMachineSessionSnapshot
+            {
+                MachineKey = "infidelity-brief-disappearance",
+                ThemeId = "theme-1",
+                DefinitionId = "def-1",
+                DefinitionVersion = 1,
+                CurrentStateCode = "ReintegrationCooldown",
+                TurnsInCurrentState = 5,
+                ReturnBeatCompleted = true,
+                LastEvaluatedUtc = DateTime.UtcNow
+            },
+            Transitions = [transition]
+        };
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            evaluator.EvaluateAsync(new AdaptiveScenarioState { SessionId = "session-1" }, context));
+
+        Assert.Contains("minimumTurns", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

@@ -724,7 +724,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
 
         state.SemanticStepSucceeded = true;
         state.SemanticEvents.Clear();
-        // Keep SemanticDeltaBreakdowns and SemanticStatDeltaBreakdowns — they accumulate per-interaction
+        // Keep SemanticDeltaBreakdowns and SemanticStatDeltaBreakdowns ï¿½ they accumulate per-interaction
         // so the Semantic Analysis modal can show history for any prior interaction in the session.
 
         var matches = SemanticSignalRegex.Matches(interaction.Content ?? string.Empty);
@@ -763,7 +763,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         //    session is live.
         //  * SessionThemeSelections is authoritative for live sessions; SelectedRPThemeProfileId
         //    is only a seed at session create time. Resolve mappings from SessionThemeSelections
-        //    when available. Missing configuration fails fast — no silent no-ops.
+        //    when available. Missing configuration fails fast ï¿½ no silent no-ops.
         // The theme-score deltas (built from semantic event mappings) are gated below by
         // ActiveScenarioId so they stop accumulating after primary commit; stat deltas always
         // apply regardless of theme-commit status.
@@ -777,7 +777,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        // Compute commit status early — used below to suppress theme-score deltas once the
+        // Compute commit status early ï¿½ used below to suppress theme-score deltas once the
         // narrative has progressed past BuildUp. "Committed" = phase advanced beyond BuildUp.
         // Note: stat mapping scoping is based on ActiveScenarioId alone (see below), not this flag.
         var primaryThemeCommitted = !string.IsNullOrWhiteSpace(session.AdaptiveState.ActiveScenarioId)
@@ -801,10 +801,10 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         }
 
         // Scope stat mappings to avoid multi-theme stacking:
-        //  * Active theme set (ActiveScenarioId is non-empty): a theme has been picked — only that
+        //  * Active theme set (ActiveScenarioId is non-empty): a theme has been picked ï¿½ only that
         //    theme's stat mappings apply, across all phases including BuildUp. Other selected themes
         //    must not stack their stat deltas once the narrative is tracking a specific theme.
-        //  * No active theme yet: deduplicate across all selected themes — for each
+        //  * No active theme yet: deduplicate across all selected themes ï¿½ for each
         //    (eventId, targetStat) pair keep only the single highest-magnitude mapping. This lets
         //    all themes participate in the selection race without stacking identical-event deltas
         //    from similar themes (e.g. infidelity-brief-disappearance duplicating
@@ -825,7 +825,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         }
         else
         {
-            // No active theme yet — deduplicate by (eventId, targetStat), keeping highest absolute delta per pair.
+            // No active theme yet ï¿½ deduplicate by (eventId, targetStat), keeping highest absolute delta per pair.
             statMappingsByEvent = statMappingsByEvent
                 .ToDictionary(
                     kvp => kvp.Key,
@@ -879,9 +879,15 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
                 {
                     if (confidence < mapping.ConfidenceMin || confidence > mapping.ConfidenceMax)
                     {
-                        state.SemanticStepSucceeded = false;
-                        throw new InvalidOperationException(
-                            $"{DreamGenClone.Domain.RolePlay.RPSemanticDiagnosticReasonCodes.ConfidenceOutOfRange}: confidence {confidence.ToString(CultureInfo.InvariantCulture)} for event '{eventId}' is outside configured range [{mapping.ConfidenceMin.ToString(CultureInfo.InvariantCulture)}, {mapping.ConfidenceMax.ToString(CultureInfo.InvariantCulture)}].");
+                        _logger?.LogWarning(
+                            "Semantic event '{EventId}' confidence {Confidence} outside configured range [{Min}, {Max}] â€” skipping event mapping. SessionId={SessionId} InteractionId={InteractionId}",
+                            eventId,
+                            confidence.ToString(CultureInfo.InvariantCulture),
+                            mapping.ConfidenceMin.ToString(CultureInfo.InvariantCulture),
+                            mapping.ConfidenceMax.ToString(CultureInfo.InvariantCulture),
+                            session.Id,
+                            interaction.Id);
+                        continue;
                     }
 
                     pending.Add((eventId, confidence, mapping, defaultTargetCharacterId));
@@ -894,9 +900,15 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
                 {
                     if (confidence < mapping.ConfidenceMin || confidence > mapping.ConfidenceMax)
                     {
-                        state.SemanticStepSucceeded = false;
-                        throw new InvalidOperationException(
-                            $"{DreamGenClone.Domain.RolePlay.RPSemanticDiagnosticReasonCodes.ConfidenceOutOfRange}: confidence {confidence.ToString(CultureInfo.InvariantCulture)} for event '{eventId}' is outside configured stat range [{mapping.ConfidenceMin.ToString(CultureInfo.InvariantCulture)}, {mapping.ConfidenceMax.ToString(CultureInfo.InvariantCulture)}].");
+                        _logger?.LogWarning(
+                            "Semantic event '{EventId}' confidence {Confidence} outside configured stat range [{Min}, {Max}] â€” skipping stat mapping. SessionId={SessionId} InteractionId={InteractionId}",
+                            eventId,
+                            confidence.ToString(CultureInfo.InvariantCulture),
+                            mapping.ConfidenceMin.ToString(CultureInfo.InvariantCulture),
+                            mapping.ConfidenceMax.ToString(CultureInfo.InvariantCulture),
+                            session.Id,
+                            interaction.Id);
+                        continue;
                     }
 
                     pendingStat.Add((eventId, confidence, mapping, defaultTargetCharacterId));
@@ -921,9 +933,15 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
                     {
                         if (confidence < mapping.ConfidenceMin || confidence > mapping.ConfidenceMax)
                         {
-                            state.SemanticStepSucceeded = false;
-                            throw new InvalidOperationException(
-                                $"{DreamGenClone.Domain.RolePlay.RPSemanticDiagnosticReasonCodes.ConfidenceOutOfRange}: confidence {confidence.ToString(CultureInfo.InvariantCulture)} for event '{eventId}' is outside configured range [{mapping.ConfidenceMin.ToString(CultureInfo.InvariantCulture)}, {mapping.ConfidenceMax.ToString(CultureInfo.InvariantCulture)}].");
+                            _logger?.LogWarning(
+                                "Semantic inferred-signal '{EventId}' confidence {Confidence} outside configured range [{Min}, {Max}] -- skipping event mapping. SessionId={SessionId} InteractionId={InteractionId}",
+                                eventId,
+                                confidence.ToString(CultureInfo.InvariantCulture),
+                                mapping.ConfidenceMin.ToString(CultureInfo.InvariantCulture),
+                                mapping.ConfidenceMax.ToString(CultureInfo.InvariantCulture),
+                                session.Id,
+                                interaction.Id);
+                            continue;
                         }
 
                         pending.Add((eventId, confidence, mapping, scopedTargetCharacterId));
@@ -936,9 +954,15 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
                     {
                         if (confidence < mapping.ConfidenceMin || confidence > mapping.ConfidenceMax)
                         {
-                            state.SemanticStepSucceeded = false;
-                            throw new InvalidOperationException(
-                                $"{DreamGenClone.Domain.RolePlay.RPSemanticDiagnosticReasonCodes.ConfidenceOutOfRange}: confidence {confidence.ToString(CultureInfo.InvariantCulture)} for event '{eventId}' is outside configured stat range [{mapping.ConfidenceMin.ToString(CultureInfo.InvariantCulture)}, {mapping.ConfidenceMax.ToString(CultureInfo.InvariantCulture)}].");
+                            _logger?.LogWarning(
+                                "Semantic inferred-signal '{EventId}' confidence {Confidence} outside configured stat range [{Min}, {Max}] -- skipping stat mapping. SessionId={SessionId} InteractionId={InteractionId}",
+                                eventId,
+                                confidence.ToString(CultureInfo.InvariantCulture),
+                                mapping.ConfidenceMin.ToString(CultureInfo.InvariantCulture),
+                                mapping.ConfidenceMax.ToString(CultureInfo.InvariantCulture),
+                                session.Id,
+                                interaction.Id);
+                            continue;
                         }
 
                         pendingStat.Add((eventId, confidence, mapping, defaultTargetCharacterId));
@@ -949,7 +973,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
 
         // Per product requirement:
         //  * Semantic Event Mappings drive theme scoring; once a primary theme is committed,
-        //    non-active themes no longer participate (the score race is over for them) —
+        //    non-active themes no longer participate (the score race is over for them) ï¿½
         //    otherwise every theme eventually pegs at the 100 cap as evidence keeps accumulating.
         //    The active theme continues to accumulate InteractionEvidenceSignal so the panel
         //    reflects ongoing narrative engagement.
@@ -957,7 +981,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         //    session is live, independent of theme-commit status.
         //  * SessionThemeSelections is authoritative for live sessions; SelectedRPThemeProfileId
         //    is only a seed at session create time. Resolve mappings from SessionThemeSelections
-        //    when available. Missing configuration fails fast — no silent no-ops.
+        //    when available. Missing configuration fails fast ï¿½ no silent no-ops.
         if (primaryThemeCommitted && pending.Count > 0)
         {
             var activeId = session.AdaptiveState.ActiveScenarioId;
@@ -1125,7 +1149,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
                         // Encounter dimension drift (mirrors ApplyTrackedDelta in UpdateFromInteractionAsync).
                         // EnableAdaptiveStateUpdates=false skips the inline keyword path entirely, so this
                         // is the ONLY place RuntimeEncounterStats gets seeded and drifted during a session.
-                        // Do NOT remove this — without it, behavioral dimensions are never initialized.
+                        // Do NOT remove this ï¿½ without it, behavioral dimensions are never initialized.
                         if (state.CharacterRoles.TryGetValue(item.TargetCharacterId, out var semanticTargetRole)
                             && !string.IsNullOrWhiteSpace(semanticTargetRole))
                         {
@@ -1187,7 +1211,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
     {
         if (_intensityProfileService is null)
         {
-            _logger?.LogWarning("IntensityTransition session={SessionId}: skipped — no intensity profile service", session.Id);
+            _logger?.LogWarning("IntensityTransition session={SessionId}: skipped ï¿½ no intensity profile service", session.Id);
             return;
         }
 
@@ -1235,7 +1259,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         }
         // Anchor to the lowest non-Intro profile (Emotional, level 1) when no selected profile
         // exists. Using currentProfile as fallback causes a ratchet effect where each transition
-        // raises the baseline — BuildUp would climb Atmospheric?Emotional?Suggestive?Sensual?
+        // raises the baseline ï¿½ BuildUp would climb Atmospheric?Emotional?Suggestive?Sensual?
         // Erotic?Hardcore in a handful of interactions instead of staying stable per phase.
         var phaseBaselineSourceProfile = selectedProfile
             ?? profiles.FirstOrDefault(p => p.Intensity == IntensityLevel.Emotional)
@@ -1301,7 +1325,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
 
         if (string.Equals(targetProfile.Id, currentProfile.Id, StringComparison.OrdinalIgnoreCase))
         {
-            _logger?.LogInformation("IntensityTransition session={SessionId}: no change needed — already at {Profile} (scale={Scale})",
+            _logger?.LogInformation("IntensityTransition session={SessionId}: no change needed ï¿½ already at {Profile} (scale={Scale})",
                 session.Id, targetProfile.Name, targetScale);
             session.AdaptiveIntensityLastTransitionReason = reasonCode;
             return;
@@ -2250,7 +2274,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
 
         double total = 0;
 
-        // Opening/Example text at 0.6× weight
+        // Opening/Example text at 0.6ï¿½ weight
         foreach (var opening in scenario.Openings)
         {
             if (!string.IsNullOrWhiteSpace(opening.Text))
@@ -2266,7 +2290,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             }
         }
 
-        // Plot/Setting/Narrative/Characters/Locations/Objects at 0.4× weight
+        // Plot/Setting/Narrative/Characters/Locations/Objects at 0.4ï¿½ weight
         total += ScoreText(scenario.Plot.Description, keywords, weight) * 0.4;
         foreach (var conflict in scenario.Plot.Conflicts)
             total += ScoreText(conflict, keywords, weight) * 0.4;
@@ -2300,7 +2324,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             total += ScoreText(obj.Description, keywords, weight) * 0.4;
         }
 
-        // Character stat deltas at 0.3× weight
+        // Character stat deltas at 0.3ï¿½ weight
         foreach (var character in scenario.Characters)
         {
             if (character.BaseStats.Count > 0)

@@ -16,6 +16,12 @@ public sealed class SemanticInteractionAnalysisState
 
     public string? ResultJson { get; set; }
 
+    public string? PromptSystem { get; set; }
+
+    public string? PromptUser { get; set; }
+
+    public string? RawModelOutput { get; set; }
+
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
 
     public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;

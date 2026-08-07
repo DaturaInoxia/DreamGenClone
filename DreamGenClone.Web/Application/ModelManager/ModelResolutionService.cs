@@ -71,6 +71,11 @@ public sealed class ModelResolutionService : IModelResolutionService
                 MaxTokens: sessionMaxTokens ?? functionDefault?.MaxTokens ?? 500,
                 ProviderName: sessionProvider.Name,
                 IsSessionOverride: true);
+            resolved = resolved with
+            {
+                SupportsThinkingControl = sessionModel.SupportsThinkingControl,
+                ThinkingMode = functionDefault?.ThinkingMode ?? ThinkingMode.Default
+            };
 
             totalStopwatch.Stop();
 
@@ -84,11 +89,7 @@ public sealed class ModelResolutionService : IModelResolutionService
                 functionDefaultLookupStopwatch.ElapsedMilliseconds,
                 totalStopwatch.ElapsedMilliseconds);
 
-            // Scoped thinking suppression: RolePlaySemanticAnalysis emits deterministic JSON and
-            // extended reasoning produced unparseable 30K+ char traces.
-            return function == AppFunction.RolePlaySemanticAnalysis
-                ? resolved with { DisableThinking = true }
-                : resolved;
+            return resolved;
         }
 
         // Function default path
@@ -129,7 +130,11 @@ public sealed class ModelResolutionService : IModelResolutionService
             TopP: funcDefault.TopP,
             MaxTokens: funcDefault.MaxTokens,
             ProviderName: provider.Name,
-            IsSessionOverride: false);
+            IsSessionOverride: false) with
+        {
+            SupportsThinkingControl = model.SupportsThinkingControl,
+            ThinkingMode = funcDefault.ThinkingMode
+        };
 
         totalStopwatch.Stop();
 
@@ -143,10 +148,6 @@ public sealed class ModelResolutionService : IModelResolutionService
             providerLookupStopwatchDefaultPath.ElapsedMilliseconds,
             totalStopwatch.ElapsedMilliseconds);
 
-        // Scoped thinking suppression: RolePlaySemanticAnalysis emits deterministic JSON and
-        // extended reasoning produced unparseable 30K+ char traces.
-        return function == AppFunction.RolePlaySemanticAnalysis
-            ? result with { DisableThinking = true }
-            : result;
+        return result;
     }
 }
