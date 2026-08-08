@@ -26,6 +26,16 @@ public sealed class RolePlayInteraction
 
     public bool IsPinned { get; set; }
 
+    /// <summary>
+    /// True when this interaction is part of a staged scene-directions batch (B-076).
+    /// Staged rows are injected via StagedDirectionsSlot on the next … continuation,
+    /// then graduate (flag flips to false) so their content shows up in InteractionHistory
+    /// as past context for subsequent turns. Pre-consumption staged rows are real
+    /// RolePlayInteraction rows — all per-interaction commands (Retry, Expand, Pin, etc.)
+    /// apply to them like any other row.
+    /// </summary>
+    public bool IsStagedDirection { get; set; }
+
     public string? ParentInteractionId { get; set; }
 
     public int AlternativeIndex { get; set; }

@@ -8,7 +8,7 @@ public sealed class CommandOperationMetadata
 
     public PromptIntent Intent { get; set; } = PromptIntent.Message;
 
-    public SubmissionSource SubmittedVia { get; set; } = SubmissionSource.SendButton;
+    public SubmissionSource SubmittedVia { get; set; } = SubmissionSource.MainOverflowContinue;
 
     public string? SelectedIdentityId { get; set; }
 

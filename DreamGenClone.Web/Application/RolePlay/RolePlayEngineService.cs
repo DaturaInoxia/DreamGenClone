@@ -1073,8 +1073,9 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 : identity.DisplayName);
 
         var isInstruction = submission.Intent == PromptIntent.Instruction;
+        var isAddOnly = isInstruction || submission.SubmittedVia == SubmissionSource.PlusButton;
         RolePlayTurn? persistedTurn = null;
-        if (!isInstruction)
+        if (!isAddOnly)
         {
             persistedTurn = await _stateRepository.StartTurnAsync(
                 session.Id,
@@ -1105,6 +1106,11 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 ActorName = "Instruction",
                 Content = submission.PromptText.Trim()
             };
+            // B-076: Instruction staged via + button gets IsStagedDirection flag.
+            if (submission.SubmittedVia == SubmissionSource.PlusButton)
+            {
+                interaction.IsStagedDirection = true;
+            }
         }
         else
         {
@@ -1125,30 +1131,44 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 Content = submission.PromptText.Trim()
             };
 
-            session.Interactions.Add(userPromptInteraction);
-            outputInteractionIds.Add(userPromptInteraction.Id);
-            await UpdateStateAndDetectEncounterAsync(session, userPromptInteraction, cancellationToken);
-
             if (submission.SubmittedVia == SubmissionSource.PlusButton)
             {
+                // + button: stage only, no analytics, no continuation, no turn side-effects.
+                // B-076: All + submissions are staged for one-shot batch on next ….
+                userPromptInteraction.IsStagedDirection = true;
+                session.Interactions.Add(userPromptInteraction);
+                outputInteractionIds.Add(userPromptInteraction.Id);
+                // Analytics deferred to next continuation — do not call UpdateStateAndDetectEncounterAsync here.
                 interaction = userPromptInteraction;
             }
             else
             {
+                session.Interactions.Add(userPromptInteraction);
+                outputInteractionIds.Add(userPromptInteraction.Id);
+                await UpdateStateAndDetectEncounterAsync(session, userPromptInteraction, cancellationToken);
+
                 await AlignPromptNarrativeStateWithV2Async(session, cancellationToken);
 
-                interaction = await _continuationService.ContinueAsync(
-                    session,
-                    identity.Actor,
-                    selectedActorName,
-                    submission.Intent,
-                    BuildContinuationPromptText(submission.Intent, submission.PromptText),
-                    onChunk,
-                    cancellationToken);
+                try
+                {
+                    interaction = await _continuationService.ContinueAsync(
+                        session,
+                        identity.Actor,
+                        selectedActorName,
+                        submission.Intent,
+                        BuildContinuationPromptText(submission.Intent, submission.PromptText),
+                        onChunk,
+                        cancellationToken);
 
-                session.Interactions.Add(interaction);
-                outputInteractionIds.Add(interaction.Id);
-                await UpdateStateAndDetectEncounterAsync(session, interaction, cancellationToken);
+                    session.Interactions.Add(interaction);
+                    outputInteractionIds.Add(interaction.Id);
+                    await UpdateStateAndDetectEncounterAsync(session, interaction, cancellationToken);
+                }
+                finally
+                {
+                    // B-076: Graduate staged rows unconditionally — one-shot guarantee even on failed continuation.
+                    GraduateStagedDirections(session);
+                }
             }
         }
 
@@ -1171,12 +1191,12 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         }
 
         _autoSaveCoordinator.QueueRolePlaySessionSave(session, "roleplay-unified-prompt-submitted");
-        if (isInstruction)
+        if (isAddOnly)
         {
-            // Instructions do not create a narrative turn, so there is no later
+            // Instructions and + button submissions do not create a narrative turn, so there is no later
             // turn completion or continuation flush to make the interaction visible.
             // Persist it synchronously so the session window and the next reload see
-            // the instruction immediately.
+            // the interaction immediately.
             await _autoSaveCoordinator.FlushAsync(cancellationToken);
         }
         await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
@@ -1319,7 +1339,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 cancellationToken,
                 explicitClimaxCompletionRequested: true,
                 manualPhaseAdvanceTarget,
-                incrementTurnCount: !isInstruction);
+                incrementTurnCount: !isAddOnly);
             pipelinesAlreadyRan = true;
 
             await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
@@ -1354,7 +1374,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 cancellationToken,
                 explicitClimaxCompletionRequested,
                 manualPhaseAdvanceTarget,
-                incrementTurnCount: !isInstruction);
+                incrementTurnCount: !isAddOnly);
         }
 
         if (nextPhaseCommandRequested || explicitClimaxCompletionRequested)
@@ -1833,7 +1853,29 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             succeeded: true,
             cancellationToken: cancellationToken);
 
+        // B-076: Graduate staged rows after any continuation — one-shot guarantee.
+        // Both SubmitPromptAsync (… with text) and ContinueAsAsync (… without text)
+        // must graduate staged rows so they become normal history after the turn.
+        GraduateStagedDirections(session);
+
         return result;
+    }
+
+    // B-076: Graduates all staged interaction rows — flips IsStagedDirection to false.
+    // Called after every continuation (both SubmitPromptAsync and ContinueAsAsync).
+    // Idempotent; safe to call when no staged rows exist.
+    private void GraduateStagedDirections(RolePlaySession session)
+    {
+        var stagedRows = session.Interactions.Where(i => i.IsStagedDirection).ToList();
+        if (stagedRows.Count == 0) return;
+
+        foreach (var staged in stagedRows)
+            staged.IsStagedDirection = false;
+
+        _autoSaveCoordinator.QueueRolePlaySessionSave(session, "staged-directions-graduated");
+        _logger.LogInformation(
+            "Graduated {Count} staged direction(s) for session {SessionId}",
+            stagedRows.Count, session.Id);
     }
 
     private async Task QueueSemanticInteractionAnalysisAsync(RolePlaySession session, RolePlayInteraction interaction, CancellationToken cancellationToken)

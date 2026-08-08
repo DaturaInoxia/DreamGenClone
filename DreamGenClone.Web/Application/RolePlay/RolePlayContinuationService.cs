@@ -705,6 +705,14 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                 .Where(i => !i.IsExcluded)
                 .TakeLast(session.ContextWindowSize > 0 ? session.ContextWindowSize : 12)
                 .ToList(),
+            PinnedInteractions = session.Interactions
+                .Where(i => i.IsPinned && !i.IsExcluded)
+                .OrderBy(i => i.SessionInteractionIndex)
+                .ToList(),
+            StagedInteractions = session.Interactions
+                .Where(i => i.IsStagedDirection && !i.IsExcluded)
+                .OrderBy(i => i.SessionInteractionIndex)
+                .ToList(),
             CharacterDetails = charDetails,
             CharacterBehavioralFrames = characterBehavioralFrames,
             CharacterStatStateTexts = characterStatStateTexts,

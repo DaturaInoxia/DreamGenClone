@@ -15,6 +15,7 @@
 
 @inject StoryAnalysisFacade Facade
 @inject DreamGenClone.Application.RolePlay.IClimaxBeatRepository ClimaxBeatRepository
+@inject NavigationManager Navigation
 
 <PageTitle>Profiles</PageTitle>
 
@@ -45,55 +46,55 @@
 
     <ul class="nav nav-pills flex-nowrap overflow-auto mb-4" role="tablist" style="gap:0.5rem; white-space:nowrap;">
         <li class="nav-item" role="presentation">
-            <button type="button" class="nav-link @GetTabClass("ranking")" @onclick='() => _activeTab = "ranking"'>Theme</button>
+            <button type="button" class="nav-link @GetTabClass("ranking")" @onclick='() => SelectTab("ranking")'>Theme</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button type="button" class="nav-link @GetTabClass("tone")" @onclick='() => _activeTab = "tone"'>Intensity</button>
+            <button type="button" class="nav-link @GetTabClass("tone")" @onclick='() => SelectTab("tone")'>Intensity</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button type="button" class="nav-link @GetTabClass("style")" @onclick='() => _activeTab = "style"'>Writing Style</button>
+            <button type="button" class="nav-link @GetTabClass("style")" @onclick='() => SelectTab("style")'>Writing Style</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button type="button" class="nav-link @GetTabClass("character-profiles")" @onclick='() => _activeTab = "character-profiles"'>Character Profiles</button>
+            <button type="button" class="nav-link @GetTabClass("character-profiles")" @onclick='() => SelectTab("character-profiles")'>Character Profiles</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button type="button" class="nav-link @GetTabClass("willingness")" @onclick='() => _activeTab = "willingness"'>Willingness</button>
+            <button type="button" class="nav-link @GetTabClass("willingness")" @onclick='() => SelectTab("willingness")'>Willingness</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button type="button" class="nav-link @GetTabClass("resistance")" @onclick='() => _activeTab = "resistance"'>Resistance</button>
+            <button type="button" class="nav-link @GetTabClass("resistance")" @onclick='() => SelectTab("resistance")'>Resistance</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button type="button" class="nav-link @GetTabClass("narrative-gates")" @onclick='() => _activeTab = "narrative-gates"'>Narrative Gate Values</button>
+            <button type="button" class="nav-link @GetTabClass("narrative-gates")" @onclick='() => SelectTab("narrative-gates")'>Narrative Gate Values</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button type="button" class="nav-link @GetTabClass("roles")" @onclick='() => _activeTab = "roles"'>Roles</button>
+            <button type="button" class="nav-link @GetTabClass("roles")" @onclick='() => SelectTab("roles")'>Roles</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button type="button" class="nav-link @GetTabClass("background-characters")" @onclick='() => _activeTab = "background-characters"'>Background Characters</button>
+            <button type="button" class="nav-link @GetTabClass("background-characters")" @onclick='() => SelectTab("background-characters")'>Background Characters</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button type="button" class="nav-link @GetTabClass("finishing-move")" @onclick='() => _activeTab = "finishing-move"'>Finishing Move</button>
+            <button type="button" class="nav-link @GetTabClass("finishing-move")" @onclick='() => SelectTab("finishing-move")'>Finishing Move</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button type="button" class="nav-link @GetTabClass("steer-position")" @onclick='() => _activeTab = "steer-position"'>Steer Position</button>
+            <button type="button" class="nav-link @GetTabClass("steer-position")" @onclick='() => SelectTab("steer-position")'>Steer Position</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button type="button" class="nav-link @GetTabClass("flow-guide")" @onclick='() => _activeTab = "flow-guide"'>Flow Guide</button>
+            <button type="button" class="nav-link @GetTabClass("flow-guide")" @onclick='() => SelectTab("flow-guide")'>Flow Guide</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button type="button" class="nav-link @GetTabClass("perspective")" @onclick='() => _activeTab = "perspective"'>Perspective</button>
+            <button type="button" class="nav-link @GetTabClass("perspective")" @onclick='() => SelectTab("perspective")'>Perspective</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button type="button" class="nav-link @GetTabClass("selection-engine")" @onclick='() => _activeTab = "selection-engine"'>Selection Engine</button>
+            <button type="button" class="nav-link @GetTabClass("selection-engine")" @onclick='() => SelectTab("selection-engine")'>Selection Engine</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button type="button" class="nav-link @GetTabClass("beat-sheet")" @onclick='() => _activeTab = "beat-sheet"'>Beat Sheet</button>
+            <button type="button" class="nav-link @GetTabClass("beat-sheet")" @onclick='() => SelectTab("beat-sheet")'>Beat Sheet</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button type="button" class="nav-link @GetTabClass("templates")" @onclick='() => _activeTab = "templates"'>Templates</button>
+            <button type="button" class="nav-link @GetTabClass("templates")" @onclick='() => SelectTab("templates")'>Templates</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button type="button" class="nav-link @GetTabClass("stat-keywords")" @onclick='() => _activeTab = "stat-keywords"'>Stat Keywords</button>
+            <button type="button" class="nav-link @GetTabClass("stat-keywords")" @onclick='() => SelectTab("stat-keywords")'>Stat Keywords</button>
         </li>
     </ul>
 
@@ -3432,6 +3433,16 @@
     private void SelectThemeDefinition(ThemeDefinitionDocument definition)
     {
         _selectedThemeDefinition = definition;
+    }
+
+    private void SelectTab(string tab)
+    {
+        if (!_validTabs.Contains(tab))
+            return;
+
+        _activeTab = tab;
+        var currentPath = Navigation.ToBaseRelativePath(Navigation.Uri).Split('?', '#')[0];
+        Navigation.NavigateTo($"/{currentPath}?tab={Uri.EscapeDataString(tab)}");
     }
 
     private string GetTabClass(string tab) => _activeTab == tab ? "active" : string.Empty;

@@ -163,6 +163,8 @@ public sealed class RolePlayPromptBuilder
         PromptSlotId.IntensityPacing => 15,
         PromptSlotId.UserDirection => 16,
         PromptSlotId.FinalInstruction => 17,
+        PromptSlotId.PinnedContext => 8,
+        PromptSlotId.StagedDirections => 9,
         _ => int.MaxValue,
     };
 }

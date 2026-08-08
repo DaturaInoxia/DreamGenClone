@@ -54,6 +54,11 @@ public sealed class SystemPrimerSlot : IPromptSlot
         sb.AppendLine("User Direction — your immediate task for this response.");
         sb.AppendLine("This is what you must do right now.");
         sb.AppendLine();
+        sb.AppendLine("Staged Scene Directions — character messages and instructions staged via the + button.");
+        sb.AppendLine("These describe what each character is about to do in THIS turn. Execute them");
+        sb.AppendLine("as a batch scene plan, with each character acting in the order listed.");
+        sb.AppendLine("The instruction at the end is a scene constraint — follow it.");
+        sb.AppendLine();
         sb.AppendLine("Scene Context — where you are and what just happened.");
         sb.AppendLine("The Current Turn shows what other characters in this turn have already established.");
         sb.AppendLine("Build on it, do not re-describe it.");

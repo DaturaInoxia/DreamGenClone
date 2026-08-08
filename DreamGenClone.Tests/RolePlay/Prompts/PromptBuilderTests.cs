@@ -132,6 +132,7 @@ public sealed class PromptBuilderTests
             NarrativeTone = new ResolvedNarrativeToneData(),
             EncounterSummaries = [],
             RecentInteractions = [],
+            PinnedInteractions = [], StagedInteractions = [],
             CharacterDetails = null,
         };
     }

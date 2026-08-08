@@ -120,6 +120,7 @@ public sealed class SlotContractTests
             NarrativeTone = new ResolvedNarrativeToneData(),
             EncounterSummaries = [],
             RecentInteractions = recentInteractions ?? [],
+            PinnedInteractions = [], StagedInteractions = [],
             CharacterDetails = null,
         };
     }
@@ -1250,6 +1251,75 @@ public sealed class SlotContractTests
         Assert.Equal(PromptSlotId.UserDirection, slot.Id);
         Assert.Equal(PromptZone.C, slot.Zone);
         Assert.Equal(16, slot.Order);
+        Assert.False(slot.IsTrimEligible);
+    }
+
+    // ── T090: PinnedContextSlot (FR-024, FR-036) ──────────────
+
+    [Fact]
+    public void PinnedContextSlot_ShouldWrite_WhenPinnedExists()
+    {
+        var slot = new PinnedContextSlot(NullLogger<PinnedContextSlot>.Instance);
+        var pinned = new List<RolePlayInteraction>
+        {
+            new() { Id = "p1", ActorName = "Instruction", InteractionType = InteractionType.System, Content = "keep tension high", IsPinned = true },
+        };
+        var context = CreateContext();
+        context = context with { PinnedInteractions = pinned };
+
+        Assert.True(slot.ShouldWrite(context));
+    }
+
+    [Fact]
+    public void PinnedContextSlot_ShouldNotWrite_WhenNoPinned()
+    {
+        var slot = new PinnedContextSlot(NullLogger<PinnedContextSlot>.Instance);
+        var context = CreateContext();
+        context = context with { PinnedInteractions = [] };
+
+        Assert.False(slot.ShouldWrite(context));
+    }
+
+    [Fact]
+    public void PinnedContextSlot_ShouldNotWrite_ForNarrativeVariant()
+    {
+        var slot = new PinnedContextSlot(NullLogger<PinnedContextSlot>.Instance);
+        var pinned = new List<RolePlayInteraction>
+        {
+            new() { Id = "p1", ActorName = "Instruction", InteractionType = InteractionType.System, Content = "keep tension high", IsPinned = true },
+        };
+        var context = CreateContext(variant: PromptVariant.Narrative);
+        context = context with { PinnedInteractions = pinned };
+
+        Assert.False(slot.ShouldWrite(context));
+    }
+
+    [Fact]
+    public async Task PinnedContextSlot_OutputsPinnedMessagesAndInstructions()
+    {
+        var slot = new PinnedContextSlot(NullLogger<PinnedContextSlot>.Instance);
+        var pinned = new List<RolePlayInteraction>
+        {
+            new() { Id = "p1", ActorName = "Becky", InteractionType = InteractionType.User, Content = "I'm worried about Dean.", IsPinned = true },
+            new() { Id = "p2", ActorName = "Instruction", InteractionType = InteractionType.System, Content = "keep tension high", IsPinned = true },
+        };
+        var context = CreateContext();
+        context = context with { PinnedInteractions = pinned };
+
+        var text = await slot.WriteAsync(context, CancellationToken.None);
+
+        Assert.Contains("[Pinned Context]", text);
+        Assert.Contains("Character Message — Becky: I'm worried about Dean.", text);
+        Assert.Contains("Instruction: keep tension high", text);
+    }
+
+    [Fact]
+    public void PinnedContextSlot_HasCorrectIdentity()
+    {
+        var slot = new PinnedContextSlot(NullLogger<PinnedContextSlot>.Instance);
+        Assert.Equal(PromptSlotId.PinnedContext, slot.Id);
+        Assert.Equal(PromptZone.C, slot.Zone);
+        Assert.Equal(8, slot.Order);
         Assert.False(slot.IsTrimEligible);
     }
 }

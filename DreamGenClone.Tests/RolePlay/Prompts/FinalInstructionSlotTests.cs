@@ -99,6 +99,7 @@ public sealed class FinalInstructionSlotTests
             NarrativeTone = new ResolvedNarrativeToneData(),
             EncounterSummaries = [],
             RecentInteractions = [],
+            PinnedInteractions = [], StagedInteractions = [],
             CharacterDetails = null,
         };
     }

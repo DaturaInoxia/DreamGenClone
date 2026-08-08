@@ -54,6 +54,23 @@ public sealed record PromptBuildContext
     /// </summary>
     public IReadOnlyDictionary<string, string>? ActorRoleMap { get; init; }
 
+    // ── Pinned interactions ────────────────────────────────────
+    /// <summary>
+    /// Pinned interactions that are injected into every continuation prompt
+    /// regardless of context-window position. Populated before the TakeLast filter.
+    /// Used by <see cref="Slots.PinnedContextSlot"/> (Slot 8).
+    /// </summary>
+    public required IReadOnlyList<RolePlayInteraction> PinnedInteractions { get; init; }
+
+    // ── Staged directions (B-076) ──────────────────────────────
+    /// <summary>
+    /// Staged interaction rows (IsStagedDirection=true) to be injected as a batch
+    /// scene-directions block on this continuation, then graduated.
+    /// Used by <see cref="Slots.StagedDirectionsSlot"/> (Slot 9). Read-only snapshot;
+    /// graduation (flag flip) happens in the engine after the prompt is built.
+    /// </summary>
+    public required IReadOnlyList<RolePlayInteraction> StagedInteractions { get; init; }
+
     /// <summary>
     /// Recent interactions wrapped with turn metadata (turn number, position, actor count).
     /// Computed by the builder from <see cref="RecentInteractions"/> ordering.

@@ -160,6 +160,8 @@ builder.Services.AddScoped<IPromptSlot, SessionMemorySlot>();
 builder.Services.AddScoped<IPromptSlot, WorldStateSlot>();
 
 // Phase 9 (Polish): Zone C remaining slots (Scenario Guidance, Intensity Pacing, User Direction)
+builder.Services.AddScoped<IPromptSlot, PinnedContextSlot>();
+builder.Services.AddScoped<IPromptSlot, StagedDirectionsSlot>();
 builder.Services.AddScoped<IPromptSlot, ScenarioGuidanceSlot>();
 builder.Services.AddScoped<IPromptSlot, IntensityPacingSlot>();
 builder.Services.AddScoped<IPromptSlot, UserDirectionSlot>();

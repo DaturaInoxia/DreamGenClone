@@ -61,5 +61,11 @@ public enum PromptSlotId
     UserDirection = 17,
 
     /// <summary>Zone C, order 17 — final instruction before generation (FR-023).</summary>
-    FinalInstruction = 18
+    FinalInstruction = 18,
+
+    /// <summary>Zone C, order 8 — pinned interactions injected at deterministic position (FR-024).</summary>
+    PinnedContext = 19,
+
+    /// <summary>Zone C, order 9 — transient batch scene directions queue, one-shot on next continuation (FR-025). Renders after PinnedContext (8) so persistent constraints precede the one-shot staged plan.</summary>
+    StagedDirections = 20
 }

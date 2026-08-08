@@ -717,7 +717,7 @@ public sealed class RolePlaySessionLifecycleTests
             SelectedIdentityId = string.Empty,
             SelectedIdentityType = IdentityOptionSource.Persona,
             BehaviorModeAtSubmit = BehaviorMode.TakeTurns,
-            SubmittedVia = SubmissionSource.SendButton
+            SubmittedVia = SubmissionSource.MainOverflowContinue
         });
 
         var reloaded = await service.GetSessionAsync(created.Id);
@@ -769,7 +769,7 @@ public sealed class RolePlaySessionLifecycleTests
             SelectedIdentityId = string.Empty,
             SelectedIdentityType = IdentityOptionSource.Persona,
             BehaviorModeAtSubmit = BehaviorMode.TakeTurns,
-            SubmittedVia = SubmissionSource.SendButton
+            SubmittedVia = SubmissionSource.MainOverflowContinue
         });
 
         var reloaded = await service.GetSessionAsync(created.Id);
@@ -815,7 +815,7 @@ public sealed class RolePlaySessionLifecycleTests
             SelectedIdentityId = string.Empty,
             SelectedIdentityType = IdentityOptionSource.Persona,
             BehaviorModeAtSubmit = BehaviorMode.TakeTurns,
-            SubmittedVia = SubmissionSource.SendButton
+            SubmittedVia = SubmissionSource.MainOverflowContinue
         });
 
         var persisted = await repository.LoadAdaptiveStateAsync(created.Id);
@@ -823,6 +823,60 @@ public sealed class RolePlaySessionLifecycleTests
         Assert.Equal(7, persisted!.TurnCountInPhase);
         Assert.Equal(4, persisted.ObservedTurnCount);
         Assert.Empty(await repository.LoadTurnsAsync(created.Id));
+    }
+
+    [Fact]
+    public async Task SubmitPromptAsync_PlusButton_Message_DoesNotAdvanceCountersOrCreateTurn()
+    {
+        // B-074: + button (PlusButton) stages interaction with no turn side-effects —
+        // no StartTurnAsync call, no ObservedTurnCount++, AND no TurnCountInPhase increment
+        // via the V2 pipeline (incrementTurnCount must be gated on !isAddOnly, not !isInstruction).
+        var repository = new FakeRolePlayStateRepository();
+        var (service, _) = CreateService(repository);
+        var created = await service.CreateSessionAsync("PlusButton Counter Session");
+
+        await repository.SaveAdaptiveStateAsync(new AdaptiveScenarioState
+        {
+            SessionId = created.Id,
+            ActiveScenarioId = "scenario-a",
+            CurrentPhase = NarrativePhase.Committed,
+            TurnCountInPhase = 5,
+            ObservedTurnCount = 3,
+            ActiveFormulaVersion = "rpv2-default",
+            LastEvaluationUtc = DateTime.UtcNow
+        });
+
+        var session = await service.GetSessionAsync(created.Id);
+        Assert.NotNull(session);
+        session!.AdaptiveState.ActiveScenarioId = "scenario-a";
+        session.AdaptiveState.CurrentPhase = NarrativePhase.Committed;
+        session.AdaptiveState.TurnCountInPhase = 5;
+        session.AdaptiveState.ObservedTurnCount = 3;
+        await service.SaveSessionAsync(session);
+
+        // PlusButton bypasses identity availability validation in SubmitPromptAsync
+        // (the `submission.SubmittedVia != SubmissionSource.PlusButton` guard skips it),
+        // so a placeholder scene-character identity is sufficient.
+        await service.SubmitPromptAsync(new UnifiedPromptSubmission
+        {
+            SessionId = created.Id,
+            PromptText = "Becky crossed the kitchen.",
+            Intent = PromptIntent.Message,
+            SelectedIdentityId = "persona:you",
+            SelectedIdentityType = IdentityOptionSource.Persona,
+            BehaviorModeAtSubmit = BehaviorMode.TakeTurns,
+            SubmittedVia = SubmissionSource.PlusButton
+        });
+
+        var persisted = await repository.LoadAdaptiveStateAsync(created.Id);
+        Assert.NotNull(persisted);
+        Assert.Equal(5, persisted!.TurnCountInPhase);
+        Assert.Equal(3, persisted.ObservedTurnCount);
+        Assert.Empty(await repository.LoadTurnsAsync(created.Id));
+
+        var reloaded = await service.GetSessionAsync(created.Id);
+        Assert.NotNull(reloaded);
+        Assert.Contains(reloaded!.Interactions, x => x.Content == "Becky crossed the kitchen.");
     }
 
     [Fact]
@@ -840,7 +894,7 @@ public sealed class RolePlaySessionLifecycleTests
             SelectedIdentityId = string.Empty,
             SelectedIdentityType = IdentityOptionSource.Persona,
             BehaviorModeAtSubmit = BehaviorMode.TakeTurns,
-            SubmittedVia = SubmissionSource.SendButton
+            SubmittedVia = SubmissionSource.MainOverflowContinue
         });
 
         var reloaded = await service.GetSessionAsync(created.Id);
@@ -915,7 +969,7 @@ public sealed class RolePlaySessionLifecycleTests
             SelectedIdentityId = string.Empty,
             SelectedIdentityType = IdentityOptionSource.Persona,
             BehaviorModeAtSubmit = BehaviorMode.TakeTurns,
-            SubmittedVia = SubmissionSource.SendButton
+            SubmittedVia = SubmissionSource.MainOverflowContinue
         });
 
         Assert.Equal("Instruction", interaction.ActorName);

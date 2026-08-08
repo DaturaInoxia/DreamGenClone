@@ -487,8 +487,8 @@ article:has(.rw-shell) {
 .rw-add-btn:hover:not(:disabled) { color: #f1f1f1; }
 .rw-add-btn:disabled { opacity: 1; cursor: default; }
 
-/* Send button */
-.rw-send-btn {
+/* Continue button */
+.rw-continue-btn {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -504,17 +504,10 @@ article:has(.rw-shell) {
     padding: 0;
 }
 
-.rw-send-btn.is-ready {
-    background: #efefef;
-    border-color: #efefef;
-    color: #111;
-    cursor: pointer;
-}
+.rw-continue-btn:hover:not(:disabled) { background: #fff; border-color: #fff; }
+.rw-continue-btn:disabled { opacity: 0.75; cursor: wait; }
 
-.rw-send-btn.is-ready:hover { background: #fff; border-color: #fff; }
-.rw-send-btn:disabled { opacity: 0.75; cursor: wait; }
-
-.rw-send-ellipsis {
+.rw-continue-ellipsis {
     font-size: 17px;
     letter-spacing: 0;
     line-height: 1;

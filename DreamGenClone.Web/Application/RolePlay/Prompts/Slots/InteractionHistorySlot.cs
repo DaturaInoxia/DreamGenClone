@@ -45,7 +45,7 @@ public sealed class InteractionHistorySlot : IPromptSlot
         }
 
         var interactions = context.RecentInteractions
-            .Where(x => !x.IsExcluded)
+            .Where(x => !x.IsExcluded && !x.IsStagedDirection)
             .ToList();
 
         if (interactions.Count == 0)
