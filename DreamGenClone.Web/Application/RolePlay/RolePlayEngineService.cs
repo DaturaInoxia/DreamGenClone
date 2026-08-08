@@ -4938,17 +4938,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         {
             v2State.TurnsInCurrentEncounter += generatedSinceLastEval;
         }
-        // Clear the universal encounter state only when actually leaving Climax
-        // (priorPhase == Climax && finalPhase != Climax). This branch is intentionally NOT gated
-        // on isMultiEncounterClimax: non-multi-encounter themes must also reset
-        // CurrentEncounterNumber on Climax -> Reset so the next arc's universal start detection
-        // can assign a fresh encounter number (GlobalEncounterCount + 1). Guarding on priorPhase
-        // stops the branch from firing during BuildUp/Committed/Approaching, where the universal
-        // start detection owns the encounter state — previously it wiped IsEncounterActive /
-        // CurrentEncounterNumber mid-arc, causing double starts and truncated encounter memory.
-        else if (priorPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.Climax
-                 && finalPhase != DreamGenClone.Domain.RolePlay.NarrativePhase.Climax
-                 && v2State.CurrentEncounterNumber != 0)
+        else if (finalPhase != DreamGenClone.Domain.RolePlay.NarrativePhase.Climax && v2State.CurrentEncounterNumber != 0)
         {
             v2State.CurrentEncounterNumber = 0;
             v2State.IsEncounterActive = false;
@@ -5171,18 +5161,16 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             hasMapping = reloaded?.SemanticEventMappings.Any(x => string.Equals(x.EventId, "encounter-completed", StringComparison.OrdinalIgnoreCase)) ?? false;
             if (!hasMapping)
             {
-                // encounter-completed detection is universal, so a missing mapping is no longer a
-                // hard failure — themes fall back to the global EncounterEndConfidenceThreshold.
-                // Still warn so the config gap is visible and per-theme tuning can be added.
+                // Check which markers are active so the diagnostic is precise.
                 var hasMulti = RolePlayAssistantPrompts.IsMultiEncounterClimax(theme, "Climax");
                 var hasAftermath = theme.PhaseGuidance.Any(pg =>
                     RolePlayAssistantPrompts.IsAftermathHusbandContrast(theme, pg.Phase.ToString()));
                 if (hasMulti && hasAftermath)
-                    _logger.LogWarning("MissingEncounterCompletedMapping: theme '{ThemeId}' (session '{SessionId}') has both [ClimaxMode:multi-encounter] and [Aftermath:husband-contrast] markers but no 'encounter-completed' semantic event mapping. Detection uses the global threshold; add an encounter-completed mapping for per-theme confidence tuning.", theme.Id, sessionId);
+                    throw new InvalidOperationException($"MissingEncounterCompletedMapping: theme '{theme.Id}' has both [ClimaxMode:multi-encounter] and [Aftermath:husband-contrast] markers but no 'encounter-completed' semantic event mapping. Add an encounter-completed mapping to the theme.");
                 if (hasMulti)
-                    _logger.LogWarning("MissingEncounterCompletedMapping: theme '{ThemeId}' (session '{SessionId}') has [ClimaxMode:multi-encounter] in its Climax phase guidance but no 'encounter-completed' semantic event mapping. Detection uses the global threshold; add an encounter-completed mapping for per-theme confidence tuning.", theme.Id, sessionId);
+                    throw new InvalidOperationException($"MissingEncounterCompletedMapping: theme '{theme.Id}' has [ClimaxMode:multi-encounter] in its Climax phase guidance but no 'encounter-completed' semantic event mapping. Add an encounter-completed mapping to the theme before using multi-encounter mode.");
                 if (hasAftermath)
-                    _logger.LogWarning("MissingEncounterCompletedMapping: theme '{ThemeId}' (session '{SessionId}') has [Aftermath:husband-contrast] in its phase guidance but no 'encounter-completed' semantic event mapping. Detection uses the global threshold; add an encounter-completed mapping for per-theme confidence tuning.", theme.Id, sessionId);
+                    throw new InvalidOperationException($"MissingEncounterCompletedMapping: theme '{theme.Id}' has [Aftermath:husband-contrast] in its phase guidance but no 'encounter-completed' semantic event mapping. Add an encounter-completed mapping to the theme before using aftermath closure.");
             }
         }
     }
@@ -5203,10 +5191,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         var threshold = _memoryOptions?.Value.EncounterStartConfidenceThreshold ?? 0.70m;
 
         // Build context window (same pattern as TryDetectEncounterBoundaryAsync).
-        // Window size is configurable (EncounterStartContextTurns); the current interaction
-        // is always included separately as InteractionText. Keeping this small keeps the
-        // inference prompt fast enough for the semantic model.
-        var cwSize = Math.Max(1, _memoryOptions?.Value.EncounterStartContextTurns ?? 4);
+        var cwSize = Math.Max(12, session.ContextWindowSize);
         var ixIdx = session.Interactions.FindIndex(x => string.Equals(x.Id, interaction.Id, StringComparison.OrdinalIgnoreCase));
         var ctxStart = ixIdx >= 0 ? Math.Max(0, ixIdx - cwSize) : Math.Max(0, session.Interactions.Count - cwSize);
         var ctxEnd = ixIdx >= 0 ? ixIdx : session.Interactions.Count;
@@ -5361,19 +5346,13 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         // Multi-encounter gate: requires at least encounter 1.
         if (isMulti && state.CurrentEncounterNumber <= 0) return;
 
-        // encounter-completed detection is universal (symmetric with encounter-start). Themes
-        // with an explicit mapping use its per-theme confidence window; themes without one use
-        // the global EncounterEndConfidenceThreshold. No code-only fallback — the global
-        // threshold is UI-backed config (RolePlayMemory section).
         var mapping = theme!.SemanticEventMappings.FirstOrDefault(x => string.Equals(x.EventId, "encounter-completed", StringComparison.OrdinalIgnoreCase));
-        var confMin = mapping?.ConfidenceMin ?? (_memoryOptions?.Value.EncounterEndConfidenceThreshold ?? 0.70m);
-        var confMax = mapping?.ConfidenceMax ?? 1.0m;
         if (mapping is null)
         {
-            _logger.LogDebug("TryDetectEncounterBoundary: theme {ThemeId} has no encounter-completed mapping; using global confidence threshold {Threshold}", theme.Id, confMin);
+            _logger.LogDebug("TryDetectEncounterBoundary: theme {ThemeId} has no encounter-completed mapping", theme.Id);
+            return;
         }
-        // Window size is configurable (EncounterStartContextTurns), symmetric with encounter-start.
-        var cwSize = Math.Max(1, _memoryOptions?.Value.EncounterStartContextTurns ?? 4);
+        var cwSize = Math.Max(12, session.ContextWindowSize);
         var ixIdx = session.Interactions.FindIndex(x => string.Equals(x.Id, interaction.Id, StringComparison.OrdinalIgnoreCase));
         var ctxStart = ixIdx >= 0 ? Math.Max(0, ixIdx - cwSize) : Math.Max(0, session.Interactions.Count - cwSize);
         var ctxEnd = ixIdx >= 0 ? ixIdx : session.Interactions.Count;
@@ -5390,7 +5369,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             return;
         }
         if (!inf.Success) { _logger.LogWarning("TryDetectEncounterBoundary: inference non-success SessionId={SessionId}", session.Id); return; }
-        var detected = inf.Events.FirstOrDefault(x => string.Equals(x.EventId, "encounter-completed", StringComparison.OrdinalIgnoreCase) && x.Confidence >= confMin && x.Confidence <= confMax);
+        var detected = inf.Events.FirstOrDefault(x => string.Equals(x.EventId, "encounter-completed", StringComparison.OrdinalIgnoreCase) && x.Confidence >= mapping.ConfidenceMin && x.Confidence <= mapping.ConfidenceMax);
         if (detected is null) { _logger.LogDebug("TryDetectEncounterBoundary: no detection SessionId={SessionId} Encounter={EncounterNumber}", session.Id, state.CurrentEncounterNumber); return; }
 
         // Multi-encounter premature-advance guard: only apply the min-interactions rule

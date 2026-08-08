@@ -143,7 +143,7 @@ public sealed class RolePlaySessionLifecycleTests
             ToStateCode = "NextDisappearanceEligible",
             Priority = 10,
             TriggerType = "cooldown-eligibility",
-            GateConfigJson = "{\"minimumTurns\":2,\"requireReturnBeatCompleted\":true,\"returnBeatCompletionSignals\":[\"returned\"],\"returnBeatTransgressorRole\":\"Wife\",\"returnBeatPartnerRole\":\"Husband\"}",
+            GateConfigJson = "{\"minimumInteractions\":4,\"requireReturnBeatCompleted\":true,\"returnBeatCompletionSignals\":[\"returned\"],\"returnBeatTransgressorRole\":\"Wife\",\"returnBeatPartnerRole\":\"Husband\"}",
             BlockReasonCode = "ReintegrationCooldownGateBlocked",
             IsEnabled = true
         };
@@ -186,7 +186,7 @@ public sealed class RolePlaySessionLifecycleTests
             ToStateCode = "NextDisappearanceEligible",
             Priority = 10,
             TriggerType = "cooldown-eligibility",
-            GateConfigJson = "{\"minimumTurns\":2,\"requireReturnBeatCompleted\":true,\"returnBeatCompletionSignals\":[\"returned\"],\"returnBeatTransgressorRole\":\"Wife\",\"returnBeatPartnerRole\":\"Husband\"}",
+            GateConfigJson = "{\"minimumInteractions\":4,\"requireReturnBeatCompleted\":true,\"returnBeatCompletionSignals\":[\"returned\"],\"returnBeatTransgressorRole\":\"Wife\",\"returnBeatPartnerRole\":\"Husband\"}",
             BlockReasonCode = "ReintegrationCooldownGateBlocked",
             IsEnabled = true
         };

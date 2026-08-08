@@ -8391,24 +8391,20 @@ private void CloseInteractionInfo()
                                         }
                                         @if (_semanticDetailTab == "prompt")
                                         {
-                                            var hasDetailPrompt = sdDetail is not null && (!string.IsNullOrWhiteSpace(sdDetail.PromptSystem) || !string.IsNullOrWhiteSpace(sdDetail.PromptUser));
-                                            var hasStatePrompt = !string.IsNullOrWhiteSpace(sdState.PromptSystem) || !string.IsNullOrWhiteSpace(sdState.PromptUser);
-                                            @if (hasDetailPrompt || hasStatePrompt)
+                                            @if (sdDetail is not null && (!string.IsNullOrWhiteSpace(sdDetail.PromptSystem) || !string.IsNullOrWhiteSpace(sdDetail.PromptUser)))
                                             {
-                                                var promptSystem = sdDetail?.PromptSystem ?? sdState.PromptSystem;
-                                                var promptUser = sdDetail?.PromptUser ?? sdState.PromptUser;
-                                                @if (!string.IsNullOrWhiteSpace(promptSystem))
+                                                @if (!string.IsNullOrWhiteSpace(sdDetail.PromptSystem))
                                                 {
                                                     <div class="rw-scenario-field">
                                                         <label class="rw-scenario-field-label">System Prompt</label>
-                                                        <div class="rw-info-value-mono rw-prompt-viewer">@promptSystem</div>
+                                                        <div class="rw-info-value-mono rw-prompt-viewer">@sdDetail.PromptSystem</div>
                                                     </div>
                                                 }
-                                                @if (!string.IsNullOrWhiteSpace(promptUser))
+                                                @if (!string.IsNullOrWhiteSpace(sdDetail.PromptUser))
                                                 {
                                                     <div class="rw-scenario-field" style="margin-top:12px;">
                                                         <label class="rw-scenario-field-label">User Prompt</label>
-                                                        <div class="rw-info-value-mono rw-prompt-viewer">@promptUser</div>
+                                                        <div class="rw-info-value-mono rw-prompt-viewer">@sdDetail.PromptUser</div>
                                                     </div>
                                                 }
                                             }
@@ -8419,10 +8415,9 @@ private void CloseInteractionInfo()
                                         }
                                         else if (_semanticDetailTab == "response")
                                         {
-                                            var rawOutput = sdDetail?.InferenceRawOutput ?? sdState.RawModelOutput;
-                                            @if (!string.IsNullOrWhiteSpace(rawOutput))
+                                            @if (sdDetail is not null && !string.IsNullOrWhiteSpace(sdDetail.InferenceRawOutput))
                                             {
-                                                <div class="rw-info-value-mono rw-prompt-viewer">@rawOutput</div>
+                                                <div class="rw-info-value-mono rw-prompt-viewer">@sdDetail.InferenceRawOutput</div>
                                             }
                                             else
                                             {

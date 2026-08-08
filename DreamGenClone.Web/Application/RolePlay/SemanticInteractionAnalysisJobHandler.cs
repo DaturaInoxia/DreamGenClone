@@ -101,12 +101,6 @@ public sealed class SemanticInteractionAnalysisJobHandler : IBackgroundJobHandle
             CreatedUtc = createdUtc
         }, cancellationToken);
 
-        // Stash latest inference diagnostics so the catch block can persist them
-        // even when ApplyInferredSemanticEvidenceAsync throws (e.g., confidence out of range).
-        string? lastPromptSystem = null;
-        string? lastPromptUser = null;
-        string? lastRawModelOutput = null;
-
         try
         {
             var session = await _sessionService.LoadRolePlaySessionAsync(payload.SessionId, cancellationToken)
@@ -209,11 +203,6 @@ public sealed class SemanticInteractionAnalysisJobHandler : IBackgroundJobHandle
                 AllowedEventIds = allowedEventIds
             }, cancellationToken);
 
-            // Stash diagnostics in case ApplyInferredSemanticEvidenceAsync throws later.
-            lastPromptSystem = inferenceResult.PromptSystem;
-            lastPromptUser = inferenceResult.PromptUser;
-            lastRawModelOutput = inferenceResult.RawModelOutput;
-
             if (!inferenceResult.Success)
             {
                 var failedResultJson = JsonSerializer.Serialize(new SemanticInteractionAnalysisResult
@@ -238,9 +227,6 @@ public sealed class SemanticInteractionAnalysisJobHandler : IBackgroundJobHandle
                     Status = SemanticAnalysisStatus.Error,
                     ErrorMessage = inferenceResult.ErrorMessage ?? "Model resolution failed",
                     ResultJson = failedResultJson,
-                    PromptSystem = inferenceResult.PromptSystem,
-                    PromptUser = inferenceResult.PromptUser,
-                    RawModelOutput = inferenceResult.RawModelOutput,
                     UpdatedUtc = DateTime.UtcNow,
                     CreatedUtc = createdUtc,
                     AnalyzedUtc = DateTime.UtcNow
@@ -357,9 +343,6 @@ public sealed class SemanticInteractionAnalysisJobHandler : IBackgroundJobHandle
                 CharacterId = payload.CharacterId,
                 Status = SemanticAnalysisStatus.Complete,
                 ResultJson = resultJson,
-                PromptSystem = inferenceResult.PromptSystem,
-                PromptUser = inferenceResult.PromptUser,
-                RawModelOutput = inferenceResult.RawModelOutput,
                 UpdatedUtc = DateTime.UtcNow,
                 CreatedUtc = createdUtc,
                 AnalyzedUtc = DateTime.UtcNow
@@ -379,9 +362,6 @@ public sealed class SemanticInteractionAnalysisJobHandler : IBackgroundJobHandle
                 CharacterId = payload.CharacterId,
                 Status = SemanticAnalysisStatus.Error,
                 ErrorMessage = ex.Message,
-                PromptSystem = lastPromptSystem,
-                PromptUser = lastPromptUser,
-                RawModelOutput = lastRawModelOutput,
                 UpdatedUtc = DateTime.UtcNow,
                 CreatedUtc = createdUtc,
                 AnalyzedUtc = DateTime.UtcNow
