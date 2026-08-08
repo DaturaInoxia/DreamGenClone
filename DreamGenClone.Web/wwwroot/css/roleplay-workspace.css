@@ -567,6 +567,97 @@ article:has(.rw-shell) {
     overscroll-behavior: contain;
 }
 
+/* Steering has four longer, context-aware choices plus a target selector. */
+.rw-steer-popup {
+    width: 620px;
+    min-width: 620px;
+    max-width: calc(100vw - 28px);
+    height: 600px;
+    max-height: calc(100vh - 40px);
+    overflow: hidden;
+}
+
+/* Override inheritance when the popup is inside the fixed overlay. */
+.rw-steer-overlay-popup {
+    position: relative;
+    bottom: auto;
+    left: auto;
+    right: auto;
+    width: 620px;
+    max-width: calc(100vw - 28px);
+    height: 600px;
+    max-height: calc(100vh - 40px);
+}
+
+.rw-steer-popup .rw-finish-popup-body {
+    flex: 1 1 0;
+    height: 0;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.rw-steer-popup > .rw-popup-header,
+.rw-steer-popup > .rw-popup-actions,
+.rw-steer-popup > .rw-steer-preview {
+    flex-shrink: 0;
+}
+
+.rw-steer-popup .rw-popup-item {
+    align-items: flex-start;
+    gap: 14px;
+    min-height: 74px;
+    padding: 16px 20px;
+}
+
+.rw-steer-popup .rw-popup-item-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.rw-steer-popup .rw-popup-item-title {
+    font-size: 15px;
+    line-height: 1.5;
+    white-space: normal;
+}
+
+.rw-steer-popup .rw-steer-dir-badge {
+    flex: 0 0 92px;
+    padding: 6px 8px;
+    border: 1px solid #4a4a4a;
+    border-radius: 7px;
+    color: #d7d7d7;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-align: center;
+    text-transform: uppercase;
+}
+
+.rw-steer-popup .rw-steer-preview {
+    line-height: 1.55;
+    white-space: normal;
+    flex-shrink: 0;
+}
+
+@media (max-width: 680px) {
+    .rw-steer-popup {
+        right: 7px;
+        width: calc(100vw - 14px);
+        min-width: 0;
+        max-width: calc(100vw - 14px);
+        height: 690px;
+        max-height: none;
+    }
+
+    .rw-steer-popup .rw-popup-item {
+        padding: 13px 14px;
+    }
+
+    .rw-steer-popup .rw-steer-dir-badge {
+        flex-basis: 76px;
+    }
+}
+
 /* Popup header (identity popup) */
 .rw-popup-header {
     padding: 9px 14px 6px;
@@ -2009,6 +2100,13 @@ article:has(.rw-shell) {
     align-items: center;
     justify-content: center;
     z-index: 200;
+}
+
+/* Centered steering overlay — full viewport, centered popup */
+.rw-steer-overlay {
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 0 !important;
 }
 
 .rw-modal {

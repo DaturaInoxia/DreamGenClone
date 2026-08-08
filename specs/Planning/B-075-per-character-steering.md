@@ -92,6 +92,28 @@ RolePlaySteeringDirective (new, in DreamGenClone.Web/Domain/RolePlay/)
 - The directive is **one-shot**: the user picks a direction card → `+` stages it as a `PromptIntent.Instruction` interaction with `IsStagedDirection = true` → the next `…` continuation injects it via `StagedDirectionsSlot` and graduates it to history. No special persistence on `RolePlaySession` needed — the staged interaction row IS the directive.
 - **No `StatDeltas` field.** This feature does not mutate stats directly — the current stats only shape the option text (D11), and the existing semantic pipeline updates stats naturally on the next continuation from the generated narrative, same as any other turn. B-020 (direct stat mutation on steer) is deliberately out of scope.
 
+### D1b — Per-role steering intents (what the four directions mean for each role)
+
+The four direction labels (Away / Neutral / Towards / Hard) mean different things depending on the target character's **narrative role**. This section defines the steering intent for each role, which feeds both the **option-generation prompt** (D11) and the **per-character prompt injection** (D5).
+
+These are *concept-level steering intents* — they describe the character's narrative job and conflict. They are injected into the LLM prompt as guidance so the model *refines* them into situation-appropriate prose, not as literal boilerplate text.
+
+| Role | Narrative goal | Core conflict | What each direction means for this role |
+|---|---|---|---|
+| **Wife** | Decide whether to cheat, how far to go, and how she feels about it afterward. | Commitment to husband vs desire for exciting, satisfying encounters. Tension between guilt/regret and physical/emotional fulfilment. | **Away** → reinforce boundaries, pull back, feel guilt, resist advances. **Neutral** → stay in the current headspace without committing either way. **Towards** → lower guard, engage more openly, consider crossing a line. **Hard** → actively pursue the encounter, initiate escalation, set aside restraint. |
+| **Husband** | Enable or block the encounter between Wife and OtherMan — knowingly or unknowingly. | His presence, choices, and emotional state either create opportunity or close it. He may be aware of the dynamic or oblivious, turned on or threatened, interfering on purpose or inadvertently. | **Away** → block, interfere, confront, withdraw in a way that shuts things down. **Neutral** → remain in the current posture — neither facilitating nor obstructing. **Towards** → create space for the Wife-OtherMan dynamic, encourage (directly or unknowingly), step aside. **Hard** → actively enable or participate — push them together, voice approval, remove all obstacles. |
+| **OtherMan** | Pursue the Wife with singular focus, adapting his approach as needed to succeed. | How to accomplish the goal — through seduction, emotional connection, flirting, confident physical advances, or any means the situation calls for. His conflict is tactical: what approach will work *right now* given her state and the Husband's presence. | **Away** → back off, give space, cool pursuit, redirect attention elsewhere. **Neutral** → maintain presence without pressing — stay in orbit. **Towards** → apply the approach suited to her current state (seduction, listening, confidence, physicality). **Hard** → push aggressively — direct physical escalation, unambiguous intent, bypass subtlety entirely. |
+
+These role intents are **persisted** as code-defined catalog entries (similar to `CharacterStatTextCatalog`) keyed by `(role, direction)` so they are a single source of truth for both option generation and prompt injection. They are NOT user-editable in this slice (defer to follow-up if needed). The catalog lives at:
+
+```
+DreamGenClone.Domain/StoryAnalysis/SteerRoleIntentCatalog.cs  (new static class)
+```
+
+The catalog is injected into:
+1. **`BuildSteerOptionsPromptAsync`** (D11) — the role × direction intent text shapes the LLM's option generation.
+2. **`StagedDirectionsSlot.WriteAsync`** (D5) — the role × direction intent text enriches the per-character injection block.
+
 ### D2 — REMOVED (was: Direction → stat-delta mapping)
 
 **Removed per user clarification.** No `RPSteerDirectionProfile` table, no per-direction stat-delta configuration, no `Steer Directions` editor grid on `ThemeProfiles.razor`. Direct stat mutation is B-020, not B-075. The four directions are a **prompt-injection concern**, not a stat-mutation concern. See D11 for how the current stats shape the option text instead.
@@ -131,12 +153,13 @@ Steering directives are injected through the **existing `StagedDirectionsSlot`**
 
 To make the injection per-character-aware, `StagedDirectionsSlot.WriteAsync` is extended to read `SteeringMetadataJson` from staged instruction rows:
 
-- When `SteeringMetadataJson` is present (i.e. this staged row is a B-075 steering directive), emit a per-character block:
+- When `SteeringMetadataJson` is present (i.e. this staged row is a B-075 steering directive), emit a per-character block enriched with role intent:
   ```
   [Staged Scene Directions — Execute This Turn]
-  Steering Directive (Target: {TargetCharacterLabel}, Direction: {Direction}):
+  Steering Directive — {TargetCharacterLabel} ({role}), Direction: {Direction}:
   {FreeTextDirective}
   - This directive applies to {TargetCharacterLabel}'s next actions and choices. Other characters are unaffected.
+  - Role context: {SteerRoleIntentCatalog.GetIntent(role, direction)}
   ```
 - When `SteeringMetadataJson` is absent (i.e. ordinary staged instruction/message), emit the existing generic format.
 
@@ -165,24 +188,38 @@ Direction flow — pick a direction for {TargetCharacter}:
  [Hard]     option text...      (select)
 ```
 
-### D7 — Per-character target selector in the popup
+### D7 — Per-character selection UI backed by one all-character generation call
 
-Add a character selector at the top of the steer popup (`RolePlayWorkspace.razor` L8932 block):
+The popup retains a character selector for choosing which character's four choices are currently displayed, but the selector MUST NOT trigger a separate LLM request for each character.
 
-- `<select>` of session characters from `_session.CharacterPerspectives` (or `AdaptiveState.CharacterStats` keys). Default to the POV character or the first NPC.
-- `TargetCharacterId` + `TargetCharacterLabel` captured on Apply.
-- The selected target is also injected into `BuildSteerOptionsPromptAsync` so the generated options are grounded in that character's current stats/role (e.g. "Wife rejects other man's advances" vs "Husband pushes harder").
+- `<select>` lists the session's active characters from `_session.CharacterPerspectives` / `AdaptiveState.CharacterStats`.
+- Opening or regenerating the Direction flow makes **one** generation request containing every active steerable character.
+- The UI stores the parsed option sets keyed by character ID and changes the visible cards locally when the selector changes.
+- `TargetCharacterId`, `TargetCharacterLabel`, and `TargetCharacterRole` are captured only when the user applies one selected card.
+- If the user changes character after generation, no new model call is made unless they explicitly choose Regenerate.
 
-This is the per-character expansion the backlog item requires.
+This makes all character choices come from one consistent scene snapshot and lets the model reason about the relationship between Wife, Husband, and OtherMan in the same request.
 
-### D8 — Surface the built prompt and LLM response in the UI
+### D8 — Surface steering-generation and continuation prompt/response separately
 
 The user's explicit ask: "the prompt and response needs to be surfaced in the UI." This is done in two places:
 
-1. **Per-interaction prompt/response viewer** (existing `RolePlayInteraction` storage; mirrors B-053 but scoped to steering):
-   - Extend `RolePlayInteraction` with `PromptText` (the full built continuation prompt for that interaction) and `RawResponseText` (the raw LLM response including any reasoning). Persisted in new columns `PromptText` / `RawResponseText` on the `RolePlayInteractions` table (additive). Pure text — not charms-dependent.
-   - These fields are populated at continuation time in `RolePlayContinuationService.ContinueAsync` (after `RolePlayPromptBuilder.BuildAsync` returns the built prompt, store it on the generated interaction before persistence).
-   - Render in the existing "Interaction Info" modal on `RolePlayWorkspace.razor` (the modal that already exists for adaptive state) via a new **"Steering" sub-tab** or a two-pane **"Prompt" / "Response"** tab. The tab is scrollable for long prompts. Includes a **"Resolved Steering Directive"** header at the top showing the consumed `RolePlaySteeringDirective` (target + direction + free-text directive) for that interaction.
+1. **Steering generation record** (new persisted record, not the ordinary interaction viewer):
+  - Persist one `SteeringGenerationRecord` for each Direction-flow generation request.
+  - Store the full generation prompt, raw LLM response, parsed all-character options, character-state snapshot, active theme/phase, model/settings, and timestamp.
+  - The record has a stable ID. The staged steering interaction stores that ID in `SteeringGenerationId` when the user applies a choice.
+  - The record remains available after the option is applied, so the user can inspect exactly how every character's choices were generated.
+
+2. **Steering Details tab/modal**:
+  - Add a dedicated `Steering Details` action/tab, separate from generic `Interaction Info`.
+  - Show generation prompt, raw response, parsed options grouped by character and direction, character snapshot, model/settings, and selected directive.
+  - The character selector filters the parsed options locally; it does not reload or regenerate the prompt.
+  - The prompt and response areas must be independently scrollable and support copy-to-clipboard.
+
+3. **Final continuation prompt/response**:
+  - Keep the generated continuation's existing `PromptText` capture for the final prompt sent after `…`.
+  - Populate `RawResponseText` on the generated continuation interaction with the model output (and preserve `ReasoningContent` separately when supplied).
+  - The Steering Details view must show a separate **Final Continuation** section or link containing the final prompt, response, and the selected directive metadata. Do not confuse the steering-options generation response with the narrative continuation response.
 
 2. **Live preview in the steer popup** (immediate feedback before submit):
    - After the user selects a direction card but before pressing Apply, the popup footer shows a **read-only preview block** of what will be applied:
@@ -190,7 +227,7 @@ The user's explicit ask: "the prompt and response needs to be surfaced in the UI
      - `Directive text: "{option text}"`
    - On Apply, a toast confirms: `Steering applied → {character} | {direction}`. **No stat deltas are shown because no stat deltas are applied by the steer itself** — stats move naturally from the generated narrative via the existing semantic pipeline, not from the steer action.
 
-3. **Engine → UI callback** for the response: the existing `onChunk` streaming callback (used by `SubmitPromptWithContinuationAsync` / `ContinuePromptAsync`) already delivers the response text progressively. The full response is captured for persistence via D8.1. No new event sink required.
+4. **Engine → UI callback** for the final response: the existing `onChunk` streaming callback continues to deliver the response progressively. The full response is persisted on the generated continuation interaction via `RawResponseText`; the generation record stores the separate options-generation response.
 
 ### D9 — Interaction with theme direction & phase escalation
 
@@ -213,21 +250,22 @@ The four direction cards (Away / Neutral / Towards / Hard) are **not generic**. 
 
 #### What feeds the option-generation prompt
 
-`BuildSteerOptionsPromptAsync` (`RolePlayWorkspace.razor` L5119) is extended to inject the following **per-target-character context block** before the "Generate exactly 4 options…" instruction:
+`BuildSteerOptionsPromptAsync` (`RolePlayWorkspace.razor` L5119) is rewritten to inject one **all-character context block** before the generation instruction. The block contains one complete state section per active steerable character:
 
 | Context input | Source (verified) | Why it matters |
 |---|---|---|
-| **Target character label + role** | Selected in the popup character `<select>` (D7); role from `CharacterStatProfileV2.CharacterRole` | A Wife choice reads differently from a Husband or OtherMan choice at the same scene moment. |
-| **Target character current canonical stats** | `CharacterStatProfileV2.Desire/Restraint/Dominance/Loyalty/SelfRespect` via `CharacterStatProfileV2Accessor.GetStatOrDefault` | A Wife with Desire 100 vs Desire 10 produces different "towards" text (urgency vs reluctance). |
-| **Target character stat state text** | `CharacterStatTextCatalog.GetBandText(stat, role, value)` (Domain/StoryAnalysis) — the same 4-band text already injected into continuation prompts by `BehavioralFramesSlot` (Slot 13) | Reuses the authoritative per-stat×role phrasing so the option text matches the narrative voice the model already gets on the next continuation. |
-| **Target character behavioral frame** | `context.CharacterBehavioralFrames[targetLabel]` from `ScenarioGuidanceContextFactory` → `CharacterBehavioralFrameGenerator` (Infrastructure/StoryAnalysis) | The frame text encodes role-specific disposition (Wife boundary firmness, Husband awareness, etc.) — drives what "towards" means for that specific character. |
+| **Every active character label + role** | Session character list; role from `CharacterStatProfileV2.CharacterRole` | The single request must generate coherent choices for Wife, Husband, OtherMan, and any additional active character. |
+| **Each character's current canonical stats** | Each `CharacterStatProfileV2.Desire/Restraint/Dominance/Loyalty/SelfRespect` via `CharacterStatProfileV2Accessor.GetStatOrDefault` | A Wife with Desire 100 vs Desire 10 produces different choices, while other characters' states provide relational context. |
+| **Each character's stat state text** | `CharacterStatTextCatalog.ResolveText(stat, role, value)` (Domain/StoryAnalysis) — the same 4-band text already injected into continuation prompts by `BehavioralFramesSlot` (Slot 13) | Reuses the authoritative per-stat×role phrasing for every generated option set. |
+| **Each character's behavioral frame** | `context.CharacterBehavioralFrames[characterLabel]` from `ScenarioGuidanceContextFactory` → `CharacterBehavioralFrameGenerator` (Infrastructure/StoryAnalysis) | Frames encode each character's disposition and relationship behavior, allowing the model to coordinate choices across the cast. |
 | **Runtime encounter dimensions** | `CharacterStatProfileV2.RuntimeEncounterStats` (Wife/Husband only — `StatToDimensionMappings` rules) | Behavioral dimensions (e.g. `BoundaryFirmness`, `SeductionReceptivity`) already flavor the frame; carrying them into option generation keeps the popup coherent with the prompt. |
 | **Active theme + phase guidance** | `_v2State.ActiveTheme` + `GetThemePhaseGuidanceLines(theme, currentPhase)` (already used in `AppendThemeReferenceContextAsync`) | "Towards" is defined *relative to* the active theme's phase guidance — these lines are the steering vector. |
+| **Role-specific steering intent** | `SteerRoleIntentCatalog.GetIntent(role, direction)` (new code-defined catalog — D1b) | Each of the four directions means something different for Wife vs Husband vs OtherMan. The intent text grounds the LLM in what "Away" actually means for a Husband (block/interfere) vs for an OtherMan (back off/cool pursuit). |
 | **Current narrative phase** | `_v2State.CurrentPhase` | The four options must stay phase-consistent (BuildUp options differ from Climax options). Already in today's prompt. |
 | **Recent interaction context (scene + last ~6 interactions)** | `BuildRecentSteerContextText()` (L5468) — already used by the Position flow | Anchors the option text to what just happened. |
 | **Current scene location** | `_v2State.CurrentSceneLocation` | Grounds options in the surroundings. |
 
-This is **the same surface the continuation prompt already uses** (Slot 13 `BehavioralFramesSlot` + `CharacterStatTextCatalog`), so option generation and the next continuation stay coherent. No new data source; the change is *feeding the existing per-character data into the option-generation LLM call that today only gets scene/position context*.
+This is **the same surface the continuation prompt already uses** (Slot 13 `BehavioralFramesSlot` + `CharacterStatTextCatalog`), so option generation and the next continuation stay coherent. The critical change is that all characters are included in one request rather than calling the model separately for each selected character.
 
 #### Why stat values change the options (worked examples)
 
@@ -245,54 +283,81 @@ The four direction cards are labeled **fixed** (Away / Neutral / Towards / Hard 
   - **Towards**: "She presses closer, her hand sliding with deliberate intent."
   - **Hard**: "She takes control, straddles him, and sets the pace without waiting for him to lead."
 
-The **direction labels are fixed**; the **option text is stat-conditioned**. The LLM is asked to produce 4 options, one per direction, each tailored to the target's current stats/role/scene.
+- **Husband, aware and suspicious, medium stats across the board**:
+  - **Away**: "He steps between them, voice flat — 'I think that's enough for tonight.'"
+  - **Neutral**: "He watches from across the room, expression unreadable, saying nothing."
+  - **Towards**: "He announces he's turning in early, leaving them alone with a pointed look."
+  - **Hard**: "He claps the other man on the shoulder — 'Keep her company, will you? I'm beat.' — and walks out."
+
+- **OtherMan, pursuing a guarded Wife, high Desire/Dominance**:
+  - **Away**: "He leans back, breaking eye contact, letting the tension dissipate — she's not ready."
+  - **Neutral**: "He stays close but doesn't push; his attention is steady, waiting for a signal."
+  - **Towards**: "He lowers his voice, asking about her day with genuine focus — finding the crack in her guard."
+  - **Hard**: "He closes the distance in one step, hand finding her waist before she can form a protest."
+
+The **direction labels are fixed**; the **option text is stat-conditioned AND role-conditioned** — the same "Towards" produces seduction tactics for an OtherMan, opportunity-creation for a Husband, and boundary-lowering for a Wife.
 
 #### LLM generation contract (D6 Option B refined)
 
-`BuildSteerOptionsPromptAsync` is rewritten so the system prompt instructs the model to return **exactly 4 options in a fixed order: Away, Neutral, Towards, Hard**. Parsing still uses `ParseFinishOptions` (L6384 — flat JSON array of strings, no schema change → low risk). The popup renders the four strings in fixed labeled slots (Away/Neutral/Towards/Hard), so the user knows what each card means regardless of the model's prose.
+`BuildSteerOptionsPromptAsync` is rewritten so the system prompt instructs the model to return **four options for every active character**, always ordered Away, Neutral, Towards, Hard. The response changes from a flat array to structured JSON grouped by character. The popup renders the selected character's four parsed options locally.
 
 The generation prompt structure becomes:
 
 ```
-You are generating steering options for ONE character in the current scene.
+You are generating steering options for EVERY active steerable character in the current scene.
 
-Target character: {label} (role: {role})
+For each character, include:
+  - character ID, display label, and narrative role
+  - role steering context — the character's narrative job
+  - current canonical stats and stat-band text
+  - current behavioral frame and encounter dimensions when available
+
 Current phase: {phase}
 Active theme: {themeLabel} — {themeDescription}
 Theme phase guidance for {phase}:
   - {phase guidance lines}
 
-Target character's current state:
-  Stats: Desire={n}, Restraint={n}, Dominance={n}, Loyalty={n}, SelfRespect={n}
-  State text:
-    Desire: {Desire band text}
-    Restraint: {Restraint band text}
-    Dominance: {Dominance band text}
-    Loyalty: {Loyalty band text}
-    SelfRespect: {SelfRespect band text}
-  Behavioral frame: {frame text}
-  {if Wife/Husband} Encounter dimensions: {key=value, ...}
+Character state sections:
+  {repeat for every active character}
 
 Recent scene context (last ~6 interactions, abbreviated):
   {BuildRecentSteerContextText}
 Current location: {sceneLocation}
 
-Generate exactly 4 steering directives for {label}, one per direction, in this fixed order:
-  1. AWAY   — steer this character against the active theme's direction (e.g. pull back, resist, refuse)
-  2. NEUTRAL — hold the current state; do not escalate or retreat
-  3. TOWARDS — steer this character toward where the theme is going in the {phase} phase
-  4. HARD   — push extreme; jump fully into the theme's escalation
+Generate exactly 4 steering directives for EACH character, in this fixed order:
+  1. AWAY
+  2. NEUTRAL
+  3. TOWARDS
+  4. HARD
 
 Constraints:
-- Each option MOUSE one sentence, concrete and actionable, grounded in the recent scene.
-- Each option MUST be consistent with the target character's CURRENT stats and behavioral frame (a Desire 10 character will not "hard" by initiating; the option must account for that tension).
+- Each option MUST be one sentence, concrete and actionable, grounded in the recent scene.
+- Each option MUST be consistent with the target character's CURRENT stats and behavioral frame — account for the tension between their disposition and the direction's intent (a guarded Wife will experience "Hard" as forcing herself; an eager Wife will experience it as seizing control).
+- Each option MUST reflect the character's ROLE intent above (a Husband "Towards" is about creating opportunity; an OtherMan "Towards" is about applying the right approach).
 - Stay in the {phase} phase; do not advance the phase.
-- Apply only to {label}; do not narrate other characters' reactions.
+- Each character's options must reflect that character's role intent, current state, and the way the other active characters affect the situation.
+- Do not merge characters into one directive. Return a distinct four-option set for every character.
 
-Return ONLY a JSON array of 4 strings, in the exact order [Away, Neutral, Towards, Hard]. No markdown, no labels, no extra text.
+Return ONLY JSON matching this shape:
+{
+  "characters": [
+    {
+      "characterId": "...",
+      "characterName": "...",
+      "role": "...",
+      "options": {
+        "away": "...",
+        "neutral": "...",
+        "towards": "...",
+        "hard": "..."
+      }
+    }
+  ]
+}
+No markdown, no extra text.
 ```
 
-This makes the four-card output context-aware: the cards' *labels* are fixed, the cards' *text* is shaped by stats + frame + theme + scene.
+This makes the four-card output context-aware: the cards' *labels* are fixed, the cards' *text* is shaped by each character's stats + frame + role intent + the shared scene. One generation record contains every character's choices.
 
 #### Direction assignment is chosen by the user; stats don't auto-select
 
@@ -319,8 +384,9 @@ The engine **does not** refuse a direction because it feels implausible (e.g. "H
 ### Phase 1 — Domain & persistence (no UI)
 3. Add `SteerDirection` enum (`DreamGenClone.Web/Domain/RolePlay/`).
 4. Add `RolePlaySteeringDirective` record (`DreamGenClone.Web/Domain/RolePlay/`) — `TargetCharacterId`, `TargetCharacterLabel`, `Direction`, `FreeTextDirective`. **No `StatDeltas` field.**
-5. Add `RolePlayInteraction.SteeringMetadataJson` column (nullable text, additive migration in `SqlitePersistence`). Stores the serialized `RolePlaySteeringDirective` when the interaction is a steering directive.
-6. Add `RolePlayInteraction.PromptText` + `RawResponseText` + column migration (`RolePlayInteractions.PromptText`/`RawResponseText`). Additive.
+5. Add `SteeringGenerationRecord` persisted model/table with: ID, session ID, full generation prompt, raw generation response, parsed all-character options JSON, character snapshot JSON, active theme/phase, model/settings, created timestamp, selected directive summary, and linked continuation interaction ID.
+6. Add `RolePlayInteraction.SteeringGenerationId` and `SteeringMetadataJson` columns (nullable text, additive migration). The staged instruction links to the generation record; `SteeringMetadataJson` stores the selected target/direction/free text.
+7. Add `RolePlayInteraction.PromptText` + `RawResponseText` capture for the final continuation (additive columns if not already present in the active persistence schema).
 
 ### Phase 2 — Engine: no changes needed for steering flow
 
@@ -330,49 +396,54 @@ The existing B-074/B-076 staged flow already handles:
 - `GraduateStagedDirections` flips the flag after one continuation.
 
 B-075 only needs to:
-7. In `RolePlayEngineService.SubmitPromptAsync`, ensure the `Instruction` path sets `IsStagedDirection = true` when the submission carries steering metadata (so instructions created by the steer popup behave like `+`-staged rows, injected once then graduated). Currently the `Instruction` path does NOT set `IsStagedDirection`; it adds the interaction directly and then hits the dead `/steer` early-return. After Phase 0 removes that early-return, the instruction would flow through to `UpdateStateAndDetectEncounterAsync` — which should be skipped for staged instructions (they don't generate narrative).
+8. In `RolePlayEngineService.SubmitPromptAsync`, ensure the `Instruction` path sets `IsStagedDirection = true` when the submission carries steering metadata, and persist the `SteeringGenerationId` linkage. Staged instructions must skip semantic analysis at stage time and be injected once on the next `…` continuation.
 
 ### Phase 3 — Prompt slot: extend StagedDirectionsSlot
-8. Extend `StagedDirectionsSlot.WriteAsync` to read `SteeringMetadataJson` from staged rows. When present, emit the per-character steering block (D5). When absent, emit the existing generic format.
-9. No new slot, no new `PromptBuildContext` field, no new `PromptSlotId`.
-10. Persist `PromptText` + `RawResponseText` on the generated `RolePlayInteraction` (new columns from Phase 1 step 6). Populate in `ContinueAsync` after build and after model response.
+9. Extend `StagedDirectionsSlot.WriteAsync` to read `SteeringMetadataJson` from staged rows. When present, emit the per-character steering block (D5). When absent, emit the existing generic format.
+10. No new slot, no new `PromptBuildContext` field, no new `PromptSlotId`.
+11. Persist the final continuation `PromptText` and `RawResponseText` on the generated interaction, then link that interaction ID back to the steering generation record.
 
-### Phase 4 — UI: per-character steer popup with context-aware options
-11. Add character `<select>` to the steer popup (`RolePlayWorkspace.razor` L8932). Default to POV or first NPC. Capture `TargetCharacterId` + `TargetCharacterLabel` + resolve `TargetCharacterRole` from `CharacterStatProfileV2.CharacterRole` (may be null for persona — D11/OD3 fallback applies to option-text richness only).
-12. **Rewrite `BuildSteerOptionsPromptAsync` (L5119) per D11**: inject the per-target-character context block (stats, `CharacterStatTextCatalog` band text, behavioral frame, runtime encounter dimensions for Wife/Husband, theme + phase guidance, recent scene context, location). Request exactly 4 options in fixed order Away/Neutral/Towards/Hard. Keep `ParseFinishOptions` parsing unchanged.
-13. Change option rendering to 4 labeled cards (Away / Neutral / Towards / Hard) per D6 Option B — fixed labels from the array index, generated text from the LLM.
-14. Add live preview footer (D8.2) showing `Target · Direction · Directive text` before Apply; toast on Apply. **No `StatDeltas` line** — this feature does not show or apply deltas.
-15. `ApplySteerOptionAsync` (L5959) builds a `RolePlaySteeringDirective` (target, direction by card index, free text from the card — no deltas), serializes it to `SteeringMetadataJson`, creates a staged instruction interaction with `IsStagedDirection = true`, and submits via `AddPromptEntryAsync` / `SubmissionSource.PlusButton`. The interaction appears in the timeline as a pending staged row. Keep the existing Position flow unchanged (separate path).
+### Phase 4 — UI: one all-character generation request
+12. Keep the character selector in the popup, but make it a local view filter over one cached parsed generation response.
+13. **Rewrite `BuildSteerOptionsPromptAsync` (L5119) per D11** to include every active character's state and role context in one prompt. Request structured JSON with four options per character. Replace `ParseFinishOptions` for Direction flow with a strict structured parser; Position flow remains unchanged.
+14. Store the generation prompt, raw response, parsed options, character snapshot, model/settings, and timestamp in `SteeringGenerationRecord`. Cache the record ID and parsed option map for the popup.
+15. Render the selected character's four labeled cards locally from the cached all-character response. Changing the selector does not call the model again.
+16. Add live preview footer (D8.2) showing `Target · Direction · Directive text`; toast on Apply. No stat deltas.
+17. `ApplySteerOptionAsync` builds a `RolePlaySteeringDirective`, serializes it to `SteeringMetadataJson`, sets `SteeringGenerationId`, creates a staged instruction interaction, and submits through the B-074/B-076 `+` path. Position flow remains separate.
 
-### Phase 5 — UI: prompt/response surface
-16. New "Prompt" / "Response" tab in the existing Interaction Info modal (`RolePlayWorkspace.razor`). Scrollable. Renders the stored `PromptText` / `RawResponseText`.
-17. Show "Resolved Steering Directive" header on the tab when the interaction's prompt was a steer consumption (target + direction + free text — no deltas).
+### Phase 5 — UI: Steering Details and final continuation inspection
+18. Add a dedicated `Steering Details` tab/modal reachable from the staged steering row and linked continuation. Display the SteeringGenerationRecord's generation prompt, raw response, parsed per-character options, character snapshot, model/settings, timestamp, and selected directive.
+19. Add independent scrollable/copyable `Generation Prompt`, `Generation Response`, `Parsed Options`, and `Final Continuation` sections. The Final Continuation section displays the final prompt and response separately from the options-generation response.
+20. Populate `RawResponseText` for final continuation interactions and link the final continuation interaction ID back to the generation record.
 
 ### Phase 6 — Tests
-18. `RolePlaySessionLifecycleTests` — applying a per-character steering directive creates a staged instruction interaction with `IsStagedDirection = true` + `SteeringMetadataJson`; the next continuation injects it via `StagedDirectionsSlot` and graduates it; the engine does NOT mutate stats directly (assert `LastStatDeltas` is empty post-steer).
-19. `StagedDirectionsSlotTests` (extend existing or new) — `WriteAsync` emits per-character block when `SteeringMetadataJson` is present; emits generic format when absent.
-20. `PromptBuilderTests` — built prompt stored on `RolePlayInteraction.PromptText` after build.
-21. **`SteerOptionContextTests` (new)** — `BuildSteerOptionsPromptAsync` (extracted to a testable builder) produces a prompt that includes: (a) target character label + role, (b) all 5 canonical stat values for the target, (c) `CharacterStatTextCatalog` band text for each stat×role, (d) behavioral frame text when present, (e) `RuntimeEncounterStats` for Wife/Husband roles, (f) active theme + phase guidance lines, (g) recent scene context + location. Assert each context block is present by substring. Verify the generated *prompt* differs for Desire 10 vs 90 (different band text → different prompt, per D11).
-22. Fail-fast test: steering directive referencing a target character not in `session.AdaptiveState.CharacterStats` throws, does not silently stage a no-op directive.
+21. `RolePlaySessionLifecycleTests` — applying a per-character steering directive creates a staged instruction interaction with `IsStagedDirection = true`, `SteeringMetadataJson`, and `SteeringGenerationId`; the next continuation injects it and graduates it; no direct stat mutation.
+22. `StagedDirectionsSlotTests` — per-character block when metadata exists; generic format otherwise.
+23. `SteeringGenerationRecordTests` — prompt, raw response, parsed all-character options, snapshot, settings, timestamp, and linkage round-trip.
+24. `SteerOptionContextTests` — one generated prompt contains every active character's role, stats, state text, frame, dimensions, role intent, theme, phase, scene, and location; assert Wife/Husband/OtherMan sections all exist.
+25. `SteerOptionsParserTests` — valid structured response parses all character option sets; malformed/missing character or direction fails explicitly.
+26. `SteeringDetailsUiTests` — generation prompt/response and final continuation prompt/response are rendered in separate sections.
+27. Fail-fast test: selected target absent from the stored all-character result cannot be staged.
 
 ---
 
 ## Verification (per repo Hard Rules — RP engine changes)
 
-- **Value source resolved**: the four option cards' text is sourced from `CharacterStatTextCatalog` band text + `CharacterBehavioralFrames` + `RuntimeEncounterStats` + active theme phase guidance + recent scene context + location — all existing authoritative sources, no new canonical data fabricated for option generation. The per-character directive injected into the next continuation is the user-selected free-text option, carried as `SteeringMetadataJson` on a staged interaction row.
-- **Single active decision path**: one path to stage (the steer popup → `AddPromptEntryAsync` → `SubmissionSource.PlusButton`); one injection path (`StagedDirectionsSlot` reading `SteeringMetadataJson`). Legacy dead code (`AppendSteerGuidance`, `ResolveSteerDirective`, `ContainsSteerCommand`, `TryExtractSteerDirective`, `/steer` early-return) removed. The four option cards are generated by a single LLM call with the D11 context block; the user, not the engine, selects the direction.
+- **Value source resolved**: one all-character generation prompt sources each character's `CharacterStatTextCatalog` band text, `CharacterBehavioralFrames`, `RuntimeEncounterStats`, `SteerRoleIntentCatalog` role intent, active theme phase guidance, recent scene context, and location. The selected directive is carried as `SteeringMetadataJson` on the staged interaction row.
+- **Single active decision path**: one all-character generation request → one persisted `SteeringGenerationRecord` → local character filter → one staged interaction path (`+` → `StagedDirectionsSlot`). Legacy dead code (`AppendSteerGuidance`, `ResolveSteerDirective`, `ContainsSteerCommand`, `TryExtractSteerDirective`, `/steer` early-return) remains removed. The final continuation prompt/response is a separate linked record, not the generation response.
 - **No fallback branch**: missing target character ⇒ fail fast with explicit diagnostic; null `CharacterRole` ⇒ option-text richness fallback (canonical stats only, no per-role band text) — this is a documented data-availability fallback for option prose, **not** a config-resolution fallback, since no config table is involved.
 - **No direct stat mutation**: this feature does NOT call `ApplyTrackedDelta`, does NOT set `LastStatDeltas`, does NOT introduce a `StatDeltas` field on `RolePlaySteeringDirective`, does NOT add any `RPSteerDirectionProfile` table. Stats move only through the existing semantic pipeline on the continuation. This is the explicit B-020 boundary.
 - **Missing config fails explicitly**: this feature introduces no new required RP config (no profile table), so there is no "missing config" surface to fail on. The only fail-fast is the missing-target-character case above.
-- **UI/config surface exists**: per-character selector + live preview in `RolePlayWorkspace.razor`; prompt/response tab in the Interaction Info modal. No new `ThemeProfiles.razor` section (D2/Steer Directions editor was removed).
+- **UI/config surface exists**: per-character selector as a local filter over cached all-character options, live preview in `RolePlayWorkspace.razor`, and a dedicated `Steering Details` tab/modal. No new `ThemeProfiles.razor` section (D2/Steer Directions editor was removed).
 - **Context-aware sources verified**:
   - Stats → `CharacterStatProfileV2Accessor.GetStatOrDefault(profile, statName)` (canonical, always present after session seed).
-  - Stat state text → `CharacterStatTextCatalog.GetBandText(stat, role, value)` (verified Domain/StoryAnalysis).
+  - Stat state text → `CharacterStatTextCatalog.ResolveText(stat, role, value)` (verified Domain/StoryAnalysis).
   - Behavioral frame → `ScenarioGuidanceContextFactory` → `CharacterBehavioralFrameGenerator` (verified Infrastructure/StoryAnalysis); null-tolerant.
   - Runtime encounter dimensions → `CharacterStatProfileV2.RuntimeEncounterStats` (Wife/Husband only).
-  - Theme phase guidance → `RolePlayAssistantPrompts.GetThemePhaseGuidanceLines(theme, currentPhase)` (verified).
+  - Role-specific steering intent → `SteerRoleIntentCatalog.GetIntent(role, direction)` (new code-defined catalog — D1b).
   - Recent scene context → `BuildRecentSteerContextText()` (verified L5468).
-  - These are the **same sources** the continuation prompt (Slot 13 `BehavioralFramesSlot`) uses, so option text and the next-turn injection stay coherent.
+  - These are the **same sources** the continuation prompt (Slot 13 `BehavioralFramesSlot`) uses, so all-character option text and the next-turn injection stay coherent.
+- **Inspection separation verified**: Steering Details displays the generation prompt/response and parsed options; Final Continuation displays the final prompt/response separately. Generic Interaction Info is not the sole steering-inspection surface.
 - **Build + tests**: `dotnet build DreamGenClone.sln`, then `dotnet test DreamGenClone.Tests --no-build --filter "FullyQualifiedName~RolePlay|FullyQualifiedName~StagedDirections"`.
 
 ---
@@ -383,12 +454,14 @@ B-075 only needs to:
 |---|---|
 | `DreamGenClone.Web/Domain/RolePlay/SteerDirection.cs` | new enum |
 | `DreamGenClone.Web/Domain/RolePlay/RolePlaySteeringDirective.cs` | new record |
-| `DreamGenClone.Web/Domain/RolePlay/RolePlayInteraction.cs` | add `SteeringMetadataJson`, `PromptText`, `RawResponseText` |
+| `DreamGenClone.Domain/StoryAnalysis/SteerRoleIntentCatalog.cs` | new static catalog (D1b) — per-role steering intent texts keyed by (role, direction). Single source of truth for option generation + prompt injection. |
+| `DreamGenClone.Domain/StoryAnalysis/SteeringGenerationRecord.cs` | new persisted generation record model |
+| `DreamGenClone.Application/RolePlay/SteeringGenerationContracts.cs` | structured all-character option response and parser contracts |
 | `DreamGenClone.Web/Application/RolePlay/RolePlayEngineService.cs` | **Remove** dead `/steer` early-return (L1224–1257), `ContainsSteerCommand`, `TryExtractSteerDirective`; ensure Instruction path sets `IsStagedDirection = true` for steering submissions |
 | `DreamGenClone.Web/Application/RolePlay/RolePlayContinuationService.cs` | **Remove** dead `AppendSteerGuidance` (L1365), `ResolveSteerDirective` (L1443), `TryExtractSteerDirective` (L1454); persist `PromptText`/`RawResponseText` on interaction |
 | `DreamGenClone.Web/Application/RolePlay/Prompts/Slots/StagedDirectionsSlot.cs` | extend `WriteAsync` to read `SteeringMetadataJson` and emit per-character block |
-| `DreamGenClone.Infrastructure/Persistence/SqlitePersistence.cs` | additive migrations: `RolePlayInteractions.SteeringMetadataJson`, `RolePlayInteractions.PromptText`/`RawResponseText`. **No new table, no `Sessions` column.** |
-| `DreamGenClone.Web/Components/Pages/RolePlayWorkspace.razor` | per-character popup, 4-direction cards (Away/Neutral/Towards/Hard), context-aware option generation per D11, live preview (Target·Direction·Directive text — no deltas), `ApplySteerOptionAsync` builds staged instruction, Interaction Info modal Prompt/Response tab |
+| `DreamGenClone.Infrastructure/Persistence/SqlitePersistence.cs` | additive `SteeringGenerationRecords` table plus interaction linkage/data columns |
+| `DreamGenClone.Web/Components/Pages/RolePlayWorkspace.razor` | one all-character generation request, local character filter, 4-direction cards, live preview, staged instruction, Steering Details tab/modal, final continuation inspection |
 | `DreamGenClone.Tests/RolePlay/**` | new tests: staged directive injection, prompt/response storage, D11 context-aware option-generation prompt, missing-target fail-fast |
 
 ---
@@ -397,9 +470,10 @@ B-075 only needs to:
 
 - **Dead code removal**: `AppendSteerGuidance`, `ResolveSteerDirective`, `TryExtractSteerDirective` (continuation service), `ContainsSteerCommand`, `TryExtractSteerDirective`, `/steer` early-return block (engine). All verified dead — zero call sites for the continuation service copies; the engine copies only fire on the now-removed early-return path.
 - **Prompt pipeline**: `StagedDirectionsSlot.WriteAsync` extended with a conditional branch for `SteeringMetadataJson`. No new slots, no new `PromptBuildContext` fields, no changes to the 17 existing slots. Existing slot/prompt tests must stay green.
+- **Generation pipeline**: Direction flow changes from one-target flat-array generation to one structured all-character request. A persisted generation record captures the exact request/response and state snapshot.
 - **Stat mutation**: **NONE.** This feature does not call `ApplyTrackedDelta`, does not set `LastStatDeltas`, does not add a `StatDeltas` field, and does not add a `RPSteerDirectionProfile` table. Stats move only through the existing semantic pipeline on the next continuation. B-020 (`new`) remains untouched.
-- **DB**: three additive columns on `RolePlayInteractions` only (`SteeringMetadataJson`, `PromptText`, `RawResponseText`). **No new table, no `Sessions` column.** No destructive changes.
-- **UI**: Steer popup is rewritten in form (per-character selector + 4 labeled cards + context-aware option text + live preview with no deltas line) but stays in the same location. `ApplySteerOptionAsync` now stages via `+` instead of loading into `_promptText`. Interaction Info modal gains a Prompt/Response tab. **No `ThemeProfiles.razor` change (Steer Directions editor removed).** No nav changes.
+- **DB**: New `SteeringGenerationRecords` table plus additive interaction linkage/data columns. No destructive changes.
+- **UI**: Steer popup uses one generation response with a local character filter. A dedicated Steering Details view is added; final continuation prompt/response is shown separately. **No `ThemeProfiles.razor` change.**
 - **Backward compat**: The `/steer` token no longer works as a special command (the detection and early-return are removed). Users who previously typed `/steer blah` manually will need to use the 4-direction popup. The popup provides strictly more functionality (per-character targeting, context-aware options, direction labels) and the manual text-input fallback path (typing an instruction directly into the prompt box and clicking `+`) still works for free-form steering without the `/steer` prefix.
 
 ---
@@ -417,8 +491,8 @@ After inspecting the B-074/B-076 staged scene directions implementation and all 
 
 ## Status
 
-**Plan revised for staged-flow architecture.** OD1 resolved (no new slot — use existing `StagedDirectionsSlot`). No code changed.
+**Plan revised for staged-flow architecture and all-character steering inspection.** OD1 resolved (no new slot — use existing `StagedDirectionsSlot`). The Direction flow now uses one structured all-character generation request, persists a `SteeringGenerationRecord`, links the selected staged directive and final continuation, and provides a dedicated Steering Details view. No code changed in this plan-update step.
 
 Per repo Hard Rule (No RP Engine Code Changes Without Plan + Confirmation), I'm presenting this plan and waiting for explicit "go ahead" before any `RolePlayEngineService.cs`, `RolePlayContinuationService.cs`, `StagedDirectionsSlot.cs`, or persistence code is touched.
 
-**Open decisions needing confirmation before tasks.md generation**: OD2 (multi-character batch — recommended defer), OD3 (null `CharacterRole` option-text fallback — recommended canonical-stats-only), OD4 (position flow coexistence — recommended keep separate), D6 Option A vs B (LLM schema vs fixed-label cards — recommended B), OD5 (include `RuntimeEncounterStats` in option context — recommended yes).
+**Open decisions needing confirmation before tasks.md generation**: OD2 is resolved in favor of one all-character generation request with local filtering; OD3 (null `CharacterRole` option-text fallback — recommended canonical-stats-only), OD4 (position flow coexistence — recommended keep separate), OD5 (include `RuntimeEncounterStats` in option context — recommended yes). D6 flat-array Option B is replaced by the required structured all-character response contract.

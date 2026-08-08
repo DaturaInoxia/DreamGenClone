@@ -122,4 +122,24 @@ public sealed class RolePlayInteraction
     /// Null means "not captured" (pre-deployment interactions or best-effort capture failure).
     /// </summary>
     public string? PromptText { get; set; }
+
+    /// <summary>
+    /// B-075: Raw LLM response text (including reasoning) stored at generation time.
+    /// Populated in ContinueAsync after the model response is received.
+    /// Rendered in the Interaction Info modal Prompt/Response tab.
+    /// </summary>
+    public string? RawResponseText { get; set; }
+
+    /// <summary>
+    /// B-075: Serialized RolePlaySteeringDirective for staged steering instructions.
+    /// Non-null when this instruction row is a per-character steering directive.
+    /// Read by StagedDirectionsSlot.WriteAsync to emit role-aware steering blocks.
+    /// </summary>
+    public string? SteeringMetadataJson { get; set; }
+
+    /// <summary>
+    /// B-075: Links this staged steering instruction to the SteeringGenerationRecord
+    /// that produced the all-character options. Null for non-steering interactions.
+    /// </summary>
+    public string? SteeringGenerationId { get; set; }
 }

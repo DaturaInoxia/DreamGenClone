@@ -249,5 +249,7 @@ public sealed class StyleProfileAffinityTests
         public Task<List<CharacterProfile>> LoadAllCharacterProfilesAsync(CancellationToken ct = default) => throw new NotImplementedException();
         public Task<List<CharacterProfile>> LoadCharacterProfilesByRoleAsync(string targetRole, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<bool> DeleteCharacterProfileAsync(string id, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task SaveSteeringGenerationRecordAsync(SteeringGenerationRecord record, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<SteeringGenerationRecord?> LoadSteeringGenerationRecordAsync(string id, CancellationToken cancellationToken = default) => throw new NotImplementedException();
     }
 }

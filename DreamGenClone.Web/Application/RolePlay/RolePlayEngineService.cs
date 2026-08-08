@@ -1226,46 +1226,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             interaction.ActorName,
             session.BehaviorMode);
 
-        var steerDirective = string.Empty;
-        var steerCommandRequested = submission.Intent == PromptIntent.Instruction
-            && TryExtractSteerDirective(submission.PromptText, out steerDirective);
-        if (steerCommandRequested)
-        {
-            await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
-            {
-                SessionId = session.Id,
-                InteractionId = interaction.Id,
-                EventKind = "SteerCommandApplied",
-                Severity = "Info",
-                ActorName = interaction.ActorName,
-                Summary = "Steer command applied without phase progression",
-                MetadataJson = JsonSerializer.Serialize(new
-                {
-                    command = "/steer",
-                    directive = steerDirective,
-                    currentPhase = session.AdaptiveState.CurrentPhase.ToString(),
-                    activeThemeId = session.AdaptiveState.ActiveScenarioId,
-                    currentSceneLocation = session.AdaptiveState.CurrentSceneLocation
-                })
-            }, cancellationToken);
 
-            if (session.AdaptiveState.IsStateDirty)
-            {
-                // Pipeline saves at end of RunRolePlayV2PipelinesAsync — no dirty save needed.
-                session.AdaptiveState.IsStateDirty = false;
-            }
-            if (persistedTurn is not null)
-            {
-                await _stateRepository.CompleteTurnAsync(
-                    session.Id,
-                    persistedTurn.TurnId,
-                    outputInteractionIds,
-                    succeeded: true,
-                    cancellationToken: cancellationToken);
-            }
-
-            return interaction;
-        }
 
         var nextPhaseCommandRequested = submission.Intent == PromptIntent.Instruction
             && ContainsNextPhaseCommand(submission.PromptText);
@@ -6536,19 +6497,6 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         return tokens.Any(token => string.Equals(token, "/nextphase", StringComparison.OrdinalIgnoreCase));
     }
 
-    private static bool ContainsSteerCommand(string? content)
-    {
-        if (string.IsNullOrWhiteSpace(content))
-        {
-            return false;
-        }
-
-        var tokens = content
-            .Split([' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-
-        return tokens.Any(token => string.Equals(token, "/steer", StringComparison.OrdinalIgnoreCase));
-    }
-
     /// <summary>
     /// Returns true when any Instruction actor interaction within the last <paramref name="windowSize"/>
     /// entries has no GeneratedByCommand set (i.e., was a user-authored instruction, not engine-injected).
@@ -6559,29 +6507,6 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             .TakeLast(windowSize)
             .Any(x => string.Equals(x.ActorName, "Instruction", StringComparison.OrdinalIgnoreCase)
                 && string.IsNullOrWhiteSpace(x.GeneratedByCommand));
-    }
-
-    private static bool TryExtractSteerDirective(string? content, out string directive)
-    {
-        directive = string.Empty;
-        if (!ContainsSteerCommand(content))
-        {
-            return false;
-        }
-
-        var raw = content?.Trim() ?? string.Empty;
-        var markerIndex = raw.IndexOf("/steer", StringComparison.OrdinalIgnoreCase);
-        if (markerIndex < 0)
-        {
-            directive = "Steer the scene in a meaningful, phase-consistent direction.";
-            return true;
-        }
-
-        var remaining = raw[(markerIndex + "/steer".Length)..].Trim();
-        directive = string.IsNullOrWhiteSpace(remaining)
-            ? "Steer the scene in a meaningful, phase-consistent direction."
-            : remaining;
-        return true;
     }
 
     private static bool TryExtractClimaxCompletionDirective(string? content, out string directive)

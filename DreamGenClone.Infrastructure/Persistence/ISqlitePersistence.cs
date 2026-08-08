@@ -155,4 +155,8 @@ public interface ISqlitePersistence
     Task<UserStoryRating?> LoadUserStoryRatingAsync(string parsedStoryId, CancellationToken cancellationToken = default);
     Task<bool> DeleteUserStoryRatingAsync(string parsedStoryId, CancellationToken cancellationToken = default);
     Task<Dictionary<string, UserStoryRating>> LoadUserStoryRatingsBatchAsync(IEnumerable<string> parsedStoryIds, CancellationToken cancellationToken = default);
+
+    // B-075: Steering generation records
+    Task SaveSteeringGenerationRecordAsync(SteeringGenerationRecord record, CancellationToken cancellationToken = default);
+    Task<SteeringGenerationRecord?> LoadSteeringGenerationRecordAsync(string id, CancellationToken ct = default);
 }

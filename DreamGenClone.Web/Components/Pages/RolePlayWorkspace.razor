@@ -12,6 +12,7 @@
 @using DreamGenClone.Web.Application.StoryAnalysis
 @using DreamGenClone.Application.StoryAnalysis
 @using DreamGenClone.Domain.StoryAnalysis
+@using DreamGenClone.Web.Domain.RolePlay
 @using DreamGenClone.Web.Domain.Scenarios
 @using DreamGenClone.Application.ModelManager
 @using DreamGenClone.Application.Templates
@@ -21,6 +22,8 @@
 @using DreamGenClone.Domain.ModelManager
 @using DreamGenClone.Infrastructure.Configuration
 @using Microsoft.Extensions.Options
+@using System.Text.Json
+@using DreamGenClone.Infrastructure.Persistence
 
 @inject IRolePlayEngineService RolePlayEngine
 @inject IRolePlayAdaptiveStateService AdaptiveStateService
@@ -49,6 +52,7 @@
 @inject IRolePlayStateRepository RolePlayStateRepository
 @inject IRolePlaySubmissionTracker _tracker
 @inject IRolePlayAutoCompleteService AutoCompleteService
+@inject ISqlitePersistence Persistence
 @implements IAsyncDisposable
 @using System.Globalization
 @using System.Diagnostics
@@ -148,6 +152,10 @@
     private string _steerOptionError = string.Empty;
     private bool _steerUseGuidedFlow;
     private int _steerGenerationIndex;
+    private string _steerTargetCharacterId = string.Empty;
+    private string _steerTargetCharacterLabel = string.Empty;
+    private SteerGenerationResponse? _cachedSteerResponse;
+    private string? _cachedSteerGenerationId;
     private bool _timeSkipPopupOpen;
     private bool _timeSkipSubmitting;
     private string _timeSkipCustomText = string.Empty;
@@ -4508,6 +4516,30 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
     private bool IsSteerEligible => _session is not null
         && _v2State?.CurrentPhase != DreamGenClone.Domain.RolePlay.NarrativePhase.Reset;
 
+    private List<(string CharacterId, string CharacterName, string? Role)> SteerableTargets
+    {
+        get
+        {
+            var results = new List<(string, string, string?)>();
+            if (_session is null) return results;
+
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var kvp in _session.AdaptiveState.CharacterStats)
+            {
+                if (seen.Contains(kvp.Key)) continue;
+                seen.Add(kvp.Key);
+                results.Add((kvp.Key, kvp.Key, kvp.Value.CharacterRole));
+            }
+            foreach (var cp in _session.CharacterPerspectives)
+            {
+                if (seen.Contains(cp.CharacterId)) continue;
+                seen.Add(cp.CharacterId);
+                results.Add((cp.CharacterId, cp.CharacterName ?? cp.CharacterId, null));
+            }
+            return results;
+        }
+    }
+
     private bool IsTimeSkipEligible => _session is not null
         && _v2State?.CurrentPhase != DreamGenClone.Domain.RolePlay.NarrativePhase.Reset;
 
@@ -5015,6 +5047,14 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
         _steerOptionError = string.Empty;
         _steerPageIndex = _steerOptionPages.Count > 0 ? _steerOptionPages.Count - 1 : 0;
         _steerGenerationIndex = _steerOptionPages.Count;
+
+        // B-075: Initialize target character to first available if not set.
+        if (string.IsNullOrWhiteSpace(_steerTargetCharacterId) && SteerableTargets.Count > 0)
+        {
+            _steerTargetCharacterId = SteerableTargets[0].CharacterId;
+            _steerTargetCharacterLabel = SteerableTargets[0].CharacterName;
+        }
+
         // Preserve _steerOptionPages, _selectedSteerOption, _steerUseGuidedFlow from last session.
 
         return Task.CompletedTask;
@@ -5066,6 +5106,8 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
         _selectedSteerOption = string.Empty;
         _steerOptionError = string.Empty;
         _steerGenerationIndex = 0;
+        _cachedSteerResponse = null;
+        _cachedSteerGenerationId = null;
 
         return Task.CompletedTask;
     }
@@ -5082,28 +5124,86 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
         _steerGenerationIndex++;
         try
         {
-            var context = BuildAssistantContext();
-            var prompt = await BuildSteerOptionsPromptAsync();
+            if (_steerUseGuidedFlow)
+            {
+                // Position flow: existing behaviour unchanged.
+                var context = BuildAssistantContext();
+                var prompt = await BuildPositionSteerOptionsPromptAsync();
+                var response = await RolePlayAssistant.GenerateSuggestionAsync(
+                    context, prompt,
+                    assistantModelId: string.IsNullOrWhiteSpace(_session.SessionModelId) ? null : _session.SessionModelId,
+                    assistantTemperature: _session.SessionTemperature,
+                    assistantTopP: _session.SessionTopP,
+                    assistantMaxTokens: _session.SessionMaxTokens,
+                    appFunction: AppFunction.RolePlayGeneration);
+                var newPage = ParseFinishOptions(response).ToList();
+                if (newPage.Count == 0)
+                {
+                    _steerOptionError = "Could not generate steering options. Try again.";
+                    return;
+                }
+                _steerOptionPages.Add(newPage);
+                _steerPageIndex = _steerOptionPages.Count - 1;
+                _selectedSteerOption = newPage[0];
+                return;
+            }
 
-            var response = await RolePlayAssistant.GenerateSuggestionAsync(
-                context,
-                prompt,
+            // ── B-075: All-character structured generation ──
+            var genPrompt = await BuildAllCharacterSteerPromptAsync();
+            var genResponse = await RolePlayAssistant.GenerateSuggestionAsync(
+                BuildAssistantContext(), genPrompt,
                 assistantModelId: string.IsNullOrWhiteSpace(_session.SessionModelId) ? null : _session.SessionModelId,
                 assistantTemperature: _session.SessionTemperature,
                 assistantTopP: _session.SessionTopP,
                 assistantMaxTokens: _session.SessionMaxTokens,
                 appFunction: AppFunction.RolePlayGeneration);
 
-            var newPage = ParseFinishOptions(response).ToList();
-            if (newPage.Count == 0)
+            var parsed = SteerGenerationParser.TryParse(genResponse);
+            if (parsed is null || parsed.Characters.Count == 0)
             {
-                _steerOptionError = "Could not generate steering options. Try again.";
+                // Fallback: try to use raw response as flat options.
+                var fallback = ParseFinishOptions(genResponse).ToList();
+                if (fallback.Count > 0)
+                {
+                    _steerOptionPages.Add(fallback);
+                    _steerPageIndex = _steerOptionPages.Count - 1;
+                    _selectedSteerOption = fallback[0];
+                }
+                else
+                {
+                    _steerOptionError = "Could not parse steering options. Try again.";
+                }
+                _cachedSteerResponse = null;
+                _cachedSteerGenerationId = null;
                 return;
             }
 
-            _steerOptionPages.Add(newPage);
-            _steerPageIndex = _steerOptionPages.Count - 1;
-            _selectedSteerOption = newPage[0];
+            _cachedSteerResponse = parsed;
+            _cachedSteerGenerationId = null; // generated on Apply
+
+            // Build snapshot and persist generation record.
+            var snapshot = BuildCharacterSnapshotJson();
+            var record = new SteeringGenerationRecord
+            {
+                SessionId = _session.Id,
+                GenerationPrompt = genPrompt,
+                GenerationResponse = genResponse,
+                ParsedOptionsJson = JsonSerializer.Serialize(parsed),
+                CharacterSnapshotJson = snapshot,
+                ActiveThemeId = _v2State?.PrimaryThemeId,
+                ActiveThemeLabel = (await GetActiveThemeLabelAsync()) ?? _v2State?.PrimaryThemeId,
+                Phase = _v2State?.CurrentPhase.ToString(),
+                ModelIdentifier = _session.SessionModelId,
+                Succeeded = true,
+                CreatedUtc = DateTime.UtcNow,
+                UpdatedUtc = DateTime.UtcNow
+            };
+
+            await Persistence.SaveSteeringGenerationRecordAsync(record);
+            _cachedSteerGenerationId = record.Id;
+
+            // Populate flat pages for the existing popup renderer.
+            RefreshLocalSteerPages();
         }
         catch (Exception ex)
         {
@@ -5116,53 +5216,239 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
         }
     }
 
-    private async Task<string> BuildSteerOptionsPromptAsync()
+    private async Task<string?> GetActiveThemeLabelAsync()
     {
-        if (_session is null)
+        if (_session is null || string.IsNullOrWhiteSpace(_v2State?.PrimaryThemeId)) return null;
+        try
         {
-            return "Generate exactly 4 distinct one-sentence steering directives for the current scene. Return ONLY a JSON array of strings with no markdown and no extra text.";
+            var theme = await RPThemeService.GetThemeAsync(_v2State.PrimaryThemeId);
+            return theme?.Label ?? theme?.Id;
         }
+        catch { return null; }
+    }
+
+    private string? BuildCharacterSnapshotJson()
+    {
+        if (_session is null) return null;
+        var snapshots = new List<object>();
+        foreach (var kvp in _session.AdaptiveState.CharacterStats)
+        {
+            var p = kvp.Value;
+            snapshots.Add(new
+            {
+                characterId = p.CharacterId,
+                characterName = kvp.Key,
+                role = p.CharacterRole,
+                stats = new { p.Desire, p.Restraint, p.Dominance, p.Loyalty, p.SelfRespect },
+                encounterDimensions = p.RuntimeEncounterStats
+            });
+        }
+        return snapshots.Count > 0 ? JsonSerializer.Serialize(new { characters = snapshots }) : null;
+    }
+
+    private void RefreshLocalSteerPages()
+    {
+        _steerOptionPages.Clear();
+        _steerPageIndex = 0;
+        _selectedSteerOption = string.Empty;
+
+        if (_cachedSteerResponse is null) return;
+
+        // Select the currently chosen character; default to first.
+        var targetId = _steerTargetCharacterId;
+        var match = _cachedSteerResponse.Characters.FirstOrDefault(c =>
+            string.Equals(c.CharacterId, targetId, StringComparison.OrdinalIgnoreCase));
+        if (match is null && _cachedSteerResponse.Characters.Count > 0)
+        {
+            match = _cachedSteerResponse.Characters[0];
+            _steerTargetCharacterId = match.CharacterId;
+            _steerTargetCharacterLabel = match.CharacterName;
+        }
+        if (match is null) return;
+
+        var page = new List<string>
+        {
+            match.Options.Away,
+            match.Options.Neutral,
+            match.Options.Towards,
+            match.Options.Hard
+        };
+
+        _steerOptionPages.Add(page);
+        _selectedSteerOption = page[0];
+    }
+
+    private async Task<string> BuildAllCharacterSteerPromptAsync()
+    {
+        if (_session is null) return "Generate 4 steering choices per character. Return ONLY structured JSON.";
 
         var phase = (_v2State?.CurrentPhase.ToString()) ?? string.Empty;
         var sb = new StringBuilder();
 
-        if (_steerUseGuidedFlow)
+        sb.AppendLine("You are generating steering options for EVERY active steerable character in the current scene.");
+        sb.AppendLine();
+
+        var targets = SteerableTargets;
+        if (targets.Count == 0)
         {
-            sb.AppendLine($"Generate exactly 4 distinct sexual position options (phase: {phase}).");
-            sb.AppendLine("Each option describes a specific sexual position, physical act, or body arrangement for the CHARACTERS ACTIVELY HAVING SEX in this scene → NOT the observer or POV narrator character.");
-            sb.AppendLine("Focus on the physically active couple: who is on top, entry angle, body orientation, grip, pace, depth. One sentence per option, concrete.");
-            sb.AppendLine("Provide at least one option that maintains or varies the current position, and at least one that transitions to a clearly different position with an explicit movement beat.");
-        }
-        else
-        {
-            sb.AppendLine($"Generate exactly 4 distinct steering directives for the current scene in phase {phase}.");
-            sb.AppendLine("Each option must stay in the same phase (do not advance phase). One sentence per option, concrete, actionable, and non-meta.");
-            sb.AppendLine("The options must be meaningfully different in direction (for example pacing, emotional pressure, conflict focus, intimacy calibration, or mystery emphasis).");
-            sb.AppendLine("Ground every option in current scene continuity and character plausibility.");
+            sb.AppendLine("No characters available.");
+            return sb.ToString();
         }
 
-        if (_steerGenerationIndex > 1)
+        sb.AppendLine($"Current phase: {phase}");
+        var activeTheme = _v2State?.PrimaryThemeId;
+        if (!string.IsNullOrWhiteSpace(activeTheme))
         {
-            sb.AppendLine($"Generate option set #{_steerGenerationIndex}: produce options that are clearly different from any previously generated sets.");
+            sb.AppendLine($"Active theme ID: {activeTheme}");
+        }
+        sb.AppendLine();
+
+        // Per-character sections.
+        foreach (var (charId, charName, charRole) in targets)
+        {
+            sb.AppendLine($"--- Character: {charName} ---");
+            sb.AppendLine($"  ID: {charId}");
+            sb.AppendLine($"  Role: {charRole ?? "unassigned"}");
+            if (!string.IsNullOrWhiteSpace(charRole))
+            {
+                sb.AppendLine($"  Role context: {SteerRoleIntentCatalog.GetRoleContext(charRole)}");
+            }
+
+            AppendTargetCharacterStatsContext(sb, charName, charRole);
+
+            if (!string.IsNullOrWhiteSpace(charRole))
+            {
+                var awayIntent = SteerRoleIntentCatalog.GetIntent(charRole, V2RolePlay.SteerDirection.Away);
+                var neutralIntent = SteerRoleIntentCatalog.GetIntent(charRole, V2RolePlay.SteerDirection.Neutral);
+                var towardsIntent = SteerRoleIntentCatalog.GetIntent(charRole, V2RolePlay.SteerDirection.Towards);
+                var hardIntent = SteerRoleIntentCatalog.GetIntent(charRole, V2RolePlay.SteerDirection.Hard);
+                sb.AppendLine($"  Direction intents:");
+                sb.AppendLine($"    AWAY   — {awayIntent}");
+                sb.AppendLine($"    NEUTRAL — {neutralIntent}");
+                sb.AppendLine($"    TOWARDS — {towardsIntent}");
+                sb.AppendLine($"    HARD   — {hardIntent}");
+            }
+            sb.AppendLine();
         }
 
         await AppendThemeReferenceContextAsync(sb, phase);
-        if (_steerUseGuidedFlow)
+
+        var recentContext = BuildRecentSteerContextText();
+        if (!string.IsNullOrWhiteSpace(recentContext))
         {
-            var positionInstruction = BuildSteerPositionInstructionSnippet();
-            if (!string.IsNullOrWhiteSpace(positionInstruction))
-            {
-                sb.AppendLine($"Position context from recent interactions: {positionInstruction}");
-            }
-            await AppendSteerPositionMatrixContextAsync(sb);
-        }
-        else
-        {
-            sb.AppendLine("Use standard steering flow: do not enforce position-matrix constraints.");
+            sb.AppendLine($"Recent scene context (abbreviated):");
+            sb.AppendLine(recentContext);
+            sb.AppendLine();
         }
 
-        sb.AppendLine("Return ONLY a JSON array of strings with no markdown and no extra text.");
+        var location = _v2State?.CurrentSceneLocation;
+        if (!string.IsNullOrWhiteSpace(location))
+        {
+            sb.AppendLine($"Current location: {location}");
+            sb.AppendLine();
+        }
+
+        sb.AppendLine("Generate exactly 4 steering directives for EACH character above, in this fixed order:");
+        sb.AppendLine("  1. AWAY");
+        sb.AppendLine("  2. NEUTRAL");
+        sb.AppendLine("  3. TOWARDS");
+        sb.AppendLine("  4. HARD");
+        sb.AppendLine();
+        sb.AppendLine("Constraints:");
+        sb.AppendLine("- Each option MUST be one sentence, concrete and actionable, grounded in the recent scene.");
+        sb.AppendLine("- Each character's options must reflect that character's role intent, current state, and the way the other active characters affect the situation.");
+        sb.AppendLine($"- Stay in the {phase} phase; do not advance the phase.");
+        sb.AppendLine("- Do not merge characters into one directive. Return a distinct four-option set for every character.");
+        sb.AppendLine();
+        sb.AppendLine("Return ONLY JSON matching this shape:");
+        sb.AppendLine("{ \"characters\": [");
+        sb.AppendLine("  { \"characterId\": \"...\", \"characterName\": \"...\", \"role\": \"...\",");
+        sb.AppendLine("    \"options\": { \"away\": \"...\", \"neutral\": \"...\", \"towards\": \"...\", \"hard\": \"...\" } }");
+        sb.AppendLine("] }");
+        sb.AppendLine("No markdown, no labels, no extra text.");
+
         return sb.ToString();
+    }
+
+    private async Task<string> BuildPositionSteerOptionsPromptAsync()
+    {
+        if (_session is null)
+            return "Generate exactly 4 distinct one-sentence sexual position options. Return ONLY a JSON array of strings with no markdown.";
+
+        var phase = (_v2State?.CurrentPhase.ToString()) ?? string.Empty;
+        var sb = new StringBuilder();
+        sb.AppendLine($"Generate exactly 4 distinct sexual position options (phase: {phase}).");
+        sb.AppendLine("Each option describes a specific sexual position, physical act, or body arrangement.");
+        sb.AppendLine("One sentence per option, concrete.");
+
+        if (_steerGenerationIndex > 1)
+            sb.AppendLine($"Generate option set #{_steerGenerationIndex}.");
+
+        await AppendThemeReferenceContextAsync(sb, phase);
+        var positionInstruction = BuildSteerPositionInstructionSnippet();
+        if (!string.IsNullOrWhiteSpace(positionInstruction))
+            sb.AppendLine($"Position context: {positionInstruction}");
+        await AppendSteerPositionMatrixContextAsync(sb);
+
+        sb.AppendLine("Return ONLY a JSON array of strings with no markdown.");
+        return sb.ToString();
+    }
+
+    private string? ResolveTargetRole(string? targetLabel)
+    {
+        if (string.IsNullOrWhiteSpace(targetLabel) || _session is null) return null;
+        foreach (var kvp in _session.AdaptiveState.CharacterStats)
+        {
+            if (string.Equals(kvp.Key, targetLabel, StringComparison.OrdinalIgnoreCase))
+                return kvp.Value.CharacterRole;
+        }
+        return null;
+    }
+
+    private void AppendTargetCharacterStatsContext(StringBuilder sb, string? targetLabel, string? targetRole)
+    {
+        if (_session is null || string.IsNullOrWhiteSpace(targetLabel)) return;
+
+        CharacterStatProfileV2? profile = null;
+        foreach (var kvp in _session.AdaptiveState.CharacterStats)
+        {
+            if (string.Equals(kvp.Key, targetLabel, StringComparison.OrdinalIgnoreCase))
+            {
+                profile = kvp.Value;
+                break;
+            }
+        }
+
+        if (profile is null)
+        {
+            sb.AppendLine("Target character's current state: (no stat profile available)");
+            return;
+        }
+
+        sb.AppendLine("Target character's current state:");
+        sb.AppendLine($"  Stats: Desire={profile.Desire}, Restraint={profile.Restraint}, Dominance={profile.Dominance}, Loyalty={profile.Loyalty}, SelfRespect={profile.SelfRespect}");
+
+        if (!string.IsNullOrWhiteSpace(targetRole))
+        {
+            sb.AppendLine("  State text:");
+            try
+            {
+                sb.AppendLine($"    Desire: {CharacterStatTextCatalog.ResolveText("Desire", targetRole, profile.Desire)}");
+                sb.AppendLine($"    Restraint: {CharacterStatTextCatalog.ResolveText("Restraint", targetRole, profile.Restraint)}");
+                sb.AppendLine($"    Dominance: {CharacterStatTextCatalog.ResolveText("Dominance", targetRole, profile.Dominance)}");
+                sb.AppendLine($"    Loyalty: {CharacterStatTextCatalog.ResolveText("Loyalty", targetRole, profile.Loyalty)}");
+                sb.AppendLine($"    SelfRespect: {CharacterStatTextCatalog.ResolveText("SelfRespect", targetRole, profile.SelfRespect)}");
+            }
+            catch { /* Band text lookup may fail for unknown roles; omit gracefully. */ }
+        }
+
+        if (profile.RuntimeEncounterStats is { Count: > 0 }
+            && (!string.IsNullOrWhiteSpace(targetRole)
+                && (string.Equals(targetRole, "Wife", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(targetRole, "Husband", StringComparison.OrdinalIgnoreCase))))
+        {
+            sb.AppendLine($"  Encounter dimensions: {string.Join(", ", profile.RuntimeEncounterStats.Select(kv => $"{kv.Key}={kv.Value}"))}");
+        }
     }
 
     private async Task<string> BuildNextPhaseOptionsPromptAsync(string targetLabel)
@@ -5966,24 +6252,131 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
             return;
         }
 
-        // Load the command text into the prompt input so the user can review, edit,
-        // and submit it manually with Continue rather than executing immediately.
         var selectedOption = _selectedSteerOption.Trim();
-        var positionInstruction = string.Empty;
+
         if (_steerUseGuidedFlow)
         {
-            positionInstruction = BuildSteerPositionInstructionSnippet();
+            // Position flow: keep existing behaviour — load into prompt box.
+            var positionInstruction = BuildSteerPositionInstructionSnippet();
             if (string.IsNullOrWhiteSpace(positionInstruction))
             {
                 positionInstruction = "State an explicit physical position and orientation in the steer instruction.";
             }
             selectedOption = $"{selectedOption} [Position instruction: {positionInstruction}]";
+            _steerPopupOpen = false;
+            _steerOptionError = string.Empty;
+            _selectedIntent = PromptIntent.Instruction;
+            _promptText = selectedOption;
+            _steerOptionPages.Clear();
+            _steerPageIndex = 0;
+            _selectedSteerOption = string.Empty;
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        // ── B-075: Direction flow — stage as per-character steering directive ──
+        var cardIndex = CurrentSteerPage.IndexOf(_selectedSteerOption);
+        var direction = cardIndex switch
+        {
+            0 => V2RolePlay.SteerDirection.Away,
+            1 => V2RolePlay.SteerDirection.Neutral,
+            2 => V2RolePlay.SteerDirection.Towards,
+            3 => V2RolePlay.SteerDirection.Hard,
+            _ => V2RolePlay.SteerDirection.Neutral
+        };
+
+        // Resolve target character.
+        var targetLabel = _steerTargetCharacterLabel;
+        var targetId = _steerTargetCharacterId;
+        if (string.IsNullOrWhiteSpace(targetLabel) && SteerableTargets.Count > 0)
+        {
+            targetId = SteerableTargets[0].CharacterId;
+            targetLabel = SteerableTargets[0].CharacterName;
+        }
+
+        var targetRole = ResolveTargetRole(targetLabel);
+
+        // Validate target character exists in session stats.
+        if (string.IsNullOrWhiteSpace(targetId)
+            || !_session.AdaptiveState.CharacterStats.Any(kvp =>
+                string.Equals(kvp.Key, targetLabel, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(kvp.Value.CharacterId, targetId, StringComparison.OrdinalIgnoreCase)))
+        {
+            _steerOptionError = $"Target character '{targetLabel ?? targetId}' is not in the session's character stats.";
+            return;
+        }
+
+        var directive = new RolePlaySteeringDirective
+        {
+            TargetCharacterId = targetId,
+            TargetCharacterLabel = targetLabel,
+            TargetCharacterRole = targetRole,
+            Direction = direction,
+            FreeTextDirective = selectedOption
+        };
+
+        var metadataJson = JsonSerializer.Serialize(directive);
+
+        // Submit as a staged instruction via the + path.
+        _isSubmitting = true;
+        try
+        {
+            var submission = new UnifiedPromptSubmission
+            {
+                SessionId = _session.Id,
+                PromptText = selectedOption,
+                Intent = PromptIntent.Instruction,
+                SelectedIdentityId = string.Empty,
+                SelectedIdentityType = IdentityOptionSource.Persona,
+                BehaviorModeAtSubmit = _selectedBehaviorMode,
+                SubmittedVia = SubmissionSource.PlusButton
+            };
+
+            await RolePlayEngine.SubmitPromptAsync(submission);
+
+            // Set steering metadata on the newly created interaction.
+            // The interaction was added at the end of session.Interactions.
+            var stagedInteraction = _session.Interactions.LastOrDefault();
+            if (stagedInteraction is not null)
+            {
+                stagedInteraction.SteeringMetadataJson = metadataJson;
+                stagedInteraction.SteeringGenerationId = _cachedSteerGenerationId;
+            }
+
+            // Update the generation record with the selected directive summary.
+            if (!string.IsNullOrWhiteSpace(_cachedSteerGenerationId))
+            {
+                try
+                {
+                    var genRecord = await Persistence.LoadSteeringGenerationRecordAsync(_cachedSteerGenerationId);
+                    if (genRecord is not null)
+                    {
+                        genRecord.SelectedDirectiveSummary = $"{targetLabel} | {direction} | {selectedOption}";
+                        genRecord.StagedInteractionId = stagedInteraction?.Id;
+                        genRecord.UpdatedUtc = DateTime.UtcNow;
+                        await Persistence.SaveSteeringGenerationRecordAsync(genRecord);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogWarning(ex, "Failed to update steering generation record {Id}", _cachedSteerGenerationId);
+                }
+            }
+
+            await LoadSessionAsync();
+        }
+        catch (Exception ex)
+        {
+            _steerOptionError = ex.Message;
+            Logger.LogError(ex, "Failed submitting steer directive for session {SessionId}", _session.Id);
+        }
+        finally
+        {
+            _isSubmitting = false;
         }
 
         _steerPopupOpen = false;
         _steerOptionError = string.Empty;
-        _selectedIntent = PromptIntent.Instruction;
-        _promptText = selectedOption;
         _steerOptionPages.Clear();
         _steerPageIndex = 0;
         _selectedSteerOption = string.Empty;
@@ -8931,18 +9324,39 @@ private void CloseInteractionInfo()
 
                 @if (_steerPopupOpen)
                 {
-                    <div class="rw-popup rw-finish-popup">
+                    <div class="rw-modal-overlay rw-steer-overlay" @onclick="CloseSteerPopup">
+                        <div class="rw-popup rw-finish-popup rw-steer-popup rw-steer-overlay-popup" @onclick:stopPropagation>
                         <div class="rw-popup-header">
                             <span class="rw-popup-intent-label">steer (@(_steerUseGuidedFlow ? "position" : "direction"))</span>
                         </div>
-                        <div class="rw-popup-actions rw-finish-popup-actions">
-                            <button class="rw-popup-action-btn @(!_steerUseGuidedFlow ? "is-primary" : string.Empty)"
-                                    disabled="@(_steerOptionSubmitting || _steerOptionsLoading)"
-                                    @onclick="@(() => SetSteerFlowAsync(false))">Direction</button>
-                            <button class="rw-popup-action-btn @(_steerUseGuidedFlow ? "is-primary" : string.Empty)"
-                                    disabled="@(_steerOptionSubmitting || _steerOptionsLoading)"
-                                    @onclick="@(() => SetSteerFlowAsync(true))">Position</button>
-                        </div>
+                        @if (!_steerUseGuidedFlow)
+                        {
+                            <div class="rw-popup-actions rw-finish-popup-actions" style="padding: 0 12px 6px;">
+                                <select class="form-select" style="width:100%"
+                                        value="@_steerTargetCharacterId"
+                                        disabled="@(_steerOptionSubmitting || _steerOptionsLoading)"
+                                        @onchange="@(args => {
+                                            _steerTargetCharacterId = args.Value?.ToString() ?? string.Empty;
+                                            var match = SteerableTargets.FirstOrDefault(t => t.CharacterId == _steerTargetCharacterId);
+                                            _steerTargetCharacterLabel = match.CharacterName;
+                                            RefreshLocalSteerPages();
+                                        })">
+                                    @if (SteerableTargets.Count == 0)
+                                    {
+                                        <option value="">No characters available</option>
+                                    }
+                                    else
+                                    {
+                                        @foreach (var target in SteerableTargets)
+                                        {
+                                            <option value="@target.CharacterId" selected="@(target.CharacterId == _steerTargetCharacterId)">
+                                                @target.CharacterName @(target.Role is not null ? $"({target.Role})" : "")
+                                            </option>
+                                        }
+                                    }
+                                </select>
+                            </div>
+                        }
                         <div class="rw-finish-popup-body">
                             @if (_steerOptionsLoading)
                             {
@@ -8957,24 +9371,48 @@ private void CloseInteractionInfo()
                                 @if (_steerOptionPages.Count > 1)
                                 {
                                     <div class="rw-steer-pager">
-                                        <button class="rw-steer-pager-btn" disabled="@(_steerPageIndex == 0 || _steerOptionSubmitting || _steerOptionsLoading)" @onclick="@(() => { _steerPageIndex--; _selectedSteerOption = CurrentSteerPage[0]; })">→</button>
+                                        <button class="rw-steer-pager-btn" disabled="@(_steerPageIndex == 0 || _steerOptionSubmitting || _steerOptionsLoading)" @onclick="@(() => { _steerPageIndex--; _selectedSteerOption = CurrentSteerPage[0]; })">←</button>
                                         <span class="rw-steer-pager-label">Set @(_steerPageIndex + 1) / @_steerOptionPages.Count</span>
                                         <button class="rw-steer-pager-btn" disabled="@(_steerPageIndex == _steerOptionPages.Count - 1 || _steerOptionSubmitting || _steerOptionsLoading)" @onclick="@(() => { _steerPageIndex++; _selectedSteerOption = CurrentSteerPage[0]; })">→</button>
                                     </div>
                                 }
-                                @foreach (var option in CurrentSteerPage)
+                                @if (!_steerUseGuidedFlow && CurrentSteerPage.Count == 4)
                                 {
-                                    <button class="rw-popup-item @(string.Equals(_selectedSteerOption, option, StringComparison.Ordinal) ? "is-selected" : string.Empty)"
-                                            disabled="@_steerOptionSubmitting"
-                                            @onclick="@(() => _selectedSteerOption = option)">
-                                        <div class="rw-popup-item-content">
-                                            <span class="rw-popup-item-title">@option</span>
-                                        </div>
-                                        @if (string.Equals(_selectedSteerOption, option, StringComparison.Ordinal))
-                                        {
-                                            <span class="rw-popup-check">?</span>
-                                        }
-                                    </button>
+                                    var dirLabels = new[] { "Away", "Neutral", "Towards", "Hard" };
+                                    for (int i = 0; i < 4; i++)
+                                    {
+                                        var option = CurrentSteerPage[i];
+                                        var dirLabel = dirLabels[i];
+                                        <button class="rw-popup-item rw-steer-dir-item @(string.Equals(_selectedSteerOption, option, StringComparison.Ordinal) ? "is-selected" : string.Empty)"
+                                                disabled="@_steerOptionSubmitting"
+                                                @onclick="@(() => _selectedSteerOption = option)">
+                                            <span class="rw-steer-dir-badge">@dirLabel</span>
+                                            <div class="rw-popup-item-content">
+                                                <span class="rw-popup-item-title">@option</span>
+                                            </div>
+                                            @if (string.Equals(_selectedSteerOption, option, StringComparison.Ordinal))
+                                            {
+                                                <span class="rw-popup-check">✓</span>
+                                            }
+                                        </button>
+                                    }
+                                }
+                                else
+                                {
+                                    @foreach (var option in CurrentSteerPage)
+                                    {
+                                        <button class="rw-popup-item @(string.Equals(_selectedSteerOption, option, StringComparison.Ordinal) ? "is-selected" : string.Empty)"
+                                                disabled="@_steerOptionSubmitting"
+                                                @onclick="@(() => _selectedSteerOption = option)">
+                                            <div class="rw-popup-item-content">
+                                                <span class="rw-popup-item-title">@option</span>
+                                            </div>
+                                            @if (string.Equals(_selectedSteerOption, option, StringComparison.Ordinal))
+                                            {
+                                                <span class="rw-popup-check">✓</span>
+                                            }
+                                        </button>
+                                    }
                                 }
                             }
                         </div>
@@ -8982,7 +9420,20 @@ private void CloseInteractionInfo()
                         {
                             <div class="rw-finish-error">@_steerOptionError</div>
                         }
+                        @if (!_steerUseGuidedFlow && !string.IsNullOrWhiteSpace(_selectedSteerOption))
+                        {
+                            <div class="rw-steer-preview" style="padding: 8px 12px; font-size: 0.85rem; color: var(--bs-secondary-color); border-top: 1px solid var(--bs-border-color);">
+                                <strong>Preview:</strong> Target: @_steerTargetCharacterLabel · Direction: @(CurrentSteerPage.IndexOf(_selectedSteerOption) switch { 0 => "Away", 1 => "Neutral", 2 => "Towards", 3 => "Hard", _ => "?" })<br/>
+                                Directive: "@_selectedSteerOption"
+                            </div>
+                        }
                         <div class="rw-popup-actions rw-finish-popup-actions">
+                            <button class="rw-popup-action-btn @(!_steerUseGuidedFlow ? "is-primary" : string.Empty)"
+                                disabled="@(_steerOptionSubmitting || _steerOptionsLoading)"
+                                @onclick="@(() => SetSteerFlowAsync(false))">Direction</button>
+                            <button class="rw-popup-action-btn @(_steerUseGuidedFlow ? "is-primary" : string.Empty)"
+                                disabled="@(_steerOptionSubmitting || _steerOptionsLoading)"
+                                @onclick="@(() => SetSteerFlowAsync(true))">Position</button>
                             <button class="rw-popup-action-btn"
                                     disabled="@_steerOptionSubmitting"
                                     @onclick="CloseSteerPopup">Cancel</button>
@@ -8992,6 +9443,7 @@ private void CloseInteractionInfo()
                             <button class="rw-popup-action-btn is-primary"
                                     disabled="@(_steerOptionSubmitting || _steerOptionsLoading || string.IsNullOrWhiteSpace(_selectedSteerOption))"
                                     @onclick="ApplySteerOptionAsync">Apply Steer</button>
+                        </div>
                         </div>
                     </div>
                 }

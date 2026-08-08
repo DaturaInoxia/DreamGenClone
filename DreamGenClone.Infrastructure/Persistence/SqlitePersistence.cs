@@ -618,6 +618,33 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 FOREIGN KEY (ImportRunId) REFERENCES RPThemeImportRuns(Id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS SteeringGenerationRecords (
+                Id TEXT PRIMARY KEY,
+                SessionId TEXT NOT NULL,
+                GenerationPrompt TEXT NOT NULL,
+                GenerationResponse TEXT NOT NULL,
+                ParsedOptionsJson TEXT NULL,
+                CharacterSnapshotJson TEXT NULL,
+                ActiveThemeId TEXT NULL,
+                ActiveThemeLabel TEXT NULL,
+                Phase TEXT NULL,
+                ModelIdentifier TEXT NULL,
+                ProviderName TEXT NULL,
+                Temperature REAL NULL,
+                TopP REAL NULL,
+                MaxTokens INTEGER NULL,
+                Succeeded INTEGER NOT NULL DEFAULT 1,
+                ErrorMessage TEXT NULL,
+                SelectedDirectiveSummary TEXT NULL,
+                StagedInteractionId TEXT NULL,
+                ContinuationInteractionId TEXT NULL,
+                CreatedUtc TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS IX_SteeringGenerationRecords_Session
+                ON SteeringGenerationRecords (SessionId, CreatedUtc DESC);
+
             CREATE TABLE IF NOT EXISTS StoryRankings (
                 Id TEXT PRIMARY KEY,
                 ParsedStoryId TEXT NOT NULL,
@@ -5261,5 +5288,93 @@ public sealed class SqlitePersistence : ISqlitePersistence
         }
 
         return sanitized.Length > 32 ? sanitized[..32] : sanitized;
+    }
+
+    // --- B-075: Steering Generation Records ---
+
+    public async Task SaveSteeringGenerationRecordAsync(SteeringGenerationRecord record, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT OR REPLACE INTO SteeringGenerationRecords
+                (Id, SessionId, GenerationPrompt, GenerationResponse, ParsedOptionsJson,
+                 CharacterSnapshotJson, ActiveThemeId, ActiveThemeLabel, Phase,
+                 ModelIdentifier, ProviderName, Temperature, TopP, MaxTokens,
+                 Succeeded, ErrorMessage, SelectedDirectiveSummary,
+                 StagedInteractionId, ContinuationInteractionId,
+                 CreatedUtc, UpdatedUtc)
+            VALUES
+                (@Id, @SessionId, @GenerationPrompt, @GenerationResponse, @ParsedOptionsJson,
+                 @CharacterSnapshotJson, @ActiveThemeId, @ActiveThemeLabel, @Phase,
+                 @ModelIdentifier, @ProviderName, @Temperature, @TopP, @MaxTokens,
+                 @Succeeded, @ErrorMessage, @SelectedDirectiveSummary,
+                 @StagedInteractionId, @ContinuationInteractionId,
+                 @CreatedUtc, @UpdatedUtc)
+            """;
+        var p = command.Parameters;
+        p.AddWithValue("@Id", record.Id);
+        p.AddWithValue("@SessionId", record.SessionId);
+        p.AddWithValue("@GenerationPrompt", record.GenerationPrompt);
+        p.AddWithValue("@GenerationResponse", record.GenerationResponse);
+        p.AddWithValue("@ParsedOptionsJson", (object?)record.ParsedOptionsJson ?? DBNull.Value);
+        p.AddWithValue("@CharacterSnapshotJson", (object?)record.CharacterSnapshotJson ?? DBNull.Value);
+        p.AddWithValue("@ActiveThemeId", (object?)record.ActiveThemeId ?? DBNull.Value);
+        p.AddWithValue("@ActiveThemeLabel", (object?)record.ActiveThemeLabel ?? DBNull.Value);
+        p.AddWithValue("@Phase", (object?)record.Phase ?? DBNull.Value);
+        p.AddWithValue("@ModelIdentifier", (object?)record.ModelIdentifier ?? DBNull.Value);
+        p.AddWithValue("@ProviderName", (object?)record.ProviderName ?? DBNull.Value);
+        p.AddWithValue("@Temperature", (object?)record.Temperature ?? DBNull.Value);
+        p.AddWithValue("@TopP", (object?)record.TopP ?? DBNull.Value);
+        p.AddWithValue("@MaxTokens", (object?)record.MaxTokens ?? DBNull.Value);
+        p.AddWithValue("@Succeeded", record.Succeeded ? 1L : 0L);
+        p.AddWithValue("@ErrorMessage", (object?)record.ErrorMessage ?? DBNull.Value);
+        p.AddWithValue("@SelectedDirectiveSummary", (object?)record.SelectedDirectiveSummary ?? DBNull.Value);
+        p.AddWithValue("@StagedInteractionId", (object?)record.StagedInteractionId ?? DBNull.Value);
+        p.AddWithValue("@ContinuationInteractionId", (object?)record.ContinuationInteractionId ?? DBNull.Value);
+        p.AddWithValue("@CreatedUtc", record.CreatedUtc.ToString("O"));
+        p.AddWithValue("@UpdatedUtc", record.UpdatedUtc.ToString("O"));
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    public async Task<SteeringGenerationRecord?> LoadSteeringGenerationRecordAsync(string id, CancellationToken ct = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(ct);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT * FROM SteeringGenerationRecords WHERE Id = @Id";
+        command.Parameters.AddWithValue("@Id", id);
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        if (!await reader.ReadAsync(ct)) return null;
+        return ReadSteeringGenerationRecord(reader);
+    }
+
+    private static SteeringGenerationRecord ReadSteeringGenerationRecord(SqliteDataReader reader)
+    {
+        return new SteeringGenerationRecord
+        {
+            Id = reader.GetString(0),
+            SessionId = reader.GetString(1),
+            GenerationPrompt = reader.GetString(2),
+            GenerationResponse = reader.GetString(3),
+            ParsedOptionsJson = reader.IsDBNull(4) ? null : reader.GetString(4),
+            CharacterSnapshotJson = reader.IsDBNull(5) ? null : reader.GetString(5),
+            ActiveThemeId = reader.IsDBNull(6) ? null : reader.GetString(6),
+            ActiveThemeLabel = reader.IsDBNull(7) ? null : reader.GetString(7),
+            Phase = reader.IsDBNull(8) ? null : reader.GetString(8),
+            ModelIdentifier = reader.IsDBNull(9) ? null : reader.GetString(9),
+            ProviderName = reader.IsDBNull(10) ? null : reader.GetString(10),
+            Temperature = reader.IsDBNull(11) ? null : reader.GetDouble(11),
+            TopP = reader.IsDBNull(12) ? null : reader.GetDouble(12),
+            MaxTokens = reader.IsDBNull(13) ? null : reader.GetInt32(13),
+            Succeeded = reader.GetInt64(14) != 0,
+            ErrorMessage = reader.IsDBNull(15) ? null : reader.GetString(15),
+            SelectedDirectiveSummary = reader.IsDBNull(16) ? null : reader.GetString(16),
+            StagedInteractionId = reader.IsDBNull(17) ? null : reader.GetString(17),
+            ContinuationInteractionId = reader.IsDBNull(18) ? null : reader.GetString(18),
+            CreatedUtc = DateTime.Parse(reader.GetString(19)),
+            UpdatedUtc = DateTime.Parse(reader.GetString(20)),
+        };
     }
 }
