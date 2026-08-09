@@ -241,6 +241,7 @@ builder.Services.AddSingleton<IBackgroundJobQueue>(sp => sp.GetRequiredService<G
 builder.Services.AddScoped<IBackgroundJobHandler, SemanticInteractionAnalysisJobHandler>();
 builder.Services.AddScoped<IBackgroundJobHandler, EncounterSummaryJobHandler>();
 builder.Services.AddScoped<IBackgroundJobHandler, LocationDetectionJobHandler>();
+builder.Services.AddScoped<IBackgroundJobHandler, SteerGenerationJobHandler>();
 builder.Services.AddHostedService<GenericBackgroundJobWorker>();
 builder.Services.AddSingleton<SemanticBackgroundJobQueue>();
 builder.Services.AddSingleton<ISemanticBackgroundJobQueue>(sp => sp.GetRequiredService<SemanticBackgroundJobQueue>());

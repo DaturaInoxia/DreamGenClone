@@ -501,7 +501,7 @@ public sealed class RolePlayAssistantService : IRolePlayAssistantService
     private static AssistantQueryMode ClassifyQueryMode(string userPrompt)
     {
         if (!string.IsNullOrWhiteSpace(userPrompt)
-            && userPrompt.Contains("Return ONLY a JSON array of strings with no markdown and no extra text.", StringComparison.OrdinalIgnoreCase))
+            && userPrompt.Contains("Return ONLY JSON", StringComparison.OrdinalIgnoreCase))
         {
             return AssistantQueryMode.JsonOptionGenerator;
         }

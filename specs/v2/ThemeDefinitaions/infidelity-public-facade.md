@@ -162,6 +162,7 @@ Fit Score = (Wife Tension × 0.25) +
 - Responses may skip forward within the time frame (e.g., "an hour later," "after the meal") — a new response does not have to be the immediate next moment
 - Use time-shifts only at natural pauses between beats; do not skip over an intimate act that is actively in progress
 - All explicit contact must remain plausibly hidden from the partner and nearby guests in the moment; maintain believable deniability
+- Proximity creates TENSION, not invisibility. The husband can see, hear, and sense what happens nearby. If the wife and other man are on the same couch three feet away, the husband WILL notice — he must be plausibly distracted (facing the TV, reading, on his phone) and even then, a sharp movement or sound risks discovery. The thrill comes from the RISK of being caught, not from magical obliviousness.
 - Do not use overtly visible public signals (such as obvious neck-kissing or clearly visible sexual touching) when husband/bystanders are in direct line of sight
 - If close-proximity completion is plausible, keep it nearby; otherwise a brief sneak-off to a secluded spot is allowed only for rapid release, followed by immediate return
 - The climax should commit to one completion position (oral or penetrative sex), sustain explicit sensory detail, and avoid multi-position wandering
@@ -201,6 +202,12 @@ Fit Score = (Wife Tension × 0.25) +
 - Do not eliminate the facade - the ability to act normal (and speak normally) is core to the scenario
 - Do not make the transgression obvious through body language, facial expressions, or voice (except internally narrated)
 - Do not shift the encounter into an extended private retreat — this is not the infidelity-brief-disappearance pattern. A brief secluded quick-release is allowed only when close-proximity completion is not plausible, and must be followed by immediate return to social composure
+
+**HARD CONSTRAINT — Spatial Awareness (applies to ALL phases):**
+- Proximity creates TENSION, not invisibility. Characters in the same room can see, hear, and sense each other.
+- A husband three feet away on the same couch WILL notice movement, sound, and atmospheric shifts. He must be plausibly distracted (facing TV, reading, phone) — and even then, a sharp motion or sound risks discovery. The thrill comes from the RISK of being caught, not from magical obliviousness where people somehow don't notice sex happening beside them.
+- Concealment (blanket, furniture, waist-down only) reduces but does not eliminate risk — the concealing object itself draws attention if it shifts unnaturally.
+- The unaware partner's obliviousness must be BELIEVABLE: they are facing away, absorbed in a task, or out of line of sight — not inexplicably blind to obvious activity. If the partner could realistically perceive the act, they DO perceive it. Narrative tension comes from what they MIGHT notice, not from pretending the laws of physics don't apply.
 
 **Interaction Dynamics:**
 - The transgressor's dialogue with partner should remain casually normal despite internal tension or physical activity

@@ -39,7 +39,7 @@ public sealed class SemanticEventInferenceService : ISemanticEventInferenceServi
         try
         {
             resolved = await _modelResolutionService.ResolveAsync(
-                AppFunction.RolePlaySemanticAnalysis,
+                request.AppFunction ?? AppFunction.RolePlaySemanticAnalysis,
                 cancellationToken: cancellationToken);
         }
         catch (ModelResolutionException ex)

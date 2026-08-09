@@ -156,6 +156,9 @@
     private string _steerTargetCharacterLabel = string.Empty;
     private SteerGenerationResponse? _cachedSteerResponse;
     private string? _cachedSteerGenerationId;
+    private bool _viewSteerPromptOpen;
+    private string _viewSteerPromptText = string.Empty;
+    private string _viewSteerResponseText = string.Empty;
     private bool _timeSkipPopupOpen;
     private bool _timeSkipSubmitting;
     private string _timeSkipCustomText = string.Empty;
@@ -4938,7 +4941,7 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
                 assistantTemperature: _session.SessionTemperature,
                 assistantTopP: _session.SessionTopP,
                 assistantMaxTokens: _session.SessionMaxTokens,
-                appFunction: AppFunction.RolePlayGeneration);
+                appFunction: AppFunction.RolePlaySteering);
 
             _nextPhaseOptions = ParseFinishOptions(response).ToList();
             if (_nextPhaseOptions.Count == 0)
@@ -5031,11 +5034,11 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
         await InvokeAsync(StateHasChanged);
     }
 
-    private Task OpenSteerPopupAsync()
+    private async Task OpenSteerPopupAsync()
     {
         if (_session is null || !IsSteerEligible || IsSteerUiLocked)
         {
-            return Task.CompletedTask;
+            return;
         }
 
         _steerPopupOpen = true;
@@ -5055,15 +5058,63 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
             _steerTargetCharacterLabel = SteerableTargets[0].CharacterName;
         }
 
-        // Preserve _steerOptionPages, _selectedSteerOption, _steerUseGuidedFlow from last session.
-
-        return Task.CompletedTask;
+        // Auto-steer: try to load pre-generated options from cache.
+        if (!_steerUseGuidedFlow && _steerOptionPages.Count == 0)
+        {
+            try
+            {
+                var cached = await Persistence.GetLatestSteeringGenerationRecordAsync(_session.Id);
+                if (cached is not null && !string.IsNullOrWhiteSpace(cached.ParsedOptionsJson))
+                {
+                    // Discard if older than the latest interaction — the record is stale.
+                    var latestInteraction = _session.Interactions.LastOrDefault();
+                    if (latestInteraction is not null && cached.CreatedUtc.ToUniversalTime() < latestInteraction.CreatedAt.ToUniversalTime())
+                    {
+                        Logger.LogInformation("Discarding stale steer cache: record {Id} created {RecordUtc} is older than latest interaction {InteractionUtc}",
+                            cached.Id, cached.CreatedUtc, latestInteraction.CreatedAt);
+                    }
+                    else
+                    {
+                        var parsed = SteerGenerationParser.TryParse(cached.GenerationResponse);
+                        if (parsed is not null && parsed.Characters.Count > 0)
+                        {
+                            _cachedSteerResponse = parsed;
+                            _cachedSteerGenerationId = cached.Id;
+                            RefreshLocalSteerPages();
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Failed to load cached steer options for session {SessionId}", _session.Id);
+            }
+        }
     }
 
     private void CloseSteerPopup()
     {
         _steerPopupOpen = false;
         _steerOptionError = string.Empty;
+    }
+
+    private async Task ViewSteerPromptAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_cachedSteerGenerationId)) return;
+        try
+        {
+            var record = await Persistence.LoadSteeringGenerationRecordAsync(_cachedSteerGenerationId);
+            if (record is not null)
+            {
+                _viewSteerPromptText = record.GenerationPrompt;
+                _viewSteerResponseText = record.GenerationResponse;
+                _viewSteerPromptOpen = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to load steer generation record {Id}", _cachedSteerGenerationId);
+        }
     }
 
     private Task SetFinishFlowAsync(bool useGuided)
@@ -5135,7 +5186,7 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
                     assistantTemperature: _session.SessionTemperature,
                     assistantTopP: _session.SessionTopP,
                     assistantMaxTokens: _session.SessionMaxTokens,
-                    appFunction: AppFunction.RolePlayGeneration);
+                    appFunction: AppFunction.RolePlaySteering);
                 var newPage = ParseFinishOptions(response).ToList();
                 if (newPage.Count == 0)
                 {
@@ -5156,7 +5207,7 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
                 assistantTemperature: _session.SessionTemperature,
                 assistantTopP: _session.SessionTopP,
                 assistantMaxTokens: _session.SessionMaxTokens,
-                appFunction: AppFunction.RolePlayGeneration);
+                appFunction: AppFunction.RolePlaySteering);
 
             var parsed = SteerGenerationParser.TryParse(genResponse);
             if (parsed is null || parsed.Characters.Count == 0)
@@ -5356,6 +5407,7 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
         sb.AppendLine();
         sb.AppendLine("Constraints:");
         sb.AppendLine("- Each option MUST be one sentence, concrete and actionable, grounded in the recent scene.");
+        sb.AppendLine("- Use the character's name, never a pronoun. Say 'Ken does X' not 'He does X'.");
         sb.AppendLine("- Each character's options must reflect that character's role intent, current state, and the way the other active characters affect the situation.");
         sb.AppendLine($"- Stay in the {phase} phase; do not advance the phase.");
         sb.AppendLine("- Do not merge characters into one directive. Return a distinct four-option set for every character.");
@@ -5764,7 +5816,7 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
             parts.Add(_v2State!.CurrentSceneLocation!);
         }
 
-        foreach (var interaction in _session.Interactions.TakeLast(6))
+        foreach (var interaction in _session.Interactions.TakeLast(2))
         {
             if (!string.IsNullOrWhiteSpace(interaction.Content))
             {
@@ -6149,7 +6201,7 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
 
         var recentNarrativeInteractions = _session.Interactions
             .Where(x => !string.Equals(x.ActorName, "Instruction", StringComparison.OrdinalIgnoreCase))
-            .TakeLast(4)
+            .TakeLast(2)
             .ToList();
         if (recentNarrativeInteractions.Count > 0)
         {
@@ -6466,7 +6518,7 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
                 assistantTemperature: _session.SessionTemperature,
                 assistantTopP: _session.SessionTopP,
                 assistantMaxTokens: _session.SessionMaxTokens,
-                appFunction: AppFunction.RolePlayGeneration,
+                appFunction: AppFunction.RolePlaySteering,
                 cancellationToken: cancellationToken);
             assistantCallStopwatch.Stop();
 
@@ -9328,6 +9380,10 @@ private void CloseInteractionInfo()
                         <div class="rw-popup rw-finish-popup rw-steer-popup rw-steer-overlay-popup" @onclick:stopPropagation>
                         <div class="rw-popup-header">
                             <span class="rw-popup-intent-label">steer (@(_steerUseGuidedFlow ? "position" : "direction"))</span>
+                            @if (!string.IsNullOrWhiteSpace(_cachedSteerGenerationId))
+                            {
+                                <button class="rw-steer-view-prompt-btn" @onclick="ViewSteerPromptAsync" @onclick:stopPropagation title="View generation prompt and response">View Prompt</button>
+                            }
                         </div>
                         @if (!_steerUseGuidedFlow)
                         {
@@ -9444,6 +9500,28 @@ private void CloseInteractionInfo()
                                     disabled="@(_steerOptionSubmitting || _steerOptionsLoading || string.IsNullOrWhiteSpace(_selectedSteerOption))"
                                     @onclick="ApplySteerOptionAsync">Apply Steer</button>
                         </div>
+                        </div>
+                    </div>
+                }
+
+                @if (_viewSteerPromptOpen)
+                {
+                    <div class="rw-modal-overlay" @onclick="@(() => _viewSteerPromptOpen = false)">
+                        <div class="rw-modal rw-steer-prompt-modal" @onclick:stopPropagation>
+                            <div class="rw-modal-header">
+                                <span>Steering Generation Prompt & Response</span>
+                                <button class="rw-modal-close-btn" @onclick="@(() => _viewSteerPromptOpen = false)">×</button>
+                            </div>
+                            <div class="rw-modal-body rw-steer-prompt-body">
+                                <div class="rw-steer-prompt-section">
+                                    <div class="rw-steer-prompt-section-header">Generation Prompt</div>
+                                    <pre class="rw-steer-prompt-text">@_viewSteerPromptText</pre>
+                                </div>
+                                <div class="rw-steer-prompt-section">
+                                    <div class="rw-steer-prompt-section-header">Raw Response</div>
+                                    <pre class="rw-steer-prompt-text">@_viewSteerResponseText</pre>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 }

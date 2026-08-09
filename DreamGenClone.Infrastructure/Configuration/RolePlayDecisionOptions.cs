@@ -26,4 +26,7 @@ public sealed class RolePlayDecisionOptions
     // Master feature flag — when false, the entire decision prompt system is bypassed:
     // no decision points are created, no LLM rewrite is called, and the UI poll returns nothing.
     public bool EnableDecisionPrompts { get; set; } = false;
+
+    // Feature flag for automatic steering-options generation after each turn.
+    public bool EnableAutoSteer { get; set; } = false;
 }

@@ -1,3 +1,5 @@
+using DreamGenClone.Domain.ModelManager;
+
 namespace DreamGenClone.Web.Application.RolePlay;
 
 public sealed class SemanticEventInferenceRequest
@@ -21,6 +23,12 @@ public sealed class SemanticEventInferenceRequest
     /// sync encounter-boundary detection path to disambiguate precise event semantics.
     /// </summary>
     public IReadOnlyDictionary<string, string>? EventDescriptions { get; init; }
+
+    /// <summary>
+    /// Optional AppFunction override for model resolution. When not set,
+    /// defaults to RolePlaySemanticAnalysis.
+    /// </summary>
+    public AppFunction? AppFunction { get; init; }
 }
 
 public sealed class SemanticEventInferenceResult

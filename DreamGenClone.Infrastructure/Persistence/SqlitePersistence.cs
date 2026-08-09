@@ -5377,4 +5377,16 @@ public sealed class SqlitePersistence : ISqlitePersistence
             UpdatedUtc = DateTime.Parse(reader.GetString(20)),
         };
     }
+
+    public async Task<SteeringGenerationRecord?> GetLatestSteeringGenerationRecordAsync(string sessionId)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT * FROM SteeringGenerationRecords WHERE SessionId = @SessionId AND Succeeded = 1 ORDER BY CreatedUtc DESC LIMIT 1";
+        command.Parameters.AddWithValue("@SessionId", sessionId);
+        await using var reader = await command.ExecuteReaderAsync();
+        if (!await reader.ReadAsync()) return null;
+        return ReadSteeringGenerationRecord(reader);
+    }
 }

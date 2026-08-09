@@ -232,6 +232,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     private readonly bool _enablePhaseChangeDecisionPrompts;
     private readonly bool _enableSceneLocationDecisionPrompts;
     private readonly bool _enableLocationServices;
+    private readonly bool _enableAutoSteer;
     private readonly bool _enableDecisionPrompts;
     private readonly bool _enableAdaptiveStateUpdates;
     private readonly bool _enableSemanticInference;
@@ -372,6 +373,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         _enablePhaseChangeDecisionPrompts = rolePlayDecisionOptions?.Value.EnablePhaseChangeDecisionPrompts ?? false;
         _enableSceneLocationDecisionPrompts = rolePlayDecisionOptions?.Value.EnableSceneLocationDecisionPrompts ?? false;
         _enableLocationServices = rolePlayDecisionOptions?.Value.EnableLocationServices ?? true;
+        _enableAutoSteer = rolePlayDecisionOptions?.Value.EnableAutoSteer ?? false;
         _enableDecisionPrompts = rolePlayDecisionOptions?.Value.EnableDecisionPrompts ?? false;
         _enableAdaptiveStateUpdates = rolePlayFeatureFlagsOptions?.Value.EnableAdaptiveStateUpdates ?? true;
         _enableSemanticInference = rolePlayFeatureFlagsOptions?.Value.EnableSemanticInference ?? true;
@@ -3053,6 +3055,115 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             dedupeKey: $"location:{session.Id}");
     }
 
+    private async Task EnqueueSteerGenerationJob(RolePlaySession session, AdaptiveScenarioState? v2State)
+    {
+        if (_backgroundJobQueue is null) return;
+
+        var characterSnapshots = session.AdaptiveState.CharacterStats
+            .Select(kvp =>
+            {
+                var p = kvp.Value;
+                return new CharacterStatSnapshot
+                {
+                    CharacterId = p.CharacterId ?? kvp.Key,
+                    CharacterName = kvp.Key,
+                    Role = p.CharacterRole,
+                    Desire = p.Desire,
+                    Restraint = p.Restraint,
+                    Dominance = p.Dominance,
+                    Loyalty = p.Loyalty,
+                    SelfRespect = p.SelfRespect,
+                    EncounterDimensions = p.RuntimeEncounterStats?
+                        .ToDictionary(e => e.Key, e => (double)e.Value)
+                };
+            })
+            .ToList();
+
+        // Full interaction texts — last 2 turns only, enough to ground the options.
+        var recentInteractions = session.Interactions
+            .Where(i => (i.InteractionType == InteractionType.Npc || i.InteractionType == InteractionType.Custom)
+                && !i.IsExcluded
+                && !string.IsNullOrWhiteSpace(i.Content))
+            .TakeLast(2)
+            .Select(i => $"[{i.InteractionType}] {i.ActorName}: {i.Content}")
+            .ToList();
+
+        // Build character summaries from character stats + scenario characters.
+        var characterSummaries = new List<string>();
+        foreach (var kvp in session.AdaptiveState.CharacterStats)
+        {
+            var name = kvp.Key;
+            var role = string.IsNullOrWhiteSpace(kvp.Value.CharacterRole) ? "" : $" ({kvp.Value.CharacterRole})";
+            characterSummaries.Add($"{name}{role}");
+        }
+
+        // Scenario summary if available.
+        string? scenarioSummary = null;
+        string? themeLabel = null;
+        string? themeDescription = null;
+        List<string> themePhaseGuidanceLines = [];
+        if (!string.IsNullOrWhiteSpace(session.ScenarioId))
+        {
+            try
+            {
+                var scenario = await _scenarioService.GetScenarioAsync(session.ScenarioId);
+                if (scenario is not null)
+                {
+                    scenarioSummary = $"{scenario.Name ?? "Unnamed Scenario"}: {scenario.Plot.Description ?? scenario.Description ?? ""}";
+                }
+            }
+            catch { /* Best-effort; scenario may not be loaded. */ }
+        }
+
+        // Resolve active theme for phase guidance.
+        if (_rpThemeService is not null && !string.IsNullOrWhiteSpace(v2State?.ActiveScenarioId))
+        {
+            try
+            {
+                var theme = await _rpThemeService.GetThemeAsync(v2State.ActiveScenarioId);
+                if (theme is not null)
+                {
+                    themeLabel = string.IsNullOrWhiteSpace(theme.Label) ? theme.Id : theme.Label;
+                    themeDescription = theme.Description;
+                    var phase = v2State?.CurrentPhase.ToString() ?? string.Empty;
+                    themePhaseGuidanceLines = RolePlayAssistantPrompts.GetThemePhaseGuidanceLines(theme, phase).ToList();
+                }
+            }
+            catch { /* Best-effort; theme may not be loaded. */ }
+        }
+
+        var payload = new SteerGenerationJobPayload
+        {
+            SessionId = session.Id,
+            ScenarioId = session.ScenarioId,
+            CharacterSnapshots = characterSnapshots,
+            Phase = v2State?.CurrentPhase.ToString(),
+            PrimaryThemeId = v2State?.PrimaryThemeId,
+            CurrentLocation = v2State?.CurrentSceneLocation,
+            RecentInteractionTexts = recentInteractions,
+            SessionModelId = session.SessionModelId,
+            SessionTemperature = session.SessionTemperature,
+            SessionTopP = session.SessionTopP,
+            SessionMaxTokens = session.SessionMaxTokens,
+            ScenarioSummary = scenarioSummary,
+            CharacterSummaries = characterSummaries,
+            ThemeLabel = themeLabel,
+            ThemeDescription = themeDescription,
+            ThemePhaseGuidanceLines = themePhaseGuidanceLines
+        };
+        var payloadJson = JsonSerializer.Serialize(payload);
+        _backgroundJobQueue.Enqueue(
+            BackgroundJobTypes.SteerGeneration,
+            payloadJson,
+            dedupeKey: $"steer:{session.Id}");
+    }
+
+    private static string TruncateText(string? text, int maxLen)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return string.Empty;
+        return text.Length <= maxLen ? text : text[..maxLen] + "...";
+    }
+
     private static TimeOfDay? DetectTimeOfDay(RolePlaySession session)
     {
         var recent = session.Interactions
@@ -4549,6 +4660,12 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             EnqueueLocationDetectionJob(session, locNames);
         }
 
+        // Enqueue background steer-generation job (auto-steer after each turn).
+        if (_enableAutoSteer)
+        {
+            await EnqueueSteerGenerationJob(session, v2State);
+        }
+
         // Synchronous keyword-based time-of-day detection (cheap, no LLM)
         if (!session.AdaptiveState.TimeOfDayManuallySet)
         {
@@ -5216,6 +5333,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                     InteractionText = interaction.Content ?? string.Empty,
                     ContextTurns = ctx,
                     AllowedEventIds = ["encounter-started"],
+                    AppFunction = AppFunction.RolePlayEncounterDetection,
                     EventDescriptions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
                     {
                         ["encounter-started"] = "A NEW sexual encounter has just begun in the most recent interaction. The characters have crossed from tension/flirtation/suggestion into ACTUAL sexual activity — undressing, touching genitals, handjob, fingering, oral sex, or intercourse. The mere mention of sex, a sexy comment, building tension, or a brief non-erogenous touch (shoulder, arm, hand, hip, waist) is NOT enough — actual sexual contact must have occurred or be explicitly depicted as beginning right now. An encounter-start follows an encounter-completed or follows a period of non-sexual interaction. Do NOT detect if the characters were already in an active sexual encounter — only detect the moment of transition from non-sexual to sexual activity."
@@ -5294,10 +5412,8 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
     private async Task TryDetectEncounterBoundaryAsync(RolePlaySession session, RolePlayInteraction interaction, AdaptiveScenarioState state, CancellationToken cancellationToken)
     {
-        // Phase C (B-056): generalize detection to any non-Reset phase for the
-        // aftermath-only path. Multi-encounter still requires Climax phase.
         if (state.CurrentPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.Reset) return;
-        if (_semanticEventInferenceService is null || _rpThemeService is null) return;
+        if (_semanticEventInferenceService is null) return;
         if (string.IsNullOrWhiteSpace(state.ActiveScenarioId)) return;
 
         // FR-008: re-entry guard.
@@ -5309,12 +5425,6 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             return;
         }
 
-        // Encounter must be active to end. Prevents spurious re-firing on every orgasm
-        // reference in a continuing scene: a boundary can only fire after a start was
-        // detected (IsEncounterActive=true), then the boundary sets it false, and a new
-        // boundary requires a fresh start. Without this, overlapping content in
-        // multi-participant scenes produced one boundary per orgasm, flooding
-        // EncounterCompletion memory records.
         if (!state.IsEncounterActive)
         {
             _logger.LogDebug(
@@ -5323,38 +5433,14 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             return;
         }
 
-        // ---- Gate: only detect boundaries for characters actively in the encounter ----
-        // Skip the sex-flag gate when EnableAdaptiveStateUpdates=false — the character
-        // encounter states are never populated by the inline path, so IsCharacterHavingSex
-        // always returns false even during explicit sex scenes. The LLM-based semantic
-        // inference below still independently validates whether the encounter completed.
         var actorName = string.IsNullOrWhiteSpace(interaction.ActorName) ? "Unknown" : interaction.ActorName;
         if (_enableAdaptiveStateUpdates && !state.IsCharacterHavingSex(actorName))
         {
             return;
         }
 
-        RPTheme? theme = null;
-        try { theme = await _rpThemeService.GetThemeAsync(state.ActiveScenarioId, cancellationToken); }
-        catch (Exception ex) { _logger.LogDebug(ex, "TryDetectEncounterBoundary: could not load theme {ThemeId}", state.ActiveScenarioId); }
+        var threshold = _memoryOptions?.Value.EncounterEndConfidenceThreshold ?? 0.70m;
 
-        var isMulti = theme is not null && RolePlayAssistantPrompts.IsMultiEncounterClimax(theme, "Climax");
-        var isAftermath = theme is not null && RolePlayAssistantPrompts.IsAftermathHusbandContrast(theme,
-            state.CurrentPhase.ToString());
-
-        // Boundary detection is universal — runs for any theme that has an
-        // encounter-completed semantic mapping. The multi-encounter and aftermath
-        // markers gate only what happens AFTER the boundary (overflow vs injector),
-        // not whether the boundary itself fires.
-        // Multi-encounter gate: requires at least encounter 1.
-        if (isMulti && state.CurrentEncounterNumber <= 0) return;
-
-        var mapping = theme!.SemanticEventMappings.FirstOrDefault(x => string.Equals(x.EventId, "encounter-completed", StringComparison.OrdinalIgnoreCase));
-        if (mapping is null)
-        {
-            _logger.LogDebug("TryDetectEncounterBoundary: theme {ThemeId} has no encounter-completed mapping", theme.Id);
-            return;
-        }
         var cwSize = Math.Max(12, session.ContextWindowSize);
         var ixIdx = session.Interactions.FindIndex(x => string.Equals(x.Id, interaction.Id, StringComparison.OrdinalIgnoreCase));
         var ctxStart = ixIdx >= 0 ? Math.Max(0, ixIdx - cwSize) : Math.Max(0, session.Interactions.Count - cwSize);
@@ -5363,7 +5449,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         SemanticEventInferenceResult inf;
         try
         {
-            inf = await _semanticEventInferenceService.InferAsync(new SemanticEventInferenceRequest { SessionId = session.Id, InteractionId = interaction.Id, ActorName = actorName, InteractionText = interaction.Content ?? string.Empty, ContextTurns = ctx, AllowedEventIds = ["encounter-completed"], EventDescriptions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["encounter-completed"] = "The CURRENT sexual encounter has reached its natural conclusion — either through climax (the male character must have orgasmed/ejaculated — the female orgasming alone does NOT end the encounter; the male must reach ejaculation, then bodies are spent, the tension has released and the scene settles into afterglow) OR through interruption (someone is about to walk in, the risk becomes too high, they are startled apart, they hear a sound and freeze — the encounter is cut short and they must separate or hide). Do NOT detect during mid-encounter escalation or at the moment of orgasm itself. Do NOT detect if sexual activity within the same encounter is still ongoing or building. Only detect when the encounter is clearly over — whether finished or interrupted." } }, cancellationToken);
+            inf = await _semanticEventInferenceService.InferAsync(new SemanticEventInferenceRequest { SessionId = session.Id, InteractionId = interaction.Id, ActorName = actorName, InteractionText = interaction.Content ?? string.Empty, ContextTurns = ctx, AllowedEventIds = ["encounter-completed"], AppFunction = AppFunction.RolePlayEncounterDetection, EventDescriptions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["encounter-completed"] = "The CURRENT sexual encounter has reached its natural conclusion — either through climax (the male character must have orgasmed/ejaculated — the female orgasming alone does NOT end the encounter; the male must reach ejaculation, then bodies are spent, the tension has released and the scene settles into afterglow) OR through interruption (someone is about to walk in, the risk becomes too high, they are startled apart, they hear a sound and freeze — the encounter is cut short and they must separate or hide). Do NOT detect during mid-encounter escalation or at the moment of orgasm itself. Do NOT detect if sexual activity within the same encounter is still ongoing or building. Only detect when the encounter is clearly over — whether finished or interrupted." } }, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -5372,13 +5458,17 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             return;
         }
         if (!inf.Success) { _logger.LogWarning("TryDetectEncounterBoundary: inference non-success SessionId={SessionId}", session.Id); return; }
-        var detected = inf.Events.FirstOrDefault(x => string.Equals(x.EventId, "encounter-completed", StringComparison.OrdinalIgnoreCase) && x.Confidence >= mapping.ConfidenceMin && x.Confidence <= mapping.ConfidenceMax);
+        var detected = inf.Events.FirstOrDefault(x => string.Equals(x.EventId, "encounter-completed", StringComparison.OrdinalIgnoreCase) && x.Confidence >= threshold);
         if (detected is null) { _logger.LogDebug("TryDetectEncounterBoundary: no detection SessionId={SessionId} Encounter={EncounterNumber}", session.Id, state.CurrentEncounterNumber); return; }
 
-        // Multi-encounter premature-advance guard: only apply the min-interactions rule
-        // when the multi-encounter marker is active (it guards against false-positive
-        // boundary detection early in an encounter). Aftermath-only phases (BuildUp,
-        // Committed) are not gated by this — their encounters can end whenever organic.
+        // ---- Post-detection: load theme for multi-encounter/aftermath markers ----
+        RPTheme? theme = null;
+        try { theme = _rpThemeService is not null ? await _rpThemeService.GetThemeAsync(state.ActiveScenarioId, cancellationToken) : null; }
+        catch (Exception ex) { _logger.LogDebug(ex, "TryDetectEncounterBoundary: could not load theme {ThemeId}", state.ActiveScenarioId); }
+        var isMulti = theme is not null && RolePlayAssistantPrompts.IsMultiEncounterClimax(theme, "Climax");
+        var isAftermath = theme is not null && RolePlayAssistantPrompts.IsAftermathHusbandContrast(theme, state.CurrentPhase.ToString());
+
+        // Multi-encounter premature-advance guard.
         if (isMulti)
         {
             const int minIxns = 4;
@@ -5402,11 +5492,6 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             }
         }
 
-        // B-058 Phase 5.3: LastEncounterEvidenceSpan removed — the HusbandAftermathInjector now
-        // reads from the most recent EncounterCompletion summary (built below), so there is
-        // no separate evidence-span handoff here. The detection evidence is preserved on the
-        // EncounterCompletion record's DetectionEvidence field.
-
         // Tag the interaction that triggered the boundary.
         interaction.WasEncounterBoundaryDetected = true;
 
@@ -5417,26 +5502,18 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             state.CurrentTimeSkipPhase, state.TurnsInCurrentEncounter);
 
         var before = state.CurrentEncounterNumber;
-        state.CurrentEncounterNumber++;  // Advance to next encounter number for the next encounter
+        state.CurrentEncounterNumber++;
         state.GlobalEncounterCount++;
-        state.IsEncounterActive = false; // Encounter is no longer active — gates counter, stamps, and re-entry
+        state.IsEncounterActive = false;
         state.TurnsInCurrentEncounter = 0;
-        // Only engage the time-skip state machine for themes that use it.
-        // Without a multi-encounter or aftermath marker, the encounter simply completes
-        // without entering CloseScene — preventing orphaned time-skip phases on themes
-        // whose overflow cleanup never runs (the overflow is Climax-gated).
         if (isMulti || isAftermath)
         {
             state.CurrentTimeSkipPhase = TimeSkipPhase.CloseScene;
         }
         state.CharacterEncounterStates.Clear();
 
-        // B-057: synchronous persist — DB is always authoritative for time-skip state.
         await _stateRepository.SaveAdaptiveStateAsync(state, cancellationToken);
 
-        // B-058 Phase 2.4: write EncounterCompletion memory at every encounter boundary detection
-        // (universal — fire in any phase, not just Climax). Capture the inclusive interaction index
-        // range of the encounter that just ended, so async LLM enrichment can load those interactions.
         state.LastEncounterEndInteractionIndex = session.Interactions.Count - 1;
         try
         {
@@ -5445,22 +5522,16 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 detectionEvidence: detected.EvidenceSpan,
                 startInteractionIndex: state.CurrentEncounterStartInteractionIndex,
                 endInteractionIndex: state.LastEncounterEndInteractionIndex,
-                themeId: theme.Id,
+                themeId: theme?.Id ?? state.ActiveScenarioId,
                 cancellationToken: cancellationToken);
         }
         catch (Exception ex)
         {
-            // Encounter-completion memory is observability/recall only — never fail the
-            // detection path. Log and continue; the boundary still advances.
             _logger.LogWarning(ex,
                 "B058 EncounterCompletion generation failed for session {SessionId} encounter {EncNum}. Boundary advance still succeeded.",
                 session.Id, before + 1);
         }
 
-        // B-059 Part D: reset the start interaction index so the re-entry guard
-        // (TurnsInCurrentEncounter == 0) and the first-sexual-content guard
-        // (CurrentEncounterStartInteractionIndex == 0) fire correctly for the next
-        // encounter, regardless of whether AdvanceTime → None is reached.
         _logger.LogDebug(
             "B059 EncounterStartIndex_ResetAfterBoundary: SessionId={SessionId} EncounterBeforeReset={EncNum}",
             session.Id, state.CurrentEncounterNumber);
@@ -5479,7 +5550,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             EventKind = "EncounterBoundaryAdvanced", Severity = "Info",
             ActorName = interaction.ActorName,
             Summary = $"Encounter boundary advanced: {before} -> {state.CurrentEncounterNumber} (conf={detected.Confidence})",
-            MetadataJson = JsonSerializer.Serialize(new { encounterNumberBefore = before, encounterNumberAfter = state.CurrentEncounterNumber, confidence = detected.Confidence, evidenceSpan = detected.EvidenceSpan, themeId = theme.Id, hasAftermath = isAftermath })
+            MetadataJson = JsonSerializer.Serialize(new { encounterNumberBefore = before, encounterNumberAfter = state.CurrentEncounterNumber, confidence = detected.Confidence, evidenceSpan = detected.EvidenceSpan, themeId = theme?.Id, hasAftermath = isAftermath })
         }, cancellationToken);
     }
 

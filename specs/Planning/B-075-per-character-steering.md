@@ -496,3 +496,75 @@ After inspecting the B-074/B-076 staged scene directions implementation and all 
 Per repo Hard Rule (No RP Engine Code Changes Without Plan + Confirmation), I'm presenting this plan and waiting for explicit "go ahead" before any `RolePlayEngineService.cs`, `RolePlayContinuationService.cs`, `StagedDirectionsSlot.cs`, or persistence code is touched.
 
 **Open decisions needing confirmation before tasks.md generation**: OD2 is resolved in favor of one all-character generation request with local filtering; OD3 (null `CharacterRole` option-text fallback — recommended canonical-stats-only), OD4 (position flow coexistence — recommended keep separate), OD5 (include `RuntimeEncounterStats` in option context — recommended yes). D6 flat-array Option B is replaced by the required structured all-character response contract.
+
+---
+
+## Auto-Steer Generation (2026-08-08)
+
+### Background
+
+The steering popup requires the user to open it and click "Generate", producing a visible loading spinner while the LLM generates options. This adds friction: after reading the model's latest response, the user must wait for steering options to appear before they can steer the next turn.
+
+### Auto-Steer Design
+
+Mirror the location-detection auto-run pattern: after each turn completes, a background job automatically generates steering options. When the user opens the steer popup, pre-generated options are instantly available.
+
+```
+Turn completes → RunRolePlayV2PipelinesAsync
+                   → EnqueueSteerGenerationJob(session)    [NEW]
+                     → ISemanticBackgroundJobQueue.Enqueue("steer-generation", payload, dedupeKey:"steer:{sessionId}")
+                       → SteerGenerationJobHandler.HandleAsync
+                         → Builds prompt from snapshotted payload (no live session read)
+                         → Calls LLM via RolePlayAssistant.GenerateSuggestionAsync
+                         → Parses via SteerGenerationParser.TryParse
+                         → Persists SteeringGenerationRecord
+                         → Debug events on failure
+
+User opens steer popup:
+  → Reads latest SteeringGenerationRecord for this session [NEW: in OpenSteerPopup]
+  → If fresh record exists → populates _cachedSteerResponse + _cachedSteerGenerationId
+  → RefreshLocalSteerPages() renders options instantly
+  → "Regenerate" button still works for manual refresh
+```
+
+### New Files
+
+| File | Purpose |
+|---|---|
+| `DreamGenClone.Web/Application/RolePlay/SteerGenerationJobPayload.cs` | Inline snapshotted data for background job |
+| `DreamGenClone.Web/Application/RolePlay/SteerGenerationJobHandler.cs` | `IBackgroundJobHandler` implementation |
+
+### Modified Files
+
+| File | Change |
+|---|---|
+| `DreamGenClone.Infrastructure/Configuration/RolePlayDecisionOptions.cs` | `EnableAutoSteer` property |
+| `DreamGenClone.Web/Application/BackgroundJobs/BackgroundJobTypes.cs` | `SteerGeneration` constant |
+| `DreamGenClone.Web/Application/RolePlay/RolePlayEngineService.cs` | `EnqueueSteerGenerationJob` + hook after location detection |
+| `DreamGenClone.Web/Components/Pages/RolePlayWorkspace.razor` | `OpenSteerPopup` reads latest persisted record |
+| `DreamGenClone.Web/Program.cs` | Register `SteerGenerationJobHandler` |
+
+### Payload Design
+
+The payload snapshots everything `BuildAllCharacterSteerPromptAsync` needs, so the job doesn't have to re-read the session from DB (avoids race conditions with payload saving):
+
+```
+SteerGenerationJobPayload
+  string SessionId
+  string? ScenarioId
+  List<CharacterStatSnapshot> CharacterSnapshots  // per-character: name, role, stats, dimensions
+  string? Phase
+  string? PrimaryThemeId
+  string? CurrentLocation
+  List<string> RecentInteractionTexts
+  string? SessionModelId
+  double? SessionTemperature
+  double? SessionTopP
+  int? SessionMaxTokens
+```
+
+### UI Behavior
+
+- `OpenSteerPopup`: queries `Persistence.GetLatestSteeringGenerationRecordAsync(sessionId)`. If record exists and was created after the latest interaction timestamp, loads it and renders options instantly.
+- "Regenerate" button: still fires `GenerateSteerOptionsAsync` for on-demand fresh generation.
+- No auto-generation when the popup is already open — dedup key prevents duplicate jobs.

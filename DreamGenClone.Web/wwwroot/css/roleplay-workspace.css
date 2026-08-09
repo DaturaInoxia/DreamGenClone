@@ -569,8 +569,8 @@ article:has(.rw-shell) {
 
 /* Steering has four longer, context-aware choices plus a target selector. */
 .rw-steer-popup {
-    width: 620px;
-    min-width: 620px;
+    width: 800px;
+    min-width: 800px;
     max-width: calc(100vw - 28px);
     height: 600px;
     max-height: calc(100vh - 40px);
@@ -583,7 +583,7 @@ article:has(.rw-shell) {
     bottom: auto;
     left: auto;
     right: auto;
-    width: 620px;
+    width: 800px;
     max-width: calc(100vw - 28px);
     height: 600px;
     max-height: calc(100vh - 40px);
@@ -2107,6 +2107,63 @@ article:has(.rw-shell) {
     align-items: center !important;
     justify-content: center !important;
     padding: 0 !important;
+}
+
+/* View Prompt button in steer popup header */
+.rw-steer-view-prompt-btn {
+    margin-left: auto;
+    background: transparent;
+    border: 1px solid #444;
+    color: #999;
+    border-radius: 6px;
+    padding: 2px 10px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: border-color 0.1s, color 0.1s;
+}
+.rw-steer-view-prompt-btn:hover { border-color: #777; color: #ccc; }
+
+/* View Prompt modal */
+.rw-steer-prompt-modal {
+    width: 800px;
+    max-width: calc(100vw - 40px);
+    max-height: calc(100vh - 40px);
+}
+
+.rw-steer-prompt-body {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    max-height: calc(100vh - 140px);
+    overflow-y: auto;
+}
+
+.rw-steer-prompt-section {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.rw-steer-prompt-section-header {
+    font-size: 13px;
+    font-weight: 600;
+    color: #aaa;
+}
+
+.rw-steer-prompt-text {
+    background: #141414;
+    border: 1px solid #333;
+    border-radius: 8px;
+    padding: 14px 16px;
+    font-size: 12px;
+    line-height: 1.6;
+    color: #ccc;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 400px;
+    overflow-y: auto;
+    margin: 0;
+    font-family: "Cascadia Code", "Fira Code", "JetBrains Mono", Consolas, monospace;
 }
 
 .rw-modal {

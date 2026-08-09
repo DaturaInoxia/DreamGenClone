@@ -159,4 +159,5 @@ public interface ISqlitePersistence
     // B-075: Steering generation records
     Task SaveSteeringGenerationRecordAsync(SteeringGenerationRecord record, CancellationToken cancellationToken = default);
     Task<SteeringGenerationRecord?> LoadSteeringGenerationRecordAsync(string id, CancellationToken ct = default);
+    Task<SteeringGenerationRecord?> GetLatestSteeringGenerationRecordAsync(string sessionId);
 }
