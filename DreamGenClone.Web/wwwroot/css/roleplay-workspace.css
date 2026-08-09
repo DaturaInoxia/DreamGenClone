@@ -2166,6 +2166,35 @@ article:has(.rw-shell) {
     font-family: "Cascadia Code", "Fira Code", "JetBrains Mono", Consolas, monospace;
 }
 
+/* Encounter Detection status in adaptive panel */
+.rw-enc-det-status {
+    font-size: 12px;
+    font-weight: 600;
+}
+.rw-enc-det-status.is-detected { color: #4caf50; }
+.rw-enc-det-status.is-error { color: #f44336; }
+.rw-enc-det-error {
+    font-size: 11px;
+    color: #f44336;
+    margin-top: 2px;
+}
+.rw-enc-det-link {
+    background: transparent;
+    border: 1px solid #444;
+    color: #999;
+    border-radius: 4px;
+    padding: 1px 8px;
+    font-size: 11px;
+    cursor: pointer;
+    margin-top: 4px;
+}
+.rw-enc-det-link:hover { border-color: #777; color: #ccc; }
+.rw-enc-det-time {
+    font-size: 10px;
+    color: #666;
+    margin-top: 2px;
+}
+
 .rw-modal {
     background: #1e1e1e;
     border: 1px solid #333;

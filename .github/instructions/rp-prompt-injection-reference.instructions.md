@@ -1,8 +1,14 @@
 # RP Prompt Injection Reference
 
+> ## ⚠️ ARCHITECTURE WARNING (2026-08-09)
+>
+> This document describes the **pre-redesign injector architecture** (`SceneDirectionCoordinator`, the 13 `IPromptInjector` classes, `PromptInjectionContext`). That architecture has been **replaced** by the 17-slot `RolePlayPromptBuilder` (`DreamGenClone.Web/Application/RolePlay/Prompts/`). The injector class names below are **historical** — they no longer exist in the codebase.
+>
+> **The Phase Defaults table further down is WRONG for current code.** `SceneDirectionResolver` now defaults ALL phases to Medium pacing (Climax is NOT Fast; Reset is NOT Slow). If you are working on pacing, read **[`.github/instructions/pacing-directive-findings.instructions.md`](pacing-directive-findings.instructions.md)** first — it contains verified, up-to-date findings from session 7763f8a8, including the position-1-only pacing directive scope.
+
 **Purpose**: Complete reference for all theme phase-guidance markers and the injectors they control. Use this when analyzing prompts, debugging injector behavior, or answering "what does this marker do" questions.
 
-**Applies to**: `DreamGenClone.Web/Application/RolePlay/Injectors/*.cs`, `DreamGenClone.Web/Application/RolePlay/SceneDirectionResolver.cs`, `DreamGenClone.Web/Application/RolePlay/SceneDirectionCoordinator.cs`, `DreamGenClone.Web/Application/RolePlay/PromptInjectionContext.cs`
+**Applies to (historical)**: `DreamGenClone.Web/Application/RolePlay/Injectors/*.cs`, `DreamGenClone.Web/Application/RolePlay/SceneDirectionResolver.cs`, `DreamGenClone.Web/Application/RolePlay/SceneDirectionCoordinator.cs`, `DreamGenClone.Web/Application/RolePlay/PromptInjectionContext.cs`
 
 ---
 
@@ -59,7 +65,7 @@ Prompt text output
 | `[TimeShift:within-timeframe]` | `TimeShiftPolicy.Small` | `SceneTimeDirectionInjector` (pri 70) | No time shift → *"No time shift — all beats occur within the current timeframe."* With time shift → *"Time must advance significantly — cover more story ground. Use clear transitions. Do not remain in the same time frame across consecutive responses."* |
 | | | `TimeLocationInjector` (pri 10, position 2+ only) | *"You may also shift time or location, following the pacing and time shift rules."* (added alongside Location Continuity) |
 
-> **Phase defaults**: TimeShift defaults vary by phase — `None` for Reset, `Small` for BuildUp/Committed/Approaching, `Medium` for Climax. The marker overrides the default only when present.
+> **Phase defaults**: TimeShift defaults are **Medium for all phases** in the current `SceneDirectionResolver` (see the corrected Phase Defaults table below). The marker overrides the default only when present.
 
 ---
 
@@ -127,16 +133,20 @@ Prompt text output
 
 ## Phase Defaults (Tier 3 — used when no marker is present)
 
+> **⚠️ CORRECTED (2026-08-09):** The values below reflect the CURRENT `SceneDirectionResolver`. All phases default to **Medium** pacing. The previous version of this doc (Climax=Fast, Reset=Slow) was WRONG — verified against the actual code and against stored prompts in session 7763f8a8. See [pacing-directive-findings.instructions.md](pacing-directive-findings.instructions.md).
+
 | Phase | Default Pacing | Default BeatScope | Default TimeShift |
 |-------|---------------|-------------------|-------------------|
-| Opening | Medium | Short | Small |
-| BuildUp | Medium | Short | Small |
-| Committed | Medium | Short | Small |
-| Approaching | Medium | Short | Small |
-| Climax | **Fast** | Short | **Medium** |
-| Reset | **Slow** | **Single** | **None** |
+| Opening | Medium | Short | Medium |
+| BuildUp | Medium | Short | Medium |
+| Committed | Medium | Short | Medium |
+| Approaching | Medium | Short | Medium |
+| Climax | Medium | Short | Medium |
+| Reset | Medium | Short | Medium |
 
 These are hardcoded in `SceneDirectionResolver.PhaseDefaultPacingMap`, `PhaseDefaultBeatScopeMap`, and `PhaseDefaultTimeShiftMap`.
+
+> **Note on scope:** The pacing HARD CONSTRAINT emitted by the (former) `FinalDirectiveInjector` — now `FinalInstructionSlot.cs` (Slot 17) — fires **only for position 1** of a turn (`context.PositionInTurn == 1`). Positions 2/3 receive no pacing directive unless `[Deepening:subsequent-actors]` is declared. This is the primary reason themes without a pacing marker can still produce full one-turn scenes: the completing actor (position 2/3) is unconstrained by pacing, and theme guidance/directive prose fills that vacuum.
 
 ---
 

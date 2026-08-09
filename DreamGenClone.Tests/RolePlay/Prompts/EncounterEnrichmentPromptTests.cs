@@ -66,6 +66,36 @@ public sealed class EncounterEnrichmentPromptTests
     }
 
     [Fact]
+    public void EncounterCompletionPrompt_UsesPersistedIndexesBeforeFilteringExcludedInteractions()
+    {
+        var session = new RolePlaySession
+        {
+            Interactions =
+            [
+                new() { ActorName = "Becky", Content = "Excluded interaction", IsExcluded = true },
+                new() { ActorName = "Becky", Content = "Persisted encounter interaction" }
+            ]
+        };
+        var record = new EncounterSummaryRecord
+        {
+            CharacterId = "Becky",
+            EncounterNumber = 2,
+            StartInteractionIndex = 1,
+            EndInteractionIndex = 1
+        };
+
+        var method = typeof(EncounterSummaryJobHandler).GetMethod(
+            "BuildEncounterCompletionPrompt",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+
+        var prompt = (string?)method!.Invoke(null, [record, session]);
+
+        Assert.NotNull(prompt);
+        Assert.Contains("Persisted encounter interaction", prompt);
+        Assert.DoesNotContain("Excluded interaction", prompt);
+    }
+
+    [Fact]
     public void EnrichmentPrompt_ContainsAllDimensions()
     {
         var prompt = BuildPromptViaReflection();

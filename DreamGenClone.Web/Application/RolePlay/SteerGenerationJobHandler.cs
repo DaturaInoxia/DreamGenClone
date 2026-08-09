@@ -218,7 +218,29 @@ public sealed class SteerGenerationJobHandler : IBackgroundJobHandler
 
             // Stats
             sb.AppendLine("Target character's current state:");
-            sb.AppendLine($"  Stats: Desire={c.Desire}, Restraint={c.Restraint}, Dominance={c.Dominance}, Loyalty={c.Loyalty}, SelfRespect={c.SelfRespect}");
+
+            // Behavioral dimension texts from EncounterDimensions.
+            if (c.EncounterDimensions is { Count: > 0 }
+                && !string.IsNullOrWhiteSpace(c.Role)
+                && (string.Equals(c.Role, "Wife", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(c.Role, "Husband", StringComparison.OrdinalIgnoreCase)))
+            {
+                var dimensions = BehavioralDimensionCatalog.GetDimensions(c.Role);
+                if (dimensions.Count > 0)
+                {
+                    sb.AppendLine("  Behavioral dimensions:");
+                    foreach (var dim in dimensions)
+                    {
+                        var value = c.EncounterDimensions.TryGetValue(dim.Name, out var dv) ? (int)dv : 50;
+                        var tierText = BehavioralDimensionCatalog.ResolveTierText(c.Role, dim.Name, value);
+                        if (!string.IsNullOrWhiteSpace(tierText))
+                        {
+                            sb.AppendLine($"    {dim.Name} ({value})");
+                            sb.AppendLine($"    {tierText}");
+                        }
+                    }
+                }
+            }
 
             if (!string.IsNullOrWhiteSpace(c.Role))
             {
@@ -232,14 +254,6 @@ public sealed class SteerGenerationJobHandler : IBackgroundJobHandler
                     sb.AppendLine($"    SelfRespect: {CharacterStatTextCatalog.ResolveText("SelfRespect", c.Role, c.SelfRespect)}");
                 }
                 catch { /* Band text may fail for unknown roles. */ }
-            }
-
-            if (c.EncounterDimensions is { Count: > 0 }
-                && !string.IsNullOrWhiteSpace(c.Role)
-                && (string.Equals(c.Role, "Wife", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(c.Role, "Husband", StringComparison.OrdinalIgnoreCase)))
-            {
-                sb.AppendLine($"  Encounter dimensions: {string.Join(", ", c.EncounterDimensions.Select(kv => $"{kv.Key}={kv.Value}"))}");
             }
 
             if (!string.IsNullOrWhiteSpace(c.Role))

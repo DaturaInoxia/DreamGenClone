@@ -59,6 +59,15 @@ When editing or creating `.razor`, `.razor.cs`, or `.razor.css` files, follow th
 
 For this project's Razor style conventions and patterns, see [`.github/razor-style-reference.md`](razor-style-reference.md).
 
+## Pacing Directive Findings (MANDATORY for pacing work)
+
+When working on pacing, scene tempo, beat advancement, or encounter pacing, read [`.github/instructions/pacing-directive-findings.instructions.md`](instructions/pacing-directive-findings.instructions.md) first. It documents verified findings from session `7763f8a8`:
+
+- The pacing HARD CONSTRAINT is **position-1-only** (`FinalInstructionSlot.cs`) — positions 2/3 receive no pacing directive, which is why theme guidance/directive prose can dominate and produce full one-turn scenes.
+- The **phase-default table is all Medium** (`SceneDirectionResolver`) — Climax is NOT Fast; the reference doc's old table was wrong.
+- The `rp-prompt-injection-reference.instructions.md` doc describes the pre-redesign injector architecture and has been corrected (see its warning banner).
+
+
 ## DB Query Tool
 
 A permanent .NET 9 console project lives at `artifacts/tmp/dbquery/dbquery.csproj` (part of the solution under `artifacts > tmp`).

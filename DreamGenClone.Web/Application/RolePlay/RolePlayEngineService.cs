@@ -3057,7 +3057,11 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
     private async Task EnqueueSteerGenerationJob(RolePlaySession session, AdaptiveScenarioState? v2State)
     {
-        if (_backgroundJobQueue is null) return;
+        if (_backgroundJobQueue is null)
+        {
+            _logger.LogWarning("AutoSteer: background job queue is null for session {SessionId}", session.Id);
+            return;
+        }
 
         var characterSnapshots = session.AdaptiveState.CharacterStats
             .Select(kvp =>
@@ -4663,6 +4667,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         // Enqueue background steer-generation job (auto-steer after each turn).
         if (_enableAutoSteer)
         {
+            _logger.LogInformation("AutoSteer: enqueuing steer-generation job for session {SessionId}", session.Id);
             await EnqueueSteerGenerationJob(session, v2State);
         }
 
@@ -5344,6 +5349,16 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "TryDetectEncounterStart: inference failed SessionId={SessionId}", session.Id);
+            state.LastEncounterStartDetection = new EncounterDetectionResult
+            {
+                EventId = "encounter-started",
+                Succeeded = false,
+                ErrorMessage = $"{ex.GetType().Name}: {ex.Message}",
+                PromptSystem = string.Empty,
+                PromptUser = string.Empty,
+                RawResponse = string.Empty,
+                TimestampUtc = DateTime.UtcNow
+            };
             await _debugEventSink.WriteAsync(
                 new RolePlayDebugEventRecord
                 {
@@ -5362,12 +5377,37 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         if (!inf.Success)
         {
             _logger.LogWarning("TryDetectEncounterStart: inference non-success SessionId={SessionId}", session.Id);
+            state.LastEncounterStartDetection = new EncounterDetectionResult
+            {
+                EventId = "encounter-started",
+                Succeeded = false,
+                ErrorMessage = inf.ErrorMessage,
+                PromptSystem = inf.PromptSystem,
+                PromptUser = inf.PromptUser,
+                RawResponse = inf.RawModelOutput,
+                TimestampUtc = DateTime.UtcNow
+            };
             return;
         }
 
         var detected = inf.Events.FirstOrDefault(x =>
             string.Equals(x.EventId, "encounter-started", StringComparison.OrdinalIgnoreCase)
             && x.Confidence >= threshold);
+
+        // Write detection result for adaptive panel inspection.
+        state.LastEncounterStartDetection = new EncounterDetectionResult
+        {
+            EventId = "encounter-started",
+            Succeeded = inf.Success,
+            ErrorMessage = inf.ErrorMessage,
+            Detected = detected is not null,
+            Confidence = detected?.Confidence,
+            EvidenceSpan = detected?.EvidenceSpan,
+            PromptSystem = inf.PromptSystem,
+            PromptUser = inf.PromptUser,
+            RawResponse = inf.RawModelOutput,
+            TimestampUtc = DateTime.UtcNow
+        };
 
         if (detected is null)
         {
@@ -5454,12 +5494,64 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "TryDetectEncounterBoundary: inference failed SessionId={SessionId}", session.Id);
+            state.LastEncounterBoundaryDetection = new EncounterDetectionResult
+            {
+                EventId = "encounter-completed",
+                Succeeded = false,
+                ErrorMessage = $"{ex.GetType().Name}: {ex.Message}",
+                PromptSystem = string.Empty,
+                PromptUser = string.Empty,
+                RawResponse = string.Empty,
+                TimestampUtc = DateTime.UtcNow
+            };
             await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord { SessionId = session.Id, InteractionId = interaction.Id, EventKind = "EncounterBoundaryDetectionFailed", Severity = "Warn", ActorName = interaction.ActorName, Summary = $"Detection failed: {ex.GetType().Name}: {ex.Message}", MetadataJson = JsonSerializer.Serialize(new { error = ex.Message, encounterNumberBefore = state.CurrentEncounterNumber }) }, cancellationToken);
             return;
         }
-        if (!inf.Success) { _logger.LogWarning("TryDetectEncounterBoundary: inference non-success SessionId={SessionId}", session.Id); return; }
+        if (!inf.Success)
+        {
+            _logger.LogWarning("TryDetectEncounterBoundary: inference non-success SessionId={SessionId}", session.Id);
+            state.LastEncounterBoundaryDetection = new EncounterDetectionResult
+            {
+                EventId = "encounter-completed",
+                Succeeded = false,
+                ErrorMessage = inf.ErrorMessage,
+                PromptSystem = inf.PromptSystem,
+                PromptUser = inf.PromptUser,
+                RawResponse = inf.RawModelOutput,
+                TimestampUtc = DateTime.UtcNow
+            };
+            return;
+        }
         var detected = inf.Events.FirstOrDefault(x => string.Equals(x.EventId, "encounter-completed", StringComparison.OrdinalIgnoreCase) && x.Confidence >= threshold);
-        if (detected is null) { _logger.LogDebug("TryDetectEncounterBoundary: no detection SessionId={SessionId} Encounter={EncounterNumber}", session.Id, state.CurrentEncounterNumber); return; }
+        if (detected is null)
+        {
+            _logger.LogDebug("TryDetectEncounterBoundary: no detection SessionId={SessionId} Encounter={EncounterNumber}", session.Id, state.CurrentEncounterNumber);
+            state.LastEncounterBoundaryDetection = new EncounterDetectionResult
+            {
+                EventId = "encounter-completed",
+                Succeeded = true,
+                Detected = false,
+                PromptSystem = inf.PromptSystem,
+                PromptUser = inf.PromptUser,
+                RawResponse = inf.RawModelOutput,
+                TimestampUtc = DateTime.UtcNow
+            };
+            return;
+        }
+
+        // Write successful detection result.
+        state.LastEncounterBoundaryDetection = new EncounterDetectionResult
+        {
+            EventId = "encounter-completed",
+            Succeeded = true,
+            Detected = true,
+            Confidence = detected.Confidence,
+            EvidenceSpan = detected.EvidenceSpan,
+            PromptSystem = inf.PromptSystem,
+            PromptUser = inf.PromptUser,
+            RawResponse = inf.RawModelOutput,
+            TimestampUtc = DateTime.UtcNow
+        };
 
         // ---- Post-detection: load theme for multi-encounter/aftermath markers ----
         RPTheme? theme = null;

@@ -156,6 +156,7 @@ Prompt text output
 
 ## See Also
 
-- [rp-prompt-injection-reference.instructions.md](../../instructions/rp-prompt-injection-reference.instructions.md) — full marker-to-injector map, diagnostic checklist
+- [pacing-directive-findings.instructions.md](../../instructions/pacing-directive-findings.instructions.md) — **VERIFIED pacing findings from session 7763f8a8** (position-1-only pacing directive scope, correct all-Medium phase defaults, why themes produce full one-turn scenes). Read this before any pacing work.
+- [rp-prompt-injection-reference.instructions.md](../../instructions/rp-prompt-injection-reference.instructions.md) — full marker-to-injector map, diagnostic checklist (⚠️ describes pre-redesign injector architecture; phase-default table corrected 2026-08-09)
 - [roleplay-engine-no-fallback.instructions.md](../../instructions/roleplay-engine-no-fallback.instructions.md) — strict config contract
 - [roleplay-gates-no-fallback.instructions.md](../../instructions/roleplay-gates-no-fallback.instructions.md) — gate threshold contract

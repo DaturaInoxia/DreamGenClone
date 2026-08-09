@@ -182,6 +182,14 @@ public sealed class AdaptiveScenarioState
     [System.Text.Json.Serialization.JsonIgnore]
     public bool IsEncounterActive { get; set; }
 
+    /// <summary>Result of the most recent encounter-start semantic inference.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public EncounterDetectionResult? LastEncounterStartDetection { get; set; }
+
+    /// <summary>Result of the most recent encounter-boundary semantic inference.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public EncounterDetectionResult? LastEncounterBoundaryDetection { get; set; }
+
     // ---- V2 theme tracker -----------------------------------------------------------------
     /// <summary>Per-theme score state. Hydrated from <c>RolePlayV2ThemeScores</c>.</summary>
     public Dictionary<string, ThemeScoreState> ThemeScores { get; set; }
@@ -342,6 +350,25 @@ public sealed class CharacterEncounterState
 
     /// <summary>UTC timestamp when this encounter state was last updated.</summary>
     public DateTime? EnteredEncounterUtc { get; set; }
+}
+
+/// <summary>
+/// Result of one encounter detection semantic inference call (start or boundary).
+/// Captures the full prompt and response for UI inspection.
+/// </summary>
+public sealed class EncounterDetectionResult
+{
+    public required string EventId { get; init; }
+    public bool Succeeded { get; set; }
+    public string? ErrorMessage { get; set; }
+    public bool Detected { get; set; }
+    public decimal? Confidence { get; set; }
+    public string? EvidenceSpan { get; set; }
+    public required string PromptSystem { get; init; }
+    public required string PromptUser { get; init; }
+    public required string RawResponse { get; init; }
+    public string ModelIdentifier { get; set; } = string.Empty;
+    public DateTime TimestampUtc { get; set; } = DateTime.UtcNow;
 }
 
 /// <summary>

@@ -159,6 +159,11 @@
     private bool _viewSteerPromptOpen;
     private string _viewSteerPromptText = string.Empty;
     private string _viewSteerResponseText = string.Empty;
+
+    // Encounter detection prompt viewer
+    private bool _viewEncDetOpen;
+    private string _viewEncDetPrompt = string.Empty;
+    private string _viewEncDetResponse = string.Empty;
     private bool _timeSkipPopupOpen;
     private bool _timeSkipSubmitting;
     private string _timeSkipCustomText = string.Empty;
@@ -5058,30 +5063,45 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
             _steerTargetCharacterLabel = SteerableTargets[0].CharacterName;
         }
 
-        // Auto-steer: try to load pre-generated options from cache.
-        if (!_steerUseGuidedFlow && _steerOptionPages.Count == 0)
+        // Auto-steer: always check for fresh pre-generated options on open.
+        // During active turn generation, clear everything — no stale choices allowed.
+        if (_isAwaitingModelResponse || _isSubmitting)
+        {
+            _steerOptionPages.Clear();
+            _selectedSteerOption = string.Empty;
+            _steerPageIndex = 0;
+            _cachedSteerResponse = null;
+            _cachedSteerGenerationId = null;
+        }
+        else if (!_steerUseGuidedFlow)
         {
             try
             {
                 var cached = await Persistence.GetLatestSteeringGenerationRecordAsync(_session.Id);
-                if (cached is not null && !string.IsNullOrWhiteSpace(cached.ParsedOptionsJson))
+                var latestInteraction = _session.Interactions.LastOrDefault();
+                var isStale = latestInteraction is not null && cached is not null
+                    && cached.CreatedUtc.ToUniversalTime() < latestInteraction.CreatedAt.ToUniversalTime();
+
+                // If no fresh cache, clear any stale pages so user can't select old options.
+                if (cached is null || isStale || string.IsNullOrWhiteSpace(cached.ParsedOptionsJson))
                 {
-                    // Discard if older than the latest interaction — the record is stale.
-                    var latestInteraction = _session.Interactions.LastOrDefault();
-                    if (latestInteraction is not null && cached.CreatedUtc.ToUniversalTime() < latestInteraction.CreatedAt.ToUniversalTime())
+                    if (_steerOptionPages.Count > 0)
                     {
-                        Logger.LogInformation("Discarding stale steer cache: record {Id} created {RecordUtc} is older than latest interaction {InteractionUtc}",
-                            cached.Id, cached.CreatedUtc, latestInteraction.CreatedAt);
+                        _steerOptionPages.Clear();
+                        _selectedSteerOption = string.Empty;
+                        _steerPageIndex = 0;
+                        _cachedSteerResponse = null;
+                        _cachedSteerGenerationId = null;
                     }
-                    else
+                }
+                else
+                {
+                    var parsed = SteerGenerationParser.TryParse(cached.GenerationResponse);
+                    if (parsed is not null && parsed.Characters.Count > 0)
                     {
-                        var parsed = SteerGenerationParser.TryParse(cached.GenerationResponse);
-                        if (parsed is not null && parsed.Characters.Count > 0)
-                        {
-                            _cachedSteerResponse = parsed;
-                            _cachedSteerGenerationId = cached.Id;
-                            RefreshLocalSteerPages();
-                        }
+                        _cachedSteerResponse = parsed;
+                        _cachedSteerGenerationId = cached.Id;
+                        RefreshLocalSteerPages();
                     }
                 }
             }
@@ -5478,7 +5498,29 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
         }
 
         sb.AppendLine("Target character's current state:");
-        sb.AppendLine($"  Stats: Desire={profile.Desire}, Restraint={profile.Restraint}, Dominance={profile.Dominance}, Loyalty={profile.Loyalty}, SelfRespect={profile.SelfRespect}");
+
+        // Behavioral dimension texts from RuntimeEncounterStats.
+        if (!string.IsNullOrWhiteSpace(profile.CharacterRole)
+            && (string.Equals(profile.CharacterRole, "Wife", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(profile.CharacterRole, "Husband", StringComparison.OrdinalIgnoreCase)))
+        {
+            var dimensions = BehavioralDimensionCatalog.GetDimensions(profile.CharacterRole);
+            if (dimensions.Count > 0)
+            {
+                sb.AppendLine("  Behavioral dimensions:");
+                foreach (var dim in dimensions)
+                {
+                    var value = profile.RuntimeEncounterStats is not null && profile.RuntimeEncounterStats.TryGetValue(dim.Name, out var rv) ? rv : 50;
+                    var tierText = BehavioralDimensionCatalog.ResolveTierText(profile.CharacterRole, dim.Name, value);
+                    if (!string.IsNullOrWhiteSpace(tierText))
+                    {
+                        var displayName = System.Text.RegularExpressions.Regex.Replace(dim.Name, "([a-z])([A-Z])", "$1 $2");
+                        sb.AppendLine($"    {dim.Name} ({value})");
+                        sb.AppendLine($"    {tierText}");
+                    }
+                }
+            }
+        }
 
         if (!string.IsNullOrWhiteSpace(targetRole))
         {
@@ -5492,14 +5534,6 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
                 sb.AppendLine($"    SelfRespect: {CharacterStatTextCatalog.ResolveText("SelfRespect", targetRole, profile.SelfRespect)}");
             }
             catch { /* Band text lookup may fail for unknown roles; omit gracefully. */ }
-        }
-
-        if (profile.RuntimeEncounterStats is { Count: > 0 }
-            && (!string.IsNullOrWhiteSpace(targetRole)
-                && (string.Equals(targetRole, "Wife", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(targetRole, "Husband", StringComparison.OrdinalIgnoreCase))))
-        {
-            sb.AppendLine($"  Encounter dimensions: {string.Join(", ", profile.RuntimeEncounterStats.Select(kv => $"{kv.Key}={kv.Value}"))}");
         }
     }
 
@@ -9420,7 +9454,7 @@ private void CloseInteractionInfo()
                             }
                             else if (_steerOptionPages.Count == 0)
                             {
-                                <div class="rw-finish-loading">No options yet.</div>
+                                <div class="rw-finish-loading">Generating steering options in background...</div>
                             }
                             else
                             {
@@ -9494,7 +9528,7 @@ private void CloseInteractionInfo()
                                     disabled="@_steerOptionSubmitting"
                                     @onclick="CloseSteerPopup">Cancel</button>
                             <button class="rw-popup-action-btn"
-                                    disabled="@(_steerOptionSubmitting || _steerOptionsLoading)"
+                                    disabled="@(_steerOptionSubmitting || _steerOptionsLoading || _isAwaitingModelResponse || _isSubmitting)"
                                     @onclick="GenerateSteerOptionsAsync">@(_steerOptionPages.Count == 0 ? "Generate" : "Regenerate")</button>
                             <button class="rw-popup-action-btn is-primary"
                                     disabled="@(_steerOptionSubmitting || _steerOptionsLoading || string.IsNullOrWhiteSpace(_selectedSteerOption))"
@@ -10921,6 +10955,93 @@ private void CloseInteractionInfo()
                             </div>
                         }
                     </div>
+
+                    <div class="rw-collapsible-section">
+                        <button type="button" class="rw-collapsible-header" @onclick='() => ToggleAdaptiveSection("encounter")'>
+                            <span class="rw-collapsible-chevron @(IsAdaptiveSectionExpanded("encounter") ? "is-open" : "")">›</span>
+                            <span class="rw-collapsible-title">Encounter Detection</span>
+                            @if (_v2State?.IsEncounterActive == true)
+                            {
+                                <span class="badge text-bg-warning" style="margin-left:auto;">Active</span>
+                            }
+                        </button>
+                        @if (IsAdaptiveSectionExpanded("encounter"))
+                        {
+                            <div class="rw-collapsible-body">
+                                <div class="rw-settings-info-row"><span>Encounter #</span><span>@(_v2State?.CurrentEncounterNumber ?? 0)</span></div>
+                                <div class="rw-settings-info-row"><span>Completed</span><span>@(_v2State?.GlobalEncounterCount ?? 0)</span></div>
+                                <div class="rw-settings-info-row"><span>Interactions this encounter</span><span>@(_v2State?.TurnsInCurrentEncounter ?? 0)</span></div>
+                                <div class="rw-settings-info-row"><span>Active</span><span>@(_v2State?.IsEncounterActive == true ? "Yes" : "No")</span></div>
+
+                                @{
+                                    var encStart = _v2State?.LastEncounterStartDetection;
+                                    var encBoundary = _v2State?.LastEncounterBoundaryDetection;
+                                }
+                                @if (encStart is not null)
+                                {
+                                    <div class="rw-settings-info-row rw-settings-info-row-block">
+                                        <span>Last Start Detection</span>
+                                        <span>
+                                            <div class="rw-enc-det-status @(encStart.Detected ? "is-detected" : encStart.Succeeded ? "" : "is-error")">
+                                                @(encStart.Detected ? $"detected, conf {encStart.Confidence:0.##}" : encStart.Succeeded ? "not detected" : "failed")
+                                            </div>
+                                            @if (!string.IsNullOrWhiteSpace(encStart.ErrorMessage))
+                                            {
+                                                <div class="rw-enc-det-error">@encStart.ErrorMessage</div>
+                                            }
+                                            @if (!string.IsNullOrWhiteSpace(encStart.PromptSystem))
+                                            {
+                                                <button type="button" class="rw-enc-det-link" @onclick='() => { _viewEncDetPrompt = encStart.PromptSystem + "\n\n--- USER ---\n" + encStart.PromptUser; _viewEncDetResponse = encStart.RawResponse; _viewEncDetOpen = true; }' @onclick:stopPropagation>View Prompt / Response</button>
+                                            }
+                                            <div class="rw-enc-det-time">@encStart.TimestampUtc.ToLocalTime().ToString("HH:mm:ss")</div>
+                                        </span>
+                                    </div>
+                                }
+                                @if (encBoundary is not null)
+                                {
+                                    <div class="rw-settings-info-row rw-settings-info-row-block">
+                                        <span>Last Boundary Detection</span>
+                                        <span>
+                                            <div class="rw-enc-det-status @(encBoundary.Detected ? "is-detected" : encBoundary.Succeeded ? "" : "is-error")">
+                                                @(encBoundary.Detected ? $"detected, conf {encBoundary.Confidence:0.##}" : encBoundary.Succeeded ? "not detected" : "failed")
+                                            </div>
+                                            @if (!string.IsNullOrWhiteSpace(encBoundary.ErrorMessage))
+                                            {
+                                                <div class="rw-enc-det-error">@encBoundary.ErrorMessage</div>
+                                            }
+                                            @if (!string.IsNullOrWhiteSpace(encBoundary.PromptSystem))
+                                            {
+                                                <button type="button" class="rw-enc-det-link" @onclick='() => { _viewEncDetPrompt = encBoundary.PromptSystem + "\n\n--- USER ---\n" + encBoundary.PromptUser; _viewEncDetResponse = encBoundary.RawResponse; _viewEncDetOpen = true; }' @onclick:stopPropagation>View Prompt / Response</button>
+                                            }
+                                            <div class="rw-enc-det-time">@encBoundary.TimestampUtc.ToLocalTime().ToString("HH:mm:ss")</div>
+                                        </span>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+
+                    @if (_viewEncDetOpen)
+                    {
+                        <div class="rw-modal-overlay" @onclick='@(() => _viewEncDetOpen = false)'>
+                            <div class="rw-modal rw-steer-prompt-modal" @onclick:stopPropagation>
+                                <div class="rw-modal-header">
+                                    <span>Encounter Detection Prompt &amp; Response</span>
+                                    <button class="rw-modal-close-btn" @onclick='@(() => _viewEncDetOpen = false)'>&times;</button>
+                                </div>
+                                <div class="rw-modal-body rw-steer-prompt-body">
+                                    <div class="rw-steer-prompt-section">
+                                        <div class="rw-steer-prompt-section-header">Prompt</div>
+                                        <pre class="rw-steer-prompt-text">@_viewEncDetPrompt</pre>
+                                    </div>
+                                    <div class="rw-steer-prompt-section">
+                                        <div class="rw-steer-prompt-section-header">Raw Response</div>
+                                        <pre class="rw-steer-prompt-text">@_viewEncDetResponse</pre>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    }
 
                     <div class="rw-collapsible-section">
                         @{

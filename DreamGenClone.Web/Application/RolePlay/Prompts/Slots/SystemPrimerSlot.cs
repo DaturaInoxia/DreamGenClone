@@ -73,6 +73,9 @@ public sealed class SystemPrimerSlot : IPromptSlot
         sb.AppendLine("Scene Guidance — the current narrative phase's goals and direction.");
         sb.AppendLine("Use it as a guide, not a script. HARD CONSTRAINT and User Direction take priority over it.");
         sb.AppendLine();
+        sb.AppendLine("Scene Direction — short, explicit beats to execute this turn.");
+        sb.AppendLine("Follow them this response. They override Scene Guidance, but HARD CONSTRAINT and User Direction take priority.");
+        sb.AppendLine();
         sb.AppendLine("Style Guide — prose quality, voice, and word count. Match this style.");
         sb.AppendLine();
         sb.AppendLine("Theme Contract — the active narrative theme.");

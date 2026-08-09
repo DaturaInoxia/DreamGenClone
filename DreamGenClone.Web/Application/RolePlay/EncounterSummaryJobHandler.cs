@@ -322,9 +322,9 @@ public sealed class EncounterSummaryJobHandler : IBackgroundJobHandler
     {
         var rangeCount = Math.Max(0, record.EndInteractionIndex - record.StartInteractionIndex + 1);
         var allEncounterInteractions = session.Interactions
-            .Where(x => !x.IsExcluded)
             .Skip(record.StartInteractionIndex)
             .Take(rangeCount)
+            .Where(x => !x.IsExcluded)
             .ToList();
 
         // All interactions in the encounter range (in order) — used as context for enrichment.
