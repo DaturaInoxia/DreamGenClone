@@ -1,6 +1,7 @@
 using System.Text;
 using DreamGenClone.Application.StoryAnalysis.Models;
 using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Domain.StoryAnalysis;
 using DreamGenClone.Web.Domain.RolePlay;
 using Microsoft.Extensions.Logging;
 
@@ -59,6 +60,8 @@ public sealed class CharacterDataSlot : IPromptSlot
                         sb.AppendLine($"    {detail.AppearanceText}");
                 }
             }
+
+            AppendCharacterRoleIntents(sb, characters);
             return Task.FromResult(sb.ToString().TrimEnd());
         }
 
@@ -158,11 +161,48 @@ public sealed class CharacterDataSlot : IPromptSlot
             }
         }
 
+        AppendCharacterRoleIntents(sb, characters);
+
         _logger.LogDebug(
             "CharacterDataSlot: SessionId={SessionId} Variant={Variant} Kind={Kind} Actor={Actor} CharCount={CharCount}",
             context.Session.Id, variant, profile.Kind, actorName, characters.Count);
 
         return Task.FromResult(sb.ToString().TrimEnd());
+    }
+
+    /// <summary>
+    /// Appends the per-role narrative job (role intents) for each character whose
+    /// role is recognized by <see cref="SteerRoleIntentCatalog"/>. Sourced from the
+    /// single catalog — no fallback text; unknown/unassigned roles are omitted so the
+    /// prompt stays state-neutral and non-prescriptive for scripts.
+    /// </summary>
+    private static void AppendCharacterRoleIntents(StringBuilder sb, IReadOnlyList<ScenarioCharacter> characters)
+    {
+        var roleIntents = new List<(string Name, string Role, string Intent)>();
+        foreach (var character in characters)
+        {
+            if (string.IsNullOrWhiteSpace(character.Name) || string.IsNullOrWhiteSpace(character.Role))
+                continue;
+
+            var role = character.Role.Trim();
+            var context = SteerRoleIntentCatalog.GetRoleContext(role);
+
+            // Skip the generic fallback for unknown roles — only recognized roles carry a role intent.
+            if (string.Equals(context, "No specific narrative role — steer based on recent scene context and character disposition.", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            roleIntents.Add((character.Name.Trim(), role, context));
+        }
+
+        if (roleIntents.Count == 0)
+            return;
+
+        sb.AppendLine();
+        sb.AppendLine("Character Role Intents:");
+        foreach (var (name, role, context) in roleIntents)
+        {
+            sb.AppendLine($"  {name} ({role}): {context}");
+        }
     }
 
     public string Trim(string text, int maxChars)

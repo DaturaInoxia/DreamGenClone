@@ -80,16 +80,27 @@ public sealed class FinalInstructionSlot : IPromptSlot
             sb.AppendLine();
         }
 
-        // ── Pacing direction (Character position 1 only, near end of prompt for recency) ──
-        if (!isNarrative && context.PositionInTurn == 1 && context.Intensity.SceneDirection is not null)
+        // ── Pacing direction (all Character positions, near end of prompt for recency) ──
+        // Position 1 sets the beat; positions 2+ must build on it rather than restarting
+        // or jumping past it. This closes the position-2/3 gap that previously left the
+        // completing actor (usually position 2/3) with no pacing directive — the primary
+        // cause of full start→orgasm scenes collapsing into a single turn.
+        if (!isNarrative && context.PositionInTurn is not null && context.Intensity.SceneDirection is not null)
         {
-            var pacingText = context.Intensity.SceneDirection.Pacing switch
+            if (context.PositionInTurn.Value > 1)
             {
-                ScenePacing.Slow => "HARD CONSTRAINT — Scene Pacing: Slow pacing — advance within the current beat. Do not leap to a new beat or position.",
-                ScenePacing.Fast => "HARD CONSTRAINT — Scene Pacing: Fast pacing — advance through multiple beats. Push the story forward rapidly.",
-                _ => "HARD CONSTRAINT — Scene Pacing: Medium pacing — advance the scene by one beat. Move the story forward."
-            };
-            sb.AppendLine(pacingText);
+                sb.AppendLine("HARD CONSTRAINT — Scene Pacing: Medium pacing — You are a subsequent actor — build on the beat already established this turn. Do not restart or jump past it.");
+            }
+            else
+            {
+                var pacingText = context.Intensity.SceneDirection.Pacing switch
+                {
+                    ScenePacing.Slow => "HARD CONSTRAINT — Scene Pacing: Slow pacing — advance within the current beat. Do not leap to a new beat or position.",
+                    ScenePacing.Fast => "HARD CONSTRAINT — Scene Pacing: Fast pacing — advance through multiple beats. Push the story forward rapidly.",
+                    _ => "HARD CONSTRAINT — Scene Pacing: Medium pacing — advance the scene by one beat. Move the story forward."
+                };
+                sb.AppendLine(pacingText);
+            }
             sb.AppendLine();
         }
 

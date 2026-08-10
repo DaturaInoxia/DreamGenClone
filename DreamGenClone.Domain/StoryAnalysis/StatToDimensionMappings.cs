@@ -21,11 +21,11 @@ public static class StatToDimensionMappings
     private static readonly IReadOnlyList<DimensionDriftRule> WifeRules =
     [
         new("Desire",      "Wife", "Exhibitionism",      +0.90, 0, 100),
-        new("Desire",      "Wife", "DiscoveryCaution",   -0.60, 0, 100),
-        new("Restraint",   "Wife", "DiscoveryCaution",   +0.90, 0, 100),
+        new("Desire",      "Wife", "DiscoveryCaution",   -0.25, 0, 100),
+        new("Restraint",   "Wife", "DiscoveryCaution",   +0.40, 0, 100),
         new("Restraint",   "Wife", "Exhibitionism",      -0.60, 0, 100),
         new("Restraint",   "Wife", "PostEncounterGuilt", +0.45, 0, 100),
-        new("SelfRespect", "Wife", "DiscoveryCaution",   +0.60, 0, 100),
+        new("SelfRespect", "Wife", "DiscoveryCaution",   +0.40, 0, 100),
         new("Loyalty",     "Wife", "EmotionalEngagement",+0.60, 0, 100),
         new("Loyalty",     "Wife", "PostEncounterGuilt", +0.75, 0, 100),
         new("Restraint",   "Wife", "BoundaryFirmness",   +0.90, 0, 100),

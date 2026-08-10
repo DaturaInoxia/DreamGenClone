@@ -278,12 +278,6 @@ public sealed class SteerGenerationJobHandler : IBackgroundJobHandler
             sb.AppendLine();
         }
 
-        if (!string.IsNullOrWhiteSpace(payload.CurrentLocation))
-        {
-            sb.AppendLine($"Current location: {payload.CurrentLocation}");
-            sb.AppendLine();
-        }
-
         sb.AppendLine("Generate exactly 4 steering directives for EACH character above, in this fixed order:");
         sb.AppendLine("  1. AWAY");
         sb.AppendLine("  2. NEUTRAL");
@@ -292,7 +286,7 @@ public sealed class SteerGenerationJobHandler : IBackgroundJobHandler
         sb.AppendLine();
         sb.AppendLine("Constraints:");
         sb.AppendLine("- Each option MUST be one sentence, concrete and actionable, grounded in the recent scene.");
-        sb.AppendLine("- Use the character's name, never a pronoun. Say 'Ken does X' not 'He does X'.");
+        sb.AppendLine("- Do not start an option with a pronoun. Identify the character by name, then use pronouns naturally. Say 'Becky walks... she calls to him' not 'Becky walks... Becky calls to Dean'.");
         sb.AppendLine("- Each character's options must reflect that character's role intent, current state, and the way the other active characters affect the situation.");
         sb.AppendLine($"- Stay in the {phase} phase; do not advance the phase.");
         sb.AppendLine("- Do not merge characters into one directive. Return a distinct four-option set for every character.");

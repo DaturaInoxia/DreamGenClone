@@ -43,7 +43,7 @@ if (!isNarrative && context.PositionInTurn == 1 && context.Intensity.SceneDirect
 - idx 207 Dean (position 2) → **no** pacing HC ❌
 - idx 208 Ken (position 3) → **no** pacing HC ❌
 
-**Impact:** Positions 2 and 3 receive NO pacing directive (and no deepening constraint unless `[Deepening:subsequent-actors]` is declared). The response that *completes* an encounter arc is almost always position 2 or 3 → it runs unconstrained by pacing. **This is the single most important structural fact about pacing in this codebase.**
+**Impact (FIXED 2026-08-09, debug 022):** Positions 2 and 3 previously received NO pacing directive (and no deepening constraint unless `[Deepening:subsequent-actors]` is declared), so the response that *completes* an encounter arc (almost always position 2/3) ran unconstrained by pacing. **This was the single most important structural fact about pacing in this codebase.** Fix: `FinalInstructionSlot.cs` now emits the pacing HARD CONSTRAINT for ALL Character positions (`PositionInTurn is not null`), and positions 2+ get an explicit "build on the beat already established this turn; do not restart or jump past it" guard. See `specs/001-rp-prompt-redesign/debug/022-pacing-other-actors.md`.
 
 ---
 
