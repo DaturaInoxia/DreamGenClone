@@ -278,6 +278,9 @@ public sealed class SteerGenerationJobHandler : IBackgroundJobHandler
             sb.AppendLine();
         }
 
+        // ── B-077: Gap-aware steering block ──
+        AppendWillingnessGapBlock(sb, payload);
+
         sb.AppendLine("Generate exactly 4 steering directives for EACH character above, in this fixed order:");
         sb.AppendLine("  1. AWAY");
         sb.AppendLine("  2. NEUTRAL");
@@ -299,5 +302,73 @@ public sealed class SteerGenerationJobHandler : IBackgroundJobHandler
         sb.AppendLine("No markdown, no labels, no extra text.");
 
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// B-077: Appends willingness-gap steering hints to the prompt if the Wife
+    /// is below the target verdict tier.
+    /// </summary>
+    private static void AppendWillingnessGapBlock(StringBuilder sb, SteerGenerationJobPayload payload)
+    {
+        if (!payload.WillingnessGapSteeringEnabled
+            || string.IsNullOrWhiteSpace(payload.WillingnessGapSteeringDirective))
+        {
+            return;
+        }
+
+        // Build CharacterStatProfileV2 lookup from payload snapshots.
+        var snapshots = new Dictionary<string, CharacterStatProfileV2>(StringComparer.OrdinalIgnoreCase);
+        foreach (var c in payload.CharacterSnapshots)
+        {
+            var profile = new CharacterStatProfileV2
+            {
+                CharacterId = c.CharacterId,
+                Desire = c.Desire,
+                Restraint = c.Restraint,
+                Dominance = c.Dominance,
+                Loyalty = c.Loyalty,
+                SelfRespect = c.SelfRespect,
+                CharacterRole = c.Role ?? string.Empty,
+                RuntimeEncounterStats = c.EncounterDimensions?
+                    .ToDictionary(kvp => kvp.Key, kvp => (int)kvp.Value, StringComparer.OrdinalIgnoreCase)
+                    ?? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+            };
+            // Use the name as key unless it collides.
+            var key = c.CharacterName;
+            if (snapshots.ContainsKey(key))
+                key = c.CharacterId;
+            snapshots[key] = profile;
+        }
+
+        // Convert payload snapshots to domain type for resolver.
+        var domainMappings = payload.SemanticStatMappingSnapshots?
+            .Select(s => new RPSemanticStatMapping
+            {
+                EventId = s.EventId,
+                TargetStat = s.TargetStat,
+                Direction = s.Direction
+            })
+            .ToList();
+
+        var result = WillingnessSteerGapResolver.ResolveFromPayload(
+            snapshots,
+            payload.WillingnessGapSteeringEnabled,
+            payload.WillingnessGapSteeringDirective,
+            payload.WillingnessDesireLoyaltyWeight,
+            payload.WillingnessBehaviorWeight,
+            payload.WillingnessMaritalDeficitWeight,
+            payload.WillingnessVerdictNoMax,
+            payload.WillingnessVerdictMaybeMax,
+            domainMappings);
+
+        if (!result.HasGap) return;
+
+        var blockProse = WillingnessSteerGapResolver.BuildGapBlockProse(
+            result, payload.WillingnessGapSteeringDirective);
+        if (!string.IsNullOrWhiteSpace(blockProse))
+        {
+            sb.AppendLine();
+            sb.AppendLine(blockProse);
+        }
     }
 }

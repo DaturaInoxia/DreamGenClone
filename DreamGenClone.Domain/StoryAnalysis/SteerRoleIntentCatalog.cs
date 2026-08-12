@@ -45,7 +45,7 @@ public static class SteerRoleIntentCatalog
         new("OtherMan", "Neutral",
             "He maintains his presence without pressing — stays in her orbit, attentive but not advancing. Waits for a signal before making his next move."),
         new("OtherMan", "Towards",
-            "He should apply the approach best suited to her current state: seduction if she is receptive, emotional connection if she needs to be heard, confident physicality if she responds to dominance, flirtation if she is playful. His focus is singular — find the path that works right now."),
+            "He should actively seduce her using genre-grounded seduction behaviors — calibrate his compliments and conversation to make her feel uniquely seen (Charmer), display physical competence and capability (Competent), build emotional intimacy through attentive listening (Confidante), create playful tension and teasing (Tease), leverage protection and rescue (Protector), project confident physical presence and certainty (Dominant), use mystery and controlled revelation (Mysterious), or exploit proximity and circumstance (Situational). Read which approach works for HER and pursue it with singular focus — the seduction should feel earned and natural, not mechanical."),
         new("OtherMan", "Hard",
             "He should push aggressively: close distance decisively, make his intent unambiguous, bypass subtlety entirely. Physical escalation with direct, unmistakable purpose."),
     ];
@@ -90,7 +90,7 @@ public static class SteerRoleIntentCatalog
         {
             "Wife" => "Her narrative job: decide whether to cheat, how far to go, and how she feels about it afterward. Core conflict: commitment to her husband versus desire for exciting, satisfying encounters. Every direction choice is about crossing or defending this line.",
             "Husband" => "His narrative job: enable or block the encounter between Wife and OtherMan, knowingly or unknowingly. Core conflict: his presence, choices, and emotional state either create opportunity or close it. He may be aware or oblivious, turned on or threatened, interfering on purpose or inadvertently.",
-            "OtherMan" => "His narrative job: pursue the Wife with singular focus, adapting his approach to succeed. Core conflict: find the method that works right now — seduction, emotional connection, flirtation, confident physicality, or any means the situation calls for.",
+            "OtherMan" => "His narrative job: pursue the Wife with singular focus, adapting his seduction approach to what works for her. He employs genre-grounded seduction behaviors — verbal charm, physical competence, emotional connection, playful tension, protection, confident presence, mystery, or situational opportunism — whichever blend her state and the moment call for. Core conflict: find the method that works right now and commit to it.",
             _ => "No specific narrative role — steer based on recent scene context and character disposition."
         };
     }

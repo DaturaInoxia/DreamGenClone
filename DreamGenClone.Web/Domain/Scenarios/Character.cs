@@ -47,6 +47,14 @@ public class Character
     public List<CharacterLocationAffinity> LocationAffinities { get; set; } = [];
 
     /// <summary>
+    /// Seduction archetype identifiers (B-078). Values should match
+    /// <c>SeductionArchetypeCatalog</c> entry Ids. Empty = no archetype configured →
+    /// role-level <c>SteerRoleIntentCatalog</c> fallback applies.
+    /// Only injected into prompts when Role is "OtherMan".
+    /// </summary>
+    public List<string> SeductionArchetypes { get; set; } = [];
+
+    /// <summary>
     /// Optional default CharacterProfile (encounter profile) ID pre-selected
     /// when creating an RP session from this scenario. Can be overridden in the wizard.
     /// </summary>

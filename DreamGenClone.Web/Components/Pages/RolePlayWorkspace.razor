@@ -5402,6 +5402,9 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
         }
         sb.AppendLine();
 
+        // ── B-077: Gap-aware steering block — placed BEFORE characters so every character's TOWARDS/HARD is gap-informed ──
+        await AppendWillingnessGapBlockAsync(sb);
+
         // Per-character sections.
         foreach (var (charId, charName, charRole) in targets)
         {
@@ -5461,6 +5464,48 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
         sb.AppendLine("No markdown, no labels, no extra text.");
 
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// B-077: Appends willingness-gap steering hints to the prompt if the Wife
+    /// is below the target verdict tier.
+    /// </summary>
+    private async Task AppendWillingnessGapBlockAsync(StringBuilder sb)
+    {
+        if (_session is null) return;
+        if (!_scenarioEngineSettings.WillingnessGapSteeringEnabled
+            || string.IsNullOrWhiteSpace(_scenarioEngineSettings.WillingnessGapSteeringDirective))
+        {
+            return;
+        }
+
+        // Get active theme's semantic stat mappings.
+        var activeScenarioId = _v2State?.ActiveScenarioId;
+        List<RPSemanticStatMapping>? mappings = null;
+        if (!string.IsNullOrWhiteSpace(activeScenarioId))
+        {
+            try
+            {
+                var theme = await RPThemeService.GetThemeAsync(activeScenarioId);
+                mappings = theme?.SemanticStatMappings;
+            }
+            catch { /* Best-effort. */ }
+        }
+
+        var result = WillingnessSteerGapResolver.Resolve(
+            _session.AdaptiveState.CharacterStats,
+            _scenarioEngineSettings,
+            mappings);
+
+        if (!result.HasGap) return;
+
+        var blockProse = WillingnessSteerGapResolver.BuildGapBlockProse(
+            result, _scenarioEngineSettings.WillingnessGapSteeringDirective);
+        if (!string.IsNullOrWhiteSpace(blockProse))
+        {
+            sb.AppendLine();
+            sb.AppendLine(blockProse);
+        }
     }
 
     private async Task<string> BuildPositionSteerOptionsPromptAsync()

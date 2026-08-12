@@ -175,6 +175,8 @@ public sealed class CharacterDataSlot : IPromptSlot
     /// role is recognized by <see cref="SteerRoleIntentCatalog"/>. Sourced from the
     /// single catalog — no fallback text; unknown/unassigned roles are omitted so the
     /// prompt stays state-neutral and non-prescriptive for scripts.
+    /// For OtherMan characters with configured <see cref="ScenarioCharacter.SeductionArchetypes"/>,
+    /// appends a "Seduction style:" line with guidance from <see cref="SeductionArchetypeCatalog"/>.
     /// </summary>
     private static void AppendCharacterRoleIntents(StringBuilder sb, IReadOnlyList<ScenarioCharacter> characters)
     {
@@ -202,6 +204,21 @@ public sealed class CharacterDataSlot : IPromptSlot
         foreach (var (name, role, context) in roleIntents)
         {
             sb.AppendLine($"  {name} ({role}): {context}");
+
+            // B-078: Append seduction archetype guidance for OtherMan characters with archetypes configured.
+            var character = characters.FirstOrDefault(c =>
+                string.Equals(c.Name?.Trim(), name, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(c.Role?.Trim(), role, StringComparison.OrdinalIgnoreCase));
+            if (character is not null
+                && string.Equals(role, "OtherMan", StringComparison.OrdinalIgnoreCase)
+                && character.SeductionArchetypes is { Count: > 0 })
+            {
+                var guidance = SeductionArchetypeCatalog.BuildGuidance(character.SeductionArchetypes);
+                if (!string.IsNullOrWhiteSpace(guidance))
+                {
+                    sb.AppendLine($"  Seduction style: {guidance}");
+                }
+            }
         }
     }
 

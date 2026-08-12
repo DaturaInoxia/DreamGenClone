@@ -34,6 +34,21 @@ public sealed class SteerGenerationJobPayload
     public string? ThemeLabel { get; init; }
     public string? ThemeDescription { get; init; }
     public IReadOnlyList<string> ThemePhaseGuidanceLines { get; init; } = [];
+
+    // ── B-077: Willingness-gap config (snapshot at enqueue time) ──────────
+    public bool WillingnessGapSteeringEnabled { get; init; }
+    public string WillingnessGapSteeringDirective { get; init; } = string.Empty;
+    public double WillingnessDesireLoyaltyWeight { get; init; } = 0.5;
+    public double WillingnessBehaviorWeight { get; init; } = 0.5;
+    public double WillingnessMaritalDeficitWeight { get; init; } = 0.25;
+    public int WillingnessVerdictNoMax { get; init; } = 40;
+    public int WillingnessVerdictMaybeMax { get; init; } = 70;
+
+    /// <summary>
+    /// B-077: Active theme's semantic stat mappings at enqueue time
+    /// (only the fields needed by WillingnessSteerGapResolver).
+    /// </summary>
+    public IReadOnlyList<SemanticStatMappingSnapshot>? SemanticStatMappingSnapshots { get; init; }
 }
 
 /// <summary>
@@ -53,4 +68,15 @@ public sealed class CharacterStatSnapshot
 
     /// <summary>Runtime encounter dimensions (Wife/Husband only).</summary>
     public IReadOnlyDictionary<string, double>? EncounterDimensions { get; init; }
+}
+
+/// <summary>
+/// B-077: Lightweight snapshot of a semantic stat mapping row for the background steer job.
+/// Carries only the fields needed by WillingnessSteerGapResolver.
+/// </summary>
+public sealed class SemanticStatMappingSnapshot
+{
+    public required string EventId { get; init; }
+    public required string TargetStat { get; init; }
+    public required string Direction { get; init; }
 }

@@ -519,7 +519,11 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
 
         // ── Resolve actor profile (uses all characters — filtering happens later for context) ──
         var allScenarioCharacters = scenario?.Characters
-            .Select(c => new ScenarioCharacter(c.Id, c.Name ?? string.Empty, c.Role))
+            .Select(c => new ScenarioCharacter(
+                c.Id,
+                c.Name ?? string.Empty,
+                c.Role,
+                c.SeductionArchetypes))
             .ToList() ?? [];
 
         var actorProfile = _actorProfileResolver.Resolve(actor, customActorName, intent, session, allScenarioCharacters);
