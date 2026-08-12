@@ -6,9 +6,11 @@
         "speckit.tasks": true,
         "speckit.implement": true
     },
+    "chat.permissions.default": "autoApprove",
+    "chat.tools.autoApprove": true,
+    "chat.tools.terminal.enableAutoApprove": true,
     "chat.tools.terminal.autoApprove": {
         "/.*/": true
-    },
-    "chat.tools.autoApprove": true
+    }
 }
 

@@ -2274,12 +2274,12 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     /// <summary>
     /// Internal mirror of <see cref="AffinityType"/> plus None, used for scoring.
     /// </summary>
-    private enum AffinityStatus { None, Preferred, Required, Excluded }
+    internal enum AffinityStatus { None, Preferred, Required, Excluded }
 
     /// <summary>
     /// Computed availability for a character at a given location and time.
     /// </summary>
-    private sealed record AvailableCharacter(
+    internal sealed record AvailableCharacter(
         string Name,
         string? Role,
         bool IsInScene,
@@ -2544,6 +2544,50 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         }
 
         return mapped;
+    }
+
+    /// <summary>
+    /// B-080: guarantees that eligible in-scene and Required-affinity candidates receive a seat in
+    /// the participation set, so an under-selecting LLM cannot starve the turn of characters who are
+    /// actually present. Complements the ActorSelectionService prompt change (out-of-scene is
+    /// lower-priority, not disqualifying). Never removes LLM choices; hard filters
+    /// (AffinityStatus.Excluded, ParticipateInAutoContinue=false) are respected.
+    /// </summary>
+    internal static List<string> GuaranteeParticipationSeats(
+        List<string> participants,
+        List<(AvailableCharacter Character, double Score)> scored,
+        Dictionary<string, CharacterTurnOverride> overrides,
+        int desiredCount)
+    {
+        var alreadySelected = participants.ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var guardPool = scored
+            .Where(x => !x.Character.AffinityStatus.Equals(AffinityStatus.Excluded))
+            .Where(x =>
+            {
+                if (!overrides.TryGetValue(x.Character.Name, out var ov))
+                    return true;
+                return ov.ParticipateInAutoContinue;
+            })
+            .ToList();
+
+        // 1) In-scene eligible candidates the LLM omitted — physically present, so they may react.
+        foreach (var x in guardPool.Where(c => c.Character.IsInScene))
+        {
+            if (participants.Count >= desiredCount) break;
+            if (alreadySelected.Add(x.Character.Name))
+                participants.Add(x.Character.Name);
+        }
+
+        // 2) Required-affinity candidates — never droppable, even if location data is thin.
+        foreach (var x in guardPool.Where(c => c.Character.AffinityStatus.Equals(AffinityStatus.Required)))
+        {
+            if (participants.Count >= desiredCount) break;
+            if (alreadySelected.Add(x.Character.Name))
+                participants.Add(x.Character.Name);
+        }
+
+        return participants;
     }
 
     /// <summary>
@@ -2869,6 +2913,17 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
                 // LLM picks WHO participates (unordered set). MapOrderedNamesToCandidates filters to valid names.
                 var participants = MapOrderedNamesToCandidates(selection.OrderedNames, availableForSelection, scored);
+
+                // B-080 participation post-guard: an under-selecting LLM must not starve the turn
+                // of characters who are actually present. Every eligible in-scene candidate is
+                // guaranteed a seat, then Required-affinity candidates, capped at the requested
+                // batch size. This completes the debug-009 fix (which only moved the in-scene gate
+                // to the LLM stage): it makes out-of-scene a lower-priority signal, never a
+                // disqualifier. Affinity-Excluded and ParticipateInAutoContinue=false remain hard
+                // filters — we only ever ADD seats, never remove LLM choices.
+                var desiredCount = Math.Min(request.BatchSize, scored.Count);
+                participants = GuaranteeParticipationSeats(
+                    participants, scored, session.CharacterTurnOverrides, desiredCount);
 
                 // Deterministic ordering pass: PreferredPosition controls order, not participation.
                 var overrideChance = session.PreferredPositionOverrideChance;

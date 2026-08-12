@@ -29,4 +29,8 @@
     <ProjectReference Include="..\DreamGenClone.Infrastructure\DreamGenClone.Infrastructure.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="DreamGenClone.Tests" />
+  </ItemGroup>
+
 </Project>

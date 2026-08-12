@@ -66,6 +66,8 @@ Auto-generated from all feature plans. Last updated: 2026-03-17
 - C# 12 / .NET 9 + ASP.NET Core Blazor (Web host), Microsoft.Data.Sqlite (persistence), Serilog (logging), xUnit (testing) (001-final-writing-instruction)
 - SQLite (`DreamGenClone.Web/data/dreamgenclone.dev.db`) — `StyleProfiles`, `ToneProfiles`, `Scenarios` (PayloadJson) tables (001-final-writing-instruction)
 - SQLite (default per Constitution VIII). `SeductionArchetypes` list on `Character` is stored as a JSON array within the scenario's character JSON blob in SQLite (same pattern as `LocationAffinities`, `BaseStats`). (066-otherman-seduction)
+- C# 12 / .NET 9 (net9.0 across Domain, Web, Tests) + None new — pure Domain-layer C# for the catalog (no packages, no DI registration). Existing: xUnit 2.9.2 (tests), Serilog 9.0.0 (logging), Microsoft.Data.Sqlite 9.0.0. Requires adding `<InternalsVisibleTo Include="DreamGenClone.Tests" />` to the Web csproj so the internal formatter is testable (079-attractiveness-tier-catalog)
+- None — no DB migration. `AttractivenessRating` already persists as `int?` inside the `PhysicalAttributes` JSON payload. FR-011 documents the explicit SQLite exception: static, code-defined catalog with no runtime-persisted data (079-attractiveness-tier-catalog)
 
 - C# / .NET 9 (`net9.0`) + ASP.NET Core Blazor Server, `Microsoft.Data.Sqlite`, `Microsoft.Extensions.*`, Serilog (`Serilog.AspNetCore`, `Serilog.Settings.Configuration`, sinks/enrichers) (001-roleplay-session-screens)
 
@@ -86,9 +88,9 @@ tests/
 C# / .NET 9 (`net9.0`): Follow standard conventions
 
 ## Recent Changes
+- 079-attractiveness-tier-catalog: Added C# 12 / .NET 9 (net9.0 across Domain, Web, Tests) + None new — pure Domain-layer C# for the catalog (no packages, no DI registration). Existing: xUnit 2.9.2 (tests), Serilog 9.0.0 (logging), Microsoft.Data.Sqlite 9.0.0. Requires adding `<InternalsVisibleTo Include="DreamGenClone.Tests" />` to the Web csproj so the internal formatter is testable
 - 066-otherman-seduction: Added C# 13 / .NET 9 + ASP.NET Core (Blazor Server), Microsoft.Extensions.Logging, Serilog, Microsoft.Data.Sqlite
 - 001-final-writing-instruction: Added C# 12 / .NET 9 + ASP.NET Core Blazor (Web host), Microsoft.Data.Sqlite (persistence), Serilog (logging), xUnit (testing)
-- 001-rp-prompt-redesign: Added C# 13 / .NET 9 + ASP.NET Core (Blazor Server), Microsoft.Extensions.Logging, Serilog, Microsoft.Data.Sqlite, Microsoft.Extensions.Options
 
 
 <!-- MANUAL ADDITIONS START -->
