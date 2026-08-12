@@ -215,6 +215,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     private readonly IModelResolutionService? _modelResolutionService;
     private readonly IThemePreferenceService? _themePreferenceService;
     private readonly IRPThemeService? _rpThemeService;
+    private readonly IScenarioEngineSettingsRepository? _engineSettingsRepository;
     private readonly IThemeMachineResolutionService? _themeMachineResolutionService;
     private readonly IThemeMachineEvaluator? _themeMachineEvaluator;
     private readonly ITemplateService? _templateService;
@@ -318,6 +319,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         IModelResolutionService? modelResolutionService = null,
         IThemePreferenceService? themePreferenceService = null,
         IRPThemeService? rpThemeService = null,
+        IScenarioEngineSettingsRepository? engineSettingsRepository = null,
         IThemeMachineResolutionService? themeMachineResolutionService = null,
         IThemeMachineEvaluator? themeMachineEvaluator = null,
         RolePlayPromptComposer? promptComposer = null,
@@ -356,6 +358,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         _modelResolutionService = modelResolutionService;
         _themePreferenceService = themePreferenceService;
         _rpThemeService = rpThemeService;
+        _engineSettingsRepository = engineSettingsRepository;
         _themeMachineResolutionService = themeMachineResolutionService;
         _themeMachineEvaluator = themeMachineEvaluator;
         _promptComposer = promptComposer ?? new RolePlayPromptComposer();
@@ -3136,6 +3139,55 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             catch { /* Best-effort; theme may not be loaded. */ }
         }
 
+        // B-077: Collect willingness config + semantic mappings before building payload.
+        var gapSteeringEnabled = false;
+        var gapSteeringDirective = string.Empty;
+        var gapDesireLoyaltyWt = 0.5;
+        var gapBehaviorWt = 0.5;
+        var gapMaritalDeficitWt = 0.25;
+        var gapVerdictNoMax = 40;
+        var gapVerdictMaybeMax = 70;
+        List<SemanticStatMappingSnapshot>? semanticMappingSnapshots = null;
+
+        if (_engineSettingsRepository is not null)
+        {
+            try
+            {
+                var engineSettings = await _engineSettingsRepository.LoadAsync();
+                if (engineSettings is not null)
+                {
+                    gapSteeringEnabled = engineSettings.WillingnessGapSteeringEnabled;
+                    gapSteeringDirective = engineSettings.WillingnessGapSteeringDirective ?? string.Empty;
+                    gapDesireLoyaltyWt = engineSettings.WillingnessDesireLoyaltyWeight;
+                    gapBehaviorWt = engineSettings.WillingnessBehaviorWeight;
+                    gapMaritalDeficitWt = engineSettings.WillingnessMaritalDeficitWeight;
+                    gapVerdictNoMax = engineSettings.WillingnessVerdictNoMax;
+                    gapVerdictMaybeMax = engineSettings.WillingnessVerdictMaybeMax;
+                }
+            }
+            catch { /* Best-effort. */ }
+        }
+
+        if (_rpThemeService is not null && !string.IsNullOrWhiteSpace(v2State?.ActiveScenarioId))
+        {
+            try
+            {
+                var theme = await _rpThemeService.GetThemeAsync(v2State.ActiveScenarioId);
+                if (theme?.SemanticStatMappings is { Count: > 0 })
+                {
+                    semanticMappingSnapshots = theme.SemanticStatMappings
+                        .Select(m => new SemanticStatMappingSnapshot
+                        {
+                            EventId = m.EventId,
+                            TargetStat = m.TargetStat,
+                            Direction = m.Direction
+                        })
+                        .ToList();
+                }
+            }
+            catch { /* Best-effort. */ }
+        }
+
         var payload = new SteerGenerationJobPayload
         {
             SessionId = session.Id,
@@ -3153,7 +3205,16 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             CharacterSummaries = characterSummaries,
             ThemeLabel = themeLabel,
             ThemeDescription = themeDescription,
-            ThemePhaseGuidanceLines = themePhaseGuidanceLines
+            ThemePhaseGuidanceLines = themePhaseGuidanceLines,
+            // B-077: defaults (overridden below if config available).
+            WillingnessGapSteeringEnabled = gapSteeringEnabled,
+            WillingnessGapSteeringDirective = gapSteeringDirective,
+            WillingnessDesireLoyaltyWeight = gapDesireLoyaltyWt,
+            WillingnessBehaviorWeight = gapBehaviorWt,
+            WillingnessMaritalDeficitWeight = gapMaritalDeficitWt,
+            WillingnessVerdictNoMax = gapVerdictNoMax,
+            WillingnessVerdictMaybeMax = gapVerdictMaybeMax,
+            SemanticStatMappingSnapshots = semanticMappingSnapshots,
         };
         var payloadJson = JsonSerializer.Serialize(payload);
         _backgroundJobQueue.Enqueue(

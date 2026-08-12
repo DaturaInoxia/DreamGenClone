@@ -74,4 +74,21 @@ public sealed class ScenarioEngineSettings
     /// <summary>Directive text emitted with the YES verdict (willingness &gt; MaybeMax).</summary>
     public string WillingnessVerdictYesDirective { get; set; } =
         "She will cross when the opportunity is plausible — she initiates or yields; the Ceiling governs how far she goes.";
+
+    // ── B-077: Gap-aware steering ────────────────────────────────────────
+
+    /// <summary>
+    /// Master switch for gap-aware steering. When true, both UI and background
+    /// steer-generation paths append a willingness-gap context block if the Wife
+    /// is below the target verdict tier.
+    /// </summary>
+    public bool WillingnessGapSteeringEnabled { get; set; }
+
+    /// <summary>
+    /// Template prose for the gap-aware steering block. Supports placeholders:
+    /// {WifeName}, {Willingness}, {Verdict}, {Ceiling}, {TargetVerdict}.
+    /// Per-role gap-closing hints are appended after this template.
+    /// Empty string → block not emitted (fail-fast when Enabled but missing).
+    /// </summary>
+    public string WillingnessGapSteeringDirective { get; set; } = string.Empty;
 }

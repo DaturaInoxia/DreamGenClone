@@ -6,4 +6,5 @@ namespace DreamGenClone.Application.StoryAnalysis.Models;
 public sealed record ScenarioCharacter(
     string Id,
     string Name,
-    string Role);
+    string Role,
+    IReadOnlyList<string>? SeductionArchetypes = null);

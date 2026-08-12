@@ -70,6 +70,11 @@ public sealed class SystemPrimerSlot : IPromptSlot
         sb.AppendLine("Behavioral Frames — your character's personality, limits, and relational stance.");
         sb.AppendLine("Write from within this frame. It describes who you are, not what you observe.");
         sb.AppendLine();
+        sb.AppendLine("Character Role Intents — each character's narrative job and, for OtherMan characters, their seduction style.");
+        sb.AppendLine("For OtherMan characters, follow the 'Seduction style:' guidance actively — it defines HOW your character seduces");
+        sb.AppendLine("(calibrated compliments, physical competence, emotional connection, playful tension, protection, etc.).");
+        sb.AppendLine("Do not simply wait or observe when pursuing the Wife; execute the assigned seduction behaviors in this response.");
+        sb.AppendLine();
         sb.AppendLine("Scene Guidance — the current narrative phase's goals and direction.");
         sb.AppendLine("Use it as a guide, not a script. HARD CONSTRAINT and User Direction take priority over it.");
         sb.AppendLine();
