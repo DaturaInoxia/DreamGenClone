@@ -467,6 +467,94 @@ public sealed class SlotContractTests
         Assert.DoesNotContain("not present", text);
     }
 
+    // ── B-034: Wife Willingness to Cheat unified block (Slot 13) ──
+
+    [Fact]
+    public async Task BehavioralFramesSlot_WillingnessBlock_FiresWhenGuidanceHasBandLines()
+    {
+        var slot = new BehavioralFramesSlot(NullLogger<BehavioralFramesSlot>.Instance);
+        var context = CreateContext();
+        context = context with
+        {
+            CharacterBehavioralFrames = null,
+            CharacterStatStateTexts = null,
+            ScenarioGuidanceText =
+                "Verdict: YES — She will cross when the opportunity is plausible. " +
+                "Ceiling: Full Surrender — Escalate to the ceiling. (Examples: consummated) " +
+                "Ladder: Gentle Touch, Kissing, Manual Sex, Full Surrender " +
+                "Details: Willingness to Cheat = 100 (Desire=80, Loyalty=20, SeductionReceptivity=70, BoundaryFirmness=30, Attentiveness=40, IntimacyAvailability=40); Ceiling = min(Desire, willingness) = 80."
+        };
+
+        Assert.True(slot.ShouldWrite(context));
+
+        var text = await slot.WriteAsync(context, CancellationToken.None);
+
+        // The unified HARD CONSTRAINT block is rendered with Verdict + Ceiling + Ladder + Details.
+        Assert.Contains("HARD CONSTRAINT — Wife Willingness to Cheat", text);
+        Assert.Contains("Verdict: YES", text);
+        Assert.Contains("Ceiling: Full Surrender", text);
+        Assert.Contains("Ladder: Gentle Touch, Kissing, Manual Sex, Full Surrender", text);
+        Assert.Contains("Details: Willingness to Cheat = 100", text);
+        Assert.Contains("Ceiling = min(Desire, willingness) = 80", text);
+    }
+
+    [Fact]
+    public async Task BehavioralFramesSlot_WillingnessBlock_DoesNotFireWithoutBandLines()
+    {
+        var slot = new BehavioralFramesSlot(NullLogger<BehavioralFramesSlot>.Instance);
+        var context = CreateContext();
+        context = context with
+        {
+            CharacterBehavioralFrames = null,
+            CharacterStatStateTexts = null,
+            ScenarioGuidanceText = "The triangle is in motion."
+        };
+
+        Assert.False(slot.ShouldWrite(context));
+    }
+
+    [Fact]
+    public async Task BehavioralFramesSlot_WillingnessBlock_RendersMidLineBandsWithFactorySuffix()
+    {
+        // B-034 regression: ScenarioGuidanceGenerator concatenates the phase guidance prose,
+        // the verdict, the ceiling, the ladder, and the details space-separated into ONE line,
+        // and the context factory appends " Emphasize:" / " Avoid:" after them. The slot must
+        // extract the verdict/ceiling/ladder/details sentences by marker (not by line-start)
+        // and stop before the suffixes, preserving contract order (Verdict, Ceiling, Ladder,
+        // Details).
+        var slot = new BehavioralFramesSlot(NullLogger<BehavioralFramesSlot>.Instance);
+        var context = CreateContext();
+        context = context with
+        {
+            CharacterBehavioralFrames = null,
+            CharacterStatStateTexts = null,
+            ScenarioGuidanceText =
+                "The triangle is in motion. Ceiling: Full Surrender — Escalate to the ceiling. (Examples: consummated) Ladder: Gentle Touch, Kissing, Manual Sex, Full Surrender Details: Willingness to Cheat = 100 (Desire=80, Loyalty=20, SeductionReceptivity=70, BoundaryFirmness=30, Attentiveness=40, IntimacyAvailability=40); Ceiling = min(Desire, willingness) = 80. Verdict: YES — She will cross when the opportunity is plausible. Emphasize: trust. Avoid: tone drift."
+        };
+
+        Assert.True(slot.ShouldWrite(context));
+
+        var text = await slot.WriteAsync(context, CancellationToken.None);
+
+        Assert.Contains("HARD CONSTRAINT — Wife Willingness to Cheat", text);
+        // Contract order: Verdict, Ceiling, Ladder, Details.
+        var verdictIdx = text.IndexOf("Verdict: YES", StringComparison.Ordinal);
+        var ceilingIdx = text.IndexOf("Ceiling: Full Surrender", StringComparison.Ordinal);
+        var ladderIdx = text.IndexOf("Ladder: Gentle Touch, Kissing, Manual Sex, Full Surrender", StringComparison.Ordinal);
+        var detailsIdx = text.IndexOf("Details: Willingness to Cheat = 100", StringComparison.Ordinal);
+        Assert.True(verdictIdx >= 0, "Verdict line missing");
+        Assert.True(ceilingIdx >= 0, "Ceiling line missing");
+        Assert.True(ladderIdx >= 0, "Ladder line missing");
+        Assert.True(detailsIdx >= 0, "Details line missing");
+        Assert.True(verdictIdx < ceilingIdx && ceilingIdx < ladderIdx && ladderIdx < detailsIdx,
+            $"Expected contract order Verdict < Ceiling < Ladder < Details (got {verdictIdx}, {ceilingIdx}, {ladderIdx}, {detailsIdx})");
+        // The factory suffixes are NOT dragged into the block.
+        Assert.DoesNotContain("Emphasize: trust", text);
+        Assert.DoesNotContain("Avoid: tone drift", text);
+        // The band sentences must not be preceded by the phase prose inside the block.
+        Assert.DoesNotContain("triangle is in motion. Ceiling:", text);
+    }
+
     // ── T041: FinalInstructionSlot Character variant (FR-023, FR-027, FR-036) ──
 
     [Fact]

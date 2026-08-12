@@ -149,20 +149,227 @@ public sealed class ScenarioGuidanceGeneratorTests
             statWillingnessProfileService: willingnessService,
             husbandAwarenessProfileService: husbandService);
 
+        // B-034: the willingness/ceiling block gates on a Wife being present in the
+        // runtime snapshots, so supply one (Desire 60 / Loyalty 90 → willingness 60, ceiling 60).
+        var snapshots = new Dictionary<string, CharacterStatProfileV2>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["char-wife"] = new()
+            {
+                CharacterId = "char-wife",
+                CharacterRole = "Wife",
+                Desire = 60,
+                Loyalty = 90
+            }
+        };
+
         var output = await service.GenerateGuidanceAsync(new ScenarioGuidanceRequest
         {
             ActiveScenarioId = "dominance",
             CurrentPhase = "Committed",
             AverageDesire = 60,
             AverageLoyalty = 90,
-            SelectedWillingnessProfileId = "will-1"
+            SelectedWillingnessProfileId = "will-1",
+            CharacterRuntimeStats = snapshots
         });
 
-        Assert.Contains("Willingness band 'Test Band'", output.GuidanceText, StringComparison.Ordinal);
-        Assert.Contains("from Loyalty=90", output.GuidanceText, StringComparison.Ordinal);
+        // B-034: the willingness interpretation now resolves the band from the Option A score
+        // (ceiling = min(Desire, willingness)) instead of a raw Loyalty lookup, emitting the
+        // contract Verdict/Ceiling/Ladder/Details lines.
+        Assert.Contains("Ceiling: Test Band", output.GuidanceText, StringComparison.Ordinal);
+        Assert.Contains("Ladder: Test Band", output.GuidanceText, StringComparison.Ordinal);
+        Assert.Contains("Details: Willingness to Cheat = 60", output.GuidanceText, StringComparison.Ordinal);
+        Assert.Contains("(Desire=60, Loyalty=90", output.GuidanceText, StringComparison.Ordinal);
+        Assert.Contains("Ceiling = min(Desire, willingness) = 60", output.GuidanceText, StringComparison.Ordinal);
         // B-042: ScenarioGuidanceGenerator no longer generates behavioral frames;
         // frames come from IBehavioralFrameGenerator via ScenarioGuidanceContextFactory
         Assert.Empty(output.CharacterBehavioralFrames);
+    }
+
+    // ── B-034 T012: Option A willingness score → band + verdict in GuidanceText ──
+
+    [Fact]
+    public async Task GenerateGuidanceAsync_WithWifeAndHusbandSnapshots_ResolvesWillingnessAndVerdict()
+    {
+        var template = new ScenarioGuidanceTemplate
+        {
+            ScenarioId = "ntr-open-world",
+            PhaseGuidance = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Committed"] = "The triangle is in motion."
+            }
+        };
+
+        var willingnessService = new FakeWillingnessService(
+            new StatWillingnessProfile
+            {
+                Id = "will-b034",
+                Name = "B-034 Ceiling Map",
+                Thresholds =
+                [
+                    new WillingnessThreshold
+                    {
+                        SortOrder = 1,
+                        MinValue = 0,
+                        MaxValue = 100,
+                        ExplicitnessLevel = "Full Surrender",
+                        PromptGuideline = "Escalate to the ceiling.",
+                        ExampleScenarios = ["consummated"]
+                    }
+                ]
+            });
+
+        var service = new ScenarioGuidanceGenerator(
+            new FakeTemplateService(
+            [
+                new TemplateDefinition
+                {
+                    Id = Guid.NewGuid(),
+                    TemplateType = TemplateType.ScenarioGuidance,
+                    Name = "scenario-guidance:ntr-open-world",
+                    Content = JsonSerializer.Serialize(template, JsonOptions)
+                }
+            ]),
+            NullLogger<ScenarioGuidanceGenerator>.Instance,
+            statWillingnessProfileService: willingnessService);
+
+        // Wife: Desire 80 / Loyalty 20, SeductionReceptivity 70 / BoundaryFirmness 30.
+        // Husband: Attentiveness 40 / IntimacyAvailability 40.
+        // willingness = 50 + (80-20)*0.5 + (70-30)*0.5 + ((100-40)+(100-40))*0.25 = 130 → clamp 100.
+        // ceiling = min(80, 100) = 80. verdict = YES (100 > maybeMax 70).
+        var snapshots = new Dictionary<string, CharacterStatProfileV2>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["char-wife"] = new()
+            {
+                CharacterId = "char-wife",
+                CharacterRole = "Wife",
+                Desire = 80,
+                Loyalty = 20,
+                RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["SeductionReceptivity"] = 70,
+                    ["BoundaryFirmness"] = 30
+                }
+            },
+            ["char-husband"] = new()
+            {
+                CharacterId = "char-husband",
+                CharacterRole = "Husband",
+                RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Attentiveness"] = 40,
+                    ["IntimacyAvailability"] = 40
+                }
+            }
+        };
+
+        var output = await service.GenerateGuidanceAsync(new ScenarioGuidanceRequest
+        {
+            ActiveScenarioId = "ntr-open-world",
+            CurrentPhase = "Committed",
+            SelectedWillingnessProfileId = "will-b034",
+            CharacterRuntimeStats = snapshots
+        });
+
+        // Ceiling (Willingness Profile catalog) — resolved from min(Desire, willingness), contract format.
+        Assert.Contains("Ceiling: Full Surrender", output.GuidanceText, StringComparison.Ordinal);
+        Assert.Contains("Escalate to the ceiling.", output.GuidanceText, StringComparison.Ordinal);
+        Assert.Contains("Ladder: Full Surrender", output.GuidanceText, StringComparison.Ordinal);
+        Assert.Contains("Ceiling = min(Desire, willingness) = 80", output.GuidanceText, StringComparison.Ordinal);
+
+        // Verdict (config verdict bands) — resolved from the willingness score, contract format.
+        Assert.Contains("Verdict: YES", output.GuidanceText, StringComparison.Ordinal);
+        Assert.Contains("She will cross when the opportunity is plausible", output.GuidanceText, StringComparison.Ordinal);
+        // No loyalty-keyed resistance band is emitted (retired per plan decision #3).
+        Assert.DoesNotContain("Resistance band", output.GuidanceText, StringComparison.Ordinal);
+        Assert.DoesNotContain("loyalty=20)", output.GuidanceText, StringComparison.Ordinal);
+    }
+
+    // ── B-034: escalation ladder lists all bands up to (and including) the ceiling band ──
+
+    [Fact]
+    public async Task GenerateGuidanceAsync_WillingnessLadder_ListsBandsUpToCeilingBand()
+    {
+        var template = new ScenarioGuidanceTemplate
+        {
+            ScenarioId = "ladder-test",
+            PhaseGuidance = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Committed"] = "The triangle is in motion."
+            }
+        };
+
+        var willingnessService = new FakeWillingnessService(
+            new StatWillingnessProfile
+            {
+                Id = "will-ladder",
+                Name = "Ladder Map",
+                Thresholds =
+                [
+                    new WillingnessThreshold { SortOrder = 1, MinValue = 0, MaxValue = 20, ExplicitnessLevel = "Gentle Touch", PromptGuideline = "g1" },
+                    new WillingnessThreshold { SortOrder = 2, MinValue = 21, MaxValue = 40, ExplicitnessLevel = "Kissing", PromptGuideline = "g2" },
+                    new WillingnessThreshold { SortOrder = 3, MinValue = 41, MaxValue = 60, ExplicitnessLevel = "Manual Sex", PromptGuideline = "g3" },
+                    new WillingnessThreshold { SortOrder = 4, MinValue = 61, MaxValue = 80, ExplicitnessLevel = "Cunnilingus", PromptGuideline = "g4" },
+                    new WillingnessThreshold { SortOrder = 5, MinValue = 81, MaxValue = 100, ExplicitnessLevel = "Intercourse", PromptGuideline = "g5" }
+                ]
+            });
+
+        var service = new ScenarioGuidanceGenerator(
+            new FakeTemplateService(
+            [
+                new TemplateDefinition
+                {
+                    Id = Guid.NewGuid(),
+                    TemplateType = TemplateType.ScenarioGuidance,
+                    Name = "scenario-guidance:ladder-test",
+                    Content = JsonSerializer.Serialize(template, JsonOptions)
+                }
+            ]),
+            NullLogger<ScenarioGuidanceGenerator>.Instance,
+            statWillingnessProfileService: willingnessService);
+
+        // Wife Desire 50 / Loyalty 50, all encounter stats neutral (50).
+        // willingness = 50 + (50-50)*0.5 + (50-50)*0.5 + ((100-50)+(100-50))*0.25 = 75.
+        // ceiling = min(Desire, willingness) = min(50, 75) = 50 → band 3 (Manual Sex, 41-60).
+        var snapshots = new Dictionary<string, CharacterStatProfileV2>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["char-wife"] = new()
+            {
+                CharacterId = "char-wife",
+                CharacterRole = "Wife",
+                Desire = 50,
+                Loyalty = 50,
+                RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["SeductionReceptivity"] = 50,
+                    ["BoundaryFirmness"] = 50
+                }
+            },
+            ["char-husband"] = new()
+            {
+                CharacterId = "char-husband",
+                CharacterRole = "Husband",
+                RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Attentiveness"] = 50,
+                    ["IntimacyAvailability"] = 50
+                }
+            }
+        };
+
+        var output = await service.GenerateGuidanceAsync(new ScenarioGuidanceRequest
+        {
+            ActiveScenarioId = "ladder-test",
+            CurrentPhase = "Committed",
+            SelectedWillingnessProfileId = "will-ladder",
+            CharacterRuntimeStats = snapshots
+        });
+
+        // Ceiling lands on Manual Sex; the ladder lists all bands up to and including it,
+        // and never includes bands above the ceiling.
+        Assert.Contains("Ceiling: Manual Sex", output.GuidanceText, StringComparison.Ordinal);
+        Assert.Contains("Ladder: Gentle Touch, Kissing, Manual Sex", output.GuidanceText, StringComparison.Ordinal);
+        Assert.DoesNotContain("Cunnilingus", output.GuidanceText, StringComparison.Ordinal);
+        Assert.DoesNotContain("Intercourse", output.GuidanceText, StringComparison.Ordinal);
     }
 
     // --- B-042 T020: CharacterBehavioralFrameGenerator multi-character tests ---

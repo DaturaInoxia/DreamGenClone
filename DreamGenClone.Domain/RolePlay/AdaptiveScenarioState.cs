@@ -14,7 +14,12 @@ public sealed class AdaptiveScenarioState
     public string? SelectedWillingnessProfileId { get; set; }
     public string? SelectedResistanceProfileId { get; set; }
     public string? SelectedNarrativeGateProfileId { get; set; }
-    public int MotivationScore { get; set; }
+
+    /// <summary>
+    /// B-034: Unified "Wife Willingness to Cheat" score (Option A, 0-100, default 50).
+    /// Replaces the retired <c>MotivationScore</c>. Persisted on RolePlayV2AdaptiveStates.
+    /// </summary>
+    public int WillingnessToCheat { get; set; } = 50;
 
     /// <summary>
     /// Maps characterId → CharacterProfile.Id for encounter behavioral profile bindings.

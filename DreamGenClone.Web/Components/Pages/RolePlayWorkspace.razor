@@ -1678,34 +1678,46 @@
         return match?.Name ?? selectedId;
     }
 
-    private int GetMotScore()
-        => _session?.AdaptiveState?.MotivationScore ?? 0;
+    private int GetWillingnessToCheat()
+        => ComputeWillingnessDetail().Score;
 
-    private (int Score, int Att, int Intim, int Sr, int Ppl) ComputeMotivationDetail()
+    private (int Score, int Desire, int Loyalty, int SedRecept, int BoundFirm, int Att, int Intim) ComputeWillingnessDetail()
     {
         if (_v2State?.CharacterSnapshots is null)
-            return (0, 50, 50, 50, 50);
+            return (50, 50, 50, 50, 50, 50, 50);
 
         var wifeStats = _v2State.CharacterSnapshots.FirstOrDefault(s =>
             string.Equals(s.CharacterRole, "Wife", StringComparison.OrdinalIgnoreCase));
         var husbandStats = _v2State.CharacterSnapshots.FirstOrDefault(s =>
             string.Equals(s.CharacterRole, "Husband", StringComparison.OrdinalIgnoreCase));
-        var otherManStats = _v2State.CharacterSnapshots.FirstOrDefault(s =>
-            string.Equals(s.CharacterRole, "OtherMan", StringComparison.OrdinalIgnoreCase));
 
+        var desire = wifeStats is not null ? GetCharacterStatValue(wifeStats, "Desire") : 50;
+        var loyalty = wifeStats is not null ? GetCharacterStatValue(wifeStats, "Loyalty") : 50;
+        var sedRecept = wifeStats?.RuntimeEncounterStats?.TryGetValue("SeductionReceptivity", out var sr) == true ? sr : 50;
+        var boundFirm = wifeStats?.RuntimeEncounterStats?.TryGetValue("BoundaryFirmness", out var bf) == true ? bf : 50;
         var att = husbandStats?.RuntimeEncounterStats?.TryGetValue("Attentiveness", out var a) == true ? a : 50;
         var intim = husbandStats?.RuntimeEncounterStats?.TryGetValue("IntimacyAvailability", out var i) == true ? i : 50;
-        var sr = wifeStats is not null ? GetCharacterStatValue(wifeStats, "SelfRespect") : 50;
-        var ppl = otherManStats?.RuntimeEncounterStats?.TryGetValue("PersistencePastLimits", out var p) == true ? p : 50;
 
-        var score = (int)Math.Round(((100 - att) + (100 - intim) + (100 - sr) + ppl) / 4.0, MidpointRounding.AwayFromZero);
-        return (score, att, intim, sr, ppl);
+        var score = DreamGenClone.Application.RolePlay.WifeWillingnessCalculator.ComputeWillingnessToCheat(
+            desire, loyalty, sedRecept, boundFirm, att, intim,
+            _scenarioEngineSettings.WillingnessDesireLoyaltyWeight,
+            _scenarioEngineSettings.WillingnessBehaviorWeight,
+            _scenarioEngineSettings.WillingnessMaritalDeficitWeight);
+
+        return (score, desire, loyalty, sedRecept, boundFirm, att, intim);
     }
 
-    private int GetEffLoyalty(CharacterStatProfileV2 profile)
+    private string ResolveWillingnessVerdict(int willingness)
+        => DreamGenClone.Application.RolePlay.WifeWillingnessCalculator.ResolveVerdict(
+            willingness,
+            _scenarioEngineSettings.WillingnessVerdictNoMax,
+            _scenarioEngineSettings.WillingnessVerdictMaybeMax);
+
+    private int GetWillingnessCeiling(CharacterStatProfileV2 profile)
     {
-        var loyalty = GetCharacterStatValue(profile, "Loyalty");
-        return Math.Max(loyalty - GetMotScore(), 0);
+        var desire = GetCharacterStatValue(profile, "Desire");
+        var willingness = GetWillingnessToCheat();
+        return DreamGenClone.Application.RolePlay.WifeWillingnessCalculator.ComputeCeiling(willingness, desire);
     }
 
     private string GetResProfileName()
@@ -1720,36 +1732,52 @@
     }
 
     private string GetResBand(CharacterStatProfileV2 profile)
-    {
-        var (_, level) = ResolveResistanceThreshold(profile);
-        return level;
-    }
+        => ResolveWillingnessVerdict(GetWillingnessToCheat());
 
     private string GetBandText(CharacterStatProfileV2 profile)
     {
-        var (threshold, _) = ResolveResistanceThreshold(profile);
-        return threshold?.Description ?? threshold?.PromptDirective ?? "-";
+        // B-034: verdict band text from WillingnessVerdictBands (NO/MAYBE/YES).
+        var verdict = GetResBand(profile);
+        return verdict switch
+        {
+            "YES" => "Yes — willing to cross. Desire caps how far (see Ceiling).",
+            "MAYBE" => "Maybe — tempted but unresolved; leans on the ceiling for how far.",
+            _ => "No — holds the line; not willing to cheat under current state."
+        };
     }
 
-    private (ResistanceThreshold? Threshold, string Level) ResolveResistanceThreshold(CharacterStatProfileV2 profile)
+    private (WillingnessThreshold? Threshold, string Level) ResolveCeilingThreshold(CharacterStatProfileV2 profile)
     {
-        var selectedId = _session?.AdaptiveState?.SelectedResistanceProfileId;
-        StatResistanceProfile? resistanceProfile;
+        var selectedId = _session?.AdaptiveState?.SelectedWillingnessProfileId;
+        StatWillingnessProfile? willingnessProfile;
         if (string.IsNullOrWhiteSpace(selectedId))
         {
-            resistanceProfile = _resistanceProfiles.FirstOrDefault(p => p.IsDefault);
+            willingnessProfile = _willingnessProfiles.FirstOrDefault(p => p.IsDefault);
         }
         else
         {
-            resistanceProfile = _resistanceProfiles.FirstOrDefault(x => string.Equals(x.Id, selectedId, StringComparison.OrdinalIgnoreCase));
+            willingnessProfile = _willingnessProfiles.FirstOrDefault(x => string.Equals(x.Id, selectedId, StringComparison.OrdinalIgnoreCase));
         }
-        if (resistanceProfile is null) return (null, "-");
-        var effLoyalty = GetEffLoyalty(profile);
-        var threshold = resistanceProfile.Thresholds
-            .Where(t => effLoyalty >= t.MinValue && effLoyalty <= t.MaxValue)
+        if (willingnessProfile is null) return (null, "-");
+
+        var ceiling = GetWillingnessCeiling(profile);
+        var threshold = willingnessProfile.Thresholds
+            .Where(t => ceiling >= t.MinValue && ceiling <= t.MaxValue)
             .OrderBy(t => t.SortOrder)
             .FirstOrDefault();
-        return (threshold, threshold?.ResistanceLevel ?? "-");
+        return (threshold, threshold?.ExplicitnessLevel ?? "-");
+    }
+
+    private string GetCeilingBand(CharacterStatProfileV2 profile)
+    {
+        var (_, level) = ResolveCeilingThreshold(profile);
+        return level;
+    }
+
+    private string GetCeilingBandText(CharacterStatProfileV2 profile)
+    {
+        var (threshold, _) = ResolveCeilingThreshold(profile);
+        return threshold?.PromptGuideline ?? "-";
     }
 
     private IReadOnlyList<V2RolePlay.ThemeScoreState> GetAdaptiveOverrideThemes()
@@ -10678,62 +10706,64 @@ private void CloseInteractionInfo()
                                                     }
                                                     @if (string.Equals(charRole, "Wife", StringComparison.OrdinalIgnoreCase))
                                                     {
-                            var motDetail = ComputeMotivationDetail();
-                            var rawLoyalty = GetCharacterStatValue(actorStats, "Loyalty");
-                            var effLoyalty = GetEffLoyalty(actorStats);
+                            var willDetail = ComputeWillingnessDetail();
+                            var rawDesire = GetCharacterStatValue(actorStats, "Desire");
+                            var willingness = willDetail.Score;
+                            var verdict = ResolveWillingnessVerdict(willingness);
+                            var ceiling = GetWillingnessCeiling(actorStats);
                                                         <div class="rw-stat-prompt-section">
-                                                            <div class="rw-stat-prompt-heading">Motivation / Resistance</div>
+                                                            <div class="rw-stat-prompt-heading">Wife Willingness to Cheat</div>
                                                             <div class="rw-stat-prompt-row">
-                                                                <span class="rw-stat-prompt-name">Profile</span>
-                                                                <span class="rw-stat-prompt-text">@GetResProfileName()</span>
+                                                                <span class="rw-stat-prompt-name">Willingness Score</span>
+                                                                <span class="rw-stat-prompt-text">@willingness / 100</span>
                                                             </div>
                                                             <div class="rw-stat-prompt-row">
-                                                                <span class="rw-stat-prompt-name">Loyalty</span>
-                                                                <span class="rw-stat-prompt-text">@rawLoyalty</span>
+                                                                <span class="rw-stat-prompt-name">Verdict</span>
+                                                                <span class="rw-stat-prompt-text">@verdict — @GetBandText(actorStats)</span>
                                                             </div>
                                                             <div class="rw-stat-prompt-row">
-                                                                <span class="rw-stat-prompt-name">Motivation Score</span>
-                                                                <span class="rw-stat-prompt-text">@motDetail.Score</span>
+                                                                <span class="rw-stat-prompt-name">Ceiling (what she'll do)</span>
+                                                                <span class="rw-stat-prompt-text">@GetCeilingBand(actorStats) — @GetCeilingBandText(actorStats)</span>
                                                             </div>
                                                             <div class="rw-stat-prompt-row">
-                                                                <span class="rw-stat-prompt-name">Eff. Loyalty</span>
-                                                                <span class="rw-stat-prompt-text">@effLoyalty (Loyalty − Motivation)</span>
-                                                            </div>
-                                                            <div class="rw-stat-prompt-row">
-                                                                <span class="rw-stat-prompt-name">Band</span>
-                                                                <span class="rw-stat-prompt-text">@GetResBand(actorStats)</span>
-                                                            </div>
-                                                            <div class="rw-stat-prompt-row">
-                                                                <span class="rw-stat-prompt-name">Band Text</span>
-                                                                <span class="rw-stat-prompt-text">@GetBandText(actorStats)</span>
+                                                                <span class="rw-stat-prompt-name">Desire</span>
+                                                                <span class="rw-stat-prompt-text">@rawDesire (Ceiling = min(Desire, willingness) = @ceiling)</span>
                                                             </div>
                                                             <div class="rw-stat-prompt-heading" @onclick='() => ToggleAdaptiveSection("mot-"+actorStats.CharacterId)' style="cursor:pointer;display:flex;align-items:center;gap:6px;margin-top:8px;"><span class="rw-collapsible-chevron @(IsAdaptiveSectionExpanded("mot-"+actorStats.CharacterId)?"is-open":"")">&#8250;</span> Formula Details</div>
                                                             @if (IsAdaptiveSectionExpanded("mot-"+actorStats.CharacterId))
                                                             {
                                                                 <div class="rw-stat-prompt-section" style="padding-left:10px;border-left:2px solid #444;margin-top:4px;">
                                                                     <div class="rw-stat-prompt-row">
+                                                                        <span class="rw-stat-prompt-name">Desire</span>
+                                                                        <span class="rw-stat-prompt-text">@willDetail.Desire</span>
+                                                                    </div>
+                                                                    <div class="rw-stat-prompt-row">
+                                                                        <span class="rw-stat-prompt-name">Loyalty</span>
+                                                                        <span class="rw-stat-prompt-text">@willDetail.Loyalty</span>
+                                                                    </div>
+                                                                    <div class="rw-stat-prompt-row">
+                                                                        <span class="rw-stat-prompt-name">SeductionReceptivity</span>
+                                                                        <span class="rw-stat-prompt-text">@willDetail.SedRecept</span>
+                                                                    </div>
+                                                                    <div class="rw-stat-prompt-row">
+                                                                        <span class="rw-stat-prompt-name">BoundaryFirmness</span>
+                                                                        <span class="rw-stat-prompt-text">@willDetail.BoundFirm</span>
+                                                                    </div>
+                                                                    <div class="rw-stat-prompt-row">
                                                                         <span class="rw-stat-prompt-name">Husband Attentiveness</span>
-                                                                        <span class="rw-stat-prompt-text">@motDetail.Att</span>
+                                                                        <span class="rw-stat-prompt-text">@willDetail.Att</span>
                                                                     </div>
                                                                     <div class="rw-stat-prompt-row">
                                                                         <span class="rw-stat-prompt-name">Husband IntimacyAvailability</span>
-                                                                        <span class="rw-stat-prompt-text">@motDetail.Intim</span>
-                                                                    </div>
-                                                                    <div class="rw-stat-prompt-row">
-                                                                        <span class="rw-stat-prompt-name">Wife SelfRespect</span>
-                                                                        <span class="rw-stat-prompt-text">@motDetail.Sr</span>
-                                                                    </div>
-                                                                    <div class="rw-stat-prompt-row">
-                                                                        <span class="rw-stat-prompt-name">OtherMan PersistencePastLimits</span>
-                                                                        <span class="rw-stat-prompt-text">@motDetail.Ppl</span>
+                                                                        <span class="rw-stat-prompt-text">@willDetail.Intim</span>
                                                                     </div>
                                                                     <div class="rw-stat-prompt-row">
                                                                         <span class="rw-stat-prompt-name">Formula</span>
-                                                                        <span class="rw-stat-prompt-text">((100−@motDetail.Att) + (100−@motDetail.Intim) + (100−@motDetail.Sr) + @motDetail.Ppl) / 4 = @motDetail.Score</span>
+                                                                        <span class="rw-stat-prompt-text">50 + (Desire−Loyalty)×@(_scenarioEngineSettings.WillingnessDesireLoyaltyWeight) + (SedRecept−BoundFirm)×@(_scenarioEngineSettings.WillingnessBehaviorWeight) + ((100−Att)+(100−Intim))×@(_scenarioEngineSettings.WillingnessMaritalDeficitWeight) = @willingness</span>
                                                                     </div>
                                                                     <div class="rw-stat-prompt-row">
-                                                                        <span class="rw-stat-prompt-name">Effective Loyalty</span>
-                                                                        <span class="rw-stat-prompt-text">min(@rawLoyalty + @motDetail.Score, 100) = @effLoyalty</span>
+                                                                        <span class="rw-stat-prompt-name">Verdict bands</span>
+                                                                        <span class="rw-stat-prompt-text">0-@(_scenarioEngineSettings.WillingnessVerdictNoMax) NO, @(_scenarioEngineSettings.WillingnessVerdictNoMax+1)-@(_scenarioEngineSettings.WillingnessVerdictMaybeMax) MAYBE, @(_scenarioEngineSettings.WillingnessVerdictMaybeMax+1)-100 YES</span>
                                                                     </div>
                                                                 </div>
                                                             }

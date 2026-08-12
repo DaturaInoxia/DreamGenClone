@@ -2734,6 +2734,59 @@
                     </div>
                 </div>
 
+                <div class="card mb-3">
+                    <div class="card-header"><strong>Wife Willingness to Cheat (B-034)</strong></div>
+                    <div class="card-body">
+                        <p class="text-muted small">Option A: willingness = 50 + (Desire−Loyalty)×DW + (SedRecept−BoundFirm)×BW + ((100−Att)+(100−Intim))×MDW. Verdict bands map the score to YES / MAYBE / NO; ceiling = min(Desire, willingness).</p>
+                        <div class="row g-3">
+                            <div class="col-sm-4">
+                                <label class="form-label">Desire−Loyalty Weight</label>
+                                <input type="number" class="form-control" step="0.05" min="0" max="2" @bind="_engineSettings.WillingnessDesireLoyaltyWeight" />
+                                <div class="form-text">Default: 0.5</div>
+                            </div>
+                            <div class="col-sm-4">
+                                <label class="form-label">Behavior Weight</label>
+                                <input type="number" class="form-control" step="0.05" min="0" max="2" @bind="_engineSettings.WillingnessBehaviorWeight" />
+                                <div class="form-text">Default: 0.5</div>
+                            </div>
+                            <div class="col-sm-4">
+                                <label class="form-label">Marital Deficit Weight</label>
+                                <input type="number" class="form-control" step="0.05" min="0" max="2" @bind="_engineSettings.WillingnessMaritalDeficitWeight" />
+                                <div class="form-text">Default: 0.25</div>
+                            </div>
+                        </div>
+                        <div class="row g-3 mt-1">
+                            <div class="col-sm-4">
+                                <label class="form-label">Verdict NO Max</label>
+                                <input type="number" class="form-control" step="1" min="0" max="100" @bind="_engineSettings.WillingnessVerdictNoMax" />
+                                <div class="form-text">Default: 40 (0-40 → NO)</div>
+                            </div>
+                            <div class="col-sm-4">
+                                <label class="form-label">Verdict MAYBE Max</label>
+                                <input type="number" class="form-control" step="1" min="0" max="100" @bind="_engineSettings.WillingnessVerdictMaybeMax" />
+                                <div class="form-text">Default: 70 (41-70 → MAYBE, 71+ → YES)</div>
+                            </div>
+                        </div>
+                        <div class="row g-3 mt-1">
+                            <div class="col-sm-4">
+                                <label class="form-label">NO Directive</label>
+                                <input type="text" class="form-control" @bind="_engineSettings.WillingnessVerdictNoDirective" />
+                                <div class="form-text">Prompt text emitted with verdict NO.</div>
+                            </div>
+                            <div class="col-sm-4">
+                                <label class="form-label">MAYBE Directive</label>
+                                <input type="text" class="form-control" @bind="_engineSettings.WillingnessVerdictMaybeDirective" />
+                                <div class="form-text">Prompt text emitted with verdict MAYBE.</div>
+                            </div>
+                            <div class="col-sm-4">
+                                <label class="form-label">YES Directive</label>
+                                <input type="text" class="form-control" @bind="_engineSettings.WillingnessVerdictYesDirective" />
+                                <div class="form-text">Prompt text emitted with verdict YES.</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="d-flex gap-2 mt-3">
                     <button class="btn btn-primary" @onclick="SaveEngineSettingsAsync" disabled="@_isBusy">Save</button>
                     <button class="btn btn-outline-secondary" @onclick="ResetEngineSettingsAsync" disabled="@_isBusy">Reset to Defaults</button>

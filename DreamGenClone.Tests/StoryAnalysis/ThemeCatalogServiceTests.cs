@@ -351,5 +351,6 @@ public sealed class ThemeCatalogServiceTests
         public Task<bool> DeleteCharacterProfileAsync(string id, CancellationToken ct = default) => throw new NotImplementedException();
         public Task SaveSteeringGenerationRecordAsync(SteeringGenerationRecord record, CancellationToken cancellationToken = default) => throw new NotImplementedException();
         public Task<SteeringGenerationRecord?> LoadSteeringGenerationRecordAsync(string id, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<SteeringGenerationRecord?> GetLatestSteeringGenerationRecordAsync(string sessionId) => Task.FromResult<SteeringGenerationRecord?>(null);
     }
 }

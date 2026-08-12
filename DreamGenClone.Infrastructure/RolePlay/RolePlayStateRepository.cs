@@ -310,6 +310,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 SemanticStepSucceeded, SemanticDeltaBreakdownsJson, SemanticStatDeltaBreakdownsJson,
                 CurrentEncounterNumber, TurnsInCurrentEncounter, TimeSkipPending, CurrentTimeSkipPhase,
                 GlobalEncounterCount, CurrentEncounterStartInteractionIndex, IsEncounterActive, CurrentTimeOfDay, TimeOfDayManuallySet,
+                WillingnessToCheat,
                 UpdatedUtc)
             VALUES (
                 $sessionId, $activeScenarioId, $currentPhase, $TurnCountInPhase, $consecutiveLeadCount,
@@ -323,6 +324,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 $semanticStepSucceeded, $semanticDeltaBreakdownsJson, $semanticStatDeltaBreakdownsJson,
                 $currentEncounterNumber, $TurnsInCurrentEncounter, $timeSkipPending, $currentTimeSkipPhase,
                 $globalEncounterCount, $currentEncounterStartInteractionIndex, $isEncounterActive, $currentTimeOfDay, $timeOfDayManuallySet,
+                $willingnessToCheat,
                 $updatedUtc)
             ON CONFLICT(SessionId) DO UPDATE SET
                 ActiveScenarioId = excluded.ActiveScenarioId,
@@ -364,6 +366,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                 IsEncounterActive = excluded.IsEncounterActive,
                 CurrentTimeOfDay = excluded.CurrentTimeOfDay,
                 TimeOfDayManuallySet = excluded.TimeOfDayManuallySet,
+                WillingnessToCheat = excluded.WillingnessToCheat,
                 UpdatedUtc = excluded.UpdatedUtc;
             """;
 
@@ -415,6 +418,7 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
         command.Parameters.AddWithValue("$isEncounterActive", state.IsEncounterActive ? 1 : 0);
         command.Parameters.AddWithValue("$currentTimeOfDay", state.CurrentTimeOfDay?.ToString() ?? (object)DBNull.Value);
         command.Parameters.AddWithValue("$timeOfDayManuallySet", state.TimeOfDayManuallySet ? 1 : 0);
+        command.Parameters.AddWithValue("$willingnessToCheat", state.WillingnessToCheat);
         command.Parameters.AddWithValue("$updatedUtc", nowUtc.ToString("O"));
         await command.ExecuteNonQueryAsync(cancellationToken);
 
@@ -610,7 +614,8 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
                               SemanticStepSucceeded, SemanticDeltaBreakdownsJson, SemanticStatDeltaBreakdownsJson,
                               CharacterEncounterProfileIdsJson,
                               CurrentEncounterNumber, TurnsInCurrentEncounter, TimeSkipPending, CurrentTimeSkipPhase,
-                              GlobalEncounterCount, CurrentEncounterStartInteractionIndex, IsEncounterActive, CurrentTimeOfDay, TimeOfDayManuallySet
+                              GlobalEncounterCount, CurrentEncounterStartInteractionIndex, IsEncounterActive, CurrentTimeOfDay, TimeOfDayManuallySet,
+                              WillingnessToCheat
             FROM RolePlayV2AdaptiveStates
             WHERE SessionId = $sessionId;
             """;
@@ -690,7 +695,8 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
             CurrentEncounterStartInteractionIndex = reader.IsDBNull(37) ? 0 : reader.GetInt32(37),
             IsEncounterActive = reader.IsDBNull(38) ? false : reader.GetInt32(38) != 0,
             CurrentTimeOfDay = reader.IsDBNull(39) ? null : Enum.TryParse<DreamGenClone.Domain.RolePlay.TimeOfDay>(reader.GetString(39), out var tod) ? tod : null,
-            TimeOfDayManuallySet = reader.IsDBNull(40) ? false : reader.GetInt32(40) != 0
+            TimeOfDayManuallySet = reader.IsDBNull(40) ? false : reader.GetInt32(40) != 0,
+            WillingnessToCheat = reader.IsDBNull(41) ? 50 : reader.GetInt32(41)
         };
         await reader.CloseAsync();
 
@@ -1195,6 +1201,15 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
         {
             await using var add = connection.CreateCommand();
             add.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN TimeOfDayManuallySet INTEGER NOT NULL DEFAULT 0";
+            await add.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        // B-034: WillingnessToCheat — unified "Wife Willingness to Cheat" score (Option A, 0-100, default 50).
+        // Replaces the retired MotivationScore (which was never persisted).
+        if (!await HasColumnAsync(connection, "RolePlayV2AdaptiveStates", "WillingnessToCheat", cancellationToken))
+        {
+            await using var add = connection.CreateCommand();
+            add.CommandText = "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN WillingnessToCheat INTEGER NOT NULL DEFAULT 50";
             await add.ExecuteNonQueryAsync(cancellationToken);
         }
 

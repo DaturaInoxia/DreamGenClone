@@ -100,6 +100,16 @@ public sealed record PromptBuildContext
     /// Null when not yet resolved.
     /// </summary>
     public IReadOnlyDictionary<string, string>? CharacterStatStateTexts { get; init; }
+
+    // ── Merged scenario guidance text (B-034) ────────────────────────────
+    /// <summary>
+    /// The merged scenario guidance text produced by <see cref="RolePlayContinuationService"/>
+    /// via <c>ScenarioGuidanceContextFactory</c>. Carries the phase guidance, stat interpretation,
+    /// and the B-034 unified "Wife Willingness to Cheat" block (verdict + ceiling band lines).
+    /// Currently dropped in the 17-slot path — wired here so a slot can render it.
+    /// Null when not yet resolved.
+    /// </summary>
+    public string? ScenarioGuidanceText { get; init; }
 }
 
 // ── World State sub-record (conditional, B-062) ─────────────────

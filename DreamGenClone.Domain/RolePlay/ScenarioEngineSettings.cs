@@ -42,4 +42,36 @@ public sealed class ScenarioEngineSettings
 
     /// <summary>Number of consecutive pipeline cycles a candidate must lead before committing.</summary>
     public int RequiredConsecutiveLeadCount { get; set; } = 2;
+
+    // ── B-034: Unified "Wife Willingness to Cheat" (Option A) ─────────────
+    // Coefficients for ComputeWillingnessToCheat (see WifeWillingnessCalculator).
+    // Wife-owned terms (Desire/Loyalty, SeductionReceptivity/BoundaryFirmness) dominate;
+    // Husband marital deficit is secondary. Persisted config — not hardcoded (repo rule).
+
+    /// <summary>Weight of (Desire − Loyalty) in the willingness score.</summary>
+    public double WillingnessDesireLoyaltyWeight { get; set; } = 0.5;
+
+    /// <summary>Weight of (SeductionReceptivity − BoundaryFirmness) in the willingness score.</summary>
+    public double WillingnessBehaviorWeight { get; set; } = 0.5;
+
+    /// <summary>Weight of ((100−Attentiveness) + (100−IntimacyAvailability)) in the willingness score.</summary>
+    public double WillingnessMaritalDeficitWeight { get; set; } = 0.25;
+
+    /// <summary>Upper bound of the NO verdict band (0..NoMax → NO).</summary>
+    public int WillingnessVerdictNoMax { get; set; } = 40;
+
+    /// <summary>Upper bound of the MAYBE verdict band (NoMax+1..MaybeMax → MAYBE; above → YES).</summary>
+    public int WillingnessVerdictMaybeMax { get; set; } = 70;
+
+    /// <summary>Directive text emitted with the NO verdict (willingness ≤ WillingnessVerdictNoMax).</summary>
+    public string WillingnessVerdictNoDirective { get; set; } =
+        "She will not cross — she stays loyal, deflects, and resists initiation or consent.";
+
+    /// <summary>Directive text emitted with the MAYBE verdict (NoMax &lt; willingness ≤ MaybeMax).</summary>
+    public string WillingnessVerdictMaybeDirective { get; set; } =
+        "She is uncertain — she may yield only to sustained, genuine pursuit; hesitation is her default.";
+
+    /// <summary>Directive text emitted with the YES verdict (willingness &gt; MaybeMax).</summary>
+    public string WillingnessVerdictYesDirective { get; set; } =
+        "She will cross when the opportunity is plausible — she initiates or yields; the Ceiling governs how far she goes.";
 }

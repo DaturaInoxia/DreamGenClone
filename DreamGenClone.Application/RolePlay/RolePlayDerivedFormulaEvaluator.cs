@@ -16,7 +16,29 @@ public static class RolePlayDerivedFormulaEvaluator
             ["ConsentThreshold"] = profile => profile.SelfRespect + profile.Dominance + profile.Restraint - (profile.Desire / 2.0),
             ["SubmissivenessCapacity"] = profile => 100.0 - profile.Dominance - (profile.SelfRespect / 2.0) + GetEncounterStat(profile, "Connection"),
             ["HotwifeCompatibility"] = profile => profile.Desire + GetEncounterStat(profile, "Connection") - profile.Dominance + (100.0 - profile.Loyalty),
-            ["DeceptionCapacity"] = profile => profile.Restraint + (100.0 - GetEncounterStat(profile, "Connection")) - GetEncounterStat(profile, "Tension")
+            ["DeceptionCapacity"] = profile => profile.Restraint + (100.0 - GetEncounterStat(profile, "Connection")) - GetEncounterStat(profile, "Tension"),
+
+            // B-034: unified "Wife Willingness to Cheat" (Option A) — single source of truth.
+            // Computed from the Wife profile with Husband/missing dims defaulting to 50 (neutral).
+            ["WifeWillingnessToCheat"] = profile => WifeWillingnessCalculator.ComputeWillingnessToCheat(
+                profile.Desire, profile.Loyalty,
+                (int)GetEncounterStat(profile, "SeductionReceptivity"),
+                (int)GetEncounterStat(profile, "BoundaryFirmness"),
+                50, 50), // Attentiveness / IntimacyAvailability default to 50 here (single-profile scope)
+            // Verdict score: reuse the same willingness score (0-100 → YES/MAYBE/NO bands elsewhere).
+            ["WifeWillingnessVerdict"] = profile => WifeWillingnessCalculator.ComputeWillingnessToCheat(
+                profile.Desire, profile.Loyalty,
+                (int)GetEncounterStat(profile, "SeductionReceptivity"),
+                (int)GetEncounterStat(profile, "BoundaryFirmness"),
+                50, 50),
+            // Explicitness ceiling: bounded by Desire.
+            ["WifeExplicitnessCeiling"] = profile => WifeWillingnessCalculator.ComputeCeiling(
+                WifeWillingnessCalculator.ComputeWillingnessToCheat(
+                    profile.Desire, profile.Loyalty,
+                    (int)GetEncounterStat(profile, "SeductionReceptivity"),
+                    (int)GetEncounterStat(profile, "BoundaryFirmness"),
+                    50, 50),
+                profile.Desire)
         };
 
     public static IReadOnlyDictionary<string, double> EvaluateAll(CharacterStatProfileV2 profile)

@@ -58,6 +58,9 @@ public sealed class AdaptiveScenarioStateV2RoundTripTests
                 ScenarioCommitmentTimeUtc = nowUtc.AddMinutes(-10),
                 SemanticStepSucceeded = false,
 
+                // B-034: unified "Wife Willingness to Cheat" score (Option A)
+                WillingnessToCheat = 63,
+
                 // Theme tracker (RolePlayV2ThemeTrackerMeta + RolePlayV2ThemeScores)
                 PrimaryThemeId = "theme-1",
                 SecondaryThemeId = "theme-2",
@@ -210,6 +213,9 @@ public sealed class AdaptiveScenarioStateV2RoundTripTests
             Assert.Equal(1, loaded.TurnsInApproaching);
             Assert.Equal(nowUtc.AddMinutes(-10), loaded.ScenarioCommitmentTimeUtc);
             Assert.False(loaded.SemanticStepSucceeded);
+
+            // B-034: WillingnessToCheat round-trips
+            Assert.Equal(63, loaded.WillingnessToCheat);
 
             // Theme tracker meta
             Assert.Equal("theme-1", loaded.PrimaryThemeId);

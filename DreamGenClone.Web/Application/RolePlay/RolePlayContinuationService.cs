@@ -55,6 +55,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
     private readonly RolePlayPromptBuilder _promptBuilder;
     private readonly ActorProfileResolver _actorProfileResolver;
     private readonly IPhaseRuleOfThumbRepository _phaseRuleOfThumbRepository;
+    private readonly IScenarioEngineSettingsRepository? _engineSettingsRepository;
     private readonly ILogger<RolePlayContinuationService> _logger;
 
     public RolePlayContinuationService(
@@ -78,7 +79,8 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         IHusbandAwarenessProfileService? husbandAwarenessProfileService = null,
         IOptions<RolePlayDecisionOptions>? rolePlayDecisionOptions = null,
         IOptions<RolePlayFeatureFlagsOptions>? rolePlayFeatureFlagsOptions = null,
-        IOptions<RolePlayMemoryOptions>? memoryOptions = null)
+        IOptions<RolePlayMemoryOptions>? memoryOptions = null,
+        IScenarioEngineSettingsRepository? engineSettingsRepository = null)
     {
         _completionClient = completionClient;
         _modelResolver = modelResolver;
@@ -97,6 +99,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         _diagnosticsService = diagnosticsService;
         _climaxBeatRepository = climaxBeatRepository;
         _husbandAwarenessProfileService = husbandAwarenessProfileService;
+        _engineSettingsRepository = engineSettingsRepository;
         _enableLocationServices = rolePlayDecisionOptions?.Value.EnableLocationServices ?? true;
         _includeCandidateMenuWhileObserving = rolePlayFeatureFlagsOptions?.Value.IncludeCandidateMenuWhileObserving ?? true;
         _memoryOptions = memoryOptions;
@@ -611,6 +614,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         // ── Resolve scenario guidance context (behavioral frames + stat state texts) ──
         IReadOnlyDictionary<string, string>? characterBehavioralFrames = null;
         IReadOnlyDictionary<string, string>? characterStatStateTexts = null;
+        string? scenarioGuidanceText = null;
         if (scenario is not null)
         {
             var runtimeStats = session.AdaptiveState.CharacterSnapshots
@@ -651,6 +655,12 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             var guidance = await _scenarioGuidanceContextFactory.CreateAsync(guidanceInput, cancellationToken);
             characterBehavioralFrames = guidance.CharacterBehavioralFrames;
             characterStatStateTexts = guidance.CharacterStatStateTexts;
+            scenarioGuidanceText = guidance.GuidanceText;
+
+            // B-034: persist the unified Wife Willingness to Cheat score on the adaptive state
+            // so the panel and history reflect the same number the engine uses.
+            session.AdaptiveState.WillingnessToCheat = await ResolveWillingnessToCheatAsync(
+                runtimeStats, cancellationToken);
         }
 
         // ── Resolve theme + intensity (needed for word target marker) ──
@@ -717,6 +727,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             CharacterDetails = charDetails,
             CharacterBehavioralFrames = characterBehavioralFrames,
             CharacterStatStateTexts = characterStatStateTexts,
+            ScenarioGuidanceText = scenarioGuidanceText,
             ActorRoleMap = BuildActorRoleMap(scenarioCharacters),
             RecentInteractionEntries = null,
         };
@@ -984,6 +995,35 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             NarrativeWordTargetMax = narrativeWordTargetMax,
             WordTargetMarker = resolvedMarker,
         };
+    }
+
+    /// <summary>
+    /// B-034: resolves the unified "Wife Willingness to Cheat" score (Option A) from the
+    /// session character snapshots, using the persisted engine settings (coefficients).
+    /// Falls back to neutral (50) on missing data or settings-load failure.
+    /// </summary>
+    private async Task<int> ResolveWillingnessToCheatAsync(
+        IReadOnlyDictionary<string, CharacterStatProfileV2>? runtimeStats,
+        CancellationToken cancellationToken)
+    {
+        DreamGenClone.Domain.RolePlay.ScenarioEngineSettings settings = new();
+        if (_engineSettingsRepository is not null)
+        {
+            try
+            {
+                settings = await _engineSettingsRepository.LoadAsync(cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "ResolveWillingnessToCheat: could not load engine settings; using defaults.");
+            }
+        }
+
+        return WifeWillingnessCalculator.ComputeWillingnessToCheat(
+            runtimeStats,
+            settings.WillingnessDesireLoyaltyWeight,
+            settings.WillingnessBehaviorWeight,
+            settings.WillingnessMaritalDeficitWeight);
     }
 
     /// <summary>
