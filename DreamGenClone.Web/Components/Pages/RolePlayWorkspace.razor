@@ -11161,12 +11161,10 @@ private void CloseInteractionInfo()
 
                                 <div class="rw-settings-info-row" style="margin-top:8px;"><span><strong>Semantic Analysis</strong></span><span></span></div>
                                 @{
-                                    var qDisplayInteractions = GetDisplayInteractions();
-                                    var qSemInteractionIndex = qDisplayInteractions
-                                        .Select((i, idx) => (Id: i.Id, Idx: idx))
-                                        .ToDictionary(x => x.Id, x => x.Idx, StringComparer.OrdinalIgnoreCase);
                                     var qSemStates = _semanticAnalysisByInteractionId.Values
-                                        .OrderByDescending(s => qSemInteractionIndex.TryGetValue(s.InteractionId, out var qSemIdx) ? qSemIdx : -1)
+                                        .OrderBy(s => s.Status == SemanticAnalysisStatus.Analyzing ? 0 :
+                                                      s.Status == SemanticAnalysisStatus.Error ? 1 :
+                                                      s.Status == SemanticAnalysisStatus.Idle ? 2 : 3)
                                         .ThenByDescending(s => s.UpdatedUtc)
                                         .ToList();
                                 }
@@ -11180,11 +11178,10 @@ private void CloseInteractionInfo()
                                     @foreach (var qState in qSemStates.Take(10))
                                     {
                                         var qRowClickable = qState.Status != SemanticAnalysisStatus.Idle;
-                                        var qStateIndex = qSemInteractionIndex.TryGetValue(qState.InteractionId, out var qIdx) ? qIdx + 1 : 0;
                                         <div class="rw-settings-info-row @(qRowClickable ? "rw-queue-sem-row-clickable" : "")"
                                              style="@(qRowClickable ? "cursor:pointer;" : "")"
                                              @onclick="@(() => { if (qState.Status != SemanticAnalysisStatus.Idle) ShowSemanticDetail(qState.InteractionId); })">
-                                            <span style="font-size:0.78em;word-break:break-all;">#@qStateIndex&nbsp;<span style="opacity:0.55;">@(qState.InteractionId.Length > 8 ? qState.InteractionId[..8] + "…" : qState.InteractionId)</span>&nbsp;<span style="opacity:0.55;">@(string.IsNullOrEmpty(qState.CharacterId) ? "—" : (qState.CharacterId.Length > 8 ? qState.CharacterId[..8] : qState.CharacterId))</span></span>
+                                            <span style="font-size:0.78em;word-break:break-all;">@(qState.InteractionId.Length > 8 ? qState.InteractionId[..8] + "…" : qState.InteractionId)&nbsp;<span style="opacity:0.55;">@(string.IsNullOrEmpty(qState.CharacterId) ? "—" : (qState.CharacterId.Length > 8 ? qState.CharacterId[..8] : qState.CharacterId))</span></span>
                                             <span class="@GetSemanticStatusBadgeClass(qState.Status)">@qState.Status</span>
                                         </div>
                                     }
