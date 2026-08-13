@@ -505,7 +505,20 @@ public class ScenarioAdaptationServiceTests
         public Task<(string Content, string? Reasoning)> GenerateWithReasoningAsync(string prompt, ResolvedModel resolved, CancellationToken cancellationToken = default)
             => Task.FromResult<(string, string?)>((response, null));
 
+        public Task<(string Content, string? Reasoning)> GenerateWithReasoningAsync(string systemMessage, string userMessage, ResolvedModel resolved, CancellationToken cancellationToken = default)
+        {
+            LastSystemMessage = systemMessage;
+            LastUserMessage = userMessage;
+            return Task.FromResult<(string, string?)>((response, null));
+        }
+
         public async Task<(string Content, string? Reasoning)> StreamGenerateWithReasoningAsync(string prompt, ResolvedModel resolved, Func<string, Task> onChunk, CancellationToken cancellationToken = default)
+        {
+            await onChunk(response);
+            return (response, null);
+        }
+
+        public async Task<(string Content, string? Reasoning)> StreamGenerateWithReasoningAsync(string systemMessage, string userMessage, ResolvedModel resolved, Func<string, Task> onChunk, CancellationToken cancellationToken = default)
         {
             await onChunk(response);
             return (response, null);

@@ -792,9 +792,21 @@ public sealed class RolePlayContinuationNarrativeValidationTests
             return (content, null);
         }
 
+        public async Task<(string Content, string? Reasoning)> GenerateWithReasoningAsync(string systemMessage, string userMessage, ResolvedModel resolved, CancellationToken cancellationToken = default)
+        {
+            var content = await GenerateAsync(systemMessage, userMessage, resolved, cancellationToken);
+            return (content, null);
+        }
+
         public async Task<(string Content, string? Reasoning)> StreamGenerateWithReasoningAsync(string prompt, ResolvedModel resolved, Func<string, Task> onChunk, CancellationToken cancellationToken = default)
         {
             var content = await StreamGenerateAsync(prompt, resolved, onChunk, cancellationToken);
+            return (content, null);
+        }
+
+        public async Task<(string Content, string? Reasoning)> StreamGenerateWithReasoningAsync(string systemMessage, string userMessage, ResolvedModel resolved, Func<string, Task> onChunk, CancellationToken cancellationToken = default)
+        {
+            var content = await StreamGenerateAsync(systemMessage, userMessage, resolved, onChunk, cancellationToken);
             return (content, null);
         }
 

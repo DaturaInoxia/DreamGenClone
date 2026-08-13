@@ -59,6 +59,8 @@ public sealed class ActorSelectionService : IActorSelectionService
             "Select at most the requested batch size. " +
             "The speaking order will be determined by the system — you only select WHO participates, not the order. " +
             "Prefer characters who are in-scene and who have not spoken recently. " +
+            "An 'InScene: False' flag does NOT disqualify a candidate: out-of-scene characters who are observing the scene (line-of-sight or proximity) remain fully eligible — treat them as lower-priority, not excluded. " +
+            "Do not narrow to a single character merely because only one is flagged in-scene; select up to the batch size from the eligible pool when multiple are narratively relevant. " +
             "Honor affinity hints: Required characters should ALWAYS be included; Excluded candidates are not in the list (filtered upstream); Preferred is a hint. " +
             "Honor time-of-day match: prefer characters whose affinity time-of-day matches the current time. " +
             "Use the baseScore as a hint, NOT as the sole determinant. " +

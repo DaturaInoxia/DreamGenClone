@@ -142,7 +142,13 @@ public sealed class SemanticInteractionAnalysisJobHandler : IBackgroundJobHandle
             }
 
             var mappingsByEvent = await _rpThemeService.ResolveSemanticEventMappingsByThemeIdsAsync(sessionThemeIds, cancellationToken);
+            var statMappingsByEvent = await _rpThemeService.ResolveSemanticStatMappingsByThemeIdsAsync(sessionThemeIds, cancellationToken);
+
+            // B-078 follow-up: stat-only events (e.g. otherman-* seduction-trope events that drive
+            // the Wife's willingness) must be detectable even without a theme-scoring event mapping.
+            // Union stat-mapping event ids into the allowed set so the inference LLM may emit them.
             var allowedEventIds = mappingsByEvent.Keys
+                .Concat(statMappingsByEvent.Keys)
                 .Where(x => !string.IsNullOrWhiteSpace(x))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
@@ -162,7 +168,7 @@ public sealed class SemanticInteractionAnalysisJobHandler : IBackgroundJobHandle
 
             if (allowedEventIds.Count == 0)
             {
-                throw new InvalidOperationException("MissingSemanticConfiguration: session themes have no enabled semantic event mappings.");
+                throw new InvalidOperationException("MissingSemanticConfiguration: session themes have no enabled semantic event or stat mappings.");
             }
 
             var watermark = await _analysisRepository.GetLatestBySessionAndCharacterAsync(
@@ -186,12 +192,31 @@ public sealed class SemanticInteractionAnalysisJobHandler : IBackgroundJobHandle
             var contextStartIndexByWatermark = watermarkIndex >= 0 ? watermarkIndex + 1 : 0;
             var contextStartIndex = Math.Max(contextStartIndexByWindow, contextStartIndexByWatermark);
 
+            // B-078 follow-up: ensure the model always has prior context to resolve roles/names.
+            // When the watermark-based start would leave the window empty (e.g. re-analysis of the
+            // same interaction), fall back to the last ContextWindowSize interactions before this one.
+            if (contextStartIndex >= interactionIndex && interactionIndex > 0)
+            {
+                contextStartIndex = contextStartIndexByWindow;
+            }
+
             var contextTurns = session.Interactions
                 .Skip(contextStartIndex)
                 .Take(Math.Max(0, interactionIndex - contextStartIndex))
                 .Where(x => !x.IsExcluded)
                 .Select(x => $"[{x.InteractionType}] {x.ActorName}: {x.Content}")
                 .ToList();
+
+            // B-078 follow-up: build event descriptions from the config-backed catalog
+            // (RPSemanticEventMapping.Description), so EVERY allowed event has a definition.
+            // This removes the prior asymmetry where only otherman-* events were described, which
+            // made the model infer semantics from bare event-id names and over-deliberate.
+            var eventDescriptions = mappingsByEvent
+                .SelectMany(kvp => kvp.Value.Select(m => (EventId: kvp.Key, m.Description)))
+                .Where(x => !string.IsNullOrWhiteSpace(x.Description)
+                    && allowedEventIds.Contains(x.EventId, StringComparer.OrdinalIgnoreCase))
+                .GroupBy(x => x.EventId, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First().Description, StringComparer.OrdinalIgnoreCase);
 
             var inferenceResult = await _inferenceService.InferAsync(new SemanticEventInferenceRequest
             {
@@ -200,7 +225,8 @@ public sealed class SemanticInteractionAnalysisJobHandler : IBackgroundJobHandle
                 ActorName = string.IsNullOrWhiteSpace(interaction.ActorName) ? payload.CharacterId : interaction.ActorName,
                 InteractionText = interaction.Content ?? string.Empty,
                 ContextTurns = contextTurns,
-                AllowedEventIds = allowedEventIds
+                AllowedEventIds = allowedEventIds,
+                EventDescriptions = eventDescriptions
             }, cancellationToken);
 
             if (!inferenceResult.Success)

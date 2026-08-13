@@ -62,6 +62,13 @@ public sealed class RPSemanticEventMapping
     public string Direction { get; set; } = string.Empty;
     public string ReasonCode { get; set; } = string.Empty;
     public string AttributionKey { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Human/LLM-facing definition of the event, used by semantic inference so the model can
+    /// detect the event reliably. Config-backed (DB + UI) so every allowed event can be described
+    /// uniformly instead of the model inferring semantics from bare event-id names.
+    /// </summary>
+    public string Description { get; set; } = string.Empty;
     public int SortOrder { get; set; }
 }
 

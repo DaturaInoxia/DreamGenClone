@@ -926,6 +926,22 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
                     ? (!string.IsNullOrWhiteSpace(inferred.ActorName) ? inferred.ActorName!.Trim() : defaultTargetCharacterId)
                     : inferred.TargetCharacterName!.Trim();
 
+                // B-078 follow-up: OtherMan seduction-trope events must affect the Wife's
+                // willingness. If the LLM did not name a target, resolve the Wife deterministically
+                // from CharacterRoles so the stat delta cannot miss her. No-op when no Wife is
+                // present in the session (the actor fallback is kept).
+                if (string.IsNullOrWhiteSpace(inferred.TargetCharacterName)
+                    && SeductionArchetypeCatalog.IsOtherManSeductionEvent(eventId))
+                {
+                    var wifeCharacterId = state.CharacterRoles
+                        .FirstOrDefault(kvp => string.Equals(kvp.Value, "Wife", StringComparison.OrdinalIgnoreCase))
+                        .Key;
+                    if (!string.IsNullOrWhiteSpace(wifeCharacterId))
+                    {
+                        scopedTargetCharacterId = wifeCharacterId;
+                    }
+                }
+
                 if (mappingsByEvent.TryGetValue(eventId, out var mappings)
                     && mappings.Count > 0)
                 {
@@ -965,7 +981,10 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
                             continue;
                         }
 
-                        pendingStat.Add((eventId, confidence, mapping, defaultTargetCharacterId));
+                        // B-078 follow-up: honor the LLM's targetCharacterName for stat deltas too
+                        // (previously only theme-score deltas used it). This lets an otherman-*
+                        // event detected on the OtherMan's turn land its delta on the Wife.
+                        pendingStat.Add((eventId, confidence, mapping, scopedTargetCharacterId));
                     }
                 }
             }

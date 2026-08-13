@@ -168,4 +168,76 @@ public class SeductionArchetypeCatalogTests
         Assert.Contains("The Charmer / Smooth Talker", result);
         Assert.DoesNotContain("nonexistent", result);
     }
+
+    // ── B-078 follow-up: semantic event ids + descriptions ─────────────────
+
+    [Fact]
+    public void ToEventId_Charmer_ReturnsOthermanCharmer()
+    {
+        Assert.Equal("otherman-charmer", SeductionArchetypeCatalog.ToEventId("Charmer"));
+    }
+
+    [Fact]
+    public void ToEventId_Unknown_ReturnsNull()
+    {
+        Assert.Null(SeductionArchetypeCatalog.ToEventId("nonexistent"));
+        Assert.Null(SeductionArchetypeCatalog.ToEventId(null));
+    }
+
+    [Theory]
+    [InlineData("otherman-charmer")]
+    [InlineData("otherman-competent")]
+    [InlineData("otherman-confidante")]
+    [InlineData("otherman-tease")]
+    [InlineData("otherman-protector")]
+    [InlineData("otherman-dominant")]
+    [InlineData("otherman-mysterious")]
+    [InlineData("otherman-situational")]
+    public void IsOtherManSeductionEvent_KnownEvent_True(string eventId)
+    {
+        Assert.True(SeductionArchetypeCatalog.IsOtherManSeductionEvent(eventId));
+    }
+
+    [Theory]
+    [InlineData("otherman-nonexistent")]
+    [InlineData("emotional-surrender")]
+    [InlineData("desire-spoken")]
+    [InlineData("")]
+    [InlineData(null)]
+    public void IsOtherManSeductionEvent_UnknownOrNonTropeEvent_False(string? eventId)
+    {
+        Assert.False(SeductionArchetypeCatalog.IsOtherManSeductionEvent(eventId));
+    }
+
+    [Fact]
+    public void IsOtherManSeductionEvent_CaseInsensitive()
+    {
+        Assert.True(SeductionArchetypeCatalog.IsOtherManSeductionEvent("OTHERMAN-CHARMER"));
+    }
+
+    [Fact]
+    public void BuildSemanticEventDescriptions_HasExactly8Entries()
+    {
+        var descriptions = SeductionArchetypeCatalog.BuildSemanticEventDescriptions();
+        Assert.Equal(8, descriptions.Count);
+        Assert.All(SeductionArchetypeCatalog.All, a => Assert.Contains(descriptions.Keys, k => string.Equals(k, $"otherman-{a.Id.ToLowerInvariant()}", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    [Fact]
+    public void BuildSemanticEventDescriptions_EachDescriptionMentionsWifeTarget()
+    {
+        var descriptions = SeductionArchetypeCatalog.BuildSemanticEventDescriptions();
+        Assert.All(descriptions.Values, d =>
+        {
+            Assert.False(string.IsNullOrWhiteSpace(d));
+            Assert.Contains("Wife", d, StringComparison.OrdinalIgnoreCase);
+        });
+    }
+
+    [Fact]
+    public void BuildSemanticEventDescriptions_EveryKeyIsAnOtherManSeductionEvent()
+    {
+        var descriptions = SeductionArchetypeCatalog.BuildSemanticEventDescriptions();
+        Assert.All(descriptions.Keys, k => Assert.True(SeductionArchetypeCatalog.IsOtherManSeductionEvent(k)));
+    }
 }

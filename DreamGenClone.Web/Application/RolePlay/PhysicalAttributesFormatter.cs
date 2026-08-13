@@ -41,8 +41,18 @@ internal static class PhysicalAttributesFormatter
         Append(sb, "Piercings", attrs.Piercings);
         Append(sb, "Tattoos", attrs.Tattoos);
 
+        // B-079: Attractiveness renders as "n/10 — Label: prose" from AttractivenessTierCatalog.
+        // When Resolve returns no tier (null or out-of-range), the line is omitted entirely —
+        // no fallback prose (repo no-fallback rule).
         if (attrs.AttractivenessRating.HasValue)
-            Append(sb, "Attractiveness", $"{attrs.AttractivenessRating.Value}/10");
+        {
+            var tier = AttractivenessTierCatalog.Resolve(attrs.AttractivenessRating);
+            if (tier is not null)
+            {
+                Append(sb, "Attractiveness",
+                    $"{attrs.AttractivenessRating.Value}/10 — {tier.Label}: {tier.Prose}");
+            }
+        }
 
         // ── Intimate — shared ────────────────────────────────────────────────
         Append(sb, "Scent", attrs.Scent);
