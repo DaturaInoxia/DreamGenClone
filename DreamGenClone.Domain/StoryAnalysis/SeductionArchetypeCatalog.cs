@@ -68,4 +68,43 @@ public static class SeductionArchetypeCatalog
 
         return parts.Count == 0 ? null : string.Join(" ", parts);
     }
+
+    /// <summary>
+    /// Canonical semantic event id for an archetype: <c>otherman-&lt;id&gt;</c> (lowercase).
+    /// Returns null for unknown archetype ids.
+    /// </summary>
+    public static string? ToEventId(string? archetypeId)
+    {
+        var archetype = Get(archetypeId);
+        return archetype is null ? null : $"otherman-{archetype.Id.ToLowerInvariant()}";
+    }
+
+    /// <summary>
+    /// True when the event id is one of the canonical OtherMan seduction-trope events
+    /// (e.g. <c>otherman-charmer</c>).
+    /// </summary>
+    public static bool IsOtherManSeductionEvent(string? eventId)
+    {
+        if (string.IsNullOrWhiteSpace(eventId)) return false;
+        return _all.Any(a => string.Equals(
+            eventId, $"otherman-{a.Id.ToLowerInvariant()}", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Builds the semantic event description dictionary for the OtherMan seduction archetype
+    /// tropes, keyed by canonical event id. Used by the semantic-inference job so the LLM can
+    /// detect when the OtherMan performs a specific trope in the narrative and knows that the
+    /// event targets the Wife (her willingness to cheat rising in response).
+    /// </summary>
+    public static IReadOnlyDictionary<string, string> BuildSemanticEventDescriptions()
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var archetype in _all)
+        {
+            result[ToEventId(archetype.Id)!] =
+                $"The OtherMan performs the '{archetype.DisplayName}' seduction trope in the narrative. {archetype.Description} " +
+                "Targets the Wife: this event fires on the OtherMan's turn and applies to the Wife (set targetCharacterName to the Wife) — it represents her willingness to cheat rising in response to this seduction behavior.";
+        }
+        return result;
+    }
 }

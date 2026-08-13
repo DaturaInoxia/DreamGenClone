@@ -437,6 +437,7 @@ public sealed partial class RPThemeService : IRPThemeService
                     ConfidenceMax = mapping.ConfidenceMax,
                     ReasonCode = mapping.ReasonCode,
                     AttributionKey = mapping.AttributionKey,
+                    Description = mapping.Description,
                     SortOrder = mapping.SortOrder
                 })
                 .ToList(),
@@ -2641,7 +2642,7 @@ public sealed partial class RPThemeService : IRPThemeService
         {
             await using var cmd = connection.CreateCommand();
             cmd.Transaction = tx;
-            cmd.CommandText = "INSERT INTO RPThemeSemanticEventMappings (Id, ThemeId, EventId, Direction, Delta, ConfidenceMin, ConfidenceMax, ReasonCode, AttributionKey, SortOrder) VALUES ($id, $themeId, $eventId, $direction, $delta, $confidenceMin, $confidenceMax, $reasonCode, $attributionKey, $sortOrder)";
+            cmd.CommandText = "INSERT INTO RPThemeSemanticEventMappings (Id, ThemeId, EventId, Direction, Delta, ConfidenceMin, ConfidenceMax, ReasonCode, AttributionKey, Description, SortOrder) VALUES ($id, $themeId, $eventId, $direction, $delta, $confidenceMin, $confidenceMax, $reasonCode, $attributionKey, $description, $sortOrder)";
             cmd.Parameters.AddWithValue("$id", string.IsNullOrWhiteSpace(mapping.Id) ? Guid.NewGuid().ToString("N") : mapping.Id);
             cmd.Parameters.AddWithValue("$themeId", theme.Id);
             cmd.Parameters.AddWithValue("$eventId", mapping.EventId);
@@ -2651,6 +2652,7 @@ public sealed partial class RPThemeService : IRPThemeService
             cmd.Parameters.AddWithValue("$confidenceMax", (double)mapping.ConfidenceMax);
             cmd.Parameters.AddWithValue("$reasonCode", mapping.ReasonCode);
             cmd.Parameters.AddWithValue("$attributionKey", mapping.AttributionKey ?? string.Empty);
+            cmd.Parameters.AddWithValue("$description", mapping.Description ?? string.Empty);
             cmd.Parameters.AddWithValue("$sortOrder", mapping.SortOrder);
             await cmd.ExecuteNonQueryAsync(cancellationToken);
         }
@@ -3764,7 +3766,7 @@ public sealed partial class RPThemeService : IRPThemeService
     {
         var list = new List<RPSemanticEventMapping>();
         await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, ThemeId, EventId, Direction, Delta, ConfidenceMin, ConfidenceMax, ReasonCode, AttributionKey, SortOrder FROM RPThemeSemanticEventMappings WHERE ThemeId = $themeId ORDER BY SortOrder, Id";
+        command.CommandText = "SELECT Id, ThemeId, EventId, Direction, Delta, ConfidenceMin, ConfidenceMax, ReasonCode, AttributionKey, Description, SortOrder FROM RPThemeSemanticEventMappings WHERE ThemeId = $themeId ORDER BY SortOrder, Id";
         command.Parameters.AddWithValue("$themeId", themeId);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -3781,7 +3783,8 @@ public sealed partial class RPThemeService : IRPThemeService
                 ConfidenceMax = Convert.ToDecimal(reader.GetValue(6), CultureInfo.InvariantCulture),
                 ReasonCode = reader.GetString(7),
                 AttributionKey = reader.IsDBNull(8) ? string.Empty : reader.GetString(8),
-                SortOrder = reader.GetInt32(9)
+                Description = reader.IsDBNull(9) ? string.Empty : reader.GetString(9),
+                SortOrder = reader.GetInt32(10)
             };
 
             if (string.IsNullOrWhiteSpace(mapping.EventId)

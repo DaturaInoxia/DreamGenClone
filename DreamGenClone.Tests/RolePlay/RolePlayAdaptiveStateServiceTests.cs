@@ -1110,6 +1110,160 @@ public sealed class RolePlayAdaptiveStateServiceTests
         Assert.True(Math.Abs(statBreakdown.AppliedDelta) <= 1.5m);
     }
 
+    // ── B-078 follow-up: OtherMan seduction-trope events target the Wife ────────
+
+    private static (RolePlayAdaptiveStateService Service, RolePlaySession Session) CreateInferredTargetFixture(
+        string targetStat = "Loyalty",
+        string eventId = "otherman-charmer",
+        decimal delta = 2m,
+        bool includeWifeInRoles = true)
+    {
+        var rpThemeService = new SemanticRpThemeService(
+            new Dictionary<string, IReadOnlyList<DreamGenClone.Domain.RolePlay.RPSemanticEventMapping>>(StringComparer.OrdinalIgnoreCase),
+            new Dictionary<string, IReadOnlyList<DreamGenClone.Domain.RolePlay.RPSemanticStatMapping>>(StringComparer.OrdinalIgnoreCase)
+            {
+                [eventId] =
+                [
+                    new DreamGenClone.Domain.RolePlay.RPSemanticStatMapping
+                    {
+                        EventId = eventId,
+                        ThemeId = "theme-corruption",
+                        TargetStat = targetStat,
+                        Delta = delta,
+                        Direction = "decrease",
+                        ConfidenceMin = 0m,
+                        ConfidenceMax = 1m,
+                        ReasonCode = "otherman-trope-stat"
+                    }
+                ]
+            });
+
+        var service = new RolePlayAdaptiveStateService(
+            new SemanticThemeCatalogService(),
+            new EmptyThemePreferenceService(),
+            rpThemeService,
+            statKeywordCategoryService: null,
+            new NullSteeringProfileService(),
+            new RecordingDebugSink(),
+            NullLogger<RolePlayAdaptiveStateService>.Instance);
+
+        var session = new RolePlaySession
+        {
+            Id = Guid.NewGuid().ToString(),
+            PersonaName = "Ken",
+            SelectedRPThemeProfileId = "profile-semantic",
+            AdaptiveState = new AdaptiveScenarioState
+            {
+                ThemeScores = new Dictionary<string, ThemeScoreState>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["theme-corruption"] = new ThemeScoreState
+                    {
+                        ThemeId = "theme-corruption",
+                        ThemeName = "Corruption",
+                        Score = 10,
+                        Breakdown = new ThemeScoreBreakdownV2()
+                    }
+                },
+                CharacterRoles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Becky"] = "Wife",
+                    ["Dean"] = "OtherMan"
+                }
+            }
+        };
+
+        // CharacterStats is a computed read-only property backed by CharacterSnapshots.
+        _ = session.AdaptiveState.CharacterStats; // initialize the runtime cache
+        session.AdaptiveState.CharacterStats["Becky"] = new CharacterStatProfileV2 { CharacterId = "Becky", CharacterRole = "Wife", Loyalty = 50, Restraint = 50 };
+        session.AdaptiveState.CharacterStats["Dean"] = new CharacterStatProfileV2 { CharacterId = "Dean", CharacterRole = "OtherMan", Loyalty = 50, Restraint = 50 };
+
+        if (!includeWifeInRoles)
+        {
+            session.AdaptiveState.CharacterRoles.Remove("Becky");
+        }
+
+        return (service, session);
+    }
+
+    [Fact]
+    public async Task ApplyInferredSemanticEvidence_OtherManEventWithWifeTarget_AppliesDeltaToWife()
+    {
+        var (service, session) = CreateInferredTargetFixture();
+        var interaction = new RolePlayInteraction
+        {
+            Id = "otherman-1",
+            ActorName = "Dean",
+            Content = "Dean helps Becky with the firewood, a warm hand on hers."
+        };
+
+        var updated = await service.ApplyInferredSemanticEvidenceAsync(
+            session, interaction,
+            [new IRolePlayAdaptiveStateService.InferredSemanticSignal("otherman-charmer", 0.8m, "Dean", "Becky", "helping with firewood")]);
+
+        // B-078: the LLM's targetCharacterName (Wife) is now honored for stat deltas.
+        Assert.Equal(48, updated.CharacterStats["Becky"].Loyalty);
+        Assert.Equal(50, updated.CharacterStats["Dean"].Loyalty);
+    }
+
+    [Fact]
+    public async Task ApplyInferredSemanticEvidence_OtherManEventWithoutTarget_ResolvesWifeDeterministically()
+    {
+        var (service, session) = CreateInferredTargetFixture();
+        var interaction = new RolePlayInteraction
+        {
+            Id = "otherman-2",
+            ActorName = "Dean",
+            Content = "Dean is warm, confident, just there."
+        };
+
+        // No targetCharacterName — the engine must resolve the Wife from CharacterRoles.
+        var updated = await service.ApplyInferredSemanticEvidenceAsync(
+            session, interaction,
+            [new IRolePlayAdaptiveStateService.InferredSemanticSignal("otherman-charmer", 0.8m, "Dean", null, null)]);
+
+        Assert.Equal(48, updated.CharacterStats["Becky"].Loyalty);
+        Assert.Equal(50, updated.CharacterStats["Dean"].Loyalty);
+    }
+
+    [Fact]
+    public async Task ApplyInferredSemanticEvidence_NonOtherManEventWithoutTarget_AppliesDeltaToActor()
+    {
+        var (service, session) = CreateInferredTargetFixture(eventId: "emotional-surrender");
+        var interaction = new RolePlayInteraction
+        {
+            Id = "otherman-3",
+            ActorName = "Dean",
+            Content = "Dean feels the pull of something forbidden."
+        };
+
+        // Not an otherman-* event and no target — the actor (Dean) is the target (unchanged behavior).
+        var updated = await service.ApplyInferredSemanticEvidenceAsync(
+            session, interaction,
+            [new IRolePlayAdaptiveStateService.InferredSemanticSignal("emotional-surrender", 0.8m, "Dean", null, null)]);
+
+        Assert.Equal(50, updated.CharacterStats["Becky"].Loyalty);
+        Assert.Equal(48, updated.CharacterStats["Dean"].Loyalty);
+    }
+
+    [Fact]
+    public async Task ApplyInferredSemanticEvidence_OtherManEventNoWifeInState_KeepsActorTarget()
+    {
+        var (service, session) = CreateInferredTargetFixture(includeWifeInRoles: false);
+        var interaction = new RolePlayInteraction
+        {
+            Id = "otherman-4",
+            ActorName = "Dean",
+            Content = "Dean watches the embers."
+        };
+
+        // No Wife resolvable — deterministic redirect is a no-op; actor fallback applies.
+        var updated = await service.ApplyInferredSemanticEvidenceAsync(
+            session, interaction,
+            [new IRolePlayAdaptiveStateService.InferredSemanticSignal("otherman-charmer", 0.8m, "Dean", null, null)]);
+
+        Assert.Equal(48, updated.CharacterStats["Dean"].Loyalty);
+    }
+
     private sealed class FakeIntensityProfileService : IIntensityProfileService
     {
         private readonly List<IntensityProfile> _profiles =

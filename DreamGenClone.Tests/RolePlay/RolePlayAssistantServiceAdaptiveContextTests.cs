@@ -75,7 +75,19 @@ public sealed class RolePlayAssistantServiceAdaptiveContextTests
         public Task<(string Content, string? Reasoning)> GenerateWithReasoningAsync(string prompt, ResolvedModel resolved, CancellationToken cancellationToken = default)
             => Task.FromResult<(string, string?)>(("ok", null));
 
+        public Task<(string Content, string? Reasoning)> GenerateWithReasoningAsync(string systemMessage, string userMessage, ResolvedModel resolved, CancellationToken cancellationToken = default)
+        {
+            LastUserMessage = userMessage;
+            return Task.FromResult<(string, string?)>(("ok", null));
+        }
+
         public async Task<(string Content, string? Reasoning)> StreamGenerateWithReasoningAsync(string prompt, ResolvedModel resolved, Func<string, Task> onChunk, CancellationToken cancellationToken = default)
+        {
+            await onChunk("ok");
+            return ("ok", null);
+        }
+
+        public async Task<(string Content, string? Reasoning)> StreamGenerateWithReasoningAsync(string systemMessage, string userMessage, ResolvedModel resolved, Func<string, Task> onChunk, CancellationToken cancellationToken = default)
         {
             await onChunk("ok");
             return ("ok", null);

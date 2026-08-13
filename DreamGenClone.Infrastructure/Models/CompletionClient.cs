@@ -85,6 +85,20 @@ public sealed class CompletionClient : ICompletionClient
         return await SendCompletionWithReasoningAsync(messages, resolved, cancellationToken);
     }
 
+    public async Task<(string Content, string? Reasoning)> GenerateWithReasoningAsync(
+        string systemMessage,
+        string userMessage,
+        ResolvedModel resolved,
+        CancellationToken cancellationToken = default)
+    {
+        var messages = new List<ChatMessage>
+        {
+            new("system", systemMessage),
+            new("user", userMessage)
+        };
+        return await SendCompletionWithReasoningAsync(messages, resolved, cancellationToken);
+    }
+
     public async Task<(string Content, string? Reasoning)> StreamGenerateWithReasoningAsync(
         string prompt,
         ResolvedModel resolved,
@@ -92,6 +106,21 @@ public sealed class CompletionClient : ICompletionClient
         CancellationToken cancellationToken = default)
     {
         var messages = new List<ChatMessage> { new("user", prompt) };
+        return await SendCompletionStreamingWithReasoningAsync(messages, resolved, onChunk, cancellationToken);
+    }
+
+    public async Task<(string Content, string? Reasoning)> StreamGenerateWithReasoningAsync(
+        string systemMessage,
+        string userMessage,
+        ResolvedModel resolved,
+        Func<string, Task> onChunk,
+        CancellationToken cancellationToken = default)
+    {
+        var messages = new List<ChatMessage>
+        {
+            new("system", systemMessage),
+            new("user", userMessage)
+        };
         return await SendCompletionStreamingWithReasoningAsync(messages, resolved, onChunk, cancellationToken);
     }
 
@@ -636,6 +665,17 @@ public sealed class CompletionClient : ICompletionClient
                     client, relativePath, messages, resolved, content, cancellationToken);
                 content = continuationResult.Content;
             }
+            else if (string.Equals(finishReason, "length", StringComparison.OrdinalIgnoreCase)
+                     && string.IsNullOrWhiteSpace(content)
+                     && !string.IsNullOrWhiteSpace(reasoning))
+            {
+                // Reasoning models (e.g. DeepSeek) can spend the entire token budget on
+                // reasoning_content and emit zero content, hitting finish_reason=length before
+                // reaching the answer. Send one focused follow-up that asks for ONLY the final
+                // answer, so the model doesn't have to re-reason from scratch.
+                content = await ForceAnswerFromReasoningAsync(
+                    client, relativePath, messages, resolved, reasoning, cancellationToken);
+            }
 
             totalStopwatch.Stop();
             _logger.LogInformation(
@@ -753,7 +793,17 @@ public sealed class CompletionClient : ICompletionClient
 
         if (string.IsNullOrWhiteSpace(content))
         {
-            content = await SendCompletionAsync(messages, resolved, cancellationToken).ConfigureAwait(false);
+            // Reasoning-only response (empty content): try a focused force-answer follow-up when the
+            // model reasoned but never emitted content; otherwise fall back to the plain path.
+            if (!string.IsNullOrWhiteSpace(reasoning))
+            {
+                content = await ForceAnswerFromReasoningAsync(
+                    client, relativePath, messages, resolved, reasoning, cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                content = await SendCompletionAsync(messages, resolved, cancellationToken).ConfigureAwait(false);
+            }
             if (!string.IsNullOrWhiteSpace(content))
                 await onChunk(content).ConfigureAwait(false);
         }
@@ -872,6 +922,91 @@ public sealed class CompletionClient : ICompletionClient
         catch
         {
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Focused follow-up for reasoning models (e.g. DeepSeek) that spent the whole token budget
+    /// on reasoning_content and hit finish_reason=length with empty content. Asks the model to
+    /// output ONLY the final answer based on the reasoning it already produced, without re-reasoning.
+    /// Returns the (possibly empty) content from the follow-up call.
+    /// </summary>
+    private async Task<string> ForceAnswerFromReasoningAsync(
+        HttpClient client,
+        string relativePath,
+        List<ChatMessage> originalMessages,
+        ResolvedModel resolved,
+        string reasoning,
+        CancellationToken cancellationToken)
+    {
+        const string forceAnswerPrompt =
+            "You already analyzed the task above. Output ONLY the final answer now — no more reasoning, no explanation. " +
+            "Respond in the exact format the original task requested.";
+
+        // Trim very long reasoning so it fits within context: keep the tail (most recent analysis).
+        const int maxReasoningChars = 8000;
+        var trimmedReasoning = reasoning.Length > maxReasoningChars
+            ? "…(earlier reasoning trimmed)… " + reasoning[^maxReasoningChars..]
+            : reasoning;
+
+        var forceMessages = new List<ChatMessage>(originalMessages)
+        {
+            new("assistant", trimmedReasoning),
+            new("user", forceAnswerPrompt)
+        };
+
+        var payload = new ChatRequest
+        {
+            Model = resolved.ModelIdentifier,
+            Messages = forceMessages,
+            Temperature = 0,
+            TopP = resolved.TopP,
+            MaxTokens = resolved.MaxTokens
+        };
+
+        var stopwatch = Stopwatch.StartNew();
+        try
+        {
+            using var forceResponse = await client.PostAsJsonAsync(relativePath, payload, cancellationToken);
+            stopwatch.Stop();
+
+            if (!forceResponse.IsSuccessStatusCode)
+            {
+                var errorContent = await forceResponse.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogWarning(
+                    "Force-answer call failed: Model={ModelIdentifier}, Provider={ProviderName}, Status={StatusCode}, DurationMs={DurationMs}, Error={Error}",
+                    resolved.ModelIdentifier, resolved.ProviderName, (int)forceResponse.StatusCode, stopwatch.ElapsedMilliseconds, errorContent);
+                return string.Empty;
+            }
+
+            var forceRaw = await forceResponse.Content.ReadAsStringAsync(cancellationToken);
+            var (forceContent, forceReasoningExtracted, forceFinishReason, _) = ParseContentWithReasoning(forceRaw, resolved);
+
+            // If the follow-up ALSO hit length with empty content, try the standard continuation
+            // path (which appends "continue exactly where you left off") as a last attempt.
+            if (string.IsNullOrWhiteSpace(forceContent)
+                && string.Equals(forceFinishReason, "length", StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrWhiteSpace(forceReasoningExtracted))
+            {
+                _logger.LogWarning(
+                    "Force-answer call still empty after length: Model={ModelIdentifier}, ReasoningLen={ReasoningLen}, DurationMs={DurationMs}",
+                    resolved.ModelIdentifier, forceReasoningExtracted?.Length ?? 0, stopwatch.ElapsedMilliseconds);
+                return string.Empty;
+            }
+
+            _logger.LogInformation(
+                "Force-answer call completed: Model={ModelIdentifier}, Provider={ProviderName}, ContentLen={ContentLen}, ReasoningLen={ReasoningLen}, FinishReason={FinishReason}, DurationMs={DurationMs}",
+                resolved.ModelIdentifier, resolved.ProviderName, forceContent?.Length ?? 0, forceReasoningExtracted?.Length ?? 0, forceFinishReason, stopwatch.ElapsedMilliseconds);
+
+            return forceContent ?? string.Empty;
+        }
+        catch (Exception ex)
+        {
+            stopwatch.Stop();
+            _logger.LogWarning(ex,
+                "Force-answer call exception: Model={ModelIdentifier}, Provider={ProviderName}, DurationMs={DurationMs}",
+                resolved.ModelIdentifier, resolved.ProviderName, stopwatch.ElapsedMilliseconds);
+            return string.Empty;
         }
     }
 

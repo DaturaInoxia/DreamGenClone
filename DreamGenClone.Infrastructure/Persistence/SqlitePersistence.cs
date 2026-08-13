@@ -429,6 +429,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 ConfidenceMax REAL NOT NULL,
                 ReasonCode TEXT NOT NULL,
                 AttributionKey TEXT NOT NULL DEFAULT '',
+                Description TEXT NOT NULL DEFAULT '',
                 SortOrder INTEGER NOT NULL DEFAULT 0,
                 FOREIGN KEY (ThemeId) REFERENCES RPThemes(Id) ON DELETE CASCADE
             );
@@ -2105,6 +2106,18 @@ public sealed class SqlitePersistence : ISqlitePersistence
             addThinkingMode.CommandText = "ALTER TABLE FunctionModelDefaults ADD COLUMN ThinkingMode INTEGER NOT NULL DEFAULT 0";
             await addThinkingMode.ExecuteNonQueryAsync(cancellationToken);
             _logger.LogInformation("Migrated FunctionModelDefaults: added ThinkingMode column");
+        }
+
+        // B-078 follow-up: config-backed event-catalog descriptions for semantic inference clarity.
+        var checkEventMappingDescription = connection.CreateCommand();
+        checkEventMappingDescription.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RPThemeSemanticEventMappings') WHERE name='Description'";
+        var hasEventMappingDescription = Convert.ToInt64(await checkEventMappingDescription.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasEventMappingDescription)
+        {
+            var addEventMappingDescription = connection.CreateCommand();
+            addEventMappingDescription.CommandText = "ALTER TABLE RPThemeSemanticEventMappings ADD COLUMN Description TEXT NOT NULL DEFAULT ''";
+            await addEventMappingDescription.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated RPThemeSemanticEventMappings: added Description column");
         }
 
         // 001-opening-period: seed OpeningGuidanceText into scenario payload JSON.

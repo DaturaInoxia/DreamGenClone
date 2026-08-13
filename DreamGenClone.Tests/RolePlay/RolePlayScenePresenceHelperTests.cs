@@ -205,6 +205,11 @@ public sealed class RolePlayScenePresenceHelperTests
             CharacterId = "Ken",
             TrueLocation = "Husband and Wife Trailer",
         });
+        session.AdaptiveState.CharacterLocations.Add(new CharacterLocationState
+        {
+            CharacterId = "Becky",
+            TrueLocation = "Husband and Wife Trailer",
+        });
         session.AdaptiveState.CharacterLocationPerceptions.Add(new CharacterLocationPerceptionState
         {
             ObserverCharacterId = "Becky",

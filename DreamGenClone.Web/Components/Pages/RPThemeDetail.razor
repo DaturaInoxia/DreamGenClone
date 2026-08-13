@@ -936,6 +936,7 @@
                                 <th style="width: 120px;">Confidence Max</th>
                                 <th style="width: 170px;">Reason Code</th>
                                 <th style="width: 150px;">Attribution Key</th>
+                                <th style="width: 300px;">Description <small class="text-muted">(shown to LLM)</small></th>
                                 <th style="width: 90px;">Sort</th>
                                 <th style="width: 120px;">Actions</th>
                             </tr>
@@ -943,7 +944,7 @@
                         <tbody>
                             @if (_theme.SemanticEventMappings.Count == 0)
                             {
-                                <tr><td colspan="9" class="text-muted">No semantic mappings yet.</td></tr>
+                                <tr><td colspan="10" class="text-muted">No semantic mappings yet.</td></tr>
                             }
                             else
                             {
@@ -965,6 +966,7 @@
                                         <td><input class="form-control form-control-sm" type="number" step="0.01" min="0" max="1" @bind="_theme.SemanticEventMappings[rowIndex].ConfidenceMax" /></td>
                                         <td><input class="form-control form-control-sm" placeholder="example: semantic_intent_signal" list="semantic-reason-code-suggestions" @bind="_theme.SemanticEventMappings[rowIndex].ReasonCode" /></td>
                                         <td><input class="form-control form-control-sm" @bind="_theme.SemanticEventMappings[rowIndex].AttributionKey" /></td>
+                                        <td><input class="form-control form-control-sm" placeholder="One-line definition sent to the semantic inference LLM" @bind="_theme.SemanticEventMappings[rowIndex].Description" /></td>
                                         <td><input class="form-control form-control-sm" type="number" @bind="_theme.SemanticEventMappings[rowIndex].SortOrder" /></td>
                                         <td><button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => RemoveSemanticEventMapping(rowIndex)">Remove</button></td>
                                     </tr>

@@ -65,7 +65,11 @@ public sealed class SemanticEventInferenceService : ISemanticEventInferenceServi
             "Rules: Use ONLY event IDs from allowedEventIds. If no event applies, return {\"events\":[]}. " +
             "confidence must be decimal in [0,1]. " +
             "An event ID signals that its defined semantics are present — not merely that surface-level keywords match. " +
-            "For high-confidence detection (>=0.8), the interaction must clearly and unequivocally demonstrate the defined event meaning.";
+            "For high-confidence detection (>=0.8), the interaction must clearly and unequivocally demonstrate the defined event meaning. " +
+            "The interaction text may be written from any character's first-person perspective but can describe other characters' actions too - detect events wherever they occur in the text. " +
+            "actorName = the character who performs or undergoes the event; if they are not named in the text, use the interaction's actorName. " +
+            "targetCharacterName = the character the event is directed at or affects (e.g. a seduction event affects the Wife); if no target is identifiable, use an empty string. " +
+            "eventDescriptions defines each allowed event - judge solely by those definitions, do not invent semantics beyond them.";
 
         var allowedJson = JsonSerializer.Serialize(request.AllowedEventIds, JsonOptions);
         var contextJson = JsonSerializer.Serialize(request.ContextTurns, JsonOptions);
@@ -100,7 +104,14 @@ public sealed class SemanticEventInferenceService : ISemanticEventInferenceServi
         string output;
         try
         {
-            output = await _completionClient.GenerateAsync(systemMessage, userMessage, resolved, cancellationToken);
+            // Streamed reasoning-aware path — mirrors how the RP continuation handles DeepSeek's
+            // reasoning (separates reasoning_content from the final content). Streaming delivers
+            // content progressively and avoids the non-streaming case where the whole response is
+            // consumed by reasoning with empty content. If the stream yields only reasoning with no
+            // content, the client issues a focused force-answer follow-up.
+            var (content, _) = await _completionClient.StreamGenerateWithReasoningAsync(
+                systemMessage, userMessage, resolved, _ => Task.CompletedTask, cancellationToken);
+            output = content ?? string.Empty;
         }
         catch (Exception ex)
         {

@@ -47,8 +47,21 @@ public interface ICompletionClient
         ResolvedModel resolved,
         CancellationToken cancellationToken = default);
 
+    Task<(string Content, string? Reasoning)> GenerateWithReasoningAsync(
+        string systemMessage,
+        string userMessage,
+        ResolvedModel resolved,
+        CancellationToken cancellationToken = default);
+
     Task<(string Content, string? Reasoning)> StreamGenerateWithReasoningAsync(
         string prompt,
+        ResolvedModel resolved,
+        Func<string, Task> onChunk,
+        CancellationToken cancellationToken = default);
+
+    Task<(string Content, string? Reasoning)> StreamGenerateWithReasoningAsync(
+        string systemMessage,
+        string userMessage,
         ResolvedModel resolved,
         Func<string, Task> onChunk,
         CancellationToken cancellationToken = default);
