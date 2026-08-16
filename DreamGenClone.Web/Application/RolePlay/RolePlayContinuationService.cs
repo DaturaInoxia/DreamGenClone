@@ -671,6 +671,15 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         var resolvedTheme = await ResolveThemeAsync(session, phase, cancellationToken);
         var resolvedIntensity = await ResolveIntensityAsync(session, phase, cancellationToken);
 
+        // ── Apply sticky continuation-settings override (B-082) ──
+        var continuationOverride = session.ContinuationOverride;
+        resolvedIntensity = ContinuationOverrideResolver.ApplySceneDirection(resolvedIntensity, continuationOverride);
+        var writingStyle = ContinuationOverrideResolver.ApplyWordCount(
+            await ResolveWritingStyleAsync(session, phaseRoTRow,
+                RolePlayAssistantPrompts.GetWordTargetMarker(resolvedTheme.ActiveTheme, phase),
+                cancellationToken),
+            continuationOverride);
+
         // ── Build context for builder ──
         var defaultStartingLocationName = await ResolveDefaultStartingLocationAsync(
             session.ScenarioId, session.AdaptiveState.CurrentSceneLocation, cancellationToken);
@@ -711,9 +720,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             },
             Theme = resolvedTheme,
             Intensity = resolvedIntensity,
-            WritingStyle = await ResolveWritingStyleAsync(session, phaseRoTRow,
-                RolePlayAssistantPrompts.GetWordTargetMarker(resolvedTheme.ActiveTheme, phase),
-                cancellationToken),
+            WritingStyle = writingStyle,
             NarrativeTone = ResolveNarrativeTone(scenario),
             EncounterSummaries = session.AdaptiveState.EncounterSummaries,
             RecentInteractions = session.Interactions
@@ -728,6 +735,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                 .Where(i => i.IsStagedDirection && !i.IsExcluded)
                 .OrderBy(i => i.SessionInteractionIndex)
                 .ToList(),
+            Override = continuationOverride,
             CharacterDetails = charDetails,
             CharacterBehavioralFrames = characterBehavioralFrames,
             CharacterStatStateTexts = characterStatStateTexts,

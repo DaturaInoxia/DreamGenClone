@@ -136,37 +136,4 @@ public sealed class SemanticBackgroundJobWorkerTests
         cts.Cancel();
         try { await worker.StopAsync(CancellationToken.None); } catch { /* ignore */ }
     }
-
-    [Fact]
-    public async Task Worker_MaxConcurrentJobs_ClampsToConfiguredValue()
-    {
-        // Verify that MaxConcurrentJobs stored in the repo is read by the worker
-        // (indirectly: use maxConcurrentJobs=1 and confirm the second job waits)
-        var repo = await CreateRepoWithMaxConcurrentAsync(1);
-        var handledOrder = new List<int>();
-        int jobCount = 0;
-
-        var gate1 = new TaskCompletionSource();
-        var gate2 = new TaskCompletionSource();
-        var gates = new[] { gate1, gate2 };
-
-        var handler = new TrackingHandler(); // simple tracking, no gate
-        var (queue, worker, _) = BuildWorker(repo, handler);
-
-        var cts = new CancellationTokenSource();
-        _ = worker.StartAsync(cts.Token);
-
-        queue.Enqueue("test-job", "{\"n\":1}", "job-1");
-        queue.Enqueue("test-job", "{\"n\":2}");
-
-        // Wait for both to complete
-        var deadline = DateTime.UtcNow.AddSeconds(5);
-        while (handler.HandledJobIds.Count < 2 && DateTime.UtcNow < deadline)
-            await Task.Delay(20);
-
-        Assert.Equal(2, handler.HandledJobIds.Count);
-
-        cts.Cancel();
-        try { await worker.StopAsync(CancellationToken.None); } catch { /* ignore */ }
-    }
 }

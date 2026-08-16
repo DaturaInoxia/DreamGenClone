@@ -288,6 +288,17 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             || SubtleSexualActivityKeywords.Any(k => lower.Contains(k));
     }
 
+    // Explicit-only keyword check (excludes the subtle/exhibitionism list). Used by the
+    // stuck-encounter fallback to decide whether post-boundary content is unambiguously
+    // sexual — so "she stared at him" does NOT re-activate an encounter, but explicit
+    // intercourse text does.
+    private static bool HasExplicitSexualActivityContent(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return false;
+        var lower = text.ToLowerInvariant();
+        return SexualActivityKeywords.Any(k => lower.Contains(k));
+    }
+
     private static bool ContainsEncounterCompletionKeywords(string? evidenceSpan)
     {
         if (string.IsNullOrWhiteSpace(evidenceSpan)) return false;
@@ -728,12 +739,18 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         return session;
     }
 
-    public Task<RolePlaySession> SaveSessionAsync(RolePlaySession session, CancellationToken cancellationToken = default)
+    public async Task<RolePlaySession> SaveSessionAsync(RolePlaySession session, CancellationToken cancellationToken = default)
     {
         session.ModifiedAt = DateTime.UtcNow;
         _autoSaveCoordinator.QueueRolePlaySessionSave(session, "roleplay-session-updated");
+        // B-082 debug 008: flush synchronously so the saved payload is durable before the
+        // caller (e.g. the Continuation Settings "Done" handler) returns. Without this, a
+        // continuation triggered immediately after "Done" reloads a stale session from the
+        // DB and loses the just-saved override (verified: BeatStyle=Single saved but not
+        // injected). Every other persist path already does Queue + FlushAsync.
+        await _autoSaveCoordinator.FlushAsync(cancellationToken);
         _logger.LogInformation("Role-play session saved: {SessionId}, interactions={Count}, mode={Mode}", session.Id, session.Interactions.Count, session.BehaviorMode);
-        return Task.FromResult(session);
+        return session;
     }
 
     public async Task<RolePlaySession> RebuildAdaptiveStateAsync(string sessionId, CancellationToken cancellationToken = default)
@@ -1492,7 +1509,12 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             // generate sequentially so each sees the prior output in context.
             var sceneActors = await ResolveSceneContinueActorsAsync(session, cancellationToken);
 
-            var batchSize = Math.Max(1, Math.Min(session.SceneContinueBatchSize, sceneActors.Count));
+            // B-082 fix: ResolveSceneContinueActorsAsync may legitimately return an empty list
+            // (aftermath leg aborted — spouse unresolvable). Do NOT force a minimum batch size
+            // in that case; the loop below would index into an empty collection.
+            var batchSize = sceneActors.Count == 0
+                ? 0
+                : Math.Max(1, Math.Min(session.SceneContinueBatchSize, sceneActors.Count));
             turnActorCount = batchSize;
             await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
             {
@@ -1546,8 +1568,8 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 try { theme = await _rpThemeService.GetThemeAsync(session.AdaptiveState.ActiveScenarioId, cancellationToken); }
                 catch (Exception ex) { _logger.LogDebug(ex, "MultiEncounter time-skip: could not load theme"); }
 
-                var hasMulti = theme is not null && RolePlayAssistantPrompts.IsMultiEncounterClimax(theme, "Climax");
-                var hasAftermath = theme is not null && RolePlayAssistantPrompts.IsAftermathHusbandContrast(theme,
+                var hasMulti = ContinuationOverrideResolver.ResolveMultiEncounterClimax(session, theme);
+                var hasAftermath = ContinuationOverrideResolver.ResolveAftermathHusbandContrast(session, theme,
                     session.AdaptiveState.CurrentPhase.ToString());
 
                 if (hasMulti || hasAftermath)
@@ -1658,25 +1680,16 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 }
             }
 
-            for (var i = 0; i < batchSize; i++)
+            for (var i = 0; i < batchSize && i < sceneActors.Count; i++)
             {
                 var candidate = sceneActors[i];
                 var actor = candidate.Actor;
                 var actorName = candidate.Name;
                 var positionInTurn = i + 1; // 1-based
 
-                string promptText = i switch
-                {
-                    // Actor 1: the lead character drives the scene forward —
-                    // move to new locations, advance time, escalate the dynamic.
-                    0 => "You are the first response this turn. Move the story forward — shift locations, advance time (days or hours may pass between scenes — let the Phase Guidance and Time Frame above set the pace), escalate the dynamic, or introduce a new element. Use the Environment and Locations in the Scenario section as hints for activities and places. Do not re-describe what was already established.",
-                    // Actors 2+ react to what the previous character established.
-                    _ => "React to the previous character's action from your own perspective, building on the new direction they established. Do not reset the scene or re-describe what came before."
-                };
-
                 await AlignPromptNarrativeStateWithV2Async(session, cancellationToken);
                 var interaction = await _continuationService.ContinueAsync(
-                    session, actor, actorName, PromptIntent.Message, promptText, onChunk, cancellationToken,
+                    session, actor, actorName, PromptIntent.Message, string.Empty, onChunk, cancellationToken,
                     turnIndex: persistedTurn.TurnIndex,
                     positionInTurn: positionInTurn,
                     turnActorCount: batchSize);
@@ -1715,7 +1728,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 fallbackActor,
                 fallbackActorName,
                 PromptIntent.Message,
-                "Continue the scene from your character's perspective. Move the story forward — shift locations, advance time, escalate the dynamic, or introduce a new element.",
+                string.Empty,
                 onChunk,
                 cancellationToken);
 
@@ -2274,12 +2287,12 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     /// <summary>
     /// Internal mirror of <see cref="AffinityType"/> plus None, used for scoring.
     /// </summary>
-    private enum AffinityStatus { None, Preferred, Required, Excluded }
+    internal enum AffinityStatus { None, Preferred, Required, Excluded }
 
     /// <summary>
     /// Computed availability for a character at a given location and time.
     /// </summary>
-    private sealed record AvailableCharacter(
+    internal sealed record AvailableCharacter(
         string Name,
         string? Role,
         bool IsInScene,
@@ -5472,6 +5485,34 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
         if (detected is null)
         {
+            // B-082 stuck-encounter fix: the semantic "encounter-started" detector only fires
+            // on a non-sexual→sexual TRANSITION. After an encounter boundary
+            // (IsEncounterActive=false, TimeSkipPhase=None), if the model continues with
+            // explicit sexual content instead of a non-sexual gap, the detector correctly
+            // reports "no transition" — but the state machine would then freeze (no new start
+            // → no boundary → no aftermath). Re-activate the encounter via the explicit
+            // keyword heuristic in that specific post-boundary case.
+            if (state.CurrentEncounterNumber > 0
+                && HasExplicitSexualActivityContent(interaction.Content))
+            {
+                state.CurrentEncounterStartInteractionIndex = session.Interactions.Count;
+                state.IsEncounterActive = true;
+                interaction.WasEncounterStart = true;
+                _logger.LogInformation(
+                    "EncounterStartReactivated: SessionId={SessionId} Encounter={EncNum} StartIdx={Idx} Actor={Actor} (explicit-keyword fallback after boundary)",
+                    session.Id, state.CurrentEncounterNumber, state.CurrentEncounterStartInteractionIndex,
+                    interaction.ActorName);
+                await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+                {
+                    SessionId = session.Id,
+                    InteractionId = interaction.Id,
+                    EventKind = "EncounterStartReactivated",
+                    Severity = "Info",
+                    ActorName = interaction.ActorName,
+                    Summary = $"Encounter #{state.CurrentEncounterNumber} re-activated at interaction index {state.CurrentEncounterStartInteractionIndex} (explicit-keyword fallback; semantic transition detector returned no-detection)."
+                }, cancellationToken);
+            }
+
             _logger.LogDebug("TryDetectEncounterStart: no detection SessionId={SessionId}", session.Id);
             return;
         }
@@ -5618,19 +5659,19 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         RPTheme? theme = null;
         try { theme = _rpThemeService is not null ? await _rpThemeService.GetThemeAsync(state.ActiveScenarioId, cancellationToken) : null; }
         catch (Exception ex) { _logger.LogDebug(ex, "TryDetectEncounterBoundary: could not load theme {ThemeId}", state.ActiveScenarioId); }
-        var isMulti = theme is not null && RolePlayAssistantPrompts.IsMultiEncounterClimax(theme, "Climax");
-        var isAftermath = theme is not null && RolePlayAssistantPrompts.IsAftermathHusbandContrast(theme, state.CurrentPhase.ToString());
+        var isMulti = ContinuationOverrideResolver.ResolveMultiEncounterClimax(session, theme);
+        var isAftermath = ContinuationOverrideResolver.ResolveAftermathHusbandContrast(session, theme, state.CurrentPhase.ToString());
 
-        // Multi-encounter premature-advance guard.
-        if (isMulti)
+        // Beat Style minimum-turn guard (B-085). The session's sticky Beat Style
+        // override gates how soon the encounter may complete, for ALL themes.
+        // No override → prior behavior is preserved (multi-encounter floor of 4,
+        // single-encounter no floor).
+        var beatStyleMinimum = ResolveBeatStyleMinimumInteractions(session, isMulti);
+        if (beatStyleMinimum > 0 && state.TurnsInCurrentEncounter < beatStyleMinimum)
         {
-            const int minIxns = 4;
-            if (state.TurnsInCurrentEncounter < minIxns)
-            {
-                _logger.LogDebug("TryDetectEncounterBoundary: below minimum encounter length ({Current}/{Min}) SessionId={SessionId}",
-                    state.TurnsInCurrentEncounter, minIxns, session.Id);
-                return;
-            }
+            _logger.LogDebug("TryDetectEncounterBoundary: below Beat Style minimum encounter length ({Current}/{Min}) SessionId={SessionId}",
+                state.TurnsInCurrentEncounter, beatStyleMinimum, session.Id);
+            return;
         }
 
         // ---- Keyword hard-gate: validate evidence span (skip for Instruction/System) ----
@@ -5705,6 +5746,24 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             Summary = $"Encounter boundary advanced: {before} -> {state.CurrentEncounterNumber} (conf={detected.Confidence})",
             MetadataJson = JsonSerializer.Serialize(new { encounterNumberBefore = before, encounterNumberAfter = state.CurrentEncounterNumber, confidence = detected.Confidence, evidenceSpan = detected.EvidenceSpan, themeId = theme?.Id, hasAftermath = isAftermath })
         }, cancellationToken);
+    }
+
+    private static int ResolveBeatStyleMinimumInteractions(RolePlaySession session, bool isMulti)
+    {
+        var overrideScope = session.ContinuationOverride?.BeatScope;
+        if (overrideScope.HasValue)
+        {
+            return overrideScope.Value switch
+            {
+                BeatScope.Single => 1,
+                BeatScope.Short => 2,
+                BeatScope.Extended => 4,
+                _ => isMulti ? 4 : 0
+            };
+        }
+
+        // No override: preserve prior behavior.
+        return isMulti ? 4 : 0;
     }
 
     private static bool IsClimaxCompletionRequested(RolePlaySession session)

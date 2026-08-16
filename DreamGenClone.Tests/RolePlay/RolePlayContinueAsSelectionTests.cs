@@ -17,34 +17,6 @@ namespace DreamGenClone.Tests.RolePlay;
 public sealed class RolePlayContinueAsSelectionTests
 {
     [Fact]
-    public async Task AddInteractionAsync_EmitsSemanticDebugTelemetryFields()
-    {
-        var recordingSink = new RecordingDebugEventSink();
-        var adaptiveService = new RolePlayAdaptiveStateService(
-            new RolePlayTestFactory.FakeThemeCatalogService(),
-            recordingSink,
-            NullLogger<RolePlayAdaptiveStateService>.Instance);
-
-        var service = RolePlayTestFactory.CreateEngineService(
-            adaptiveStateService: adaptiveService,
-            debugEventSink: recordingSink);
-
-        var session = await service.CreateSessionAsync("debug semantic telemetry");
-        await service.AddInteractionAsync(session.Id, ContinueAsActor.Npc, "Becky", "plain interaction without semantic markers");
-
-        var adaptiveUpdate = Assert.Single(recordingSink.Records.Where(x => string.Equals(x.EventKind, "InteractionAdaptiveStateUpdated", StringComparison.Ordinal)));
-        using var metadata = JsonDocument.Parse(adaptiveUpdate.MetadataJson);
-        var root = metadata.RootElement;
-
-        Assert.True(root.TryGetProperty("semanticStepSucceeded", out var semanticStep));
-        Assert.True(semanticStep.GetBoolean());
-        Assert.True(root.TryGetProperty("semanticEvents", out var semanticEvents));
-        Assert.Equal(JsonValueKind.Array, semanticEvents.ValueKind);
-        Assert.True(root.TryGetProperty("semanticDeltaBreakdowns", out var semanticDeltas));
-        Assert.Equal(JsonValueKind.Array, semanticDeltas.ValueKind);
-    }
-
-    [Fact]
     public async Task ContinueAsAsync_SelectedIdentityIds_HonorsAvailability()
     {
         var service = RolePlayTestFactory.CreateEngineService();

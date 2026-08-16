@@ -67,5 +67,8 @@ public enum PromptSlotId
     PinnedContext = 19,
 
     /// <summary>Zone C, order 9 — transient batch scene directions queue, one-shot on next continuation (FR-025). Renders after PinnedContext (8) so persistent constraints precede the one-shot staged plan.</summary>
-    StagedDirections = 20
+    StagedDirections = 20,
+
+    /// <summary>Zone C, order 19 — sticky user scene-direction override for dimensions with no other prompt consumer (B-082).</summary>
+    ContinuationOverride = 21
 }

@@ -405,7 +405,7 @@ public sealed class SemanticInteractionAnalysisJobHandler : IBackgroundJobHandle
         try
         {
             var theme = await _rpThemeService.GetThemeAsync(activeThemeId, CancellationToken.None);
-            return RolePlayAssistantPrompts.IsMultiEncounterClimax(theme, "Climax");
+            return ContinuationOverrideResolver.ResolveMultiEncounterClimax(session, theme);
         }
         catch (Exception ex) { _logger.LogDebug(ex, "IsMultiEncounterClimaxActive: could not load theme {ThemeId}", activeThemeId); return false; }
     }

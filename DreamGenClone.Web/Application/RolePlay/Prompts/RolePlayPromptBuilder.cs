@@ -165,6 +165,7 @@ public sealed class RolePlayPromptBuilder
         PromptSlotId.FinalInstruction => 17,
         PromptSlotId.PinnedContext => 8,
         PromptSlotId.StagedDirections => 9,
+        PromptSlotId.ContinuationOverride => 19,
         _ => int.MaxValue,
     };
 }

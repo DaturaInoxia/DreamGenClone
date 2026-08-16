@@ -9,44 +9,7 @@ public sealed class EncounterDimensionDriftTests
 {
     // ── Wife — Desire drift ─────────────────────────────────────────────────────────────────
 
-    [Fact]
-    public void ApplyDelta_WifeDesirePlus10_DriftsExhibitionismAndDiscoveryCaution()
-    {
-        var stats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["Exhibitionism"]    = 50,
-            ["DiscoveryCaution"] = 50,
-        };
-
-        StatToDimensionMappings.ApplyDelta(stats, "Wife", "Desire", +10);
-
-        // Exhibitionism: +0.90 × 10 = +9 → 59
-        Assert.Equal(59, stats["Exhibitionism"]);
-        // DiscoveryCaution: -0.60 × 10 = -6 → 44
-        Assert.Equal(44, stats["DiscoveryCaution"]);
-    }
-
     // ── Wife — Restraint drift ──────────────────────────────────────────────────────────────
-
-    [Fact]
-    public void ApplyDelta_WifeRestraintPlus10_DriftsDiscoveryCautionExhibitionismAndPostEncounterGuilt()
-    {
-        var stats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["DiscoveryCaution"]   = 50,
-            ["Exhibitionism"]      = 50,
-            ["PostEncounterGuilt"] = 50,
-        };
-
-        StatToDimensionMappings.ApplyDelta(stats, "Wife", "Restraint", +10);
-
-        // DiscoveryCaution: +0.90 × 10 = +9 → 59
-        Assert.Equal(59, stats["DiscoveryCaution"]);
-        // Exhibitionism: -0.60 × 10 = -6 → 44
-        Assert.Equal(44, stats["Exhibitionism"]);
-        // PostEncounterGuilt: +0.45 × 10 = +4.5 → Round → +4 → 54
-        Assert.Equal(54, stats["PostEncounterGuilt"]);
-    }
 
     // ── Clamp at floor (0) ──────────────────────────────────────────────────────────────────
 

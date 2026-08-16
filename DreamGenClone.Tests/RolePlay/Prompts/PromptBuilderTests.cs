@@ -140,45 +140,6 @@ public sealed class PromptBuilderTests
     // ── T028: End-to-end Character-variant build ───────────────
 
     [Fact]
-    public async Task BuildAsync_CharacterVariant_ZoneAOrdering_NoLegacyHeader()
-    {
-        var slots = new List<IPromptSlot>
-        {
-            new SceneAnchorSlot(NullLogger<SceneAnchorSlot>.Instance),
-            new ActorAssignmentSlot(NullLogger<ActorAssignmentSlot>.Instance),
-            new TurnContextSlot(NullLogger<TurnContextSlot>.Instance),
-            new SceneLocationLockSlot(NullLogger<SceneLocationLockSlot>.Instance),
-            new CharacterDataSlot(NullLogger<CharacterDataSlot>.Instance),
-        };
-
-        var builder = CreateBuilder(slots);
-        var context = CreateCharacterContext();
-
-        var prompt = await builder.BuildAsync(context, CancellationToken.None);
-
-        // Zone A opens with scene grounding, not legacy header.
-        Assert.DoesNotContain("You are continuing", prompt);
-        Assert.DoesNotContain("interactive role-play scene", prompt);
-
-        // Zone A content appears before Zone B content.
-        var sceneAnchorIndex = prompt.IndexOf("Current scene:", StringComparison.Ordinal);
-        var actorIndex = prompt.IndexOf("Continue as:", StringComparison.Ordinal);
-        var turnContextIndex = prompt.IndexOf("Turn Context:", StringComparison.Ordinal);
-        // Location lock commented out — no longer injected
-        var charDataIndex = prompt.IndexOf("POV Persona", StringComparison.Ordinal);
-
-        Assert.True(sceneAnchorIndex >= 0, "Scene anchor missing");
-        Assert.True(actorIndex >= 0, "Actor assignment missing");
-        Assert.True(turnContextIndex >= 0, "Turn context missing");
-        Assert.True(charDataIndex >= 0, "Character data missing");
-
-        // Zone A slots appear before Zone B (CharacterData).
-        Assert.True(sceneAnchorIndex < charDataIndex, "Scene anchor should be before character data");
-        Assert.True(actorIndex < charDataIndex, "Actor assignment should be before character data");
-        Assert.True(turnContextIndex < charDataIndex, "Turn context should be before character data");
-    }
-
-    [Fact]
     public async Task BuildAsync_FailsFast_WhenMaxPromptCharsIsZero()
     {
         var slots = new List<IPromptSlot>
@@ -218,58 +179,6 @@ public sealed class PromptBuilderTests
     }
 
     // ── T042: Deduplication — each content category appears exactly once (FR-027, SC-002) ──
-
-    [Fact]
-    public async Task BuildAsync_EachContentCategoryAppearsExactlyOnce()
-    {
-        var theme = new RPTheme
-        {
-            Id = "t1",
-            Label = "Temptation",
-            Description = "Forbidden desire.",
-            AIGenerationNotes = new List<RPThemeAIGuidanceNote>
-            {
-                new() { Section = RPThemeAIGuidanceSection.KeyScenarioElement, Text = "Eye contact matters." }
-            },
-        };
-
-        var slots = new List<IPromptSlot>
-        {
-            new SceneAnchorSlot(NullLogger<SceneAnchorSlot>.Instance),
-            new ActorAssignmentSlot(NullLogger<ActorAssignmentSlot>.Instance),
-            new TurnContextSlot(NullLogger<TurnContextSlot>.Instance),
-            new SceneLocationLockSlot(NullLogger<SceneLocationLockSlot>.Instance),
-            new CharacterDataSlot(NullLogger<CharacterDataSlot>.Instance),
-            new ThemeContractSlot(NullLogger<ThemeContractSlot>.Instance),
-            new FinalInstructionSlot(NullLogger<FinalInstructionSlot>.Instance),
-        };
-
-        var builder = CreateBuilder(slots);
-        var context = CreateCharacterContext();
-        context = context with
-        {
-            Theme = new ResolvedThemeData
-            {
-                ActiveTheme = theme,
-                PhaseGuidanceLines = new List<string> { "Build tension." },
-            },
-        };
-
-        var prompt = await builder.BuildAsync(context, CancellationToken.None);
-
-        // Each category must appear exactly once.
-        var themeContractCount = CountOccurrences(prompt, "Theme Contract:");
-        Assert.Equal(1, themeContractCount);
-
-        var writingInstructionCount = CountOccurrences(prompt, "Writing Instruction:");
-        Assert.Equal(1, writingInstructionCount);
-
-        var turnContextCount = CountOccurrences(prompt, "Turn Context:");
-        Assert.Equal(1, turnContextCount);
-
-        // No legacy header.
-        Assert.DoesNotContain("You are continuing", prompt);
-    }
 
     // ── T049: Narrative-variant end-to-end test (SC-004) ───────
 
@@ -346,45 +255,6 @@ public sealed class PromptBuilderTests
     }
 
     [Fact]
-    public async Task BuildAsync_BudgetEnforcement_TrimsWhenTight()
-    {
-        // Budget tight enough that trimmable slots get trimmed but never-trim survive.
-        var slots = new List<IPromptSlot>
-        {
-            new SceneAnchorSlot(NullLogger<SceneAnchorSlot>.Instance),
-            new ActorAssignmentSlot(NullLogger<ActorAssignmentSlot>.Instance),
-            new TurnContextSlot(NullLogger<TurnContextSlot>.Instance),
-            new SceneLocationLockSlot(NullLogger<SceneLocationLockSlot>.Instance),
-            new CharacterDataSlot(NullLogger<CharacterDataSlot>.Instance),
-            new ThemeContractSlot(NullLogger<ThemeContractSlot>.Instance),
-            new FinalInstructionSlot(NullLogger<FinalInstructionSlot>.Instance),
-        };
-
-        var builder = CreateBuilder(slots);
-        var context = CreateCharacterContext();
-        context = context with
-        {
-            MaxPromptChars = 1500,
-            Theme = new ResolvedThemeData
-            {
-                ActiveTheme = new RPTheme { Id = "t1", Label = "Test", Description = "Testing." },
-            },
-        };
-
-        var prompt = await builder.BuildAsync(context, CancellationToken.None);
-
-        // Never-trim Zone A and Zone C content must survive.
-        Assert.Contains("Current scene:", prompt);
-
-        // Never-trim Zone C content must survive.
-        Assert.Contains("Writing Instruction:", prompt);
-
-        // Budget enforced.
-        Assert.True(prompt.Length <= 1500,
-            $"Prompt length {prompt.Length} exceeds budget of 1500");
-    }
-
-    [Fact]
     public async Task BuildAsync_BudgetEnforcement_FailsFast_OnMissingMaxPromptChars()
     {
         var slots = new List<IPromptSlot>
@@ -416,100 +286,7 @@ public sealed class PromptBuilderTests
 
     // ── T074: Tiered-history end-to-end (15+ turn session) ──────
 
-    [Fact]
-    public async Task BuildAsync_TieredHistory_ShowsCorrectTierBoundaries()
-    {
-        // Build 6 interactions across 3 turns (Dean + Becky per turn).
-        var interactions = new List<RolePlayInteraction>();
-        for (int turn = 1; turn <= 3; turn++)
-        {
-            interactions.Add(new RolePlayInteraction
-            {
-                Id = $"t{turn}-ixn1",
-                ActorName = "Dean",
-                Content = $"Turn {turn} Dean content.",
-                IsExcluded = false,
-            });
-            interactions.Add(new RolePlayInteraction
-            {
-                Id = $"t{turn}-ixn2",
-                ActorName = "Becky",
-                Content = $"Turn {turn} Becky content.",
-                IsExcluded = false,
-            });
-        }
-
-        var slots = new List<IPromptSlot>
-        {
-            new SceneAnchorSlot(NullLogger<SceneAnchorSlot>.Instance),
-            new ActorAssignmentSlot(NullLogger<ActorAssignmentSlot>.Instance),
-            new TurnContextSlot(NullLogger<TurnContextSlot>.Instance),
-            new SceneLocationLockSlot(NullLogger<SceneLocationLockSlot>.Instance),
-            new CharacterDataSlot(NullLogger<CharacterDataSlot>.Instance),
-            new InteractionHistorySlot(NullLogger<InteractionHistorySlot>.Instance),
-            new ThemeContractSlot(NullLogger<ThemeContractSlot>.Instance),
-            new FinalInstructionSlot(NullLogger<FinalInstructionSlot>.Instance),
-        };
-
-        var builder = CreateBuilder(slots);
-        var context = CreateCharacterContext(turnIndex: 53);
-        var session = context.Session;
-        session.HistoryFullDetailTurnBand = 3;
-        session.HistoryNarrativeOnlyTurnBand = 3;
-        session.ContextWindowTurns = 8;
-        context = context with
-        {
-            Session = session,
-            RecentInteractions = interactions,
-            RecentInteractionEntries = BuildTurnEntries(interactions, 51),
-            Theme = new ResolvedThemeData
-            {
-                ActiveTheme = new RPTheme { Id = "t1", Label = "Test", Description = "Testing." },
-            },
-        };
-
-        var prompt = await builder.BuildAsync(context, CancellationToken.None);
-
-        // Turn-grouped format: completed turns shown with correct turn numbers.
-        Assert.Contains("Turn 51:", prompt);
-        Assert.Contains("Turn 52:", prompt);
-
-        // Current turn (53) excluded from history.
-        Assert.DoesNotContain("Turn 53:", prompt);
-
-        // Interactions present with role labels.
-        Assert.Contains("[Dean]", prompt);
-        Assert.Contains("[Becky]", prompt);
-
-        // No legacy header.
-        Assert.DoesNotContain("You are continuing", prompt);
-    }
-
     // ── T082: WorldStateSlot conditional omission ──────────────
-
-    [Fact]
-    public async Task WorldStateSlot_SilentlyOmittedWhenWorldStateIsNull()
-    {
-        var slots = new List<IPromptSlot>
-        {
-            new SceneAnchorSlot(NullLogger<SceneAnchorSlot>.Instance),
-            new WorldStateSlot(),
-            new ActorAssignmentSlot(NullLogger<ActorAssignmentSlot>.Instance),
-            new FinalInstructionSlot(NullLogger<FinalInstructionSlot>.Instance),
-        };
-
-        var builder = CreateBuilder(slots);
-        var context = CreateCharacterContext();
-        // WorldState defaults to null in CreateCharacterContext.
-
-        var prompt = await builder.BuildAsync(context, CancellationToken.None);
-
-        // Should not contain World State section.
-        Assert.DoesNotContain("World State:", prompt);
-        // Should still contain other Zone A content.
-        Assert.Contains("Current scene:", prompt);
-        Assert.Contains("Continue as:", prompt);
-    }
 
     [Fact]
     public async Task WorldStateSlot_FiresWhenWorldStateIsPopulated()

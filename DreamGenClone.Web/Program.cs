@@ -166,6 +166,9 @@ builder.Services.AddScoped<IPromptSlot, ScenarioGuidanceSlot>();
 builder.Services.AddScoped<IPromptSlot, IntensityPacingSlot>();
 builder.Services.AddScoped<IPromptSlot, UserDirectionSlot>();
 
+// B-082: sticky continuation-settings override slot (Beat Style / Time Shift / Granularity / Scene Presence overrides)
+builder.Services.AddScoped<IPromptSlot, ContinuationOverrideSlot>();
+
 builder.Services.AddScoped<IEncounterSummaryService, EncounterSummaryService>();
 builder.Services.AddScoped<ISemanticInteractionAnalysisRepository, SemanticInteractionAnalysisRepository>();
 builder.Services.AddScoped<IRolePlayDiagnosticsRepository, RolePlayDiagnosticsRepository>();

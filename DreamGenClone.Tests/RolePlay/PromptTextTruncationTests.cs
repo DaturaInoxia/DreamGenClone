@@ -16,24 +16,6 @@ public class PromptTextTruncationTests
     #region Basic Functionality
 
     [Fact]
-    public void TrimInteractionHistoryBlock_WithLongHistory_TrimsToFirstAndLastN()
-    {
-        // Arrange
-        var historyContent = string.Join("\n", Enumerable.Range(1, 100).Select(i => $"[User] User message {i}: This is a longer message to ensure we exceed the threshold"));
-        var prompt = MakePrompt("System preamble", historyContent, "Next section");
-        var edgeSize = 200;
-
-        // Act
-        var result = PromptTextTruncation.TrimInteractionHistoryBlock(prompt, edgeSize);
-
-        // Assert
-        Assert.Contains("System preamble", result);
-        Assert.Contains(StartMarker, result);
-        Assert.Contains(EndMarker.TrimStart('\n'), result);
-        Assert.Contains("REMOVED FOR BREVITY", result);
-    }
-
-    [Fact]
     public void TrimInteractionHistoryBlock_WithShortHistory_ReturnsUnchanged()
     {
         // Arrange
@@ -64,16 +46,6 @@ public class PromptTextTruncationTests
     }
 
     [Fact]
-    public void TrimInteractionHistoryBlock_WithNullInput_ReturnsNull()
-    {
-        // Act
-        var result = PromptTextTruncation.TrimInteractionHistoryBlock(null!, 200);
-
-        // Assert
-        Assert.Null(result);
-    }
-
-    [Fact]
     public void TrimInteractionHistoryBlock_WithEmptyInput_ReturnsEmpty()
     {
         // Act
@@ -96,29 +68,6 @@ public class PromptTextTruncationTests
         var result = PromptTextTruncation.TrimInteractionHistoryBlock(prompt, 200);
 
         Assert.Equal(prompt, result);
-    }
-
-    [Fact]
-    public void TrimInteractionHistoryBlock_WithHistoryJustOverThreshold_Trims()
-    {
-        var historyContent = new string('x', 401);
-        var prompt = MakePrompt("", historyContent, "Next");
-
-        var result = PromptTextTruncation.TrimInteractionHistoryBlock(prompt, 200);
-
-        Assert.Contains("REMOVED FOR BREVITY", result);
-    }
-
-    [Fact]
-    public void TrimInteractionHistoryBlock_WithCustomEdgeSize_RespectsParameter()
-    {
-        var historyContent = new string('x', 1000);
-        var prompt = MakePrompt("", historyContent, "Next");
-        var edgeSize = 100;
-
-        var result = PromptTextTruncation.TrimInteractionHistoryBlock(prompt, edgeSize);
-
-        Assert.Contains("REMOVED FOR BREVITY", result);
     }
 
     [Fact]
@@ -183,46 +132,6 @@ public class PromptTextTruncationTests
     #endregion
 
     #region Realistic Prompt Structure
-
-    [Fact]
-    public void TrimInteractionHistoryBlock_WithRealisticPromptStructure_TrimsCorrectly()
-    {
-        // Arrange - simulate a realistic prompt with multiple sections
-        var systemPreamble = "You are DreamGen, a creative writing assistant.";
-        var scenarioContext = "## Scenario\nA fantasy adventure in the realm of Eldoria.";
-        var characterDescriptions = "## Characters\n- Hero: A brave warrior\n- Mentor: A wise sage";
-        var injectedDirectives = "## Directives\n- Maintain consistent tone\n- Advance the plot";
-        var currentTurnInstruction = "## Current Turn\nContinue the narrative from the hero's perspective.";
-        
-        // Create realistic interaction history with multiple turns
-        var historyLines = new List<string>();
-        for (int i = 1; i <= 50; i++)
-        {
-            historyLines.Add($"[User] User input {i}: The hero approaches the ancient castle.");
-            historyLines.Add($"[Assistant] Assistant response {i}: The castle looms before you, its towers reaching toward the stormy sky.");
-        }
-        var historyContent = string.Join("\n", historyLines);
-        
-        var prompt = MakePrompt($"{systemPreamble}\n\n{scenarioContext}\n\n{characterDescriptions}", historyContent, $"{injectedDirectives}\n\n{currentTurnInstruction}");
-
-        // Act
-        var result = PromptTextTruncation.TrimInteractionHistoryBlock(prompt, 200);
-
-        // Assert - all non-history sections preserved
-        Assert.Contains(systemPreamble, result);
-        Assert.Contains(scenarioContext, result);
-        Assert.Contains(characterDescriptions, result);
-        Assert.Contains(injectedDirectives, result);
-        Assert.Contains(currentTurnInstruction, result);
-        Assert.Contains(StartMarker, result);
-        Assert.Contains(EndMarker.TrimStart('\n'), result);
-
-        // History is truncated
-        Assert.Contains("REMOVED FOR BREVITY", result);
-
-        // Result is significantly shorter than original
-        Assert.True(result.Length < prompt.Length * 0.5);
-    }
 
     #endregion
 

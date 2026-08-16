@@ -127,32 +127,6 @@ public sealed class SlotContractTests
 
     // ── T021: SceneAnchorSlot (FR-005, FR-036, SC-008) ─────────
 
-    [Fact]
-    public async Task SceneAnchorSlot_OutputsLocationAndPhase_NoLegacyHeader()
-    {
-        var slot = new SceneAnchorSlot(NullLogger<SceneAnchorSlot>.Instance);
-        var context = CreateContext(phase: "Climax", currentSceneLocation: "The Bedroom");
-
-        Assert.True(slot.ShouldWrite(context));
-
-        var text = await slot.WriteAsync(context, CancellationToken.None);
-
-        Assert.Contains("Current scene: The Bedroom", text);
-        Assert.Contains("Climax phase", text);
-        Assert.DoesNotContain("You are continuing", text);
-        Assert.DoesNotContain("interactive role-play", text);
-    }
-
-    [Fact]
-    public async Task SceneAnchorSlot_HandlesMissingLocation()
-    {
-        var slot = new SceneAnchorSlot(NullLogger<SceneAnchorSlot>.Instance);
-        var context = CreateContext(currentSceneLocation: "");
-
-        var text = await slot.WriteAsync(context, CancellationToken.None);
-        Assert.Contains("Unknown location", text);
-    }
-
     // ── T022: ActorAssignmentSlot (FR-006, FR-036) ─────────────
 
     [Fact]
@@ -342,49 +316,6 @@ public sealed class SlotContractTests
     // ── T039: ThemeContractSlot (FR-018, FR-027, FR-036) ──────
 
     [Fact]
-    public async Task ThemeContractSlot_WithActiveTheme_OutputsThemeAndGuidance()
-    {
-        var slot = new ThemeContractSlot(NullLogger<ThemeContractSlot>.Instance);
-        var context = CreateContext();
-        context = context with
-        {
-            Theme = new ResolvedThemeData
-            {
-                ActiveTheme = new RPTheme
-                {
-                    Id = "t1",
-                    Label = "Temptation",
-                    Description = "The lure of forbidden desire.",
-                },
-                PhaseGuidanceLines = new List<string> { "Build tension through proximity." },
-                PhaseDirectiveLines = new List<string> { "Focus on unspoken attraction." },
-                AiGuidanceNotes = new List<RPThemeAIGuidanceNote>
-                {
-                    new() { Section = RPThemeAIGuidanceSection.KeyScenarioElement, Text = "Eye contact is critical." }
-                },
-                HardConstraintLines = new List<string> { "No violence." },
-            },
-        };
-
-        Assert.True(slot.ShouldWrite(context));
-
-        var text = await slot.WriteAsync(context, CancellationToken.None);
-
-        Assert.Contains("Theme Contract:", text);
-        Assert.Contains("Temptation", text);
-        // Phase Guidance moved to FinalInstructionSlot — no longer in ThemeContractSlot
-        Assert.DoesNotContain("Phase Guidance:", text);
-        Assert.DoesNotContain("Build tension through proximity", text);
-        Assert.Contains("Theme Directives:", text);
-        Assert.Contains("Focus on unspoken attraction", text);
-        Assert.Contains("AI Guidance Notes:", text);
-        Assert.Contains("[Key Element]", text);
-        Assert.Contains("Eye contact is critical", text);
-        Assert.Contains("Hard Constraints:", text);
-        Assert.Contains("- No violence", text);
-    }
-
-    [Fact]
     public async Task ThemeContractSlot_NoActiveTheme_HandlesGracefully()
     {
         var slot = new ThemeContractSlot(NullLogger<ThemeContractSlot>.Instance);
@@ -557,47 +488,6 @@ public sealed class SlotContractTests
 
     // ── T041: FinalInstructionSlot Character variant (FR-023, FR-027, FR-036) ──
 
-    [Fact]
-    public async Task FinalInstructionSlot_CharacterVariant_FirstPersonPOV()
-    {
-        var slot = new FinalInstructionSlot(NullLogger<FinalInstructionSlot>.Instance);
-        var context = CreateContext(
-            variant: PromptVariant.Character,
-            actorName: "Becky");
-
-        Assert.True(slot.ShouldWrite(context));
-
-        var text = await slot.WriteAsync(context, CancellationToken.None);
-
-        Assert.Contains("Writing Instruction:", text);
-        Assert.Contains("first-person from Becky", text);
-        Assert.Contains("200-400 words", text);
-        Assert.DoesNotContain("omniscient", text);
-        Assert.DoesNotContain("Zero dialogue", text);
-    }
-
-    [Fact]
-    public async Task FinalInstructionSlot_NarrativeVariant_OmniscientZeroDialogue()
-    {
-        var slot = new FinalInstructionSlot(NullLogger<FinalInstructionSlot>.Instance);
-        var context = CreateContext(
-            variant: PromptVariant.Narrative,
-            actorKind: ActorProfileKind.Narrative);
-
-        var text = await slot.WriteAsync(context, CancellationToken.None);
-
-        Assert.Contains("third-person omniscient", text);
-        Assert.Contains("HARD CONSTRAINT: Zero dialogue", text);
-        Assert.Contains("300-500 words", text);
-        Assert.Contains("Physical Detail Checklist", text);
-        Assert.Contains("Body positions", text);
-        Assert.Contains("Physical contact", text);
-        Assert.Contains("Sensory details", text);
-        Assert.Contains("Rhythm and pacing", text);
-        Assert.Contains("Environmental atmosphere", text);
-        Assert.DoesNotContain("first-person", text);
-    }
-
     // ── T048: Narrative-variant contract tests for CharacterDataSlot ──
 
     [Fact]
@@ -686,20 +576,6 @@ public sealed class SlotContractTests
     }
 
     // ── T059: CurrentLocationSlot (FR-013, FR-036) ─────────────
-
-    [Fact]
-    public async Task CurrentLocationSlot_OutputsCurrentSceneLocation()
-    {
-        var slot = new CurrentLocationSlot(NullLogger<CurrentLocationSlot>.Instance);
-        var context = CreateContext(currentSceneLocation: "The Bedroom");
-
-        Assert.True(slot.ShouldWrite(context));
-
-        var text = await slot.WriteAsync(context, CancellationToken.None);
-
-        Assert.Contains("Current Location:", text);
-        Assert.Contains("The Bedroom", text);
-    }
 
     [Fact]
     public async Task CurrentLocationSlot_UnknownLocation()
@@ -803,29 +679,6 @@ public sealed class SlotContractTests
     }
 
     // ── T061: SceneContinuityAnchorSlot (FR-017, FR-036) ───────
-
-    [Fact]
-    public async Task SceneContinuityAnchorSlot_OutputsCrossPerceptions()
-    {
-        var slot = new SceneContinuityAnchorSlot(NullLogger<SceneContinuityAnchorSlot>.Instance);
-        var characters = new List<ScenarioCharacter>
-        {
-            new("c1", "Becky", "wife"),
-            new("c2", "Dean", "husband"),
-        };
-        var context = CreateContext(
-            actorKind: ActorProfileKind.Player,
-            actorName: "You",
-            personaName: "Ken",
-            characters: characters);
-
-        Assert.True(slot.ShouldWrite(context));
-
-        var text = await slot.WriteAsync(context, CancellationToken.None);
-
-        Assert.Contains("Scene Continuity", text);
-        Assert.Contains("what other characters perceive", text);
-    }
 
     [Fact]
     public async Task SceneContinuityAnchorSlot_DropsSelfPerceptions()

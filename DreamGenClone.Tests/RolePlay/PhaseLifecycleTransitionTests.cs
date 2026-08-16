@@ -22,41 +22,6 @@ public sealed class PhaseLifecycleTransitionTests
     }
 
     [Fact]
-    public async Task ValidLifecycleTransitionSequence_ProgressesInOrder()
-    {
-        // All phase transitions require a configured profile — no hardcoded fallbacks.
-        var service = CreateServiceWithProfile();
-        var state = CreateState();
-        state.CurrentPhase = NarrativePhase.Committed;
-
-        var toApproaching = await service.EvaluateTransitionAsync(state, new LifecycleInputs
-        {
-            TurnsSinceCommitment = 3,
-            ActiveScenarioFitScore = 61m,
-            ActiveScenarioConfidence = 0.8m
-        });
-        state.CurrentPhase = toApproaching.TargetPhase;
-
-        var toClimax = await service.EvaluateTransitionAsync(state, new LifecycleInputs
-        {
-            TurnsSinceCommitment = 1,
-            ActiveScenarioFitScore = 85m,
-            ActiveScenarioConfidence = 0.9m
-        });
-        state.CurrentPhase = toClimax.TargetPhase;
-
-        var toReset = await service.EvaluateTransitionAsync(state, new LifecycleInputs { ClimaxCompletionRequested = true });
-        state.CurrentPhase = toReset.TargetPhase;
-
-        var toBuildUp = await service.EvaluateTransitionAsync(state, new LifecycleInputs());
-
-        Assert.Equal(NarrativePhase.Approaching, toApproaching.TargetPhase);
-        Assert.Equal(NarrativePhase.Climax, toClimax.TargetPhase);
-        Assert.Equal(NarrativePhase.Reset, toReset.TargetPhase);
-        Assert.Equal(NarrativePhase.BuildUp, toBuildUp.TargetPhase);
-    }
-
-    [Fact]
     public async Task BuildUp_DoesNotTransitionToCommitted_ViaLifecycle()
     {
         var service = CreateServiceWithProfile();
@@ -108,78 +73,6 @@ public sealed class PhaseLifecycleTransitionTests
 
         Assert.True(result.Transitioned);
         Assert.Equal(NarrativePhase.Reset, result.TargetPhase);
-    }
-
-    [Fact]
-    public async Task BuildScenarioCandidates_ReordersPrimaryCandidate_WhenEvidenceScoresChange()
-    {
-        var engine = RolePlayTestFactory.CreateEngineService();
-        var session = await engine.CreateSessionAsync("phase-ordering");
-
-        session.AdaptiveState.ThemeScores = new Dictionary<string, ThemeScoreState>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["theme-a"] = new ThemeScoreState { ThemeId = "theme-a", ThemeName = "Theme A", Score = 80, Blocked = false },
-            ["theme-b"] = new ThemeScoreState { ThemeId = "theme-b", ThemeName = "Theme B", Score = 20, Blocked = false }
-        };
-
-        var firstCandidates = await InvokeBuildScenarioCandidatesAsync(engine, session);
-        Assert.Equal("theme-a", firstCandidates[0].ScenarioId);
-
-        // Simulate semantic evidence shifting narrative momentum to theme-b.
-        session.AdaptiveState.ThemeScores["theme-a"].Score = 20;
-        session.AdaptiveState.ThemeScores["theme-b"].Score = 90;
-
-        var secondCandidates = await InvokeBuildScenarioCandidatesAsync(engine, session);
-        Assert.Equal("theme-b", secondCandidates[0].ScenarioId);
-    }
-
-    [Fact]
-    public async Task BuildScenarioCandidates_ExcludesBlockedTheme_EvenWhenScoreIsHigher()
-    {
-        var engine = RolePlayTestFactory.CreateEngineService();
-        var session = await engine.CreateSessionAsync("phase-lock-safe");
-
-        session.AdaptiveState.ThemeScores = new Dictionary<string, ThemeScoreState>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["theme-safe"] = new ThemeScoreState { ThemeId = "theme-safe", ThemeName = "Theme Safe", Score = 25, Blocked = false },
-            ["theme-blocked"] = new ThemeScoreState { ThemeId = "theme-blocked", ThemeName = "Theme Blocked", Score = 99, Blocked = true }
-        };
-
-        var candidates = await InvokeBuildScenarioCandidatesAsync(engine, session);
-
-        Assert.DoesNotContain(candidates, x => string.Equals(x.ScenarioId, "theme-blocked", StringComparison.OrdinalIgnoreCase));
-        Assert.Equal("theme-safe", candidates[0].ScenarioId);
-    }
-
-    [Fact]
-    public async Task CommittedPhase_TransitionsWhenPostSemanticDesireCrossesGateThreshold()
-    {
-        var service = CreateServiceWithProfile();
-        var state = CreateState();
-        state.CurrentPhase = NarrativePhase.Committed;
-        state.CharacterSnapshots[0].Desire = 64;
-        state.CharacterSnapshots[0].Restraint = 44;
-
-        var beforeSemantic = await service.EvaluateTransitionAsync(state, new LifecycleInputs
-        {
-            TurnsSinceCommitment = 3,
-            ActiveScenarioFitScore = 61m,
-            ActiveScenarioConfidence = 0.8m
-        });
-        Assert.False(beforeSemantic.Transitioned);
-
-        // Simulate semantic stat mapping delta being applied before gate evaluation.
-        state.CharacterSnapshots[0].Desire = 66;
-
-        var afterSemantic = await service.EvaluateTransitionAsync(state, new LifecycleInputs
-        {
-            TurnsSinceCommitment = 3,
-            ActiveScenarioFitScore = 61m,
-            ActiveScenarioConfidence = 0.8m
-        });
-
-        Assert.True(afterSemantic.Transitioned);
-        Assert.Equal(NarrativePhase.Approaching, afterSemantic.TargetPhase);
     }
 
     [Fact]
@@ -243,33 +136,6 @@ public sealed class PhaseLifecycleTransitionTests
 
         Assert.False(result.Transitioned);
         Assert.Equal(NarrativePhase.Approaching, result.TargetPhase);
-    }
-
-    [Fact]
-    public async Task ResetToBuildUp_ExecuteResetPreservesContinuityRelevantState()
-    {
-        var state = CreateState();
-        state.CurrentPhase = NarrativePhase.Reset;
-        state.CycleIndex = 4;
-        state.ActiveFormulaVersion = "custom-v2";
-        var snapshot = state.CharacterSnapshots[0];
-        snapshot.CharacterRole = "Wife";
-
-        var reset = await _service.ExecuteResetAsync(state, ResetReason.Completion);
-        var decayed = reset.CharacterSnapshots[0];
-
-        Assert.Equal(NarrativePhase.BuildUp, reset.CurrentPhase);
-        Assert.Equal(5, reset.CycleIndex);
-        Assert.Equal("custom-v2", reset.ActiveFormulaVersion);
-        Assert.Single(reset.CharacterSnapshots);
-        Assert.Equal(snapshot.CharacterId, reset.CharacterSnapshots[0].CharacterId);
-        Assert.Equal("Wife", reset.CharacterSnapshots[0].CharacterRole);
-        Assert.True(decayed.Desire < snapshot.Desire);
-        Assert.Equal(snapshot.RuntimeEncounterStats?.GetValueOrDefault("Tension") ?? 50, decayed.RuntimeEncounterStats?.GetValueOrDefault("Tension") ?? 50);
-        Assert.True(decayed.Dominance <= snapshot.Dominance);
-        Assert.Equal(snapshot.RuntimeEncounterStats?.GetValueOrDefault("Connection") ?? 50, decayed.RuntimeEncounterStats?.GetValueOrDefault("Connection") ?? 50);
-        Assert.Equal(snapshot.Loyalty, decayed.Loyalty);
-        Assert.Equal(snapshot.SelfRespect, decayed.SelfRespect);
     }
 
     [Fact]

@@ -128,6 +128,13 @@ public sealed class RolePlaySession
     /// <summary>Session-level intensity ceiling override.</summary>
     public string? IntensityCeilingOverride { get; set; }
 
+    /// <summary>
+    /// Sticky continuation-settings override (B-082): pacing, beat style, time shift,
+    /// granularity, deepening, scene presence, Climax Mode, Aftermath, and word-count target.
+    /// Null = no override (theme markers / phase defaults decide). Persisted with the session.
+    /// </summary>
+    public ContinuationOverride? ContinuationOverride { get; set; }
+
     /// <summary>When true, the intensity profile is pinned by the user and auto-adaptation is suppressed.</summary>
     public bool IsIntensityManuallyPinned { get; set; }
 

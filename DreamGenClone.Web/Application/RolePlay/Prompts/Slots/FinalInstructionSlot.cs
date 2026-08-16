@@ -97,7 +97,11 @@ public sealed class FinalInstructionSlot : IPromptSlot
                 {
                     ScenePacing.Slow => "HARD CONSTRAINT — Scene Pacing: Slow pacing — advance within the current beat. Do not leap to a new beat or position.",
                     ScenePacing.Fast => "HARD CONSTRAINT — Scene Pacing: Fast pacing — advance through multiple beats. Push the story forward rapidly.",
-                    _ => "HARD CONSTRAINT — Scene Pacing: Medium pacing — advance the scene by one beat. Move the story forward."
+                    // Medium must read as a restrained one-beat step, not an advancement license.
+                    // "Move the story forward" (old wording) cancelled the one-beat restraint and let
+                    // Medium advance as far as Fast (verified in session f1787868, t9). Mirror Slow's
+                    // enforceable negative form so "one beat" is actually honored.
+                    _ => "HARD CONSTRAINT — Scene Pacing: Medium pacing — advance the scene by one beat, then stop. Do not skip ahead in time or jump to a new location."
                 };
                 sb.AppendLine(pacingText);
             }

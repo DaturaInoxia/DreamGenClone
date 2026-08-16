@@ -71,6 +71,16 @@ public sealed record PromptBuildContext
     /// </summary>
     public required IReadOnlyList<RolePlayInteraction> StagedInteractions { get; init; }
 
+    // ── Continuation settings override (B-082) ──────────────────
+    /// <summary>
+    /// Sticky continuation-settings override read from <see cref="RolePlaySession.ContinuationOverride"/>.
+    /// Null when not set. Used by <see cref="Slots.ContinuationOverrideSlot"/> to render the
+    /// otherwise-unconsumed scene-direction dimensions (Beat Style, Time Shift, Granularity,
+    /// Scene Presence). Pacing/Deepening/word-count are consumed by their own slots from the
+    /// already-overridden resolved data.
+    /// </summary>
+    public ContinuationOverride? Override { get; init; }
+
     /// <summary>
     /// Recent interactions wrapped with turn metadata (turn number, position, actor count).
     /// Computed by the builder from <see cref="RecentInteractions"/> ordering.

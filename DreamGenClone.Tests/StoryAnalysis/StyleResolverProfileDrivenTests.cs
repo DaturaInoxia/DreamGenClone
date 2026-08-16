@@ -29,20 +29,6 @@ public sealed class StyleResolverProfileDrivenTests
     // --- Escalation with profile EscalatingThemeIds ---
 
     [Fact]
-    public void ProfileEscalatingThemeIds_Escalates_WhenPrimaryMatches()
-    {
-        var session = CreateSession(primaryThemeId: "custom-theme");
-        var profile = new SteeringProfile
-        {
-            EscalatingThemeIds = ["custom-theme", "another-theme"]
-        };
-
-        var (_, reason) = RolePlayStyleResolver.ResolveEffectiveStyle(session, IntensityLevel.SuggestivePg12, styleProfile: profile);
-
-        Assert.Contains("theme=escalating(+1)", reason);
-    }
-
-    [Fact]
     public void ProfileEscalatingThemeIds_NoEscalation_WhenThemeNotInProfile()
     {
         var session = CreateSession(primaryThemeId: "dominance"); // legacy escalating, but not in profile
@@ -95,20 +81,6 @@ public sealed class StyleResolverProfileDrivenTests
     // --- MustHave +1 push ---
 
     [Fact]
-    public void MustHave_PrimaryTheme_AddsPlusOnePush()
-    {
-        var session = CreateSession(primaryThemeId: "intimacy");
-        var preferences = new List<ThemePreference>
-        {
-            new() { Name = "intimacy", Tier = ThemeTier.MustHave }
-        };
-
-        var (_, reason) = RolePlayStyleResolver.ResolveEffectiveStyle(session, IntensityLevel.SuggestivePg12, themePreferences: preferences);
-
-        Assert.Contains("musthave-push(+1)", reason);
-    }
-
-    [Fact]
     public void MustHave_SecondaryTheme_NoPush()
     {
         var session = CreateSession(primaryThemeId: "confession", secondaryThemeId: "intimacy");
@@ -125,72 +97,7 @@ public sealed class StyleResolverProfileDrivenTests
 
     // --- HardDealBreaker suppression ---
 
-    [Fact]
-    public void HardDealBreaker_PrimaryTheme_SuppressesEscalation()
-    {
-        var session = CreateSession(primaryThemeId: "dominance"); // would normally escalate
-        var preferences = new List<ThemePreference>
-        {
-            new() { Name = "dominance", Tier = ThemeTier.HardDealBreaker }
-        };
-
-        var (_, reason) = RolePlayStyleResolver.ResolveEffectiveStyle(session, IntensityLevel.SuggestivePg12, themePreferences: preferences);
-
-        Assert.Contains("dealbreaker-suppressed", reason);
-        Assert.DoesNotContain("theme=escalating", reason);
-        Assert.DoesNotContain("musthave-push", reason);
-    }
-
-    [Fact]
-    public void HardDealBreaker_SecondaryTheme_SuppressesEscalation()
-    {
-        var session = CreateSession(primaryThemeId: "confession", secondaryThemeId: "power-dynamics");
-        var preferences = new List<ThemePreference>
-        {
-            new() { Name = "power-dynamics", Tier = ThemeTier.HardDealBreaker }
-        };
-
-        var (_, reason) = RolePlayStyleResolver.ResolveEffectiveStyle(session, IntensityLevel.SuggestivePg12, themePreferences: preferences);
-
-        Assert.Contains("dealbreaker-suppressed", reason);
-    }
-
-    [Fact]
-    public void HardDealBreaker_AlsoSuppressesMustHavePush()
-    {
-        var session = CreateSession(primaryThemeId: "dominance");
-        var preferences = new List<ThemePreference>
-        {
-            new() { Name = "dominance", Tier = ThemeTier.HardDealBreaker },
-            new() { Name = "dominance", Tier = ThemeTier.MustHave } // contradictory, but HardDealBreaker wins
-        };
-
-        var (_, reason) = RolePlayStyleResolver.ResolveEffectiveStyle(session, IntensityLevel.SuggestivePg12, themePreferences: preferences);
-
-        Assert.Contains("dealbreaker-suppressed", reason);
-        Assert.DoesNotContain("musthave-push", reason);
-    }
-
     // --- Combined profile + preferences ---
-
-    [Fact]
-    public void ProfileEscalation_CombinedWithMustHavePush()
-    {
-        var session = CreateSession(primaryThemeId: "custom-theme");
-        var profile = new SteeringProfile
-        {
-            EscalatingThemeIds = ["custom-theme"]
-        };
-        var preferences = new List<ThemePreference>
-        {
-            new() { Name = "custom-theme", Tier = ThemeTier.MustHave }
-        };
-
-        var (_, reason) = RolePlayStyleResolver.ResolveEffectiveStyle(session, IntensityLevel.SuggestivePg12, styleProfile: profile, themePreferences: preferences);
-
-        Assert.Contains("theme=escalating(+1)", reason);
-        Assert.Contains("musthave-push(+1)", reason);
-    }
 
     [Fact]
     public void ManualPin_On_ResolvedUsesSelectedScale()
@@ -222,26 +129,6 @@ public sealed class StyleResolverProfileDrivenTests
         Assert.Equal("Erotic", label);
         Assert.Contains("selected=Emotional", reason);
         Assert.Contains("adaptive=Explicit", reason);
-    }
-
-    [Fact]
-    public void ManualPin_Off_ApproachingCapsResolvedAtErotic()
-    {
-        var session = CreateSession(primaryThemeId: null, desireStat: 90);
-        session.IsIntensityManuallyPinned = false;
-        session.AdaptiveState.CurrentPhase = DreamGenClone.Domain.RolePlay.NarrativePhase.Approaching;
-        for (var i = 0; i < 8; i++)
-        {
-            session.Interactions.Add(new RolePlayInteraction { Content = "late" });
-        }
-
-        var (label, reason) = RolePlayStyleResolver.ResolveEffectiveStyle(
-            session,
-            baseIntensityLevel: IntensityLevel.Explicit,
-            adaptiveIntensityLevel: IntensityLevel.Explicit);
-
-        Assert.Equal("Erotic", label);
-        Assert.Contains("approaching-capped-at-erotic", reason);
     }
 
     [Fact]

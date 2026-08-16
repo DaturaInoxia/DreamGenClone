@@ -23,6 +23,14 @@ These rules are mandatory for all coding tasks in this repository.
 - Do not re-introduce behavior the user explicitly removed.
 - If a requested behavior conflicts with existing code patterns, follow the user requirement and surface the conflict in plain language.
 
+## Hard Rule: All Tests Must Pass On Implementation Changes
+- Every implementation change must leave the test suite green — do not introduce or leave failing tests.
+- After any code change (implementation, fix, or refactor), run the test suite (at minimum the affected test project/areas, ideally the full suite) and confirm all tests pass before declaring the task complete.
+- Do not mark a task done, request review, or report a fix while any test is failing.
+- New tests written to cover the change must also pass — no skipped or disabled tests as a way to hide failures.
+- If a test fails after a change, the change is not complete: fix the code (or, only with explicit user approval, the test) forward — never via `git restore`/reverting.
+- Pre-existing failing tests must be reported and resolved (fixed or explicitly removed with user approval) rather than silently ignored.
+
 ## Hard Rule: No RP Engine Code Changes Without Plan + Confirmation
 - Before ANY code change to RP engine files (`RolePlayEngineService.cs`, `RolePlayContinuationService.cs`, prompt slots, etc.), present: root cause, proposed fix with file list, and blast radius.
 - Wait for explicit "go ahead" or "yes" before touching any code.

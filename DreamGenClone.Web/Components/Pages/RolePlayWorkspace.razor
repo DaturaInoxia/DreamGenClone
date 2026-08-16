@@ -126,6 +126,12 @@
     private bool _intentPopupOpen = false;
     private bool _identityPopupOpen = false;
     private bool _continueCustomPopupOpen = false;
+    private bool _continuationSettingsPopupOpen = false;
+    private DreamGenClone.Domain.RolePlay.SceneDirection? _effectiveSceneDirection;
+    private bool _effectiveMultiEncounter;
+    private bool _effectiveAftermath;
+    private int _effectiveWordMin;
+    private int _effectiveWordMax;
     private bool _finishPopupOpen;
     private bool _finishOptionsLoading;
     private bool _finishOptionSubmitting;
@@ -780,6 +786,7 @@
         _intentPopupOpen = false;
         _identityPopupOpen = false;
         _continueCustomPopupOpen = false;
+        _continuationSettingsPopupOpen = false;
         DismissFinishPopup();
         _nextPhasePopupOpen = false;
         _steerPopupOpen = false;
@@ -4827,7 +4834,99 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
             DismissFinishPopup();
             _nextPhasePopupOpen = false;
             _steerPopupOpen = false;
+            _continuationSettingsPopupOpen = false;
         }
+    }
+
+    private NarrativePhase CurrentNarrativePhase
+        => _v2State?.CurrentPhase ?? _session?.AdaptiveState.CurrentPhase ?? NarrativePhase.BuildUp;
+
+    private async Task OpenContinuationSettingsPopupAsync()
+    {
+        if (_session is null)
+        {
+            return;
+        }
+
+        _continuationSettingsPopupOpen = true;
+        _continueCustomPopupOpen = false;
+        _intentPopupOpen = false;
+        _identityPopupOpen = false;
+        _finishPopupOpen = false;
+        _nextPhasePopupOpen = false;
+        _steerPopupOpen = false;
+
+        await RefreshEffectiveContinuationSettingsAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void CancelContinuationSettingsPopup()
+    {
+        _continuationSettingsPopupOpen = false;
+    }
+
+    private async Task SaveContinuationOverrideAsync(ContinuationOverride? overrideValue)
+    {
+        if (_session is null)
+        {
+            return;
+        }
+
+        _session.ContinuationOverride = overrideValue;
+        await RolePlayEngine.SaveSessionAsync(_session);
+        _continuationSettingsPopupOpen = false;
+        _statusMessage = overrideValue is not null && overrideValue.HasAny
+            ? "Continuation settings override saved."
+            : "Continuation settings override cleared.";
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ClearContinuationOverrideAsync()
+    {
+        if (_session is null)
+        {
+            return;
+        }
+
+        _session.ContinuationOverride = null;
+        await RolePlayEngine.SaveSessionAsync(_session);
+        _continuationSettingsPopupOpen = false;
+        _statusMessage = "Continuation settings override cleared.";
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task RefreshEffectiveContinuationSettingsAsync()
+    {
+        if (_session is null)
+        {
+            return;
+        }
+
+        var phase = (_v2State?.CurrentPhase ?? _session.AdaptiveState.CurrentPhase).ToString();
+        var themeId = !string.IsNullOrWhiteSpace(_v2State?.ActiveScenarioId)
+            ? _v2State!.ActiveScenarioId
+            : _v2State?.PrimaryThemeId;
+
+        DreamGenClone.Domain.RolePlay.RPTheme? theme = null;
+        if (!string.IsNullOrWhiteSpace(themeId))
+        {
+            try { theme = await RPThemeService.GetThemeAsync(themeId); }
+            catch (Exception ex) { Logger.LogDebug(ex, "RefreshEffectiveContinuationSettings: could not load theme {ThemeId}", themeId); }
+        }
+
+        _effectiveSceneDirection = SceneDirectionResolver.Resolve(phase, theme, DreamGenClone.Domain.RolePlay.ClimaxSubPhase.None, PromptIntent.Message);
+        _effectiveMultiEncounter = theme is not null && DreamGenClone.Web.Application.RolePlay.RolePlayAssistantPrompts.IsMultiEncounterClimax(theme, "Climax");
+        _effectiveAftermath = theme is not null && DreamGenClone.Web.Application.RolePlay.RolePlayAssistantPrompts.IsAftermathHusbandContrast(theme, phase);
+
+        var marker = DreamGenClone.Web.Application.RolePlay.RolePlayAssistantPrompts.GetWordTargetMarker(theme, phase) ?? "small";
+        var preset = ContinuationMarkerCatalog.WordCountPresets
+            .FirstOrDefault(p => string.Equals(p.Key, marker, StringComparison.OrdinalIgnoreCase));
+        if (preset == default)
+        {
+            preset = ContinuationMarkerCatalog.WordCountPresets[0];
+        }
+        _effectiveWordMin = preset.Min;
+        _effectiveWordMax = preset.Max;
     }
 
     private Task OpenFinishPopupAsync()
@@ -4865,6 +4964,7 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
 
         _finishPopupOpen = true;
         _continueCustomPopupOpen = false;
+        _continuationSettingsPopupOpen = false;
         _intentPopupOpen = false;
         _identityPopupOpen = false;
         _nextPhasePopupOpen = false;
@@ -4913,6 +5013,7 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
 
         _nextPhasePopupOpen = true;
         _continueCustomPopupOpen = false;
+        _continuationSettingsPopupOpen = false;
         _intentPopupOpen = false;
         _identityPopupOpen = false;
         _finishPopupOpen = false;
@@ -5076,6 +5177,7 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
 
         _steerPopupOpen = true;
         _continueCustomPopupOpen = false;
+        _continuationSettingsPopupOpen = false;
         _intentPopupOpen = false;
         _identityPopupOpen = false;
         _finishPopupOpen = false;
@@ -9263,6 +9365,12 @@ private void CloseInteractionInfo()
                             @onclick:stopPropagation>
                         Custom
                     </button>
+                    <button class="rw-continue-chip @(_continuationSettingsPopupOpen ? "is-active" : string.Empty)"
+                            @onclick="OpenContinuationSettingsPopupAsync"
+                            disabled="@IsSelectionUiLocked"
+                            @onclick:stopPropagation>
+                        Settings
+                    </button>
                         <button type="button"
                             class="rw-continue-chip"
                             @onclick="OpenNextPhasePopupAsync"
@@ -9341,6 +9449,22 @@ private void CloseInteractionInfo()
                                     disabled="@_isSubmitting"
                                     @onclick="ContinueFromIdentityPopupAsync">Continue</button>
                         </div>
+                    </div>
+                }
+
+                @if (_continuationSettingsPopupOpen)
+                {
+                    <div class="rw-modal-overlay" @onclick="CancelContinuationSettingsPopup">
+                        <ContinuationSettingsPopup CurrentPhase="@CurrentNarrativePhase"
+                                                  EffectiveDirection="@_effectiveSceneDirection"
+                                                  EffectiveMultiEncounter="@_effectiveMultiEncounter"
+                                                  EffectiveAftermath="@_effectiveAftermath"
+                                                  EffectiveWordMin="@_effectiveWordMin"
+                                                  EffectiveWordMax="@_effectiveWordMax"
+                                                  CurrentOverride="@(_session?.ContinuationOverride)"
+                                                  OnSave="SaveContinuationOverrideAsync"
+                                                  OnClear="ClearContinuationOverrideAsync"
+                                                  OnCancel="CancelContinuationSettingsPopup" />
                     </div>
                 }
 

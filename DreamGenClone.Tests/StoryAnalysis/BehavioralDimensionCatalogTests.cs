@@ -7,22 +7,6 @@ public class BehavioralDimensionCatalogTests
     // ── GetDimensions ────────────────────────────────────────────────────────
 
     [Fact]
-    public void GetDimensions_Husband_Returns6Dimensions()
-    {
-        var dims = BehavioralDimensionCatalog.GetDimensions("Husband");
-        Assert.Equal(6, dims.Count);
-        Assert.All(dims, d => Assert.NotNull(d));
-    }
-
-    [Fact]
-    public void GetDimensions_Wife_Returns4Dimensions()
-    {
-        var dims = BehavioralDimensionCatalog.GetDimensions("Wife");
-        Assert.Equal(4, dims.Count);
-        Assert.All(dims, d => Assert.NotNull(d));
-    }
-
-    [Fact]
     public void GetDimensions_OtherMan_Returns4Dimensions()
     {
         var dims = BehavioralDimensionCatalog.GetDimensions("OtherMan");

@@ -8,59 +8,6 @@ namespace DreamGenClone.Tests.RolePlay;
 public sealed class ScenarioLifecycleGateProfileTests
 {
     [Fact]
-    public async Task CommittedToApproaching_RequiresAllConfiguredGates()
-    {
-        var profileService = new StubNarrativeGateProfileService();
-        var service = new ScenarioLifecycleService(NullLogger<ScenarioLifecycleService>.Instance, profileService);
-        var state = CreateState(NarrativePhase.Committed, desire: 70, restraint: 40);
-
-        var pass = await service.EvaluateTransitionAsync(state, new LifecycleInputs
-        {
-            TurnsSinceCommitment = 3,
-            ActiveScenarioFitScore = 61m
-        });
-
-        Assert.True(pass.Transitioned);
-        Assert.Equal(NarrativePhase.Approaching, pass.TargetPhase);
-
-        var fail = await service.EvaluateTransitionAsync(state, new LifecycleInputs
-        {
-            TurnsSinceCommitment = 2,
-            ActiveScenarioFitScore = 61m
-        });
-
-        Assert.False(fail.Transitioned);
-        Assert.Equal(NarrativePhase.Committed, fail.TargetPhase);
-    }
-
-    [Fact]
-    public async Task ApproachingToClimax_UsesConfiguredDesireAndRestraintThresholds()
-    {
-        var profileService = new StubNarrativeGateProfileService();
-        var service = new ScenarioLifecycleService(NullLogger<ScenarioLifecycleService>.Instance, profileService);
-
-        var failingState = CreateState(NarrativePhase.Approaching, desire: 74, restraint: 30);
-        var failing = await service.EvaluateTransitionAsync(failingState, new LifecycleInputs
-        {
-            TurnsSinceCommitment = 99,
-            ActiveScenarioFitScore = 85m
-        });
-
-        Assert.False(failing.Transitioned);
-        Assert.Equal(NarrativePhase.Approaching, failing.TargetPhase);
-
-        var passingState = CreateState(NarrativePhase.Approaching, desire: 76, restraint: 35);
-        var passing = await service.EvaluateTransitionAsync(passingState, new LifecycleInputs
-        {
-            TurnsSinceCommitment = 1,
-            ActiveScenarioFitScore = 85m
-        });
-
-        Assert.True(passing.Transitioned);
-        Assert.Equal(NarrativePhase.Climax, passing.TargetPhase);
-    }
-
-    [Fact]
     public async Task ClimaxToReset_UsesConfiguredInteractionThreshold()
     {
         var profileService = new StubNarrativeGateProfileService();

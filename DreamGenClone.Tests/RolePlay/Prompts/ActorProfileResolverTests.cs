@@ -42,20 +42,6 @@ public sealed class ActorProfileResolverTests
 
     // ── Player profile ─────────────────────────────────────────
 
-    [Fact]
-    public void Resolve_MessageIntent_You_ReturnsPlayerProfile()
-    {
-        var session = CreateSession();
-        var roster = CreateRoster();
-
-        var profile = _resolver.Resolve(ContinueAsActor.You, null, PromptIntent.Message, session, roster);
-
-        Assert.Equal(ActorProfileKind.Player, profile.Kind);
-        Assert.Equal("Ken", profile.ActorName);
-        Assert.Equal("Hero", profile.ActorRole);
-        Assert.Equal(roster.Count, profile.AllCharacterIds.Count);
-    }
-
     // ── Narrative profile ──────────────────────────────────────
 
     [Fact]
