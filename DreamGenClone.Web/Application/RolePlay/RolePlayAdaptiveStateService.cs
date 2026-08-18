@@ -25,6 +25,8 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
     private const double DefaultSuppressedEvidenceMultiplier = 0.20;
     private const double DefaultSuppressedEvidencePerTurnCap = 1.5;
     private const double DefaultSemanticEvidencePerTurnCap = 25.0;
+    private const int DefaultSemanticStatFinalBandHighStart = 70;
+    private const int DefaultSemanticStatFinalBandLowStart = 30;
     private static readonly Regex SemanticSignalRegex = new(
         "\\[\\[semantic:(?<event>[a-zA-Z0-9._-]+):(?<confidence>-?[0-9]+(?:\\.[0-9]+)?)\\]\\]",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
@@ -49,6 +51,10 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
     private readonly double _suppressedEvidenceMultiplier;
     private readonly double _suppressedEvidencePerTurnCap;
     private readonly double _semanticEvidencePerTurnCap;
+    private readonly IReadOnlyDictionary<string, int> _semanticStatPerTurnCapByStat;
+    private readonly IReadOnlyDictionary<string, int> _semanticBehavioralDimensionPerTurnCapByDimension;
+    private readonly int _semanticStatFinalBandHighStart;
+    private readonly int _semanticStatFinalBandLowStart;
 
     public RolePlayAdaptiveStateService(
         IThemeCatalogService themeCatalogService)
@@ -66,6 +72,10 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         _suppressedEvidenceMultiplier = DefaultSuppressedEvidenceMultiplier;
         _suppressedEvidencePerTurnCap = DefaultSuppressedEvidencePerTurnCap;
         _semanticEvidencePerTurnCap = DefaultSemanticEvidencePerTurnCap;
+        _semanticStatPerTurnCapByStat = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        _semanticBehavioralDimensionPerTurnCapByDimension = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        _semanticStatFinalBandHighStart = DefaultSemanticStatFinalBandHighStart;
+        _semanticStatFinalBandLowStart = DefaultSemanticStatFinalBandLowStart;
     }
 
     public RolePlayAdaptiveStateService(
@@ -86,6 +96,10 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         _suppressedEvidenceMultiplier = DefaultSuppressedEvidenceMultiplier;
         _suppressedEvidencePerTurnCap = DefaultSuppressedEvidencePerTurnCap;
         _semanticEvidencePerTurnCap = DefaultSemanticEvidencePerTurnCap;
+        _semanticStatPerTurnCapByStat = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        _semanticBehavioralDimensionPerTurnCapByDimension = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        _semanticStatFinalBandHighStart = DefaultSemanticStatFinalBandHighStart;
+        _semanticStatFinalBandLowStart = DefaultSemanticStatFinalBandLowStart;
     }
 
     public RolePlayAdaptiveStateService(
@@ -108,6 +122,10 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         _suppressedEvidenceMultiplier = DefaultSuppressedEvidenceMultiplier;
         _suppressedEvidencePerTurnCap = DefaultSuppressedEvidencePerTurnCap;
         _semanticEvidencePerTurnCap = DefaultSemanticEvidencePerTurnCap;
+        _semanticStatPerTurnCapByStat = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        _semanticBehavioralDimensionPerTurnCapByDimension = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        _semanticStatFinalBandHighStart = DefaultSemanticStatFinalBandHighStart;
+        _semanticStatFinalBandLowStart = DefaultSemanticStatFinalBandLowStart;
     }
 
     public RolePlayAdaptiveStateService(
@@ -141,6 +159,14 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         _suppressedEvidenceMultiplier = Math.Clamp(storyAnalysisOptions?.Value.SuppressedEvidenceMultiplier ?? DefaultSuppressedEvidenceMultiplier, 0.0, 1.0);
         _suppressedEvidencePerTurnCap = Math.Max(0.0, storyAnalysisOptions?.Value.SuppressedEvidencePerTurnCap ?? DefaultSuppressedEvidencePerTurnCap);
         _semanticEvidencePerTurnCap = Math.Max(0.0, storyAnalysisOptions?.Value.SemanticEvidencePerTurnCap ?? DefaultSemanticEvidencePerTurnCap);
+        _semanticStatPerTurnCapByStat = (storyAnalysisOptions?.Value.SemanticStatPerTurnCapByStat ?? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase))
+            .Where(kvp => kvp.Value > 0)
+            .ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.OrdinalIgnoreCase);
+        _semanticBehavioralDimensionPerTurnCapByDimension = (storyAnalysisOptions?.Value.SemanticBehavioralDimensionPerTurnCapByDimension ?? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase))
+            .Where(kvp => kvp.Value > 0)
+            .ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.OrdinalIgnoreCase);
+        _semanticStatFinalBandHighStart = Math.Max(0, storyAnalysisOptions?.Value.SemanticStatFinalBandHighStart ?? DefaultSemanticStatFinalBandHighStart);
+        _semanticStatFinalBandLowStart = Math.Max(0, storyAnalysisOptions?.Value.SemanticStatFinalBandLowStart ?? DefaultSemanticStatFinalBandLowStart);
     }
 
     public RolePlayAdaptiveStateService(
@@ -1111,6 +1137,7 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
         }
 
         var perCharacterStatAppliedMagnitude = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+        var perCharacterDimensionAppliedMagnitude = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
         var perCharacterAppliedDeltas = new Dictionary<string, Dictionary<string, int>>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var item in pendingStat)
@@ -1143,8 +1170,63 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
                 suppressionReasonCode = DreamGenClone.Domain.RolePlay.RPSemanticDiagnosticReasonCodes.SemanticSuppressedThemeBlocked;
             }
 
-            // Per-turn semantic stat cap removed: trust configured mapping Delta values.
-            // Stat range is still clamped by ApplyDelta to AdaptiveStatCatalog.MinValue/MaxValue.
+            // Per-turn semantic stat cap: limit the net applied magnitude per (character, stat)
+            // within a single interaction. The cap is configured per stat via
+            // SemanticStatPerTurnCapByStat (StoryAnalysisOptions); mapped mapping deltas are
+            // unchanged. A stat with no configured cap is unbounded by this stage. The running
+            // magnitude is tracked per (character, stat) so multi-event turns cannot dump a stat
+            // from mid-range to 0/100 in one interaction.
+            if (suppressionReasonCode is null
+                && _semanticStatPerTurnCapByStat.TryGetValue(item.Mapping.TargetStat, out var perStatTurnCap)
+                && perStatTurnCap > 0)
+            {
+                var capKey = $"{item.TargetCharacterId}\u0001{item.Mapping.TargetStat}";
+                perCharacterStatAppliedMagnitude.TryGetValue(capKey, out var alreadyAppliedMagnitude);
+                var requestedMagnitude = Math.Abs(appliedDelta);
+                var remainingMagnitude = Math.Max(0m, perStatTurnCap - alreadyAppliedMagnitude);
+
+                if (remainingMagnitude <= 0m)
+                {
+                    appliedDelta = 0m;
+                    cappedDelta = rawDelta;
+                    suppressionReasonCode = DreamGenClone.Domain.RolePlay.RPSemanticDiagnosticReasonCodes.SemanticCappedPerTurn;
+                }
+                else if (requestedMagnitude > remainingMagnitude)
+                {
+                    var sign = appliedDelta < 0m ? -1m : 1m;
+                    appliedDelta = sign * remainingMagnitude;
+                    cappedDelta = rawDelta - appliedDelta;
+                    suppressionReasonCode = DreamGenClone.Domain.RolePlay.RPSemanticDiagnosticReasonCodes.SemanticCappedPerTurn;
+                }
+            }
+
+            // Final-band damping: scale the applied delta down as the stat approaches the extreme,
+            // making 100 (rising) and 0 (falling) asymptotically hard to reach. Rising stats are
+            // damped once the current value exceeds SemanticStatFinalBandHighStart (default 70),
+            // ramping continuously to a near-stop at 100; falling stats once below
+            // SemanticStatFinalBandLowStart (default 30), ramping to a near-stop at 0.
+            if (suppressionReasonCode is null && appliedDelta != 0m)
+            {
+                var dampingTarget = GetCharacterStats(state, item.TargetCharacterId);
+                if (dampingTarget is not null
+                    && CharacterStatProfileV2Accessor.TryGetStat(dampingTarget, item.Mapping.TargetStat, out var currentStatValue))
+                {
+                    if (appliedDelta > 0m && currentStatValue > _semanticStatFinalBandHighStart)
+                    {
+                        var highSpan = Math.Max(1, AdaptiveStatCatalog.MaxValue - _semanticStatFinalBandHighStart);
+                        var highScale = (decimal)Math.Clamp(
+                            (double)(AdaptiveStatCatalog.MaxValue - currentStatValue) / highSpan, 0.0, 1.0);
+                        appliedDelta *= highScale;
+                    }
+                    else if (appliedDelta < 0m && currentStatValue < _semanticStatFinalBandLowStart)
+                    {
+                        var lowSpan = Math.Max(1, _semanticStatFinalBandLowStart - AdaptiveStatCatalog.MinValue);
+                        var lowScale = (decimal)Math.Clamp(
+                            (double)(currentStatValue - AdaptiveStatCatalog.MinValue) / lowSpan, 0.0, 1.0);
+                        appliedDelta *= lowScale;
+                    }
+                }
+            }
 
             if (appliedDelta != 0m)
             {
@@ -1178,13 +1260,18 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
                                     .GetDimensions(semanticTargetRole)
                                     .ToDictionary(d => d.Name, _ => 50, StringComparer.OrdinalIgnoreCase);
                             }
-                            StatToDimensionMappings.ApplyDelta(
-                                targetStats.RuntimeEncounterStats, semanticTargetRole, item.Mapping.TargetStat, deltaInt);
+                            ApplyCappedDimensionDrift(
+                                targetStats.RuntimeEncounterStats,
+                                semanticTargetRole,
+                                item.Mapping.TargetStat,
+                                deltaInt,
+                                item.TargetCharacterId,
+                                perCharacterDimensionAppliedMagnitude);
                         }
                     }
                 }
 
-                var magnitudeKey = $"{item.Mapping.TargetStat}";
+                var magnitudeKey = $"{item.TargetCharacterId}\u0001{item.Mapping.TargetStat}";
                 perCharacterStatAppliedMagnitude.TryGetValue(magnitudeKey, out var appliedMagnitude);
                 perCharacterStatAppliedMagnitude[magnitudeKey] = appliedMagnitude + Math.Abs(appliedDelta);
             }
@@ -1221,6 +1308,93 @@ public sealed class RolePlayAdaptiveStateService : IRolePlayAdaptiveStateService
             interaction.Id,
             state.SemanticEvents.Count,
             state.SemanticDeltaBreakdowns.Count);
+    }
+
+    /// <summary>
+    /// Applies stat-to-behavioral-dimension drift with a per-(character, dimension) per-turn cap
+    /// and final-band damping. Mirrors <see cref="StatToDimensionMappings.ApplyDelta"/> but bounds
+    /// the dimension drift itself: a dimension can be fed by multiple capped stats (e.g.
+    /// BoundaryFirmness = Loyalty*0.75 + Restraint*0.90), so without this the dimension could move
+    /// more than the stat cap in one turn. The cap is configured per dimension name via
+    /// <c>SemanticBehavioralDimensionPerTurnCapByDimension</c>; a dimension absent from the dictionary
+    /// has no per-turn cap (only the final-band damping applies).
+    /// </summary>
+    private void ApplyCappedDimensionDrift(
+        Dictionary<string, int> encounterStats,
+        string targetRole,
+        string statName,
+        int statDelta,
+        string characterId,
+        Dictionary<string, decimal> perCharacterDimensionAppliedMagnitude)
+    {
+        if (statDelta == 0 || encounterStats is null)
+        {
+            return;
+        }
+
+        var rules = StatToDimensionMappings.GetRules(targetRole);
+        foreach (var rule in rules)
+        {
+            if (!rule.StatName.Equals(statName, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var current = encounterStats.TryGetValue(rule.DimensionName, out var v) ? v : 50;
+            var driftRaw = rule.Slope * statDelta;
+            var drift = (int)Math.Round(driftRaw);
+            if (drift == 0)
+            {
+                continue;
+            }
+
+            var dimCap = _semanticBehavioralDimensionPerTurnCapByDimension.TryGetValue(rule.DimensionName, out var c) ? c : 0;
+            if (dimCap > 0)
+            {
+                var magKey = $"{characterId}\u0001{rule.DimensionName}";
+                perCharacterDimensionAppliedMagnitude.TryGetValue(magKey, out var applied);
+                var requested = Math.Abs(drift);
+                var remaining = Math.Max(0m, dimCap - applied);
+                if (remaining <= 0m)
+                {
+                    continue;
+                }
+
+                if (requested > remaining)
+                {
+                    var sign = drift < 0 ? -1 : 1;
+                    drift = sign * (int)Math.Floor(remaining);
+                }
+            }
+
+            // Final-band damping on the dimension value itself.
+            if (drift > 0 && current > _semanticStatFinalBandHighStart)
+            {
+                var highSpan = Math.Max(1, AdaptiveStatCatalog.MaxValue - _semanticStatFinalBandHighStart);
+                var highScale = (decimal)Math.Clamp((double)(AdaptiveStatCatalog.MaxValue - current) / highSpan, 0.0, 1.0);
+                drift = (int)Math.Round(drift * highScale);
+            }
+            else if (drift < 0 && current < _semanticStatFinalBandLowStart)
+            {
+                var lowSpan = Math.Max(1, _semanticStatFinalBandLowStart - AdaptiveStatCatalog.MinValue);
+                var lowScale = (decimal)Math.Clamp((double)(current - AdaptiveStatCatalog.MinValue) / lowSpan, 0.0, 1.0);
+                drift = (int)Math.Round(drift * lowScale);
+            }
+
+            if (drift == 0)
+            {
+                continue;
+            }
+
+            encounterStats[rule.DimensionName] = Math.Clamp(current + drift, rule.Floor, rule.Ceiling);
+
+            if (_semanticBehavioralDimensionPerTurnCapByDimension.TryGetValue(rule.DimensionName, out var c2) && c2 > 0)
+            {
+                var magKey = $"{characterId}\u0001{rule.DimensionName}";
+                perCharacterDimensionAppliedMagnitude.TryGetValue(magKey, out var applied);
+                perCharacterDimensionAppliedMagnitude[magKey] = applied + Math.Abs(drift);
+            }
+        }
     }
 
     public async Task EvaluateAdaptiveIntensityTransitionAsync(

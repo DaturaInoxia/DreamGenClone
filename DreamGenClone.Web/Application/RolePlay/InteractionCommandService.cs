@@ -266,4 +266,70 @@ public sealed class InteractionCommandService : IInteractionCommandService
             "Deleted alternative {DeletedIndex} for interaction {InteractionId} in session {SessionId}, {Count} alternatives remain",
             deletedIndex, originalId, session.Id, remainingAlternatives.Count);
     }
+
+    public async Task DeleteOriginalAsync(
+        RolePlaySession session,
+        string interactionId,
+        CancellationToken cancellationToken = default)
+    {
+        var interaction = session.Interactions.FirstOrDefault(i => i.Id == interactionId)
+            ?? throw new ArgumentException($"Interaction {interactionId} not found in session {session.Id}.", nameof(interactionId));
+
+        // Resolve to the original (index 0) if an alternative id was passed
+        var original = interaction.ParentInteractionId is not null
+            ? session.Interactions.FirstOrDefault(i => i.Id == interaction.ParentInteractionId) ?? interaction
+            : interaction;
+
+        var originalPosition = session.Interactions.IndexOf(original);
+
+        // Collect the alternatives, ordered by index
+        var alternatives = session.Interactions
+            .Where(i => i.ParentInteractionId == original.Id)
+            .OrderBy(i => i.AlternativeIndex)
+            .ToList();
+
+        // Remove the original
+        session.Interactions.Remove(original);
+
+        if (alternatives.Count > 0)
+        {
+            // Promote the first alternative to become the new original
+            var promoted = alternatives[0];
+            promoted.ParentInteractionId = null;
+            promoted.AlternativeIndex = 0;
+            promoted.ActiveAlternativeIndex = 0;
+
+            // Move the promoted interaction into the original's list position
+            session.Interactions.Remove(promoted);
+            session.Interactions.Insert(Math.Clamp(originalPosition, 0, session.Interactions.Count), promoted);
+
+            // Re-parent + renumber the remaining alternatives under the promoted original
+            for (var i = 1; i < alternatives.Count; i++)
+            {
+                alternatives[i].ParentInteractionId = promoted.Id;
+                alternatives[i].AlternativeIndex = i;
+            }
+        }
+
+        await _engineService.SaveSessionAsync(session, cancellationToken);
+        await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+        {
+            SessionId = session.Id,
+            InteractionId = original.Id,
+            EventKind = "CommandExecuted",
+            Severity = "Info",
+            ActorName = original.ActorName,
+            Summary = "Original interaction deleted; first alternative promoted",
+            MetadataJson = JsonSerializer.Serialize(new
+            {
+                originalId = original.Id,
+                promotedId = alternatives.Count > 0 ? alternatives[0].Id : null,
+                remainingCount = alternatives.Count
+            })
+        }, cancellationToken);
+
+        _logger.LogInformation(
+            "Deleted original interaction {InteractionId} in session {SessionId}; promoted {PromotedId} with {Count} alternatives remaining",
+            original.Id, session.Id, alternatives.Count > 0 ? alternatives[0].Id : "(none)", alternatives.Count);
+    }
 }

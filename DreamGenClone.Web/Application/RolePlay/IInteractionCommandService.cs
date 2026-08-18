@@ -32,4 +32,14 @@ public interface IInteractionCommandService
         RolePlaySession session,
         string interactionId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Deletes the original (index 0) interaction of an alternative group and promotes
+    /// the first remaining alternative to become the new original, so the group keeps
+    /// its rewrites (2 becomes 1, 1 of 3 becomes 1 of 2, etc.).
+    /// </summary>
+    Task DeleteOriginalAsync(
+        RolePlaySession session,
+        string interactionId,
+        CancellationToken cancellationToken = default);
 }

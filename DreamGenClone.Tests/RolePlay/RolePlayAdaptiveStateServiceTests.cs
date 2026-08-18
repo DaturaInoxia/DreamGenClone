@@ -5,7 +5,9 @@ using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Application.StoryAnalysis;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Domain.StoryAnalysis;
+using DreamGenClone.Infrastructure.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using System.Text.Json;
 using static DreamGenClone.Tests.RolePlay.RolePlayTestFactory;
 
@@ -682,6 +684,482 @@ public sealed class RolePlayAdaptiveStateServiceTests
             [new IRolePlayAdaptiveStateService.InferredSemanticSignal("otherman-charmer", 0.8m, "Dean", null, null)]);
 
         Assert.Equal(48, updated.CharacterStats["Dean"].Loyalty);
+    }
+
+    // ── Semantic stat per-turn cap + final-band damping ─────────────────────
+
+    private static (RolePlayAdaptiveStateService Service, RolePlaySession Session) CreateSemanticCapFixture(
+        StoryAnalysisOptions options,
+        string targetStat,
+        decimal delta,
+        string direction,
+        int initialValue,
+        string eventId = "semantic-cap-event")
+    {
+        var rpThemeService = new SemanticRpThemeService(
+            new Dictionary<string, IReadOnlyList<DreamGenClone.Domain.RolePlay.RPSemanticEventMapping>>(StringComparer.OrdinalIgnoreCase),
+            new Dictionary<string, IReadOnlyList<DreamGenClone.Domain.RolePlay.RPSemanticStatMapping>>(StringComparer.OrdinalIgnoreCase)
+            {
+                [eventId] =
+                [
+                    new DreamGenClone.Domain.RolePlay.RPSemanticStatMapping
+                    {
+                        EventId = eventId,
+                        ThemeId = "theme-corruption",
+                        TargetStat = targetStat,
+                        Delta = delta,
+                        Direction = direction,
+                        ConfidenceMin = 0m,
+                        ConfidenceMax = 1m,
+                        ReasonCode = "cap-test-stat"
+                    }
+                ]
+            });
+
+        var service = new RolePlayAdaptiveStateService(
+            new SemanticThemeCatalogService(),
+            new EmptyThemePreferenceService(),
+            rpThemeService,
+            statKeywordCategoryService: null,
+            new NullSteeringProfileService(),
+            new RecordingDebugSink(),
+            NullLogger<RolePlayAdaptiveStateService>.Instance,
+            intensityProfileService: null,
+            storyAnalysisOptions: Options.Create(options));
+
+        var session = new RolePlaySession
+        {
+            Id = Guid.NewGuid().ToString(),
+            PersonaName = "Ken",
+            SelectedRPThemeProfileId = "profile-semantic",
+            AdaptiveState = new AdaptiveScenarioState
+            {
+                ThemeScores = new Dictionary<string, ThemeScoreState>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["theme-corruption"] = new ThemeScoreState
+                    {
+                        ThemeId = "theme-corruption",
+                        ThemeName = "Corruption",
+                        Score = 10,
+                        Breakdown = new ThemeScoreBreakdownV2()
+                    }
+                },
+                CharacterRoles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Becky"] = "Wife",
+                    ["Dean"] = "OtherMan"
+                }
+            }
+        };
+
+        _ = session.AdaptiveState.CharacterStats; // initialize the runtime cache
+        session.AdaptiveState.CharacterStats["Becky"] = new CharacterStatProfileV2
+        {
+            CharacterId = "Becky",
+            CharacterRole = "Wife",
+            Desire = 50,
+            Restraint = 50,
+            Loyalty = 50,
+            SelfRespect = 50,
+            Dominance = 50
+        };
+        CharacterStatProfileV2Accessor.SetStat(session.AdaptiveState.CharacterStats["Becky"], targetStat, initialValue);
+
+        return (service, session);
+    }
+
+    private static Task<AdaptiveScenarioState> ApplySemanticCapSignalAsync(
+        RolePlayAdaptiveStateService service,
+        RolePlaySession session,
+        string eventId,
+        string targetCharacterName = "Becky")
+    {
+        var interaction = new RolePlayInteraction
+        {
+            Id = $"cap-{Guid.NewGuid():N}",
+            ActorName = "Dean",
+            Content = "trigger"
+        };
+        return service.ApplyInferredSemanticEvidenceAsync(
+            session, interaction,
+            [new IRolePlayAdaptiveStateService.InferredSemanticSignal(eventId, 0.8m, "Dean", targetCharacterName, "trigger")]);
+    }
+
+    [Fact]
+    public async Task ApplyInferredSemanticEvidence_PerStatCap_ClampsDeltaToConfiguredCap()
+    {
+        var options = new StoryAnalysisOptions
+        {
+            SemanticStatPerTurnCapByStat = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Loyalty"] = 2
+            }
+        };
+        var (service, session) = CreateSemanticCapFixture(options, "Loyalty", 5m, "decrease", 50);
+
+        var updated = await ApplySemanticCapSignalAsync(service, session, "semantic-cap-event");
+
+        // Raw -5 but capped at 2 → 50 - 2 = 48.
+        Assert.Equal(48, updated.CharacterStats["Becky"].Loyalty);
+        var breakdown = updated.SemanticStatDeltaBreakdowns.Single(x => x.StatName == "Loyalty");
+        Assert.Equal(-5m, breakdown.RawDelta);
+        Assert.Equal(-2m, breakdown.AppliedDelta);
+        Assert.Equal(-3m, breakdown.CappedDelta);
+        Assert.Equal(DreamGenClone.Domain.RolePlay.RPSemanticDiagnosticReasonCodes.SemanticCappedPerTurn, breakdown.SuppressionReasonCode);
+    }
+
+    [Fact]
+    public async Task ApplyInferredSemanticEvidence_PerStatCap_AggregatesAcrossMultipleSignals()
+    {
+        // Two events both hit Loyalty in the same interaction: -3 and -4 → raw -7, capped to -2 total.
+        var options = new StoryAnalysisOptions
+        {
+            SemanticStatPerTurnCapByStat = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Loyalty"] = 2
+            }
+        };
+        var rpThemeService = new SemanticRpThemeService(
+            new Dictionary<string, IReadOnlyList<DreamGenClone.Domain.RolePlay.RPSemanticEventMapping>>(StringComparer.OrdinalIgnoreCase),
+            new Dictionary<string, IReadOnlyList<DreamGenClone.Domain.RolePlay.RPSemanticStatMapping>>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["ev-a"] = [new DreamGenClone.Domain.RolePlay.RPSemanticStatMapping { EventId = "ev-a", ThemeId = "theme-corruption", TargetStat = "Loyalty", Delta = 3m, Direction = "decrease", ConfidenceMin = 0m, ConfidenceMax = 1m, ReasonCode = "a" }],
+                ["ev-b"] = [new DreamGenClone.Domain.RolePlay.RPSemanticStatMapping { EventId = "ev-b", ThemeId = "theme-corruption", TargetStat = "Loyalty", Delta = 4m, Direction = "decrease", ConfidenceMin = 0m, ConfidenceMax = 1m, ReasonCode = "b" }]
+            });
+
+        var service = new RolePlayAdaptiveStateService(
+            new SemanticThemeCatalogService(),
+            new EmptyThemePreferenceService(),
+            rpThemeService,
+            statKeywordCategoryService: null,
+            new NullSteeringProfileService(),
+            new RecordingDebugSink(),
+            NullLogger<RolePlayAdaptiveStateService>.Instance,
+            intensityProfileService: null,
+            storyAnalysisOptions: Options.Create(options));
+
+        var session = new RolePlaySession
+        {
+            Id = Guid.NewGuid().ToString(),
+            PersonaName = "Ken",
+            SelectedRPThemeProfileId = "profile-semantic",
+            AdaptiveState = new AdaptiveScenarioState
+            {
+                ThemeScores = new Dictionary<string, ThemeScoreState>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["theme-corruption"] = new ThemeScoreState { ThemeId = "theme-corruption", ThemeName = "Corruption", Score = 10, Breakdown = new ThemeScoreBreakdownV2() }
+                },
+                CharacterRoles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["Becky"] = "Wife", ["Dean"] = "OtherMan" }
+            }
+        };
+        _ = session.AdaptiveState.CharacterStats;
+        session.AdaptiveState.CharacterStats["Becky"] = new CharacterStatProfileV2 { CharacterId = "Becky", CharacterRole = "Wife", Loyalty = 50 };
+
+        var interaction = new RolePlayInteraction { Id = $"cap-{Guid.NewGuid():N}", ActorName = "Dean", Content = "trigger" };
+        var updated = await service.ApplyInferredSemanticEvidenceAsync(
+            session, interaction,
+            [
+                new IRolePlayAdaptiveStateService.InferredSemanticSignal("ev-a", 0.8m, "Dean", "Becky", "a"),
+                new IRolePlayAdaptiveStateService.InferredSemanticSignal("ev-b", 0.8m, "Dean", "Becky", "b")
+            ]);
+
+        // Both events target Loyalty; per-turn cap of 2 wins: 50 - 2 = 48.
+        Assert.Equal(48, updated.CharacterStats["Becky"].Loyalty);
+        var breakdowns = updated.SemanticStatDeltaBreakdowns.Where(x => x.StatName == "Loyalty").ToList();
+        Assert.Equal(2, breakdowns.Count);
+        Assert.True(breakdowns.All(x => x.SuppressionReasonCode == DreamGenClone.Domain.RolePlay.RPSemanticDiagnosticReasonCodes.SemanticCappedPerTurn));
+        // First event consumes the full cap budget; second is fully capped.
+    }
+
+    [Fact]
+    public async Task ApplyInferredSemanticEvidence_PerStatCap_NoCapWhenStatNotConfigured()
+    {
+        var options = new StoryAnalysisOptions
+        {
+            SemanticStatPerTurnCapByStat = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Desire"] = 2   // Loyalty intentionally not capped
+            }
+        };
+        var (service, session) = CreateSemanticCapFixture(options, "Loyalty", 5m, "decrease", 50);
+
+        var updated = await ApplySemanticCapSignalAsync(service, session, "semantic-cap-event");
+
+        Assert.Equal(45, updated.CharacterStats["Becky"].Loyalty); // no cap → full -5
+        var breakdown = updated.SemanticStatDeltaBreakdowns.Single(x => x.StatName == "Loyalty");
+        Assert.Equal(0m, breakdown.CappedDelta);
+        Assert.Null(breakdown.SuppressionReasonCode);
+    }
+
+    [Fact]
+    public async Task ApplyInferredSemanticEvidence_FinalBand_DampsRisingStatNear100()
+    {
+        var options = new StoryAnalysisOptions
+        {
+            SemanticStatFinalBandHighStart = 70
+        };
+        var (service, session) = CreateSemanticCapFixture(options, "Desire", 5m, "increase", 90);
+
+        var updated = await ApplySemanticCapSignalAsync(service, session, "semantic-cap-event");
+
+        // scale = (100 - 90) / (100 - 70) = 0.333 → 5 * 0.333 = 1.67 → floor → +1
+        Assert.Equal(91, updated.CharacterStats["Becky"].Desire);
+    }
+
+    [Fact]
+    public async Task ApplyInferredSemanticEvidence_FinalBand_DampsFallingStatNear0()
+    {
+        var options = new StoryAnalysisOptions
+        {
+            SemanticStatFinalBandLowStart = 30
+        };
+        var (service, session) = CreateSemanticCapFixture(options, "Loyalty", 5m, "decrease", 10);
+
+        var updated = await ApplySemanticCapSignalAsync(service, session, "semantic-cap-event");
+
+        // scale = 10 / 30 = 0.333 → -5 * 0.333 = -1.67 → ceil → -1 (toward zero) → 10 - 1 = 9
+        Assert.Equal(9, updated.CharacterStats["Becky"].Loyalty);
+    }
+
+    [Fact]
+    public async Task ApplyInferredSemanticEvidence_FinalBand_NoDampingOutsideBand()
+    {
+        var options = new StoryAnalysisOptions
+        {
+            SemanticStatFinalBandHighStart = 70,
+            SemanticStatFinalBandLowStart = 30
+        };
+        var (service, session) = CreateSemanticCapFixture(options, "Desire", 5m, "increase", 50);
+
+        var updated = await ApplySemanticCapSignalAsync(service, session, "semantic-cap-event");
+
+        // 50 is outside the high band (70+) → full +5.
+        Assert.Equal(55, updated.CharacterStats["Becky"].Desire);
+    }
+
+    // ── Behavioral dimension per-turn cap + final band ──────────────────────
+
+    private static (RolePlayAdaptiveStateService Service, RolePlaySession Session) CreateDimensionCapFixture(
+        StoryAnalysisOptions options,
+        IReadOnlyDictionary<string, decimal> eventDeltas,
+        string? seedDimension = null,
+        int seedDimensionValue = 50)
+    {
+        var statMappings = new Dictionary<string, IReadOnlyList<DreamGenClone.Domain.RolePlay.RPSemanticStatMapping>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (evId, delta) in eventDeltas)
+        {
+            // Each event decreases the given stat to keep the drift direction deterministic.
+            statMappings[evId] =
+            [
+                new DreamGenClone.Domain.RolePlay.RPSemanticStatMapping
+                {
+                    EventId = evId,
+                    ThemeId = "theme-corruption",
+                    TargetStat = "Restraint",
+                    Delta = delta,
+                    Direction = "decrease",
+                    ConfidenceMin = 0m,
+                    ConfidenceMax = 1m,
+                    ReasonCode = $"dim-test-{evId}"
+                }
+            ];
+        }
+
+        var rpThemeService = new SemanticRpThemeService(
+            new Dictionary<string, IReadOnlyList<DreamGenClone.Domain.RolePlay.RPSemanticEventMapping>>(StringComparer.OrdinalIgnoreCase),
+            statMappings);
+
+        var service = new RolePlayAdaptiveStateService(
+            new SemanticThemeCatalogService(),
+            new EmptyThemePreferenceService(),
+            rpThemeService,
+            statKeywordCategoryService: null,
+            new NullSteeringProfileService(),
+            new RecordingDebugSink(),
+            NullLogger<RolePlayAdaptiveStateService>.Instance,
+            intensityProfileService: null,
+            storyAnalysisOptions: Options.Create(options));
+
+        var session = new RolePlaySession
+        {
+            Id = Guid.NewGuid().ToString(),
+            PersonaName = "Ken",
+            SelectedRPThemeProfileId = "profile-semantic",
+            AdaptiveState = new AdaptiveScenarioState
+            {
+                ThemeScores = new Dictionary<string, ThemeScoreState>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["theme-corruption"] = new ThemeScoreState
+                    {
+                        ThemeId = "theme-corruption",
+                        ThemeName = "Corruption",
+                        Score = 10,
+                        Breakdown = new ThemeScoreBreakdownV2()
+                    }
+                },
+                CharacterRoles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Becky"] = "Wife",
+                    ["Dean"] = "OtherMan"
+                }
+            }
+        };
+
+        _ = session.AdaptiveState.CharacterStats;
+        var wife = new CharacterStatProfileV2
+        {
+            CharacterId = "Becky",
+            CharacterRole = "Wife",
+            Desire = 50,
+            Restraint = 50,
+            Loyalty = 50,
+            SelfRespect = 50,
+            Dominance = 50,
+            RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["DiscoveryCaution"] = 50,
+                ["Exhibitionism"] = 50,
+                ["EmotionalEngagement"] = 50,
+                ["PostEncounterGuilt"] = 50,
+                ["BoundaryFirmness"] = 50,
+                ["SeductionReceptivity"] = 50
+            }
+        };
+        if (seedDimension is not null)
+        {
+            wife.RuntimeEncounterStats[seedDimension] = seedDimensionValue;
+        }
+        session.AdaptiveState.CharacterStats["Becky"] = wife;
+
+        return (service, session);
+    }
+
+    [Fact]
+    public async Task ApplyInferredSemanticEvidence_DimensionCap_ClampsDriftFromMultipleStats()
+    {
+        // BoundaryFirmness is fed by Restraint (+0.90). Two events in one interaction each move
+        // Restraint by -2 → drift on BoundaryFirmness would be round(0.9*-2) + round(0.9*-2) = -4
+        // without a dimension cap. With the dimension cap at 2, the total drift must clamp to -2.
+        var options = new StoryAnalysisOptions
+        {
+            SemanticBehavioralDimensionPerTurnCapByDimension = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["BoundaryFirmness"] = 2
+            }
+        };
+        var (service, session) = CreateDimensionCapFixture(
+            options,
+            new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["ev-restraint"] = 2m,
+                ["ev-loyalty"] = 2m
+            });
+
+        var interaction = new RolePlayInteraction { Id = $"dim-{Guid.NewGuid():N}", ActorName = "Dean", Content = "trigger" };
+        var updated = await service.ApplyInferredSemanticEvidenceAsync(
+            session, interaction,
+            [
+                new IRolePlayAdaptiveStateService.InferredSemanticSignal("ev-restraint", 0.8m, "Dean", "Becky", "r"),
+                new IRolePlayAdaptiveStateService.InferredSemanticSignal("ev-loyalty", 0.8m, "Dean", "Becky", "l")
+            ]);
+
+        // Both events drive Restraint down (BoundaryFirmness +0.90) — but the dimension cap of 2
+        // wins: only one -2 can land. Net BoundaryFirmness = 50 - 2 = 48, not 46.
+        Assert.Equal(48, updated.CharacterStats["Becky"].RuntimeEncounterStats["BoundaryFirmness"]);
+    }
+
+    [Fact]
+    public async Task ApplyInferredSemanticEvidence_DimensionCap_NoCapWhenDimensionNotConfigured()
+    {
+        var options = new StoryAnalysisOptions
+        {
+            SemanticBehavioralDimensionPerTurnCapByDimension = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Exhibitionism"] = 2   // BoundaryFirmness intentionally not capped
+            }
+        };
+        var (service, session) = CreateDimensionCapFixture(
+            options,
+            new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["ev-restraint"] = 2m,
+                ["ev-loyalty"] = 2m
+            });
+
+        var interaction = new RolePlayInteraction { Id = $"dim-{Guid.NewGuid():N}", ActorName = "Dean", Content = "trigger" };
+        var updated = await service.ApplyInferredSemanticEvidenceAsync(
+            session, interaction,
+            [
+                new IRolePlayAdaptiveStateService.InferredSemanticSignal("ev-restraint", 0.8m, "Dean", "Becky", "r"),
+                new IRolePlayAdaptiveStateService.InferredSemanticSignal("ev-loyalty", 0.8m, "Dean", "Becky", "l")
+            ]);
+
+        // BoundaryFirmness uncapped: both -2 drifts land → 50 - 2 - 2 = 46.
+        Assert.Equal(46, updated.CharacterStats["Becky"].RuntimeEncounterStats["BoundaryFirmness"]);
+    }
+
+    [Fact]
+    public async Task ApplyInferredSemanticEvidence_DimensionFinalBand_DampsRisingDimensionNear100()
+    {
+        // Restraint -2 → Exhibitionism drift = round(-0.60 * -2) = +1 (rising). Seed Exhibitionism
+        // at 90, high band start 70 → scale = (100-90)/(100-70) = 0.333 → 1 * 0.333 = 0.33 → round = 0.
+        var options = new StoryAnalysisOptions
+        {
+            SemanticStatFinalBandHighStart = 70,
+            SemanticStatFinalBandLowStart = 30
+        };
+        var (service, session) = CreateDimensionCapFixture(
+            options,
+            new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase) { ["ev-restraint"] = 2m },
+            seedDimension: "Exhibitionism",
+            seedDimensionValue: 90);
+
+        var updated = await ApplySemanticCapSignalAsync(service, session, "ev-restraint");
+
+        // Damped to near-stop: 90 + 0 = 90 (not 91).
+        Assert.Equal(90, updated.CharacterStats["Becky"].RuntimeEncounterStats["Exhibitionism"]);
+    }
+
+    [Fact]
+    public async Task ApplyInferredSemanticEvidence_DimensionFinalBand_DampsFallingDimensionNear0()
+    {
+        // Restraint -2 → PostEncounterGuilt drift = round(0.45 * -2) = -1 (falling). Seed
+        // PostEncounterGuilt at 10, low band start 30 → scale = 10/30 = 0.333 → -1 * 0.333 = -0.33 → round = 0.
+        var options = new StoryAnalysisOptions
+        {
+            SemanticStatFinalBandHighStart = 70,
+            SemanticStatFinalBandLowStart = 30
+        };
+        var (service, session) = CreateDimensionCapFixture(
+            options,
+            new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase) { ["ev-restraint"] = 2m },
+            seedDimension: "PostEncounterGuilt",
+            seedDimensionValue: 10);
+
+        var updated = await ApplySemanticCapSignalAsync(service, session, "ev-restraint");
+
+        // Damped to near-stop: 10 + 0 = 10 (not 9).
+        Assert.Equal(10, updated.CharacterStats["Becky"].RuntimeEncounterStats["PostEncounterGuilt"]);
+    }
+
+    [Fact]
+    public async Task ApplyInferredSemanticEvidence_DimensionFinalBand_NoDampingOutsideBand()
+    {
+        var options = new StoryAnalysisOptions
+        {
+            SemanticStatFinalBandHighStart = 70,
+            SemanticStatFinalBandLowStart = 30
+        };
+        var (service, session) = CreateDimensionCapFixture(
+            options,
+            new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase) { ["ev-restraint"] = 2m },
+            seedDimension: "PostEncounterGuilt",
+            seedDimensionValue: 50);
+
+        var updated = await ApplySemanticCapSignalAsync(service, session, "ev-restraint");
+
+        // PostEncounterGuilt at 50 (outside low band) → full -1 → 49.
+        Assert.Equal(49, updated.CharacterStats["Becky"].RuntimeEncounterStats["PostEncounterGuilt"]);
     }
 
     private sealed class FakeIntensityProfileService : IIntensityProfileService

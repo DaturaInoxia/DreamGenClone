@@ -13,6 +13,13 @@ public sealed class ThemeContractSlot : IPromptSlot
 {
     private readonly ILogger<ThemeContractSlot> _logger;
 
+    /// <summary>
+    /// Opening period duration in complete turns (001-opening-period).
+    /// Keep in sync with RolePlayEngineService.OpeningPeriodTurnCount and
+    /// ScenarioGuidanceSlot.OpeningPeriodTurnCount.
+    /// </summary>
+    private const int OpeningPeriodTurnCount = 3;
+
     public PromptSlotId Id => PromptSlotId.ThemeContract;
     public PromptZone Zone => PromptZone.C;
     public int Order => 12;
@@ -31,7 +38,14 @@ public sealed class ThemeContractSlot : IPromptSlot
         var sb = new StringBuilder();
 
         // ── Opening phase: Potential Arcs (session profile themes, no commitment) ──
-        if (theme.ActiveTheme is null && theme.AvailableArcLabels is { Count: > 0 })
+        // FR-002 (001-opening-period): suppress Potential Arcs during the opening period.
+        // Arc labels/descriptions name the love interest (e.g. "Wife, Husband, and Other Man"),
+        // contradicting the husband-and-wife-only opening constraint and pulling other
+        // characters into the narrative.
+        var isOpeningPeriod = string.Equals(context.Phase, "Opening", StringComparison.OrdinalIgnoreCase)
+            && context.Session.AdaptiveState.ObservedTurnCount <= OpeningPeriodTurnCount;
+
+        if (!isOpeningPeriod && theme.ActiveTheme is null && theme.AvailableArcLabels is { Count: > 0 })
         {
             sb.AppendLine("Potential Arcs (available narrative directions — none selected yet):");
             foreach (var arc in theme.AvailableArcLabels)

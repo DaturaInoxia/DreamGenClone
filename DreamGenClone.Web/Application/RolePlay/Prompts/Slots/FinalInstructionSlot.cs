@@ -1,5 +1,6 @@
 using System.Text;
 using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Web.Application.RolePlay;
 using DreamGenClone.Web.Domain.RolePlay;
 using Microsoft.Extensions.Logging;
 
@@ -80,20 +81,39 @@ public sealed class FinalInstructionSlot : IPromptSlot
             sb.AppendLine();
         }
 
+        // ── Beat duration (Beat Style) — authoritative multi-turn hold ──
+        // Beat Style controls how many turns the current moment spans. The directive
+        // carries an explicit turn position and a hard negative on non-final turns so the
+        // model holds the moment instead of resolving it in a single response. Pacing and
+        // Granularity are reconciled below so they do not contradict it.
+        var sceneDir = context.Intensity.SceneDirection;
+        var isLeadActor = context.PositionInTurn is null || context.PositionInTurn.Value <= 1;
+        var beatBudget = sceneDir is not null
+            ? ContinuationMarkerCatalog.GetBeatStyleTurnBudget(sceneDir.BeatScope)
+            : 1;
+        var turnsInBeat = context.Session.AdaptiveState.TurnsInCurrentBeat;
+        var beatPosition = turnsInBeat + 1; // 1-based position of the turn about to be written
+        var isFinalBeatTurn = beatPosition >= beatBudget;
+
         // ── Pacing direction (all Character positions, near end of prompt for recency) ──
         // Position 1 sets the beat; positions 2+ must build on it rather than restarting
         // or jumping past it. This closes the position-2/3 gap that previously left the
         // completing actor (usually position 2/3) with no pacing directive — the primary
         // cause of full start→orgasm scenes collapsing into a single turn.
-        if (!isNarrative && context.PositionInTurn is not null && context.Intensity.SceneDirection is not null)
+        if (!isNarrative && context.PositionInTurn is not null && sceneDir is not null)
         {
             if (context.PositionInTurn.Value > 1)
             {
                 sb.AppendLine("HARD CONSTRAINT — Scene Pacing: Medium pacing — You are a subsequent actor — build on the beat already established this turn. Do not restart or jump past it.");
             }
+            else if (beatBudget > 1 && !isFinalBeatTurn)
+            {
+                // Multi-turn moment, not the final turn: hold, do not advance or conclude.
+                sb.AppendLine("HARD CONSTRAINT — Scene Pacing: Stay within the current moment. Do not advance to a new beat or conclude this moment yet.");
+            }
             else
             {
-                var pacingText = context.Intensity.SceneDirection.Pacing switch
+                var pacingText = sceneDir.Pacing switch
                 {
                     ScenePacing.Slow => "HARD CONSTRAINT — Scene Pacing: Slow pacing — advance within the current beat. Do not leap to a new beat or position.",
                     ScenePacing.Fast => "HARD CONSTRAINT — Scene Pacing: Fast pacing — advance through multiple beats. Push the story forward rapidly.",
@@ -105,6 +125,36 @@ public sealed class FinalInstructionSlot : IPromptSlot
                 };
                 sb.AppendLine(pacingText);
             }
+            sb.AppendLine();
+        }
+
+        // ── Consolidated Scene Direction (Beat Style + Time Shift + Granularity + Scene Presence) ──
+        // Rendered from the resolved SceneDirection (theme marker → phase default → sticky override).
+        // Beat Style is expressed as a per-response duration directive derived from the beat cursor
+        // position vs the resolved budget. Skipped while the episodic Climax sheet cursor is active
+        // (CurrentBeatCode != null), which owns its own beat state.
+        if (!isNarrative && sceneDir is not null)
+        {
+            // Beat Style is a lead-actor directive — subsequent actors already get the
+            // "build on the beat already established, do not jump past it" pacing
+            // constraint, so they must not also receive a conflicting duration directive.
+            if (isLeadActor && context.Session.AdaptiveState.CurrentBeatCode is null)
+            {
+                var beatStage = ContinuationMarkerCatalog.DescribeBeatStage(turnsInBeat, beatBudget);
+                sb.AppendLine($"HARD CONSTRAINT — Beat Style: {sceneDir.BeatScope} — {beatStage}");
+            }
+
+            sb.AppendLine($"HARD CONSTRAINT — Time Shift: {sceneDir.TimeShift} — {ContinuationMarkerCatalog.DescribeTimeShift(sceneDir.TimeShift)}");
+
+            // Granularity: when the moment spans multiple turns, one response is ONE STEP
+            // of the moment, not a whole scene — otherwise it contradicts Beat Style.
+            if (beatBudget > 1)
+                sb.AppendLine($"HARD CONSTRAINT — Granularity: {sceneDir.Granularity} — One response covers one step of this multi-turn moment. Do not compress the whole moment into this response.");
+            else
+                sb.AppendLine($"HARD CONSTRAINT — Granularity: {sceneDir.Granularity} — {ContinuationMarkerCatalog.DescribeGranularity(sceneDir.Granularity)}");
+
+            if (sceneDir.RequireScenePresence)
+                sb.AppendLine("HARD CONSTRAINT — Scene Presence: Stay present — no time skip.");
             sb.AppendLine();
         }
 

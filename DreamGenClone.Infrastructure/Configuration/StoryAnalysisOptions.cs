@@ -58,6 +58,31 @@ public sealed class StoryAnalysisOptions
     // SuppressedEvidencePerTurnCap to allow structured LLM-guided signals to apply.
     public double SemanticEvidencePerTurnCap { get; set; } = 25.0;
 
+    // Per-interaction cap on the net applied semantic stat delta per character per stat.
+    // Keyed by canonical stat name (Desire, Restraint, Loyalty, SelfRespect, Dominance).
+    // A stat present in this dictionary is capped at the configured magnitude per turn;
+    // the mapped deltas themselves are unchanged. A stat absent from the dictionary has
+    // no per-turn cap (only the final-band damping below applies).
+    public Dictionary<string, int> SemanticStatPerTurnCapByStat { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    // Per-interaction cap on the net drift applied to a behavioral dimension
+    // (RuntimeEncounterStats) per character per dimension. A dimension can be fed by
+    // multiple stats (e.g. BoundaryFirmness = Loyalty*0.75 + Restraint*0.90), so even with
+    // each stat capped at 2 a single dimension could move up to ~4 in one turn. This cap
+    // bounds the dimension drift itself. A dimension absent from the dictionary (or a value
+    // <= 0) has no per-turn cap (only the final-band damping below applies).
+    public Dictionary<string, int> SemanticBehavioralDimensionPerTurnCapByDimension { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    // Final-band damping: when a stat is being pushed toward 100 and its current value is
+    // above this threshold, the applied delta is scaled down linearly toward 0 as the value
+    // approaches 100 (making 100 asymptotically hard to reach).
+    public int SemanticStatFinalBandHighStart { get; set; } = 70;
+
+    // Final-band damping: when a stat is being pushed toward 0 and its current value is
+    // below this threshold, the applied delta is scaled down linearly toward 0 as the value
+    // approaches 0 (making 0 asymptotically hard to reach).
+    public int SemanticStatFinalBandLowStart { get; set; } = 30;
+
     // BuildUp scenario selection fit scoring strategy key.
     public string BuildUpSelectionFitScoreStrategy { get; set; } = "weighted-blend";
 

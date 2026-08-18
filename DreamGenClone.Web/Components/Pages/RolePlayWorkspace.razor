@@ -7809,6 +7809,7 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
 
     private string? _deleteConfirmInteractionId;
     private string? _deleteAlternativeConfirmId;
+    private string? _deleteOriginalConfirmId;
     private string? _infoPopupInteractionId;
     private string _infoPopupTab = "info";
     private string? _semanticDetailInteractionId;
@@ -7947,6 +7948,31 @@ private void CloseInteractionInfo()
             Logger.LogWarning(ex, "Failed to delete alternative {InteractionId}", _deleteAlternativeConfirmId);
         }
         _deleteAlternativeConfirmId = null;
+        StateHasChanged();
+    }
+
+    private void ShowDeleteOriginalConfirmation(string interactionId)
+    {
+        _deleteOriginalConfirmId = interactionId;
+    }
+
+    private void CancelDeleteOriginal()
+    {
+        _deleteOriginalConfirmId = null;
+    }
+
+    private async Task ConfirmDeleteOriginalAsync()
+    {
+        if (_session is null || _deleteOriginalConfirmId is null) return;
+        try
+        {
+            await InteractionCommandService.DeleteOriginalAsync(_session, _deleteOriginalConfirmId);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to delete original interaction {InteractionId}", _deleteOriginalConfirmId);
+        }
+        _deleteOriginalConfirmId = null;
         StateHasChanged();
     }
 
@@ -8539,6 +8565,12 @@ private void CloseInteractionInfo()
                                                 <svg class="rw-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
                                             </button>
                                         }
+                                        else if (activeIdx == 0 && altCount > 0)
+                                        {
+                                            <button class="rw-alt-delete-btn" title="Delete this version (first rewrite becomes the new version)" @onclick="@(() => ShowDeleteOriginalConfirmation(interactionId))">
+                                                <svg class="rw-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                                            </button>
+                                        }
                                     </div>
                                 }
                             </div>
@@ -8577,6 +8609,22 @@ private void CloseInteractionInfo()
                                 <div class="rw-modal-actions">
                                     <button class="rw-btn rw-btn-secondary" @onclick="CancelDeleteAlternative">Cancel</button>
                                     <button class="rw-btn rw-btn-danger" @onclick="ConfirmDeleteAlternativeAsync">Delete</button>
+                                </div>
+                            </div>
+                        </div>
+                    }
+
+                    @if (_deleteOriginalConfirmId is not null)
+                    {
+                        <div class="rw-modal-overlay" @onclick="CancelDeleteOriginal">
+                            <div class="rw-modal" @onclick:stopPropagation>
+                                <div class="rw-modal-header">Delete This Version</div>
+                                <div class="rw-modal-body">
+                                    <p>Delete the first version? The next rewrite becomes the new version (2 of 2 becomes 1 of 1). This can't be undone.</p>
+                                </div>
+                                <div class="rw-modal-actions">
+                                    <button class="rw-btn rw-btn-secondary" @onclick="CancelDeleteOriginal">Cancel</button>
+                                    <button class="rw-btn rw-btn-danger" @onclick="ConfirmDeleteOriginalAsync">Delete</button>
                                 </div>
                             </div>
                         </div>

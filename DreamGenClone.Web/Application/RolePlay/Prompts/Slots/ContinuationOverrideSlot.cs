@@ -1,4 +1,3 @@
-using System.Text;
 using DreamGenClone.Domain.RolePlay;
 using Microsoft.Extensions.Logging;
 
@@ -25,32 +24,14 @@ public sealed class ContinuationOverrideSlot : IPromptSlot
         _logger = logger;
     }
 
-    public bool ShouldWrite(PromptBuildContext context)
-        => context.Override is not null && context.Override.HasUnconsumedDimensionOverride;
+    // B-085: retired. Beat Style / Time Shift / Granularity / Scene Presence now render
+    // from the resolved SceneDirection in FinalInstructionSlot (Slot 17).
+    public bool ShouldWrite(PromptBuildContext context) => false;
 
     public Task<string> WriteAsync(PromptBuildContext context, CancellationToken ct)
     {
-        var ov = context.Override;
-        if (ov is null || !ov.HasUnconsumedDimensionOverride)
-        {
-            return Task.FromResult(string.Empty);
-        }
-
-        var sb = new StringBuilder();
-        sb.AppendLine("Scene Direction Override (user-selected for this session):");
-
-        if (ov.BeatScope.HasValue)
-            sb.AppendLine($"  HARD CONSTRAINT — Beat Style: {ov.BeatScope.Value} — {ContinuationMarkerCatalog.DescribeBeatScope(ov.BeatScope.Value)}");
-        if (ov.TimeShift.HasValue)
-            sb.AppendLine($"  HARD CONSTRAINT — Time Shift: {ov.TimeShift.Value} — {ContinuationMarkerCatalog.DescribeTimeShift(ov.TimeShift.Value)}");
-        if (ov.Granularity.HasValue)
-            sb.AppendLine($"  HARD CONSTRAINT — Granularity: {ov.Granularity.Value} — {ContinuationMarkerCatalog.DescribeGranularity(ov.Granularity.Value)}");
-        if (ov.RequireScenePresence.HasValue)
-            sb.AppendLine($"  HARD CONSTRAINT — Scene Presence: {(ov.RequireScenePresence.Value ? "on" : "off")} — {ContinuationMarkerCatalog.DescribeScenePresence(ov.RequireScenePresence.Value)}");
-
-        _logger.LogDebug("ContinuationOverrideSlot: SessionId={SessionId} emitted override block", context.Session.Id);
-
-        return Task.FromResult(sb.ToString().TrimEnd());
+        _logger.LogDebug("ContinuationOverrideSlot: retired (B-085) — rendering moved to FinalInstructionSlot (Slot 17). SessionId={SessionId}", context.Session.Id);
+        return Task.FromResult(string.Empty);
     }
 
     public string Trim(string text, int maxChars)

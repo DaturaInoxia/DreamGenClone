@@ -21,7 +21,7 @@ public static class ContinuationOverrideResolver
         var overridden = baseDir with
         {
             Pacing = ov.Pacing ?? baseDir.Pacing,
-            BeatScope = ov.BeatScope ?? baseDir.BeatScope,
+            BeatScope = ResolveBeatScope(baseDir, ov),
             TimeShift = ov.TimeShift ?? baseDir.TimeShift,
             Granularity = ov.Granularity ?? baseDir.Granularity,
             Deepening = ov.Deepening ?? baseDir.Deepening,
@@ -30,6 +30,13 @@ public static class ContinuationOverrideResolver
 
         return intensity with { SceneDirection = overridden };
     }
+
+    /// <summary>
+    /// Single decision path for Beat Style: override first, then the resolved base value.
+    /// Used by both prompt assembly and the beat-budget cursor so the two never diverge.
+    /// </summary>
+    public static BeatScope ResolveBeatScope(SceneDirection baseDirection, ContinuationOverride? ov)
+        => ov?.BeatScope ?? baseDirection.BeatScope;
 
     public static ResolvedWritingStyleData ApplyWordCount(ResolvedWritingStyleData style, ContinuationOverride? ov)
     {

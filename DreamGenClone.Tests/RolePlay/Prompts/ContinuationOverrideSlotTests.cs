@@ -96,17 +96,19 @@ public sealed class ContinuationOverrideSlotTests
     }
 
     [Fact]
-    public void ShouldWrite_True_WhenUnconsumedDimensionSet()
+    public void ShouldWrite_False_EvenWhenUnconsumedDimensionSet()
     {
-        Assert.True(_slot.ShouldWrite(CreateContext(new ContinuationOverride { BeatScope = BeatScope.Extended })));
-        Assert.True(_slot.ShouldWrite(CreateContext(new ContinuationOverride { TimeShift = TimeShiftPolicy.Large })));
-        Assert.True(_slot.ShouldWrite(CreateContext(new ContinuationOverride { Granularity = NarrativeGranularity.Macro })));
-        Assert.True(_slot.ShouldWrite(CreateContext(new ContinuationOverride { RequireScenePresence = true })));
+        // B-085: slot retired — dimensions now render from resolved SceneDirection in Slot 17.
+        Assert.False(_slot.ShouldWrite(CreateContext(new ContinuationOverride { BeatScope = BeatScope.Extended })));
+        Assert.False(_slot.ShouldWrite(CreateContext(new ContinuationOverride { TimeShift = TimeShiftPolicy.Large })));
+        Assert.False(_slot.ShouldWrite(CreateContext(new ContinuationOverride { Granularity = NarrativeGranularity.Macro })));
+        Assert.False(_slot.ShouldWrite(CreateContext(new ContinuationOverride { RequireScenePresence = true })));
     }
 
     [Fact]
-    public async Task WriteAsync_RendersOnlySetUnconsumedDimensions()
+    public async Task WriteAsync_Empty_EvenWhenUnconsumedDimensionsSet()
     {
+        // B-085: slot retired — content moved to FinalInstructionSlot (Slot 17).
         var text = await _slot.WriteAsync(
             CreateContext(new ContinuationOverride
             {
@@ -116,12 +118,7 @@ public sealed class ContinuationOverrideSlotTests
             }),
             CancellationToken.None);
 
-        Assert.Contains("Beat Style", text);
-        Assert.Contains("Granularity", text);
-        Assert.DoesNotContain("Scene Presence", text);
-        Assert.DoesNotContain("Time Shift", text);
-        // Pacing is rendered by FinalInstructionSlot, not this slot.
-        Assert.DoesNotContain("HARD CONSTRAINT — Scene Pacing", text);
+        Assert.Equal(string.Empty, text);
     }
 
     [Fact]

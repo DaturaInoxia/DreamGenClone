@@ -63,6 +63,12 @@ public sealed class ScenarioGuidanceSlot : IPromptSlot
                 : context.Scenario.OpeningGuidanceText;
             sb.AppendLine($"HARD CONSTRAINT — Opening Period Direction: {direction}");
 
+            // SC-001 hardening (2026-08-17): "other characters remain in the background" is
+            // ambiguous and permits peripheral presence (e.g. the Other Man on his deck). Make
+            // absence explicit so the hard-constraint block overrides the Potential Arcs and
+            // Other Man location sections that otherwise pull the love interest into the scene.
+            sb.AppendLine("HARD CONSTRAINT — Opening Cast: Only the couple (husband and wife) are present during the opening period. The love interest / Other Man is NOT present — do not write them into the scene, do not mention them, and do not show them observing or being observed. No other characters appear for the first 3 turns.");
+
             _logger.LogInformation(
                 "OpeningPeriodDirectionInjected: SessionId={SessionId} Actor={Actor} Phase={Phase} Turn={Turn} Source={Source}",
                 context.Session.Id, context.ActorProfile.ActorName, phase,

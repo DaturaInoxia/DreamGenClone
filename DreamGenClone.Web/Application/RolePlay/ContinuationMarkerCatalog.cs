@@ -29,10 +29,36 @@ public static class ContinuationMarkerCatalog
     public static string DescribeBeatScope(BeatScope v) => v switch
     {
         BeatScope.Single => "Resolve this moment in one turn.",
-        BeatScope.Short => "Build the moment across 2–3 turns.",
-        BeatScope.Extended => "Linger in this moment for 4+ turns (episodic).",
-        _ => "Build the moment across 2–3 turns.",
+        BeatScope.Short => "Build the moment across 3 turns.",
+        BeatScope.Extended => "Linger in this moment across 5 turns.",
+        _ => "Build the moment across 3 turns.",
     };
+
+    /// <summary>Turn budget (duration in turns) for a moment under the given Beat Style (Single=1, Short=3, Extended=5).</summary>
+    public static int GetBeatStyleTurnBudget(BeatScope v) => v switch
+    {
+        BeatScope.Single => 1,
+        BeatScope.Short => 3,
+        BeatScope.Extended => 5,
+        _ => 3
+    };
+
+    /// <summary>
+    /// Per-response duration directive. Carries an explicit turn position and a hard
+    /// negative on non-final turns so the model holds the moment instead of resolving it
+    /// in a single response.
+    /// </summary>
+    public static string DescribeBeatStage(int turnsInBeat, int budget)
+    {
+        if (budget <= 1)
+            return "This moment lasts a single turn — resolve it now.";
+        var position = turnsInBeat + 1; // 1-based position of the turn about to be written
+        if (position >= budget)
+            return $"This moment ends this turn (turn {position} of {budget}) — bring it to its climax or conclusion now and move on.";
+        if (position == 1)
+            return $"This moment spans {budget} turns. You are on turn 1 of {budget} — establish it only. Do NOT bring the moment to its climax or conclusion this turn. End your response mid-action, before the resolution.";
+        return $"This moment spans {budget} turns. You are on turn {position} of {budget} — develop it further. Do NOT bring the moment to its climax or conclusion this turn. End your response mid-action, before the resolution.";
+    }
 
     public static string DescribeTimeShift(TimeShiftPolicy v) => v switch
     {

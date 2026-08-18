@@ -3907,6 +3907,13 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     private static Task ValidateSessionCompatibilityOrThrowAsync(RolePlaySession session, CancellationToken cancellationToken)
         => Task.CompletedTask;
 
+    private static int ResolveBeatStyleTurnBudget(RolePlaySession session, RPTheme? theme, NarrativePhase phase)
+    {
+        var baseDir = SceneDirectionResolver.Resolve(phase.ToString(), theme, ClimaxSubPhase.None, PromptIntent.Message);
+        var beatScope = ContinuationOverrideResolver.ResolveBeatScope(baseDir, session.ContinuationOverride);
+        return ContinuationMarkerCatalog.GetBeatStyleTurnBudget(beatScope);
+    }
+
     private async Task RunRolePlayV2PipelinesAsync(
         RolePlaySession session,
         DecisionTrigger trigger,
@@ -5111,6 +5118,26 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         }
 
         
+        // ---- Generic beat-budget cursor (B-085) -------------------------------------------
+        // Active in all phases for non-episodic themes. Beat Style (resolved, including the
+        // sticky session override) sets the turn budget for the current beat; the cursor
+        // counts turns and resets when the budget is met so the prompt can inject
+        // "open / escalate / resolve" stage directives. The episodic Climax cursor above
+        // owns its own beat state, so this generic cursor only runs when episodic is off.
+        if (!isEpisodicBeatStyle && generatedSinceLastEval > 0)
+        {
+            var budget = ResolveBeatStyleTurnBudget(session, beatCursorTheme, v2State.CurrentPhase);
+            if (budget > 0)
+            {
+                v2State.TurnsInCurrentBeat += generatedSinceLastEval;
+                if (v2State.TurnsInCurrentBeat >= budget)
+                {
+                    // Beat resolved — reset for the next beat (auto-open).
+                    v2State.TurnsInCurrentBeat = 0;
+                }
+            }
+        }
+
         // ---- Multi-encounter Climax lifecycle -----------------------------------------------
         // Theme-scoped via [ClimaxMode:multi-encounter] marker. Dormant for all other themes.
         var isMultiEncounterClimax = RolePlayAssistantPrompts.IsMultiEncounterClimax(beatCursorTheme, "Climax");
@@ -5662,16 +5689,16 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         var isMulti = ContinuationOverrideResolver.ResolveMultiEncounterClimax(session, theme);
         var isAftermath = ContinuationOverrideResolver.ResolveAftermathHusbandContrast(session, theme, state.CurrentPhase.ToString());
 
-        // Beat Style minimum-turn guard (B-085). The session's sticky Beat Style
-        // override gates how soon the encounter may complete, for ALL themes.
-        // No override → prior behavior is preserved (multi-encounter floor of 4,
-        // single-encounter no floor).
-        var beatStyleMinimum = ResolveBeatStyleMinimumInteractions(session, isMulti);
-        if (beatStyleMinimum > 0 && state.TurnsInCurrentEncounter < beatStyleMinimum)
+        // Multi-encounter premature-advance guard.
+        if (isMulti)
         {
-            _logger.LogDebug("TryDetectEncounterBoundary: below Beat Style minimum encounter length ({Current}/{Min}) SessionId={SessionId}",
-                state.TurnsInCurrentEncounter, beatStyleMinimum, session.Id);
-            return;
+            const int minIxns = 4;
+            if (state.TurnsInCurrentEncounter < minIxns)
+            {
+                _logger.LogDebug("TryDetectEncounterBoundary: below minimum encounter length ({Current}/{Min}) SessionId={SessionId}",
+                    state.TurnsInCurrentEncounter, minIxns, session.Id);
+                return;
+            }
         }
 
         // ---- Keyword hard-gate: validate evidence span (skip for Instruction/System) ----
@@ -5746,24 +5773,6 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             Summary = $"Encounter boundary advanced: {before} -> {state.CurrentEncounterNumber} (conf={detected.Confidence})",
             MetadataJson = JsonSerializer.Serialize(new { encounterNumberBefore = before, encounterNumberAfter = state.CurrentEncounterNumber, confidence = detected.Confidence, evidenceSpan = detected.EvidenceSpan, themeId = theme?.Id, hasAftermath = isAftermath })
         }, cancellationToken);
-    }
-
-    private static int ResolveBeatStyleMinimumInteractions(RolePlaySession session, bool isMulti)
-    {
-        var overrideScope = session.ContinuationOverride?.BeatScope;
-        if (overrideScope.HasValue)
-        {
-            return overrideScope.Value switch
-            {
-                BeatScope.Single => 1,
-                BeatScope.Short => 2,
-                BeatScope.Extended => 4,
-                _ => isMulti ? 4 : 0
-            };
-        }
-
-        // No override: preserve prior behavior.
-        return isMulti ? 4 : 0;
     }
 
     private static bool IsClimaxCompletionRequested(RolePlaySession session)

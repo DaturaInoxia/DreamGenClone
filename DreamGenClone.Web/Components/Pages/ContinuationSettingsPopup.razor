@@ -28,7 +28,7 @@
                 <button class="rw-popup-action-btn @(!_working.BeatScope.HasValue ? "is-primary" : null)" @onclick="() => _working.BeatScope = null">No override</button>
                 <button class="rw-popup-action-btn @(_working.BeatScope == BeatScope.Single ? "is-primary" : null)" @onclick="() => _working.BeatScope = BeatScope.Single" disabled="@IsBeatScopeSingleDisabled()">Single</button>
                 <button class="rw-popup-action-btn @(_working.BeatScope == BeatScope.Short ? "is-primary" : null)" @onclick="() => _working.BeatScope = BeatScope.Short">Short</button>
-                <button class="rw-popup-action-btn @(_working.BeatScope == BeatScope.Extended ? "is-primary" : null)" @onclick="() => _working.BeatScope = BeatScope.Extended" disabled="@IsBeatScopeExtendedDisabled()">Episodic</button>
+                <button class="rw-popup-action-btn @(_working.BeatScope == BeatScope.Extended ? "is-primary" : null)" @onclick="() => _working.BeatScope = BeatScope.Extended" disabled="@IsBeatScopeExtendedDisabled()">Extended</button>
             </div>
             <div style="opacity:.7;">@CurrentBeatScopeDescription()</div>
         </div>

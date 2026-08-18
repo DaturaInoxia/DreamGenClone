@@ -330,6 +330,48 @@ public sealed class SlotContractTests
         Assert.NotNull(text);
     }
 
+    // ── 001-opening-period FR-002: Potential Arcs suppressed during opening period ──
+
+    [Fact]
+    public async Task ThemeContractSlot_OpeningPeriod_SuppressesPotentialArcs()
+    {
+        var slot = new ThemeContractSlot(NullLogger<ThemeContractSlot>.Instance);
+        var context = CreateContext(phase: "Opening", observedTurnCount: 2);
+        context = context with
+        {
+            Theme = new ResolvedThemeData
+            {
+                ActiveTheme = null,
+                AvailableArcLabels = [("NTR Open World", "A love triangle — Wife, Husband, and Other Man.")],
+            },
+        };
+
+        var text = await slot.WriteAsync(context, CancellationToken.None);
+
+        Assert.DoesNotContain("Potential Arcs", text);
+        Assert.DoesNotContain("Other Man", text);
+    }
+
+    [Fact]
+    public async Task ThemeContractSlot_AfterOpeningPeriod_EmitsPotentialArcs()
+    {
+        var slot = new ThemeContractSlot(NullLogger<ThemeContractSlot>.Instance);
+        var context = CreateContext(phase: "BuildUp", observedTurnCount: 4);
+        context = context with
+        {
+            Theme = new ResolvedThemeData
+            {
+                ActiveTheme = null,
+                AvailableArcLabels = [("NTR Open World", "A love triangle — Wife, Husband, and Other Man.")],
+            },
+        };
+
+        var text = await slot.WriteAsync(context, CancellationToken.None);
+
+        Assert.Contains("Potential Arcs", text);
+        Assert.Contains("Other Man", text);
+    }
+
     // ── T040: BehavioralFramesSlot (FR-019, FR-027, FR-036) ───
 
     [Fact]
@@ -1078,6 +1120,32 @@ public sealed class SlotContractTests
 
         Assert.DoesNotContain("HARD CONSTRAINT — Opening Period Direction:", text);
         Assert.Contains("Establish the scene, introduce characters", text);
+    }
+
+    // ── 001-opening-period SC-001 hardening: explicit Opening Cast absence constraint ──
+
+    [Fact]
+    public async Task ScenarioGuidanceSlot_OpeningPeriod_EmitsOpeningCastConstraint()
+    {
+        var slot = new ScenarioGuidanceSlot(NullLogger<ScenarioGuidanceSlot>.Instance);
+        var context = CreateContext(phase: "Opening", observedTurnCount: 2);
+
+        var text = await slot.WriteAsync(context, CancellationToken.None);
+
+        Assert.Contains("HARD CONSTRAINT — Opening Cast:", text);
+        Assert.Contains("The love interest / Other Man is NOT present", text);
+        Assert.Contains("Only the couple (husband and wife) are present", text);
+    }
+
+    [Fact]
+    public async Task ScenarioGuidanceSlot_AfterOpeningPeriod_NoOpeningCastConstraint()
+    {
+        var slot = new ScenarioGuidanceSlot(NullLogger<ScenarioGuidanceSlot>.Instance);
+        var context = CreateContext(phase: "Opening", observedTurnCount: 4);
+
+        var text = await slot.WriteAsync(context, CancellationToken.None);
+
+        Assert.DoesNotContain("HARD CONSTRAINT — Opening Cast:", text);
     }
 
     [Fact]

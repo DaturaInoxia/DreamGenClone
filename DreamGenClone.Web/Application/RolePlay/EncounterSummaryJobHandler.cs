@@ -425,12 +425,31 @@ public sealed class EncounterSummaryJobHandler : IBackgroundJobHandler
                 _logger.LogInformation(
                     "EncounterSummaryJobHandler: enrichment prompt record={RecordId}{NewLine}--- PROMPT ---{NewLine}{Prompt}{NewLine}--- END PROMPT ---",
                     record.Id, Environment.NewLine, prompt, Environment.NewLine);
-                var llmSummary = await _completionClient.GenerateAsync(prompt, resolvedModel, cancellationToken);
+
+                // Reasoning-aware path — mirrors SemanticEventInferenceService and
+                // RolePlayContinuationService. Separates reasoning_content from the final
+                // content (a plain GenerateAsync would fall back to persisting the model's
+                // chain-of-thought as the summary when it spends its whole budget on
+                // reasoning and emits empty content). If only reasoning comes back, the
+                // client issues a focused force-answer follow-up.
+                var (content, reasoning) = await _completionClient.StreamGenerateWithReasoningAsync(
+                    prompt, resolvedModel, _ => Task.CompletedTask, cancellationToken);
+                var llmSummary = content ?? string.Empty;
+
+                if (!string.IsNullOrWhiteSpace(llmSummary)
+                    && llmSummary.Length > _memoryOptions.MaxLlmSummaryChars)
+                {
+                    _logger.LogWarning(
+                        "EncounterSummaryJobHandler: enrichment response rejected (exceeds MaxLlmSummaryChars={MaxChars}) record={RecordId} type={SummaryType} charId={CharacterId} responseChars={ResponseLen}; keeping template summary.",
+                        _memoryOptions.MaxLlmSummaryChars, record.Id, record.SummaryType, record.CharacterId, llmSummary.Length);
+                    return;
+                }
+
                 if (!string.IsNullOrWhiteSpace(llmSummary))
                 {
                     _logger.LogInformation(
-                        "EncounterSummaryJobHandler: enrichment response record={RecordId} responseChars={ResponseLen}",
-                        record.Id, llmSummary.Length);
+                        "EncounterSummaryJobHandler: enrichment response record={RecordId} responseChars={ResponseLen} reasoningChars={ReasoningLen}",
+                        record.Id, llmSummary.Length, reasoning?.Length ?? 0);
                     _logger.LogInformation(
                         "EncounterSummaryJobHandler: enrichment response record={RecordId}{NewLine}--- RESPONSE ---{NewLine}{Response}{NewLine}--- END RESPONSE ---",
                         record.Id, Environment.NewLine, llmSummary, Environment.NewLine);

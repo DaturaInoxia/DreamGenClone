@@ -42,6 +42,17 @@ public sealed class RolePlayMemoryOptions
     public bool EnableLlmSummaryEnhancement { get; init; } = true;
 
     /// <summary>
+    /// Maximum allowed length (characters) of an LLM-enhanced memory summary.
+    /// If the enrichment response exceeds this, the response is rejected (not
+    /// persisted) and the template summary is used instead. Guards against
+    /// chain-of-thought/reasoning leakage and runaway responses that would
+    /// otherwise bloat the prompt (see session e12d27a6: a 35K reasoning dump
+    /// ballooned the Recent Encounter Memories slot to 81K chars).
+    /// Default: 4000.
+    /// </summary>
+    public int MaxLlmSummaryChars { get; init; } = 4000;
+
+    /// <summary>
     /// Global confidence threshold for semantic encounter-start detection.
     /// Applied universally across all themes. Detection fires when the LLM
     /// inference confidence meets or exceeds this value.
