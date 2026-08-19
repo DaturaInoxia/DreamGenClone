@@ -74,6 +74,24 @@ public sealed class RolePlaySubmissionTracker : IRolePlaySubmissionTracker
     }
 
     /// <inheritdoc/>
+    public void AttachInteractionCompletedCallback(string sessionId, Func<RolePlayInteraction, int, int, bool, Task>? callback)
+    {
+        if (_entries.TryGetValue(sessionId, out var entry))
+        {
+            entry.InteractionCallbackWrapper.Attach(callback);
+        }
+    }
+
+    /// <inheritdoc/>
+    public void DetachInteractionCompletedCallback(string sessionId)
+    {
+        if (_entries.TryGetValue(sessionId, out var entry))
+        {
+            entry.InteractionCallbackWrapper.Detach();
+        }
+    }
+
+    /// <inheritdoc/>
     public void AcknowledgeFailure(string sessionId)
     {
         if (_entries.TryGetValue(sessionId, out var entry) &&

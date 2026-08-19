@@ -288,6 +288,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             GeneratedByModelId = resolved.ModelIdentifier,
             GeneratedByModelName = resolved.ModelIdentifier,
             GeneratedByCommand = "Continue",
+            GeneratedVariant = PromptVariant.Character,
             GeneratedByProvider = resolved.ProviderName,
             GeneratedTemperature = resolved.Temperature,
             GeneratedTopP = resolved.TopP,
@@ -394,12 +395,89 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             GeneratedByModelId = resolved.ModelIdentifier,
             GeneratedByModelName = resolved.ModelIdentifier,
             GeneratedByCommand = "Narrative",
+            GeneratedVariant = PromptVariant.Narrative,
             GeneratedByProvider = resolved.ProviderName,
             GeneratedTemperature = resolved.Temperature,
             GeneratedTopP = resolved.TopP,
             GeneratedMaxTokens = resolved.MaxTokens,
             NarrativePhaseAtCreation = session.AdaptiveState.CurrentPhase,
             PromptText = capturedPromptText
+        };
+    }
+
+    /// <summary>
+    /// B-088: Generates a narrative-variant interaction for a retry/rewrite, using the
+    /// narrative prompt builder (PromptIntent.Narrative) and the narrative validation
+    /// pipeline, without committing it to the session. The caller (InteractionRetryService)
+    /// wraps the returned interaction into an alternative linked to the original.
+    /// </summary>
+    public async Task<RolePlayInteraction> ContinueNarrativeAsAlternativeAsync(
+        RolePlaySession session,
+        string actorName,
+        string promptText,
+        ResolvedModel resolved,
+        string command,
+        CancellationToken cancellationToken = default)
+    {
+        var narrativePrompt = string.IsNullOrWhiteSpace(promptText)
+            ? "Synthesize the scene with vivid narrative description."
+            : promptText;
+
+        await ValidateDirectiveTextAsync(session, narrativePrompt, cancellationToken);
+
+        var prompt = await BuildPromptViaBuilderAsync(
+            session,
+            ContinueAsActor.Npc,
+            actorName,
+            PromptIntent.Narrative,
+            narrativePrompt,
+            cancellationToken);
+
+        string? capturedPromptText = null;
+        try
+        {
+            capturedPromptText = PromptTextTruncation.TrimInteractionHistoryBlock(prompt);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to capture prompt text for narrative retry in session {SessionId}", session.Id);
+        }
+
+        await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+        {
+            SessionId = session.Id,
+            EventKind = "PromptBuilt",
+            Severity = "Info",
+            ActorName = string.IsNullOrWhiteSpace(actorName) ? "Narrative" : actorName,
+            Summary = $"Prompt prepared for Narrative retry ({command})",
+            MetadataJson = JsonSerializer.Serialize(new
+            {
+                actor = actorName,
+                intent = PromptIntent.Narrative.ToString(),
+                command,
+                prompt,
+                promptLength = prompt.Length
+            })
+        }, cancellationToken);
+
+        var output = await GenerateNarrativeWithValidationAsync(session, prompt, resolved, cancellationToken);
+
+        return new RolePlayInteraction
+        {
+            InteractionType = InteractionType.System,
+            ActorName = string.IsNullOrWhiteSpace(actorName) ? "Narrative" : actorName,
+            Content = string.IsNullOrWhiteSpace(output) ? "(No output generated)" : output.Trim(),
+            GeneratedByModelId = resolved.ModelIdentifier,
+            GeneratedByModelName = resolved.ModelIdentifier,
+            GeneratedByCommand = command,
+            GeneratedVariant = PromptVariant.Narrative,
+            GeneratedByProvider = resolved.ProviderName,
+            GeneratedTemperature = resolved.Temperature,
+            GeneratedTopP = resolved.TopP,
+            GeneratedMaxTokens = resolved.MaxTokens,
+            NarrativePhaseAtCreation = session.AdaptiveState.CurrentPhase,
+            PromptText = capturedPromptText,
+            RawResponseText = output.Trim()
         };
     }
 
@@ -469,6 +547,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                 GeneratedByModelId = narrativeResolved.ModelIdentifier,
                 GeneratedByModelName = narrativeResolved.ModelIdentifier,
                 GeneratedByCommand = "Narrative",
+                GeneratedVariant = PromptVariant.Narrative,
                 GeneratedByProvider = narrativeResolved.ProviderName,
                 GeneratedTemperature = narrativeResolved.Temperature,
                 GeneratedTopP = narrativeResolved.TopP,

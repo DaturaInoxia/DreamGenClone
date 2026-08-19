@@ -3,6 +3,7 @@ using DreamGenClone.Application.Abstractions;
 using DreamGenClone.Application.StoryAnalysis;
 using DreamGenClone.Application.ModelManager;
 using DreamGenClone.Domain.ModelManager;
+using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Web.Application.Models;
 using DreamGenClone.Web.Application.Scenarios;
 using DreamGenClone.Web.Domain.RolePlay;
@@ -13,6 +14,7 @@ namespace DreamGenClone.Web.Application.RolePlay;
 public sealed class InteractionRetryService : IInteractionRetryService
 {
     private readonly IRolePlayEngineService _engineService;
+    private readonly IRolePlayContinuationService _continuationService;
     private readonly ICompletionClient _completionClient;
     private readonly IModelResolutionService _modelResolver;
     private readonly IModelSettingsService _modelSettingsService;
@@ -21,6 +23,7 @@ public sealed class InteractionRetryService : IInteractionRetryService
 
     public InteractionRetryService(
         IRolePlayEngineService engineService,
+        IRolePlayContinuationService continuationService,
         ICompletionClient completionClient,
         IModelResolutionService modelResolver,
         IModelSettingsService modelSettingsService,
@@ -28,6 +31,7 @@ public sealed class InteractionRetryService : IInteractionRetryService
         ILogger<InteractionRetryService> logger)
     {
         _engineService = engineService;
+        _continuationService = continuationService;
         _completionClient = completionClient;
         _modelResolver = modelResolver;
         _modelSettingsService = modelSettingsService;
@@ -42,6 +46,12 @@ public sealed class InteractionRetryService : IInteractionRetryService
     {
         var original = ResolveOriginal(session, interactionId);
         var active = session.ResolveActiveAlternative(original);
+
+        if (ResolveGeneratedVariant(active) == PromptVariant.Narrative)
+        {
+            return await CreateNarrativeAlternativeAsync(
+                session, original, active, narrativeDirective: null, "Retry", sessionModelId: null, cancellationToken);
+        }
 
         var prompt = await BuildRetryPromptAsync(session, active, null, cancellationToken);
         
@@ -76,6 +86,12 @@ public sealed class InteractionRetryService : IInteractionRetryService
     {
         var original = ResolveOriginal(session, interactionId);
         var active = session.ResolveActiveAlternative(original);
+
+        if (ResolveGeneratedVariant(active) == PromptVariant.Narrative)
+        {
+            return await CreateNarrativeAlternativeAsync(
+                session, original, active, narrativeDirective: null, "RetryWithModel", sessionModelId: modelId, cancellationToken);
+        }
 
         var prompt = await BuildRetryPromptAsync(session, active, null, cancellationToken);
         
@@ -127,6 +143,14 @@ public sealed class InteractionRetryService : IInteractionRetryService
                 _ => "Custom"
             };
 
+        // B-088: Retry-as "Narrative" is an explicit narrative-variant override — route it
+        // through the narrative builder + validation pipeline instead of the character path.
+        if (string.Equals(actorName, "Narrative", StringComparison.OrdinalIgnoreCase))
+        {
+            return await CreateNarrativeAlternativeAsync(
+                session, original, original, narrativeDirective: null, "RetryAs", sessionModelId: null, cancellationToken);
+        }
+
         var prompt = await BuildRetryPromptAsync(session, original, $"Rewrite as character: {actorName}", cancellationToken);
         
         // Capture prompt text for storage (best-effort, truncated to reduce size)
@@ -160,6 +184,14 @@ public sealed class InteractionRetryService : IInteractionRetryService
         var original = ResolveOriginal(session, interactionId);
         var active = session.ResolveActiveAlternative(original);
 
+        if (ResolveGeneratedVariant(active) == PromptVariant.Narrative)
+        {
+            return await CreateNarrativeAlternativeAsync(
+                session, original, active,
+                "Rewrite the following interaction to be significantly longer and more detailed, expanding on descriptions, dialogue, and atmosphere.",
+                "MakeLonger", sessionModelId: null, cancellationToken);
+        }
+
         var prompt = await BuildRetryPromptAsync(session, active, "Rewrite the following interaction to be significantly longer and more detailed, expanding on descriptions, dialogue, and atmosphere.", cancellationToken);
         
         // Capture prompt text for storage (best-effort, truncated to reduce size)
@@ -192,6 +224,14 @@ public sealed class InteractionRetryService : IInteractionRetryService
     {
         var original = ResolveOriginal(session, interactionId);
         var active = session.ResolveActiveAlternative(original);
+
+        if (ResolveGeneratedVariant(active) == PromptVariant.Narrative)
+        {
+            return await CreateNarrativeAlternativeAsync(
+                session, original, active,
+                "Rewrite the following interaction to be shorter and more concise, keeping only the essential content.",
+                "MakeShorter", sessionModelId: null, cancellationToken);
+        }
 
         var prompt = await BuildRetryPromptAsync(session, active, "Rewrite the following interaction to be shorter and more concise, keeping only the essential content.", cancellationToken);
         
@@ -232,6 +272,12 @@ public sealed class InteractionRetryService : IInteractionRetryService
         var original = ResolveOriginal(session, interactionId);
         var active = session.ResolveActiveAlternative(original);
 
+        if (ResolveGeneratedVariant(active) == PromptVariant.Narrative)
+        {
+            return await CreateNarrativeAlternativeAsync(
+                session, original, active, $"Rewrite instruction: {instruction.Trim()}", "AskToRewrite", sessionModelId: null, cancellationToken);
+        }
+
         var prompt = await BuildRetryPromptAsync(session, active, $"Rewrite instruction: {instruction.Trim()}", cancellationToken);
         
         // Capture prompt text for storage (best-effort, truncated to reduce size)
@@ -270,6 +316,54 @@ public sealed class InteractionRetryService : IInteractionRetryService
         return interaction;
     }
 
+    /// <summary>
+    /// B-088: Resolves the prompt variant that produced an interaction. Prefers the typed
+    /// <see cref="RolePlayInteraction.GeneratedVariant"/> (set at creation since B-088); falls
+    /// back to the legacy heuristic (<c>GeneratedByCommand == "Narrative"</c>) for interactions
+    /// persisted before the field existed.
+    /// </summary>
+    private static PromptVariant ResolveGeneratedVariant(RolePlayInteraction interaction)
+        => interaction.GeneratedVariant
+           ?? (string.Equals(interaction.GeneratedByCommand, "Narrative", StringComparison.OrdinalIgnoreCase)
+               ? PromptVariant.Narrative
+               : PromptVariant.Character);
+
+    /// <summary>
+    /// B-088: Regenerates an interaction through the narrative prompt builder + validation
+    /// pipeline (Narrative variant) and links the result as an alternative of the original.
+    /// Used when the effective variant is Narrative, or when the user explicitly retries as Narrative.
+    /// </summary>
+    private async Task<RolePlayInteraction> CreateNarrativeAlternativeAsync(
+        RolePlaySession session,
+        RolePlayInteraction original,
+        RolePlayInteraction active,
+        string? narrativeDirective,
+        string command,
+        string? sessionModelId,
+        CancellationToken cancellationToken)
+    {
+        var resolved = await ResolveModelAsync(session, sessionModelId, cancellationToken);
+        var narrative = await _continuationService.ContinueNarrativeAsAlternativeAsync(
+            session,
+            active.ActorName,
+            narrativeDirective,
+            resolved,
+            command,
+            cancellationToken);
+
+        return CreateAlternative(
+            original,
+            session,
+            narrative.InteractionType,
+            narrative.ActorName,
+            narrative.Content,
+            narrative.ReasoningContent,
+            resolved,
+            command,
+            narrative.PromptText,
+            PromptVariant.Narrative);
+    }
+
     private RolePlayInteraction CreateAlternative(
         RolePlayInteraction original,
         RolePlaySession session,
@@ -279,7 +373,8 @@ public sealed class InteractionRetryService : IInteractionRetryService
         string? reasoningContent,
         ResolvedModel resolvedModel,
         string command,
-        string? promptText = null)
+        string? promptText = null,
+        PromptVariant? variant = PromptVariant.Character)
     {
         var existingAlternatives = session.Interactions
             .Where(i => i.ParentInteractionId == original.Id)
@@ -299,6 +394,7 @@ public sealed class InteractionRetryService : IInteractionRetryService
             GeneratedByModelId = resolvedModel.ModelIdentifier,
             GeneratedByModelName = resolvedModel.ModelIdentifier,
             GeneratedByCommand = command,
+            GeneratedVariant = variant,
             GeneratedByProvider = resolvedModel.ProviderName,
             GeneratedTemperature = resolvedModel.Temperature,
             GeneratedTopP = resolvedModel.TopP,

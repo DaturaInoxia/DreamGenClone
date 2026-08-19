@@ -196,6 +196,79 @@ public sealed class RolePlaySubmissionTrackerTests
         Assert.Empty(calls);
     }
 
+    // ─── AttachInteractionCompletedCallback / DetachInteractionCompletedCallback (B-087) ─
+
+    [Fact]
+    public void AttachInteractionCompletedCallback_RunningEntry_SwapsInnerCallback()
+    {
+        var tracker = CreateTracker();
+        var tcs = new TaskCompletionSource<RolePlayInteraction>();
+        tracker.TryBeginSubmission("s1", MakeSubmission("s1"), tcs.Task);
+
+        var delivered = new List<(RolePlayInteraction Interaction, int Position, int TurnActorCount, bool IsNarrative)>();
+        Func<RolePlayInteraction, int, int, bool, Task> callback = (interaction, position, turnActorCount, isNarrative) =>
+        {
+            delivered.Add((interaction, position, turnActorCount, isNarrative));
+            return Task.CompletedTask;
+        };
+
+        tracker.AttachInteractionCompletedCallback("s1", callback);
+
+        var interaction = MakeInteraction();
+        var entry = tracker.GetEntry("s1")!;
+        _ = entry.InteractionCallbackWrapper.InvokeAsync(interaction, 1, 3, false);
+
+        Assert.Single(delivered);
+        Assert.Same(interaction, delivered[0].Interaction);
+        Assert.Equal(1, delivered[0].Position);
+        Assert.Equal(3, delivered[0].TurnActorCount);
+        Assert.False(delivered[0].IsNarrative);
+    }
+
+    [Fact]
+    public void AttachInteractionCompletedCallback_AbsentSession_IsNoOp()
+    {
+        var tracker = CreateTracker();
+
+        // Must not throw.
+        tracker.AttachInteractionCompletedCallback("no-session", (_, _, _, _) => Task.CompletedTask);
+    }
+
+    [Fact]
+    public void DetachInteractionCompletedCallback_RunningEntry_SetsInnerToNull()
+    {
+        var tracker = CreateTracker();
+        var tcs = new TaskCompletionSource<RolePlayInteraction>();
+        tracker.TryBeginSubmission("s1", MakeSubmission("s1"), tcs.Task);
+
+        var delivered = new List<RolePlayInteraction>();
+        tracker.AttachInteractionCompletedCallback("s1", (interaction, _, _, _) => { delivered.Add(interaction); return Task.CompletedTask; });
+        tracker.DetachInteractionCompletedCallback("s1");
+
+        var entry = tracker.GetEntry("s1")!;
+        _ = entry.InteractionCallbackWrapper.InvokeAsync(MakeInteraction(), 1, 1, false);
+
+        Assert.Empty(delivered);
+    }
+
+    [Fact]
+    public async Task AttachInteractionCompletedCallback_DetachedAfterDispose_SwallowsObjectDisposedException()
+    {
+        var tracker = CreateTracker();
+        var tcs = new TaskCompletionSource<RolePlayInteraction>();
+        tracker.TryBeginSubmission("s1", MakeSubmission("s1"), tcs.Task);
+
+        // A callback that simulates a disposed Blazor component throwing ObjectDisposedException.
+        tracker.AttachInteractionCompletedCallback("s1", (_, _, _, _) => throw new ObjectDisposedException("component"));
+
+        var entry = tracker.GetEntry("s1")!;
+        // Must not throw — the wrapper swallows ObjectDisposedException and detaches.
+        await entry.InteractionCallbackWrapper.InvokeAsync(MakeInteraction(), 1, 1, false);
+
+        // A second invocation is a no-op (inner was detached).
+        await entry.InteractionCallbackWrapper.InvokeAsync(MakeInteraction(), 2, 2, false);
+    }
+
     // ─── OnJobStatusChanged event (T017) ──────────────────────────────────────
 
     [Fact]

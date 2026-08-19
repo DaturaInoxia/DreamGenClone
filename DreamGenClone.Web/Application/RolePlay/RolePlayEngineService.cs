@@ -1039,6 +1039,8 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     public async Task<RolePlayInteraction> SubmitPromptAsync(
         UnifiedPromptSubmission submission,
         Func<string, Task>? onChunk = null,
+        Func<RolePlayInteraction, int, int, bool, Task>? onInteractionCompleted = null,
+        Func<int, string, int, Task>? onActorStart = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(submission);
@@ -1171,6 +1173,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
                 await AlignPromptNarrativeStateWithV2Async(session, cancellationToken);
 
+                await RaiseActorStartAsync(1, selectedActorName, 1, onActorStart);
                 try
                 {
                     interaction = await _continuationService.ContinueAsync(
@@ -1185,6 +1188,9 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                     session.Interactions.Add(interaction);
                     outputInteractionIds.Add(interaction.Id);
                     await UpdateStateAndDetectEncounterAsync(session, interaction, cancellationToken);
+                    await RaiseInteractionCompletedAndFlushAsync(
+                        session, interaction, 1, 1,
+                        isNarrative: false, onInteractionCompleted, cancellationToken);
                 }
                 finally
                 {
@@ -1411,9 +1417,17 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
     public async Task<ContinueAsResult> ContinueAsAsync(
         ContinueAsRequest request,
         Func<string, Task>? onChunk = null,
+        Func<RolePlayInteraction, int, int, bool, Task>? onInteractionCompleted = null,
+        Func<int, string, int, Task>? onActorStart = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+
+        // B-087: onInteractionCompleted is invoked once per finalized interaction (each
+        // participant in the batch, then the narrative if generated). onActorStart is invoked
+        // before each actor's generation begins so the consumer can reset its streaming buffer
+        // and progress label per actor. Both are best-effort: the consumer is expected to
+        // swallow ObjectDisposedException for a disposed component (see tracker wrappers).
 
         var session = await GetSessionAsync(request.SessionId, cancellationToken)
             ?? throw new InvalidOperationException($"Role-play session '{request.SessionId}' not found.");
@@ -1482,9 +1496,14 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         if (selectedIdentityOptions.Count > 0)
         {
             // Explicit identity selections � generate sequentially, accumulating context
+            var explicitBatchSize = selectedIdentityOptions.Count;
+            turnActorCount = explicitBatchSize;
+            var explicitPosition = 0;
             foreach (var option in selectedIdentityOptions)
             {
                 var actorName = ResolveOptionActorName(option, request.CustomIdentityName);
+                explicitPosition++;
+                await RaiseActorStartAsync(explicitPosition, actorName, explicitBatchSize, onActorStart);
                 await AlignPromptNarrativeStateWithV2Async(session, cancellationToken);
                 var interaction = await _continuationService.ContinueAsync(
                     session,
@@ -1500,6 +1519,9 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 session.Interactions.Add(interaction);
                 outputInteractionIds.Add(interaction.Id);
                 await UpdateStateAndDetectEncounterAsync(session, interaction, cancellationToken);
+                await RaiseInteractionCompletedAndFlushAsync(
+                    session, interaction, explicitPosition, explicitBatchSize,
+                    isNarrative: false, onInteractionCompleted, cancellationToken);
             }
         }
         else if (isOverflowContinue)
@@ -1687,6 +1709,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 var actorName = candidate.Name;
                 var positionInTurn = i + 1; // 1-based
 
+                await RaiseActorStartAsync(positionInTurn, actorName, batchSize, onActorStart);
                 await AlignPromptNarrativeStateWithV2Async(session, cancellationToken);
                 var interaction = await _continuationService.ContinueAsync(
                     session, actor, actorName, PromptIntent.Message, string.Empty, onChunk, cancellationToken,
@@ -1699,6 +1722,9 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 session.Interactions.Add(interaction);
                 outputInteractionIds.Add(interaction.Id);
                 await UpdateStateAndDetectEncounterAsync(session, interaction, cancellationToken, skipBoundaryDetection: true);
+                await RaiseInteractionCompletedAndFlushAsync(
+                    session, interaction, positionInTurn, batchSize,
+                    isNarrative: false, onInteractionCompleted, cancellationToken);
             }
 
             // Run boundary detection once after all batch interactions are generated.
@@ -1722,6 +1748,8 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             // Fallback: single actor default
             var fallbackActor = ResolveDefaultContinueActor(session);
             var fallbackActorName = ResolveActorName(fallbackActor, request.CustomIdentityName, session.PersonaName);
+            turnActorCount = 1;
+            await RaiseActorStartAsync(1, fallbackActorName, 1, onActorStart);
             await AlignPromptNarrativeStateWithV2Async(session, cancellationToken);
             var interaction = await _continuationService.ContinueAsync(
                 session,
@@ -1736,6 +1764,9 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             session.Interactions.Add(interaction);
             outputInteractionIds.Add(interaction.Id);
             await UpdateStateAndDetectEncounterAsync(session, interaction, cancellationToken);
+            await RaiseInteractionCompletedAndFlushAsync(
+                session, interaction, 1, 1,
+                isNarrative: false, onInteractionCompleted, cancellationToken);
         }
 
         // --- AUTO-NARRATIVE ---
@@ -1773,6 +1804,9 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         if (shouldIncludeNarrative)
         {
             var narrativePrompt = DetermineNarrativePrompt(session);
+            var narrativePosition = turnActorCount.GetValueOrDefault(0) + 1;
+            var narrativeTurnActorCount = narrativePosition;
+            await RaiseActorStartAsync(narrativePosition, "Narrative", narrativeTurnActorCount, onActorStart);
             await AlignPromptNarrativeStateWithV2Async(session, cancellationToken);
             var narrative = await _continuationService.ContinueNarrativeAsync(
                 session,
@@ -1785,6 +1819,9 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             session.Interactions.Add(narrative);
             outputInteractionIds.Add(narrative.Id);
             await UpdateStateAndDetectEncounterAsync(session, narrative, cancellationToken);
+            await RaiseInteractionCompletedAndFlushAsync(
+                session, narrative, narrativePosition, narrativeTurnActorCount,
+                isNarrative: true, onInteractionCompleted, cancellationToken);
         }
 
         // --- TURN-TAKING ENFORCEMENT ---
@@ -1838,6 +1875,75 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         GraduateStagedDirections(session);
 
         return result;
+    }
+
+    /// <summary>
+    /// B-087: Invokes the per-interaction completion callback (if attached) and flushes the
+    /// session blob to the DB so a navigation-return mid-batch sees the completed interaction.
+    /// Adaptive state is [JsonIgnore] on the session blob, so this persists only interactions
+    /// + metadata; V2 adaptive state remains persisted by the end-of-turn V2 pipeline run.
+    /// The callback's consumer is expected to swallow ObjectDisposedException for a disposed
+    /// component (see RolePlayInteractionCallbackWrapper).
+    /// </summary>
+    private async Task RaiseInteractionCompletedAndFlushAsync(
+        RolePlaySession session,
+        RolePlayInteraction interaction,
+        int positionInTurn,
+        int turnActorCount,
+        bool isNarrative,
+        Func<RolePlayInteraction, int, int, bool, Task>? onInteractionCompleted,
+        CancellationToken cancellationToken)
+    {
+        if (onInteractionCompleted is not null)
+        {
+            try
+            {
+                await onInteractionCompleted(interaction, positionInTurn, turnActorCount, isNarrative)
+                    .ConfigureAwait(false);
+            }
+            catch (ObjectDisposedException)
+            {
+                // Component disposed mid-batch (navigation away) — engine continues uninterrupted.
+            }
+            catch (InvalidOperationException)
+            {
+                // Blazor JS interop on a disposed circuit — engine continues uninterrupted.
+            }
+        }
+
+        // Per-actor flush so a returning component sees completed interactions via LoadSessionAsync.
+        _autoSaveCoordinator.QueueRolePlaySessionSave(session, "roleplay-continueas-actor-completed");
+        await _autoSaveCoordinator.FlushAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// B-087: Invokes the per-actor start callback (if attached) so the consumer can reset its
+    /// streaming buffer and update the progress label for the next actor. Guards against
+    /// disposed-circuit exceptions so a navigated-away component does not interrupt the batch.
+    /// </summary>
+    private static async Task RaiseActorStartAsync(
+        int positionInTurn,
+        string actorName,
+        int turnActorCount,
+        Func<int, string, int, Task>? onActorStart)
+    {
+        if (onActorStart is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await onActorStart(positionInTurn, actorName, turnActorCount).ConfigureAwait(false);
+        }
+        catch (ObjectDisposedException)
+        {
+            // Component disposed mid-batch (navigation away) — engine continues uninterrupted.
+        }
+        catch (InvalidOperationException)
+        {
+            // Blazor JS interop on a disposed circuit — engine continues uninterrupted.
+        }
     }
 
     // B-076: Graduates all staged interaction rows — flips IsStagedDirection to false.
@@ -2688,9 +2794,16 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             {
                 var aftermathScenario = await _scenarioService.GetScenarioAsync(session.ScenarioId);
                 var aftermathNpcCharacters = aftermathScenario?.Characters?.Where(c => !string.IsNullOrWhiteSpace(c.Name)).ToList() ?? [];
-                var aftermathSpouseChar = aftermathNpcCharacters.FirstOrDefault(c =>
-                    !string.IsNullOrWhiteSpace(c.RelationTargetId) &&
-                    string.Equals(c.RelationTargetId.Trim(), aftermathPersonaName, StringComparison.OrdinalIgnoreCase));
+                // RelationTargetId stores the related character's ID (GUID), not its name.
+                // Match it against the persona's character ID — the same contract used by
+                // RolePlayContinuationService.ResolveOpeningCoupleIds. PersonaName is a display
+                // label and never equals a RelationTargetId GUID.
+                var aftermathPersonaCharId = session.PersonaCharacterId?.Trim();
+                var aftermathSpouseChar = !string.IsNullOrWhiteSpace(aftermathPersonaCharId)
+                    ? aftermathNpcCharacters.FirstOrDefault(c =>
+                        !string.IsNullOrWhiteSpace(c.RelationTargetId) &&
+                        string.Equals(c.RelationTargetId.Trim(), aftermathPersonaCharId, StringComparison.OrdinalIgnoreCase))
+                    : null;
                 aftermathSpouseName = aftermathSpouseChar?.Name?.Trim();
             }
 
@@ -3729,10 +3842,14 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
             .ToList() ?? [];
 
         // Resolve the spouse character from the data model: the NPC whose RelationTargetId
-        // points to the user character. A character linked via RelationTargetId is the user's spouse.
-        var spouseCharacter = npcCharacters.FirstOrDefault(c =>
-            !string.IsNullOrWhiteSpace(c.RelationTargetId) &&
-            string.Equals(c.RelationTargetId.Trim(), userName, StringComparison.OrdinalIgnoreCase));
+        // points to the user character. RelationTargetId stores the related character's ID
+        // (GUID), not the display name — match it against the persona's character ID.
+        var personaCharId = session.PersonaCharacterId?.Trim();
+        var spouseCharacter = !string.IsNullOrWhiteSpace(personaCharId)
+            ? npcCharacters.FirstOrDefault(c =>
+                !string.IsNullOrWhiteSpace(c.RelationTargetId) &&
+                string.Equals(c.RelationTargetId.Trim(), personaCharId, StringComparison.OrdinalIgnoreCase))
+            : null;
 
         var spouseName = spouseCharacter?.Name?.Trim();
         var spouseRole = spouseCharacter?.Role is { } sr && !string.Equals(sr, "Unknown", StringComparison.OrdinalIgnoreCase)

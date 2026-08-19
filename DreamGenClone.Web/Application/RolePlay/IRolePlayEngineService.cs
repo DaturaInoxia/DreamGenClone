@@ -58,11 +58,15 @@ public interface IRolePlayEngineService
     Task<RolePlayInteraction> SubmitPromptAsync(
         UnifiedPromptSubmission submission,
         Func<string, Task>? onChunk = null,
+        Func<RolePlayInteraction, int, int, bool, Task>? onInteractionCompleted = null,
+        Func<int, string, int, Task>? onActorStart = null,
         CancellationToken cancellationToken = default);
 
     Task<ContinueAsResult> ContinueAsAsync(
         ContinueAsRequest request,
         Func<string, Task>? onChunk = null,
+        Func<RolePlayInteraction, int, int, bool, Task>? onInteractionCompleted = null,
+        Func<int, string, int, Task>? onActorStart = null,
         CancellationToken cancellationToken = default);
 
     Task<RolePlayPendingDecisionPrompt?> GetPendingDecisionPromptAsync(string sessionId, CancellationToken cancellationToken = default);

@@ -111,6 +111,10 @@
     private bool _resizeInitialized;
     private int _lastRenderedInteractionCount = -1;
     private int _readCursorInteractionIndex = -1;
+    // B-087/B-010: counts interactions delivered via OnRolePlayInteractionCompletedAsync during
+    // the current in-flight turn. Reset to 0 when a submission begins; the first completed
+    // interaction triggers the read-cursor pin (scroll-to-cursor if not at bottom, else follow).
+    private int _newInteractionCountThisTurn;
     private bool _scenarioDirty;
     private bool _sessionStatsDirty;
     private bool _isDisposed;
@@ -309,8 +313,15 @@
             _backgroundSubmissionRunning = true;
             // Attach chunk callback so any future streaming chunks reach this component instance.
             _tracker.AttachChunkCallback(sessionId, OnRolePlayResponseChunkAsync);
+            // B-087: re-attach per-interaction completion so subsequent actors' committed
+            // interactions stream into the re-mounted component. Already-completed actors
+            // (flushed to DB) are visible via LoadSessionAsync below.
+            _tracker.AttachInteractionCompletedCallback(sessionId, OnRolePlayInteractionCompletedAsync);
             _tracker.OnJobStatusChanged += OnTrackerStatusChanged;
             _ = StartSubmissionPollingAsync();
+            // Refresh the session so any per-actor-flushed interactions (committed while
+            // navigated away) appear immediately on return.
+            await LoadSessionAsync();
             Logger.LogInformation(
                 "Reconnected to in-flight background submission on mount: session={SessionId}",
                 sessionId);
@@ -4730,6 +4741,7 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
             _pendingResponseText = string.Empty;
             _pendingResponseBuilder.Clear();
             _lastPendingResponseRenderAt = DateTime.MinValue;
+            _newInteractionCountThisTurn = 0;
             await InvokeAsync(StateHasChanged);
             await Task.Yield();
         }
@@ -4754,7 +4766,9 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
 
         var engineTask = RolePlayEngine.SubmitPromptAsync(
             submission,
-            awaitsModelResponse ? OnRolePlayResponseChunkAsync : null);
+            awaitsModelResponse ? OnRolePlayResponseChunkAsync : null,
+            awaitsModelResponse ? OnRolePlayInteractionCompletedAsync : null,
+            awaitsModelResponse ? OnRolePlayActorStart : null);
 
         _tracker.TryBeginSubmission(sessionId, submission, engineTask);
         _tracker.OnJobStatusChanged += OnTrackerStatusChanged;
@@ -7284,6 +7298,7 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
         _pendingResponseText = string.Empty;
         _pendingResponseBuilder.Clear();
         _lastPendingResponseRenderAt = DateTime.MinValue;
+        _newInteractionCountThisTurn = 0;
         await InvokeAsync(StateHasChanged);
         await Task.Yield();
 
@@ -7310,7 +7325,11 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
 
         // Fire without awaiting — task survives component dispose (same pattern as Send button / B-027).
         // isResubmittable: false — Continue failures show inline; no re-submit prompt is offered.
-        var engineTask = RolePlayEngine.ContinueAsAsync(request, OnRolePlayResponseChunkAsync);
+        var engineTask = RolePlayEngine.ContinueAsAsync(
+            request,
+            OnRolePlayResponseChunkAsync,
+            OnRolePlayInteractionCompletedAsync,
+            OnRolePlayActorStart);
         _tracker.TryBeginSubmission(sessionId, payload, engineTask, isResubmittable: false);
         _tracker.OnJobStatusChanged += OnTrackerStatusChanged;
 
@@ -7722,6 +7741,94 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
         return Task.CompletedTask;
     }
 
+    // B-087: Called by the engine on a thread-pool thread BEFORE each actor's generation begins.
+    // Resets the streaming buffer + pending bubble for the next actor and updates the progress
+    // label. Marshals to the Blazor sync context so SetText/SetActorName run on the circuit.
+    private Task OnRolePlayActorStart(int positionInTurn, string actorName, int turnActorCount)
+    {
+        if (_isDisposed)
+        {
+            return Task.CompletedTask;
+        }
+
+        return InvokeAsync(() =>
+        {
+            // Reset the streaming buffer so the next actor's chunks do not concatenate with
+            // the previous actor's text.
+            _pendingResponseBuilder.Clear();
+            _pendingResponseText = string.Empty;
+            _lastPendingResponseRenderAt = DateTime.MinValue;
+
+            var isNarrative = string.Equals(actorName, "Narrative", StringComparison.OrdinalIgnoreCase);
+            _pendingResponseLabel = isNarrative
+                ? "Waiting for narrative continuation..."
+                : $"Generating {actorName} ({positionInTurn} of {turnActorCount})...";
+
+            _pendingResponseComponent?.Clear();
+            _pendingResponseComponent?.SetActorName(isNarrative ? "Narrative" : actorName);
+            _pendingResponseComponent?.SetLabel(_pendingResponseLabel);
+        });
+    }
+
+    // B-087: Called by the engine on a thread-pool thread AFTER each interaction is finalized
+    // and appended to session.Interactions in-memory. Appends it to the displayed session and
+    // re-renders the parent so the committed row appears immediately. On the first new
+    // interaction of the turn, applies the B-010 read-cursor pin (scroll-to-cursor when the
+    // user was NOT at the bottom; follow-to-bottom when at the bottom).
+    private async Task OnRolePlayInteractionCompletedAsync(
+        RolePlayInteraction interaction,
+        int positionInTurn,
+        int turnActorCount,
+        bool isNarrative)
+    {
+        if (_isDisposed || _session is null || interaction is null)
+        {
+            return;
+        }
+
+        await InvokeAsync(async () =>
+        {
+            // Avoid double-appending if the interaction is already present (e.g. a re-entrant
+            // callback after a LoadSessionAsync reload already picked it up from the DB).
+            if (!_session.Interactions.Any(i => string.Equals(i.Id, interaction.Id, StringComparison.OrdinalIgnoreCase)))
+            {
+                _session.Interactions.Add(interaction);
+            }
+
+            // B-010 read-cursor pin on the first new interaction of the turn.
+            if (_newInteractionCountThisTurn == 0)
+            {
+                _newInteractionCountThisTurn++;
+                var displayIndex = GetDisplayInteractions().Count - 1;
+                if (displayIndex >= 0)
+                {
+                    var wasAtBottom = await JS.InvokeAsync<bool>("rolePlayWorkspace.isStoryNearBottom", 80);
+                    if (wasAtBottom)
+                    {
+                        await JS.InvokeVoidAsync("rolePlayWorkspace.scrollStoryToBottom");
+                    }
+                    else
+                    {
+                        _readCursorInteractionIndex = displayIndex;
+                        await JS.InvokeVoidAsync("rolePlayWorkspace.scrollToCursor");
+                    }
+                }
+            }
+            else
+            {
+                _newInteractionCountThisTurn++;
+            }
+
+            // Clear the pending bubble text for this actor (the committed row now shows the
+            // content). The next onActorStart will reset the label/actor name.
+            _pendingResponseBuilder.Clear();
+            _pendingResponseText = string.Empty;
+            _pendingResponseComponent?.Clear();
+
+            StateHasChanged();
+        });
+    }
+
     private void GoToSavedSessions() => Navigation.NavigateTo(RolePlayRoutes.Sessions);
 
     private async Task OpenDebugWindowAsync()
@@ -7776,6 +7883,7 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
         // B-027: detach chunk callback and unsubscribe tracker event so a disposed
         // component never receives streaming invocations or status change notifications.
         _tracker.DetachChunkCallback(sessionId);
+        _tracker.DetachInteractionCompletedCallback(sessionId);
         _tracker.OnJobStatusChanged -= OnTrackerStatusChanged;
         _submissionPollTimer?.Dispose();
         _submissionPollTimer = null;

@@ -1,3 +1,4 @@
+using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Web.Application.RolePlay;
 using DreamGenClone.Web.Domain.RolePlay;
 using DreamGenClone.Web.Domain.Scenarios;
@@ -101,6 +102,24 @@ public sealed class PersonaInteractionSelectionTests
                 ActorName = actorName,
                 Content = promptText,
                 GeneratedByCommand = "Narrative"
+            });
+        }
+
+        public Task<RolePlayInteraction> ContinueNarrativeAsAlternativeAsync(
+            RolePlaySession session,
+            string actorName,
+            string promptText,
+            DreamGenClone.Domain.ModelManager.ResolvedModel resolved,
+            string command,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new RolePlayInteraction
+            {
+                InteractionType = InteractionType.System,
+                ActorName = actorName,
+                Content = promptText,
+                GeneratedByCommand = command,
+                GeneratedVariant = PromptVariant.Narrative
             });
         }
     }

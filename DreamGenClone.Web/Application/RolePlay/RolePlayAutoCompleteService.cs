@@ -110,7 +110,7 @@ public sealed class RolePlayAutoCompleteService : IRolePlayAutoCompleteService
 
                 try
                 {
-                    var result = await _engine.ContinueAsAsync(request, onChunk: null, cancellationToken);
+                    var result = await _engine.ContinueAsAsync(request, onChunk: null, cancellationToken: cancellationToken);
 
                     if (!result.Success && !string.IsNullOrWhiteSpace(result.ValidationError))
                     {

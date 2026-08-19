@@ -51,6 +51,13 @@ public sealed class RolePlayInteraction
     /// <summary>The command that created this interaction (e.g. Retry, MakeLonger, AskToRewrite).</summary>
     public string? GeneratedByCommand { get; set; }
 
+    /// <summary>
+    /// The prompt variant (Character vs Narrative) used to generate this interaction.
+    /// Null for interactions persisted before B-088; fall back to the legacy heuristic
+    /// (GeneratedByCommand == "Narrative") when resolving the variant for retry.
+    /// </summary>
+    public DreamGenClone.Domain.RolePlay.PromptVariant? GeneratedVariant { get; set; }
+
     /// <summary>Provider name of the model used for generation.</summary>
     public string? GeneratedByProvider { get; set; }
 

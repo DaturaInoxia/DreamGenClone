@@ -132,6 +132,24 @@ internal static class RolePlayTestFactory
                 GeneratedByCommand = "Narrative"
             });
         }
+
+        public Task<RolePlayInteraction> ContinueNarrativeAsAlternativeAsync(
+            RolePlaySession session,
+            string actorName,
+            string promptText,
+            DreamGenClone.Domain.ModelManager.ResolvedModel resolved,
+            string command,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new RolePlayInteraction
+            {
+                InteractionType = InteractionType.System,
+                ActorName = actorName,
+                Content = promptText,
+                GeneratedByCommand = command,
+                GeneratedVariant = PromptVariant.Narrative
+            });
+        }
     }
 
     internal sealed class DefaultIdentityOptionsService : IRolePlayIdentityOptionsService

@@ -52,6 +52,22 @@ public interface IRolePlaySubmissionTracker
     void DetachChunkCallback(string sessionId);
 
     /// <summary>
+    /// Swaps the inner per-interaction completion callback on the entry's
+    /// <see cref="RolePlayInteractionCallbackWrapper"/> (B-087). Delivers the finalized
+    /// <see cref="RolePlayInteraction"/> plus turn-position metadata so the live component
+    /// can render each completed interaction as it arrives instead of waiting for the full
+    /// batch. No-op if there is no active entry for the session.
+    /// </summary>
+    void AttachInteractionCompletedCallback(string sessionId, Func<RolePlayInteraction, int, int, bool, Task>? callback);
+
+    /// <summary>
+    /// Sets the inner per-interaction completion callback to <see langword="null"/> (B-087).
+    /// No-op if there is no active entry for the session.
+    /// Called from the component's <c>DisposeAsync</c>.
+    /// </summary>
+    void DetachInteractionCompletedCallback(string sessionId);
+
+    /// <summary>
     /// Removes a Failed entry for the session, unblocking future submissions.
     /// No-op if the entry is Running or absent (prevents accidental removal of in-flight work).
     /// </summary>
