@@ -261,6 +261,24 @@
         }
     }
 
+    // Reloads the session from the DB, applies a mutation, persists it, and refreshes _session.
+    //
+    // The workspace's in-memory _session can go stale relative to the DB: the engine graduates a
+    // one-shot staged direction (IsStagedDirection=false) on its own session instance, and the
+    // debounced graduation save may not have landed before the component reloaded after the turn.
+    // Saving that stale _session blob re-persists stale per-interaction flags, which RE-ACTIVATES a
+    // consumed one-shot staged direction and drags the narrative back to an already-passed beat
+    // (e.g. back into the shower after it had moved on). Always persist against a fresh DB load.
+    private async Task ReloadAndSaveSessionAsync(Action<RolePlaySession> mutate)
+    {
+        if (_session is null) return;
+        var fresh = await RolePlayEngine.GetSessionAsync(_session.Id);
+        if (fresh is null) return;
+        mutate(fresh);
+        await RolePlayEngine.SaveSessionAsync(fresh);
+        _session = fresh;
+    }
+
     private void StartTitleEdit()
     {
         if (_session is null) return;
@@ -274,8 +292,7 @@
         _editingTitle = false;
         if (_session is null || string.IsNullOrWhiteSpace(_editingTitleText)) return;
         if (string.Equals(_editingTitleText, _session.Title, StringComparison.Ordinal)) return;
-        _session.Title = _editingTitleText;
-        await RolePlayEngine.SaveSessionAsync(_session);
+        await ReloadAndSaveSessionAsync(s => s.Title = _editingTitleText);
     }
 
     private async Task OnTitleKeyDownAsync(KeyboardEventArgs e)
@@ -827,13 +844,15 @@
     {
         if (_session is null) return;
         var settings = ModelSettingsService.GetSettings(_session.Id);
-        _session.SessionModelId = settings.SessionModelId;
-        _session.SessionTemperature = settings.Temperature;
-        _session.SessionTopP = settings.TopP;
-        _session.SessionMaxTokens = settings.MaxTokens;
-        if (settings.ContextWindowSize > 0)
-            _session.ContextWindowSize = settings.ContextWindowSize;
-        await RolePlayEngine.SaveSessionAsync(_session);
+        await ReloadAndSaveSessionAsync(s =>
+        {
+            s.SessionModelId = settings.SessionModelId;
+            s.SessionTemperature = settings.Temperature;
+            s.SessionTopP = settings.TopP;
+            s.SessionMaxTokens = settings.MaxTokens;
+            if (settings.ContextWindowSize > 0)
+                s.ContextWindowSize = settings.ContextWindowSize;
+        });
         Logger.LogInformation(
             "Model settings persisted to session {SessionId}: model={ModelId}, temp={Temp}, topP={TopP}, maxTokens={MaxTokens}, contextWindow={ContextWindow}",
             _session.Id,
@@ -916,9 +935,11 @@
     private async Task PersistAssistantChatsAsync()
     {
         if (_session is null) return;
-        _session.AssistantChats = _assistantChats;
-        _session.ActiveAssistantChatId = _activeAssistantChatId;
-        await RolePlayEngine.SaveSessionAsync(_session);
+        await ReloadAndSaveSessionAsync(s =>
+        {
+            s.AssistantChats = _assistantChats;
+            s.ActiveAssistantChatId = _activeAssistantChatId;
+        });
     }
 
     private async Task OnAssistantGenerateRequest(string userPrompt)
@@ -1060,8 +1081,8 @@
     private async Task OnAssistantModelChanged()
     {
         if (_session is null) return;
-        _session.AssistantModelId = string.IsNullOrEmpty(_assistantSelectedModelId) ? null : _assistantSelectedModelId;
-        await RolePlayEngine.SaveSessionAsync(_session);
+        await ReloadAndSaveSessionAsync(s =>
+            s.AssistantModelId = string.IsNullOrEmpty(_assistantSelectedModelId) ? null : _assistantSelectedModelId);
         Logger.LogInformation(
             "Assistant model changed for session {SessionId}: model={ModelId}",
             _session.Id,
@@ -1291,8 +1312,7 @@
         if (_session is null) return;
         try
         {
-            CaptureResolvedIntensitySnapshot(_session);
-            await RolePlayEngine.SaveSessionAsync(_session);
+            await ReloadAndSaveSessionAsync(CaptureResolvedIntensitySnapshot);
             await HydrateV2AdaptiveStateAsync();
             await RefreshActiveProfileThemesAsync();
             Logger.LogInformation("Session settings saved: {SessionId}", _session.Id);
@@ -4886,8 +4906,7 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
             return;
         }
 
-        _session.ContinuationOverride = overrideValue;
-        await RolePlayEngine.SaveSessionAsync(_session);
+        await ReloadAndSaveSessionAsync(s => s.ContinuationOverride = overrideValue);
         _continuationSettingsPopupOpen = false;
         _statusMessage = overrideValue is not null && overrideValue.HasAny
             ? "Continuation settings override saved."
@@ -4902,8 +4921,7 @@ var evalsByTheme = _v2Diagnostics?.CandidateEvaluations
             return;
         }
 
-        _session.ContinuationOverride = null;
-        await RolePlayEngine.SaveSessionAsync(_session);
+        await ReloadAndSaveSessionAsync(s => s.ContinuationOverride = null);
         _continuationSettingsPopupOpen = false;
         _statusMessage = "Continuation settings override cleared.";
         await InvokeAsync(StateHasChanged);

@@ -1,6 +1,6 @@
 # B-088: BUG — Interaction retry uses character variant, not narrative prompt
 
-**State**: `implemented`
+**State**: `done`
 **Priority**: high
 **Scope**: small
 **Related**: B-024 (narrative prompt issues), B-053 (prompt viewer / `PromptText`), B-045/B-046 (narrative anchoring)
@@ -152,8 +152,8 @@ New file `DreamGenClone.Tests/RolePlay/InteractionRetryServiceTests.cs` (no retr
 - Web build: 0 errors. Test build: 0 errors.
 - New tests: 9/9 pass.
 - Full RolePlay suite: 749/749 pass. Full test project: 1048/1048 pass. No regressions.
-- Runtime spot-check (fresh RP session → Retry a narrative interaction) still pending user confirmation (per debug protocol).
+- Runtime spot-check confirmed by user 2026-08-18 — marked `done` (functionally stable in dev).
 
 ---
 
-*Plan created 2026-08-17. Implemented 2026-08-17; awaiting runtime spot-check confirmation.*
+*Plan created 2026-08-17. Implemented 2026-08-17. Marked `done` 2026-08-18.*
