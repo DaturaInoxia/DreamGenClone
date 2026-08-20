@@ -1,5 +1,8 @@
 # Setting up DreamGenClone on another machine (database)
 
+> **Complete step-by-step (clone → DB → build → run → keys → verify): see [`docs/setup-other-machine.md`](setup-other-machine.md).**
+> This file covers the database-specific details.
+
 ## What you get from git
 The repo tracks exactly **one** database file: `DreamGenClone.Web/data/dreamgenclone.snapshot.db`
 
