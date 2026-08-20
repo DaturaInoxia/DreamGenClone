@@ -714,6 +714,9 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 ProviderType INTEGER NOT NULL,
                 BaseUrl TEXT NOT NULL,
                 ChatCompletionsPath TEXT NOT NULL DEFAULT '/v1/chat/completions',
+                ImageCapability INTEGER NOT NULL DEFAULT 0,
+                ImageGenerationPath TEXT NOT NULL DEFAULT '/v1/images/generations',
+                ContentPolicy INTEGER NOT NULL DEFAULT 0,
                 TimeoutSeconds INTEGER NOT NULL DEFAULT 120,
                 ApiKeyEncrypted TEXT,
                 IsEnabled INTEGER NOT NULL DEFAULT 1,
@@ -734,6 +737,8 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 Quantization TEXT NOT NULL DEFAULT '',
                 ParameterCount TEXT NOT NULL DEFAULT '',
                 Notes TEXT,
+                ModelKind INTEGER NOT NULL DEFAULT 0,
+                ImageSizeSupported TEXT NULL,
                 FOREIGN KEY (ProviderId) REFERENCES Providers(Id) ON DELETE CASCADE,
                 UNIQUE (ProviderId, ModelIdentifier)
             );
@@ -1316,6 +1321,66 @@ public sealed class SqlitePersistence : ISqlitePersistence
             alterPositionEscalationTier.CommandText = "ALTER TABLE RPPositions ADD COLUMN EscalationTier TEXT NOT NULL DEFAULT 'Low'";
             await alterPositionEscalationTier.ExecuteNonQueryAsync(cancellationToken);
             _logger.LogInformation("Migrated RPPositions table: added EscalationTier column");
+        }
+
+        // Scene Image Generator (B-032 / 001-scene-image-generator): additive image capability
+        // columns on Providers and RegisteredModels. Existing rows default to non-image / unknown
+        // policy (correct: chat-only providers are not image-capable until explicitly configured).
+        var providerImageColumns = new (string Column, string Ddl)[]
+        {
+            ("ImageCapability", "ALTER TABLE Providers ADD COLUMN ImageCapability INTEGER NOT NULL DEFAULT 0"),
+            ("ImageGenerationPath", "ALTER TABLE Providers ADD COLUMN ImageGenerationPath TEXT NOT NULL DEFAULT '/v1/images/generations'"),
+            ("ContentPolicy", "ALTER TABLE Providers ADD COLUMN ContentPolicy INTEGER NOT NULL DEFAULT 0"),
+        };
+        foreach (var (column, ddl) in providerImageColumns)
+        {
+            var checkCmd = connection.CreateCommand();
+            checkCmd.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('Providers') WHERE name='{column}'";
+            var present = Convert.ToInt64(await checkCmd.ExecuteScalarAsync(cancellationToken)) > 0;
+            if (!present)
+            {
+                var alter = connection.CreateCommand();
+                alter.CommandText = ddl;
+                await alter.ExecuteNonQueryAsync(cancellationToken);
+                _logger.LogInformation("Migrated Providers table: added {Column} column", column);
+            }
+        }
+
+        var registeredModelImageColumns = new (string Column, string Ddl)[]
+        {
+            ("ModelKind", "ALTER TABLE RegisteredModels ADD COLUMN ModelKind INTEGER NOT NULL DEFAULT 0"),
+            ("ImageSizeSupported", "ALTER TABLE RegisteredModels ADD COLUMN ImageSizeSupported TEXT NULL"),
+        };
+        foreach (var (column, ddl) in registeredModelImageColumns)
+        {
+            var checkCmd = connection.CreateCommand();
+            checkCmd.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('RegisteredModels') WHERE name='{column}'";
+            var present = Convert.ToInt64(await checkCmd.ExecuteScalarAsync(cancellationToken)) > 0;
+            if (!present)
+            {
+                var alter = connection.CreateCommand();
+                alter.CommandText = ddl;
+                await alter.ExecuteNonQueryAsync(cancellationToken);
+                _logger.LogInformation("Migrated RegisteredModels table: added {Column} column", column);
+            }
+        }
+
+        // SceneImagePrompts: add RefineInstruction column (US3 refine pass) if the table exists.
+        // The table is created lazily by SceneImageRepository.EnsureSchemaAsync, so guard on table
+        // existence before attempting the ALTER (a fresh DB with no scene-image activity has no table).
+        var checkPromptTableExists = connection.CreateCommand();
+        checkPromptTableExists.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='SceneImagePrompts'";
+        if (Convert.ToInt64(await checkPromptTableExists.ExecuteScalarAsync(cancellationToken)) > 0)
+        {
+            var checkPromptRefineColumn = connection.CreateCommand();
+            checkPromptRefineColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('SceneImagePrompts') WHERE name='RefineInstruction'";
+            if (Convert.ToInt64(await checkPromptRefineColumn.ExecuteScalarAsync(cancellationToken)) == 0)
+            {
+                var alterPromptRefine = connection.CreateCommand();
+                alterPromptRefine.CommandText = "ALTER TABLE SceneImagePrompts ADD COLUMN RefineInstruction TEXT NULL";
+                await alterPromptRefine.ExecuteNonQueryAsync(cancellationToken);
+                _logger.LogInformation("Migrated SceneImagePrompts table: added RefineInstruction column");
+            }
         }
 
         var checkAdaptiveStateJsonColumn = connection.CreateCommand();

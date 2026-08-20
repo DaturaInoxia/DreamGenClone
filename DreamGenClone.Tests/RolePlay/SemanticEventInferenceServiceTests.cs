@@ -46,6 +46,12 @@ public sealed class SemanticEventInferenceServiceTests
                 throw new ModelResolutionException("No model configured for function 'RolePlaySemanticAnalysis'. Configure a default model in Model Manager (/model-manager).");
             return Task.FromResult(DefaultModel);
         }
+
+        public Task<ResolvedModel> ResolveImagePromptModelAsync(string? sessionOverrideId = null, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException("Scene image resolution is not exercised by this test.");
+
+        public Task<ResolvedImageModel> ResolveImageModelAsync(string? sessionOverrideId = null, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException("Scene image resolution is not exercised by this test.");
     }
 
     private sealed class StubCompletionClient : ICompletionClient

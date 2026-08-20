@@ -116,5 +116,11 @@ public sealed class RolePlayAssistantServiceAdaptiveContextTests
                 ProviderName: "test",
                 IsSessionOverride: false));
         }
+
+        public Task<ResolvedModel> ResolveImagePromptModelAsync(string? sessionOverrideId = null, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException("Scene image resolution is not exercised by this test.");
+
+        public Task<ResolvedImageModel> ResolveImageModelAsync(string? sessionOverrideId = null, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException("Scene image resolution is not exercised by this test.");
     }
 }

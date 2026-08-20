@@ -1,0 +1,188 @@
+@page "/roleplay/gallery/{sessionId}"
+@rendermode InteractiveServer
+
+@using DreamGenClone.Web.Application.RolePlay
+@using DreamGenClone.Web.Application.Sessions
+@using DreamGenClone.Web.Domain.RolePlay
+@using DreamGenClone.Domain.RolePlay
+@using DreamGenClone.Domain.ModelManager
+
+@inject ISessionService SessionService
+@inject ISceneImageService ImageService
+@inject NavigationManager Nav
+@inject ILogger<SceneImageGallery> Logger
+
+<PageTitle>Scene Image Gallery - DreamGenClone</PageTitle>
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <a href="/roleplay/workspace/@sessionId" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-arrow-left me-1"></i> Back to workspace
+            </a>
+            <h4 class="d-inline-block ms-2 mb-0">Gallery — @_session?.Title</h4>
+        </div>
+        <div>
+            <button class="btn btn-sm btn-outline-primary" @onclick="LoadAsync" disabled="@_busy">
+                <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+            </button>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(_errorMessage))
+    {
+        <div class="alert alert-danger">@_errorMessage</div>
+    }
+
+    @if (_session is null)
+    {
+        <div class="alert alert-warning">Session not found.</div>
+    }
+    else if (_groups.Count == 0)
+    {
+        <div class="alert alert-info">No images yet for this session. Generate an image from an interaction to see it here.</div>
+    }
+    else
+    {
+        @foreach (var group in _groups)
+        {
+            <div class="card mb-3">
+                <div class="card-header">
+                    <strong>@(group.ActorName ?? "Scene")</strong>
+                    <span class="text-muted ms-2 small">@group.Excerpt</span>
+                    <span class="badge bg-secondary ms-2">@group.Images.Count</span>
+                </div>
+                <div class="card-body">
+                    <div class="d-flex flex-wrap gap-3">
+                        @foreach (var img in group.Images)
+                        {
+                            <div class="border rounded p-2" style="width: 220px;">
+                                @if (img.Status == SceneImageStatus.Complete && !string.IsNullOrWhiteSpace(img.FileRelativePath))
+                                {
+                                    <img src="/scene-images/@img.FileRelativePath" class="img-fluid rounded" alt="Scene image" />
+                                }
+                                else if (img.Status == SceneImageStatus.Pending || img.Status == SceneImageStatus.Generating)
+                                {
+                                    <div class="d-flex align-items-center justify-content-center" style="height: 120px;">
+                                        <span class="spinner-border spinner-border-sm me-2"></span><span class="small">Rendering…</span>
+                                    </div>
+                                }
+                                else if (img.Status == SceneImageStatus.Failed)
+                                {
+                                    <div class="alert alert-danger py-2 small mb-0">@img.ErrorMessage</div>
+                                }
+                                <div class="d-flex justify-content-between align-items-center mt-1">
+                                    <small class="text-muted">@img.Style · @img.ImageSize</small>
+                                    <span>
+                                        <button class="btn btn-sm btn-outline-primary py-0 px-1" title="Open in studio"
+                                                @onclick="() => OpenStudio(group.InteractionId)">&#128065;</button>
+                                        <button class="btn btn-sm btn-outline-danger py-0 px-1" title="Delete image"
+                                                @onclick="() => DeleteImageAsync(img)">&#x2715;</button>
+                                    </span>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter]
+    public string sessionId { get; set; } = string.Empty;
+
+    private RolePlaySession? _session;
+    private List<GalleryGroup> _groups = [];
+    private string _errorMessage = string.Empty;
+    private bool _busy;
+
+    private sealed class GalleryGroup
+    {
+        public string InteractionId { get; set; } = string.Empty;
+        public string? ActorName { get; set; }
+        public string Excerpt { get; set; } = string.Empty;
+        public List<SceneImageRecord> Images { get; set; } = [];
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await LoadAsync();
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        _busy = true;
+        _errorMessage = string.Empty;
+        try
+        {
+            _session = await SessionService.LoadRolePlaySessionAsync(sessionId);
+            if (_session is null)
+            {
+                _errorMessage = "Role-play session not found.";
+                return;
+            }
+
+            var images = await ImageService.ListImagesBySessionAsync(sessionId);
+
+            _groups = images
+                .GroupBy(x => x.InteractionId)
+                .Select(g =>
+                {
+                    var interaction = _session!.Interactions.FirstOrDefault(i => string.Equals(i.Id, g.Key, StringComparison.OrdinalIgnoreCase));
+                    return new GalleryGroup
+                    {
+                        InteractionId = g.Key,
+                        ActorName = interaction?.ActorName,
+                        Excerpt = Truncate(interaction?.Content ?? string.Empty, 80),
+                        Images = g.OrderByDescending(x => x.CreatedUtc).ToList()
+                    };
+                })
+                .OrderByDescending(g => g.Images.Max(x => x.CreatedUtc))
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Failed to load gallery: {ex.Message}";
+            Logger.LogError(ex, "SceneImageGallery load failed: SessionId={SessionId}", sessionId);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void OpenStudio(string interactionId)
+    {
+        Nav.NavigateTo($"/roleplay/studio/{sessionId}/{interactionId}");
+    }
+
+    private async Task DeleteImageAsync(SceneImageRecord image)
+    {
+        _busy = true;
+        try
+        {
+            await ImageService.DeleteImageAsync(sessionId, image.Id);
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Delete failed: {ex.Message}";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private static string Truncate(string value, int maxChars)
+    {
+        var singleLine = value.ReplaceLineEndings(" ").Trim();
+        return singleLine.Length <= maxChars ? singleLine : singleLine[..maxChars] + "…";
+    }
+}

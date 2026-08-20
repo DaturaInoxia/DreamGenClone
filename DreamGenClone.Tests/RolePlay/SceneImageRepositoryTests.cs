@@ -1,0 +1,263 @@
+using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Infrastructure.Configuration;
+using DreamGenClone.Infrastructure.RolePlay;
+using Microsoft.Extensions.Options;
+
+namespace DreamGenClone.Tests.RolePlay;
+
+public sealed class SceneImageRepositoryTests
+{
+    private static (SceneImageRepository repo, string dbPath) CreateRepo()
+    {
+        var dbPath = Path.Combine(Path.GetTempPath(), $"scene-image-repo-{Guid.NewGuid():N}.db");
+        var repo = new SceneImageRepository(
+            Options.Create(new PersistenceOptions { ConnectionString = $"Data Source={dbPath}" }));
+        return (repo, dbPath);
+    }
+
+    [Fact]
+    public async Task UpsertPrompt_Get_GetLatest_Works()
+    {
+        var (repo, dbPath) = CreateRepo();
+        try
+        {
+            var prompt = new SceneImagePromptRecord
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                SettingsJson = "{\"Style\":\"anime\"}",
+                InputExcerpt = "an excerpt",
+                Status = SceneImagePromptStatus.Pending
+            };
+            await repo.UpsertPromptAsync(prompt);
+
+            var loaded = await repo.GetPromptAsync(prompt.Id);
+            Assert.NotNull(loaded);
+            Assert.Equal(prompt.Id, loaded!.Id);
+            Assert.Equal(SceneImagePromptStatus.Pending, loaded.Status);
+            Assert.Equal("anime", System.Text.Json.JsonDocument.Parse(loaded.SettingsJson).RootElement.GetProperty("Style").GetString());
+
+            // Transition Pending -> Complete via upsert on the same record.
+            prompt.Status = SceneImagePromptStatus.Complete;
+            prompt.OutputPrompt = "a dramatic anime scene";
+            prompt.ModelIdentifier = "deepseek";
+            prompt.UpdatedUtc = DateTime.UtcNow;
+            await repo.UpsertPromptAsync(prompt);
+
+            var latest = await repo.GetLatestPromptAsync("s1", "i1");
+            Assert.NotNull(latest);
+            Assert.Equal(SceneImagePromptStatus.Complete, latest!.Status);
+            Assert.Equal("a dramatic anime scene", latest.OutputPrompt);
+            Assert.Equal("deepseek", latest.ModelIdentifier);
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task GetLatestPrompt_ReturnsNewestFirst()
+    {
+        var (repo, dbPath) = CreateRepo();
+        try
+        {
+            var older = new SceneImagePromptRecord
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                Status = SceneImagePromptStatus.Complete,
+                OutputPrompt = "first",
+                UpdatedUtc = DateTime.UtcNow.AddMinutes(-5)
+            };
+            var newer = new SceneImagePromptRecord
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                Status = SceneImagePromptStatus.Complete,
+                OutputPrompt = "second",
+                UpdatedUtc = DateTime.UtcNow
+            };
+            await repo.UpsertPromptAsync(older);
+            await repo.UpsertPromptAsync(newer);
+
+            var latest = await repo.GetLatestPromptAsync("s1", "i1");
+            Assert.NotNull(latest);
+            Assert.Equal(newer.Id, latest!.Id);
+            Assert.Equal("second", latest.OutputPrompt);
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task InsertImage_StatusTransitions_Count_List_Delete()
+    {
+        var (repo, dbPath) = CreateRepo();
+        try
+        {
+            var image = new SceneImageRecord
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                PromptRecordId = "p1",
+                PromptSnapshot = "a cat in a hat",
+                Status = SceneImageStatus.Pending
+            };
+            await repo.InsertImageAsync(image);
+
+            // Pending -> Generating -> Complete
+            image.Status = SceneImageStatus.Generating;
+            image.StartedUtc = DateTime.UtcNow;
+            image.UpdatedUtc = DateTime.UtcNow;
+            await repo.InsertImageAsync(image);
+
+            image.Status = SceneImageStatus.Complete;
+            image.FileRelativePath = "s1/img.png";
+            image.ModelIdentifier = "flux";
+            image.ProviderName = "Together";
+            image.CompletedUtc = DateTime.UtcNow;
+            image.UpdatedUtc = DateTime.UtcNow;
+            await repo.InsertImageAsync(image);
+
+            var loaded = await repo.GetImageAsync(image.Id);
+            Assert.NotNull(loaded);
+            Assert.Equal(SceneImageStatus.Complete, loaded!.Status);
+            Assert.Equal("s1/img.png", loaded.FileRelativePath);
+            Assert.Equal("Together", loaded.ProviderName);
+
+            var byInteraction = await repo.ListImagesByInteractionAsync("s1", "i1");
+            Assert.Single(byInteraction);
+
+            var bySession = await repo.ListImagesBySessionAsync("s1");
+            Assert.Single(bySession);
+
+            var counts = await repo.CountImagesByInteractionAsync("s1");
+            Assert.True(counts.ContainsKey("i1"));
+            Assert.Equal(1, counts["i1"]);
+
+            // Failed images must not count toward the Complete-only indicator count.
+            var failed = new SceneImageRecord
+            {
+                SessionId = "s1",
+                InteractionId = "i2",
+                PromptRecordId = "p2",
+                PromptSnapshot = "x",
+                Status = SceneImageStatus.Failed,
+                ErrorMessage = "boom"
+            };
+            await repo.InsertImageAsync(failed);
+            counts = await repo.CountImagesByInteractionAsync("s1");
+            Assert.Equal(1, counts["i1"]);
+            Assert.False(counts.ContainsKey("i2"));
+
+            await repo.DeleteImageAsync(image.Id);
+            Assert.Null(await repo.GetImageAsync(image.Id));
+            Assert.Single(await repo.ListImagesBySessionAsync("s1")); // failed remains
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task InsertImage_RequiresNonEmptyPromptSnapshot()
+    {
+        var (repo, dbPath) = CreateRepo();
+        try
+        {
+            var image = new SceneImageRecord
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                PromptRecordId = "p1",
+                PromptSnapshot = "   ",
+                Status = SceneImageStatus.Pending
+            };
+            await Assert.ThrowsAsync<InvalidOperationException>(() => repo.InsertImageAsync(image));
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task UpdatePromptOutput_PersistsEditedText()
+    {
+        var (repo, dbPath) = CreateRepo();
+        try
+        {
+            var prompt = new SceneImagePromptRecord
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                Status = SceneImagePromptStatus.Complete,
+                OutputPrompt = "original text"
+            };
+            await repo.UpsertPromptAsync(prompt);
+
+            await repo.UpdatePromptOutputAsync(prompt.Id, "  edited text  ");
+
+            var loaded = await repo.GetPromptAsync(prompt.Id);
+            Assert.NotNull(loaded);
+            Assert.Equal("edited text", loaded!.OutputPrompt);
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task UpdatePromptOutput_UnknownId_Throws()
+    {
+        var (repo, dbPath) = CreateRepo();
+        try
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => repo.UpdatePromptOutputAsync("missing", "edited text"));
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task UpsertPrompt_RefineInstruction_RoundTrips()
+    {
+        var (repo, dbPath) = CreateRepo();
+        try
+        {
+            var prompt = new SceneImagePromptRecord
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                OutputPrompt = "a prompt",
+                RefineInstruction = "more atmospheric",
+                Status = SceneImagePromptStatus.Complete
+            };
+            await repo.UpsertPromptAsync(prompt);
+
+            var loaded = await repo.GetPromptAsync(prompt.Id);
+            Assert.NotNull(loaded);
+            Assert.Equal("more atmospheric", loaded!.RefineInstruction);
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
+    private static void Cleanup(string dbPath)
+    {
+        foreach (var suffix in new[] { "", "-wal", "-shm" })
+        {
+            try { if (File.Exists(dbPath + suffix)) File.Delete(dbPath + suffix); } catch { /* best effort */ }
+        }
+    }
+}

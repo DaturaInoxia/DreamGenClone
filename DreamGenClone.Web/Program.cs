@@ -40,6 +40,7 @@ using DreamGenClone.Web.Application.ModelManager;
 using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Application.StoryAnalysis.Abstractions;
 using DreamGenClone.Infrastructure.RolePlay;
+using Microsoft.Extensions.FileProviders;
 using Serilog.Context;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -78,6 +79,7 @@ builder.Services.AddScoped<IScenarioAdaptationService, ScenarioAdaptationService
 builder.Services.AddScoped<IScenarioTokenCounter, ScenarioTokenCounter>();
 builder.Services.AddScoped<ISessionService, SessionService>();
 builder.Services.AddScoped<ISessionCloneForkService, SessionCloneForkService>();
+builder.Services.AddScoped<DreamGenClone.Web.Domain.RolePlay.WorkspaceSettingsState>();
 builder.Services.AddScoped<DreamGenClone.Web.Application.Sessions.AutoSaveCoordinator>();
 builder.Services.AddScoped<IExportService, ExportService>();
 builder.Services.AddScoped<ISessionImportService, SessionImportService>();
@@ -245,10 +247,19 @@ builder.Services.AddScoped<IBackgroundJobHandler, SemanticInteractionAnalysisJob
 builder.Services.AddScoped<IBackgroundJobHandler, EncounterSummaryJobHandler>();
 builder.Services.AddScoped<IBackgroundJobHandler, LocationDetectionJobHandler>();
 builder.Services.AddScoped<IBackgroundJobHandler, SteerGenerationJobHandler>();
+builder.Services.AddScoped<IBackgroundJobHandler, SceneImagePromptGenerationJobHandler>();
+builder.Services.AddScoped<IBackgroundJobHandler, SceneImageRenderingJobHandler>();
 builder.Services.AddHostedService<GenericBackgroundJobWorker>();
 builder.Services.AddSingleton<SemanticBackgroundJobQueue>();
 builder.Services.AddSingleton<ISemanticBackgroundJobQueue>(sp => sp.GetRequiredService<SemanticBackgroundJobQueue>());
 builder.Services.AddHostedService<SemanticBackgroundJobWorker>();
+
+// Scene Image Generator (001-scene-image-generator): image pipeline services.
+builder.Services.AddSingleton<IImageGenerationClient, ImageGenerationClient>();
+builder.Services.AddSingleton<ISceneImageRepository, SceneImageRepository>();
+builder.Services.AddSingleton<ISceneImageStorageService, SceneImageStorageService>();
+builder.Services.AddScoped<ISceneImageService, SceneImageService>();
+builder.Services.AddSingleton<ISceneImagePromptPreprocessor, SceneImagePromptPreprocessor>();
 
 // Prompt-queue navigation resilience (B-027)
 builder.Services.AddSingleton<RolePlaySubmissionTracker>();
@@ -358,6 +369,16 @@ app.Use(async (context, next) =>
 
 
 app.UseAntiforgery();
+
+// Serve generated scene images from the git-ignored scene-image root (kept out of wwwroot).
+var sceneImageRoot = app.Services.GetRequiredService<IOptions<PersistenceOptions>>().Value.SceneImageRoot;
+var sceneImageFullPath = Path.GetFullPath(sceneImageRoot);
+Directory.CreateDirectory(sceneImageFullPath);
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new PhysicalFileProvider(sceneImageFullPath),
+    RequestPath = "/scene-images"
+});
 
 app.MapStaticAssets();
 app.MapGet("/administration/backups/{backupId}/download", async (string backupId, AdministrationFacade facade, CancellationToken cancellationToken) =>

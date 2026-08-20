@@ -1,0 +1,31 @@
+using DreamGenClone.Domain.RolePlay;
+
+namespace DreamGenClone.Application.RolePlay;
+
+/// <summary>
+/// SQLite persistence for the scene-image pipeline: editable prompt records and rendered image
+/// records. Mirrors the repository pattern used by other RP persistence interfaces.
+/// </summary>
+public interface ISceneImageRepository
+{
+    // ---- Prompt records ----
+    Task UpsertPromptAsync(SceneImagePromptRecord prompt, CancellationToken cancellationToken = default);
+    Task<SceneImagePromptRecord?> GetPromptAsync(string promptId, CancellationToken cancellationToken = default);
+    Task<SceneImagePromptRecord?> GetLatestPromptAsync(
+        string sessionId, string interactionId, CancellationToken cancellationToken = default);
+
+    /// <summary>Persist the user-edited prompt text to a prompt record's OutputPrompt.</summary>
+    Task UpdatePromptOutputAsync(
+        string promptId, string outputPrompt, CancellationToken cancellationToken = default);
+
+    // ---- Image records ----
+    Task InsertImageAsync(SceneImageRecord image, CancellationToken cancellationToken = default);
+    Task<SceneImageRecord?> GetImageAsync(string imageId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<SceneImageRecord>> ListImagesByInteractionAsync(
+        string sessionId, string interactionId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<SceneImageRecord>> ListImagesBySessionAsync(
+        string sessionId, CancellationToken cancellationToken = default);
+    Task<Dictionary<string, int>> CountImagesByInteractionAsync(
+        string sessionId, CancellationToken cancellationToken = default);
+    Task DeleteImageAsync(string imageId, CancellationToken cancellationToken = default);
+}

@@ -2605,3 +2605,53 @@ article:has(.rw-shell) {
     opacity: 0.3;
     cursor: default;
 }
+
+/* ─── Gallery link (header) ─── */
+
+.rw-gallery-link {
+    border: 1px solid #355b63;
+    background: #15272a;
+    color: #91d6e4;
+    border-radius: 8px;
+    padding: 5px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background 0.1s, border-color 0.1s, color 0.1s;
+}
+
+.rw-gallery-link:hover {
+    background: #1b3338;
+    border-color: #4a8592;
+    color: #c0ebf5;
+}
+
+/* ─── Image toolbar button & badge ─── */
+
+.rw-toolbar-btn-image {
+    position: relative;
+    color: #b09af0;
+}
+
+.rw-toolbar-btn-image:hover {
+    color: #d0baff;
+}
+
+.rw-image-badge {
+    position: absolute;
+    top: -4px;
+    right: -6px;
+    background: #b09af0;
+    color: #111;
+    font-size: 9px;
+    font-weight: 700;
+    border-radius: 999px;
+    padding: 1px 4px;
+    line-height: 1;
+    min-width: 14px;
+    text-align: center;
+}
+
+/* ─── Kebab menu ─── */

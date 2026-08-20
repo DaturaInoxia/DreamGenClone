@@ -150,4 +150,82 @@ public sealed class ModelResolutionService : IModelResolutionService
 
         return result;
     }
+
+    /// <inheritdoc />
+    public Task<ResolvedModel> ResolveImagePromptModelAsync(
+        string? sessionOverrideId = null,
+        CancellationToken cancellationToken = default)
+    {
+        // The pre-processor is a standard text completion model; reuse the existing resolution
+        // path. Missing configuration fails fast with the standard "no model configured" error.
+        return ResolveAsync(AppFunction.RolePlaySceneImagePreprocessor, sessionOverrideId, cancellationToken: cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task<ResolvedImageModel> ResolveImageModelAsync(
+        string? sessionOverrideId = null,
+        CancellationToken cancellationToken = default)
+    {
+        var stopwatch = Stopwatch.StartNew();
+
+        var funcDefault = await _functionDefaultRepository.GetByFunctionAsync(AppFunction.RolePlaySceneImage, cancellationToken);
+        if (funcDefault is null)
+        {
+            throw new ModelResolutionException(
+                $"No image model configured for function '{AppFunction.RolePlaySceneImage}'. Add an image model + function default in Model Manager (/model-manager).");
+        }
+
+        var model = await _modelRepository.GetByIdAsync(funcDefault.ModelId, cancellationToken);
+        if (model is null || !model.IsEnabled)
+        {
+            throw new ModelResolutionException(
+                $"The default image model for function '{AppFunction.RolePlaySceneImage}' is no longer available. Update the model assignment in Model Manager (/model-manager).");
+        }
+
+        if (model.ModelKind != ModelKind.Image)
+        {
+            throw new ModelResolutionException(
+                $"Model '{model.DisplayName}' is not an image model (ModelKind={model.ModelKind}). Assign an image-kind model to '{AppFunction.RolePlaySceneImage}' in Model Manager (/model-manager).");
+        }
+
+        var provider = await _providerRepository.GetByIdAsync(model.ProviderId, cancellationToken);
+        if (provider is null || !provider.IsEnabled)
+        {
+            throw new ModelResolutionException(
+                $"The provider for function '{AppFunction.RolePlaySceneImage}' default model is disabled. Enable the provider in Model Manager (/model-manager).");
+        }
+
+        if (provider.ImageCapability == ImageProviderCapability.None)
+        {
+            throw new ModelResolutionException(
+                $"Provider '{provider.Name}' is not image-capable (ImageCapability=None). Set its image capability in Model Manager (/model-manager).");
+        }
+
+        if (provider.ContentPolicy == ImageContentPolicy.Unknown)
+        {
+            throw new ModelResolutionException(
+                $"Image content policy not configured for provider '{provider.Name}'. Set its content policy (SFW-filtered or adult-allowed) in Model Manager (/model-manager).");
+        }
+
+        stopwatch.Stop();
+
+        _logger.LogInformation(
+            "Image model resolved: Function={Function}, Model={ModelIdentifier}, Provider={ProviderName}, Policy={ContentPolicy}, Capability={ImageCapability}, TotalMs={TotalMs}",
+            AppFunction.RolePlaySceneImage,
+            model.ModelIdentifier,
+            provider.Name,
+            provider.ContentPolicy,
+            provider.ImageCapability,
+            stopwatch.ElapsedMilliseconds);
+
+        return new ResolvedImageModel(
+            ProviderBaseUrl: provider.BaseUrl,
+            ImageGenerationPath: provider.ImageGenerationPath,
+            ProviderTimeoutSeconds: provider.TimeoutSeconds,
+            ApiKeyEncrypted: provider.ApiKeyEncrypted,
+            ModelIdentifier: model.ModelIdentifier,
+            ContentPolicy: provider.ContentPolicy,
+            ProviderName: provider.Name,
+            IsSessionOverride: !string.IsNullOrEmpty(sessionOverrideId));
+    }
 }

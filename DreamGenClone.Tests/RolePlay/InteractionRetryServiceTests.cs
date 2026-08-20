@@ -146,6 +146,12 @@ public sealed class InteractionRetryServiceTests
                 "provider",
                 sessionModelId is not null));
         }
+
+        public Task<ResolvedModel> ResolveImagePromptModelAsync(string? sessionOverrideId = null, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException("Scene image resolution is not exercised by this test.");
+
+        public Task<ResolvedImageModel> ResolveImageModelAsync(string? sessionOverrideId = null, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException("Scene image resolution is not exercised by this test.");
     }
 
     private sealed class StubModelSettingsService : IModelSettingsService

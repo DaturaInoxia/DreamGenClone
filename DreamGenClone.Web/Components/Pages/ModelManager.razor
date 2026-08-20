@@ -137,6 +137,29 @@
                                 <label class="form-label">Chat Completions Path</label>
                                 <input type="text" class="form-control" @bind="_editingProvider!.ChatCompletionsPath" />
                             </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Image Capability</label>
+                                <select class="form-select" @bind="_editingProvider!.ImageCapability">
+                                    <option value="None">None (text only)</option>
+                                    <option value="TextAndImage">Text + Image</option>
+                                    <option value="ImageOnly">Image only</option>
+                                </select>
+                                <div class="form-text">Does this provider expose an image-generation endpoint?</div>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Image Generation Path</label>
+                                <input type="text" class="form-control" @bind="_editingProvider!.ImageGenerationPath" />
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Content Policy</label>
+                                <select class="form-select" @bind="_editingProvider!.ContentPolicy">
+                                    <option value="Unknown">-- Not configured --</option>
+                                    <option value="SfwFiltered">Safe-for-work (filtered)</option>
+                                    <option value="AdultAllowed">Adult allowed</option>
+                                    <option value="AdultAllowedConfigurable">Adult (configurable)</option>
+                                </select>
+                                <div class="form-text">Required before this provider can render images. Explicit content is only generated when adult-allowed.</div>
+                            </div>
                             @if (_editingProviderType != 0)
                             {
                                 <div class="col-md-8">
@@ -277,6 +300,20 @@
                                     <input type="text" class="form-control" @bind="_editingModel!.DisplayName" maxlength="200" />
                                 </div>
                                 <div class="col-md-4">
+                                    <label class="form-label">Model Kind</label>
+                                    <select class="form-select" @bind="_editingModel!.ModelKind">
+                                        <option value="Text">Text</option>
+                                        <option value="Image">Image</option>
+                                    </select>
+                                    <div class="form-text">Image models are selectable for scene-image rendering.</div>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Supported Image Size</label>
+                                    <input type="text" class="form-control" @bind="_editingModel!.ImageSizeSupported"
+                                           placeholder="e.g., 1024x1024" />
+                                    <div class="form-text">Optional, informational (image models only).</div>
+                                </div>
+                                <div class="col-md-4">
                                     <label class="form-label">Thinking Control</label>
                                     <div class="form-check form-switch mt-2">
                                         <input class="form-check-input" type="checkbox" @bind="_editingModel!.SupportsThinkingControl" id="model-thinking-control" />
@@ -362,6 +399,13 @@
             <h4 class="mb-0"><i class="bi bi-gear"></i> Function Defaults</h4>
         </div>
         <div class="card-body">
+            @if (_functionStates.TryGetValue(AppFunction.RolePlaySceneImage, out var _imageFnState) && string.IsNullOrEmpty(_imageFnState.ModelId))
+            {
+                <div class="alert alert-warning">
+                    <i class="bi bi-image me-1"></i>
+                    No image model configured for scene-image rendering. Assign an image-kind model to <strong>RP Scene Image (Render)</strong> to enable image generation.
+                </div>
+            }
             @if (_enabledModelsDropdown.Count == 0)
             {
                 <div class="alert alert-info">Register and enable a model first to assign function defaults.</div>
@@ -389,7 +433,7 @@
                                 <tr>
                                     <td>
                                         <strong>@FormatFunctionName(func)</strong>
-                                        @if (func == AppFunction.RolePlaySemanticAnalysis && string.IsNullOrEmpty(state.ModelId))
+                                        @if ((func == AppFunction.RolePlaySemanticAnalysis || func == AppFunction.RolePlaySceneImage || func == AppFunction.RolePlaySceneImagePreprocessor) && string.IsNullOrEmpty(state.ModelId))
                                         {
                                             <span class="badge bg-warning text-dark ms-1">No model</span>
                                         }
@@ -397,7 +441,7 @@
                                     <td>
                                         <select class="form-select form-select-sm" value="@state.ModelId" @onchange="e => OnFunctionModelChange(func, e)">
                                             <option value="">-- Not Assigned --</option>
-                                            @foreach (var group in _enabledModelsDropdown)
+                                            @foreach (var group in GetFunctionModelDropdown(func))
                                             {
                                                 <optgroup label="@group.Provider.Name">
                                                     @foreach (var m in group.Models)
@@ -609,6 +653,9 @@
             ProviderType = provider.ProviderType,
             BaseUrl = provider.BaseUrl,
             ChatCompletionsPath = provider.ChatCompletionsPath,
+            ImageCapability = provider.ImageCapability,
+            ImageGenerationPath = provider.ImageGenerationPath,
+            ContentPolicy = provider.ContentPolicy,
             TimeoutSeconds = provider.TimeoutSeconds,
             ApiKeyEncrypted = provider.ApiKeyEncrypted,
             IsEnabled = provider.IsEnabled,
@@ -654,6 +701,11 @@
         if (_editingProviderType != 0 && string.IsNullOrEmpty(_editingApiKey) && !_existingProviderIds.Contains(_editingProvider.Id))
         {
             _providerFormError = "API key is required for cloud providers.";
+            return;
+        }
+        if (_editingProvider.ImageCapability != ImageProviderCapability.None && _editingProvider.ContentPolicy == ImageContentPolicy.Unknown)
+        {
+            _providerFormError = "An image-capable provider requires an explicit content policy (safe-for-work or adult-allowed).";
             return;
         }
 
@@ -749,6 +801,8 @@
             DisplayName = model.DisplayName,
             IsEnabled = model.IsEnabled,
             SupportsThinkingControl = model.SupportsThinkingControl,
+            ModelKind = model.ModelKind,
+            ImageSizeSupported = model.ImageSizeSupported,
             CreatedUtc = model.CreatedUtc
         };
         _modelFormError = null;
@@ -978,8 +1032,25 @@
         AppFunction.ModelAnalysis => "Model Analysis",
         AppFunction.RolePlaySemanticAnalysis => "RP Semantic Analysis (Background)",
         AppFunction.RolePlaySummaryEnhancement => "RP Summary Enhancement (Background)",
+        AppFunction.RolePlaySceneImagePreprocessor => "RP Scene Image Preprocessor (Background)",
+        AppFunction.RolePlaySceneImage => "RP Scene Image (Render)",
         _ => func.ToString()
     };
+
+    private List<(Provider Provider, List<RegisteredModel> Models)> GetFunctionModelDropdown(AppFunction func)
+    {
+        if (func == AppFunction.RolePlaySceneImage)
+        {
+            // Image render function: only image-kind models are valid. Fail-fast at the UI by
+            // not offering text models (resolution also enforces this).
+            return _enabledModelsDropdown
+                .Select(g => (g.Provider, Models: g.Models.Where(m => m.ModelKind == ModelKind.Image).ToList()))
+                .Where(g => g.Models.Count > 0)
+                .ToList();
+        }
+
+        return _enabledModelsDropdown;
+    }
 
     private static double ParseDouble(ChangeEventArgs e, double fallback)
     {

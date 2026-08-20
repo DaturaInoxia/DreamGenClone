@@ -6,6 +6,8 @@ public sealed class RegisteredModel
     public string ProviderId { get; set; } = string.Empty;
     public string ModelIdentifier { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
+    public ModelKind ModelKind { get; set; } = ModelKind.Text;
+    public string? ImageSizeSupported { get; set; }
     public bool IsEnabled { get; set; } = true;
     /// <summary>Whether this model's chat template supports chat_template_kwargs.thinking.</summary>
     public bool SupportsThinkingControl { get; set; }

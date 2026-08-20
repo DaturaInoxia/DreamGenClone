@@ -401,5 +401,11 @@ public sealed class EncounterSummaryJobHandlerReasoningTests
             int? sessionMaxTokens = null,
             CancellationToken cancellationToken = default)
             => Task.FromResult(TestModel);
+
+        public Task<ResolvedModel> ResolveImagePromptModelAsync(string? sessionOverrideId = null, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException("Scene image resolution is not exercised by this test.");
+
+        public Task<ResolvedImageModel> ResolveImageModelAsync(string? sessionOverrideId = null, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException("Scene image resolution is not exercised by this test.");
     }
 }

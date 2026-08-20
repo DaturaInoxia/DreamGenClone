@@ -1,0 +1,541 @@
+@page "/roleplay/studio/{sessionId}/{interactionId}"
+@rendermode InteractiveServer
+
+@using DreamGenClone.Web.Application.RolePlay
+@using DreamGenClone.Web.Application.RolePlay.Models
+@using DreamGenClone.Web.Application.Sessions
+@using DreamGenClone.Web.Domain.RolePlay
+@using DreamGenClone.Domain.RolePlay
+@using DreamGenClone.Domain.ModelManager
+@using DreamGenClone.Application.ModelManager
+@implements IAsyncDisposable
+
+@inject ISessionService SessionService
+@inject ISceneImageService ImageService
+@inject IModelResolutionService ModelResolutionService
+@inject WorkspaceSettingsState WorkspaceSettings
+@inject NavigationManager Nav
+@inject ILogger<SceneImageStudio> Logger
+
+<PageTitle>Scene Image Studio - DreamGenClone</PageTitle>
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <a href="/roleplay/workspace/@sessionId" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-arrow-left me-1"></i> Back to workspace
+            </a>
+            <h4 class="d-inline-block ms-2 mb-0">@_session?.Title</h4>
+        </div>
+        <div>
+            <a href="/roleplay/gallery/@sessionId" class="btn btn-outline-primary btn-sm">
+                <i class="bi bi-images me-1"></i> Gallery
+            </a>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(_errorMessage))
+    {
+        <div class="alert alert-danger">@_errorMessage</div>
+    }
+    @if (!string.IsNullOrEmpty(_statusMessage))
+    {
+        <div class="alert alert-info">@_statusMessage</div>
+    }
+    @if (!string.IsNullOrEmpty(_policyResolutionError))
+    {
+        <div class="alert alert-warning">
+            <i class="bi bi-info-circle me-1"></i>
+            No image model is configured yet. Configure an image-capable provider + image model in
+            <a href="/model-manager" class="alert-link">Model Manager</a> before rendering.
+            <small class="d-block mt-1 text-muted">@_policyResolutionError</small>
+        </div>
+    }
+
+    @if (_session is null)
+    {
+        <div class="alert alert-warning">Session or interaction not found.</div>
+    }
+    else
+    {
+        <div class="row g-3">
+            @* ── Source + context ─────────────────────────────── *@
+            <div class="col-lg-5">
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <strong>Story Moment</strong>
+                        <span class="text-muted ms-2 small">@_interaction?.ActorName</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="border rounded p-2 bg-light" style="max-height: 320px; overflow: auto; white-space: pre-wrap;">@_interaction?.Content</div>
+                    </div>
+                </div>
+
+                <div class="card mb-3">
+                    <div class="card-header"><strong>Scene Context</strong></div>
+                    <ul class="list-group list-group-flush small">
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span class="text-muted">Phase</span><span>@_session.AdaptiveState.CurrentPhase</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span class="text-muted">Intensity</span><span>@(_session.LastResolvedIntensityLabel ?? "unknown")</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span class="text-muted">Setting</span><span>@(_session.AdaptiveState.CurrentSceneLocation ?? "unknown")</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span class="text-muted">Time of day</span><span>@_session.AdaptiveState.CurrentTimeOfDay</span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+
+            @* ── Settings + prompt + render ───────────────────── *@
+            <div class="col-lg-7">
+                <div class="card mb-3">
+                    <div class="card-header"><strong>Image Settings</strong></div>
+                    <div class="card-body">
+                        <div class="row g-2">
+                            <div class="col-md-4">
+                                <label class="form-label">Style</label>
+                                <select class="form-select form-select-sm" @bind="_settings.Style">
+                                    <option value="realistic">Realistic</option>
+                                    <option value="cinematic">Cinematic</option>
+                                    <option value="anime">Anime</option>
+                                    <option value="cartoon">Cartoon</option>
+                                    <option value="painterly">Painterly</option>
+                                    <option value="sketch">Sketch</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Size</label>
+                                <select class="form-select form-select-sm" @bind="_settings.ImageSize">
+                                    <option value="512x512">512 x 512</option>
+                                    <option value="768x768">768 x 768</option>
+                                    <option value="1024x1024">1024 x 1024</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Aspect Ratio (optional)</label>
+                                <input type="text" class="form-control form-control-sm" @bind="_settings.AspectRatio" placeholder="e.g. 16:9" />
+                            </div>
+                            <div class="col-12">
+                                @if (_resolvedPolicy == ImageContentPolicy.SfwFiltered)
+                                {
+                                    <div class="alert alert-warning py-2 small mb-2">
+                                        <i class="bi bi-shield-lock me-1"></i>
+                                        The configured image provider filters adult content — the prompt is clamped to safe-for-work.
+                                    </div>
+                                }
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="studio-explicit" @bind="_settings.AllowExplicitImage" disabled="@(_resolvedPolicy == ImageContentPolicy.SfwFiltered)" />
+                                    <label class="form-check-label @(_resolvedPolicy == ImageContentPolicy.SfwFiltered ? "text-muted" : "")" for="studio-explicit">Allow explicit content</label>
+                                    <div class="form-text">Only honored when the configured image provider's content policy is adult-allowed; otherwise the prompt is clamped to safe-for-work.</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card mb-3">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <strong>Image Prompt</strong>
+                        <button class="btn btn-sm btn-primary" @onclick="GeneratePromptAsync" disabled="@_busy">
+                            @if (_busy) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                            <i class="bi bi-magic me-1"></i> Generate Prompt
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        @if (_activePrompt is not null && _activePrompt.Status == SceneImagePromptStatus.Pending)
+                        {
+                            <div class="text-muted small mb-2"><span class="spinner-border spinner-border-sm me-1"></span>Generating prompt…</div>
+                        }
+                        @if (_activePrompt is not null && _activePrompt.Status == SceneImagePromptStatus.Failed)
+                        {
+                            <div class="alert alert-danger py-2 small">Prompt generation failed: @_activePrompt.ErrorMessage</div>
+                        }
+                        <textarea class="form-control font-monospace" rows="5" @bind="_editablePrompt"
+                                  placeholder="The pre-processor will draft an image prompt here. You can edit it before rendering."></textarea>
+                        <div class="d-flex gap-2 mt-2">
+                            <input type="text" class="form-control form-control-sm" @bind="_refineInstruction"
+                                   placeholder="Refine instruction, e.g. 'more atmospheric' or 'tighter framing'" />
+                            <button class="btn btn-sm btn-outline-secondary text-nowrap" @onclick="RefinePromptAsync" disabled="@_busy">
+                                <i class="bi bi-arrow-repeat me-1"></i> Refine
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card mb-3">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <strong>Rendered Images</strong>
+                        <button class="btn btn-sm btn-success" @onclick="RenderImageAsync"
+                                disabled="@(_busy || HasInFlightWork() || string.IsNullOrWhiteSpace(_editablePrompt) || _activePrompt is null)">
+                            <i class="bi bi-image me-1"></i> Render Image
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        @if (_images.Count == 0)
+                        {
+                            <div class="text-muted small">No images yet. Generate a prompt, then render an image.</div>
+                        }
+                        else
+                        {
+                            <div class="d-flex flex-wrap gap-3">
+                                @foreach (var img in _images)
+                                {
+                                    <div class="border rounded p-2" style="width: 220px;">
+                                        @if (img.Status == SceneImageStatus.Complete && !string.IsNullOrWhiteSpace(img.FileRelativePath))
+                                        {
+                                            <img src="/scene-images/@img.FileRelativePath" class="img-fluid rounded" alt="Scene image" />
+                                        }
+                                        else if (img.Status == SceneImageStatus.Generating || img.Status == SceneImageStatus.Pending)
+                                        {
+                                            <div class="d-flex align-items-center justify-content-center" style="height: 120px;">
+                                                <span class="spinner-border spinner-border-sm me-2"></span><span class="small">Rendering…</span>
+                                            </div>
+                                        }
+                                        else if (img.Status == SceneImageStatus.Failed)
+                                        {
+                                            <div class="alert alert-danger py-2 small mb-0">Image failed: @img.ErrorMessage</div>
+                                        }
+                                        <div class="d-flex justify-content-between align-items-center mt-1">
+                                            <small class="text-muted">@img.Style · @img.ImageSize</small>
+                                            <span>
+                                                @if (img.Status == SceneImageStatus.Complete)
+                                                {
+                                                    <button class="btn btn-sm btn-outline-secondary py-0 px-1" title="Regenerate (keeps this version)" disabled="@(_busy || HasInFlightWork())"
+                                                            @onclick="() => RegenerateImageAsync(img)">&#128260;</button>
+                                                }
+                                                <button class="btn btn-sm btn-outline-danger py-0 px-1" title="Delete image" disabled="@_busy"
+                                                        @onclick="() => RequestDeleteImageAsync(img)">&#x2715;</button>
+                                            </span>
+                                        </div>
+                                        @if (_pendingDeleteImageId == img.Id)
+                                        {
+                                            <div class="d-flex gap-2 mt-1 align-items-center">
+                                                <small class="text-danger">Delete this image?</small>
+                                                <button class="btn btn-sm btn-danger py-0 px-2" disabled="@_busy" @onclick="() => ConfirmDeleteImageAsync(img)">Delete</button>
+                                                <button class="btn btn-sm btn-outline-secondary py-0 px-2" disabled="@_busy" @onclick="CancelDeleteImage">Keep</button>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public string sessionId { get; set; } = string.Empty;
+
+    [Parameter]
+    public string interactionId { get; set; } = string.Empty;
+
+    private RolePlaySession? _session;
+    private RolePlayInteraction? _interaction;
+    private SceneImagePromptRecord? _activePrompt;
+    private SceneImageStudioSettings _settings = new();
+    private List<SceneImageRecord> _images = [];
+    private string _editablePrompt = string.Empty;
+    private string _refineInstruction = string.Empty;
+    private string _statusMessage = string.Empty;
+    private string _errorMessage = string.Empty;
+    private bool _busy;
+    private bool _polling;
+    private CancellationTokenSource? _pollingCts;
+    private Task? _pollingTask;
+    private ImageContentPolicy? _resolvedPolicy;
+    private string? _policyResolutionError;
+    private string? _pendingDeleteImageId;
+    private bool _settingsSeeded;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await LoadAsync();
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        _errorMessage = string.Empty;
+        try
+        {
+            _session = await SessionService.LoadRolePlaySessionAsync(sessionId);
+            if (_session is null)
+            {
+                _errorMessage = "Role-play session not found.";
+                return;
+            }
+
+            _interaction = _session.Interactions.FirstOrDefault(x => string.Equals(x.Id, interactionId, StringComparison.OrdinalIgnoreCase));
+            if (_interaction is null)
+            {
+                _errorMessage = "Interaction not found in this session.";
+                return;
+            }
+
+            if (!_settingsSeeded)
+            {
+                SeedSettingsFromWorkspace();
+                _settingsSeeded = true;
+            }
+
+            await ResolvePolicyAsync();
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Failed to load image studio: {ex.Message}";
+            Logger.LogError(ex, "SceneImageStudio load failed: SessionId={SessionId}, InteractionId={InteractionId}", sessionId, interactionId);
+        }
+    }
+
+    private void SeedSettingsFromWorkspace()
+    {
+        _settings.ImageSize = WorkspaceSettings.ImageSize;
+        _settings.AllowExplicitImage = WorkspaceSettings.AllowExplicitImage;
+        if (!string.IsNullOrWhiteSpace(WorkspaceSettings.ImageStyleSuffix))
+        {
+            // Seed the free-text style cue as a suffix appended to the selected style so it
+            // survives regeneration; keep the base style selection distinct.
+            _settings.Style = WorkspaceSettings.ImageStyleSuffix;
+        }
+
+        Logger.LogInformation(
+            "Seeded studio settings from workspace defaults: SessionId={SessionId}, ImageSize={ImageSize}, Style={Style}, AllowExplicitImage={AllowExplicitImage}",
+            sessionId, _settings.ImageSize, _settings.Style, _settings.AllowExplicitImage);
+    }
+
+    private async Task ResolvePolicyAsync()
+    {
+        _resolvedPolicy = null;
+        _policyResolutionError = null;
+        try
+        {
+            var resolved = await ModelResolutionService.ResolveImageModelAsync(null);
+            _resolvedPolicy = resolved.ContentPolicy;
+        }
+        catch (Exception ex)
+        {
+            // No image model configured (or misconfigured). The render/enqueue paths fail fast with
+            // detailed guidance; here we just surface a friendly banner and leave the toggle enabled
+            // (the render path will still hard-clamp/hard-fail).
+            _policyResolutionError = ex.Message;
+            Logger.LogInformation(
+                "Scene image policy not resolvable on studio open (will surface at render time): SessionId={SessionId}, Error={Error}",
+                sessionId, ex.Message);
+        }
+    }
+
+    private async Task RefreshAsync()
+    {
+        _activePrompt = await ImageService.GetLatestPromptAsync(sessionId, interactionId);
+        if (_activePrompt is not null && _activePrompt.Status == SceneImagePromptStatus.Complete)
+        {
+            _editablePrompt = _activePrompt.OutputPrompt;
+        }
+        _images = (await ImageService.ListImagesByInteractionAsync(sessionId, interactionId)).ToList();
+    }
+
+    private async Task GeneratePromptAsync()
+    {
+        await RunAsync(async () =>
+        {
+            var record = await ImageService.EnqueuePromptAsync(new ScenePromptRequest
+            {
+                SessionId = sessionId,
+                InteractionId = interactionId,
+                Settings = _settings,
+                ExcerptOverride = null,
+                RefineInstruction = null
+            });
+            _activePrompt = record;
+            _editablePrompt = string.Empty;
+            _statusMessage = "Prompt generation queued.";
+            EnsurePolling();
+        });
+    }
+
+    private async Task RefinePromptAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_refineInstruction)) return;
+
+        await RunAsync(async () =>
+        {
+            var record = await ImageService.EnqueuePromptAsync(new ScenePromptRequest
+            {
+                SessionId = sessionId,
+                InteractionId = interactionId,
+                Settings = _settings,
+                ExcerptOverride = null,
+                RefineInstruction = _refineInstruction.Trim()
+            });
+            _activePrompt = record;
+            _statusMessage = "Prompt refinement queued.";
+            _refineInstruction = string.Empty;
+            EnsurePolling();
+        });
+    }
+
+    private async Task RenderImageAsync()
+    {
+        if (_activePrompt is null || string.IsNullOrWhiteSpace(_editablePrompt)) return;
+
+        await RunAsync(async () =>
+        {
+            // Persist the edited text back to the prompt record so a later studio reopen shows it.
+            await ImageService.UpdatePromptOutputAsync(sessionId, _activePrompt.Id, _editablePrompt.Trim());
+
+            var record = await ImageService.EnqueueRenderAsync(new SceneRenderRequest
+            {
+                SessionId = sessionId,
+                InteractionId = interactionId,
+                PromptRecordId = _activePrompt.Id,
+                Prompt = _editablePrompt.Trim(),
+                ImageSize = _settings.ImageSize,
+                RegenerateOfId = null
+            });
+            _images.Insert(0, record);
+            _statusMessage = "Image render queued.";
+            EnsurePolling();
+        });
+    }
+
+    private async Task RegenerateImageAsync(SceneImageRecord image)
+    {
+        if (_activePrompt is null || string.IsNullOrWhiteSpace(_editablePrompt)) return;
+
+        await RunAsync(async () =>
+        {
+            var record = await ImageService.EnqueueRenderAsync(new SceneRenderRequest
+            {
+                SessionId = sessionId,
+                InteractionId = interactionId,
+                PromptRecordId = _activePrompt.Id,
+                Prompt = _editablePrompt.Trim(),
+                ImageSize = _settings.ImageSize,
+                RegenerateOfId = image.Id
+            });
+            _images.Insert(0, record);
+            _statusMessage = "Regeneration queued (previous version kept).";
+            EnsurePolling();
+        });
+    }
+
+    private void RequestDeleteImageAsync(SceneImageRecord image)
+    {
+        _pendingDeleteImageId = image.Id;
+    }
+
+    private void CancelDeleteImage()
+    {
+        _pendingDeleteImageId = null;
+    }
+
+    private async Task ConfirmDeleteImageAsync(SceneImageRecord image)
+    {
+        _pendingDeleteImageId = null;
+        await DeleteImageAsync(image);
+    }
+
+    private async Task DeleteImageAsync(SceneImageRecord image)
+    {
+        await RunAsync(async () =>
+        {
+            await ImageService.DeleteImageAsync(sessionId, image.Id);
+            _images.RemoveAll(x => string.Equals(x.Id, image.Id, StringComparison.OrdinalIgnoreCase));
+            _statusMessage = "Image deleted.";
+        });
+    }
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        _busy = true;
+        _errorMessage = string.Empty;
+        _statusMessage = string.Empty;
+        try
+        {
+            await action();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.Message;
+            Logger.LogWarning(ex, "SceneImageStudio action failed: SessionId={SessionId}, InteractionId={InteractionId}", sessionId, interactionId);
+        }
+        finally
+        {
+            _busy = false;
+            StateHasChanged();
+        }
+    }
+
+    private bool HasInFlightWork()
+    {
+        if (_activePrompt is not null && _activePrompt.Status == SceneImagePromptStatus.Pending) return true;
+        return _images.Any(x => x.Status == SceneImageStatus.Pending || x.Status == SceneImageStatus.Generating);
+    }
+
+    private void EnsurePolling()
+    {
+        if (_polling) return;
+        _polling = true;
+        _pollingCts = new CancellationTokenSource();
+        _pollingTask = Task.Run(() => PollAsync(_pollingCts.Token));
+    }
+
+    private async Task PollAsync(CancellationToken ct)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(ct))
+            {
+                var stillWorking = false;
+                await InvokeAsync(async () =>
+                {
+                    try
+                    {
+                        await RefreshAsync();
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.LogWarning(ex, "SceneImageStudio poll refresh failed: SessionId={SessionId}", sessionId);
+                    }
+                    stillWorking = HasInFlightWork();
+                    if (!stillWorking)
+                    {
+                        _polling = false;
+                    }
+                    StateHasChanged();
+                });
+
+                if (!stillWorking) break;
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (ObjectDisposedException) { }
+        finally
+        {
+            _polling = false;
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_pollingCts is not null)
+        {
+            await _pollingCts.CancelAsync();
+            _pollingCts.Dispose();
+            _pollingCts = null;
+        }
+    }
+}

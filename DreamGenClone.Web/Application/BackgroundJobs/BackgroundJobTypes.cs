@@ -6,4 +6,6 @@ public static class BackgroundJobTypes
     public const string EncounterSummaryEnhancement = "encounter-summary-enhancement";
     public const string LocationDetection = "location-detection";
     public const string SteerGeneration = "steer-generation";
+    public const string SceneImagePromptGeneration = "scene-image-prompt-generation";
+    public const string SceneImageRendering = "scene-image-rendering";
 }

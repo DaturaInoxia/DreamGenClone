@@ -547,6 +547,12 @@ public class ScenarioAdaptationServiceTests
                 ProviderName: "Test Provider",
                 IsSessionOverride: sessionModelId != null));
         }
+
+        public Task<ResolvedModel> ResolveImagePromptModelAsync(string? sessionOverrideId = null, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException("Scene image resolution is not exercised by this test.");
+
+        public Task<ResolvedImageModel> ResolveImageModelAsync(string? sessionOverrideId = null, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException("Scene image resolution is not exercised by this test.");
     }
 
     #endregion

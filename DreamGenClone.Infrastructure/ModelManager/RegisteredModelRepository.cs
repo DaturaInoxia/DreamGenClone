@@ -25,8 +25,8 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
 
         var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO RegisteredModels (Id, ProviderId, ModelIdentifier, DisplayName, IsEnabled, SupportsThinkingControl, CreatedUtc, ContextWindowSize, Quantization, ParameterCount, Notes)
-            VALUES ($id, $providerId, $identifier, $displayName, $enabled, $supportsThinkingControl, $created, $ctxWindow, $quant, $paramCount, $notes)
+            INSERT INTO RegisteredModels (Id, ProviderId, ModelIdentifier, DisplayName, IsEnabled, SupportsThinkingControl, CreatedUtc, ContextWindowSize, Quantization, ParameterCount, Notes, ModelKind, ImageSizeSupported)
+            VALUES ($id, $providerId, $identifier, $displayName, $enabled, $supportsThinkingControl, $created, $ctxWindow, $quant, $paramCount, $notes, $modelKind, $imageSizeSupported)
             ON CONFLICT(Id) DO UPDATE SET
                 ProviderId = $providerId,
                 ModelIdentifier = $identifier,
@@ -36,7 +36,9 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
                 ContextWindowSize = $ctxWindow,
                 Quantization = $quant,
                 ParameterCount = $paramCount,
-                Notes = $notes
+                Notes = $notes,
+                ModelKind = $modelKind,
+                ImageSizeSupported = $imageSizeSupported
             """;
 
         command.Parameters.AddWithValue("$id", model.Id);
@@ -50,6 +52,8 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
         command.Parameters.AddWithValue("$quant", model.Quantization);
         command.Parameters.AddWithValue("$paramCount", model.ParameterCount);
         command.Parameters.AddWithValue("$notes", (object?)model.Notes ?? DBNull.Value);
+        command.Parameters.AddWithValue("$modelKind", (int)model.ModelKind);
+        command.Parameters.AddWithValue("$imageSizeSupported", (object?)model.ImageSizeSupported ?? DBNull.Value);
 
         await command.ExecuteNonQueryAsync(cancellationToken);
         _logger.LogInformation("Registered model saved: {ModelId} ({DisplayName})", model.Id, model.DisplayName);
@@ -62,7 +66,7 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
         await connection.OpenAsync(cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, ProviderId, ModelIdentifier, DisplayName, IsEnabled, SupportsThinkingControl, CreatedUtc, ContextWindowSize, Quantization, ParameterCount, Notes FROM RegisteredModels WHERE Id = $id";
+        command.CommandText = "SELECT Id, ProviderId, ModelIdentifier, DisplayName, IsEnabled, SupportsThinkingControl, CreatedUtc, ContextWindowSize, Quantization, ParameterCount, Notes, ModelKind, ImageSizeSupported FROM RegisteredModels WHERE Id = $id";
         command.Parameters.AddWithValue("$id", id);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -80,7 +84,7 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
         await connection.OpenAsync(cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, ProviderId, ModelIdentifier, DisplayName, IsEnabled, SupportsThinkingControl, CreatedUtc, ContextWindowSize, Quantization, ParameterCount, Notes FROM RegisteredModels WHERE ProviderId = $providerId ORDER BY DisplayName";
+        command.CommandText = "SELECT Id, ProviderId, ModelIdentifier, DisplayName, IsEnabled, SupportsThinkingControl, CreatedUtc, ContextWindowSize, Quantization, ParameterCount, Notes, ModelKind, ImageSizeSupported FROM RegisteredModels WHERE ProviderId = $providerId ORDER BY DisplayName";
         command.Parameters.AddWithValue("$providerId", providerId);
 
         var models = new List<RegisteredModel>();
@@ -101,7 +105,7 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
         var command = connection.CreateCommand();
         command.CommandText = """
             SELECT rm.Id, rm.ProviderId, rm.ModelIdentifier, rm.DisplayName, rm.IsEnabled, rm.SupportsThinkingControl, rm.CreatedUtc,
-                   rm.ContextWindowSize, rm.Quantization, rm.ParameterCount, rm.Notes, p.Name AS ProviderName
+                   rm.ContextWindowSize, rm.Quantization, rm.ParameterCount, rm.Notes, rm.ModelKind, rm.ImageSizeSupported, p.Name AS ProviderName
             FROM RegisteredModels rm
             INNER JOIN Providers p ON rm.ProviderId = p.Id
             WHERE rm.IsEnabled = 1 AND p.IsEnabled = 1
@@ -161,6 +165,8 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
         ContextWindowSize = reader.GetInt32(7),
         Quantization = reader.GetString(8),
         ParameterCount = reader.GetString(9),
-        Notes = reader.IsDBNull(10) ? null : reader.GetString(10)
+        Notes = reader.IsDBNull(10) ? null : reader.GetString(10),
+        ModelKind = (ModelKind)reader.GetInt32(11),
+        ImageSizeSupported = reader.IsDBNull(12) ? null : reader.GetString(12)
     };
 }

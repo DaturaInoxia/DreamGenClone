@@ -52,6 +52,7 @@
 @inject IRolePlayStateRepository RolePlayStateRepository
 @inject IRolePlaySubmissionTracker _tracker
 @inject IRolePlayAutoCompleteService AutoCompleteService
+@inject ISceneImageService SceneImageService
 @inject ISqlitePersistence Persistence
 @implements IAsyncDisposable
 @using System.Globalization
@@ -120,6 +121,7 @@
     private bool _isDisposed;
     private Dictionary<string, SemanticInteractionAnalysisState> _semanticAnalysisByInteractionId = new(StringComparer.OrdinalIgnoreCase);
     private SemanticInteractionAnalysisState? _latestSemanticInteractionAnalysis;
+    private Dictionary<string, int> _interactionImageCounts = new(StringComparer.OrdinalIgnoreCase);
 
     // Scenario section collapse state (all collapsed by default)
     private readonly HashSet<string> _expandedScenarioSections = new();
@@ -448,6 +450,7 @@
         }
 
         await LoadSemanticInteractionAnalysisStateAsync(_session.Id);
+        await LoadImageCountsAsync();
 
         // Note: do NOT reset _readCursorInteractionIndex / _lastRenderedInteractionCount here.
         // LoadSessionAsync is invoked after Send/Continue and many other in-session actions to
@@ -727,6 +730,37 @@
             SemanticAnalysisStatus.Error => "Error",
             _ => "Idle"
         };
+    }
+
+    // Scene Image integration (T058/T059)
+    private int GetImageCountForInteraction(string interactionId)
+    {
+        return _interactionImageCounts.TryGetValue(interactionId, out var count) ? count : 0;
+    }
+
+    private async Task LoadImageCountsAsync()
+    {
+        if (_session is null)
+        {
+            _interactionImageCounts.Clear();
+            return;
+        }
+
+        try
+        {
+            _interactionImageCounts = await SceneImageService.CountImagesByInteractionAsync(_session.Id);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load image counts for session {SessionId}", _session.Id);
+            _interactionImageCounts.Clear();
+        }
+    }
+
+    private async Task OpenImageStudioAsync(string interactionId)
+    {
+        if (_session is null) return;
+        Navigation.NavigateTo($"/roleplay/studio/{_session.Id}/{interactionId}");
     }
 
     private bool ShouldShowDecisionPrompt =>
@@ -8532,6 +8566,7 @@ private void CloseInteractionInfo()
                 }
             </div>
             <div class="rw-header-right">
+                <a class="rw-gallery-link" href="/roleplay/gallery/@sessionId" title="View all session images">Gallery</a>
                 <button class="rw-debug-btn" @onclick="OpenDebugWindowAsync" @onclick:stopPropagation>Debug View</button>
             </div>
         </div>
@@ -8560,7 +8595,7 @@ private void CloseInteractionInfo()
                         var interaction = _displayInteractions[_i];
                         var _cursorIdx = _i;
                         var interactionId = interaction.Id;
-                        <div class="rw-interaction rw-type-@interaction.InteractionType.ToString().ToLower()" data-interaction-index="@_cursorIdx" @onclick="@(() => SetReadCursor(_cursorIdx))">
+                        <div class="rw-interaction rw-type-@interaction.InteractionType.ToString().ToLower()" data-interaction-index="@_cursorIdx" @key="interactionId" @onclick="@(() => SetReadCursor(_cursorIdx))">
                             <div class="rw-actor-badge">@GetInitial(interaction.ActorName)</div>
                             <div class="rw-interaction-body">
                                 <div class="rw-interaction-header">
@@ -8629,8 +8664,22 @@ private void CloseInteractionInfo()
                                             }
                                             else
                                             {
+                                                var imgCount = GetImageCountForInteraction(interactionId);
+                                                @if (imgCount > 0)
+                                                {
+                                                    <button class="rw-toolbar-btn rw-toolbar-btn-image" title="@($"{imgCount} image(s) generated — click to open in studio")" @onclick="@(() => OpenImageStudioAsync(interactionId))" @onclick:stopPropagation>
+                                                        <svg class="rw-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                                                        <span class="rw-image-badge">@imgCount</span>
+                                                    </button>
+                                                }
+                                                else
+                                                {
+                                                    <button class="rw-toolbar-btn" title="Generate image for this interaction" @onclick="@(() => OpenImageStudioAsync(interactionId))" @onclick:stopPropagation>
+                                                        <svg class="rw-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                                                    </button>
+                                                }
                                                 @* Default toolbar: Retry | Edit | Info *@
-                                                <button class="rw-toolbar-btn" data-retry-btn="@interactionId" title="Retry / Regenerate" @onclick="@(() => ToggleRetryMenu(interactionId))">
+                                                <button class="rw-toolbar-btn" data-retry-btn="@interactionId" title="Retry / Regenerate" @onclick="@(() => ToggleRetryMenu(interactionId))" @onclick:stopPropagation>
                                                     <svg class="rw-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/><path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14"/></svg>
                                                 </button>
                                                 <button class="rw-toolbar-btn" title="Edit interaction" @onclick="@(() => StartEdit(interactionId, interaction.Content))">

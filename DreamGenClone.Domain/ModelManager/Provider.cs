@@ -7,6 +7,9 @@ public sealed class Provider
     public ProviderType ProviderType { get; set; }
     public string BaseUrl { get; set; } = string.Empty;
     public string ChatCompletionsPath { get; set; } = "/v1/chat/completions";
+    public ImageProviderCapability ImageCapability { get; set; } = ImageProviderCapability.None;
+    public string ImageGenerationPath { get; set; } = "/v1/images/generations";
+    public ImageContentPolicy ContentPolicy { get; set; } = ImageContentPolicy.Unknown;
     public int TimeoutSeconds { get; set; } = 120;
     public string? ApiKeyEncrypted { get; set; }
     public bool IsEnabled { get; set; } = true;
