@@ -24,7 +24,9 @@ public sealed class SceneDirectionResolverTests
     {
         var result = SceneDirectionResolver.Resolve("Climax", null, ClimaxSubPhase.None, PromptIntent.Message);
         Assert.Equal(ScenePacing.Medium, result.Pacing);
-        Assert.Equal(TimeShiftPolicy.Medium, result.TimeShift);
+        // B-089 T1: Climax defaults to TimeShift=None (no "jump hours ahead" while the
+        // scene is resolving) and Reset defaults to Large.
+        Assert.Equal(TimeShiftPolicy.None, result.TimeShift);
         Assert.Equal(BeatScope.Short, result.BeatScope);
         Assert.Equal(NarrativeGranularity.Meso, result.Granularity);
     }
@@ -58,7 +60,7 @@ public sealed class SceneDirectionResolverTests
         var result = SceneDirectionResolver.Resolve("Climax", null, ClimaxSubPhase.None, PromptIntent.Message);
         Assert.Equal(ScenePacing.Medium, result.Pacing);
         Assert.Equal(BeatScope.Short, result.BeatScope);
-        Assert.Equal(TimeShiftPolicy.Medium, result.TimeShift);
+        Assert.Equal(TimeShiftPolicy.None, result.TimeShift);
         Assert.Equal(DeepeningPolicy.None, result.Deepening);
         Assert.Equal(NarrativeGranularity.Meso, result.Granularity);
     }
@@ -69,7 +71,7 @@ public sealed class SceneDirectionResolverTests
         var result = SceneDirectionResolver.Resolve("Reset", null, ClimaxSubPhase.None, PromptIntent.Message);
         Assert.Equal(ScenePacing.Medium, result.Pacing);
         Assert.Equal(BeatScope.Short, result.BeatScope);
-        Assert.Equal(TimeShiftPolicy.Medium, result.TimeShift);
+        Assert.Equal(TimeShiftPolicy.Large, result.TimeShift);
         Assert.Equal(NarrativeGranularity.Meso, result.Granularity);
     }
 

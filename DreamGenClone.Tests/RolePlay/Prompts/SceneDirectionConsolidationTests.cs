@@ -9,9 +9,9 @@ using Xunit;
 namespace DreamGenClone.Tests.RolePlay.Prompts;
 
 /// <summary>
-/// B-085: the consolidated "Scene Direction" block rendered by FinalInstructionSlot
-/// (Slot 17) — Beat Style stage (lead actor only) + Time Shift + Granularity + Scene
-/// Presence — plus the single-path Beat Style resolution.
+/// B-085/B-089: the consolidated "Scene Direction" block rendered by FinalInstructionSlot
+/// (Slot 17) — Tempo (density, all positions) + Span (duration, lead actor only) — plus
+/// the single-path Beat Style resolution.
 /// </summary>
 public sealed class SceneDirectionConsolidationTests
 {
@@ -108,34 +108,40 @@ public sealed class SceneDirectionConsolidationTests
         BeatScope = BeatScope.Short,
         TimeShift = TimeShiftPolicy.Medium,
         Granularity = NarrativeGranularity.Meso,
-        RequireScenePresence = false,
     };
 
     private readonly FinalInstructionSlot _slot = new(NullLogger<FinalInstructionSlot>.Instance);
 
     [Fact]
-    public async Task LeadActor_RendersBeatStyleStage_TimeShift_Granularity()
+    public async Task LeadActor_RendersTempoAndSpan()
     {
         var text = await _slot.WriteAsync(
             CreateContext(PromptVariant.Character, positionInTurn: 1, ShortDirection(), turnsInCurrentBeat: 1),
             CancellationToken.None);
 
-        Assert.Contains("HARD CONSTRAINT — Beat Style: Short —", text);
+        // ShortDirection: Pacing=Medium, BeatScope=Short, TimeShift=Medium, Granularity=Meso
+        // → Tempo=Steady, Span=Scene.
+        Assert.Contains("HARD CONSTRAINT — Tempo: Steady.", text);
+        Assert.Contains("HARD CONSTRAINT — Span: Scene.", text);
         Assert.Contains("turn 2 of 3", text);
-        Assert.Contains("HARD CONSTRAINT — Time Shift: Medium", text);
-        Assert.Contains("HARD CONSTRAINT — Granularity: Meso", text);
+        // The old trio must be gone — no Pacing/TimeShift/Granularity HCs.
+        Assert.DoesNotContain("HARD CONSTRAINT — Scene Pacing", text);
+        Assert.DoesNotContain("HARD CONSTRAINT — Time Shift", text);
+        Assert.DoesNotContain("HARD CONSTRAINT — Granularity", text);
     }
 
     [Fact]
-    public async Task SubsequentActor_OmitsBeatStyleStage_KeepsSceneDimensions()
+    public async Task SubsequentActor_GetsPaceLine_OmitsTempoAndSpan()
     {
         var text = await _slot.WriteAsync(
             CreateContext(PromptVariant.Character, positionInTurn: 2, ShortDirection(), turnsInCurrentBeat: 1),
             CancellationToken.None);
 
-        Assert.DoesNotContain("Beat Style", text);
-        Assert.Contains("HARD CONSTRAINT — Time Shift: Medium", text);
-        Assert.Contains("HARD CONSTRAINT — Granularity: Meso", text);
+        // B-094/D-1: only the first actor sets the pace — position 2+ get the tempo-independent
+        // subsequent-actor line, never a Tempo value, and never a Span duration directive.
+        Assert.Contains("HARD CONSTRAINT — Subsequent actor: The first actor has set the pace — continue the beat at that pace", text);
+        Assert.DoesNotContain("HARD CONSTRAINT — Tempo:", text);
+        Assert.DoesNotContain("HARD CONSTRAINT — Span", text);
     }
 
     [Fact]
@@ -145,19 +151,20 @@ public sealed class SceneDirectionConsolidationTests
             CreateContext(PromptVariant.Narrative, positionInTurn: null, ShortDirection(), turnsInCurrentBeat: 1),
             CancellationToken.None);
 
-        Assert.DoesNotContain("Beat Style", text);
-        Assert.DoesNotContain("HARD CONSTRAINT — Time Shift", text);
-        Assert.DoesNotContain("HARD CONSTRAINT — Granularity", text);
+        Assert.DoesNotContain("HARD CONSTRAINT — Tempo", text);
+        Assert.DoesNotContain("HARD CONSTRAINT — Span", text);
     }
 
     [Fact]
-    public async Task EpisodicSheetActive_OmitsGenericBeatStage()
+    public async Task EpisodicSheetActive_OmitsGenericSpan()
     {
         var text = await _slot.WriteAsync(
             CreateContext(PromptVariant.Character, positionInTurn: 1, ShortDirection(), turnsInCurrentBeat: 2, currentBeatCode: "3b"),
             CancellationToken.None);
 
-        Assert.DoesNotContain("Beat Style", text);
+        Assert.DoesNotContain("HARD CONSTRAINT — Span", text);
+        // Tempo still applies.
+        Assert.Contains("HARD CONSTRAINT — Tempo: Steady.", text);
     }
 
     [Theory]
@@ -170,7 +177,7 @@ public sealed class SceneDirectionConsolidationTests
     [InlineData(BeatScope.Extended, 2, "turn 3 of 5")]
     [InlineData(BeatScope.Extended, 4, "turn 5 of 5")]
     [InlineData(BeatScope.Extended, 5, "bring it to its climax")]
-    public async Task RenderedBeatStyle_DiffersByScopeAndPosition(BeatScope scope, int turnsInBeat, string expectedSubstring)
+    public async Task RenderedSpan_DiffersByScopeAndPosition(BeatScope scope, int turnsInBeat, string expectedSubstring)
     {
         var dir = new SceneDirection
         {
@@ -184,7 +191,8 @@ public sealed class SceneDirectionConsolidationTests
             CreateContext(PromptVariant.Character, positionInTurn: 1, dir, turnsInCurrentBeat: turnsInBeat),
             CancellationToken.None);
 
-        Assert.Contains($"Beat Style: {scope} —", text);
+        var span = SceneDirection.SpanFrom(scope);
+        Assert.Contains($"HARD CONSTRAINT — Span: {span}.", text);
         Assert.Contains(expectedSubstring, text);
     }
 

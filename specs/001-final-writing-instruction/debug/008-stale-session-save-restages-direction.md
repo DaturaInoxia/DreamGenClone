@@ -36,4 +36,6 @@
   - `SaveContinuationOverrideAsync` → `ReloadAndSaveSessionAsync(s => s.ContinuationOverride = overrideValue)`
   - `ClearContinuationOverrideAsync` → `ReloadAndSaveSessionAsync(s => s.ContinuationOverride = null)`
 - The two remaining direct `SaveSessionAsync(_session)` calls (inside `LoadSessionAsync`) operate on a freshly-loaded object and are intentionally left as-is.
-- **Validated**: `dotnet build DreamGenClone.Web` 0 warnings/0 errors; full test suite 1048 passed / 0 failed (RolePlay filter 749 passed). Webapp restarted via `helpers/start-webapp.ps1`. `[ ] pending` until user confirms a fresh RP session no longer regresses after a Continuation Settings save.
+- **Validated**: `dotnet build DreamGenClone.Web` 0 warnings/0 errors; full test suite 1048 passed / 0 failed (RolePlay filter 749 passed).
+- **Runtime evidence (session f1d424cc continued after fix)**: webapp log shows the session advanced normally past the shower — phase reached `Approaching`, location `The Other Man's Trailer`, with the fire-pit/garden/clothesline/button-unbuttoning exposure beats. The staged instruction was consumed once and was NOT re-injected. The observed `Prompt budget overflow` FTL (`MandatoryChars=68338 > MaxPromptChars=40000`, no trim applied) is a separate pre-existing prompt-size issue, not this bug.
+- Webapp restarted via `helpers/start-webapp.ps1`. `[ ] pending` until user confirms a fresh RP session no longer regresses after a Continuation Settings save.

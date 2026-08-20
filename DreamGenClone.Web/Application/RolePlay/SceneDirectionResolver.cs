@@ -36,7 +36,6 @@ public static class SceneDirectionResolver
         var beatScope = ResolveBeatScope(normalizedPhase, activeTheme, climaxSubPhase);
         var timeShift = ResolveTimeShift(normalizedPhase, activeTheme, climaxSubPhase);
         var deepening = ResolveDeepening(normalizedPhase, activeTheme);
-        var requireScenePresence = ResolveScenePresence(normalizedPhase, activeTheme);
         var granularity = ResolveGranularity(normalizedPhase, activeTheme);
 
         return new SceneDirection
@@ -45,7 +44,6 @@ public static class SceneDirectionResolver
             BeatScope = beatScope,
             TimeShift = timeShift,
             Deepening = deepening,
-            RequireScenePresence = requireScenePresence,
             Granularity = granularity,
             ClimaxSubPhase = normalizedPhase == NarrativePhase.Climax ? climaxSubPhase : ClimaxSubPhase.None
         };
@@ -135,13 +133,6 @@ public static class SceneDirectionResolver
     }
 
     // ── Helper: check if a marker exists in the theme's phase guidance ──
-    private static bool ResolveScenePresence(NarrativePhase? normalizedPhase, RPTheme? activeTheme)
-    {
-        if (activeTheme is not null && normalizedPhase.HasValue
-            && HasMarker(activeTheme, normalizedPhase.Value.ToString(), "ScenePresence"))
-            return true;
-        return false;
-    }
 
     private static bool HasMarker(RPTheme theme, string phase, string marker)
     {
@@ -209,8 +200,12 @@ public static class SceneDirectionResolver
         [NarrativePhase.BuildUp] = TimeShiftPolicy.Medium,
         [NarrativePhase.Committed] = TimeShiftPolicy.Medium,
         [NarrativePhase.Approaching] = TimeShiftPolicy.Medium,
-        [NarrativePhase.Climax] = TimeShiftPolicy.Medium,
-        [NarrativePhase.Reset] = TimeShiftPolicy.Medium
+        // B-089 T1: Climax must not default to "Hours to half a day" — that contradicted
+        // the stay-in-the-moment pacing/span HCs in the same prompt (C3). Default to None
+        // so the resolved Tempo is a coherent Linger/Steady and time movement is explicit.
+        [NarrativePhase.Climax] = TimeShiftPolicy.None,
+        // Reset/aftermath is where the story advances time — default to Large.
+        [NarrativePhase.Reset] = TimeShiftPolicy.Large
     };
 
     private static TimeShiftPolicy PhaseDefaultTimeShift(NarrativePhase? normalizedPhase)

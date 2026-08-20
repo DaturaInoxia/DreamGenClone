@@ -51,43 +51,6 @@ public sealed class MultiEncounterClimaxMarkerTests
         var theme = BuildThemeWithClimaxGuidance("[climaxmode:multi-encounter]");
         Assert.True(RolePlayAssistantPrompts.IsMultiEncounterClimax(theme, "Climax"));
     }
-
-    [Fact]
-    public void EnsureClimaxModeMutualExclusion_Throws_WhenBothMarkersPresent()
-    {
-        var theme = BuildThemeWithClimaxGuidance("[ClimaxMode:multi-encounter] [ClimaxMode:quick-finish]");
-        var ex = Assert.Throws<InvalidOperationException>(
-            () => RolePlayAssistantPrompts.EnsureClimaxModeMutualExclusion(theme, "Climax"));
-        Assert.Contains("ClimaxModeConflict", ex.Message, StringComparison.Ordinal);
-        Assert.Contains("mutually exclusive", ex.Message, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void EnsureClimaxModeMutualExclusion_DoesNotThrow_WhenOnlyMultiEncounterPresent()
-    {
-        var theme = BuildThemeWithClimaxGuidance("[ClimaxMode:multi-encounter]");
-        RolePlayAssistantPrompts.EnsureClimaxModeMutualExclusion(theme, "Climax");
-    }
-
-    [Fact]
-    public void EnsureClimaxModeMutualExclusion_DoesNotThrow_WhenOnlyQuickFinishPresent()
-    {
-        var theme = BuildThemeWithClimaxGuidance("[ClimaxMode:quick-finish]");
-        RolePlayAssistantPrompts.EnsureClimaxModeMutualExclusion(theme, "Climax");
-    }
-
-    [Fact]
-    public void EnsureClimaxModeMutualExclusion_DoesNotThrow_WhenNeitherPresent()
-    {
-        var theme = BuildThemeWithClimaxGuidance("plain guidance with no markers");
-        RolePlayAssistantPrompts.EnsureClimaxModeMutualExclusion(theme, "Climax");
-    }
-
-    [Fact]
-    public void EnsureClimaxModeMutualExclusion_DoesNotThrow_WhenThemeIsNull()
-    {
-        RolePlayAssistantPrompts.EnsureClimaxModeMutualExclusion(null, "Climax");
-    }
 }
 
 public sealed class AdaptiveScenarioStateEncounterFieldsTests

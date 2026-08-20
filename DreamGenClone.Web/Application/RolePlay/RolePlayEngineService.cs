@@ -18,6 +18,7 @@ using DreamGenClone.Infrastructure.Logging;
 using DreamGenClone.Infrastructure.RolePlay;
 using DreamGenClone.Web.Application.BackgroundJobs;
 using DreamGenClone.Web.Application.RolePlay.Models;
+using DreamGenClone.Web.Application.RolePlay.Prompts;
 using DreamGenClone.Web.Domain.Scenarios;
 using Microsoft.Extensions.Options;
 using System.Text;
@@ -1596,6 +1597,12 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
 
                 if (hasMulti || hasAftermath)
                 {
+                    // B-089 T5: the engine time-skip directive consumes the same resolved Tempo the
+                    // prompt renders. Under Linger/Steady the AdvanceTime step stays small ("a short
+                    // time later"); under Leap it advances a day or more. This closes C9 — the prompt
+                    // Tempo HC and the engine instruction can no longer contradict.
+                    var tempo = ResolveEffectiveTempo(session, theme, session.AdaptiveState.CurrentPhase);
+
                     // FR-005: defer when the user recently authored an instruction
                     if (!HasRecentUserInstruction(session, 3))
                     {
@@ -1640,7 +1647,11 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                         }
                         else // AdvanceTime
                         {
-                            directive = "Advance time to a new moment — a different day or time, a new context, a new circumstance. Establish ordinary life.";
+                            // B-089 T5: Tempo-aware advance. Leap → full day+ skip; Linger/Steady →
+                            // keep the step small so it doesn't contradict the prompt's Tempo HC.
+                            directive = tempo == SceneTempo.Leap
+                                ? "Advance time to a new moment — a different day or time, a new context, a new circumstance. Establish ordinary life."
+                                : "Move forward a short time — later the same day or the next morning — to a new context or circumstance. Establish ordinary life.";
                             session.AdaptiveState.CurrentTimeSkipPhase = TimeSkipPhase.None;
                             // B-058 Phase 2.3: AdvanceTime → None marks the start of the next encounter
                             // (the next interaction will be part of the new encounter). Capture the
@@ -4029,6 +4040,19 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         var baseDir = SceneDirectionResolver.Resolve(phase.ToString(), theme, ClimaxSubPhase.None, PromptIntent.Message);
         var beatScope = ContinuationOverrideResolver.ResolveBeatScope(baseDir, session.ContinuationOverride);
         return ContinuationMarkerCatalog.GetBeatStyleTurnBudget(beatScope);
+    }
+
+    /// <summary>
+    /// B-089 T5: resolves the session's effective <see cref="SceneTempo"/> at a decision point
+    /// (theme markers → phase default → sticky override), mirroring <see cref="ResolveBeatStyleTurnBudget"/>.
+    /// The engine time-skip directives consume the same resolved Tempo the prompt renders, so the
+    /// two-layer time control never contradicts (C9).
+    /// </summary>
+    private static SceneTempo ResolveEffectiveTempo(RolePlaySession session, RPTheme? theme, NarrativePhase phase)
+    {
+        var baseDir = SceneDirectionResolver.Resolve(phase.ToString(), theme, ClimaxSubPhase.None, PromptIntent.Message);
+        var applied = ContinuationOverrideResolver.ApplySceneDirectionOverride(baseDir, session.ContinuationOverride);
+        return applied.Tempo;
     }
 
     private async Task RunRolePlayV2PipelinesAsync(

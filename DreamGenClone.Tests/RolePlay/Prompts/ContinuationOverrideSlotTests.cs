@@ -102,7 +102,6 @@ public sealed class ContinuationOverrideSlotTests
         Assert.False(_slot.ShouldWrite(CreateContext(new ContinuationOverride { BeatScope = BeatScope.Extended })));
         Assert.False(_slot.ShouldWrite(CreateContext(new ContinuationOverride { TimeShift = TimeShiftPolicy.Large })));
         Assert.False(_slot.ShouldWrite(CreateContext(new ContinuationOverride { Granularity = NarrativeGranularity.Macro })));
-        Assert.False(_slot.ShouldWrite(CreateContext(new ContinuationOverride { RequireScenePresence = true })));
     }
 
     [Fact]

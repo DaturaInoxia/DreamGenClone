@@ -98,6 +98,45 @@ public enum ClimaxSubPhase
 }
 
 /// <summary>
+/// B-089 — user-facing narrative density control (replaces the Pacing + TimeShift +
+/// Granularity trio). Each value is a coherent bundle of the three raw dimensions so they
+/// can never contradict (the C3 problem). Derived from <see cref="SceneDirection"/> raw
+/// fields by <see cref="SceneDirection.TempoFrom"/>; the continuation-settings override can
+/// set it directly, and it maps back to the raw bundle via <see cref="SceneDirection.TempoBundle"/>.
+/// </summary>
+public enum SceneTempo
+{
+    /// <summary>Stay in the exact moment — sensory depth, no advance. (Slow + TimeShift=None + Granularity=Micro)</summary>
+    Linger = 0,
+
+    /// <summary>Advance one beat, small time shifts allowed. (Medium + TimeShift=Small + Granularity=Meso)</summary>
+    Steady = 1,
+
+    /// <summary>Compress 2–3 beats toward resolution. (Fast + TimeShift=Medium + Granularity=Meso)</summary>
+    Push = 2,
+
+    /// <summary>Advance a day or more — aftermath/montage. (Fast + TimeShift=Large + Granularity=Macro/Montage)</summary>
+    Leap = 3
+}
+
+/// <summary>
+/// B-089 — user-facing duration control for the current moment (replaces the Beat Style
+/// label). Maps to the beat budget via <see cref="SceneDirection.SpanTurnBudget"/> and to a
+/// <see cref="BeatScope"/> via <see cref="SceneDirection.SpanToBeatScope"/>.
+/// </summary>
+public enum SceneSpan
+{
+    /// <summary>Resolve the moment in one turn. (BeatScope.Single)</summary>
+    Moment = 0,
+
+    /// <summary>Build the moment across 3 turns. (BeatScope.Short)</summary>
+    Scene = 1,
+
+    /// <summary>Linger across 5 turns. (BeatScope.Extended)</summary>
+    ExtendedArc = 2
+}
+
+/// <summary>
 /// Resolved scene direction for a single continuation prompt — the coordinated per-turn
 /// "Scene Direction" block values plus the free-text director note. Produced by
 /// <c>SceneDirectionResolver</c> from narrative phase, theme phase-guidance markers,
@@ -110,6 +149,60 @@ public sealed record SceneDirection
     public TimeShiftPolicy TimeShift { get; init; } = TimeShiftPolicy.Small;
     public ClimaxSubPhase ClimaxSubPhase { get; init; } = ClimaxSubPhase.None;
     public DeepeningPolicy Deepening { get; init; } = DeepeningPolicy.None;
-    public bool RequireScenePresence { get; init; } = false;
     public NarrativeGranularity Granularity { get; init; } = NarrativeGranularity.Meso;
+
+    // ── B-089: derived Tempo / Span (single source of truth = the raw fields) ──
+    // The prompt renders these two, not the raw trio. Derived so the resolver and the
+    // raw fields stay the source of truth and the prompt/engine never diverge.
+
+    public SceneTempo Tempo => TempoFrom(Pacing, TimeShift, Granularity);
+    public SceneSpan Span => SpanFrom(BeatScope);
+
+    /// <summary>Derives a coherent <see cref="SceneTempo"/> from the raw trio. Pacing drives the density; a Large time-shift or Macro/Montage granularity upgrades Fast to Leap.</summary>
+    public static SceneTempo TempoFrom(ScenePacing pacing, TimeShiftPolicy timeShift, NarrativeGranularity granularity)
+    {
+        if (pacing == ScenePacing.Slow)
+            return SceneTempo.Linger;
+        if (pacing == ScenePacing.Fast)
+        {
+            return timeShift == TimeShiftPolicy.Large
+                   || granularity is NarrativeGranularity.Macro or NarrativeGranularity.Montage
+                ? SceneTempo.Leap
+                : SceneTempo.Push;
+        }
+        return SceneTempo.Steady;
+    }
+
+    /// <summary>Maps a <see cref="SceneTempo"/> to its coherent raw bundle.</summary>
+    public static (ScenePacing Pacing, TimeShiftPolicy TimeShift, NarrativeGranularity Granularity) TempoBundle(SceneTempo tempo) => tempo switch
+    {
+        SceneTempo.Linger => (ScenePacing.Slow, TimeShiftPolicy.None, NarrativeGranularity.Micro),
+        SceneTempo.Push => (ScenePacing.Fast, TimeShiftPolicy.Medium, NarrativeGranularity.Meso),
+        SceneTempo.Leap => (ScenePacing.Fast, TimeShiftPolicy.Large, NarrativeGranularity.Macro),
+        _ => (ScenePacing.Medium, TimeShiftPolicy.Small, NarrativeGranularity.Meso),
+    };
+
+    /// <summary>Derives a <see cref="SceneSpan"/> from a <see cref="BeatScope"/>.</summary>
+    public static SceneSpan SpanFrom(BeatScope beatScope) => beatScope switch
+    {
+        BeatScope.Single => SceneSpan.Moment,
+        BeatScope.Extended => SceneSpan.ExtendedArc,
+        _ => SceneSpan.Scene,
+    };
+
+    /// <summary>Maps a <see cref="SceneSpan"/> to its <see cref="BeatScope"/>.</summary>
+    public static BeatScope SpanToBeatScope(SceneSpan span) => span switch
+    {
+        SceneSpan.Moment => BeatScope.Single,
+        SceneSpan.ExtendedArc => BeatScope.Extended,
+        _ => BeatScope.Short,
+    };
+
+    /// <summary>Turn budget for a <see cref="SceneSpan"/> (Moment=1, Scene=3, ExtendedArc=5).</summary>
+    public static int SpanTurnBudget(SceneSpan span) => span switch
+    {
+        SceneSpan.Moment => 1,
+        SceneSpan.ExtendedArc => 5,
+        _ => 3,
+    };
 }

@@ -1317,14 +1317,6 @@
         {
             NormalizeTheme();
 
-            // Validate ClimaxMode mutual exclusion — fail fast before persisting.
-            // A theme cannot declare both [ClimaxMode:multi-encounter] and [ClimaxMode:quick-finish]
-            // in the same phase; they are mutually exclusive pacing modes.
-            foreach (var phaseGroup in _theme.PhaseGuidance.GroupBy(x => x.Phase.ToString(), StringComparer.OrdinalIgnoreCase))
-            {
-                RolePlayAssistantPrompts.EnsureClimaxModeMutualExclusion(_theme, phaseGroup.Key);
-            }
-
             var saved = await RPThemeService.SaveThemeAsync(_theme);
             _theme = saved;
             _status = "Theme saved.";

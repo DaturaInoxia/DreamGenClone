@@ -106,26 +106,6 @@ public static class RolePlayAssistantPrompts
     }
 
     /// <summary>
-    /// Validates that a theme does not declare both [ClimaxMode:multi-encounter] and
-    /// [ClimaxMode:quick-finish] in the same phase — they are mutually exclusive pacing modes.
-    /// Throws InvalidOperationException with an explicit diagnostic if both are present.
-    /// </summary>
-    public static void EnsureClimaxModeMutualExclusion(RPTheme? activeTheme, string phase)
-    {
-        if (activeTheme is null) return;
-        var phaseGuidance = activeTheme.PhaseGuidance
-            .Where(x => string.Equals(x.Phase.ToString(), phase, StringComparison.OrdinalIgnoreCase))
-            .ToList();
-        var hasMulti = phaseGuidance.Any(x => x.GuidanceText.Contains("[ClimaxMode:multi-encounter]", StringComparison.OrdinalIgnoreCase));
-        var hasQuick = phaseGuidance.Any(x => x.GuidanceText.Contains("[ClimaxMode:quick-finish]", StringComparison.OrdinalIgnoreCase));
-        if (hasMulti && hasQuick)
-        {
-            throw new InvalidOperationException(
-                $"ClimaxModeConflict: theme '{activeTheme.Id}' phase '{phase}' declares both [ClimaxMode:multi-encounter] and [ClimaxMode:quick-finish]. These are mutually exclusive pacing modes — remove one.");
-        }
-    }
-
-    /// <summary>
     /// Returns the pacing mode declared by [Pacing:slow], [Pacing:medium], or [Pacing:fast]
     /// in the theme's phase guidance for the given phase. Returns null if no marker is present.
     /// When no marker is present, no scene writing directive is injected.

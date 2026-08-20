@@ -17,26 +17,57 @@ public static class ContinuationOverrideResolver
         if (ov is null || !ov.HasSceneDirectionOverride)
             return intensity;
 
-        var baseDir = intensity.SceneDirection ?? new SceneDirection();
-        var overridden = baseDir with
-        {
-            Pacing = ov.Pacing ?? baseDir.Pacing,
-            BeatScope = ResolveBeatScope(baseDir, ov),
-            TimeShift = ov.TimeShift ?? baseDir.TimeShift,
-            Granularity = ov.Granularity ?? baseDir.Granularity,
-            Deepening = ov.Deepening ?? baseDir.Deepening,
-            RequireScenePresence = ov.RequireScenePresence ?? baseDir.RequireScenePresence,
-        };
+        ValidateCoherentOverride(ov);
 
+        var baseDir = intensity.SceneDirection ?? new SceneDirection();
+        var overridden = ApplySceneDirectionOverride(baseDir, ov);
         return intensity with { SceneDirection = overridden };
     }
 
     /// <summary>
-    /// Single decision path for Beat Style: override first, then the resolved base value.
-    /// Used by both prompt assembly and the beat-budget cursor so the two never diverge.
+    /// B-089: applies a <see cref="ContinuationOverride"/> to a raw <see cref="SceneDirection"/>
+    /// without needing the full <see cref="ResolvedIntensityData"/> wrapper. Used by prompt
+    /// assembly (via <see cref="ApplySceneDirection"/>) and by engine decision points
+    /// (e.g. time-skip Tempo resolution) so the two never diverge.
+    /// </summary>
+    public static SceneDirection ApplySceneDirectionOverride(SceneDirection baseDirection, ContinuationOverride? ov)
+    {
+        if (ov is null || !ov.HasSceneDirectionOverride)
+            return baseDirection;
+
+        ValidateCoherentOverride(ov);
+
+        // B-089: Tempo/Span are the primary controls. A set Tempo wins over the raw
+        // Pacing/TimeShift/Granularity (it IS their coherent bundle); a set Span wins over
+        // BeatScope. The raw fields remain for power-user "Advanced" disclosure and are
+        // applied on top if explicitly set.
+        var overridden = baseDirection with
+        {
+            Pacing = ov.Tempo.HasValue ? SceneDirection.TempoBundle(ov.Tempo.Value).Pacing : baseDirection.Pacing,
+            TimeShift = ov.Tempo.HasValue ? SceneDirection.TempoBundle(ov.Tempo.Value).TimeShift : baseDirection.TimeShift,
+            Granularity = ov.Tempo.HasValue ? SceneDirection.TempoBundle(ov.Tempo.Value).Granularity : baseDirection.Granularity,
+            BeatScope = ov.Span.HasValue ? SceneDirection.SpanToBeatScope(ov.Span.Value) : baseDirection.BeatScope,
+        };
+
+        // Raw-field overrides (Advanced) applied on top — they win for their single dimension.
+        return overridden with
+        {
+            Pacing = ov.Pacing ?? overridden.Pacing,
+            BeatScope = ResolveBeatScope(overridden, ov),
+            TimeShift = ov.TimeShift ?? overridden.TimeShift,
+            Granularity = ov.Granularity ?? overridden.Granularity,
+            Deepening = ov.Deepening ?? overridden.Deepening,
+        };
+    }
+
+    /// <summary>
+    /// Single decision path for Beat Style: override first (raw BeatScope, then Span),
+    /// then the resolved base value. Used by both prompt assembly and the beat-budget cursor
+    /// so the two never diverge.
     /// </summary>
     public static BeatScope ResolveBeatScope(SceneDirection baseDirection, ContinuationOverride? ov)
-        => ov?.BeatScope ?? baseDirection.BeatScope;
+        => ov?.BeatScope
+           ?? (ov?.Span.HasValue == true ? SceneDirection.SpanToBeatScope(ov.Span.Value) : baseDirection.BeatScope);
 
     public static ResolvedWritingStyleData ApplyWordCount(ResolvedWritingStyleData style, ContinuationOverride? ov)
     {
@@ -52,6 +83,30 @@ public static class ContinuationOverrideResolver
             WordTargetMax = max,
             WordTargetMarker = "override",
         };
+    }
+
+    /// <summary>
+    /// B-089 T8 — fail-fast on contradictory overrides. The Tempo bundle already makes the
+    /// primary controls structurally coherent; the only remaining contradiction is a Tempo
+    /// override combined with a raw field override that contradicts that Tempo's own bundle
+    /// (e.g. Tempo=Linger + Pacing=Fast). This throws with an explicit diagnostic instead of
+    /// silently letting the raw field win and reintroducing the old contradictory prompt (C10).
+    /// </summary>
+    public static void ValidateCoherentOverride(ContinuationOverride? ov)
+    {
+        if (ov is null || !ov.Tempo.HasValue)
+            return;
+
+        var (bundlePacing, bundleTimeShift, bundleGranularity) = SceneDirection.TempoBundle(ov.Tempo.Value);
+        if (ov.Pacing.HasValue && ov.Pacing.Value != bundlePacing)
+            throw new InvalidOperationException(
+                $"ContinuationOverrideConflict: Tempo={ov.Tempo.Value} is a coherent bundle (Pacing={bundlePacing}, TimeShift={bundleTimeShift}, Granularity={bundleGranularity}) but Pacing={ov.Pacing.Value} was also set. Pick Tempo alone or clear the conflicting raw field — the prompt would otherwise emit a contradictory directive.");
+        if (ov.TimeShift.HasValue && ov.TimeShift.Value != bundleTimeShift)
+            throw new InvalidOperationException(
+                $"ContinuationOverrideConflict: Tempo={ov.Tempo.Value} is a coherent bundle (Pacing={bundlePacing}, TimeShift={bundleTimeShift}, Granularity={bundleGranularity}) but TimeShift={ov.TimeShift.Value} was also set. Pick Tempo alone or clear the conflicting raw field — the prompt would otherwise emit a contradictory directive.");
+        if (ov.Granularity.HasValue && ov.Granularity.Value != bundleGranularity)
+            throw new InvalidOperationException(
+                $"ContinuationOverrideConflict: Tempo={ov.Tempo.Value} is a coherent bundle (Pacing={bundlePacing}, TimeShift={bundleTimeShift}, Granularity={bundleGranularity}) but Granularity={ov.Granularity.Value} was also set. Pick Tempo alone or clear the conflicting raw field — the prompt would otherwise emit a contradictory directive.");
     }
 
     public static bool ResolveMultiEncounterClimax(RolePlaySession session, RPTheme? theme)

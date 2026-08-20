@@ -1,7 +1,7 @@
 # B-089 — Continuation Settings Redesign: Tempo + Span
 
 **Created:** 2026-08-18
-**Status:** `designed` — design finalized 2026-08-19 (Tempo + Span wordings locked in §3.7). Not yet implemented; tasks in §4.
+**Status:** `done done` — **closed 2026-08-20.** Backend core (T1–T5, T7, T8) + popup Tempo/Span rows (T6) landed 2026-08-19. Full suite 1067/1067 green. **Revised 2026-08-19 (live validation): Design Decision D-1 — only the first actor sets the pace** (§3.7) — position-2+ Tempo variants superseded by a single tempo-independent "build on the first actor's pace" line; **code change landed 2026-08-19 (B-094), full suite 1100/1100 green.** **2026-08-19/20: FULL Tempo × Span matrix live-validated (all 8 combos, session `423a270c`) — injection + stage output-following confirmed; deficiencies logged below. Suite 1105/1105 green (includes 29 `TempoSpanUiFlowTests`).** The raw fields (Pacing/BeatStyle/TimeShift/Granularity/Deepening) remain behind the Advanced disclosure by design — power-user control + theme-marker compatibility (see §4c). Separate follow-up (not part of B-089): Theme Guidance UI in the theme editor (marker-authoring surface).
 **Backlog:** B-089
 **Source:** Full continuation/pacing audit of 2026-08-18 (persisted in `/memories/repo/continuation-settings-audit.md`).
 
@@ -222,7 +222,7 @@ Today "how much does time advance" is encoded in: `Pacing`, `TimeShift`, `Granul
 
 ### 3.7 Finalized prompt text — Tempo & Span directives
 
-> **Finalized 2026-08-19 design session.** Replaces the current Pacing + TimeShift + Granularity trio with **two** HCs per turn: one Tempo (density) + one Span (duration). Every value has an imperative verb, an explicit ceiling, an explicit floor where relevant, and no internal contradiction. Position 2+ gets a Tempo-aware variant (fixes C1). Narrative gets no tempo/span HC (§3.3).
+> **Finalized 2026-08-19 design session.** Replaces the current Pacing + TimeShift + Granularity trio with **two** HCs per turn: one Tempo (density) + one Span (duration). Every value has an imperative verb, an explicit ceiling, an explicit floor where relevant, and no internal contradiction. Narrative gets no tempo/span HC (§3.3). **Revised 2026-08-19 (live validation): only the first actor sets the pace** — position 2+ no longer receive a tempo-value pace directive; they get one tempo-independent "Subsequent actor" line that builds *within* the first actor's pace (Design Decision D-1 below, supersedes the earlier "Tempo-aware variant for position 2+").
 
 #### Design principles applied
 
@@ -237,8 +237,13 @@ Today "how much does time advance" is encoded in: `Pacing`, `TimeShift`, `Granul
 
 **Tempo = Linger** — intimate/pivotal moments, sensory depth (was Slow + TimeShift=None + Granularity=Micro)
 ```
-HARD CONSTRAINT — Tempo: Linger. Stay in this exact moment — do not advance time, do not leap to a new beat, position, or location. Deepen what is happening right now: sensory detail, internal reaction, the texture of this moment. One response covers one moment, not a scene.
+HARD CONSTRAINT — Tempo: Linger. Stay in this exact moment — do not advance time, do not leap to a new beat, position, or location. Deepen what is happening right now and move it forward within the moment: escalate the sensory detail, the internal reaction, the mounting tension — each response advances the moment one step closer to its resolution without leaving it or advancing time. One response covers one moment, not a scene.
 ```
+**Linger final beat turn only (B-095):**
+```
+HARD CONSTRAINT — Tempo: Linger. This is the final turn of this moment — conclude it now within the exact present: resolve the physical or emotional beat that has been building, then let the moment settle. Do not skip time or leap to a new scene; close the moment here rather than jumping past it.
+```
+> **B-095 (2026-08-19):** Linger's base wording previously overrode Span's final-turn "conclude now", so a Linger/Scene beat looped instead of concluding. Linger is now turn-aware (`DescribeTempo(v, isFinalBeatTurn)`): the base wording adds a progression clause ("advances the moment one step closer to its resolution") so turns 1–2 develop; the final-turn variant resolves the moment. Non-Linger tempos ignore the flag.
 
 **Tempo = Steady** — default scene-level advancement (was Medium + TimeShift=Small + Granularity=Meso)
 ```
@@ -255,19 +260,23 @@ HARD CONSTRAINT — Tempo: Push. Advance through two to three beats this respons
 HARD CONSTRAINT — Tempo: Leap. Advance time by a day or more — skip routine time and land on the next meaningful moment. Summarize what passed in a sentence or two; focus the response on the new day, the new circumstance. One response covers a day, a significant span, or multiple days to weeks. Do not stay in the previous moment.
 ```
 
-#### Tempo directives (position 2+, subsequent actors — fixes C1)
+#### Tempo directives (position 2+, subsequent actors)
 
-Position 2+ builds on the beat established by position 1. The Tempo tells them HOW to build on it. **No more hardcoded "Medium."**
+> **Design Decision D-1 (2026-08-19) — ONLY THE FIRST ACTOR SETS THE PACE.** Supersedes the per-tempo variants below. Live validation (Leap/Moment run, session `f1d424cc`) showed position 2+ receiving a tempo-value directive (`Tempo: Leap — … begin the new scene … do not return to the previous beat`) produced an immediate sexual continuation from Dean (pos 2) instead of grounding in the new moment the first actor established — i.e., a subsequent actor was told to set/advance pace. Fix: position 2+ get **one tempo-independent** line that continues the beat at the first actor's pace:
 
 ```
-HARD CONSTRAINT — Tempo: {Linger|Steady|Push|Leap}. You are a subsequent actor this turn — build on the beat already established by the first actor. {Tempo-specific instruction}
+HARD CONSTRAINT — Subsequent actor: The first actor has set the pace — continue the beat at that pace from your character's perspective. Move it forward without speeding it up, skipping ahead, or restarting it.
 ```
 
-Tempo-specific instruction for position 2+:
-- **Linger**: `Deepen the moment from your character's perspective — sensory detail, internal reaction. Do not advance the beat or introduce a new position.`
-- **Steady**: `Advance the beat one step from your character's perspective. Do not restart the scene or jump past the established beat.`
-- **Push**: `Carry the beat toward its resolution from your character's perspective. Compress forward — do not restart.`
-- **Leap**: `You are now in the new moment the first actor established. Begin the new scene from your character's perspective — do not return to the previous beat.`
+> **Reword 2026-08-19 (freeze fix):** the original line ("Do not advance time, change the pacing, or introduce a new beat") froze the whole turn — combined with Linger's stay-in-moment it trapped the model in a repeated scene (observed live in session `f1d424cc`, which was already in a daily-rhythm loop). The reword keeps "only the first actor sets the pace" but lets subsequent actors *continue* the beat (no freeze). See B-094.
+
+**Status:** IMPLEMENTED 2026-08-19 (B-094). The per-tempo variants below are retired — `DescribeSubsequentPace()` ships and tests assert the new line. Full suite 1100/1100 green.
+
+**Superseded per-tempo variants (implemented 2026-08-19, retained for reference):**
+- **Linger**: `…build on the beat already established by the first actor. Deepen the moment from your character's perspective — sensory detail, internal reaction. Do not advance the beat or introduce a new position.`
+- **Steady**: `…build on the beat already established by the first actor. Advance the beat one step from your character's perspective. Do not restart the scene or jump past the established beat.`
+- **Push**: `…build on the beat already established by the first actor. Carry the beat toward its resolution from your character's perspective. Compress forward — do not restart.`
+- **Leap**: `…build on the beat already established by the first actor. You are now in the new moment the first actor established. Begin the new scene from your character's perspective — do not return to the previous beat.`
 
 #### Span directives (per turn position — replaces Beat Style stage)
 
@@ -287,11 +296,11 @@ HARD CONSTRAINT — Span: Moment. This moment lasts a single turn — resolve it
 - Turn P of 5 (P < 5): `HARD CONSTRAINT — Span: Extended Arc. This moment spans 5 turns. You are on turn {P} of 5 — {establish it only | develop it further}. Do NOT bring the moment to its climax or conclusion this turn. End your response mid-action, before the resolution.`
 - Turn 5 of 5 (final): `HARD CONSTRAINT — Span: Extended Arc. This moment spans 5 turns. You are on turn 5 of 5 — bring it to its climax or conclusion now and move on.`
 
-Span is a **lead-actor directive** (position 1 only). Subsequent actors already get the Tempo-aware "build on the beat" constraint, so they must not also receive a conflicting duration directive (same as the current `isLeadActor` gate in `FinalInstructionSlot`).
+Span is a **lead-actor directive** (position 1 only). Subsequent actors get the tempo-independent "build on the first actor's pace" line (Design Decision D-1) and must not also receive a conflicting duration directive (same as the current `isLeadActor` gate in `FinalInstructionSlot`).
 
 #### Tempo × Span reconciliation
 
-Tempo (density) and Span (duration) control different axes and change at different rates — Tempo is per-beat, Span is per-turn. They can appear to conflict when Tempo=Push says "compress toward resolution" but Span says "do NOT conclude this turn" on a non-final turn. The reconciliation is explicit:
+Tempo (density) and Span (duration) control different axes and change at different rates — Tempo is per-beat, Span is per-turn. They can appear to conflict when Tempo=Push says "compress toward resolution" but Span says "do NOT conclude this turn" on a non-final turn. The reconciliation is explicit. **This reconciliation concerns the lead actor only** — position 2+ carry no Tempo directive per Design Decision D-1, so there is nothing to reconcile for them (they simply build within the first actor's pace).
 
 - **Span wins on WHEN to conclude.** On non-final turns, Span's "Do NOT bring the moment to its climax or conclusion this turn. End your response mid-action" overrides Tempo=Push's "toward resolution" — the model compresses WITHIN the moment but does not CONCLUDE it.
 - **Tempo wins on HOW MUCH to compress.** On every turn, Tempo controls how many beats the response covers (Linger: 0 beats, deepen; Steady: 1 beat; Push: 2–3 beats; Leap: a day+).
@@ -308,7 +317,7 @@ NO tempo/span HC — Narrative is a synthesis of the other characters' turns, no
 1. **One density HC (Tempo) + one duration HC (Span)** replace the current three competing HCs (Pacing + TimeShift + Granularity) — C3 becomes structurally impossible.
 2. **Every value has an imperative verb** — fixes Slow's oxymoron ("advance within") and TimeShift's noun phrases ("Minutes to a few hours.").
 3. **Every value has an explicit ceiling** — fixes Fast's no-ceiling overrun (Push: "2–3 beats, do not compress an entire arc unless final beat"; Linger: "do not advance time"; Steady: "no more than half a day"; Leap: "a day or more").
-4. **Position 2+ gets a Tempo-aware variant** — fixes C1's hardcoded "Medium." The chosen Tempo actually reaches positions 2/3.
+4. **Position 2+ builds on the first actor's pace — they do not set pace** (Design Decision D-1, 2026-08-19). Fixes C1's hardcoded "Medium" and goes further: a single tempo-independent "Subsequent actor" line replaces the per-tempo variants, so only the lead actor sets pace. *(Originally implemented 2026-08-19 as per-tempo variants; superseded by D-1 — B-094.)*
 5. **Span wording preserved from Beat Style** — the strongest existing wording (turn position + hard negative + "end mid-action") is kept, just relabeled.
 6. **Tempo × Span reconciliation is explicit and test-covered** — no more silent suppression (C4's force-override of Granularity is gone because Granularity is no longer a separate HC).
 
@@ -317,6 +326,8 @@ NO tempo/span HC — Narrative is a synthesis of the other characters' turns, no
 ## 4. Plan — Implementation Tasks (persisted 2026-08-19)
 
 > **Order:** the prompt-text rewrite (§3.7) comes before the UI, because the current wording is broken and would be carried into the new UI unchanged. Tasks T1–T3 are the actual behavioral fix; T4–T8 are the UX/cleanup layer. Each task is independently shippable and testable.
+
+> **Implementation status (2026-08-19):** T1–T8 implemented. Full suite 1067/1067 green. See `## 4b. Implementation Record` below.
 
 ### T1 — Fix the Climax default contradiction (C3)
 - **Files:** `DreamGenClone.Web/Application/RolePlay/SceneDirectionResolver.cs` — `PhaseDefaultTimeShiftMap[Climax]` Medium→None; `[Reset]`→Large.
@@ -359,6 +370,83 @@ NO tempo/span HC — Narrative is a synthesis of the other characters' turns, no
 - **Acceptance:** contradictory combos fail fast with a diagnostic (per the repo's no-fallback contract); never silently produce a contradictory prompt.
 
 Each step is independently shippable and testable. T1–T3 are the behavioral fix (validated against real built prompts per the pacing-directive findings checklist); T4–T8 are the UX/cleanup layer.
+
+---
+
+## 4b. Implementation Record (2026-08-19)
+
+All tasks implemented. Full suite **1067/1067 green** (the single `ModelProcessingWorkerTests` failure observed once was flaky — passes in isolation, unrelated to this work).
+
+| Task | Status | What landed |
+|---|---|---|
+| T1 | ✅ | `SceneDirectionResolver.PhaseDefaultTimeShiftMap`: Climax `Medium→None`, Reset `Medium→Large`. `SceneDirectionResolverTests` updated. |
+| T2 | ✅ | Position 2+ now emits the Tempo-aware subsequent-actor variant (not hardcoded "Medium") — folded into T3 slot rewrite. |
+| T3 | ✅ | `FinalInstructionSlot` emits ONE `Tempo` HC (all positions) + ONE `Span` HC (lead actor only, turn-position-aware). Removed Pacing/TimeShift/Granularity/ScenePresence HCs. `ContinuationMarkerCatalog` gained `DescribeTempo`, `DescribeSubsequentTempo`, `DescribeSpan`, `GetSpanTurnBudget`, `TempoLabel`, `SpanLabel`. |
+| T4 | ✅ | `SceneTempo`/`SceneSpan` enums + `TempoFrom`/`TempoBundle`/`SpanFrom`/`SpanToBeatScope`/`SpanTurnBudget` on `SceneDirection`. `ContinuationOverride` gained `Tempo?`/`Span?`. `ContinuationOverrideResolver` gained `ApplySceneDirectionOverride` (works on raw `SceneDirection`, used by prompt + engine). |
+| T5 | ✅ | `RolePlayEngineService.ResolveEffectiveTempo` + Tempo-aware `AdvanceTime` directive (Leap → "a different day"; Linger/Steady → "later the same day or next morning"). Closes C9. |
+| T6 | ✅ | `ContinuationSettingsPopup`: Tempo + Span primary rows; raw fields (Pacing/BeatStyle/TimeShift/Granularity/Deepening) behind an "Advanced" disclosure; Climax Mode / Aftermath / Word Count unchanged. |
+| T7 | ✅ | Removed `EnsureClimaxModeMutualExclusion` (quick-finish dead) from `RolePlayAssistantPrompts`, its call in `RPThemeDetail.razor`, and 5 tests in `MultiEncounterClimaxTests`. Removed `RequireScenePresence` from `SceneDirection`/`ContinuationOverride`/resolver; dropped `ResolveScenePresence`; dropped `DescribeScenePresence`/`ScenePresenceLabel`. |
+| T8 | ✅ | `ContinuationOverrideResolver.ValidateCoherentOverride` — fail-fast when a `Tempo` override conflicts with a raw Pacing/TimeShift/Granularity override. |
+
+**New tests:** `TempoSpanDirectiveTests.cs` (20 tests) — derivation, finalized wording, position-2+ variants, Tempo×Span reconciliation (Push+Scene turn1 holds conclusion / final turn aligned), override mapping, T8 fail-fast. Updated: `SceneDirectionConsolidationTests`, `SceneDirectionResolverTests`, `ContinuationOverrideSlotTests`, `MultiEncounterClimaxTests`. *(2026-08-19: `TempoSpanUiFlowTests.cs` added — 29 UI-flow tests; Playwright E2E project `artifacts/e2e/` added for the popup.)*
+
+**2026-08-19 (post-implementation) — live model-output validation, session `f1d424cc`:**
+- Verified prompt injection end-to-end: position 1 gets the full Tempo + Span HCs verbatim; position 2+ get the subsequent-actor Tempo variant; Narrative gets neither. Output for **Leap** (Becky/Ken) followed the directive (time advanced, routine summarized); **Dean (pos 2, Leap variant) did NOT** — he continued the prior sexual beat instead of grounding in the new moment.
+- **Design Decision D-1 — only the first actor sets the pace.** Position-2+ tempo-value variants let subsequent actors set/advance pace; superseded by a single tempo-independent "Subsequent actor — continue the beat at the first actor's pace" line (§3.7). **Landed 2026-08-19 (B-094)** — `ContinuationMarkerCatalog.DescribeSubsequentPace()` replaces `DescribeSubsequentTempo`; `FinalInstructionSlot` emits it for position 2+; tests updated; suite **1100/1100 green**. Live-verified: turn-2/3 prompts (session f1d424cc) show pos-2+ receive the subsequent-actor line with **no Tempo value**. **Reworded same day (freeze fix):** original "Do not advance time, change the pacing, or introduce a new beat" froze the turn — combined with Linger it trapped the model in a repeated scene (session `f1d424cc` was already in a daily-rhythm loop; the freeze amplified it). New line allows *continuing* the beat at the first actor's pace. Full suite green after reword.
+- **Linger × multi-turn Span contradiction (new finding, 2026-08-19 — B-095).** Linger/Scene 3-turn live run: prompt injection was perfect (pos-1 Linger verbatim; Span stages "turn 1 of 3 — establish only" / "turn 2 of 3 — develop" / "turn 3 of 3 — bring to conclusion now" with B-090 Turn-49 anchors; B-094 line on pos-2+; Narrative none) — **but the output did NOT follow the stages**: Becky's responses were near-identical across all 3 turns ("stood at the glass, dust settling, Dean didn't touch me, kitchen doorway"), so the moment never developed (turn 2) or concluded (turn 3). Linger's "Stay in this exact moment — do not advance time… One response covers one moment, not a scene" is so emphatic it overrides Span's "conclude now and move on." The Tempo×Span reconciliation (Span wins on WHEN) does not hold under Linger. **Fix landed 2026-08-19 (B-095):** Linger is turn-aware (`DescribeTempo(v, isFinalBeatTurn)`); the base wording gains a progression clause ("each response advances the moment one step closer to its resolution") so turns 1–2 develop; the final-turn variant resolves the moment. Non-Linger tempos ignore the flag. Tests added; suite green.
+- Session `f1d424cc` override restored to Tempo=Leap / Span=Moment (word 500/1000) after the live runs.
+
+**2026-08-19/20 — FULL Tempo × Span matrix validation, session `423a270c` (fresh Campground Intimacy).** All 8 combos run live against real model output (multiple turns each; ~21 turns / 89 interactions total). Every combo validated on (a) prompt injection — lead actor (pos 1) gets the exact Tempo + Span HC verbatim, positions 2+ get the tempo-independent B-094 subsequent line with no Tempo value, Narrative gets neither; (b) Span stage output-following — establish only (turn 1), develop (middle turns), conclude now (final turn); (c) no loop.
+
+| Tempo | Span | Turns | Result |
+|-------|------|-------|--------|
+| Linger | Scene (3t) | develop+conclude | ✅ injection perfect; stages followed after B-095 turn-aware Linger |
+| Steady | Moment | 1 | ✅ single turn, resolved, no loop |
+| Steady | Scene (3t) | 3 | ✅ full establish→develop→conclude arc followed |
+| Push | Moment | 1 | ✅ compressed 2–3 beats → kiss, resolved now |
+| Push | Scene (3t) | 3 | ✅ full 3-stage arc followed |
+| Leap | Moment | 1 | ✅ leapt a day+, summarized routine, resolved now |
+| Leap | Scene (3t) | 3 | ✅ full 3-stage arc followed (time-leap establish) |
+| Steady | ExtendedArc (5t) | 5 | ✅ all 5 stages ("turn N of 5"); conclude directive correct |
+
+B-090 absolute Turn anchors verified in every Scene/ExtendedArc run ("which began at Turn N" — anchors advanced 11 → 15 → 19 → 22 as expected). B-095 final-turn Linger variant present on Linger conclude turns.
+
+**Deficiencies found during matrix (non-blocking, engine-side):**
+1. **Missing character responses (recurring):** several turns produced only 3/4 interactions — Ken's response absent (Leap/Moment, Leap/Scene T1+T3, Steady/ExtendedArc T1/T3/T4/T5). Injection for the produced actors was correct; this is a turn-pipeline completeness issue, not a directive issue.
+2. **Transient turn stall:** Steady/Scene T3 stalled after the Narrative (interaction count +1, no character responses, nothing logged). Recovery: clicking continue again completed the turn; the beat turn-counter was unaffected (no character turn had been produced).
+3. **ExtendedArc T5 conclude output-following (mild):** directive said "turn 5 of 5 — bring it to its climax or conclusion now"; output reached the arc's climax but ended still mid-action (Becky rises over Dean) rather than fully closing the scene. The model tends to keep a sexual beat going even under a conclude directive.
+4. **Popup label cosmetic:** the span "current:" label renders `ExtendedArc` (no space) while the button reads "Extended Arc" — cosmetic inconsistency only.
+5. **Blazor rapid-click loss:** setting Tempo+Span via back-to-back JS `.click()` drops intermediate clicks (verified: Steady+Scene saved as Steady/Moment). Workaround: waits between clicks + label verification before Done. Not a directive bug.
+
+Session `423a270c` override restored to Tempo=Linger / Span=Scene (its pre-matrix state) after the runs.
+
+### 4c. Engine & Testing Learnings (2026-08-19/20)
+
+Operational knowledge gained while running the matrix. Save future sessions from re-deriving these.
+
+**How to test Tempo/Span end-to-end (the working recipe):**
+1. **Use a fresh session, not an entrenched one.** Fresh sessions (e.g. `423a270c`) follow directives reliably; entrenched sessions with an established daily-rhythm loop (`f1d424cc`) can resist pacing changes no matter how correct the prompt is. Fresh scene = clean signal for output-following.
+2. **Set the override through the popup with a robust click sequence.** Back-to-back JS `.click()` on Tempo then Span drops the intermediate click (Blazor async race — verified: Steady+Scene saved as Steady/Moment). Correct sequence: open Settings → wait ~800ms → click Tempo → wait ~700ms → click Span → wait ~700ms → **read the "current:" labels and verify the expected values** → click Done → wait ~2s → confirm the popup closed. Only click Done when the labels match.
+3. **Verify the DB, not just the UI.** `dbq.ps1 sql artifacts/tmp/dbquery/queries/e2e_override_restore_check.sql <full-guid>` prints tempo/span as INTs (Tempo: Linger=0, Steady=1, Push=2, Leap=3; Span: Moment=0, Scene=1, ExtendedArc=2). Use the FULL GUID — short prefixes don't match the `{{id}}` substitution.
+4. **Trigger + wait + extract.** Click `button.rw-continue-btn` (via `page.evaluate`), confirm it flips to disabled, then `wait_full_turn.py <sid> <baseline> 300` waits for the full 4-interaction batch. Extract with `show_turn_outputs.py <sid> <count> <chars>` (directives + output heads) and `full_output.py <sid> <idPrefix>` for a complete response.
+5. **Validate three things per combo:** (a) injection — lead pos1 gets Tempo+Span verbatim, pos2+ get the B-094 line with no Tempo/Span, Narrative gets neither; (b) stage output-following — establish-only on turn 1, develop on middle turns, conclude on the final turn; (c) no loop (output differs turn to turn).
+6. **Track the beat turn-counter via the Span anchor wording.** "beginning this turn (Turn N)" on turn 1 vs "which began at Turn N" on middle/final turns — the anchor advancing across runs (11→15→19→22) confirms the cursor resets and re-anchors per beat.
+
+**Engine behaviors learned:**
+- **A turn = Narrative + 3 character responses, but the lead/order varies.** The lead (position 1, gets the Span HC) rotates across turns (e.g. Leap/Scene T1 lead=Dean, T2 lead=Becky). The narrative can come first or last in the persisted batch. Don't assume a fixed actor order — read the directives per interaction, not by position.
+- **Turn pipeline can produce 3/4 interactions** (a character response silently absent — Ken was the recurring miss). Injection for produced actors is still correct; this is a pipeline-completeness gap, not a directive problem. Treat it as a known, non-blocking deficiency.
+- **Turn pipeline can stall after the Narrative** (interaction count +1, no character responses, nothing written to the app log). Recovery: click continue again — the beat turn-counter is unaffected because no character turn was produced, so the next lead still gets the correct stage ("turn 3 of 3" resumed correctly).
+- **Non-blocking semantic-inference JSON parse failures** (e.g. an unescaped newline in `evidenceSpan`) abort only the background semantic analysis for that interaction — they do NOT affect prompt building or the turn itself. They show as `[WRN] Semantic analysis aborted` in the log and are safe to ignore for prompt-validation purposes.
+- **Linger still needs the turn-aware guard (B-095) to develop across turns.** Non-Linger tempos never hit this because they already "advance one beat / compress"; Linger's emphatic stay-in-moment wording otherwise pins the model to one repeated response.
+- **The conclude stage is the weakest output-follower.** Model reliably establishes (turn 1) and develops (middle), but on the final "conclude now" turn it may reach the beat's climax and then keep the sexual beat going rather than closing the scene. When judging a conclude turn, accept "climax reached + scene moved on" as passing; flag "explicitly re-opens the beat" as a failure.
+- **B-094's subsequent-actor line is doing its job** — positions 2+ never carry a Tempo/Span value and their outputs now stay at the first actor's pace instead of setting a new one.
+
+**Tooling notes:**
+- Prompt canonical check: `Sessions.PayloadJson.interactions[].promptText` / `PromptBuilt` debug events; `dump_prompt_directives.py <sid> <idxFromEnd>` greps directive-shaped lines from a stored prompt.
+- The popup span label renders `ExtendedArc` (no space) while the button reads "Extended Arc" — cosmetic only; don't build a matcher on one of them without handling the other.
+- Always restore the session's pre-test override when done (e.g. `423a270c` → Linger/Scene) so the workspace isn't left in a test state.
+
+**Remaining follow-up:** Theme Guidance UI in the theme editor (surfaces the same Tempo/Span + marker controls so authors don't type `[Tempo:*]`/`[Span:*]` raw). Not part of this pass.
 
 ---
 
