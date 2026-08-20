@@ -8,11 +8,15 @@
 @using DreamGenClone.Domain.RolePlay
 @using DreamGenClone.Domain.ModelManager
 @using DreamGenClone.Application.ModelManager
+@using DreamGenClone.Web.Application.StoryAnalysis
+@using DreamGenClone.Domain.StoryAnalysis
+@using System.Text.Json
 @implements IAsyncDisposable
 
 @inject ISessionService SessionService
 @inject ISceneImageService ImageService
 @inject IModelResolutionService ModelResolutionService
+@inject StoryAnalysisFacade StoryAnalysis
 @inject WorkspaceSettingsState WorkspaceSettings
 @inject NavigationManager Nav
 @inject ILogger<SceneImageStudio> Logger
@@ -67,7 +71,7 @@
                         <span class="text-muted ms-2 small">@_interaction?.ActorName</span>
                     </div>
                     <div class="card-body">
-                        <div class="border rounded p-2 bg-light" style="max-height: 320px; overflow: auto; white-space: pre-wrap;">@_interaction?.Content</div>
+                        <div class="scene-image-story-moment" style="max-height: 320px; overflow: auto; white-space: pre-wrap;">@_interaction?.Content</div>
                     </div>
                 </div>
 
@@ -78,7 +82,7 @@
                             <span class="text-muted">Phase</span><span>@_session.AdaptiveState.CurrentPhase</span>
                         </li>
                         <li class="list-group-item d-flex justify-content-between">
-                            <span class="text-muted">Intensity</span><span>@(_session.LastResolvedIntensityLabel ?? "unknown")</span>
+                            <span class="text-muted">Intensity</span><span>@(_resolvedIntensityLabel ?? "unknown")</span>
                         </li>
                         <li class="list-group-item d-flex justify-content-between">
                             <span class="text-muted">Setting</span><span>@(_session.AdaptiveState.CurrentSceneLocation ?? "unknown")</span>
@@ -204,6 +208,8 @@
                                             <span>
                                                 @if (img.Status == SceneImageStatus.Complete)
                                                 {
+                                                    <button class="btn btn-sm btn-outline-secondary scene-image-continue-btn py-0 px-1" title="Continue from this image (reuse prompt + settings)" disabled="@_busy"
+                                                            @onclick="() => ContinueFromImageAsync(img)">&#8635;</button>
                                                     <button class="btn btn-sm btn-outline-secondary py-0 px-1" title="Regenerate (keeps this version)" disabled="@(_busy || HasInFlightWork())"
                                                             @onclick="() => RegenerateImageAsync(img)">&#128260;</button>
                                                 }
@@ -211,6 +217,10 @@
                                                         @onclick="() => RequestDeleteImageAsync(img)">&#x2715;</button>
                                             </span>
                                         </div>
+                                        @if (_continueFromImageId == img.Id)
+                                        {
+                                            <div class="alert alert-success py-1 px-2 small mt-1 mb-0">Loaded prompt + settings from this image. Edit and Render to continue.</div>
+                                        }
                                         @if (_pendingDeleteImageId == img.Id)
                                         {
                                             <div class="d-flex gap-2 mt-1 align-items-center">
@@ -254,6 +264,9 @@
     private string? _policyResolutionError;
     private string? _pendingDeleteImageId;
     private bool _settingsSeeded;
+    private string? _continueFromImageId;
+    private string? _resolvedIntensityLabel;
+    private Dictionary<string, IntensityProfile> _intensityProfilesById = new(StringComparer.OrdinalIgnoreCase);
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -289,6 +302,8 @@
                 _settingsSeeded = true;
             }
 
+            await LoadIntensityProfilesAsync();
+            ResolveIntensityLabel();
             await ResolvePolicyAsync();
             await RefreshAsync();
         }
@@ -313,6 +328,49 @@
         Logger.LogInformation(
             "Seeded studio settings from workspace defaults: SessionId={SessionId}, ImageSize={ImageSize}, Style={Style}, AllowExplicitImage={AllowExplicitImage}",
             sessionId, _settings.ImageSize, _settings.Style, _settings.AllowExplicitImage);
+    }
+
+    private async Task LoadIntensityProfilesAsync()
+    {
+        try
+        {
+            var intensityProfiles = await StoryAnalysis.ListIntensityProfilesAsync();
+            _intensityProfilesById = intensityProfiles
+                .Where(x => x.Intensity != IntensityLevel.Intro)
+                .ToDictionary(x => x.Id, StringComparer.OrdinalIgnoreCase);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to load intensity profiles for studio: SessionId={SessionId}", sessionId);
+            _intensityProfilesById = new(StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    private void ResolveIntensityLabel()
+    {
+        if (_session is null)
+        {
+            _resolvedIntensityLabel = null;
+            return;
+        }
+
+        IntensityLevel? selectedIntensityLevel = IntensityLevel.Emotional;
+        IntensityLevel? adaptiveIntensityLevel = null;
+
+        if (!string.IsNullOrWhiteSpace(_session.SelectedIntensityProfileId)
+            && _intensityProfilesById.TryGetValue(_session.SelectedIntensityProfileId, out var intensityProfile))
+        {
+            selectedIntensityLevel = intensityProfile.Intensity;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_session.AdaptiveIntensityProfileId)
+            && _intensityProfilesById.TryGetValue(_session.AdaptiveIntensityProfileId, out var adaptiveProfile))
+        {
+            adaptiveIntensityLevel = adaptiveProfile.Intensity;
+        }
+
+        var (label, _) = RolePlayStyleResolver.ResolveEffectiveStyle(_session, selectedIntensityLevel, adaptiveIntensityLevel);
+        _resolvedIntensityLabel = label;
     }
 
     private async Task ResolvePolicyAsync()
@@ -402,8 +460,10 @@
                 PromptRecordId = _activePrompt.Id,
                 Prompt = _editablePrompt.Trim(),
                 ImageSize = _settings.ImageSize,
-                RegenerateOfId = null
+                SettingsJson = JsonSerializer.Serialize(_settings),
+                RegenerateOfId = _continueFromImageId
             });
+            _continueFromImageId = null;
             _images.Insert(0, record);
             _statusMessage = "Image render queued.";
             EnsurePolling();
@@ -423,11 +483,46 @@
                 PromptRecordId = _activePrompt.Id,
                 Prompt = _editablePrompt.Trim(),
                 ImageSize = _settings.ImageSize,
+                SettingsJson = JsonSerializer.Serialize(_settings),
                 RegenerateOfId = image.Id
             });
+            _continueFromImageId = null;
             _images.Insert(0, record);
             _statusMessage = "Regeneration queued (previous version kept).";
             EnsurePolling();
+        });
+    }
+
+    private async Task ContinueFromImageAsync(SceneImageRecord image)
+    {
+        await RunAsync(async () =>
+        {
+            _continueFromImageId = image.Id;
+
+            // Restore the prompt that produced this image.
+            if (!string.IsNullOrWhiteSpace(image.PromptSnapshot))
+            {
+                _editablePrompt = image.PromptSnapshot;
+            }
+
+            // Restore the exact settings that produced this image.
+            if (!string.IsNullOrWhiteSpace(image.SettingsJson) && image.SettingsJson != "{}")
+            {
+                try
+                {
+                    var restored = JsonSerializer.Deserialize<SceneImageStudioSettings>(image.SettingsJson);
+                    if (restored is not null)
+                    {
+                        _settings = restored;
+                    }
+                }
+                catch (JsonException ex)
+                {
+                    Logger.LogWarning(ex, "Failed to restore settings from image {ImageId}; keeping current settings.", image.Id);
+                }
+            }
+
+            _statusMessage = "Loaded prompt + settings from the selected image. Edit and render to continue from it.";
         });
     }
 

@@ -104,7 +104,9 @@ public sealed class SceneImageRepositoryTests
                 InteractionId = "i1",
                 PromptRecordId = "p1",
                 PromptSnapshot = "a cat in a hat",
-                Status = SceneImageStatus.Pending
+                Status = SceneImageStatus.Pending,
+                SettingsJson = "{\"Style\":\"cartoon\",\"ImageSize\":\"1024x1024\",\"AllowExplicitImage\":true}",
+                Style = "cartoon"
             };
             await repo.InsertImageAsync(image);
 
@@ -127,6 +129,9 @@ public sealed class SceneImageRepositoryTests
             Assert.Equal(SceneImageStatus.Complete, loaded!.Status);
             Assert.Equal("s1/img.png", loaded.FileRelativePath);
             Assert.Equal("Together", loaded.ProviderName);
+            // CR-003: full settings snapshot persisted with the image.
+            Assert.Equal("cartoon", loaded.Style);
+            Assert.Contains("AllowExplicitImage", loaded.SettingsJson, StringComparison.Ordinal);
 
             var byInteraction = await repo.ListImagesByInteractionAsync("s1", "i1");
             Assert.Single(byInteraction);

@@ -1,8 +1,10 @@
 using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Domain.Templates;
 using DreamGenClone.Web.Application.RolePlay;
 using DreamGenClone.Web.Application.RolePlay.Models;
 using DreamGenClone.Web.Domain.RolePlay;
+using DreamGenClone.Web.Domain.Scenarios;
 
 namespace DreamGenClone.Tests.RolePlay;
 
@@ -122,6 +124,137 @@ public sealed class SceneImagePromptPreprocessorTests
         // The moment line is truncated; the full content block cannot exceed the excerpt cap.
         Assert.DoesNotContain(new string('x', SceneImagePromptPreprocessor.InputExcerptMaxChars + 1), user);
         Assert.True(user.Length < interaction.Content.Length);
+    }
+
+    [Fact]
+    public void BuildMessages_CharacterAppearance_IncludesActorVisualIdentity()
+    {
+        var characters = new List<Character>
+        {
+            new()
+            {
+                Id = "c1",
+                Name = "Wife",
+                Gender = "Female",
+                PhysicalAttributes = new PhysicalAttributes
+                {
+                    Age = "32",
+                    HairColour = "auburn",
+                    HairStyle = "shoulder-length",
+                    EyeColour = "green",
+                    BodyType = "athletic",
+                    SkinTone = "fair"
+                }
+            }
+        };
+        var settings = new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024" };
+        var (system, user) = _preprocessor.BuildMessages(
+            MakeSession(), MakeInteraction(), MakeState(), settings,
+            ImageContentPolicy.AdultAllowed, null, null, characters);
+
+        Assert.Contains("CHARACTER APPEARANCE", user, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("auburn", user, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("green", user, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("athletic", user, StringComparison.OrdinalIgnoreCase);
+        // The likeness directive tells the pre-processor to keep identity fixed.
+        Assert.Contains("CHARACTER LIKENESS", system, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void BuildMessages_CharacterAppearance_ExcludesMeasurementsAndIntimate()
+    {
+        var characters = new List<Character>
+        {
+            new()
+            {
+                Id = "c1",
+                Name = "Wife",
+                Gender = "Female",
+                PhysicalAttributes = new PhysicalAttributes
+                {
+                    HairColour = "black",
+                    EyeColour = "brown",
+                    BustSize = "large",
+                    EndowmentLength = "large",
+                    VaginalTightness = "tight"
+                }
+            }
+        };
+        var settings = new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024" };
+        var (_, user) = _preprocessor.BuildMessages(
+            MakeSession(), MakeInteraction(), MakeState(), settings,
+            ImageContentPolicy.AdultAllowed, null, null, characters);
+
+        // Visual identity present.
+        Assert.Contains("black", user, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("brown", user, StringComparison.OrdinalIgnoreCase);
+        // Measurements + intimate fields must NOT leak into the image prompt.
+        Assert.DoesNotContain("Bust", user, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Vaginal", user, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Endowment", user, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void BuildMessages_CharacterAppearance_NoCharacters_NoBlock()
+    {
+        var settings = new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024" };
+        var (_, user) = _preprocessor.BuildMessages(
+            MakeSession(), MakeInteraction(), MakeState(), settings,
+            ImageContentPolicy.AdultAllowed, null, null, null);
+
+        Assert.DoesNotContain("CHARACTER APPEARANCE", user, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void BuildMessages_CharacterAppearance_NoAppearanceData_NoBlock()
+    {
+        // Actor has no physical attributes and no description → no appearance block.
+        var characters = new List<Character> { new() { Id = "c1", Name = "Wife" } };
+        var settings = new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024" };
+        var (_, user) = _preprocessor.BuildMessages(
+            MakeSession(), MakeInteraction(), MakeState(), settings,
+            ImageContentPolicy.AdultAllowed, null, null, characters);
+
+        Assert.DoesNotContain("CHARACTER APPEARANCE", user, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void BuildMessages_CharacterAppearance_DescriptionFallback_WhenNoStructuredAttributes()
+    {
+        var characters = new List<Character>
+        {
+            new() { Id = "c1", Name = "Wife", Description = "a tall woman with striking blue eyes and long blonde hair" }
+        };
+        var settings = new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024" };
+        var (_, user) = _preprocessor.BuildMessages(
+            MakeSession(), MakeInteraction(), MakeState(), settings,
+            ImageContentPolicy.AdultAllowed, null, null, characters);
+
+        Assert.Contains("CHARACTER APPEARANCE", user, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("blonde", user, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("blue eyes", user, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void BuildMessages_CharacterAppearance_PersonaIncluded_WhenDifferentFromActor()
+    {
+        var session = MakeSession();
+        session.PersonaName = "Ken";
+        session.PersonaPhysicalAttributes = new PhysicalAttributes
+        {
+            Height = "6'1\"",
+            HairColour = "dark brown",
+            EyeColour = "hazel",
+            BodyType = "lean"
+        };
+        var settings = new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024" };
+        var (_, user) = _preprocessor.BuildMessages(
+            session, MakeInteraction(), MakeState(), settings,
+            ImageContentPolicy.AdultAllowed, null, null, null);
+
+        Assert.Contains("CHARACTER APPEARANCE", user, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Ken", user, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("hazel", user, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

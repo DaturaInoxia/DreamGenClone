@@ -45,6 +45,12 @@ public sealed class SceneImageRecord
     public ImageContentPolicy ContentPolicy { get; set; } = ImageContentPolicy.Unknown;
     public string? ImageSize { get; set; }
     public string? Style { get; set; }
+
+    /// <summary>Snapshot of the full <c>SceneImageStudioSettings</c> (style, size, aspect ratio,
+    /// explicitness) used for this render. Enables "continue from this image" — the studio can
+    /// restore the exact settings that produced the image.</summary>
+    public string SettingsJson { get; set; } = "{}";
+
     public string? ErrorMessage { get; set; }
 
     /// <summary>Parent image id when this record is a regenerate of another.</summary>

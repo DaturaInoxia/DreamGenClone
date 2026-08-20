@@ -2,6 +2,7 @@ using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Web.Application.RolePlay.Models;
 using DreamGenClone.Web.Domain.RolePlay;
+using DreamGenClone.Web.Domain.Scenarios;
 
 namespace DreamGenClone.Web.Application.RolePlay;
 
@@ -20,7 +21,8 @@ public interface ISceneImagePromptPreprocessor
         SceneImageStudioSettings settings,
         ImageContentPolicy resolvedPolicy,
         string? excerptOverride,
-        string? refineInstruction);
+        string? refineInstruction,
+        IReadOnlyList<Character>? characters = null);
 
     /// <summary>Parse the pre-processor output into the editable prompt (+ pulled excerpt).
     /// Tolerates a JSON envelope {{prompt, excerpt}} or plain text. Fails fast on empty/overlong.</summary>

@@ -4,6 +4,7 @@ using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Web.Application.RolePlay.Models;
 using DreamGenClone.Web.Domain.RolePlay;
+using DreamGenClone.Web.Domain.Scenarios;
 
 namespace DreamGenClone.Web.Application.RolePlay;
 
@@ -17,6 +18,7 @@ public sealed class SceneImagePromptPreprocessor : ISceneImagePromptPreprocessor
     public const int InputExcerptMaxChars = 1200;
     public const int OutputPromptMaxChars = 2000;
     public const int OutputPromptTargetChars = 800;
+    public const int CharacterAppearanceDescriptionMaxChars = 240;
 
     /// <summary>Deterministic SFW clamp appended to prompts sent to SFW-filtered providers.</summary>
     public const string SfwClampSuffix = "keep fully clothed / non-explicit";
@@ -28,9 +30,12 @@ public sealed class SceneImagePromptPreprocessor : ISceneImagePromptPreprocessor
         SceneImageStudioSettings settings,
         ImageContentPolicy resolvedPolicy,
         string? excerptOverride,
-        string? refineInstruction)
+        string? refineInstruction,
+        IReadOnlyList<Character>? characters = null)
     {
-        return (BuildSystemPrompt(resolvedPolicy), BuildUserPrompt(session, interaction, scenarioState, settings, resolvedPolicy, excerptOverride, refineInstruction));
+        return (
+            BuildSystemPrompt(resolvedPolicy),
+            BuildUserPrompt(session, interaction, scenarioState, settings, resolvedPolicy, excerptOverride, refineInstruction, characters));
     }
 
     public SceneImagePreprocessorResult ParseOutput(string rawOutput)
@@ -101,6 +106,7 @@ public sealed class SceneImagePromptPreprocessor : ISceneImagePromptPreprocessor
         sb.AppendLine("- Merge setting, time of day, mood, characters, and intensity into vivid visual language.");
         sb.AppendLine("- Honor the requested style, size, and aspect.");
         sb.AppendLine($@"- Keep the prompt under {OutputPromptTargetChars} characters, dense and comma-separated.");
+        sb.AppendLine("- CHARACTER LIKENESS: the scene context lists each character's fixed visual identity (hair, eyes, skin, body type, age, marks). Reproduce those EXACT descriptors in the image prompt for every depicted character — do not invent or change hair color, eye color, body type, or age. The same character must look like the same person in every image.");
         sb.AppendLine("- Return ONLY the final image prompt as plain text. Do not add commentary, quotes, or markdown around it.");
 
         if (policy == ImageContentPolicy.SfwFiltered)
@@ -123,7 +129,8 @@ public sealed class SceneImagePromptPreprocessor : ISceneImagePromptPreprocessor
         SceneImageStudioSettings settings,
         ImageContentPolicy resolvedPolicy,
         string? excerptOverride,
-        string? refineInstruction)
+        string? refineInstruction,
+        IReadOnlyList<Character>? characters)
     {
         var sb = new StringBuilder();
 
@@ -181,6 +188,13 @@ public sealed class SceneImagePromptPreprocessor : ISceneImagePromptPreprocessor
         }
         sb.AppendLine();
 
+        var appearanceBlock = BuildCharacterAppearanceBlock(session, interaction, scenarioState, characters);
+        if (!string.IsNullOrWhiteSpace(appearanceBlock))
+        {
+            sb.AppendLine(appearanceBlock);
+            sb.AppendLine();
+        }
+
         sb.AppendLine("IMAGE SETTINGS:");
         sb.AppendLine($"- Style: {settings.Style}");
         sb.AppendLine($"- Size/Aspect: {settings.ImageSize}{(string.IsNullOrWhiteSpace(settings.AspectRatio) ? "" : $" / {settings.AspectRatio}")}");
@@ -196,6 +210,133 @@ public sealed class SceneImagePromptPreprocessor : ISceneImagePromptPreprocessor
         }
 
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// Builds the CHARACTER APPEARANCE (FIXED IDENTITY) block: one line per relevant character with
+    /// their stable visual descriptors (hair, eyes, skin, body type, age, marks). The pre-processor
+    /// is instructed to reproduce these verbatim so every image of a character shows the SAME person.
+    ///
+    /// Included characters: the interaction's actor (always, when resolvable), the persona (when it
+    /// differs from the actor and has appearance data), and any other scenario character whose name
+    /// appears in the story moment text (they are likely depicted in the frame).
+    ///
+    /// Appearance source: structured <see cref="PhysicalAttributes"/> via
+    /// <see cref="PhysicalAttributesFormatter.FormatVisualBlock"/> (visual-only — no measurements or
+    /// intimate fields). Falls back to the character's free-text Description only when no structured
+    /// attributes exist. Characters with no appearance data are omitted entirely.
+    /// </summary>
+    internal static string BuildCharacterAppearanceBlock(
+        RolePlaySession session,
+        RolePlayInteraction interaction,
+        AdaptiveScenarioState scenarioState,
+        IReadOnlyList<Character>? characters)
+    {
+        var charactersById = (characters ?? [])
+            .Where(c => !string.IsNullOrWhiteSpace(c.Id))
+            .ToDictionary(c => c.Id, StringComparer.OrdinalIgnoreCase);
+        var charactersByName = (characters ?? [])
+            .Where(c => !string.IsNullOrWhiteSpace(c.Name))
+            .ToDictionary(c => c.Name!.Trim(), StringComparer.OrdinalIgnoreCase);
+
+        var entries = new List<(string Name, string Appearance)>();
+
+        // 1. The actor (the subject of the moment).
+        if (!string.IsNullOrWhiteSpace(interaction.ActorName)
+            && charactersByName.TryGetValue(interaction.ActorName.Trim(), out var actorCharacter))
+        {
+            AddAppearanceEntry(entries, actorCharacter.Name ?? interaction.ActorName, actorCharacter.PhysicalAttributes, actorCharacter.Description);
+        }
+
+        // 2. The persona (only when it is a different person from the actor).
+        var personaCharacter = ResolvePersonaCharacter(session, charactersById, charactersByName);
+        var personaName = string.IsNullOrWhiteSpace(session.PersonaName) ? "You" : session.PersonaName.Trim();
+        var actorName = interaction.ActorName?.Trim();
+        if (personaCharacter is not null || session.PersonaPhysicalAttributes is not null || !string.IsNullOrWhiteSpace(session.PersonaDescription))
+        {
+            if (string.IsNullOrEmpty(actorName)
+                || !string.Equals(personaName, actorName, StringComparison.OrdinalIgnoreCase))
+            {
+                var appearance = personaCharacter?.PhysicalAttributes is not null
+                    ? PhysicalAttributesFormatter.FormatVisualBlock(personaCharacter.PhysicalAttributes)
+                    : PhysicalAttributesFormatter.FormatVisualBlock(session.PersonaPhysicalAttributes);
+                if (string.IsNullOrWhiteSpace(appearance) && !string.IsNullOrWhiteSpace(session.PersonaDescription))
+                {
+                    appearance = "Description — " + Truncate(session.PersonaDescription, CharacterAppearanceDescriptionMaxChars);
+                }
+                if (!string.IsNullOrWhiteSpace(appearance))
+                {
+                    entries.Add((personaName, appearance));
+                }
+            }
+        }
+
+        // 3. Other characters whose name appears in the story moment (likely depicted).
+        if (!string.IsNullOrWhiteSpace(interaction.Content))
+        {
+            foreach (var character in charactersByName.Values)
+            {
+                var name = character.Name?.Trim();
+                if (string.IsNullOrWhiteSpace(name)) continue;
+                if (string.Equals(name, actorName, StringComparison.OrdinalIgnoreCase)) continue;
+                if (string.Equals(name, personaName, StringComparison.OrdinalIgnoreCase)) continue;
+                if (interaction.Content.Contains(name, StringComparison.OrdinalIgnoreCase))
+                {
+                    AddAppearanceEntry(entries, name, character.PhysicalAttributes, character.Description);
+                    if (entries.Count >= 5) break;
+                }
+            }
+        }
+
+        if (entries.Count == 0) return string.Empty;
+
+        var sb = new StringBuilder();
+        sb.AppendLine("CHARACTER APPEARANCE (FIXED IDENTITY — reproduce these exact visual descriptors in the image prompt so the same character looks the same in every image):");
+        foreach (var (name, appearance) in entries)
+        {
+            sb.AppendLine($"- {name}: {appearance}");
+        }
+        return sb.ToString();
+    }
+
+    private static Character? ResolvePersonaCharacter(
+        RolePlaySession session,
+        IReadOnlyDictionary<string, Character> charactersById,
+        IReadOnlyDictionary<string, Character> charactersByName)
+    {
+        // Prefer an explicit persona character id, then the IsPersona flag, then the persona name.
+        if (!string.IsNullOrWhiteSpace(session.PersonaCharacterId)
+            && charactersById.TryGetValue(session.PersonaCharacterId, out var byId))
+        {
+            return byId;
+        }
+
+        var byFlag = charactersById.Values.FirstOrDefault(c => c.IsPersona);
+        if (byFlag is not null) return byFlag;
+
+        if (!string.IsNullOrWhiteSpace(session.PersonaName)
+            && charactersByName.TryGetValue(session.PersonaName.Trim(), out var byName))
+        {
+            return byName;
+        }
+
+        return null;
+    }
+
+    private static void AddAppearanceEntry(
+        List<(string Name, string Appearance)> entries,
+        string name,
+        DreamGenClone.Domain.Templates.PhysicalAttributes? attributes,
+        string? description)
+    {
+        var appearance = PhysicalAttributesFormatter.FormatVisualBlock(attributes);
+        if (string.IsNullOrWhiteSpace(appearance) && !string.IsNullOrWhiteSpace(description))
+        {
+            appearance = "Description — " + Truncate(description, CharacterAppearanceDescriptionMaxChars);
+        }
+        if (string.IsNullOrWhiteSpace(appearance)) return;
+        if (entries.Any(e => string.Equals(e.Name, name, StringComparison.OrdinalIgnoreCase))) return;
+        entries.Add((name, appearance));
     }
 
     private static string Truncate(string value, int maxChars)

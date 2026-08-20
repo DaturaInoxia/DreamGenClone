@@ -174,11 +174,11 @@ public sealed class SceneImageRepository : ISceneImageRepository
         command.CommandText = """
             INSERT OR REPLACE INTO SceneImages (
                 Id, SessionId, InteractionId, PromptRecordId, PromptSnapshot, Status,
-                FileRelativePath, ModelIdentifier, ProviderName, ContentPolicy, ImageSize, Style,
+                FileRelativePath, ModelIdentifier, ProviderName, ContentPolicy, ImageSize, Style, SettingsJson,
                 ErrorMessage, RegenerateOfId, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc)
             VALUES (
                 $id, $sessionId, $interactionId, $promptRecordId, $promptSnapshot, $status,
-                $fileRelativePath, $modelIdentifier, $providerName, $contentPolicy, $imageSize, $style,
+                $fileRelativePath, $modelIdentifier, $providerName, $contentPolicy, $imageSize, $style, $settingsJson,
                 $errorMessage, $regenerateOfId, $createdUtc, $startedUtc, $completedUtc, $updatedUtc);
             """;
         command.Parameters.AddWithValue("$id", image.Id);
@@ -193,6 +193,7 @@ public sealed class SceneImageRepository : ISceneImageRepository
         command.Parameters.AddWithValue("$contentPolicy", image.ContentPolicy.ToString());
         command.Parameters.AddWithValue("$imageSize", (object?)image.ImageSize ?? DBNull.Value);
         command.Parameters.AddWithValue("$style", (object?)image.Style ?? DBNull.Value);
+        command.Parameters.AddWithValue("$settingsJson", image.SettingsJson);
         command.Parameters.AddWithValue("$errorMessage", (object?)image.ErrorMessage ?? DBNull.Value);
         command.Parameters.AddWithValue("$regenerateOfId", (object?)image.RegenerateOfId ?? DBNull.Value);
         command.Parameters.AddWithValue("$createdUtc", image.CreatedUtc.ToString("O"));
@@ -217,7 +218,7 @@ public sealed class SceneImageRepository : ISceneImageRepository
         await using var command = connection.CreateCommand();
         command.CommandText = """
             SELECT Id, SessionId, InteractionId, PromptRecordId, PromptSnapshot, Status,
-                   FileRelativePath, ModelIdentifier, ProviderName, ContentPolicy, ImageSize, Style,
+                   FileRelativePath, ModelIdentifier, ProviderName, ContentPolicy, ImageSize, Style, SettingsJson,
                    ErrorMessage, RegenerateOfId, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc
             FROM SceneImages
             WHERE Id = $id;
@@ -248,7 +249,7 @@ public sealed class SceneImageRepository : ISceneImageRepository
         await using var command = connection.CreateCommand();
         command.CommandText = """
             SELECT Id, SessionId, InteractionId, PromptRecordId, PromptSnapshot, Status,
-                   FileRelativePath, ModelIdentifier, ProviderName, ContentPolicy, ImageSize, Style,
+                   FileRelativePath, ModelIdentifier, ProviderName, ContentPolicy, ImageSize, Style, SettingsJson,
                    ErrorMessage, RegenerateOfId, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc
             FROM SceneImages
             WHERE SessionId = $sessionId AND InteractionId = $interactionId
@@ -282,7 +283,7 @@ public sealed class SceneImageRepository : ISceneImageRepository
         await using var command = connection.CreateCommand();
         command.CommandText = """
             SELECT Id, SessionId, InteractionId, PromptRecordId, PromptSnapshot, Status,
-                   FileRelativePath, ModelIdentifier, ProviderName, ContentPolicy, ImageSize, Style,
+                   FileRelativePath, ModelIdentifier, ProviderName, ContentPolicy, ImageSize, Style, SettingsJson,
                    ErrorMessage, RegenerateOfId, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc
             FROM SceneImages
             WHERE SessionId = $sessionId
@@ -391,12 +392,13 @@ public sealed class SceneImageRepository : ISceneImageRepository
             ContentPolicy = ParseEnum<ImageContentPolicy>(reader.GetString(9), sessionId, interactionId, "SceneImages"),
             ImageSize = reader.IsDBNull(10) ? null : reader.GetString(10),
             Style = reader.IsDBNull(11) ? null : reader.GetString(11),
-            ErrorMessage = reader.IsDBNull(12) ? null : reader.GetString(12),
-            RegenerateOfId = reader.IsDBNull(13) ? null : reader.GetString(13),
-            CreatedUtc = ParseUtc(reader.GetString(14), sessionId, interactionId, "CreatedUtc"),
-            StartedUtc = reader.IsDBNull(15) ? null : ParseUtc(reader.GetString(15), sessionId, interactionId, "StartedUtc"),
-            CompletedUtc = reader.IsDBNull(16) ? null : ParseUtc(reader.GetString(16), sessionId, interactionId, "CompletedUtc"),
-            UpdatedUtc = ParseUtc(reader.GetString(17), sessionId, interactionId, "UpdatedUtc")
+            SettingsJson = reader.IsDBNull(12) ? "{}" : reader.GetString(12),
+            ErrorMessage = reader.IsDBNull(13) ? null : reader.GetString(13),
+            RegenerateOfId = reader.IsDBNull(14) ? null : reader.GetString(14),
+            CreatedUtc = ParseUtc(reader.GetString(15), sessionId, interactionId, "CreatedUtc"),
+            StartedUtc = reader.IsDBNull(16) ? null : ParseUtc(reader.GetString(16), sessionId, interactionId, "StartedUtc"),
+            CompletedUtc = reader.IsDBNull(17) ? null : ParseUtc(reader.GetString(17), sessionId, interactionId, "CompletedUtc"),
+            UpdatedUtc = ParseUtc(reader.GetString(18), sessionId, interactionId, "UpdatedUtc")
         };
     }
 
@@ -436,6 +438,7 @@ public sealed class SceneImageRepository : ISceneImageRepository
                 ContentPolicy    TEXT NOT NULL,
                 ImageSize        TEXT NULL,
                 Style            TEXT NULL,
+                SettingsJson     TEXT NOT NULL DEFAULT '{}',
                 ErrorMessage     TEXT NULL,
                 RegenerateOfId   TEXT NULL,
                 CreatedUtc       TEXT NOT NULL,

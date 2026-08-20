@@ -5,9 +5,13 @@ using DreamGenClone.Application.ModelManager;
 using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Domain.StoryAnalysis;
 using DreamGenClone.Web.Application.BackgroundJobs;
 using DreamGenClone.Web.Application.RolePlay.Models;
+using DreamGenClone.Web.Application.Scenarios;
 using DreamGenClone.Web.Application.Sessions;
+using DreamGenClone.Web.Application.StoryAnalysis;
+using DreamGenClone.Web.Domain.RolePlay;
 using Microsoft.Extensions.Logging;
 
 namespace DreamGenClone.Web.Application.RolePlay;
@@ -27,6 +31,8 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
     private readonly ICompletionClient _completionClient;
     private readonly IRolePlayStateRepository _stateRepository;
     private readonly IRolePlayDebugEventSink _debugEventSink;
+    private readonly StoryAnalysisFacade _storyAnalysis;
+    private readonly IScenarioService _scenarioService;
     private readonly ILogger<SceneImagePromptGenerationJobHandler> _logger;
 
     public SceneImagePromptGenerationJobHandler(
@@ -37,6 +43,8 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
         ICompletionClient completionClient,
         IRolePlayStateRepository stateRepository,
         IRolePlayDebugEventSink debugEventSink,
+        StoryAnalysisFacade storyAnalysis,
+        IScenarioService scenarioService,
         ILogger<SceneImagePromptGenerationJobHandler> logger)
     {
         _sessionService = sessionService;
@@ -46,6 +54,8 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
         _completionClient = completionClient;
         _stateRepository = stateRepository;
         _debugEventSink = debugEventSink;
+        _storyAnalysis = storyAnalysis;
+        _scenarioService = scenarioService;
         _logger = logger;
     }
 
@@ -86,6 +96,11 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
             session.AdaptiveState = persistedAdaptiveState;
         }
 
+        // Resolve the intensity label from the active intensity profiles (CR-004) so the prompt
+        // shows the same resolved label the studio displays, instead of "unknown" when the
+        // transient session field is null in the background job.
+        await ResolveIntensityLabelAsync(session, cancellationToken);
+
         SceneImageStudioSettings settings;
         try
         {
@@ -108,6 +123,16 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
 
             var resolved = await _modelResolutionService.ResolveImagePromptModelAsync(session.SessionModelId, cancellationToken);
 
+            // Load the scenario characters so the pre-processor can inject their fixed visual
+            // identity (likeness — same hair/eyes/body type across images). Best-effort: when the
+            // scenario can't be loaded, the appearance block is simply omitted.
+            IReadOnlyList<DreamGenClone.Web.Domain.Scenarios.Character>? characters = null;
+            if (!string.IsNullOrWhiteSpace(session.ScenarioId))
+            {
+                var scenario = await _scenarioService.GetScenarioAsync(session.ScenarioId);
+                characters = scenario?.Characters;
+            }
+
             var (systemPrompt, userPrompt) = _preprocessor.BuildMessages(
                 session,
                 interaction,
@@ -115,7 +140,8 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
                 settings,
                 requestedPolicy,
                 excerptOverride: string.IsNullOrWhiteSpace(record.InputExcerpt) ? null : record.InputExcerpt,
-                refineInstruction: record.RefineInstruction);
+                refineInstruction: record.RefineInstruction,
+                characters);
 
             await WriteDebugEventAsync("SceneImagePromptSent", session.Id, interaction.Id, new
             {
@@ -172,6 +198,41 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
         record.UpdatedUtc = DateTime.UtcNow;
         await _repository.UpsertPromptAsync(record, cancellationToken);
         _logger.LogWarning("Scene image prompt generation failed: PromptRecordId={PromptRecordId}, Error={ErrorMessage}", record.Id, errorMessage);
+    }
+
+    private async Task ResolveIntensityLabelAsync(RolePlaySession session, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var intensityProfiles = await _storyAnalysis.ListIntensityProfilesAsync(cancellationToken);
+            var byId = intensityProfiles
+                .Where(x => x.Intensity != IntensityLevel.Intro)
+                .ToDictionary(x => x.Id, StringComparer.OrdinalIgnoreCase);
+
+            IntensityLevel? selectedIntensityLevel = IntensityLevel.Emotional;
+            IntensityLevel? adaptiveIntensityLevel = null;
+
+            if (!string.IsNullOrWhiteSpace(session.SelectedIntensityProfileId)
+                && byId.TryGetValue(session.SelectedIntensityProfileId, out var intensityProfile))
+            {
+                selectedIntensityLevel = intensityProfile.Intensity;
+            }
+
+            if (!string.IsNullOrWhiteSpace(session.AdaptiveIntensityProfileId)
+                && byId.TryGetValue(session.AdaptiveIntensityProfileId, out var adaptiveProfile))
+            {
+                adaptiveIntensityLevel = adaptiveProfile.Intensity;
+            }
+
+            var (label, _) = RolePlayStyleResolver.ResolveEffectiveStyle(session, selectedIntensityLevel, adaptiveIntensityLevel);
+            session.LastResolvedIntensityLabel = label;
+        }
+        catch (Exception ex)
+        {
+            // Intensity label is informational context for the prompt; a resolution failure must
+            // not fail prompt generation. The preprocessor already falls back to "unknown".
+            _logger.LogDebug(ex, "Failed to resolve intensity label for scene image prompt; SessionId={SessionId}", session.Id);
+        }
     }
 
     private async Task WriteDebugEventAsync<T>(string kind, string sessionId, string interactionId, T metadata, CancellationToken cancellationToken)

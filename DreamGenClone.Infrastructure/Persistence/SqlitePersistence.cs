@@ -1383,6 +1383,23 @@ public sealed class SqlitePersistence : ISqlitePersistence
             }
         }
 
+        // SceneImages: add SettingsJson column (CR-003 "continue from this image" settings snapshot)
+        // if the table exists. The table is created lazily by SceneImageRepository.EnsureSchemaAsync.
+        var checkSceneImagesTableExists = connection.CreateCommand();
+        checkSceneImagesTableExists.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='SceneImages'";
+        if (Convert.ToInt64(await checkSceneImagesTableExists.ExecuteScalarAsync(cancellationToken)) > 0)
+        {
+            var checkImageSettingsColumn = connection.CreateCommand();
+            checkImageSettingsColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('SceneImages') WHERE name='SettingsJson'";
+            if (Convert.ToInt64(await checkImageSettingsColumn.ExecuteScalarAsync(cancellationToken)) == 0)
+            {
+                var alterImageSettings = connection.CreateCommand();
+                alterImageSettings.CommandText = "ALTER TABLE SceneImages ADD COLUMN SettingsJson TEXT NOT NULL DEFAULT '{}'";
+                await alterImageSettings.ExecuteNonQueryAsync(cancellationToken);
+                _logger.LogInformation("Migrated SceneImages table: added SettingsJson column");
+            }
+        }
+
         var checkAdaptiveStateJsonColumn = connection.CreateCommand();
         checkAdaptiveStateJsonColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('Sessions') WHERE name='AdaptiveStateJson'";
         var hasAdaptiveStateJsonColumn = Convert.ToInt64(await checkAdaptiveStateJsonColumn.ExecuteScalarAsync(cancellationToken)) > 0;

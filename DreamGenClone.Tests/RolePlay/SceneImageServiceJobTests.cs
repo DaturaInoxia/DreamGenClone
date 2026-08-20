@@ -159,6 +159,41 @@ public sealed class SceneImageServiceJobTests
     }
 
     [Fact]
+    public async Task EnqueueRenderAsync_SnapshotsSettingsAndStyle()
+    {
+        var session = MakeSession();
+        var (service, _, repo, _, dbPath, root) = Build(session);
+        try
+        {
+            var prompt = new SceneImagePromptRecord { SessionId = "s1", InteractionId = "i1", OutputPrompt = "a draft", Status = SceneImagePromptStatus.Complete };
+            await repo.UpsertPromptAsync(prompt);
+
+            var record = await service.EnqueueRenderAsync(new SceneRenderRequest
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                PromptRecordId = prompt.Id,
+                Prompt = "a draft",
+                SettingsJson = "{\"Style\":\"cartoon\",\"ImageSize\":\"768x768\",\"AllowExplicitImage\":true}"
+            });
+
+            Assert.Equal("cartoon", record.Style);
+            Assert.Equal("768x768", record.ImageSize);
+            Assert.Contains("cartoon", record.SettingsJson, StringComparison.Ordinal);
+            Assert.Contains("AllowExplicitImage", record.SettingsJson, StringComparison.Ordinal);
+
+            var persisted = await repo.GetImageAsync(record.Id);
+            Assert.NotNull(persisted);
+            Assert.Equal("cartoon", persisted!.Style);
+            Assert.Contains("cartoon", persisted.SettingsJson, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    [Fact]
     public async Task EnqueueRenderAsync_EmptyPrompt_FailsFast()
     {
         var session = MakeSession();

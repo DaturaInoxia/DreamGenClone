@@ -93,6 +93,8 @@ public sealed class SceneImageService : ISceneImageService
             throw new InvalidOperationException("A non-empty prompt is required to render a scene image.");
         }
 
+        var settingsJson = string.IsNullOrWhiteSpace(request.SettingsJson) ? "{}" : request.SettingsJson;
+
         var record = new SceneImageRecord
         {
             SessionId = session.Id,
@@ -101,8 +103,31 @@ public sealed class SceneImageService : ISceneImageService
             PromptSnapshot = request.Prompt,
             Status = SceneImageStatus.Pending,
             ImageSize = request.ImageSize,
+            SettingsJson = settingsJson,
             RegenerateOfId = request.RegenerateOfId
         };
+
+        // Extract the style/size labels from the settings snapshot so the image card can display
+        // them without a separate join. Best-effort metadata only — never a fallback gate.
+        try
+        {
+            var settings = JsonSerializer.Deserialize<SceneImageStudioSettings>(settingsJson);
+            if (settings is not null)
+            {
+                if (!string.IsNullOrWhiteSpace(settings.Style))
+                {
+                    record.Style = settings.Style;
+                }
+                if (string.IsNullOrWhiteSpace(record.ImageSize) && !string.IsNullOrWhiteSpace(settings.ImageSize))
+                {
+                    record.ImageSize = settings.ImageSize;
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            // The settings snapshot is informational; a malformed snapshot does not block rendering.
+        }
 
         await _repository.InsertImageAsync(record, cancellationToken);
 

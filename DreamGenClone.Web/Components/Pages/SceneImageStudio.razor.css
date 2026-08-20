@@ -1,0 +1,25 @@
+/* ─── Scene Image Studio ─── */
+
+/* Story Moment narrative text: readable dark panel (high contrast vs. the app's light-grey
+   body text on a dark theme). The old Bootstrap .bg-light rendered white-on-light-grey. */
+.scene-image-story-moment {
+    border: 1px solid #2b2b2b;
+    border-radius: 8px;
+    padding: 10px 12px;
+    background: #161616;
+    color: #e6e6e6;
+    font-size: 14px;
+    line-height: 1.6;
+}
+
+/* "Continue from this image" action */
+.scene-image-continue-btn {
+    border-color: #355b63;
+    color: #91d6e4;
+}
+
+.scene-image-continue-btn:hover {
+    background: #1b3338;
+    border-color: #4a8592;
+    color: #c0ebf5;
+}

@@ -20,12 +20,14 @@ public sealed class WorkspaceSettingsState
     /// per-interaction "Generate image" trigger.</summary>
     public bool ImageGenerationEnabled { get; set; } = true;
 
-    /// <summary>Free-text style cue (e.g. "cinematic lighting, 35mm") seeding the studio.</summary>
+    /// <summary>Free-text style cue (e.g. "cinematic lighting, 35mm") seeding the studio. When empty,
+    /// the studio falls back to the default style (cartoon).</summary>
     public string? ImageStyleSuffix { get; set; }
 
     /// <summary>Default image size (e.g. "1024x1024").</summary>
     public string ImageSize { get; set; } = "1024x1024";
 
-    /// <summary>Honored only when the resolved image provider content policy is adult-allowed.</summary>
-    public bool AllowExplicitImage { get; set; }
+    /// <summary>Default selected. Honored only when the resolved image provider content policy is
+    /// adult-allowed; the studio clamps to safe-for-work otherwise.</summary>
+    public bool AllowExplicitImage { get; set; } = true;
 }

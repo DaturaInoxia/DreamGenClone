@@ -12,6 +12,10 @@ public sealed class SceneRenderRequest
 
     public string? ImageSize { get; set; }
 
+    /// <summary>Full <c>SceneImageStudioSettings</c> snapshot (JSON) used for this render. Stored on
+    /// the image record so the studio can restore the exact settings ("continue from this image").</summary>
+    public string? SettingsJson { get; set; }
+
     /// <summary>Parent image id when regenerating.</summary>
     public string? RegenerateOfId { get; set; }
 }

@@ -87,6 +87,40 @@ internal static class PhysicalAttributesFormatter
         return "Appearance — " + sb.ToString();
     }
 
+    /// <summary>
+    /// Returns a compact, single-line labelled **visual identity** string for image-prompt
+    /// injection, or <see cref="string.Empty"/> when <paramref name="attrs"/> is null or all
+    /// visual fields are absent.
+    ///
+    /// Unlike <see cref="FormatBlock"/>, this is limited to the stable visual anchors that make a
+    /// character look like the SAME person in images: age, height, weight, ethnicity, hair, eyes,
+    /// skin, body type, and distinguishing marks/piercings/tattoos. Body measurements and all
+    /// intimate/sexual fields are intentionally EXCLUDED — they don't affect a face/portrait, add
+    /// noise for image models, and can trip content-policy clamps.
+    /// </summary>
+    internal static string FormatVisualBlock(PhysicalAttributes? attrs)
+    {
+        if (attrs is null) return string.Empty;
+
+        var sb = new StringBuilder();
+
+        Append(sb, "Age", attrs.Age);
+        Append(sb, "Height", attrs.Height);
+        Append(sb, "Weight", attrs.Weight);
+        Append(sb, "Ethnicity", attrs.Ethnicity);
+        Append(sb, "Hair", CombineNotEmpty(attrs.HairStyle, attrs.HairColour, separator: ", "));
+        Append(sb, "Eyes", attrs.EyeColour);
+        Append(sb, "Skin", CombineNotEmpty(attrs.SkinTone, attrs.SkinTexture, separator: ", "));
+        Append(sb, "Body type", attrs.BodyType);
+        Append(sb, "Marks", attrs.DistinguishingMarks);
+        Append(sb, "Piercings", attrs.Piercings);
+        Append(sb, "Tattoos", attrs.Tattoos);
+
+        if (sb.Length == 0) return string.Empty;
+
+        return "Appearance — " + sb.ToString();
+    }
+
     private static string? CombineNotEmpty(string? a, string? b, string separator)
     {
         var hasA = !string.IsNullOrWhiteSpace(a);
