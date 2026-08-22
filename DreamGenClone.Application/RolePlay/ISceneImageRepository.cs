@@ -8,11 +8,23 @@ namespace DreamGenClone.Application.RolePlay;
 /// </summary>
 public interface ISceneImageRepository
 {
+    // ---- Beat analysis records ----
+    Task UpsertBeatAnalysisAsync(SceneImageBeatAnalysisRecord analysis, CancellationToken cancellationToken = default);
+    Task<SceneImageBeatAnalysisRecord?> GetBeatAnalysisByTurnAsync(
+        string sessionId, string turnId, CancellationToken cancellationToken = default);
+
     // ---- Prompt records ----
     Task UpsertPromptAsync(SceneImagePromptRecord prompt, CancellationToken cancellationToken = default);
     Task<SceneImagePromptRecord?> GetPromptAsync(string promptId, CancellationToken cancellationToken = default);
     Task<SceneImagePromptRecord?> GetLatestPromptAsync(
         string sessionId, string interactionId, CancellationToken cancellationToken = default);
+    Task<SceneImagePromptRecord?> GetLatestCompletedPromptAsync(
+        string sessionId,
+        string interactionId,
+        string beatAnalysisId,
+        string beatId,
+        string pov,
+        CancellationToken cancellationToken = default);
 
     /// <summary>Persist the user-edited prompt text to a prompt record's OutputPrompt.</summary>
     Task UpdatePromptOutputAsync(

@@ -30,6 +30,7 @@ public interface IImageGenerationClient
         int timeoutSeconds,
         string? decryptedApiKey,
         string modelIdentifier,
+        ImageContentPolicy contentPolicy,
         CancellationToken cancellationToken = default);
 }
 

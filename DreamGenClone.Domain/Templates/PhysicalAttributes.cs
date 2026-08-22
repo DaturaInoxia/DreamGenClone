@@ -30,6 +30,11 @@ public sealed class PhysicalAttributes
 
     // ── Style & Misc ────────────────────────────────────────────────────────
     public string? ClothingStyle { get; set; }
+    /// <summary>
+    /// Default clothing/outfit for this character, used when the turn data does not describe what
+    /// they are wearing. Ensures consistent clothing across images (CR-006 clothing consistency).
+    /// </summary>
+    public string? DefaultClothing { get; set; }
     public string? DistinguishingMarks { get; set; }
     public string? Piercings { get; set; }
     public string? Tattoos { get; set; }

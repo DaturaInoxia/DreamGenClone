@@ -4,6 +4,7 @@
 @using DreamGenClone.Web.Application.RolePlay
 @using DreamGenClone.Web.Application.RolePlay.Models
 @using DreamGenClone.Web.Application.Sessions
+@using DreamGenClone.Web.Application.Scenarios
 @using DreamGenClone.Web.Domain.RolePlay
 @using DreamGenClone.Domain.RolePlay
 @using DreamGenClone.Domain.ModelManager
@@ -17,7 +18,10 @@
 @inject ISceneImageService ImageService
 @inject IModelResolutionService ModelResolutionService
 @inject StoryAnalysisFacade StoryAnalysis
+@inject IScenarioService ScenarioService
 @inject WorkspaceSettingsState WorkspaceSettings
+@inject RolePlayDebugEventService DebugEventService
+@inject SceneImageTurnResolver TurnResolver
 @inject NavigationManager Nav
 @inject ILogger<SceneImageStudio> Logger
 
@@ -72,6 +76,118 @@
                     </div>
                     <div class="card-body">
                         <div class="scene-image-story-moment" style="max-height: 320px; overflow: auto; white-space: pre-wrap;">@_interaction?.Content</div>
+                    </div>
+                </div>
+
+                @if (_fullTurn is not null)
+                {
+                    <div class="card mb-3">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <strong>Full Turn Context</strong>
+                            @if (_fullTurn.Turn is not null)
+                            {
+                                <span class="text-muted small">Turn #@(_fullTurn.Turn.TurnIndex + 1)</span>
+                            }
+                        </div>
+                        <div class="card-body py-2">
+                            <div class="text-muted small mb-2">
+                                @if (_fullTurn.Turn is not null)
+                                {
+                                    <span>Source: RolePlayV2Turns · @_fullTurn.Turn.TurnKind · @_fullTurn.Turn.TriggerSource</span>
+                                }
+                                else
+                                {
+                                    <span>Source: legacy context window</span>
+                                }
+                            </div>
+                            <div class="list-group list-group-flush scene-image-turn-context">
+                                @foreach (var turnInteraction in _fullTurn.Interactions)
+                                {
+                                    var isSelectedInteraction = string.Equals(turnInteraction.Id, interactionId, StringComparison.OrdinalIgnoreCase);
+                                    <div class="list-group-item px-0 @(isSelectedInteraction ? "scene-image-turn-selected" : "")">
+                                        <div class="d-flex justify-content-between gap-2 small">
+                                            <strong>@turnInteraction.ActorName</strong>
+                                            <span class="text-muted text-nowrap">@turnInteraction.InteractionType · @turnInteraction.CreatedAt.ToLocalTime().ToString("g")</span>
+                                        </div>
+                                        @if (isSelectedInteraction)
+                                        {
+                                            <div class="small text-info">Selected for this image</div>
+                                        }
+                                        <div class="small mt-1" style="white-space: pre-wrap;">@turnInteraction.Content</div>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                }
+
+                <div class="card mb-3">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <strong>Image Beats</strong>
+                        @if (_beatAnalysis?.Status == SceneImageBeatAnalysisStatus.Complete)
+                        {
+                            <button class="btn btn-sm btn-outline-secondary" disabled="@_busy" @onclick="RequestReplaceBeats">Generate Beats Again</button>
+                        }
+                        else
+                        {
+                            <button class="btn btn-sm btn-primary" disabled="@(_busy || _fullTurn?.Turn is null)" @onclick="GenerateBeatsAsync">Generate Beats</button>
+                        }
+                    </div>
+                    <div class="card-body small">
+                        @if (_fullTurn?.Turn is null)
+                        {
+                            <span class="text-muted">This legacy interaction has no persisted turn, so it cannot be analyzed into image beats.</span>
+                        }
+                        else if (_replaceBeatsRequested)
+                        {
+                            <div class="alert alert-warning py-2 mb-0">
+                                Replace the saved beats for this turn? Existing images remain unchanged.
+                                <div class="mt-2 d-flex gap-2">
+                                    <button class="btn btn-sm btn-warning" @onclick="GenerateBeatsAsync">Replace Beats</button>
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => _replaceBeatsRequested = false">Cancel</button>
+                                </div>
+                            </div>
+                        }
+                        else if (_beatAnalysis is null)
+                        {
+                            <span class="text-muted">Generate beats to have the model identify image-worthy moments in this turn.</span>
+                        }
+                        else if (_beatAnalysis.Status == SceneImageBeatAnalysisStatus.Pending)
+                        {
+                            <span class="text-muted"><span class="spinner-border spinner-border-sm me-1"></span>Analyzing the full turn into image beats...</span>
+                        }
+                        else if (_beatAnalysis.Status == SceneImageBeatAnalysisStatus.Failed)
+                        {
+                            <div class="alert alert-danger py-2 mb-0">Beat analysis failed: @_beatAnalysis.ErrorMessage</div>
+                        }
+                        else if (_requiresBeatRegeneration)
+                        {
+                            <div class="alert alert-warning py-2 mb-0">
+                                These saved beats use an older format and cannot provide reliable ensemble geometry. Generate beats again before creating a prompt.
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="d-grid gap-2 scene-image-beat-list">
+                                @foreach (var beat in _analysis?.Beats ?? [])
+                                {
+                                    <button class="btn text-start @(_selectedBeatId == beat.BeatId ? "btn-primary" : "btn-outline-secondary")" @onclick="() => SelectBeatAsync(beat.BeatId)">
+                                        <strong>@beat.Order. @beat.Label</strong>
+                                        <span class="d-block small">@beat.VisualDescription</span>
+                                        <span class="d-block small">@beat.Location · @beat.TimeOfDay</span>
+                                        <span class="d-block small">@beat.Lighting · @beat.Mood</span>
+                                        @foreach (var character in beat.Characters)
+                                        {
+                                            <span class="d-block small mt-1">
+                                                <strong>@character.Name</strong> · @character.Involvement · @character.Position<br />
+                                                @character.ActionOrObservation · looking @character.Sightline<br />
+                                                Clothing: @character.Clothing · Visible: @(character.VisibleCharacterNames.Count == 0 ? "none" : string.Join(", ", character.VisibleCharacterNames))
+                                            </span>
+                                        }
+                                    </button>
+                                }
+                            </div>
+                        }
                     </div>
                 </div>
 
@@ -142,9 +258,33 @@
                 </div>
 
                 <div class="card mb-3">
+                    <div class="card-header"><strong>Selected Beat and POV</strong></div>
+                    <div class="card-body small">
+                        @if (_selectedBeat is null)
+                        {
+                            <span class="text-muted">Choose a generated beat on the left.</span>
+                        }
+                        else
+                        {
+                            <div><strong>@_selectedBeat.Label</strong> · @_selectedBeat.Location · @_selectedBeat.TimeOfDay</div>
+                            <div class="mt-1">@_selectedBeat.VisualDescription</div>
+                            <div class="text-muted mt-1">@_selectedBeat.Environment</div>
+                            <div class="text-muted">Lighting: @_selectedBeat.Lighting · Mood: @_selectedBeat.Mood</div>
+                            <label class="form-label small mt-3 mb-1">POV</label>
+                            <div class="d-flex flex-wrap gap-2">
+                                @foreach (var pov in _povOptions)
+                                {
+                                    <button class="btn btn-sm @(_selectedPov == pov ? "btn-primary" : "btn-outline-secondary")" @onclick="() => SelectPovAsync(pov)">@pov</button>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <div class="card mb-3">
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <strong>Image Prompt</strong>
-                        <button class="btn btn-sm btn-primary" @onclick="GeneratePromptAsync" disabled="@_busy">
+                        <button class="btn btn-sm btn-primary" @onclick="GeneratePromptAsync" disabled="@(_busy || _selectedBeat is null || string.IsNullOrWhiteSpace(_selectedPov))">
                             @if (_busy) { <span class="spinner-border spinner-border-sm me-1"></span> }
                             <i class="bi bi-magic me-1"></i> Generate Prompt
                         </button>
@@ -170,6 +310,94 @@
                     </div>
                 </div>
 
+                @if (_analysis is not null)
+                {
+                    <div class="card mb-3">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <strong>Why this prompt?</strong>
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="() => _showAnalysis = !_showAnalysis">
+                                @(_showAnalysis ? "Hide" : "Show")
+                            </button>
+                        </div>
+                        @if (_showAnalysis)
+                        {
+                            <div class="card-body small">
+                                <div class="mb-2">
+                                    <span class="text-muted">Participants:</span>
+                                    @if (_analysis.Participants.Count == 0)
+                                    {
+                                        <span class="text-muted"> none</span>
+                                    }
+                                    else
+                                    {
+                                        <ul class="mb-0">
+                                            @foreach (var p in _analysis.Participants)
+                                            {
+                                                <li><strong>@p.Name</strong> — @p.Presence (@p.Reason)</li>
+                                            }
+                                        </ul>
+                                    }
+                                </div>
+                                @if (_analysis.Excluded.Count > 0)
+                                {
+                                    <div class="mb-2">
+                                        <span class="text-muted">Excluded:</span>
+                                        <ul class="mb-0">
+                                            @foreach (var p in _analysis.Excluded)
+                                            {
+                                                <li><strong>@p.Name</strong> — @p.Reason</li>
+                                            }
+                                        </ul>
+                                    </div>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(_analysis.TurnId))
+                                {
+                                    <div class="text-muted">Turn: @_analysis.TurnId</div>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+
+                <div class="card mb-3">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <strong>Exact Preprocessor Request</strong>
+                        @if (_preprocessorPrompt is not null)
+                        {
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="() => _showPreprocessorPrompts = !_showPreprocessorPrompts">
+                                @(_showPreprocessorPrompts ? "Hide" : "Show")
+                            </button>
+                        }
+                    </div>
+                    <div class="card-body small">
+                        @if (_activePrompt is null)
+                        {
+                            <span class="text-muted">Generate a prompt to inspect the exact system and user prompts sent to the preprocessor.</span>
+                        }
+                        else if (_preprocessorPrompt is null)
+                        {
+                            <span class="text-muted">The preprocessor request for this prompt is not available yet. It appears here after the background job records the sent request.</span>
+                        }
+                        else
+                        {
+                            <div class="text-muted mb-2">
+                                Exact request stored @(_preprocessorPrompt.CreatedUtc.ToLocalTime().ToString("g")) for prompt record <span class="font-monospace">@_preprocessorPrompt.PromptRecordId</span>.
+                            </div>
+                            @if (_showPreprocessorPrompts)
+                            {
+                                <div class="mb-3">
+                                    <label class="form-label small fw-semibold">System Prompt</label>
+                                    <pre class="scene-image-preprocessor-prompt mb-0">@_preprocessorPrompt.SystemPrompt</pre>
+                                </div>
+                                <div>
+                                    <label class="form-label small fw-semibold">User Prompt</label>
+                                    <pre class="scene-image-preprocessor-prompt mb-0">@_preprocessorPrompt.UserPrompt</pre>
+                                </div>
+                            }
+                        }
+                    </div>
+                </div>
+
                 <div class="card mb-3">
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <strong>Rendered Images</strong>
@@ -191,7 +419,8 @@
                                     <div class="border rounded p-2" style="width: 220px;">
                                         @if (img.Status == SceneImageStatus.Complete && !string.IsNullOrWhiteSpace(img.FileRelativePath))
                                         {
-                                            <img src="/scene-images/@img.FileRelativePath" class="img-fluid rounded" alt="Scene image" />
+                                            <img src="/scene-images/@img.FileRelativePath" class="img-fluid rounded scene-image-thumb" alt="Scene image"
+                                                 @onclick="() => OpenViewer(img)" />
                                         }
                                         else if (img.Status == SceneImageStatus.Generating || img.Status == SceneImageStatus.Pending)
                                         {
@@ -240,7 +469,27 @@
     }
 </div>
 
+@if (_viewerImage is not null)
+{
+    <div class="scene-image-viewer-overlay" @onclick="CloseViewer">
+        <div class="scene-image-viewer" @onclick:stopPropagation="true">
+            <div class="scene-image-viewer-header">
+                <span class="text-muted small">@_viewerImage.Style · @_viewerImage.ImageSize</span>
+                <button class="btn btn-sm btn-outline-secondary" @onclick="CloseViewer" title="Close (Esc)">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+            <img src="/scene-images/@_viewerImage.FileRelativePath" class="scene-image-viewer-img" alt="Scene image" />
+            <div class="scene-image-viewer-footer">
+                <button class="btn btn-sm btn-outline-secondary" @onclick="() => CloseViewer()">Close</button>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
     [Parameter]
     public string sessionId { get; set; } = string.Empty;
 
@@ -267,6 +516,73 @@
     private string? _continueFromImageId;
     private string? _resolvedIntensityLabel;
     private Dictionary<string, IntensityProfile> _intensityProfilesById = new(StringComparer.OrdinalIgnoreCase);
+    private FullTurnContext? _fullTurn;
+    private SceneImageBeatAnalysisRecord? _beatAnalysis;
+    private bool _replaceBeatsRequested;
+    private bool _requiresBeatRegeneration;
+    private SceneImageAnalysisResult? _analysis;
+    private bool _showAnalysis;
+    private SceneImagePreprocessorPromptAudit? _preprocessorPrompt;
+    private bool _showPreprocessorPrompts;
+    private string? _selectedBeatId;
+    private string? _selectedPov;
+    private SceneImageRecord? _viewerImage;
+
+    private SceneImageBeat? _selectedBeat
+        => _analysis?.Beats.FirstOrDefault(b => b.BeatId == _selectedBeatId);
+
+    private IReadOnlyList<string> _povOptions
+        => _selectedBeat is null
+            ? [SceneImagePovFramer.Omniscient]
+            : SceneImagePovFramer.GetPovOptions(_selectedBeat.Characters.Select(x => x.Name).ToList());
+
+    private void OpenViewer(SceneImageRecord image) => _viewerImage = image;
+
+    private void CloseViewer() => _viewerImage = null;
+
+    private void SelectBeatAsync(string beatId)
+    {
+        _selectedBeatId = beatId;
+        _selectedPov = null;
+        ClearActivePrompt();
+        _statusMessage = $"Beat '{_selectedBeat?.Label}' selected. Choose a POV.";
+    }
+
+    private async Task SelectPovAsync(string pov)
+    {
+        _selectedPov = pov;
+        await RunAsync(async () =>
+        {
+            await LoadSelectedPromptAsync();
+            _statusMessage = _activePrompt is null
+                ? $"POV '{pov}' selected. Generate a prompt for this beat and POV."
+                : $"Loaded the saved prompt for POV '{pov}'.";
+        });
+    }
+
+    private void RequestReplaceBeats()
+    {
+        _replaceBeatsRequested = true;
+    }
+
+    private async Task GenerateBeatsAsync()
+    {
+        await RunAsync(async () =>
+        {
+            var analysis = await ImageService.EnqueueBeatAnalysisAsync(new SceneImageBeatGenerationRequest
+            {
+                SessionId = sessionId,
+                InteractionId = interactionId
+            });
+            _beatAnalysis = analysis;
+            _analysis = null;
+            _selectedBeatId = null;
+            _selectedPov = null;
+            _replaceBeatsRequested = false;
+            _statusMessage = "Beat analysis queued.";
+            EnsurePolling();
+        });
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -305,12 +621,33 @@
             await LoadIntensityProfilesAsync();
             ResolveIntensityLabel();
             await ResolvePolicyAsync();
+            await LoadFullTurnContextAsync();
             await RefreshAsync();
+            await LoadBeatAnalysisAsync();
         }
         catch (Exception ex)
         {
             _errorMessage = $"Failed to load image studio: {ex.Message}";
             Logger.LogError(ex, "SceneImageStudio load failed: SessionId={SessionId}, InteractionId={InteractionId}", sessionId, interactionId);
+        }
+    }
+
+    private async Task LoadFullTurnContextAsync()
+    {
+        if (_session is null || _interaction is null)
+        {
+            _fullTurn = null;
+            return;
+        }
+
+        try
+        {
+            _fullTurn = await TurnResolver.ResolveAsync(_session, _interaction.Id);
+        }
+        catch (Exception ex)
+        {
+            _fullTurn = null;
+            Logger.LogWarning(ex, "Failed to resolve full turn for studio: SessionId={SessionId}, InteractionId={InteractionId}", sessionId, interactionId);
         }
     }
 
@@ -396,12 +733,177 @@
 
     private async Task RefreshAsync()
     {
-        _activePrompt = await ImageService.GetLatestPromptAsync(sessionId, interactionId);
-        if (_activePrompt is not null && _activePrompt.Status == SceneImagePromptStatus.Complete)
+        if (_activePrompt?.Status == SceneImagePromptStatus.Pending)
         {
-            _editablePrompt = _activePrompt.OutputPrompt;
+            _activePrompt = await ImageService.GetPromptAsync(sessionId, _activePrompt.Id);
+            if (_activePrompt?.Status == SceneImagePromptStatus.Complete)
+            {
+                _editablePrompt = _activePrompt.OutputPrompt;
+            }
         }
+        else if (_selectedBeat is not null && !string.IsNullOrWhiteSpace(_selectedPov))
+        {
+            await LoadSelectedPromptAsync();
+        }
+        else
+        {
+            _activePrompt = await ImageService.GetLatestPromptAsync(sessionId, interactionId);
+            if (_activePrompt?.Status == SceneImagePromptStatus.Complete)
+            {
+                _editablePrompt = _activePrompt.OutputPrompt;
+            }
+        }
+        await LoadPreprocessorPromptAsync();
         _images = (await ImageService.ListImagesByInteractionAsync(sessionId, interactionId)).ToList();
+        await LoadBeatAnalysisAsync();
+    }
+
+    private async Task LoadSelectedPromptAsync()
+    {
+        if (_selectedBeat is null
+            || string.IsNullOrWhiteSpace(_selectedPov)
+            || string.IsNullOrWhiteSpace(_beatAnalysis?.Id))
+        {
+            ClearActivePrompt();
+            return;
+        }
+
+        _activePrompt = await ImageService.GetLatestCompletedPromptAsync(
+            sessionId,
+            interactionId,
+            _beatAnalysis.Id,
+            _selectedBeat.BeatId,
+            _selectedPov);
+        _editablePrompt = _activePrompt?.OutputPrompt ?? string.Empty;
+        _preprocessorPrompt = null;
+        _showPreprocessorPrompts = false;
+        await LoadPreprocessorPromptAsync();
+    }
+
+    private void ClearActivePrompt()
+    {
+        _activePrompt = null;
+        _editablePrompt = string.Empty;
+        _preprocessorPrompt = null;
+        _showPreprocessorPrompts = false;
+    }
+
+    private async Task LoadPreprocessorPromptAsync()
+    {
+        if (_activePrompt is null)
+        {
+            _preprocessorPrompt = null;
+            return;
+        }
+
+        if (string.Equals(_preprocessorPrompt?.PromptRecordId, _activePrompt.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        _preprocessorPrompt = null;
+        try
+        {
+            var events = await DebugEventService.QuerySessionEventsAsync(sessionId, eventKind: "SceneImagePromptSent", take: 100);
+            foreach (var debugEvent in events.Reverse())
+            {
+                if (!string.Equals(debugEvent.InteractionId, interactionId, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var promptAudit = TryReadPreprocessorPromptAudit(debugEvent.MetadataJson, debugEvent.CreatedUtc);
+                if (promptAudit is not null
+                    && string.Equals(promptAudit.PromptRecordId, _activePrompt.Id, StringComparison.OrdinalIgnoreCase))
+                {
+                    _preprocessorPrompt = promptAudit;
+                    return;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to load preprocessor request for studio: SessionId={SessionId}, InteractionId={InteractionId}, PromptRecordId={PromptRecordId}", sessionId, interactionId, _activePrompt.Id);
+        }
+    }
+
+    private static SceneImagePreprocessorPromptAudit? TryReadPreprocessorPromptAudit(string metadataJson, DateTime createdUtc)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(metadataJson);
+            var metadata = document.RootElement;
+            if (!metadata.TryGetProperty("promptRecordId", out var promptRecordId)
+                || promptRecordId.ValueKind != JsonValueKind.String
+                || !metadata.TryGetProperty("systemPrompt", out var systemPrompt)
+                || systemPrompt.ValueKind != JsonValueKind.String
+                || !metadata.TryGetProperty("userPrompt", out var userPrompt)
+                || userPrompt.ValueKind != JsonValueKind.String)
+            {
+                return null;
+            }
+
+            return new SceneImagePreprocessorPromptAudit(
+                promptRecordId.GetString() ?? string.Empty,
+                systemPrompt.GetString() ?? string.Empty,
+                userPrompt.GetString() ?? string.Empty,
+                createdUtc);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Loads (or computes) the scene-image analysis for this interaction (CR-006 P3/P4) so the
+    /// Beat selector + POV selector + "Why this prompt?" panel show immediately on studio open —
+    /// not only after a prompt has been generated. Prefers the persisted
+    /// <c>SceneImageAnalysisCompleted</c> debug event when present; otherwise computes it live from
+    /// the full-turn context + deterministic beat analyzer.
+    /// </summary>
+    private async Task LoadBeatAnalysisAsync()
+    {
+        if (_fullTurn?.Turn is null)
+        {
+            _beatAnalysis = null;
+            _analysis = null;
+            _requiresBeatRegeneration = false;
+            return;
+        }
+        _beatAnalysis = await ImageService.GetBeatAnalysisByTurnAsync(sessionId, _fullTurn.Turn.TurnId);
+        if (_beatAnalysis?.Status == SceneImageBeatAnalysisStatus.Complete)
+        {
+            var beats = JsonSerializer.Deserialize<IReadOnlyList<SceneImageBeat>>(_beatAnalysis.BeatsJson, JsonOptions) ?? [];
+            _requiresBeatRegeneration = beats.Count == 0
+                || beats.Any(x => x.SchemaVersion != SceneImageBeatAnalysisService.CurrentSchemaVersion);
+            _analysis = _requiresBeatRegeneration
+                ? null
+                : new SceneImageAnalysisResult { TurnId = _beatAnalysis.TurnId, Beats = beats, AnalysisStatus = "complete" };
+        }
+        else
+        {
+            _analysis = null;
+            _requiresBeatRegeneration = false;
+        }
+    }
+
+    private async Task<IReadOnlyList<DreamGenClone.Web.Domain.Scenarios.Character>?> LoadScenarioCharactersAsync()
+    {
+        try
+        {
+            if (_session is null || string.IsNullOrWhiteSpace(_session.ScenarioId))
+            {
+                return null;
+            }
+            var scenario = await ScenarioService.GetScenarioAsync(_session.ScenarioId);
+            return scenario?.Characters;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to load scenario characters for studio: SessionId={SessionId}", sessionId);
+            return null;
+        }
     }
 
     private async Task GeneratePromptAsync()
@@ -414,10 +916,15 @@
                 InteractionId = interactionId,
                 Settings = _settings,
                 ExcerptOverride = null,
-                RefineInstruction = null
+                RefineInstruction = null,
+                BeatAnalysisId = _beatAnalysis?.Id ?? string.Empty,
+                BeatSnapshotJson = JsonSerializer.Serialize(_selectedBeat, JsonOptions),
+                Pov = _selectedPov
             });
             _activePrompt = record;
             _editablePrompt = string.Empty;
+            _preprocessorPrompt = null;
+            _showPreprocessorPrompts = false;
             _statusMessage = "Prompt generation queued.";
             EnsurePolling();
         });
@@ -435,9 +942,14 @@
                 InteractionId = interactionId,
                 Settings = _settings,
                 ExcerptOverride = null,
-                RefineInstruction = _refineInstruction.Trim()
+                RefineInstruction = _refineInstruction.Trim(),
+                BeatAnalysisId = _beatAnalysis?.Id ?? string.Empty,
+                BeatSnapshotJson = JsonSerializer.Serialize(_selectedBeat, JsonOptions),
+                Pov = _selectedPov
             });
             _activePrompt = record;
+            _preprocessorPrompt = null;
+            _showPreprocessorPrompts = false;
             _statusMessage = "Prompt refinement queued.";
             _refineInstruction = string.Empty;
             EnsurePolling();
@@ -461,7 +973,9 @@
                 Prompt = _editablePrompt.Trim(),
                 ImageSize = _settings.ImageSize,
                 SettingsJson = JsonSerializer.Serialize(_settings),
-                RegenerateOfId = _continueFromImageId
+                RegenerateOfId = _continueFromImageId,
+                BeatId = _selectedBeatId,
+                Pov = _selectedPov
             });
             _continueFromImageId = null;
             _images.Insert(0, record);
@@ -484,7 +998,9 @@
                 Prompt = _editablePrompt.Trim(),
                 ImageSize = _settings.ImageSize,
                 SettingsJson = JsonSerializer.Serialize(_settings),
-                RegenerateOfId = image.Id
+                RegenerateOfId = image.Id,
+                BeatId = _selectedBeatId,
+                Pov = _selectedPov
             });
             _continueFromImageId = null;
             _images.Insert(0, record);
@@ -520,6 +1036,16 @@
                 {
                     Logger.LogWarning(ex, "Failed to restore settings from image {ImageId}; keeping current settings.", image.Id);
                 }
+            }
+
+            // Restore the beat + POV that produced this image (CR-006 P5).
+            if (!string.IsNullOrWhiteSpace(image.BeatId))
+            {
+                _selectedBeatId = image.BeatId;
+            }
+            if (!string.IsNullOrWhiteSpace(image.Pov))
+            {
+                _selectedPov = image.Pov;
             }
 
             _statusMessage = "Loaded prompt + settings from the selected image. Edit and render to continue from it.";
@@ -575,6 +1101,7 @@
 
     private bool HasInFlightWork()
     {
+        if (_beatAnalysis is not null && _beatAnalysis.Status == SceneImageBeatAnalysisStatus.Pending) return true;
         if (_activePrompt is not null && _activePrompt.Status == SceneImagePromptStatus.Pending) return true;
         return _images.Any(x => x.Status == SceneImageStatus.Pending || x.Status == SceneImageStatus.Generating);
     }
@@ -633,4 +1160,10 @@
             _pollingCts = null;
         }
     }
+
+    private sealed record SceneImagePreprocessorPromptAudit(
+        string PromptRecordId,
+        string SystemPrompt,
+        string UserPrompt,
+        DateTime CreatedUtc);
 }

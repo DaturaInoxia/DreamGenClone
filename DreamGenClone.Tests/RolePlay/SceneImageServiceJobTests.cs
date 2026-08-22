@@ -1,3 +1,4 @@
+using System.Text.Json;
 using DreamGenClone.Application.Abstractions;
 using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Domain.RolePlay;
@@ -17,6 +18,8 @@ namespace DreamGenClone.Tests.RolePlay;
 
 public sealed class SceneImageServiceJobTests
 {
+    private const string CurrentBeatsJson = "[{\"schemaVersion\":3,\"beatId\":\"beat-1\",\"order\":2,\"label\":\"Kitchen confession\",\"visualDescription\":\"She steps closer in the kitchen.\",\"interactionIds\":[\"i1\"],\"subjectCharacterNames\":[\"Wife\"],\"characters\":[{\"name\":\"Wife\",\"profileId\":null,\"involvement\":\"active\",\"physicalLocation\":\"Kitchen\",\"position\":\"beside the kitchen table\",\"actionOrObservation\":\"steps closer\",\"sightline\":\"toward the other person\",\"visibleCharacterNames\":[],\"clothing\":\"blue dress\"}],\"location\":\"Kitchen\",\"timeOfDay\":\"Evening\",\"lighting\":\"warm overhead light\",\"environment\":\"quiet kitchen\",\"mood\":\"intimate\",\"excerpt\":\"She steps closer in the kitchen.\"}]";
+
     private sealed class CapturingBackgroundJobQueue : IBackgroundJobQueue
     {
         public List<(string JobType, string PayloadJson, string? DedupeKey)> Enqueued { get; } = [];
@@ -51,7 +54,7 @@ public sealed class SceneImageServiceJobTests
     }
 
     private static (SceneImageService service, CapturingBackgroundJobQueue queue, SceneImageRepository repo, SceneImageStorageService storage, string dbPath, string root)
-        Build(RolePlaySession? session)
+        Build(RolePlaySession? session, string beatsJson = CurrentBeatsJson)
     {
         var dbPath = Path.Combine(Path.GetTempPath(), $"scene-image-svc-{Guid.NewGuid():N}.db");
         var root = Path.Combine(Path.GetTempPath(), $"scene-image-svc-files-{Guid.NewGuid():N}");
@@ -60,11 +63,27 @@ public sealed class SceneImageServiceJobTests
             Options.Create(new PersistenceOptions { SceneImageRoot = root }),
             NullLogger<SceneImageStorageService>.Instance);
         var queue = new CapturingBackgroundJobQueue();
+        var stateRepository = new RolePlayStateRepository(Options.Create(new PersistenceOptions { ConnectionString = $"Data Source={dbPath}" }));
+        if (session is not null)
+        {
+            var turn = stateRepository.StartTurnAsync(session.Id, "Test", "Test", null, "i1").GetAwaiter().GetResult();
+            stateRepository.CompleteTurnAsync(session.Id, turn.TurnId, ["i1"], succeeded: true).GetAwaiter().GetResult();
+            repo.UpsertBeatAnalysisAsync(new SceneImageBeatAnalysisRecord
+            {
+                Id = "analysis-1",
+                SessionId = session.Id,
+                TurnId = turn.TurnId,
+                AnchorInteractionId = "i1",
+                Status = SceneImageBeatAnalysisStatus.Complete,
+                BeatsJson = beatsJson
+            }).GetAwaiter().GetResult();
+        }
         var service = new SceneImageService(
             new StubSessionService(session),
             repo,
             storage,
             queue,
+            new SceneImageTurnResolver(stateRepository),
             NullLogger<SceneImageService>.Instance);
         return (service, queue, repo, storage, dbPath, root);
     }
@@ -75,6 +94,27 @@ public sealed class SceneImageServiceJobTests
         Interactions = { new RolePlayInteraction { Id = "i1", ActorName = "Wife", Content = "She stepped closer." } }
     };
 
+    private static SceneImagePromptRecord CreatePromptRecord(string outputPrompt = "a draft") => new()
+    {
+        SessionId = "s1",
+        InteractionId = "i1",
+        BeatAnalysisId = "analysis-1",
+        BeatSnapshotJson = "{\"beatId\":\"beat-1\"}",
+        Pov = "Omniscient",
+        OutputPrompt = outputPrompt,
+        Status = SceneImagePromptStatus.Complete
+    };
+
+    private static ScenePromptRequest CreatePromptRequest() => new()
+    {
+        SessionId = "s1",
+        InteractionId = "i1",
+        Settings = new SceneImageStudioSettings { Style = "anime" },
+        BeatAnalysisId = "analysis-1",
+        BeatSnapshotJson = "{\"beatId\":\"beat-1\"}",
+        Pov = "Omniscient"
+    };
+
     [Fact]
     public async Task EnqueuePromptAsync_CreatesPendingRecordAndEnqueuesJob()
     {
@@ -82,12 +122,9 @@ public sealed class SceneImageServiceJobTests
         var (service, queue, repo, _, dbPath, root) = Build(session);
         try
         {
-            var record = await service.EnqueuePromptAsync(new ScenePromptRequest
-            {
-                SessionId = "s1",
-                InteractionId = "i1",
-                Settings = new SceneImageStudioSettings { Style = "anime", ImageSize = "1024x1024" }
-            });
+            var request = CreatePromptRequest();
+            request.Settings.ImageSize = "1024x1024";
+            var record = await service.EnqueuePromptAsync(request);
 
             Assert.Equal(SceneImagePromptStatus.Pending, record.Status);
             Assert.Equal("s1", record.SessionId);
@@ -96,6 +133,18 @@ public sealed class SceneImageServiceJobTests
             var persisted = await repo.GetPromptAsync(record.Id);
             Assert.NotNull(persisted);
             Assert.Equal(SceneImagePromptStatus.Pending, persisted!.Status);
+            var persistedBeat = JsonSerializer.Deserialize<SceneImageBeat>(
+                persisted.BeatSnapshotJson,
+                new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            Assert.NotNull(persistedBeat);
+            Assert.Equal("beat-1", persistedBeat!.BeatId);
+            Assert.Equal(2, persistedBeat.Order);
+            Assert.Equal("Kitchen confession", persistedBeat.Label);
+            Assert.Equal("She steps closer in the kitchen.", persistedBeat.Description);
+            Assert.Equal("Kitchen", persistedBeat.Location);
+            Assert.Equal("Evening", persistedBeat.TimeOfDay);
+            Assert.Equal("Wife", Assert.Single(persistedBeat.Characters).Name);
+            Assert.Equal("blue dress", Assert.Single(persistedBeat.Characters).Clothing);
 
             Assert.Single(queue.Enqueued);
             Assert.Equal(BackgroundJobTypes.SceneImagePromptGeneration, queue.Enqueued[0].JobType);
@@ -127,6 +176,39 @@ public sealed class SceneImageServiceJobTests
     }
 
     [Fact]
+    public async Task EnqueuePromptAsync_LegacyBeatSchema_RequiresRegeneration()
+    {
+        var legacyBeats = "[{\"beatId\":\"beat-1\",\"characters\":[{\"name\":\"Wife\"}]}]";
+        var (service, _, _, _, dbPath, root) = Build(MakeSession(), legacyBeats);
+        try
+        {
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => service.EnqueuePromptAsync(CreatePromptRequest()));
+            Assert.Contains("older schema", exception.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    [Fact]
+    public async Task EnqueuePromptAsync_CharacterOutsideBeat_FailsExplicitly()
+    {
+        var (service, _, _, _, dbPath, root) = Build(MakeSession());
+        try
+        {
+            var request = CreatePromptRequest();
+            request.Pov = "Dean";
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => service.EnqueuePromptAsync(request));
+            Assert.Contains("not associated", exception.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    [Fact]
     public async Task EnqueueRenderAsync_CreatesPendingRecordAndEnqueuesJob()
     {
         var session = MakeSession();
@@ -134,7 +216,7 @@ public sealed class SceneImageServiceJobTests
         try
         {
             // Seed a prompt record first (render references it).
-            var prompt = new SceneImagePromptRecord { SessionId = "s1", InteractionId = "i1", OutputPrompt = "a draft", Status = SceneImagePromptStatus.Complete };
+            var prompt = CreatePromptRecord();
             await repo.UpsertPromptAsync(prompt);
 
             var record = await service.EnqueueRenderAsync(new SceneRenderRequest
@@ -165,7 +247,7 @@ public sealed class SceneImageServiceJobTests
         var (service, _, repo, _, dbPath, root) = Build(session);
         try
         {
-            var prompt = new SceneImagePromptRecord { SessionId = "s1", InteractionId = "i1", OutputPrompt = "a draft", Status = SceneImagePromptStatus.Complete };
+            var prompt = CreatePromptRecord();
             await repo.UpsertPromptAsync(prompt);
 
             var record = await service.EnqueueRenderAsync(new SceneRenderRequest
@@ -200,7 +282,7 @@ public sealed class SceneImageServiceJobTests
         var (service, _, repo, _, dbPath, root) = Build(session);
         try
         {
-            var prompt = new SceneImagePromptRecord { SessionId = "s1", InteractionId = "i1", OutputPrompt = "draft", Status = SceneImagePromptStatus.Complete };
+            var prompt = CreatePromptRecord("draft");
             await repo.UpsertPromptAsync(prompt);
 
             await Assert.ThrowsAsync<InvalidOperationException>(() => service.EnqueueRenderAsync(new SceneRenderRequest
@@ -224,7 +306,7 @@ public sealed class SceneImageServiceJobTests
         var (service, _, repo, storage, dbPath, root) = Build(session);
         try
         {
-            var prompt = new SceneImagePromptRecord { SessionId = "s1", InteractionId = "i1", OutputPrompt = "draft", Status = SceneImagePromptStatus.Complete };
+            var prompt = CreatePromptRecord("draft");
             await repo.UpsertPromptAsync(prompt);
 
             var image = new SceneImageRecord { SessionId = "s1", InteractionId = "i1", PromptRecordId = prompt.Id, PromptSnapshot = "draft" };
@@ -255,13 +337,9 @@ public sealed class SceneImageServiceJobTests
         var (service, _, repo, _, dbPath, root) = Build(session);
         try
         {
-            var record = await service.EnqueuePromptAsync(new ScenePromptRequest
-            {
-                SessionId = "s1",
-                InteractionId = "i1",
-                Settings = new SceneImageStudioSettings { Style = "anime" },
-                RefineInstruction = "  more atmospheric  "
-            });
+            var request = CreatePromptRequest();
+            request.RefineInstruction = "  more atmospheric  ";
+            var record = await service.EnqueuePromptAsync(request);
 
             var persisted = await repo.GetPromptAsync(record.Id);
             Assert.NotNull(persisted);
@@ -280,13 +358,9 @@ public sealed class SceneImageServiceJobTests
         var (service, _, repo, _, dbPath, root) = Build(session);
         try
         {
-            var record = await service.EnqueuePromptAsync(new ScenePromptRequest
-            {
-                SessionId = "s1",
-                InteractionId = "i1",
-                Settings = new SceneImageStudioSettings { Style = "anime" },
-                RefineInstruction = "   "
-            });
+            var request = CreatePromptRequest();
+            request.RefineInstruction = "   ";
+            var record = await service.EnqueuePromptAsync(request);
 
             var persisted = await repo.GetPromptAsync(record.Id);
             Assert.NotNull(persisted);
@@ -305,7 +379,7 @@ public sealed class SceneImageServiceJobTests
         var (service, queue, repo, _, dbPath, root) = Build(session);
         try
         {
-            var prompt = new SceneImagePromptRecord { SessionId = "s1", InteractionId = "i1", OutputPrompt = "a draft", Status = SceneImagePromptStatus.Complete };
+            var prompt = CreatePromptRecord();
             await repo.UpsertPromptAsync(prompt);
 
             var parent = await service.EnqueueRenderAsync(new SceneRenderRequest
@@ -342,7 +416,7 @@ public sealed class SceneImageServiceJobTests
         var (service, _, repo, _, dbPath, root) = Build(session);
         try
         {
-            var prompt = new SceneImagePromptRecord { SessionId = "s1", InteractionId = "i1", OutputPrompt = "original", Status = SceneImagePromptStatus.Complete };
+            var prompt = CreatePromptRecord("original");
             await repo.UpsertPromptAsync(prompt);
 
             await service.UpdatePromptOutputAsync("s1", prompt.Id, "edited version");

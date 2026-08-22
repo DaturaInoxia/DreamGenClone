@@ -17,10 +17,13 @@ namespace DreamGenClone.Web.Application.RolePlay;
 /// </summary>
 public sealed class SceneImageService : ISceneImageService
 {
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
     private readonly ISessionService _sessionService;
     private readonly ISceneImageRepository _repository;
     private readonly ISceneImageStorageService _storage;
     private readonly IBackgroundJobQueue _backgroundJobQueue;
+    private readonly SceneImageTurnResolver? _turnResolver;
     private readonly ILogger<SceneImageService> _logger;
 
     public SceneImageService(
@@ -29,23 +32,107 @@ public sealed class SceneImageService : ISceneImageService
         ISceneImageStorageService storage,
         IBackgroundJobQueue backgroundJobQueue,
         ILogger<SceneImageService> logger)
+        : this(sessionService, repository, storage, backgroundJobQueue, null, logger)
+    {
+    }
+
+    public SceneImageService(
+        ISessionService sessionService,
+        ISceneImageRepository repository,
+        ISceneImageStorageService storage,
+        IBackgroundJobQueue backgroundJobQueue,
+        SceneImageTurnResolver? turnResolver,
+        ILogger<SceneImageService> logger)
     {
         _sessionService = sessionService;
         _repository = repository;
         _storage = storage;
         _backgroundJobQueue = backgroundJobQueue;
+        _turnResolver = turnResolver;
         _logger = logger;
     }
+
+    public async Task<SceneImageBeatAnalysisRecord> EnqueueBeatAnalysisAsync(
+        SceneImageBeatGenerationRequest request, CancellationToken cancellationToken = default)
+    {
+        var session = await LoadSessionAsync(request.SessionId, cancellationToken);
+        var interaction = FindInteraction(session, request.InteractionId);
+        var turnResolver = _turnResolver
+            ?? throw new InvalidOperationException("Scene image beat analysis requires the turn resolver service.");
+        var fullTurn = await turnResolver.ResolveAsync(session, interaction.Id, cancellationToken);
+        if (fullTurn.Turn is null)
+            throw new InvalidOperationException("Beat generation requires a persisted RolePlayV2Turn; this interaction has no authoritative turn.");
+
+        var analysis = new SceneImageBeatAnalysisRecord
+        {
+            SessionId = session.Id,
+            TurnId = fullTurn.Turn.TurnId,
+            AnchorInteractionId = interaction.Id,
+            Status = SceneImageBeatAnalysisStatus.Pending,
+            InputSnapshotJson = JsonSerializer.Serialize(new
+            {
+                turnId = fullTurn.Turn.TurnId,
+                interactionIds = fullTurn.Interactions.Select(x => x.Id).ToList()
+            })
+        };
+        await _repository.UpsertBeatAnalysisAsync(analysis, cancellationToken);
+        _backgroundJobQueue.Enqueue(
+            BackgroundJobTypes.SceneImageBeatGeneration,
+            JsonSerializer.Serialize(new SceneImageBeatGenerationJobPayload
+            {
+                SessionId = session.Id,
+                InteractionId = interaction.Id,
+                AnalysisRecordId = analysis.Id
+            }),
+            dedupeKey: $"{BackgroundJobTypes.SceneImageBeatGeneration}:{analysis.Id}");
+        return analysis;
+    }
+
+    public Task<SceneImageBeatAnalysisRecord?> GetBeatAnalysisByTurnAsync(
+        string sessionId, string turnId, CancellationToken cancellationToken = default)
+        => _repository.GetBeatAnalysisByTurnAsync(sessionId, turnId, cancellationToken);
 
     public async Task<SceneImagePromptRecord> EnqueuePromptAsync(ScenePromptRequest request, CancellationToken cancellationToken = default)
     {
         var session = await LoadSessionAsync(request.SessionId, cancellationToken);
         var interaction = FindInteraction(session, request.InteractionId);
+        if (string.IsNullOrWhiteSpace(request.BeatAnalysisId))
+            throw new InvalidOperationException("A completed beat analysis is required to generate an image prompt.");
+        if (string.IsNullOrWhiteSpace(request.BeatSnapshotJson))
+            throw new InvalidOperationException("A selected beat is required to generate an image prompt.");
+        if (string.IsNullOrWhiteSpace(request.Pov))
+            throw new InvalidOperationException("A POV is required to generate an image prompt.");
+
+        var turnResolver = _turnResolver
+            ?? throw new InvalidOperationException("Scene image prompt generation requires the turn resolver service.");
+        var fullTurn = await turnResolver.ResolveAsync(session, interaction.Id, cancellationToken);
+        if (fullTurn.Turn is null)
+            throw new InvalidOperationException("Scene image prompt generation requires a persisted RolePlayV2Turn.");
+        var analysis = await _repository.GetBeatAnalysisByTurnAsync(session.Id, fullTurn.Turn.TurnId, cancellationToken);
+        if (analysis is null || analysis.Status != SceneImageBeatAnalysisStatus.Complete)
+            throw new InvalidOperationException("Generate a completed beat analysis before generating an image prompt.");
+        if (!string.Equals(analysis.Id, request.BeatAnalysisId, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("The selected beat belongs to a replaced analysis. Select a beat from the current analysis.");
+
+        var requestedBeat = JsonSerializer.Deserialize<SceneImageBeat>(request.BeatSnapshotJson, JsonOptions)
+            ?? throw new InvalidOperationException("The selected beat snapshot is invalid.");
+        var currentBeats = JsonSerializer.Deserialize<IReadOnlyList<SceneImageBeat>>(analysis.BeatsJson, JsonOptions)
+            ?? throw new InvalidOperationException("The completed beat analysis has an invalid beat list.");
+        var selectedBeat = currentBeats.FirstOrDefault(x => string.Equals(x.BeatId, requestedBeat.BeatId, StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException("The selected beat is not part of the current completed analysis.");
+        if (selectedBeat.SchemaVersion != SceneImageBeatAnalysisService.CurrentSchemaVersion)
+            throw new InvalidOperationException("The selected beat analysis uses an older schema. Generate beats again.");
+        if (!string.Equals(request.Pov, SceneImagePovFramer.Omniscient, StringComparison.OrdinalIgnoreCase)
+            && !selectedBeat.Characters.Any(x => string.Equals(x.Name, request.Pov, StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidOperationException("The selected character POV is not associated with the selected beat.");
 
         var record = new SceneImagePromptRecord
         {
             SessionId = session.Id,
             InteractionId = interaction.Id,
+            BeatAnalysisId = request.BeatAnalysisId.Trim(),
+            BeatSnapshotJson = JsonSerializer.Serialize(selectedBeat, JsonOptions),
+            Pov = request.Pov.Trim(),
             SettingsJson = JsonSerializer.Serialize(request.Settings),
             InputExcerpt = request.ExcerptOverride ?? string.Empty,
             RefineInstruction = string.IsNullOrWhiteSpace(request.RefineInstruction) ? null : request.RefineInstruction.Trim(),
@@ -58,7 +145,7 @@ public sealed class SceneImageService : ISceneImageService
         {
             SessionId = session.Id,
             InteractionId = interaction.Id,
-            PromptRecordId = record.Id
+                PromptRecordId = record.Id
         });
 
         _backgroundJobQueue.Enqueue(
@@ -104,7 +191,9 @@ public sealed class SceneImageService : ISceneImageService
             Status = SceneImageStatus.Pending,
             ImageSize = request.ImageSize,
             SettingsJson = settingsJson,
-            RegenerateOfId = request.RegenerateOfId
+            RegenerateOfId = request.RegenerateOfId,
+            BeatId = request.BeatId,
+            Pov = request.Pov
         };
 
         // Extract the style/size labels from the settings snapshot so the image card can display
@@ -157,6 +246,16 @@ public sealed class SceneImageService : ISceneImageService
 
     public Task<SceneImagePromptRecord?> GetLatestPromptAsync(string sessionId, string interactionId, CancellationToken cancellationToken = default)
         => _repository.GetLatestPromptAsync(sessionId, interactionId, cancellationToken);
+
+    public Task<SceneImagePromptRecord?> GetLatestCompletedPromptAsync(
+        string sessionId,
+        string interactionId,
+        string beatAnalysisId,
+        string beatId,
+        string pov,
+        CancellationToken cancellationToken = default)
+        => _repository.GetLatestCompletedPromptAsync(
+            sessionId, interactionId, beatAnalysisId, beatId, pov, cancellationToken);
 
     public async Task UpdatePromptOutputAsync(string sessionId, string promptId, string outputPrompt, CancellationToken cancellationToken = default)
     {

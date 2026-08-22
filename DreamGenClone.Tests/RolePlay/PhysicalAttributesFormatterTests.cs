@@ -83,4 +83,13 @@ public class PhysicalAttributesFormatterTests
         Assert.Contains(striking, female);
         Assert.Contains(striking, unknown);
     }
+
+    [Fact]
+    public void FormatVisualBlock_LabelsEyeColourAsIrisColor()
+    {
+        var output = PhysicalAttributesFormatter.FormatVisualBlock(new PhysicalAttributes { EyeColour = "blue" });
+
+        Assert.Contains("Iris color: blue", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("Eyes: blue", output, StringComparison.Ordinal);
+    }
 }

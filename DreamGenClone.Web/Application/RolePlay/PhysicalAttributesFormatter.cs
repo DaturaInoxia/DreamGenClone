@@ -109,7 +109,7 @@ internal static class PhysicalAttributesFormatter
         Append(sb, "Weight", attrs.Weight);
         Append(sb, "Ethnicity", attrs.Ethnicity);
         Append(sb, "Hair", CombineNotEmpty(attrs.HairStyle, attrs.HairColour, separator: ", "));
-        Append(sb, "Eyes", attrs.EyeColour);
+        Append(sb, "Iris color", attrs.EyeColour);
         Append(sb, "Skin", CombineNotEmpty(attrs.SkinTone, attrs.SkinTexture, separator: ", "));
         Append(sb, "Body type", attrs.BodyType);
         Append(sb, "Marks", attrs.DistinguishingMarks);
@@ -119,6 +119,28 @@ internal static class PhysicalAttributesFormatter
         if (sb.Length == 0) return string.Empty;
 
         return "Appearance — " + sb.ToString();
+    }
+
+    /// <summary>
+    /// Returns the character's clothing/outfit for image-prompt injection, or
+    /// <see cref="string.Empty"/> when no clothing is configured. Prefers <c>ClothingStyle</c>
+    /// (the character's usual attire) and falls back to <c>DefaultClothing</c>.
+    ///
+    /// This is separate from <see cref="FormatVisualBlock"/> so clothing can be injected as its own
+    /// consistent block (CR-006 clothing consistency) rather than being mixed into the fixed
+    /// identity anchors.
+    /// </summary>
+    internal static string FormatVisualClothing(PhysicalAttributes? attrs)
+    {
+        if (attrs is null) return string.Empty;
+
+        var clothing = attrs.ClothingStyle;
+        if (string.IsNullOrWhiteSpace(clothing))
+        {
+            clothing = attrs.DefaultClothing;
+        }
+
+        return string.IsNullOrWhiteSpace(clothing) ? string.Empty : clothing!.Trim();
     }
 
     private static string? CombineNotEmpty(string? a, string? b, string separator)

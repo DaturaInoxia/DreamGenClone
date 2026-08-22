@@ -1089,19 +1089,6 @@ public sealed class CompletionClient : ICompletionClient
         var firstChoice = result?.Choices?.FirstOrDefault();
         var content = firstChoice?.Message?.Content;
 
-        if (string.IsNullOrWhiteSpace(content))
-        {
-            var fallback = firstChoice?.Message?.ReasoningContent ?? firstChoice?.Message?.Reasoning;
-            if (!string.IsNullOrWhiteSpace(fallback))
-            {
-                content = fallback;
-                _logger.LogInformation(
-                    "Using reasoning field as fallback: Model={ModelIdentifier}, Provider={ProviderName}",
-                    resolved.ModelIdentifier,
-                    resolved.ProviderName);
-            }
-        }
-
         return (content, firstChoice?.FinishReason, result?.Choices?.Count ?? 0);
     }
 

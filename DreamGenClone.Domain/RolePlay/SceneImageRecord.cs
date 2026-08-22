@@ -56,6 +56,13 @@ public sealed class SceneImageRecord
     /// <summary>Parent image id when this record is a regenerate of another.</summary>
     public string? RegenerateOfId { get; set; }
 
+    /// <summary>The beat id this image depicts (CR-006 P5), e.g. "b1". Null for legacy images.</summary>
+    public string? BeatId { get; set; }
+
+    /// <summary>The POV framing this image was rendered from (CR-006 P5), e.g. "Omniscient", "Becky".
+    /// Null for legacy images.</summary>
+    public string? Pov { get; set; }
+
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
     public DateTime? StartedUtc { get; set; }
     public DateTime? CompletedUtc { get; set; }

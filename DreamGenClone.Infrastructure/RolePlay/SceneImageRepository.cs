@@ -21,6 +21,100 @@ public sealed class SceneImageRepository : ISceneImageRepository
         _connectionString = options.Value.ConnectionString;
     }
 
+    // ---------------- Beat analysis records ----------------
+
+    public async Task UpsertBeatAnalysisAsync(SceneImageBeatAnalysisRecord analysis, CancellationToken cancellationToken = default)
+    {
+        ValidateBeatAnalysis(analysis);
+
+        await using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await EnsureSchemaAsync(connection, cancellationToken);
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO SceneImageBeatAnalyses (
+                Id, SessionId, TurnId, AnchorInteractionId, Status, BeatsJson, InputSnapshotJson,
+                RawModelResponse, ReasoningContent, ModelIdentifier, ErrorMessage, CreatedUtc, UpdatedUtc)
+            VALUES (
+                $id, $sessionId, $turnId, $anchorInteractionId, $status, $beatsJson, $inputSnapshotJson,
+                $rawModelResponse, $reasoningContent, $modelIdentifier, $errorMessage, $createdUtc, $updatedUtc)
+            ON CONFLICT(SessionId, TurnId) DO UPDATE SET
+                Id = excluded.Id,
+                AnchorInteractionId = excluded.AnchorInteractionId,
+                Status = excluded.Status,
+                BeatsJson = excluded.BeatsJson,
+                InputSnapshotJson = excluded.InputSnapshotJson,
+                RawModelResponse = excluded.RawModelResponse,
+                ReasoningContent = excluded.ReasoningContent,
+                ModelIdentifier = excluded.ModelIdentifier,
+                ErrorMessage = excluded.ErrorMessage,
+                CreatedUtc = excluded.CreatedUtc,
+                UpdatedUtc = excluded.UpdatedUtc;
+            """;
+        command.Parameters.AddWithValue("$id", analysis.Id);
+        command.Parameters.AddWithValue("$sessionId", analysis.SessionId.Trim());
+        command.Parameters.AddWithValue("$turnId", analysis.TurnId.Trim());
+        command.Parameters.AddWithValue("$anchorInteractionId", analysis.AnchorInteractionId.Trim());
+        command.Parameters.AddWithValue("$status", analysis.Status.ToString());
+        command.Parameters.AddWithValue("$beatsJson", analysis.BeatsJson);
+        command.Parameters.AddWithValue("$inputSnapshotJson", analysis.InputSnapshotJson);
+        command.Parameters.AddWithValue("$rawModelResponse", (object?)analysis.RawModelResponse ?? DBNull.Value);
+        command.Parameters.AddWithValue("$reasoningContent", (object?)analysis.ReasoningContent ?? DBNull.Value);
+        command.Parameters.AddWithValue("$modelIdentifier", (object?)analysis.ModelIdentifier ?? DBNull.Value);
+        command.Parameters.AddWithValue("$errorMessage", (object?)analysis.ErrorMessage ?? DBNull.Value);
+        command.Parameters.AddWithValue("$createdUtc", analysis.CreatedUtc.ToString("O"));
+        command.Parameters.AddWithValue("$updatedUtc", analysis.UpdatedUtc.ToString("O"));
+
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    public async Task<SceneImageBeatAnalysisRecord?> GetBeatAnalysisByTurnAsync(
+        string sessionId, string turnId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId) || string.IsNullOrWhiteSpace(turnId))
+        {
+            throw new InvalidOperationException("Session id and turn id are required to load scene image beat analysis.");
+        }
+
+        await using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await EnsureSchemaAsync(connection, cancellationToken);
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT Id, SessionId, TurnId, AnchorInteractionId, Status, BeatsJson, InputSnapshotJson,
+                     RawModelResponse, ReasoningContent, ModelIdentifier, ErrorMessage, CreatedUtc, UpdatedUtc
+            FROM SceneImageBeatAnalyses
+            WHERE SessionId = $sessionId AND TurnId = $turnId;
+            """;
+        command.Parameters.AddWithValue("$sessionId", sessionId.Trim());
+        command.Parameters.AddWithValue("$turnId", turnId.Trim());
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return new SceneImageBeatAnalysisRecord
+        {
+            Id = reader.GetString(0),
+            SessionId = reader.GetString(1),
+            TurnId = reader.GetString(2),
+            AnchorInteractionId = reader.GetString(3),
+            Status = ParseEnum<SceneImageBeatAnalysisStatus>(reader.GetString(4), reader.GetString(1), reader.GetString(3), "SceneImageBeatAnalyses"),
+            BeatsJson = reader.GetString(5),
+            InputSnapshotJson = reader.GetString(6),
+            RawModelResponse = reader.IsDBNull(7) ? null : reader.GetString(7),
+            ReasoningContent = reader.IsDBNull(8) ? null : reader.GetString(8),
+            ModelIdentifier = reader.IsDBNull(9) ? null : reader.GetString(9),
+            ErrorMessage = reader.IsDBNull(10) ? null : reader.GetString(10),
+            CreatedUtc = ParseUtc(reader.GetString(11), reader.GetString(1), reader.GetString(3), "CreatedUtc"),
+            UpdatedUtc = ParseUtc(reader.GetString(12), reader.GetString(1), reader.GetString(3), "UpdatedUtc")
+        };
+    }
+
     // ---------------- Prompt records ----------------
 
     public async Task UpsertPromptAsync(SceneImagePromptRecord prompt, CancellationToken cancellationToken = default)
@@ -34,14 +128,17 @@ public sealed class SceneImageRepository : ISceneImageRepository
         await using var command = connection.CreateCommand();
         command.CommandText = """
             INSERT INTO SceneImagePrompts (
-                Id, SessionId, InteractionId, SettingsJson, InputExcerpt, OutputPrompt, RefineInstruction,
+                Id, SessionId, InteractionId, BeatAnalysisId, BeatSnapshotJson, Pov, SettingsJson, InputExcerpt, OutputPrompt, RefineInstruction,
                 Status, ModelIdentifier, ErrorMessage, CreatedUtc, UpdatedUtc)
             VALUES (
-                $id, $sessionId, $interactionId, $settingsJson, $inputExcerpt, $outputPrompt, $refineInstruction,
+                $id, $sessionId, $interactionId, $beatAnalysisId, $beatSnapshotJson, $pov, $settingsJson, $inputExcerpt, $outputPrompt, $refineInstruction,
                 $status, $modelIdentifier, $errorMessage, $createdUtc, $updatedUtc)
             ON CONFLICT(Id) DO UPDATE SET
                 SessionId = excluded.SessionId,
                 InteractionId = excluded.InteractionId,
+                BeatAnalysisId = excluded.BeatAnalysisId,
+                BeatSnapshotJson = excluded.BeatSnapshotJson,
+                Pov = excluded.Pov,
                 SettingsJson = excluded.SettingsJson,
                 InputExcerpt = excluded.InputExcerpt,
                 OutputPrompt = excluded.OutputPrompt,
@@ -54,6 +151,9 @@ public sealed class SceneImageRepository : ISceneImageRepository
         command.Parameters.AddWithValue("$id", prompt.Id);
         command.Parameters.AddWithValue("$sessionId", prompt.SessionId.Trim());
         command.Parameters.AddWithValue("$interactionId", prompt.InteractionId.Trim());
+        command.Parameters.AddWithValue("$beatAnalysisId", prompt.BeatAnalysisId);
+        command.Parameters.AddWithValue("$beatSnapshotJson", prompt.BeatSnapshotJson);
+        command.Parameters.AddWithValue("$pov", prompt.Pov);
         command.Parameters.AddWithValue("$settingsJson", prompt.SettingsJson);
         command.Parameters.AddWithValue("$inputExcerpt", prompt.InputExcerpt);
         command.Parameters.AddWithValue("$outputPrompt", prompt.OutputPrompt);
@@ -80,7 +180,7 @@ public sealed class SceneImageRepository : ISceneImageRepository
 
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT Id, SessionId, InteractionId, SettingsJson, InputExcerpt, OutputPrompt, RefineInstruction,
+            SELECT Id, SessionId, InteractionId, BeatAnalysisId, BeatSnapshotJson, Pov, SettingsJson, InputExcerpt, OutputPrompt, RefineInstruction,
                    Status, ModelIdentifier, ErrorMessage, CreatedUtc, UpdatedUtc
             FROM SceneImagePrompts
             WHERE Id = $id;
@@ -110,7 +210,7 @@ public sealed class SceneImageRepository : ISceneImageRepository
 
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT Id, SessionId, InteractionId, SettingsJson, InputExcerpt, OutputPrompt, RefineInstruction,
+            SELECT Id, SessionId, InteractionId, BeatAnalysisId, BeatSnapshotJson, Pov, SettingsJson, InputExcerpt, OutputPrompt, RefineInstruction,
                    Status, ModelIdentifier, ErrorMessage, CreatedUtc, UpdatedUtc
             FROM SceneImagePrompts
             WHERE SessionId = $sessionId AND InteractionId = $interactionId
@@ -127,6 +227,51 @@ public sealed class SceneImageRepository : ISceneImageRepository
         }
 
         return ReadPrompt(reader);
+    }
+
+    public async Task<SceneImagePromptRecord?> GetLatestCompletedPromptAsync(
+        string sessionId,
+        string interactionId,
+        string beatAnalysisId,
+        string beatId,
+        string pov,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId)
+            || string.IsNullOrWhiteSpace(interactionId)
+            || string.IsNullOrWhiteSpace(beatAnalysisId)
+            || string.IsNullOrWhiteSpace(beatId)
+            || string.IsNullOrWhiteSpace(pov))
+        {
+            throw new InvalidOperationException("Session, interaction, beat analysis, beat, and POV are required to load a generated scene image prompt.");
+        }
+
+        await using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await EnsureSchemaAsync(connection, cancellationToken);
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT Id, SessionId, InteractionId, BeatAnalysisId, BeatSnapshotJson, Pov, SettingsJson, InputExcerpt, OutputPrompt, RefineInstruction,
+                   Status, ModelIdentifier, ErrorMessage, CreatedUtc, UpdatedUtc
+            FROM SceneImagePrompts
+            WHERE SessionId = $sessionId
+              AND InteractionId = $interactionId
+              AND BeatAnalysisId = $beatAnalysisId
+              AND json_extract(BeatSnapshotJson, '$.beatId') = $beatId
+              AND Pov = $pov COLLATE NOCASE
+              AND Status = 'Complete'
+            ORDER BY UpdatedUtc DESC
+            LIMIT 1;
+            """;
+        command.Parameters.AddWithValue("$sessionId", sessionId.Trim());
+        command.Parameters.AddWithValue("$interactionId", interactionId.Trim());
+        command.Parameters.AddWithValue("$beatAnalysisId", beatAnalysisId.Trim());
+        command.Parameters.AddWithValue("$beatId", beatId.Trim());
+        command.Parameters.AddWithValue("$pov", pov.Trim());
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        return await reader.ReadAsync(cancellationToken) ? ReadPrompt(reader) : null;
     }
 
     public async Task UpdatePromptOutputAsync(string promptId, string outputPrompt, CancellationToken cancellationToken = default)
@@ -175,11 +320,11 @@ public sealed class SceneImageRepository : ISceneImageRepository
             INSERT OR REPLACE INTO SceneImages (
                 Id, SessionId, InteractionId, PromptRecordId, PromptSnapshot, Status,
                 FileRelativePath, ModelIdentifier, ProviderName, ContentPolicy, ImageSize, Style, SettingsJson,
-                ErrorMessage, RegenerateOfId, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc)
+                ErrorMessage, RegenerateOfId, BeatId, Pov, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc)
             VALUES (
                 $id, $sessionId, $interactionId, $promptRecordId, $promptSnapshot, $status,
                 $fileRelativePath, $modelIdentifier, $providerName, $contentPolicy, $imageSize, $style, $settingsJson,
-                $errorMessage, $regenerateOfId, $createdUtc, $startedUtc, $completedUtc, $updatedUtc);
+                $errorMessage, $regenerateOfId, $beatId, $pov, $createdUtc, $startedUtc, $completedUtc, $updatedUtc);
             """;
         command.Parameters.AddWithValue("$id", image.Id);
         command.Parameters.AddWithValue("$sessionId", image.SessionId.Trim());
@@ -196,6 +341,8 @@ public sealed class SceneImageRepository : ISceneImageRepository
         command.Parameters.AddWithValue("$settingsJson", image.SettingsJson);
         command.Parameters.AddWithValue("$errorMessage", (object?)image.ErrorMessage ?? DBNull.Value);
         command.Parameters.AddWithValue("$regenerateOfId", (object?)image.RegenerateOfId ?? DBNull.Value);
+        command.Parameters.AddWithValue("$beatId", (object?)image.BeatId ?? DBNull.Value);
+        command.Parameters.AddWithValue("$pov", (object?)image.Pov ?? DBNull.Value);
         command.Parameters.AddWithValue("$createdUtc", image.CreatedUtc.ToString("O"));
         command.Parameters.AddWithValue("$startedUtc", image.StartedUtc?.ToString("O") ?? (object)DBNull.Value);
         command.Parameters.AddWithValue("$completedUtc", image.CompletedUtc?.ToString("O") ?? (object)DBNull.Value);
@@ -219,7 +366,7 @@ public sealed class SceneImageRepository : ISceneImageRepository
         command.CommandText = """
             SELECT Id, SessionId, InteractionId, PromptRecordId, PromptSnapshot, Status,
                    FileRelativePath, ModelIdentifier, ProviderName, ContentPolicy, ImageSize, Style, SettingsJson,
-                   ErrorMessage, RegenerateOfId, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc
+                   ErrorMessage, RegenerateOfId, BeatId, Pov, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc
             FROM SceneImages
             WHERE Id = $id;
             """;
@@ -250,7 +397,7 @@ public sealed class SceneImageRepository : ISceneImageRepository
         command.CommandText = """
             SELECT Id, SessionId, InteractionId, PromptRecordId, PromptSnapshot, Status,
                    FileRelativePath, ModelIdentifier, ProviderName, ContentPolicy, ImageSize, Style, SettingsJson,
-                   ErrorMessage, RegenerateOfId, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc
+                   ErrorMessage, RegenerateOfId, BeatId, Pov, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc
             FROM SceneImages
             WHERE SessionId = $sessionId AND InteractionId = $interactionId
             ORDER BY CreatedUtc DESC;
@@ -284,7 +431,7 @@ public sealed class SceneImageRepository : ISceneImageRepository
         command.CommandText = """
             SELECT Id, SessionId, InteractionId, PromptRecordId, PromptSnapshot, Status,
                    FileRelativePath, ModelIdentifier, ProviderName, ContentPolicy, ImageSize, Style, SettingsJson,
-                   ErrorMessage, RegenerateOfId, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc
+                   ErrorMessage, RegenerateOfId, BeatId, Pov, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc
             FROM SceneImages
             WHERE SessionId = $sessionId
             ORDER BY CreatedUtc DESC;
@@ -362,15 +509,18 @@ public sealed class SceneImageRepository : ISceneImageRepository
             Id = reader.GetString(0),
             SessionId = sessionId,
             InteractionId = interactionId,
-            SettingsJson = reader.GetString(3),
-            InputExcerpt = reader.GetString(4),
-            OutputPrompt = reader.GetString(5),
-            RefineInstruction = reader.IsDBNull(6) ? null : reader.GetString(6),
-            Status = ParseEnum<SceneImagePromptStatus>(reader.GetString(7), sessionId, interactionId, "SceneImagePrompts"),
-            ModelIdentifier = reader.IsDBNull(8) ? null : reader.GetString(8),
-            ErrorMessage = reader.IsDBNull(9) ? null : reader.GetString(9),
-            CreatedUtc = ParseUtc(reader.GetString(10), sessionId, interactionId, "CreatedUtc"),
-            UpdatedUtc = ParseUtc(reader.GetString(11), sessionId, interactionId, "UpdatedUtc")
+            BeatAnalysisId = reader.GetString(3),
+            BeatSnapshotJson = reader.GetString(4),
+            Pov = reader.GetString(5),
+            SettingsJson = reader.GetString(6),
+            InputExcerpt = reader.GetString(7),
+            OutputPrompt = reader.GetString(8),
+            RefineInstruction = reader.IsDBNull(9) ? null : reader.GetString(9),
+            Status = ParseEnum<SceneImagePromptStatus>(reader.GetString(10), sessionId, interactionId, "SceneImagePrompts"),
+            ModelIdentifier = reader.IsDBNull(11) ? null : reader.GetString(11),
+            ErrorMessage = reader.IsDBNull(12) ? null : reader.GetString(12),
+            CreatedUtc = ParseUtc(reader.GetString(13), sessionId, interactionId, "CreatedUtc"),
+            UpdatedUtc = ParseUtc(reader.GetString(14), sessionId, interactionId, "UpdatedUtc")
         };
     }
 
@@ -395,10 +545,12 @@ public sealed class SceneImageRepository : ISceneImageRepository
             SettingsJson = reader.IsDBNull(12) ? "{}" : reader.GetString(12),
             ErrorMessage = reader.IsDBNull(13) ? null : reader.GetString(13),
             RegenerateOfId = reader.IsDBNull(14) ? null : reader.GetString(14),
-            CreatedUtc = ParseUtc(reader.GetString(15), sessionId, interactionId, "CreatedUtc"),
-            StartedUtc = reader.IsDBNull(16) ? null : ParseUtc(reader.GetString(16), sessionId, interactionId, "StartedUtc"),
-            CompletedUtc = reader.IsDBNull(17) ? null : ParseUtc(reader.GetString(17), sessionId, interactionId, "CompletedUtc"),
-            UpdatedUtc = ParseUtc(reader.GetString(18), sessionId, interactionId, "UpdatedUtc")
+            BeatId = reader.IsDBNull(15) ? null : reader.GetString(15),
+            Pov = reader.IsDBNull(16) ? null : reader.GetString(16),
+            CreatedUtc = ParseUtc(reader.GetString(17), sessionId, interactionId, "CreatedUtc"),
+            StartedUtc = reader.IsDBNull(18) ? null : ParseUtc(reader.GetString(18), sessionId, interactionId, "StartedUtc"),
+            CompletedUtc = reader.IsDBNull(19) ? null : ParseUtc(reader.GetString(19), sessionId, interactionId, "CompletedUtc"),
+            UpdatedUtc = ParseUtc(reader.GetString(20), sessionId, interactionId, "UpdatedUtc")
         };
     }
 
@@ -408,10 +560,32 @@ public sealed class SceneImageRepository : ISceneImageRepository
     {
         await using var command = connection.CreateCommand();
         command.CommandText = """
+            CREATE TABLE IF NOT EXISTS SceneImageBeatAnalyses (
+                Id                  TEXT PRIMARY KEY,
+                SessionId           TEXT NOT NULL,
+                TurnId              TEXT NOT NULL,
+                AnchorInteractionId TEXT NOT NULL,
+                Status              TEXT NOT NULL,
+                BeatsJson           TEXT NOT NULL,
+                InputSnapshotJson   TEXT NOT NULL,
+                RawModelResponse    TEXT NULL,
+                ReasoningContent    TEXT NULL,
+                ModelIdentifier     TEXT NULL,
+                ErrorMessage        TEXT NULL,
+                CreatedUtc          TEXT NOT NULL,
+                UpdatedUtc          TEXT NOT NULL,
+                UNIQUE (SessionId, TurnId)
+            );
+            CREATE INDEX IF NOT EXISTS IX_SceneImageBeatAnalyses_SessionTurn
+                ON SceneImageBeatAnalyses (SessionId, TurnId);
+
             CREATE TABLE IF NOT EXISTS SceneImagePrompts (
                 Id               TEXT PRIMARY KEY,
                 SessionId        TEXT NOT NULL,
                 InteractionId    TEXT NOT NULL,
+                BeatAnalysisId   TEXT NOT NULL DEFAULT '',
+                BeatSnapshotJson TEXT NOT NULL DEFAULT '{}',
+                Pov              TEXT NOT NULL DEFAULT '',
                 SettingsJson     TEXT NOT NULL,
                 InputExcerpt     TEXT NOT NULL,
                 OutputPrompt     TEXT NOT NULL,
@@ -441,6 +615,8 @@ public sealed class SceneImageRepository : ISceneImageRepository
                 SettingsJson     TEXT NOT NULL DEFAULT '{}',
                 ErrorMessage     TEXT NULL,
                 RegenerateOfId   TEXT NULL,
+                BeatId           TEXT NULL,
+                Pov              TEXT NULL,
                 CreatedUtc       TEXT NOT NULL,
                 StartedUtc       TEXT NULL,
                 CompletedUtc     TEXT NULL,
@@ -452,9 +628,57 @@ public sealed class SceneImageRepository : ISceneImageRepository
                 ON SceneImages (SessionId, InteractionId);
             """;
         await command.ExecuteNonQueryAsync(cancellationToken);
+        await EnsurePromptBeatColumnsAsync(connection, cancellationToken);
+    }
+
+    private static async Task EnsurePromptBeatColumnsAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        foreach (var (name, sql) in new[]
+        {
+            ("ReasoningContent", "ALTER TABLE SceneImageBeatAnalyses ADD COLUMN ReasoningContent TEXT NULL")
+        })
+        {
+            await using var check = connection.CreateCommand();
+            check.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('SceneImageBeatAnalyses') WHERE name = '{name}'";
+            var exists = Convert.ToInt32(await check.ExecuteScalarAsync(cancellationToken)) > 0;
+            if (exists) continue;
+            await using var alter = connection.CreateCommand();
+            alter.CommandText = sql;
+            await alter.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        foreach (var (name, sql) in new[]
+        {
+            ("BeatAnalysisId", "ALTER TABLE SceneImagePrompts ADD COLUMN BeatAnalysisId TEXT NOT NULL DEFAULT ''"),
+            ("BeatSnapshotJson", "ALTER TABLE SceneImagePrompts ADD COLUMN BeatSnapshotJson TEXT NOT NULL DEFAULT '{}'"),
+            ("Pov", "ALTER TABLE SceneImagePrompts ADD COLUMN Pov TEXT NOT NULL DEFAULT ''")
+        })
+        {
+            await using var check = connection.CreateCommand();
+            check.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('SceneImagePrompts') WHERE name = '{name}'";
+            var exists = Convert.ToInt32(await check.ExecuteScalarAsync(cancellationToken)) > 0;
+            if (exists) continue;
+            await using var alter = connection.CreateCommand();
+            alter.CommandText = sql;
+            await alter.ExecuteNonQueryAsync(cancellationToken);
+        }
     }
 
     // ---------------- Validation / parsing ----------------
+
+    private static void ValidateBeatAnalysis(SceneImageBeatAnalysisRecord analysis)
+    {
+        if (string.IsNullOrWhiteSpace(analysis.SessionId))
+            throw new InvalidOperationException("Scene image beat analysis requires SessionId.");
+        if (string.IsNullOrWhiteSpace(analysis.TurnId))
+            throw new InvalidOperationException("Scene image beat analysis requires TurnId.");
+        if (string.IsNullOrWhiteSpace(analysis.AnchorInteractionId))
+            throw new InvalidOperationException("Scene image beat analysis requires AnchorInteractionId.");
+        if (string.IsNullOrWhiteSpace(analysis.BeatsJson))
+            throw new InvalidOperationException("Scene image beat analysis requires BeatsJson.");
+        if (string.IsNullOrWhiteSpace(analysis.InputSnapshotJson))
+            throw new InvalidOperationException("Scene image beat analysis requires InputSnapshotJson.");
+    }
 
     private static void ValidatePrompt(SceneImagePromptRecord prompt)
     {
@@ -462,6 +686,12 @@ public sealed class SceneImageRepository : ISceneImageRepository
             throw new InvalidOperationException("Scene image prompt requires SessionId.");
         if (string.IsNullOrWhiteSpace(prompt.InteractionId))
             throw new InvalidOperationException("Scene image prompt requires InteractionId.");
+        if (string.IsNullOrWhiteSpace(prompt.BeatAnalysisId))
+            throw new InvalidOperationException("Scene image prompt requires BeatAnalysisId.");
+        if (string.IsNullOrWhiteSpace(prompt.BeatSnapshotJson))
+            throw new InvalidOperationException("Scene image prompt requires BeatSnapshotJson.");
+        if (string.IsNullOrWhiteSpace(prompt.Pov))
+            throw new InvalidOperationException("Scene image prompt requires Pov.");
     }
 
     private static void ValidateImage(SceneImageRecord image)

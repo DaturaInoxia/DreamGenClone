@@ -24,7 +24,7 @@
 | CR-003 | Store the prompt + all generation parameters with each image to enable "continue from this image" | `implemented` |
 | CR-004 | Scene Context Intensity shows "unknown" but should be resolved | `implemented` |
 | CR-005 | Include character physical description so images of the same character look like the same person (likeness) | `implemented` |
-| CR-006 | Preprocessor refinement: beats + participants + full-turn + POV + transparency (Options 1–4) | `designed` |
+| CR-006 | Preprocessor refinement: beats + participants + full-turn + POV + transparency (Options 1–4) | `implemented` |
 
 ---
 
@@ -266,6 +266,10 @@ P1 (presence) → P2 (full turn) → P3 (transparency) → P4 (beat segmentation
 3. Turn boundary confirmed: **one submission = one turn = one scene** (may contain 1..many beats).
 4. **One POV at a time**, user-selectable per render.
 
+### Ensemble beat amendment (approved 2026-08-21)
+
+The implemented character-centric beat shape is superseded by the generic shared-timeline contract in `design/ensemble-beat-render-brief-plan.md`. Narrative is the authoritative turn synthesis; character interactions provide concurrent action, reaction, perception, and sightline evidence. Beats support one or many active characters and zero or many observers. The selected beat and POV are assembled into a complete deterministic render brief before the image-prompt preprocessor runs.
+
 ### Files likely touched
 
 `SceneImagePromptPreprocessor.cs`, new `SceneImageBeatAnalyzer.cs` + `SceneImageTurnResolver.cs`, `SceneImagePromptGenerationJobHandler.cs`, `SceneImageRecord.cs` (BeatId, Pov), `SceneImageStudio.razor`, analysis DTOs, tests.
@@ -281,4 +285,5 @@ P1 (presence) → P2 (full turn) → P3 (transparency) → P4 (beat segmentation
 | 2026-08-20 | CR-005 | Implemented character-likeness appearance injection; build 0 errors, 1157/1157 tests pass |
 | 2026-08-20 | CR-006 | Designed preprocessor refinement (Options 1–4); design doc at `design/preprocessor-refinement-design.md` |
 | 2026-08-20 | CR-006 | Design decisions confirmed (beat selector always shown; POV derived from beat participants; turn = scene; one POV at a time) |
+| 2026-08-21 | CR-006 | Approved generic ensemble-beat and deterministic render-brief amendment; implementation plan persisted in `design/ensemble-beat-render-brief-plan.md` |
 | 2026-08-20 | CR-006 | **RESUME HANDOFF CREATED** at `RESUME-HANDOFF.md` — self-contained plan + current state + env notes for picking this up from a fresh machine/chat |

@@ -59,7 +59,8 @@
                             <div class="border rounded p-2" style="width: 220px;">
                                 @if (img.Status == SceneImageStatus.Complete && !string.IsNullOrWhiteSpace(img.FileRelativePath))
                                 {
-                                    <img src="/scene-images/@img.FileRelativePath" class="img-fluid rounded" alt="Scene image" />
+                                    <img src="/scene-images/@img.FileRelativePath" class="img-fluid rounded scene-image-thumb" alt="Scene image"
+                                         @onclick="() => OpenViewer(img)" />
                                 }
                                 else if (img.Status == SceneImageStatus.Pending || img.Status == SceneImageStatus.Generating)
                                 {
@@ -89,6 +90,24 @@
     }
 </div>
 
+@if (_viewerImage is not null)
+{
+    <div class="scene-image-viewer-overlay" @onclick="CloseViewer">
+        <div class="scene-image-viewer" @onclick:stopPropagation="true">
+            <div class="scene-image-viewer-header">
+                <span class="text-muted small">@_viewerImage.Style · @_viewerImage.ImageSize</span>
+                <button class="btn btn-sm btn-outline-secondary" @onclick="CloseViewer" title="Close (Esc)">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+            <img src="/scene-images/@_viewerImage.FileRelativePath" class="scene-image-viewer-img" alt="Scene image" />
+            <div class="scene-image-viewer-footer">
+                <button class="btn btn-sm btn-outline-secondary" @onclick="() => CloseViewer()">Close</button>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     [Parameter]
     public string sessionId { get; set; } = string.Empty;
@@ -97,6 +116,11 @@
     private List<GalleryGroup> _groups = [];
     private string _errorMessage = string.Empty;
     private bool _busy;
+    private SceneImageRecord? _viewerImage;
+
+    private void OpenViewer(SceneImageRecord image) => _viewerImage = image;
+
+    private void CloseViewer() => _viewerImage = null;
 
     private sealed class GalleryGroup
     {

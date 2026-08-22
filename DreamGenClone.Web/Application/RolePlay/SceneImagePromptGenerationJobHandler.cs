@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text.Json;
 using DreamGenClone.Application.Abstractions;
 using DreamGenClone.Application.ModelManager;
@@ -26,36 +25,33 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
 
     private readonly ISessionService _sessionService;
     private readonly ISceneImageRepository _repository;
-    private readonly IModelResolutionService _modelResolutionService;
     private readonly ISceneImagePromptPreprocessor _preprocessor;
-    private readonly ICompletionClient _completionClient;
     private readonly IRolePlayStateRepository _stateRepository;
     private readonly IRolePlayDebugEventSink _debugEventSink;
     private readonly StoryAnalysisFacade _storyAnalysis;
     private readonly IScenarioService _scenarioService;
+    private readonly SceneImageTurnResolver _turnResolver;
     private readonly ILogger<SceneImagePromptGenerationJobHandler> _logger;
 
     public SceneImagePromptGenerationJobHandler(
         ISessionService sessionService,
         ISceneImageRepository repository,
-        IModelResolutionService modelResolutionService,
         ISceneImagePromptPreprocessor preprocessor,
-        ICompletionClient completionClient,
         IRolePlayStateRepository stateRepository,
         IRolePlayDebugEventSink debugEventSink,
         StoryAnalysisFacade storyAnalysis,
         IScenarioService scenarioService,
+        SceneImageTurnResolver turnResolver,
         ILogger<SceneImagePromptGenerationJobHandler> logger)
     {
         _sessionService = sessionService;
         _repository = repository;
-        _modelResolutionService = modelResolutionService;
         _preprocessor = preprocessor;
-        _completionClient = completionClient;
         _stateRepository = stateRepository;
         _debugEventSink = debugEventSink;
         _storyAnalysis = storyAnalysis;
         _scenarioService = scenarioService;
+        _turnResolver = turnResolver;
         _logger = logger;
     }
 
@@ -75,6 +71,8 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
 
         var record = await _repository.GetPromptAsync(payload.PromptRecordId, cancellationToken)
             ?? throw new InvalidOperationException($"Scene image prompt record '{payload.PromptRecordId}' was not found.");
+        var selectedBeat = JsonSerializer.Deserialize<SceneImageBeat>(record.BeatSnapshotJson, JsonOptions)
+            ?? throw new InvalidOperationException("Scene image prompt record has an invalid selected beat snapshot.");
 
         if (record.Status == SceneImagePromptStatus.Complete)
         {
@@ -121,8 +119,6 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
                 ? ImageContentPolicy.AdultAllowed
                 : ImageContentPolicy.SfwFiltered;
 
-            var resolved = await _modelResolutionService.ResolveImagePromptModelAsync(session.SessionModelId, cancellationToken);
-
             // Load the scenario characters so the pre-processor can inject their fixed visual
             // identity (likeness — same hair/eyes/body type across images). Best-effort: when the
             // scenario can't be loaded, the appearance block is simply omitted.
@@ -133,56 +129,52 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
                 characters = scenario?.Characters;
             }
 
-            var (systemPrompt, userPrompt) = _preprocessor.BuildMessages(
+            // Beat-backed prompts require the authoritative full turn. If this resolution fails,
+            // the job must fail rather than silently dropping the canonical render brief.
+            var fullTurn = await ResolveFullTurnAsync(session, interaction, cancellationToken);
+
+            var outputPrompt = _preprocessor.BuildDeterministicBeatPrompt(
                 session,
-                interaction,
-                session.AdaptiveState,
+                selectedBeat,
+                record.Pov,
                 settings,
                 requestedPolicy,
-                excerptOverride: string.IsNullOrWhiteSpace(record.InputExcerpt) ? null : record.InputExcerpt,
-                refineInstruction: record.RefineInstruction,
+                record.RefineInstruction,
                 characters);
 
-            await WriteDebugEventAsync("SceneImagePromptSent", session.Id, interaction.Id, new
+            await WriteDebugEventAsync("SceneImagePromptProjected", session.Id, interaction.Id, new
             {
                 promptRecordId = record.Id,
-                modelIdentifier = resolved.ModelIdentifier,
-                providerName = resolved.ProviderName,
                 requestedPolicy = requestedPolicy.ToString(),
                 settingsJson = record.SettingsJson,
-                systemPrompt,
-                userPrompt
+                turnId = fullTurn.Turn?.TurnId,
+                beatAnalysisId = record.BeatAnalysisId,
+                beatId = selectedBeat.BeatId,
+                pov = record.Pov,
+                turnInteractionCount = fullTurn.Interactions.Count,
+                outputPrompt
             }, cancellationToken);
 
-            var stopwatch = Stopwatch.StartNew();
-            var rawOutput = await _completionClient.GenerateAsync(systemPrompt, userPrompt, resolved, cancellationToken);
-            stopwatch.Stop();
-
-            var parsed = _preprocessor.ParseOutput(rawOutput);
-
-            record.OutputPrompt = parsed.Prompt;
-            record.InputExcerpt = string.IsNullOrWhiteSpace(parsed.Excerpt) ? record.InputExcerpt : parsed.Excerpt;
-            record.ModelIdentifier = resolved.ModelIdentifier;
+            record.OutputPrompt = outputPrompt;
+            record.ModelIdentifier = null;
             record.Status = SceneImagePromptStatus.Complete;
             record.UpdatedUtc = DateTime.UtcNow;
             await _repository.UpsertPromptAsync(record, cancellationToken);
 
-            await WriteDebugEventAsync("SceneImageResponseReceived", session.Id, interaction.Id, new
+            await WriteDebugEventAsync("SceneImagePromptProjectionCompleted", session.Id, interaction.Id, new
             {
                 recordId = record.Id,
-                stage = "preprocessor",
+                stage = "deterministic-projection",
                 status = "Complete",
-                rawOutputLength = rawOutput?.Length ?? 0,
-                durationMs = stopwatch.ElapsedMilliseconds
+                outputPromptLength = outputPrompt.Length
             }, cancellationToken);
 
             _logger.LogInformation(
-                "Scene image prompt generation completed: SessionId={SessionId}, InteractionId={InteractionId}, PromptRecordId={PromptRecordId}, Model={ModelIdentifier}, DurationMs={DurationMs}",
+                "Scene image prompt projection completed: SessionId={SessionId}, InteractionId={InteractionId}, PromptRecordId={PromptRecordId}, PromptLength={PromptLength}",
                 session.Id,
                 interaction.Id,
                 record.Id,
-                resolved.ModelIdentifier,
-                stopwatch.ElapsedMilliseconds);
+                outputPrompt.Length);
         }
         catch (Exception ex)
         {
@@ -199,6 +191,15 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
         await _repository.UpsertPromptAsync(record, cancellationToken);
         _logger.LogWarning("Scene image prompt generation failed: PromptRecordId={PromptRecordId}, Error={ErrorMessage}", record.Id, errorMessage);
     }
+
+    /// <summary>
+    /// Resolves the authoritative full-turn context required by a beat-backed prompt.
+    /// </summary>
+    private Task<FullTurnContext> ResolveFullTurnAsync(
+        RolePlaySession session,
+        RolePlayInteraction interaction,
+        CancellationToken cancellationToken)
+        => _turnResolver.ResolveAsync(session, interaction.Id, cancellationToken);
 
     private async Task ResolveIntensityLabelAsync(RolePlaySession session, CancellationToken cancellationToken)
     {
@@ -247,4 +248,5 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
             MetadataJson = JsonSerializer.Serialize(metadata, JsonOptions)
         }, cancellationToken);
     }
+
 }

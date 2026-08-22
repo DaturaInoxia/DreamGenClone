@@ -155,6 +155,7 @@ public sealed class ImageGenerationClient : IImageGenerationClient
         int timeoutSeconds,
         string? decryptedApiKey,
         string modelIdentifier,
+        ImageContentPolicy contentPolicy,
         CancellationToken cancellationToken = default)
     {
         try
@@ -171,7 +172,8 @@ public sealed class ImageGenerationClient : IImageGenerationClient
 
             // Minimal image request to the image-generation path. Seedream/FLUX-style image models
             // do not accept chat-completions bodies, so we probe the images endpoint instead.
-            var payload = new ImageGenerationRequest
+            var relativePath = imageGenerationPath.TrimStart('/');
+            var basicResult = await ProbeImageRequestAsync(client, relativePath, new ImageGenerationRequest
             {
                 Model = modelIdentifier,
                 Prompt = "a colored square",
@@ -179,36 +181,43 @@ public sealed class ImageGenerationClient : IImageGenerationClient
                 Width = 1024,
                 Height = 1024,
                 ResponseFormat = "base64"
-            };
+            }, cancellationToken);
+            if (!basicResult.Success)
+                return basicResult;
 
-            var relativePath = imageGenerationPath.TrimStart('/');
-            using var response = await client.PostAsJsonAsync(relativePath, payload, cancellationToken);
-
-            if (response.IsSuccessStatusCode)
+            var negativeResult = await ProbeImageRequestAsync(client, relativePath, new ImageGenerationRequest
             {
-                _logger.LogInformation("Image model health check passed: {ModelIdentifier} at {BaseUrl}", modelIdentifier, providerBaseUrl);
-                return (true, "Image model is reachable and responding.");
+                Model = modelIdentifier,
+                Prompt = "a colored square",
+                NegativePrompt = "blurry, distorted, extra fingers",
+                N = 1,
+                Width = 1024,
+                Height = 1024,
+                ResponseFormat = "base64"
+            }, cancellationToken);
+            if (!negativeResult.Success)
+                return (false, $"Basic image request passed, but negative_prompt was rejected: {negativeResult.Message}");
+
+            if (contentPolicy is ImageContentPolicy.AdultAllowed or ImageContentPolicy.AdultAllowedConfigurable)
+            {
+                var safetyResult = await ProbeImageRequestAsync(client, relativePath, new ImageGenerationRequest
+                {
+                    Model = modelIdentifier,
+                    Prompt = "a colored square",
+                    DisableSafetyChecker = true,
+                    N = 1,
+                    Width = 1024,
+                    Height = 1024,
+                    ResponseFormat = "base64"
+                }, cancellationToken);
+                if (!safetyResult.Success)
+                    return (false, $"Basic image and negative_prompt passed, but disable_safety_checker was rejected: {safetyResult.Message}");
             }
 
-            var statusCode = (int)response.StatusCode;
-            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-            var errorMessage = statusCode switch
-            {
-                401 => "Invalid API key.",
-                404 => $"Model '{modelIdentifier}' not found on provider.",
-                429 => "Rate limit exceeded.",
-                402 => "Payment required.",
-                >= 500 => $"Provider server error ({statusCode}).",
-                _ => $"Unexpected status {statusCode}."
-            };
-
-            _logger.LogWarning(
-                "Image model health check failed: {ModelIdentifier} at {BaseUrl}, Status={StatusCode}, Response={ErrorContent}",
-                modelIdentifier,
-                providerBaseUrl,
-                statusCode,
-                errorContent);
-            return (false, errorMessage);
+            _logger.LogInformation("Image model parameter health check passed: {ModelIdentifier} at {BaseUrl}", modelIdentifier, providerBaseUrl);
+            return (true, contentPolicy is ImageContentPolicy.AdultAllowed or ImageContentPolicy.AdultAllowedConfigurable
+                ? "Image model passed basic, negative_prompt, and adult safety-checker parameter tests."
+                : "Image model passed basic and negative_prompt parameter tests.");
         }
         catch (TaskCanceledException)
         {
@@ -225,10 +234,47 @@ public sealed class ImageGenerationClient : IImageGenerationClient
         }
     }
 
+    private async Task<(bool Success, string Message)> ProbeImageRequestAsync(
+        HttpClient client,
+        string relativePath,
+        ImageGenerationRequest payload,
+        CancellationToken cancellationToken)
+    {
+        using var response = await client.PostAsJsonAsync(relativePath, payload, cancellationToken);
+        if (response.IsSuccessStatusCode)
+            return (true, "ok");
+
+        var statusCode = (int)response.StatusCode;
+        var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+        var errorMessage = statusCode switch
+        {
+            401 => "Invalid API key.",
+            404 => $"Model '{payload.Model}' not found on provider.",
+            429 => "Rate limit exceeded.",
+            402 => "Payment required.",
+            >= 500 => $"Provider server error ({statusCode}).",
+            _ => $"Unexpected status {statusCode}."
+        };
+
+        _logger.LogWarning(
+            "Image model parameter probe failed: Model={ModelIdentifier}, Status={StatusCode}, Response={ErrorContent}",
+            payload.Model,
+            statusCode,
+            errorContent);
+        return (false, $"{errorMessage} (HTTP {statusCode})");
+    }
+
     private sealed class ImageGenerationRequest
     {
         [JsonPropertyName("model")] public string Model { get; set; } = string.Empty;
         [JsonPropertyName("prompt")] public string Prompt { get; set; } = string.Empty;
+        [JsonPropertyName("negative_prompt")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? NegativePrompt { get; set; }
+
+        [JsonPropertyName("disable_safety_checker")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public bool? DisableSafetyChecker { get; set; }
         [JsonPropertyName("n")] public int N { get; set; } = 1;
         [JsonPropertyName("width")] public int Width { get; set; } = 1024;
         [JsonPropertyName("height")] public int Height { get; set; } = 1024;

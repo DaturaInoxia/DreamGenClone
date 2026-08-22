@@ -12,16 +12,16 @@
 ## 1. TL;DR — where we are
 
 - The Scene Image Generator feature is **fully implemented and tested** (a two-stage pipeline: text preprocessor → image model; Model Manager image config; Image Studio + Gallery pages; workspace triggers/indicators).
-- **Build: 0 errors. Tests: 1157/1157 passing.**
-- The **last agreed piece of work is NOT yet implemented**: the **Preprocessor Refinement (CR-006)** — beats + participants + full-turn + POV + transparency. Its design is **finalized and approved** (all open questions answered).
-- **Your job on resume: implement CR-006 in the order P1 → P2 → P3 → P4 → P5 → P6** (see §5).
+- **Build: 0 errors. Tests: 1195/1195 passing.**
+- **CR-006 (Preprocessor Refinement) is now IMPLEMENTED** — beats + participants + full-turn + POV + transparency, in the order P1 → P2 → P3 → P4 → P5 → P6 (see §5). All six phases landed.
+- Remaining manual items: `tasks.md` T068 (POC validation with a real image provider) and T069 (backlog state + Phase 2 likeness scope decision).
 
 ---
 
 ## 2. How to orient (read these first, in order)
 
 1. `specs/001-scene-image-generator/spec.md` — the feature spec (user stories).
-2. `specs/001-scene-image-generator/change-requests.md` — **the running change log**. CR-001..CR-005 implemented; CR-006 is the design to build.
+2. `specs/001-scene-image-generator/change-requests.md` — **the running change log**. CR-001..CR-006 all implemented.
 3. `specs/001-scene-image-generator/design/preprocessor-refinement-design.md` — **the approved design for CR-006** (the main thing to implement).
 4. `specs/001-scene-image-generator/data-model.md` — entities/tables.
 5. `specs/001-scene-image-generator/contracts/scene-image-pipeline-contract.md` — pipeline contract + debug events.
@@ -171,7 +171,7 @@ dotnet test DreamGenClone.Tests/DreamGenClone.Tests.csproj
 
 - `tasks.md` **T068** — POC validation checklist (needs a running app + a configured image provider): NSFW (filtered clamp / adult-allowed / unset policy), image quality across styles/sizes, basics (generate/edit/regenerate/indicator/gallery/delete), unconfigured guidance.
 - `tasks.md` **T069** — backlog B-032 state already moved to `planned` (verified in `specs/Planning/backlog.md`); record POC findings + decide Phase 2 (likeness) scope when the POC is done.
-- CR-006 P1..P6 (this document's §5) — **the main outstanding work.**
+- **CR-006 is IMPLEMENTED (P1–P6 all landed).** Remaining: manual POC validation of the new beat/POV/transparency flow in the running app.
 
 ---
 
@@ -187,7 +187,7 @@ dotnet test DreamGenClone.Tests/DreamGenClone.Tests.csproj
 ## 9. Quick verification checklist after resuming
 
 1. `dotnet build DreamGenClone.sln` → 0 errors.
-2. `dotnet test DreamGenClone.Tests/DreamGenClone.Tests.csproj` → all pass (≥1157).
+2. `dotnet test DreamGenClone.Tests/DreamGenClone.Tests.csproj` → all pass (≥1195).
 3. Start app → Model Manager shows the image fields; Studio/Gallery routes render.
-4. Confirm the current preprocessor emits `SceneImagePromptSent` with the `CHARACTER APPEARANCE` block (Debug View) — this is the baseline CR-005 behavior before you start P1.
-5. Then begin P1 and keep tests green at each step.
+4. Confirm the preprocessor emits `SceneImagePromptSent` with the `CHARACTER APPEARANCE` block (Debug View) — CR-005 baseline.
+5. Confirm the studio shows the **Beat selector** + **POV selector** + **"Why this prompt?"** panel (CR-006 P3/P4/P5), and the `SceneImageAnalysisCompleted` debug event appears (Debug View).

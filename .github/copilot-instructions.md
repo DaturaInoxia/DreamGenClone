@@ -78,13 +78,13 @@ When working on pacing, scene tempo, beat advancement, or encounter pacing, read
 
 ## DB Query Tool
 
-A permanent .NET 9 console project lives at `artifacts/tmp/dbquery/dbquery.csproj` (part of the solution under `artifacts > tmp`).
+A permanent .NET 9 console project lives at `DreamGenClone.DbQuery/DreamGenClone.DbQuery.csproj` and is part of the solution.
 - **Use it for all SQLite database queries**, inspections, and data seeding tasks against `DreamGenClone.Web/data/dreamgenclone.dev.db`.
-- Run with: `dotnet run --project artifacts/tmp/dbquery -- <command> [args...]`
+- Run with: `dotnet run --project DreamGenClone.DbQuery -- <command> [args...]`
 - **Program.cs is a permanent named-command dispatcher — do NOT rewrite it per task.**
-- For ad-hoc SQL: write a `.sql` file and use the `sql` command: `dotnet run --project artifacts/tmp/dbquery -- sql myquery.sql [id]`
+- For ad-hoc SQL: write a `.sql` file and use the `sql` command: `dotnet run --project DreamGenClone.DbQuery -- sql myquery.sql [id]`
 - Full schema, all commands, and usage examples are in `.github/instructions/dbquery-reference.instructions.md`.
-- **Do not recreate this project.** It already exists in the solution and is ready to use.
+- **Do not create ad-hoc query projects.** This first-class project is the supported query entry point.
 
 ## DB Snapshot & Portable Database (IMPORTANT)
 

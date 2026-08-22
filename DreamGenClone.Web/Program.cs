@@ -247,8 +247,11 @@ builder.Services.AddScoped<IBackgroundJobHandler, SemanticInteractionAnalysisJob
 builder.Services.AddScoped<IBackgroundJobHandler, EncounterSummaryJobHandler>();
 builder.Services.AddScoped<IBackgroundJobHandler, LocationDetectionJobHandler>();
 builder.Services.AddScoped<IBackgroundJobHandler, SteerGenerationJobHandler>();
+builder.Services.AddScoped<IBackgroundJobHandler, SceneImageBeatGenerationJobHandler>();
 builder.Services.AddScoped<IBackgroundJobHandler, SceneImagePromptGenerationJobHandler>();
 builder.Services.AddScoped<IBackgroundJobHandler, SceneImageRenderingJobHandler>();
+builder.Services.AddScoped<SceneImageTurnResolver>();
+builder.Services.AddScoped<SceneImageBeatAnalysisService>();
 builder.Services.AddHostedService<GenericBackgroundJobWorker>();
 builder.Services.AddSingleton<SemanticBackgroundJobQueue>();
 builder.Services.AddSingleton<ISemanticBackgroundJobQueue>(sp => sp.GetRequiredService<SemanticBackgroundJobQueue>());

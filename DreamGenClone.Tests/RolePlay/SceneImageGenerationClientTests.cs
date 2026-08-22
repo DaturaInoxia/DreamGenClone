@@ -137,10 +137,10 @@ public sealed class SceneImageGenerationClientTests
     [Fact]
     public async Task CheckImageModelHealthAsync_Success_ProbesImagePath()
     {
-        HttpRequestMessage? captured = null;
+        var captured = new List<JsonElement>();
         var client = BuildClient(req =>
         {
-            captured = req;
+            captured.Add(JsonSerializer.Deserialize<JsonElement>(req.Content!.ReadAsStringAsync().GetAwaiter().GetResult()));
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(JsonSerializer.Serialize(new { data = new[] { new { b64_json = Convert.ToBase64String(new byte[] { 1 }) } } }))
@@ -149,18 +149,18 @@ public sealed class SceneImageGenerationClientTests
 
         var (success, message) = await client.CheckImageModelHealthAsync(
             "https://api.together.ai", "/v1/images/generations", 30, "sekret",
-            "ByteDance-Seed/Seedream-4.0", CancellationToken.None);
+            "ByteDance-Seed/Seedream-4.0", ImageContentPolicy.AdultAllowed, CancellationToken.None);
 
         Assert.True(success);
-        Assert.NotNull(captured);
-        Assert.Equal("https://api.together.ai/v1/images/generations", captured!.RequestUri!.ToString());
-        Assert.Equal("Bearer sekret", captured.Headers.Authorization!.ToString());
-
-        var body = JsonSerializer.Deserialize<JsonElement>(await captured.Content!.ReadAsStringAsync());
-        Assert.Equal("ByteDance-Seed/Seedream-4.0", body.GetProperty("model").GetString());
-        Assert.Equal("base64", body.GetProperty("response_format").GetString());
-        Assert.Equal(1024, body.GetProperty("width").GetInt32());
-        Assert.Equal(1024, body.GetProperty("height").GetInt32());
+        Assert.Equal(3, captured.Count);
+        Assert.Equal("ByteDance-Seed/Seedream-4.0", captured[0].GetProperty("model").GetString());
+        Assert.Equal("base64", captured[0].GetProperty("response_format").GetString());
+        Assert.False(captured[0].TryGetProperty("negative_prompt", out _));
+        Assert.False(captured[0].TryGetProperty("disable_safety_checker", out _));
+        Assert.Equal("blurry, distorted, extra fingers", captured[1].GetProperty("negative_prompt").GetString());
+        Assert.False(captured[1].TryGetProperty("disable_safety_checker", out _));
+        Assert.True(captured[2].GetProperty("disable_safety_checker").GetBoolean());
+        Assert.False(captured[2].TryGetProperty("negative_prompt", out _));
     }
 
     [Fact]
@@ -173,7 +173,7 @@ public sealed class SceneImageGenerationClientTests
 
         var (success, message) = await client.CheckImageModelHealthAsync(
             "https://api.together.ai", "/v1/images/generations", 30, "sekret",
-            "ByteDance-Seed/Seedream-4.0", CancellationToken.None);
+            "ByteDance-Seed/Seedream-4.0", ImageContentPolicy.AdultAllowed, CancellationToken.None);
 
         Assert.False(success);
         Assert.Contains("400", message);

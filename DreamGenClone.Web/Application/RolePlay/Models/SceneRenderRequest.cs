@@ -18,4 +18,10 @@ public sealed class SceneRenderRequest
 
     /// <summary>Parent image id when regenerating.</summary>
     public string? RegenerateOfId { get; set; }
+
+    /// <summary>The beat id this render depicts (CR-006 P5).</summary>
+    public string? BeatId { get; set; }
+
+    /// <summary>The POV framing this render uses (CR-006 P5).</summary>
+    public string? Pov { get; set; }
 }

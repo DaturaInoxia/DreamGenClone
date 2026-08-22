@@ -23,6 +23,9 @@ public sealed class SceneImagePromptRecord
     public string Id { get; set; } = Guid.NewGuid().ToString();
     public string SessionId { get; set; } = string.Empty;
     public string InteractionId { get; set; } = string.Empty;
+    public string BeatAnalysisId { get; set; } = string.Empty;
+    public string BeatSnapshotJson { get; set; } = "{}";
+    public string Pov { get; set; } = string.Empty;
 
     /// <summary>Snapshot of the studio settings used to build this prompt (style/size/explicitness).</summary>
     public string SettingsJson { get; set; } = "{}";

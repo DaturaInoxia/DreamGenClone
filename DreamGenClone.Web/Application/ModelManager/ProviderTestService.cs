@@ -108,6 +108,7 @@ public sealed class ProviderTestService
                 provider.TimeoutSeconds,
                 decryptedKey,
                 model.ModelIdentifier,
+                provider.ContentPolicy,
                 cancellationToken);
         }
 

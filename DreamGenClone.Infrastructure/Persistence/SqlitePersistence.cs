@@ -1398,6 +1398,27 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 await alterImageSettings.ExecuteNonQueryAsync(cancellationToken);
                 _logger.LogInformation("Migrated SceneImages table: added SettingsJson column");
             }
+
+            // SceneImages: add BeatId + Pov columns (CR-006 P5 — beat + POV framing persistence).
+            var checkImageBeatColumn = connection.CreateCommand();
+            checkImageBeatColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('SceneImages') WHERE name='BeatId'";
+            if (Convert.ToInt64(await checkImageBeatColumn.ExecuteScalarAsync(cancellationToken)) == 0)
+            {
+                var alterImageBeat = connection.CreateCommand();
+                alterImageBeat.CommandText = "ALTER TABLE SceneImages ADD COLUMN BeatId TEXT NULL";
+                await alterImageBeat.ExecuteNonQueryAsync(cancellationToken);
+                _logger.LogInformation("Migrated SceneImages table: added BeatId column");
+            }
+
+            var checkImagePovColumn = connection.CreateCommand();
+            checkImagePovColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('SceneImages') WHERE name='Pov'";
+            if (Convert.ToInt64(await checkImagePovColumn.ExecuteScalarAsync(cancellationToken)) == 0)
+            {
+                var alterImagePov = connection.CreateCommand();
+                alterImagePov.CommandText = "ALTER TABLE SceneImages ADD COLUMN Pov TEXT NULL";
+                await alterImagePov.ExecuteNonQueryAsync(cancellationToken);
+                _logger.LogInformation("Migrated SceneImages table: added Pov column");
+            }
         }
 
         var checkAdaptiveStateJsonColumn = connection.CreateCommand();

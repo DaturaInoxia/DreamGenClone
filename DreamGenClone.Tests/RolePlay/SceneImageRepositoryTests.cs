@@ -16,6 +16,53 @@ public sealed class SceneImageRepositoryTests
     }
 
     [Fact]
+    public async Task BeatAnalysis_UpsertByTurn_ReplacesCurrentAnalysis()
+    {
+        var (repo, dbPath) = CreateRepo();
+        try
+        {
+            var first = new SceneImageBeatAnalysisRecord
+            {
+                SessionId = "s1",
+                TurnId = "t1",
+                AnchorInteractionId = "i1",
+                Status = SceneImageBeatAnalysisStatus.Pending,
+                InputSnapshotJson = "{\"turn\":1}"
+            };
+            await repo.UpsertBeatAnalysisAsync(first);
+
+            var loaded = await repo.GetBeatAnalysisByTurnAsync("s1", "t1");
+            Assert.NotNull(loaded);
+            Assert.Equal(first.Id, loaded!.Id);
+            Assert.Equal(SceneImageBeatAnalysisStatus.Pending, loaded.Status);
+
+            var replacement = new SceneImageBeatAnalysisRecord
+            {
+                SessionId = "s1",
+                TurnId = "t1",
+                AnchorInteractionId = "i2",
+                Status = SceneImageBeatAnalysisStatus.Complete,
+                BeatsJson = "[{\"beatId\":\"b1\"}]",
+                InputSnapshotJson = "{\"turn\":1}",
+                RawModelResponse = "{\"beats\":[]}",
+                ModelIdentifier = "model-1"
+            };
+            await repo.UpsertBeatAnalysisAsync(replacement);
+
+            loaded = await repo.GetBeatAnalysisByTurnAsync("s1", "t1");
+            Assert.NotNull(loaded);
+            Assert.Equal(replacement.Id, loaded!.Id);
+            Assert.Equal("i2", loaded.AnchorInteractionId);
+            Assert.Equal(SceneImageBeatAnalysisStatus.Complete, loaded.Status);
+            Assert.Equal("model-1", loaded.ModelIdentifier);
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
+    [Fact]
     public async Task UpsertPrompt_Get_GetLatest_Works()
     {
         var (repo, dbPath) = CreateRepo();
@@ -25,6 +72,9 @@ public sealed class SceneImageRepositoryTests
             {
                 SessionId = "s1",
                 InteractionId = "i1",
+                BeatAnalysisId = "analysis-1",
+                BeatSnapshotJson = "{\"beatId\":\"beat-1\"}",
+                Pov = "Omniscient",
                 SettingsJson = "{\"Style\":\"anime\"}",
                 InputExcerpt = "an excerpt",
                 Status = SceneImagePromptStatus.Pending
@@ -66,6 +116,9 @@ public sealed class SceneImageRepositoryTests
             {
                 SessionId = "s1",
                 InteractionId = "i1",
+                BeatAnalysisId = "analysis-1",
+                BeatSnapshotJson = "{\"beatId\":\"beat-1\"}",
+                Pov = "Omniscient",
                 Status = SceneImagePromptStatus.Complete,
                 OutputPrompt = "first",
                 UpdatedUtc = DateTime.UtcNow.AddMinutes(-5)
@@ -74,6 +127,9 @@ public sealed class SceneImageRepositoryTests
             {
                 SessionId = "s1",
                 InteractionId = "i1",
+                BeatAnalysisId = "analysis-1",
+                BeatSnapshotJson = "{\"beatId\":\"beat-2\"}",
+                Pov = "Omniscient",
                 Status = SceneImagePromptStatus.Complete,
                 OutputPrompt = "second",
                 UpdatedUtc = DateTime.UtcNow
@@ -85,6 +141,61 @@ public sealed class SceneImageRepositoryTests
             Assert.NotNull(latest);
             Assert.Equal(newer.Id, latest!.Id);
             Assert.Equal("second", latest.OutputPrompt);
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task GetLatestCompletedPrompt_MatchesCurrentAnalysisBeatAndPov()
+    {
+        var (repo, dbPath) = CreateRepo();
+        try
+        {
+            var matching = new SceneImagePromptRecord
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                BeatAnalysisId = "analysis-2",
+                BeatSnapshotJson = "{\"beatId\":\"beat-3\"}",
+                Pov = "Dean",
+                Status = SceneImagePromptStatus.Complete,
+                OutputPrompt = "saved Dean prompt",
+                UpdatedUtc = DateTime.UtcNow.AddMinutes(-1)
+            };
+            var newerPending = new SceneImagePromptRecord
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                BeatAnalysisId = "analysis-2",
+                BeatSnapshotJson = "{\"beatId\":\"beat-3\"}",
+                Pov = "Dean",
+                Status = SceneImagePromptStatus.Pending,
+                UpdatedUtc = DateTime.UtcNow
+            };
+            var otherPov = new SceneImagePromptRecord
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                BeatAnalysisId = "analysis-2",
+                BeatSnapshotJson = "{\"beatId\":\"beat-3\"}",
+                Pov = "Omniscient",
+                Status = SceneImagePromptStatus.Complete,
+                OutputPrompt = "other POV",
+                UpdatedUtc = DateTime.UtcNow
+            };
+            await repo.UpsertPromptAsync(matching);
+            await repo.UpsertPromptAsync(newerPending);
+            await repo.UpsertPromptAsync(otherPov);
+
+            var loaded = await repo.GetLatestCompletedPromptAsync(
+                "s1", "i1", "analysis-2", "beat-3", "dean");
+
+            Assert.NotNull(loaded);
+            Assert.Equal(matching.Id, loaded!.Id);
+            Assert.Equal("saved Dean prompt", loaded.OutputPrompt);
         }
         finally
         {
@@ -200,6 +311,9 @@ public sealed class SceneImageRepositoryTests
             {
                 SessionId = "s1",
                 InteractionId = "i1",
+                BeatAnalysisId = "analysis-1",
+                BeatSnapshotJson = "{\"beatId\":\"beat-1\"}",
+                Pov = "Omniscient",
                 Status = SceneImagePromptStatus.Complete,
                 OutputPrompt = "original text"
             };
@@ -242,6 +356,9 @@ public sealed class SceneImageRepositoryTests
             {
                 SessionId = "s1",
                 InteractionId = "i1",
+                BeatAnalysisId = "analysis-1",
+                BeatSnapshotJson = "{\"beatId\":\"beat-1\"}",
+                Pov = "Omniscient",
                 OutputPrompt = "a prompt",
                 RefineInstruction = "more atmospheric",
                 Status = SceneImagePromptStatus.Complete
