@@ -25,7 +25,7 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
 
     private readonly ISessionService _sessionService;
     private readonly ISceneImageRepository _repository;
-    private readonly ISceneImagePromptPreprocessor _preprocessor;
+    private readonly IPonySceneImagePromptBuilder _preprocessor;
     private readonly IRolePlayStateRepository _stateRepository;
     private readonly IRolePlayDebugEventSink _debugEventSink;
     private readonly StoryAnalysisFacade _storyAnalysis;
@@ -36,7 +36,7 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
     public SceneImagePromptGenerationJobHandler(
         ISessionService sessionService,
         ISceneImageRepository repository,
-        ISceneImagePromptPreprocessor preprocessor,
+        IPonySceneImagePromptBuilder preprocessor,
         IRolePlayStateRepository stateRepository,
         IRolePlayDebugEventSink debugEventSink,
         StoryAnalysisFacade storyAnalysis,

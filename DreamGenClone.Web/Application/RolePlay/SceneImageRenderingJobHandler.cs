@@ -24,7 +24,7 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler
     private readonly ISceneImageStorageService _storage;
     private readonly IModelResolutionService _modelResolutionService;
     private readonly IImageGenerationClient _imageClient;
-    private readonly ISceneImagePromptPreprocessor _preprocessor;
+    private readonly IPonySceneImagePromptBuilder _preprocessor;
     private readonly IRolePlayDebugEventSink _debugEventSink;
     private readonly ILogger<SceneImageRenderingJobHandler> _logger;
 
@@ -33,7 +33,7 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler
         ISceneImageStorageService storage,
         IModelResolutionService modelResolutionService,
         IImageGenerationClient imageClient,
-        ISceneImagePromptPreprocessor preprocessor,
+        IPonySceneImagePromptBuilder preprocessor,
         IRolePlayDebugEventSink debugEventSink,
         ILogger<SceneImageRenderingJobHandler> logger)
     {
@@ -85,9 +85,9 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler
             // Hard content-policy guarantee: never send explicit content to a SFW-filtered provider.
             // Deterministic clamp, logged — never silently skipped, never auto-escalated.
             if (resolved.ContentPolicy == ImageContentPolicy.SfwFiltered
-                && !prompt.Contains(SceneImagePromptPreprocessor.SfwClampSuffix, StringComparison.OrdinalIgnoreCase))
+                && !prompt.Contains(PonySceneImagePromptBuilder.SfwClampSuffix, StringComparison.OrdinalIgnoreCase))
             {
-                prompt = $"{prompt.TrimEnd()}, {SceneImagePromptPreprocessor.SfwClampSuffix}";
+                prompt = $"{prompt.TrimEnd()}, {PonySceneImagePromptBuilder.SfwClampSuffix}";
                 _logger.LogWarning(
                     "Scene image prompt clamped to SFW (content_policy_clamped): SessionId={SessionId}, ImageRecordId={ImageRecordId}",
                     payload.SessionId,

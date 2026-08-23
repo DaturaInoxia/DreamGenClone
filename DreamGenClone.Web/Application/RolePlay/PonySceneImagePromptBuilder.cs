@@ -9,11 +9,12 @@ using DreamGenClone.Web.Domain.Scenarios;
 namespace DreamGenClone.Web.Application.RolePlay;
 
 /// <summary>
-/// Builds and parses the pre-processor LLM call that turns an interaction + scene context + image
-/// settings into an editable image prompt. The pre-processor is a text model (separate function
-/// from the image renderer).
+/// Pony/ComfyUI scene-image prompt builder. Implements the deterministic beat projection
+/// (<see cref="IPonySceneImagePromptBuilder"/>) and retains the legacy LLM-driven
+/// pre-processor path (<see cref="ISceneImageLLMPromptBuilder"/>) so a single concrete builder can
+/// serve both the Pony(ComfyUI) deterministic path and the LLM-era path.
 /// </summary>
-public sealed class SceneImagePromptPreprocessor : ISceneImagePromptPreprocessor
+public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, ISceneImageLLMPromptBuilder
 {
     public const int InputExcerptMaxChars = 1200;
     public const int OutputPromptMaxChars = 2000;

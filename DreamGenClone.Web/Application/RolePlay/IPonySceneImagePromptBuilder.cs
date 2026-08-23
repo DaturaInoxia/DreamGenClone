@@ -7,39 +7,11 @@ using DreamGenClone.Web.Domain.Scenarios;
 namespace DreamGenClone.Web.Application.RolePlay;
 
 /// <summary>
-/// Builds and parses the pre-processor LLM call that turns an interaction + scene context + image
-/// settings into an editable image prompt. The pre-processor is a text model (separate function
-/// from the image renderer).
+/// Pony/ComfyUI scene-image prompt builder. Emits the dense, comma-separated, tag-friendly image
+/// prompt that PonyV6 (ComfyUI) reads natively, using the deterministic beat projection path.
 /// </summary>
-public interface ISceneImagePromptPreprocessor
+public interface IPonySceneImagePromptBuilder
 {
-    /// <summary>Compose the system + user messages for the pre-processor model.</summary>
-    (string SystemPrompt, string UserPrompt) BuildMessages(
-        RolePlaySession session,
-        RolePlayInteraction interaction,
-        AdaptiveScenarioState scenarioState,
-        SceneImageStudioSettings settings,
-        ImageContentPolicy resolvedPolicy,
-        string? excerptOverride,
-        string? refineInstruction,
-        IReadOnlyList<Character>? characters = null);
-
-    /// <summary>
-    /// Compose the system + user messages from a full-turn context (CR-006 P2). The turn's
-    /// interactions (including the Narrative omniscient synthesis) contribute setting detail.
-    /// </summary>
-    (string SystemPrompt, string UserPrompt) BuildMessages(
-        RolePlaySession session,
-        FullTurnContext fullTurn,
-        AdaptiveScenarioState scenarioState,
-        SceneImageStudioSettings settings,
-        ImageContentPolicy resolvedPolicy,
-        string? excerptOverride,
-        string? refineInstruction,
-        IReadOnlyList<Character>? characters = null,
-        SceneImageBeat? selectedBeat = null,
-        string? pov = null);
-
     /// <summary>
     /// Projects a frozen beat directly into an image-model prompt. Identity, wardrobe, visible
     /// cast, spatial facts, and camera geometry are deterministic and are never LLM-paraphrased.

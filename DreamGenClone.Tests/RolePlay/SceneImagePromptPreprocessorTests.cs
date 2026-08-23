@@ -31,7 +31,7 @@ public sealed class SceneImagePromptPreprocessorTests
         CurrentTimeOfDay = TimeOfDay.Evening
     };
 
-    private readonly SceneImagePromptPreprocessor _preprocessor = new();
+    private readonly PonySceneImagePromptBuilder _preprocessor = new();
 
     [Fact]
     public void BuildMessages_SfwPolicy_ClampsExplicitness()
@@ -41,7 +41,7 @@ public sealed class SceneImagePromptPreprocessorTests
             MakeSession(), MakeInteraction(), MakeState(), settings,
             ImageContentPolicy.SfwFiltered, null, null);
 
-        Assert.Contains(SceneImagePromptPreprocessor.SfwClampSuffix, system, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(PonySceneImagePromptBuilder.SfwClampSuffix, system, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("non-explicit", user, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("explicit content allowed", user, StringComparison.OrdinalIgnoreCase);
     }
@@ -54,7 +54,7 @@ public sealed class SceneImagePromptPreprocessorTests
             MakeSession(), MakeInteraction(), MakeState(), settings,
             ImageContentPolicy.AdultAllowed, null, null);
 
-        Assert.DoesNotContain(SceneImagePromptPreprocessor.SfwClampSuffix, system, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(PonySceneImagePromptBuilder.SfwClampSuffix, system, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("explicit content allowed", user, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -115,14 +115,14 @@ public sealed class SceneImagePromptPreprocessorTests
     public void BuildMessages_VeryLongInteraction_TruncatesToLimit()
     {
         var interaction = MakeInteraction();
-        interaction.Content = new string('x', SceneImagePromptPreprocessor.InputExcerptMaxChars + 500);
+        interaction.Content = new string('x', PonySceneImagePromptBuilder.InputExcerptMaxChars + 500);
         var settings = new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024" };
         var (_, user) = _preprocessor.BuildMessages(
             MakeSession(), interaction, MakeState(), settings,
             ImageContentPolicy.AdultAllowed, null, null);
 
         // The moment line is truncated; the full content block cannot exceed the excerpt cap.
-        Assert.DoesNotContain(new string('x', SceneImagePromptPreprocessor.InputExcerptMaxChars + 1), user);
+        Assert.DoesNotContain(new string('x', PonySceneImagePromptBuilder.InputExcerptMaxChars + 1), user);
         Assert.True(user.Length < interaction.Content.Length);
     }
 
@@ -757,7 +757,7 @@ public sealed class SceneImagePromptPreprocessorTests
     [Fact]
     public void ParseOutput_Overlong_Throws()
     {
-        var longPrompt = new string('a', SceneImagePromptPreprocessor.OutputPromptMaxChars + 1);
+        var longPrompt = new string('a', PonySceneImagePromptBuilder.OutputPromptMaxChars + 1);
         Assert.Throws<InvalidOperationException>(() => _preprocessor.ParseOutput(longPrompt));
     }
 }
