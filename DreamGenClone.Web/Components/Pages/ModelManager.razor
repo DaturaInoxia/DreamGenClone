@@ -151,6 +151,14 @@
                                 <input type="text" class="form-control" @bind="_editingProvider!.ImageGenerationPath" />
                             </div>
                             <div class="col-md-4">
+                                <label class="form-label">Image Protocol</label>
+                                <select class="form-select" @bind="_editingProvider!.ImageProtocol">
+                                    <option value="OpenAiImages">OpenAI Images API</option>
+                                    <option value="ComfyUi">ComfyUI</option>
+                                </select>
+                                <div class="form-text">Wire protocol for image calls. ComfyUI uses /prompt + /history + /view.</div>
+                            </div>
+                            <div class="col-md-4">
                                 <label class="form-label">Content Policy</label>
                                 <select class="form-select" @bind="_editingProvider!.ContentPolicy">
                                     <option value="Unknown">-- Not configured --</option>
@@ -656,6 +664,7 @@
             ImageCapability = provider.ImageCapability,
             ImageGenerationPath = provider.ImageGenerationPath,
             ContentPolicy = provider.ContentPolicy,
+            ImageProtocol = provider.ImageProtocol,
             TimeoutSeconds = provider.TimeoutSeconds,
             ApiKeyEncrypted = provider.ApiKeyEncrypted,
             IsEnabled = provider.IsEnabled,

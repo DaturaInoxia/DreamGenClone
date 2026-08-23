@@ -10,6 +10,7 @@ public sealed class Provider
     public ImageProviderCapability ImageCapability { get; set; } = ImageProviderCapability.None;
     public string ImageGenerationPath { get; set; } = "/v1/images/generations";
     public ImageContentPolicy ContentPolicy { get; set; } = ImageContentPolicy.Unknown;
+    public ImageProtocol ImageProtocol { get; set; } = ImageProtocol.OpenAiImages;
     public int TimeoutSeconds { get; set; } = 120;
     public string? ApiKeyEncrypted { get; set; }
     public bool IsEnabled { get; set; } = true;

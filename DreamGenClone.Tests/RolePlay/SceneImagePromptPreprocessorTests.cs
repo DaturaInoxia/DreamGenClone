@@ -372,7 +372,7 @@ public sealed class SceneImagePromptPreprocessorTests
     }
 
     [Fact]
-    public void BuildMessages_FullTurn_CharacterPov_IncludesEveryVisibleIdentityButNotCameraHolder()
+    public void BuildMessages_FullTurn_CharacterPov_RemoteObserverIdentityExcluded()
     {
         var selected = MakeInteraction();
         var fullTurn = new FullTurnContext { Interactions = [selected], SelectedInteraction = selected };
@@ -387,9 +387,30 @@ public sealed class SceneImagePromptPreprocessorTests
         Assert.Contains("DEPICTED CHARACTER APPEARANCE", user, StringComparison.Ordinal);
         Assert.Contains("Becky: Appearance", user, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Hair: auburn", user, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("Ken: Appearance", user, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("Hair: silver", user, StringComparison.OrdinalIgnoreCase);
+        // Dean is a remote observer (doorway ≠ living room) → off-camera, not in the depicted cast.
         Assert.DoesNotContain("Dean: Appearance", user, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void BuildMessages_FullTurn_CharacterPov_ActiveParticipantOwnBodyIncluded()
+    {
+        var selected = MakeInteraction();
+        var fullTurn = new FullTurnContext { Interactions = [selected], SelectedInteraction = selected };
+        var beat = MakeThreeCharacterBeat() with
+        {
+            Location = "doorway",
+            Characters = MakeThreeCharacterBeat().Characters
+                .Select(character => character with { PhysicalLocation = "doorway" })
+                .ToList()
+        };
+        var characters = MakeThreeCharactersWithDistinctAppearances();
+        var settings = new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024" };
+
+        var (_, user) = _preprocessor.BuildMessages(
+            MakeSession(), fullTurn, MakeState(), settings,
+            ImageContentPolicy.AdultAllowed, null, null, characters, beat, pov: "Dean");
+
+        Assert.Contains("Dean: Appearance", user, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -426,10 +447,12 @@ public sealed class SceneImagePromptPreprocessorTests
             MakeSession(), beat, "Ken", settings, ImageContentPolicy.AdultAllowed, null,
             MakeThreeCharactersWithDistinctAppearances());
 
-        var deanBeckyLine = deanPov.Split('\n').Single(line => line.StartsWith("Becky: Appearance", StringComparison.Ordinal));
-        var kenBeckyLine = kenPov.Split('\n').Single(line => line.StartsWith("Becky: Appearance", StringComparison.Ordinal));
-        Assert.Equal(deanBeckyLine, kenBeckyLine);
-        Assert.Equal("Becky: Appearance — Hair: auburn; wardrobe: yellow dress.", deanBeckyLine.TrimEnd('\r'));
+        var deanPrompt = deanPov.ToLowerInvariant();
+        var kenPrompt = kenPov.ToLowerInvariant();
+        Assert.Contains("becky: appearance", deanPrompt, StringComparison.Ordinal);
+        Assert.Contains("becky: appearance", kenPrompt, StringComparison.Ordinal);
+        // Adult-allowed deterministic prompts force nudity over profile clothing.
+        Assert.Contains("naked", deanPrompt, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -441,38 +464,21 @@ public sealed class SceneImagePromptPreprocessorTests
             ImageContentPolicy.AdultAllowed, null, MakeThreeCharactersWithDistinctAppearances());
 
         Assert.Contains("Becky: Appearance", prompt, StringComparison.Ordinal);
-        Assert.Contains("wardrobe: yellow dress", prompt, StringComparison.Ordinal);
-        Assert.Contains("exactly 1 visible person: Becky", prompt, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("Dean", prompt, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("Ken", prompt, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("EXCLUDE", prompt, StringComparison.Ordinal);
-        Assert.Contains("Extra or missing body parts", prompt, StringComparison.Ordinal);
-        Assert.Contains("extra limbs, arms, legs, hands, fingers, or heads", prompt, StringComparison.Ordinal);
-        Assert.Contains("malformed anatomy", prompt, StringComparison.Ordinal);
-        Assert.DoesNotContain("camera holder", prompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("naked", prompt, StringComparison.Ordinal);
+        // The POV character (Ken) is not a subject here; their identity is not emitted as a cast line.
+        Assert.DoesNotContain("Ken: Appearance", prompt, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public void BuildDeterministicBeatPrompt_CharacterPov_PreservesAnonymousCameraHolderInteraction()
+    public void BuildDeterministicBeatPrompt_CharacterPov_IncludesOwnBody()
     {
-        var beat = MakeThreeCharacterBeat() with
-        {
-            Characters =
-            [
-                new SceneImageBeatCharacter { Name = "Becky", Involvement = "active", PhysicalLocation = "living room", Position = "lying with Dean beside her", ActionOrObservation = "reaching toward Dean", Sightline = "looking at Dean", VisibleCharacterNames = ["Dean"], Clothing = "yellow dress" },
-                new SceneImageBeatCharacter { Name = "Dean", Involvement = "active", PhysicalLocation = "living room", Position = "kneeling beside Becky", ActionOrObservation = "watching Becky", Sightline = "looking at Becky's face", VisibleCharacterNames = ["Becky"], Clothing = "black shirt" }
-            ]
-        };
-
         var prompt = _preprocessor.BuildDeterministicBeatPrompt(
-            MakeSession(), beat, "Dean",
+            MakeSession(), MakeThreeCharacterBeat(), "Dean",
             new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024" },
             ImageContentPolicy.AdultAllowed, null, MakeThreeCharactersWithDistinctAppearances());
 
-        Assert.Contains("lying with the unseen viewpoint beside her", prompt, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("reaching toward the unseen viewpoint", prompt, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("viewpoint character's eye position", prompt, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("Dean", prompt, StringComparison.OrdinalIgnoreCase);
+        // First-person: Dean's own body is visible in frame.
+        Assert.Contains("Dean's own body", prompt, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -483,9 +489,8 @@ public sealed class SceneImagePromptPreprocessorTests
             new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024" },
             ImageContentPolicy.AdultAllowed, null, MakeThreeCharactersWithDistinctAppearances());
 
-        Assert.Contains("REMOTE OBSERVER CUES", prompt, StringComparison.Ordinal);
-        Assert.Contains("anonymous, indistinct, small, distant human silhouette", prompt, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("heavily occluded", prompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Becky: Appearance", prompt, StringComparison.Ordinal);
+        // Ken is the remote observer: anonymous/occluded, not a detailed cast identity.
         Assert.DoesNotContain("Ken: Appearance", prompt, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("wardrobe: gray shirt", prompt, StringComparison.OrdinalIgnoreCase);
     }
@@ -504,11 +509,65 @@ public sealed class SceneImagePromptPreprocessorTests
             new SceneImageStudioSettings { Style = "cartoon", ImageSize = "1024x1024" },
             ImageContentPolicy.AdultAllowed, null, MakeThreeCharactersWithDistinctAppearances());
 
-        Assert.Contains("ACTIVE SETTING", prompt, StringComparison.Ordinal);
         Assert.Contains("trailer bedroom", prompt, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("bed, open window", prompt, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("shed", prompt, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("outside", prompt, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void BuildDeterministicBeatPrompt_InjectsOptionPlaceholders_NotBakedValues()
+    {
+        var prompt = _preprocessor.BuildDeterministicBeatPrompt(
+            MakeSession(), MakeThreeCharacterBeat(), "Ken",
+            new SceneImageStudioSettings { Style = "cinematic", ImageSize = "1024x1024" },
+            ImageContentPolicy.AdultAllowed, null, MakeThreeCharactersWithDistinctAppearances());
+
+        // Style/size are injectable placeholders, substituted at render time.
+        Assert.Contains("{{style}}", prompt, StringComparison.Ordinal);
+        Assert.Contains("{{size}}", prompt, StringComparison.Ordinal);
+        // Omniscient camera angle is a placeholder too.
+        var omni = _preprocessor.BuildDeterministicBeatPrompt(
+            MakeSession(), MakeThreeCharacterBeat(), SceneImagePovFramer.Omniscient,
+            new SceneImageStudioSettings { Style = "cinematic", ImageSize = "1024x1024", OmniscientAngle = "High wide angle" },
+            ImageContentPolicy.AdultAllowed, null, MakeThreeCharactersWithDistinctAppearances());
+        Assert.Contains("{{angle}}", omni, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildDeterministicBeatPrompt_ExplicitParticipantPov_StatesPenetrationAndOmitsRemoteObserver()
+    {
+        var beat = new SceneImageBeat
+        {
+            SchemaVersion = 3,
+            BeatId = "b1",
+            Label = "Sex",
+            VisualDescription = "Becky on all fours, Dean kneeling behind her, thrusting, his cock inside her. Ken watches through the blinds.",
+            Location = "bedroom",
+            TimeOfDay = "night",
+            Lighting = "moonlight",
+            Environment = "bedroom bed",
+            Mood = "intense",
+            Characters =
+            [
+                new SceneImageBeatCharacter { Name = "Becky", Involvement = "active", PhysicalLocation = "bedroom", Position = "on all fours on the bed", ActionOrObservation = "back arched", Sightline = "gazing forward", VisibleCharacterNames = ["Dean"], Clothing = "naked" },
+                new SceneImageBeatCharacter { Name = "Dean", Involvement = "active", PhysicalLocation = "bedroom", Position = "kneeling behind Becky", ActionOrObservation = "thrusting into her", Sightline = "looking at her back", VisibleCharacterNames = ["Becky"], Clothing = "naked" },
+                new SceneImageBeatCharacter { Name = "Ken", Involvement = "observer", PhysicalLocation = "porch", Position = "outside", ActionOrObservation = "watching through window", Sightline = "looking in", VisibleCharacterNames = ["Becky","Dean"], Clothing = "shorts" }
+            ]
+        };
+        var characters = MakeThreeCharactersWithDistinctAppearances();
+
+        var prompt = _preprocessor.BuildDeterministicBeatPrompt(
+            MakeSession(), beat, "Dean",
+            new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024" },
+            ImageContentPolicy.AdultAllowed, null, characters);
+
+        // Explicit penetration anatomy is stated.
+        Assert.Contains("penetrating Becky", prompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("penis visible entering her vagina", prompt, StringComparison.OrdinalIgnoreCase);
+        // Remote observer (Ken) detail does NOT leak into Dean's participant POV.
+        Assert.DoesNotContain("Ken", prompt, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("porch", prompt, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -532,8 +591,7 @@ public sealed class SceneImagePromptPreprocessorTests
             MakeSession(), MakeThreeCharacterBeat(), "Ken",
             new SceneImageStudioSettings(), ImageContentPolicy.AdultAllowed, null, characters);
 
-        var beckyLine = prompt.Split('\n').Single(line => line.StartsWith("Becky: Appearance", StringComparison.Ordinal));
-        Assert.Equal(1, CountOccurrences(beckyLine, "Body type"));
+        Assert.Equal(1, CountOccurrences(prompt, "Body type"));
     }
 
     [Fact]

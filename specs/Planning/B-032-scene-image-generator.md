@@ -3,7 +3,7 @@
 **State:** `new` (design draft — pending approval to move to `designed`)
 **Priority:** low
 **Scope:** large
-**Plan author:** Copilot session 2026-08-19 (refined 2026-08-19)
+**Plan author:** Copilot session 2026-08-19 (refined 2026-08-22)
 **Backlog ref:** `specs/Planning/backlog.md` → B-032
 
 ---
@@ -112,6 +112,22 @@ model, implementation phases, and blast radius.
 4. Two background job handlers (prompt generation, image rendering) + manual-trigger service.
 5. Image Studio page (dedicated route), interaction indicator, and per-session gallery page.
 6. Tests for each of the above.
+
+### 4.3 Development-mode hosted GPU decision (2026-08-22)
+
+The developer has an RTX 4090 but does not want to run the image stack locally or keep a GPU
+running continuously. The selected development approach is a temporary hosted GPU instance,
+preferably a 24 GB-class GPU, running a private ComfyUI deployment. The instance is started only
+for image experiments and shut down when idle.
+
+The existing hosted text model remains responsible for scene understanding, beat extraction, and
+the first image prompt. The hosted GPU is responsible for visual synthesis and optional refinement.
+This avoids putting the existing 14B-class text workload on the 4090-class image GPU.
+
+The current TogetherAI image path remains available for general-image comparison, but it is not
+the expected primary backend for reliable explicit anatomy. The ComfyUI path must be selected only
+for a provider/model/workflow explicitly configured as adult-allowed by the operator. No provider
+or platform may be treated as unrestricted based only on its model name.
 
 ---
 
@@ -688,6 +704,42 @@ Per the repo's hard rules (fail fast, no hidden defaults, UI-backed config):
 5. Write up findings; decide Phase 2 scope from results.
 
 ### Phase 6+ (roadmap — later)
+- RunPod control-plane automation (approved decision, 2026-08-22):
+  - Use the official RunPod MCP server (`npx @runpod/mcp-server@latest`) to list, create, inspect,
+    stop, and terminate Pods, endpoints, templates, and network volumes from the agent.
+  - Prefer the hosted connection mode (`https://mcp.getrunpod.io/`) with "Sign in with Runpod"
+    OAuth so no API key is stored on disk; otherwise run locally with a `RUNPOD_API_KEY`.
+  - Gate destructive tools (terminate Pod, delete network volume) behind an explicit user confirm
+    and an explicit budget/cleanup objective; never let automation cost spend silently.
+  - Add a maintenance/automation section to the day-to-day plan listing the exact Pod, endpoint,
+    network volume, cost, and shutdown commands used by the project.
+  - Keep the MCP server and scripts for interactive control, not for direct application runtime
+    image calls; DreamGenClone still calls ComfyUI over HTTP for images.
+- Hosted-GPU image backend for development and adult-capable open-weight workflows:
+  - ComfyUI API client and provider registration.
+  - RunPod Pod with the official ComfyUI template, private access, and start/stop/idle-shutdown
+    scripted instructions.
+  - Private endpoint authentication and request timeout handling.
+  - Persisted workflow JSON, checkpoint, seed, and render parameters for reproducibility.
+  - Basic one-pass text-to-image workflow.
+  - Optional masked inpainting workflow for difficult or missing image regions.
+  - Optional pose/depth/control workflow for multi-character composition.
+  - Optional upscaling workflow after composition is accepted.
+  - Start/stop and idle-shutdown operating instructions for RunPod or equivalent GPU rental.
+- Prompt and render separation:
+  - Keep the current text LLM as the scene-to-visual-prompt stage.
+  - Use concise composition-first positive prompts and a real negative conditioning input where the
+    selected workflow supports it.
+  - Use model-specific vocabulary; anatomical terms such as `penis`, `vulva`, and `external
+    genital anatomy` are preferred for visual precision, but checkpoint-specific learned tags must
+    be tested rather than assumed.
+- Conditional multi-pass rendering:
+  - Draft mode: one full-scene pass.
+  - Refine mode: masked inpaint only when the user requests it or the first pass is unsuitable.
+  - Finalize mode: optional upscale/detail pass after composition and anatomy are accepted.
+- LoRA support after the base workflow is reproducible. A LoRA is a small adapter loaded alongside
+  a compatible checkpoint to influence style, character identity, or another learned visual trait;
+  it is not an explicit-content switch and must be licensed and tested independently.
 - Iteration polish: lightbox gallery view, prompt history/versioning, two-pane studio, style
   presets expansion, per-session settings refinement.
 - **Character likeness (D9):** reference photos/images on character profiles (reuse
@@ -714,9 +766,30 @@ Per the repo's hard rules (fail fast, no hidden defaults, UI-backed config):
 - **E2E (manual / Playwright):** trigger → studio → Generate Prompt (editable) → Render Image →
   image appears → workspace indicator → gallery lists it → regenerate → delete.
 
+## 17. Execution Preparation Required
+
+Before implementing the hosted-GPU phase, create a phase-specific implementation package rather
+than beginning from this roadmap alone:
+
+1. Confirm the selected hosting option, GPU class, ComfyUI image, persistence/volume choice, and
+   monthly or per-session spending limit.
+2. Produce step-by-step operator instructions covering instance creation, private access,
+   ComfyUI installation, checkpoint/workflow installation, API exposure, start/stop, idle cleanup,
+   and storage cleanup.
+3. Produce an ordered `tasks.md` covering the provider adapter, workflow contract, prompt/negative
+   prompt mapping, seed and parameter persistence, inpainting/control stages, tests, and end-to-end
+   verification.
+4. Confirm the exact checkpoint and its license before adding it to the workflow or repository
+   documentation.
+5. Implement one phase at a time; finish each phase with build, tests, and a real hosted-GPU smoke
+   generation before adding the next control surface.
+
+No hosted-GPU resources should be created by the implementation plan without explicit confirmation
+of the target account, budget, and cleanup procedure.
+
 ---
 
-## 17. Blast Radius / Files Touched
+## 18. Blast Radius / Files Touched
 
 ### New files
 - `DreamGenClone.Domain/ModelManager/ImageProviderCapability.cs`, `ImageContentPolicy.cs`,
@@ -756,7 +829,7 @@ Per the repo's hard rules (fail fast, no hidden defaults, UI-backed config):
 
 ---
 
-## 18. Risks & Notes
+## 19. Risks & Notes
 
 - **NSFW provider filtering** is the #1 external risk (D8) and the **gating outcome of the Phase-1
   POC**. Mitigated by first-class content policy, deterministic SFW clamping, and surfacing

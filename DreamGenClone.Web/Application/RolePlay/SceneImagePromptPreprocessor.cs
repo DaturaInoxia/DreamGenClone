@@ -23,6 +23,9 @@ public sealed class SceneImagePromptPreprocessor : ISceneImagePromptPreprocessor
     /// <summary>Deterministic SFW clamp appended to prompts sent to SFW-filtered providers.</summary>
     public const string SfwClampSuffix = "keep fully clothed / non-explicit";
 
+    /// <summary>Pony-style quality tags prepended to adult-allowed dense prompts.</summary>
+    public const string PonyQualityTags = "score_9, score_8_up, score_7_up, rating_explicit";
+
     public (string SystemPrompt, string UserPrompt) BuildMessages(
         RolePlaySession session,
         RolePlayInteraction interaction,
@@ -161,92 +164,240 @@ public sealed class SceneImagePromptPreprocessor : ISceneImagePromptPreprocessor
             .ToDictionary(character => character.Name!.Trim(), StringComparer.OrdinalIgnoreCase);
         var personaName = string.IsNullOrWhiteSpace(session.PersonaName) ? "You" : session.PersonaName.Trim();
 
-        var prompt = new StringBuilder();
-        prompt.AppendLine("OUTPUT");
-        prompt.AppendLine($"One {settings.Style} still image, {settings.ImageSize}{(string.IsNullOrWhiteSpace(settings.AspectRatio) ? string.Empty : $", {settings.AspectRatio} aspect ratio")}.");
-        prompt.AppendLine();
-
-        prompt.AppendLine("VISIBLE CAST");
-        if (visibleCharacters.Count == 0)
-        {
-            prompt.AppendLine("No people visible in frame.");
-        }
-        else
-        {
-            foreach (var beatCharacter in visibleCharacters)
-            {
-                var identity = ResolveCanonicalIdentity(session, personaName, beatCharacter.Name, profilesByName);
-                var profileClothing = ResolveProfileClothing(session, personaName, beatCharacter.Name, profilesByName);
-                var clothing = !string.IsNullOrWhiteSpace(beatCharacter.Clothing)
-                    && !string.Equals(beatCharacter.Clothing, "not established", StringComparison.OrdinalIgnoreCase)
-                        ? beatCharacter.Clothing.Trim()
-                        : profileClothing;
-                prompt.AppendLine($"{beatCharacter.Name}: {identity}; wardrobe: {(string.IsNullOrWhiteSpace(clothing) ? "not established" : clothing)}.");
-            }
-        }
-        var remoteObservers = SceneImageRenderBriefBuilder.ResolveRemoteObservers(beat, pov);
-        if (remoteObservers.Count > 0)
-        {
-            prompt.AppendLine();
-            prompt.AppendLine("REMOTE OBSERVER CUES");
-            foreach (var observer in remoteObservers)
-                prompt.AppendLine(SceneImageRenderBriefBuilder.BuildRemoteObserverCue(observer));
-        }
-        prompt.AppendLine();
-
-        prompt.AppendLine("FROZEN ACTION AND SPATIAL LAYOUT");
         var excludedNames = beat.Characters
             .Select(character => character.Name)
             .Where(name => !visibleNameSet.Contains(name))
             .ToList();
+
+        // ── Dense, Pony-tag-friendly prompt ────────────────────────────────────────────────
+        // Pony/ComfyUI CLIP reads dense comma-separated tags, not caption prose. Lead with quality
+        // + explicitness tokens, then fold identity, wardrobe, pose/action, location, lighting,
+        // mood, and POV framing into one dense line.
+        var tags = new List<string>();
+
+        var isExplicit = resolvedPolicy == ImageContentPolicy.AdultAllowed
+            || resolvedPolicy == ImageContentPolicy.AdultAllowedConfigurable;
+        if (isExplicit)
+        {
+            tags.Add(PonyQualityTags);
+        }
+
+        // Style + size/aspect + omniscient angle are INJECTED placeholders, not baked values.
+        // They are substituted at render time with the current studio setting so changing options
+        // does not require regenerating the prompt.
+        tags.Add("{{style}}");
+        tags.Add("{{size}}");
+
+        // Primary scene: frozen beat + location + environment.
+        // Only Omniscient narrates the complete event (incl. any remote observer). A participant POV
+        // must NOT receive the full scene description — that leaks in characters/observers outside
+        // the frame and muddles the act. Participant details come from labeled spatial facts below.
+        if (isOmniscient)
+        {
+            AddTag(tags, beat.VisualDescription, excludedNames, cameraHolderName: null);
+        }
+        AddTag(tags, beat.Location, [], null);
+        AddTag(tags, beat.Environment, [], null);
+        AddTag(tags, beat.TimeOfDay, [], null);
+        AddTag(tags, beat.Lighting, [], null);
+        AddTag(tags, beat.Mood, [], null);
+
+        // Visible cast: identity + wardrobe (forced nudity for explicit beats).
+        foreach (var beatCharacter in visibleCharacters)
+        {
+            var identity = ResolveCanonicalIdentity(session, personaName, beatCharacter.Name, profilesByName);
+            if (!string.Equals(identity, "identity not established", StringComparison.OrdinalIgnoreCase))
+                tags.Add($"{beatCharacter.Name}: {identity}");
+
+            var clothing = ResolveDeterministicClothing(session, personaName, beatCharacter.Name, beatCharacter.Clothing, profilesByName, isExplicit);
+            if (!string.IsNullOrWhiteSpace(clothing))
+                tags.Add($"{beatCharacter.Name}: {(isExplicit && EqualsNudity(clothing) ? "naked" : clothing)}");
+        }
+
+        // Spatial facts: labeled pose / action / position per visible character (projected for POV).
         foreach (var beatCharacter in visibleCharacters)
         {
             var spatialFacts = new List<string>();
-            var cameraHolderName = isOmniscient ? null : pov;
-            AddProjectedFact(spatialFacts, beatCharacter.Position, excludedNames, cameraHolderName);
-            AddProjectedFact(spatialFacts, beatCharacter.ActionOrObservation, excludedNames, cameraHolderName);
-            var projectedSightline = ProjectFact(beatCharacter.Sightline, excludedNames, cameraHolderName);
-            if (!string.IsNullOrWhiteSpace(projectedSightline))
-            {
-                spatialFacts.Add("gaze " + projectedSightline);
-            }
-            prompt.AppendLine($"{beatCharacter.Name}: {(spatialFacts.Count == 0 ? "spatial action not established" : string.Join("; ", spatialFacts))}.");
+            AddProjectedFact(spatialFacts, beatCharacter.Position, excludedNames, isOmniscient ? null : pov);
+            AddProjectedFact(spatialFacts, beatCharacter.ActionOrObservation, excludedNames, isOmniscient ? null : pov);
+            if (spatialFacts.Count == 0) continue;
+            tags.Add($"{beatCharacter.Name}: {string.Join(", ", spatialFacts)}");
         }
-        prompt.AppendLine();
-        prompt.AppendLine("ACTIVE SETTING");
-        prompt.AppendLine($"{beat.Location}. {beat.Environment}.");
-        prompt.AppendLine();
 
-        prompt.AppendLine("CAMERA");
-        prompt.AppendLine(SceneImagePovFramer.BuildFramingLine(beat, pov));
-        prompt.AppendLine();
+        // Explicit anatomical detail: describe the act concretely from the beat description + the
+        // POV character's own-body awareness.
+        tags.Add(isOmniscient
+            ? DescribeAct(beat, null)
+            : DescribeAct(beat, pov));
 
-        prompt.AppendLine("CONTINUITY");
-        prompt.AppendLine("Keep every listed face, hair, body proportion, wardrobe item, accessory, position, and room feature exactly as specified. Each listed person remains one distinct, complete individual with natural anatomy and correct hand ownership.");
-        prompt.AppendLine();
-
-        prompt.AppendLine("LIGHTING AND ATMOSPHERE");
-        prompt.AppendLine($"{beat.TimeOfDay}; {beat.Lighting}; {beat.Mood}.");
-        prompt.AppendLine();
-
-        prompt.AppendLine("EXCLUDE");
-        prompt.AppendLine("Extra or missing body parts, extra limbs, arms, legs, hands, fingers, or heads, malformed anatomy, merged bodies, duplicate or extra people, exchanged identities or wardrobe, incorrect hand ownership, text, watermark.");
+        // POV framing line.
+        // For Omniscient, the camera angle is an injected placeholder ({{angle}}) substituted at
+        // render time with the current studio selection; participant POVs bake their framing.
+        if (string.Equals(pov, SceneImagePovFramer.Omniscient, StringComparison.OrdinalIgnoreCase))
+        {
+            tags.Add("External third-person camera (fly-on-the-wall). {{angle}}");
+        }
+        else
+        {
+            tags.Add(SceneImagePovFramer.BuildFramingLine(beat, pov));
+        }
 
         if (!string.IsNullOrWhiteSpace(refineInstruction))
-        {
-            prompt.AppendLine();
-            prompt.AppendLine("USER REFINEMENT");
-            prompt.AppendLine(refineInstruction.Trim());
-        }
+            tags.Add(refineInstruction.Trim());
 
-        if (resolvedPolicy == ImageContentPolicy.SfwFiltered)
-        {
-            prompt.AppendLine();
-            prompt.AppendLine(SfwClampSuffix);
-        }
-
-        return prompt.ToString().Trim();
+        var prompt = string.Join(", ", tags.Where(t => !string.IsNullOrWhiteSpace(t)));
+        return prompt.Trim();
     }
+
+    /// <summary>
+    /// Builds the deterministic negative prompt for a frozen beat + POV. Suppresses common
+    /// image-model artifacts plus any character that must not appear in the frame.
+    /// </summary>
+    public string BuildDeterministicBeatNegativePrompt(SceneImageBeat beat, string pov)
+    {
+        var artifacts = "extra or missing body parts, extra limbs, extra arms, extra legs, extra hands, extra fingers, malformed anatomy, merged bodies, duplicate or extra people, wrong number of people, cropped anatomy, bad hands, wrong hand ownership, text, watermark, frame, border, signature, logo";
+
+        var excludedNames = SceneImageRenderBriefBuilder.ResolveVisibleCharacters(beat, pov)
+            .Select(character => character.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var absent = beat.Characters
+            .Select(character => character.Name)
+            .Where(name => !excludedNames.Contains(name))
+            .ToList();
+
+        var negative = new List<string> { artifacts };
+        foreach (var name in absent)
+        {
+            negative.Add(name);
+            negative.Add($"{name} absent from frame");
+        }
+        return string.Join(", ", negative).Trim();
+    }
+
+    private static void AddTag(List<string> tags, string? value, IReadOnlyList<string> excludedNames, string? cameraHolderName)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return;
+        var projected = ProjectFact(value, excludedNames, cameraHolderName);
+        if (!string.IsNullOrWhiteSpace(projected))
+            tags.Add(projected.Trim());
+    }
+
+    private static bool EqualsNudity(string clothing)
+        => clothing.Contains("naked", StringComparison.OrdinalIgnoreCase)
+           || clothing.Contains("nude", StringComparison.OrdinalIgnoreCase);
+
+    private static string ResolveDeterministicClothing(
+        RolePlaySession session,
+        string personaName,
+        string name,
+        string beatClothing,
+        IReadOnlyDictionary<string, Character> profilesByName,
+        bool isExplicit)
+    {
+        // For explicit/adult beats on a comfy-style backend, nudity is the expected state unless
+        // the beat explicitly states clothing. Prefer "naked" so wardrobe never wrongly reintroduces
+        // casual clothing from a profile during an explicit scene.
+        if (isExplicit)
+            return "naked";
+
+        var profileClothing = ResolveProfileClothing(session, personaName, name, profilesByName);
+        return !string.IsNullOrWhiteSpace(beatClothing)
+            && !string.Equals(beatClothing, "not established", StringComparison.OrdinalIgnoreCase)
+                ? beatClothing.Trim()
+                : profileClothing;
+    }
+
+    /// <summary>
+    /// Produces an explicit, anatomy-literal clause for the act. The beat's natural language usually
+    /// euphemizes ("head of his cock remains inside her"); Pony/ComfyUI needs concrete anatomical
+    /// action. For a participant POV, the act is framed from that character's own eyes (their body is
+    /// visible). Omniscient gets a full external statement.
+    /// </summary>
+    private static string DescribeAct(SceneImageBeat beat, string? pov)
+    {
+        var povClause = string.IsNullOrWhiteSpace(pov)
+            ? "external view of the couple"
+            : $"{pov}'s first-person view, {pov}'s own body in frame";
+
+        var marker = BuildExplicitPenetrationClause(beat);
+        if (!string.IsNullOrWhiteSpace(marker))
+            return $"{marker}, {povClause}";
+
+        // No explicit penetration could be derived — fall back to the beat's visual description so
+        // the scene's action is still conveyed (without leaking remote observers). 
+        var description = beat.VisualDescription.Trim();
+        return string.IsNullOrWhiteSpace(description)
+            ? string.Empty
+            : $"{description}, {povClause}";
+    }
+
+    /// <summary>
+    /// Builds a short, concrete penetration/anatomy phrase from the beat layout. Returns empty when
+    /// the beat does not clearly imply sex, so the act clause is simply omitted.
+    /// </summary>
+    private static string BuildExplicitPenetrationClause(SceneImageBeat beat)
+    {
+        // Identify the male participant (kneeling/mounted) vs the female participant (on her back
+        // or all fours). The beat usually has both nude with matching locations.
+        SceneImageBeatCharacter? man = null;
+        SceneImageBeatCharacter? woman = null;
+        foreach (var character in beat.Characters)
+        {
+            if (IsManBehind(character))
+                man = man is null ? character : man;
+            else if (IsWomanReceiving(character))
+                woman = woman is null ? character : woman;
+        }
+        if (man is not null && woman is not null)
+        {
+            return $"{man.Name}'s erect cock penetrating {woman.Name}, penis visible entering her vagina, spread ass and anus visible, realistic genital anatomy";
+        }
+        if (man is not null)
+        {
+            return $"{man.Name}'s erect cock penetrating her, penis visible entering vagina, realistic genital anatomy";
+        }
+
+        var desc = beat.VisualDescription.ToLowerInvariant();
+        if (desc.Contains("cock", StringComparison.Ordinal) || desc.Contains("penetrat", StringComparison.Ordinal)
+            || desc.Contains("enter", StringComparison.Ordinal) || desc.Contains("inside her", StringComparison.Ordinal))
+        {
+            return "erect penis penetrating her vagina, penis visible inside her, realistic genital anatomy";
+        }
+        return string.Empty;
+    }
+
+    private static bool IsWomanReceiving(SceneImageBeatCharacter c)
+    {
+        if (string.IsNullOrWhiteSpace(c.Name)) return false;
+        var text = $"{c.Clothing} {c.Position} {c.ActionOrObservation}".ToLowerInvariant();
+        // Receiving poses: on her back / all fours / arching / spread.
+        return IsNaked(text)
+            && (text.Contains("all fours", StringComparison.Ordinal)
+                || text.Contains("on her back", StringComparison.Ordinal)
+                || text.Contains("back arched", StringComparison.Ordinal)
+                || text.Contains("on the bed", StringComparison.Ordinal)
+                || text.Contains("spread", StringComparison.Ordinal));
+    }
+
+    private static bool IsManBehind(SceneImageBeatCharacter c)
+    {
+        if (string.IsNullOrWhiteSpace(c.Name)) return false;
+        var text = $"{c.Clothing} {c.Position} {c.ActionOrObservation}".ToLowerInvariant();
+        // Mounting/driving poses: kneeling/mounted/behind, gripping, thrusting, penetrating, entering.
+        return text.Contains("naked", StringComparison.Ordinal)
+            && (text.Contains("behind", StringComparison.Ordinal)
+                || text.Contains("kneel", StringComparison.Ordinal)
+                || text.Contains("on top", StringComparison.Ordinal)
+                || text.Contains("gripp", StringComparison.Ordinal)
+                || text.Contains("thrust", StringComparison.Ordinal)
+                || text.Contains("penetrat", StringComparison.Ordinal)
+                || text.Contains("enter", StringComparison.Ordinal)
+                || text.Contains("pushing into", StringComparison.Ordinal));
+    }
+
+    private static bool IsNaked(string value)
+        => value.Contains("naked", StringComparison.OrdinalIgnoreCase)
+           || value.Contains("nude", StringComparison.OrdinalIgnoreCase);
 
     private static void AddProjectedFact(
         List<string> facts,

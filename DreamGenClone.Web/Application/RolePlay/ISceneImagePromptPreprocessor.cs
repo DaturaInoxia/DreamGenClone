@@ -53,6 +53,15 @@ public interface ISceneImagePromptPreprocessor
         string? refineInstruction,
         IReadOnlyList<Character>? characters = null);
 
+    /// <summary>
+    /// Builds the deterministic negative prompt for a frozen beat + POV. Suppresses common
+    /// image-model artifacts (extra limbs, malformed anatomy, merged bodies) and any character that
+    /// must not be shown in the frame. Consumed by backends that support a separate negative prompt.
+    /// </summary>
+    string BuildDeterministicBeatNegativePrompt(
+        SceneImageBeat beat,
+        string pov);
+
     /// <summary>Parse the pre-processor output into the editable prompt (+ pulled excerpt).
     /// Tolerates a JSON envelope {{prompt, excerpt}} or plain text. Fails fast on empty/overlong.</summary>
     SceneImagePreprocessorResult ParseOutput(string rawOutput);

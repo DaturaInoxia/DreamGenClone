@@ -258,7 +258,9 @@ builder.Services.AddSingleton<ISemanticBackgroundJobQueue>(sp => sp.GetRequiredS
 builder.Services.AddHostedService<SemanticBackgroundJobWorker>();
 
 // Scene Image Generator (001-scene-image-generator): image pipeline services.
-builder.Services.AddSingleton<IImageGenerationClient, ImageGenerationClient>();
+builder.Services.AddSingleton<ImageGenerationClient>();
+builder.Services.AddSingleton<ComfyUIImageClient>();
+builder.Services.AddSingleton<IImageGenerationClient, ImageGenerationClientDispatcher>();
 builder.Services.AddSingleton<ISceneImageRepository, SceneImageRepository>();
 builder.Services.AddSingleton<ISceneImageStorageService, SceneImageStorageService>();
 builder.Services.AddScoped<ISceneImageService, SceneImageService>();

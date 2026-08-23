@@ -63,7 +63,7 @@ public sealed class SceneImageGenerationClientTests
             };
         });
 
-        var bytes = await client.GenerateAsync(Resolve(), "a cat in a hat", "1024x1024", CancellationToken.None);
+        var bytes = await client.GenerateAsync(Resolve(), "a cat in a hat", "1024x1024", null, null, CancellationToken.None);
 
         Assert.NotNull(bytes);
         Assert.Equal(new byte[] { 10, 20, 30 }, bytes);
@@ -94,7 +94,7 @@ public sealed class SceneImageGenerationClientTests
         });
 
         var ex = await Assert.ThrowsAsync<ImageGenerationException>(
-            () => client.GenerateAsync(Resolve(), "prompt", null, CancellationToken.None));
+            () => client.GenerateAsync(Resolve(), "prompt", null, null, null, CancellationToken.None));
 
         Assert.Contains(messagePart, ex.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(statusCode, ex.StatusCode);
@@ -110,7 +110,7 @@ public sealed class SceneImageGenerationClientTests
             Content = new StringContent(JsonSerializer.Serialize(new { data = Array.Empty<object>() }))
         });
 
-        var bytes = await client.GenerateAsync(Resolve(), "prompt", null, CancellationToken.None);
+        var bytes = await client.GenerateAsync(Resolve(), "prompt", null, null, null, CancellationToken.None);
         Assert.Null(bytes);
     }
 
@@ -128,7 +128,7 @@ public sealed class SceneImageGenerationClientTests
         });
 
         var model = Resolve() with { ApiKeyEncrypted = null };
-        await client.GenerateAsync(model, "prompt", null, CancellationToken.None);
+        await client.GenerateAsync(model, "prompt", null, null, null, CancellationToken.None);
 
         Assert.NotNull(captured);
         Assert.Null(captured!.Headers.Authorization);

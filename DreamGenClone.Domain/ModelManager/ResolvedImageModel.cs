@@ -12,4 +12,6 @@ public sealed record ResolvedImageModel(
     string ModelIdentifier,
     ImageContentPolicy ContentPolicy,
     string ProviderName,
-    bool IsSessionOverride);
+    bool IsSessionOverride,
+    ImageProtocol ImageProtocol = ImageProtocol.OpenAiImages,
+    string? ComfyUiUrl = null);

@@ -226,6 +226,8 @@ public sealed class ModelResolutionService : IModelResolutionService
             ModelIdentifier: model.ModelIdentifier,
             ContentPolicy: provider.ContentPolicy,
             ProviderName: provider.Name,
-            IsSessionOverride: !string.IsNullOrEmpty(sessionOverrideId));
+            IsSessionOverride: !string.IsNullOrEmpty(sessionOverrideId),
+            ImageProtocol: provider.ImageProtocol,
+            ComfyUiUrl: provider.ImageProtocol == ImageProtocol.ComfyUi ? provider.BaseUrl : null);
     }
 }

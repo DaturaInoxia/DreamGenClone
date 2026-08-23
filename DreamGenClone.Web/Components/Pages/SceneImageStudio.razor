@@ -239,7 +239,13 @@
                                 <label class="form-label">Aspect Ratio (optional)</label>
                                 <input type="text" class="form-control form-control-sm" @bind="_settings.AspectRatio" placeholder="e.g. 16:9" />
                             </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Seed (optional, blank = random)</label>
+                                <input type="number" class="form-control form-control-sm" @bind="_settings.Seed"
+                                       placeholder="e.g. 24680" />
+                            </div>
                             <div class="col-12">
+                                <div class="form-text">A fixed seed makes a render reproducible; leave blank for a random seed each time. Only honored for the ComfyUI protocol.</div>
                                 @if (_resolvedPolicy == ImageContentPolicy.SfwFiltered)
                                 {
                                     <div class="alert alert-warning py-2 small mb-2">
@@ -277,6 +283,18 @@
                                     <button class="btn btn-sm @(_selectedPov == pov ? "btn-primary" : "btn-outline-secondary")" @onclick="() => SelectPovAsync(pov)">@pov</button>
                                 }
                             </div>
+                            @if (_selectedPov == SceneImagePovFramer.Omniscient)
+                            {
+                                <label class="form-label small mt-3 mb-1">Camera Angle (Omniscient)</label>
+                                <select class="form-select form-select-sm" value="@_selectedAngle" @onchange="OnOmniscientAngleChanged">
+                                    <option value="">Default (neutral wide)</option>
+                                    @foreach (var angle in OmniscientAngles)
+                                    {
+                                        <option value="@angle">@angle</option>
+                                    }
+                                </select>
+                                <div class="form-text">Adjust the external fly-on-the-wall camera angle for this scene.</div>
+                            }
                         }
                     </div>
                 </div>
@@ -536,6 +554,17 @@
             ? [SceneImagePovFramer.Omniscient]
             : SceneImagePovFramer.GetPovOptions(_selectedBeat.Characters.Select(x => x.Name).ToList());
 
+    // Omniscient camera angle override (shown only for the Omniscient POV).
+    private string? _selectedAngle;
+    private static readonly IReadOnlyList<string> OmniscientAngles = new[]
+    {
+        "Wide exterior view, full visible event",
+        "High wide angle looking down at the scene",
+        "Over-the-shoulder view from a hidden corner",
+        "Low angle from floor level",
+        "Peering through a gap (window/blinds/curtain)",
+    };
+
     private void OpenViewer(SceneImageRecord image) => _viewerImage = image;
 
     private void CloseViewer() => _viewerImage = null;
@@ -558,6 +587,17 @@
                 ? $"POV '{pov}' selected. Generate a prompt for this beat and POV."
                 : $"Loaded the saved prompt for POV '{pov}'.";
         });
+    }
+
+    private void OnOmniscientAngleChanged(ChangeEventArgs e)
+    {
+        _selectedAngle = e.Value?.ToString();
+        _settings.OmniscientAngle = string.IsNullOrWhiteSpace(_selectedAngle) ? null : _selectedAngle;
+    }
+
+    private void SyncAngleFromSettings()
+    {
+        _selectedAngle = _settings.OmniscientAngle;
     }
 
     private void RequestReplaceBeats()
@@ -1030,6 +1070,7 @@
                     if (restored is not null)
                     {
                         _settings = restored;
+                        SyncAngleFromSettings();
                     }
                 }
                 catch (JsonException ex)

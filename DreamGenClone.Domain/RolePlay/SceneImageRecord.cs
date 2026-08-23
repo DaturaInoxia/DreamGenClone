@@ -35,6 +35,13 @@ public sealed class SceneImageRecord
     /// <summary>Exact prompt text sent to the image model (regenerate/audit).</summary>
     public string PromptSnapshot { get; set; } = string.Empty;
 
+    /// <summary>
+    /// The deterministic negative prompt captured at render-enqueue time from the beat + POV.
+    /// Consumed by backends that support a separate negative (e.g. ComfyUI). Null/empty for
+    /// providers that only accept a single prompt.
+    /// </summary>
+    public string? NegativePromptSnapshot { get; set; }
+
     public SceneImageStatus Status { get; set; } = SceneImageStatus.Pending;
 
     /// <summary>Relative path under the scene-image root, e.g. "{sessionId}/{imageId}.png".</summary>

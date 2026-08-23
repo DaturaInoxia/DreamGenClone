@@ -34,6 +34,8 @@ public sealed class ImageGenerationClient : IImageGenerationClient
         ResolvedImageModel model,
         string prompt,
         string? size,
+        string? negativePrompt = null,
+        long? seed = null,
         CancellationToken cancellationToken = default)
     {
         var stopwatch = Stopwatch.StartNew();

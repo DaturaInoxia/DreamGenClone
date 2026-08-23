@@ -67,19 +67,28 @@ public sealed class SceneImagePovFramerTests
     }
 
     [Fact]
+    public void BuildFramingLine_Omniscient_HonorsAngleOverride()
+    {
+        var line = SceneImagePovFramer.BuildFramingLine(MakeBeat(), "Omniscient", "High wide angle looking down at the scene");
+        Assert.Contains("high wide angle", line, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("frame the complete visible event", line, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void BuildFramingLine_CharacterPov_FromPerspective()
     {
         var line = SceneImagePovFramer.BuildFramingLine(MakeBeat(), "Dean");
         Assert.Contains("trailer kitchen", line, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("viewpoint character's eye position", line, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Dean's eye position", line, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("kitchen counter", line, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("distant view", line, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("distant", line, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("partly open bedroom door", line, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Becky", line, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("strict first-person", line, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("exactly 1 visible person: Becky", line, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("viewpoint remains fully off-camera", line, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("Dean", line, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("first-person", line, StringComparison.OrdinalIgnoreCase);
+        // Dean is a remote observer (kitchen vs act in bedroom) → off-camera, own body not visible.
+        Assert.Contains("own body is not visible", line, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("off-camera;", line, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Exactly 1", line, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

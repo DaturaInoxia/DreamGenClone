@@ -190,6 +190,49 @@ public sealed class SceneImageResolutionTests
     }
 
     [Fact]
+    public async Task ResolveImageModel_ComfyUiProvider_SetsProtocolAndUrl()
+    {
+        var (service, funcDefaults, models, providers) = Build();
+        var provider = new Provider
+        {
+            Id = "prov-comfy",
+            Name = "RunPod ComfyUI",
+            ProviderType = ProviderType.TogetherAI,
+            BaseUrl = "https://qguv5e029u58lb-3000.proxy.runpod.net",
+            ImageCapability = ImageProviderCapability.ImageOnly,
+            ImageGenerationPath = "/prompt",
+            ContentPolicy = ImageContentPolicy.AdultAllowed,
+            ImageProtocol = ImageProtocol.ComfyUi,
+            IsEnabled = true
+        };
+        providers.Add(provider);
+        models.Add(new RegisteredModel
+        {
+            Id = "model-comfy",
+            ProviderId = "prov-comfy",
+            ModelIdentifier = "ponyDiffusionV6XL_v6.safetensors",
+            DisplayName = "PonyV6",
+            ModelKind = ModelKind.Image,
+            IsEnabled = true
+        });
+        funcDefaults.Set(AppFunction.RolePlaySceneImage, new FunctionModelDefault
+        {
+            FunctionName = AppFunction.RolePlaySceneImage.ToString(),
+            ModelId = "model-comfy",
+            Temperature = 0.7,
+            TopP = 0.9,
+            MaxTokens = 500
+        });
+
+        var resolved = await service.ResolveImageModelAsync(null, CancellationToken.None);
+
+        Assert.NotNull(resolved);
+        Assert.Equal(ImageProtocol.ComfyUi, resolved.ImageProtocol);
+        Assert.Equal("https://qguv5e029u58lb-3000.proxy.runpod.net", resolved.ComfyUiUrl);
+        Assert.Equal("ponyDiffusionV6XL_v6.safetensors", resolved.ModelIdentifier);
+    }
+
+    [Fact]
     public async Task ResolveImagePromptModel_NoPreprocessorDefault_FailsFast()
     {
         var (service, _, _, _) = Build();

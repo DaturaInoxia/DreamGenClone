@@ -717,6 +717,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 ImageCapability INTEGER NOT NULL DEFAULT 0,
                 ImageGenerationPath TEXT NOT NULL DEFAULT '/v1/images/generations',
                 ContentPolicy INTEGER NOT NULL DEFAULT 0,
+                ImageProtocol INTEGER NOT NULL DEFAULT 0,
                 TimeoutSeconds INTEGER NOT NULL DEFAULT 120,
                 ApiKeyEncrypted TEXT,
                 IsEnabled INTEGER NOT NULL DEFAULT 1,
@@ -1331,6 +1332,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
             ("ImageCapability", "ALTER TABLE Providers ADD COLUMN ImageCapability INTEGER NOT NULL DEFAULT 0"),
             ("ImageGenerationPath", "ALTER TABLE Providers ADD COLUMN ImageGenerationPath TEXT NOT NULL DEFAULT '/v1/images/generations'"),
             ("ContentPolicy", "ALTER TABLE Providers ADD COLUMN ContentPolicy INTEGER NOT NULL DEFAULT 0"),
+            ("ImageProtocol", "ALTER TABLE Providers ADD COLUMN ImageProtocol INTEGER NOT NULL DEFAULT 0"),
         };
         foreach (var (column, ddl) in providerImageColumns)
         {

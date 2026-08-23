@@ -19,7 +19,7 @@ public static class SceneImageRenderBriefBuilder
 
         var visibleCharacters = ResolveVisibleCharacters(beat, pov);
         var remoteObservers = ResolveRemoteObservers(beat, pov);
-        var framing = SceneImagePovFramer.BuildFramingLine(beat, pov);
+        var framing = SceneImagePovFramer.BuildFramingLine(beat, pov, settings.OmniscientAngle);
         var brief = new StringBuilder();
         brief.AppendLine("AUTHORITATIVE RENDER BRIEF");
         brief.AppendLine("Create exactly one still image from this resolved visual event. Do not reinterpret the turn or invent omitted details.");
@@ -73,8 +73,13 @@ public static class SceneImageRenderBriefBuilder
         var visibleNames = cameraHolder.VisibleCharacterNames
             .Where(name => !string.IsNullOrWhiteSpace(name))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        if (visibleNames.Contains(cameraHolder.Name))
-            throw new InvalidOperationException($"POV character '{pov}' cannot also be visible from their own camera.");
+        // The POV character IS visible in their own frame when they are a physical participant in the
+        // scene (first-person body awareness: own hands, own limbs, own body). An external remote
+        // observer (e.g. watching through a window) stays off-camera — they are not part of the act.
+        if (!IsRemoteObserver(beat, cameraHolder))
+        {
+            visibleNames.Add(cameraHolder.Name);
+        }
 
         var charactersByName = beat.Characters
             .Where(character => !string.IsNullOrWhiteSpace(character.Name))

@@ -16,6 +16,8 @@ packages/
 # Logs and environment
 *.log
 .env*
+# RunPod automation local credentials (never commit)
+helpers/runpod/.runpod-env.ps1
 
 # Application data (SQLite database with encrypted API keys)
 data/

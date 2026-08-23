@@ -27,8 +27,8 @@ public sealed class ProviderRepository : IProviderRepository
 
         var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO Providers (Id, Name, ProviderType, BaseUrl, ChatCompletionsPath, ImageCapability, ImageGenerationPath, ContentPolicy, TimeoutSeconds, ApiKeyEncrypted, IsEnabled, CreatedUtc, UpdatedUtc, Notes)
-            VALUES ($id, $name, $type, $baseUrl, $path, $imageCapability, $imagePath, $contentPolicy, $timeout, $apiKey, $enabled, $created, $updated, $notes)
+            INSERT INTO Providers (Id, Name, ProviderType, BaseUrl, ChatCompletionsPath, ImageCapability, ImageGenerationPath, ContentPolicy, ImageProtocol, TimeoutSeconds, ApiKeyEncrypted, IsEnabled, CreatedUtc, UpdatedUtc, Notes)
+            VALUES ($id, $name, $type, $baseUrl, $path, $imageCapability, $imagePath, $contentPolicy, $imageProtocol, $timeout, $apiKey, $enabled, $created, $updated, $notes)
             ON CONFLICT(Id) DO UPDATE SET
                 Name = $name,
                 ProviderType = $type,
@@ -37,6 +37,7 @@ public sealed class ProviderRepository : IProviderRepository
                 ImageCapability = $imageCapability,
                 ImageGenerationPath = $imagePath,
                 ContentPolicy = $contentPolicy,
+                ImageProtocol = $imageProtocol,
                 TimeoutSeconds = $timeout,
                 ApiKeyEncrypted = $apiKey,
                 IsEnabled = $enabled,
@@ -52,6 +53,7 @@ public sealed class ProviderRepository : IProviderRepository
         command.Parameters.AddWithValue("$imageCapability", (int)provider.ImageCapability);
         command.Parameters.AddWithValue("$imagePath", provider.ImageGenerationPath);
         command.Parameters.AddWithValue("$contentPolicy", (int)provider.ContentPolicy);
+        command.Parameters.AddWithValue("$imageProtocol", (int)provider.ImageProtocol);
         command.Parameters.AddWithValue("$timeout", provider.TimeoutSeconds);
         command.Parameters.AddWithValue("$apiKey", (object?)provider.ApiKeyEncrypted ?? DBNull.Value);
         command.Parameters.AddWithValue("$enabled", provider.IsEnabled ? 1 : 0);
@@ -70,7 +72,7 @@ public sealed class ProviderRepository : IProviderRepository
         await connection.OpenAsync(cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, Name, ProviderType, BaseUrl, ChatCompletionsPath, ImageCapability, ImageGenerationPath, ContentPolicy, TimeoutSeconds, ApiKeyEncrypted, IsEnabled, CreatedUtc, UpdatedUtc, Notes FROM Providers WHERE Id = $id";
+        command.CommandText = "SELECT Id, Name, ProviderType, BaseUrl, ChatCompletionsPath, ImageCapability, ImageGenerationPath, ContentPolicy, ImageProtocol, TimeoutSeconds, ApiKeyEncrypted, IsEnabled, CreatedUtc, UpdatedUtc, Notes FROM Providers WHERE Id = $id";
         command.Parameters.AddWithValue("$id", id);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -88,7 +90,7 @@ public sealed class ProviderRepository : IProviderRepository
         await connection.OpenAsync(cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, Name, ProviderType, BaseUrl, ChatCompletionsPath, ImageCapability, ImageGenerationPath, ContentPolicy, TimeoutSeconds, ApiKeyEncrypted, IsEnabled, CreatedUtc, UpdatedUtc, Notes FROM Providers ORDER BY Name";
+        command.CommandText = "SELECT Id, Name, ProviderType, BaseUrl, ChatCompletionsPath, ImageCapability, ImageGenerationPath, ContentPolicy, ImageProtocol, TimeoutSeconds, ApiKeyEncrypted, IsEnabled, CreatedUtc, UpdatedUtc, Notes FROM Providers ORDER BY Name";
 
         var providers = new List<Provider>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -140,11 +142,12 @@ public sealed class ProviderRepository : IProviderRepository
         ImageCapability = (ImageProviderCapability)reader.GetInt32(5),
         ImageGenerationPath = reader.GetString(6),
         ContentPolicy = (ImageContentPolicy)reader.GetInt32(7),
-        TimeoutSeconds = reader.GetInt32(8),
-        ApiKeyEncrypted = reader.IsDBNull(9) ? null : reader.GetString(9),
-        IsEnabled = reader.GetInt32(10) == 1,
-        CreatedUtc = reader.GetString(11),
-        UpdatedUtc = reader.GetString(12),
-        Notes = reader.IsDBNull(13) ? null : reader.GetString(13)
+        ImageProtocol = (ImageProtocol)reader.GetInt32(8),
+        TimeoutSeconds = reader.GetInt32(9),
+        ApiKeyEncrypted = reader.IsDBNull(10) ? null : reader.GetString(10),
+        IsEnabled = reader.GetInt32(11) == 1,
+        CreatedUtc = reader.GetString(12),
+        UpdatedUtc = reader.GetString(13),
+        Notes = reader.IsDBNull(14) ? null : reader.GetString(14)
     };
 }
