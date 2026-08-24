@@ -36,6 +36,67 @@ public sealed class CompletionClientReasoningTests
         Assert.DoesNotContain("reasoning that must never enter JSON", content, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task GenerateWithReasoningAsync_TruncatedForceAnswer_AppendsContinuationToCloseJson()
+    {
+        // First call: the model burns its whole budget on reasoning and returns zero content.
+        // Force-answer call: the model re-reasons but still hits the ceiling mid-JSON (truncated).
+        // Continuation call: finishes the JSON so the strict parser can accept it.
+        var responses = new Queue<HttpResponseMessage>(
+        [
+            Response(content: null, reasoning: "reasoning that exhausts the first budget", finishReason: "length"),
+            Response(content: "{\"beats\":[{\"schemaVersion\":3,", reasoning: "re-reasoned but still truncated", finishReason: "length"),
+            Response(content: "\"label\":\"x\"}]}", reasoning: null, finishReason: "stop")
+        ]);
+        var handler = new StubHttpMessageHandler(_ => responses.Dequeue());
+        var client = new CompletionClient(
+            new FakeHttpClientFactory(handler),
+            new FakeEncryption(),
+            NullLogger<CompletionClient>.Instance);
+
+        var (content, reasoning) = await client.GenerateWithReasoningAsync(
+            "system",
+            "user",
+            Resolve(),
+            CancellationToken.None);
+
+        Assert.Equal("{\"beats\":[{\"schemaVersion\":3,\n\"label\":\"x\"}]}", content);
+        Assert.Equal("reasoning that exhausts the first budget", reasoning);
+        Assert.Equal(3, handler.RequestCount);
+        Assert.DoesNotContain("re-reasoned", content, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task GenerateWithReasoningAsync_TruncatedForceAnswer_NoContinuationKeepsTruncatedContent()
+    {
+        // First call: reasoning burns the whole budget, zero content.
+        // Force-answer call: non-empty but truncated; the continuation returns nothing useful.
+        // The original truncated content must still be returned (never reasoning).
+        var responses = new Queue<HttpResponseMessage>(
+        [
+            Response(content: null, reasoning: "first reasoning", finishReason: "length"),
+            Response(content: "{\"beats\":[", reasoning: "force reasoning", finishReason: "length"),
+            Response(content: null, reasoning: "continuation reasoning", finishReason: "stop")
+        ]);
+        var handler = new StubHttpMessageHandler(_ => responses.Dequeue());
+        var client = new CompletionClient(
+            new FakeHttpClientFactory(handler),
+            new FakeEncryption(),
+            NullLogger<CompletionClient>.Instance);
+
+        var (content, reasoning) = await client.GenerateWithReasoningAsync(
+            "system",
+            "user",
+            Resolve(),
+            CancellationToken.None);
+
+        Assert.Equal("{\"beats\":[", content);
+        Assert.Equal("first reasoning", reasoning);
+        Assert.Equal(3, handler.RequestCount);
+        Assert.DoesNotContain("force reasoning", content, StringComparison.Ordinal);
+        Assert.DoesNotContain("continuation reasoning", content, StringComparison.Ordinal);
+    }
+
     private static HttpResponseMessage Response(string? content, string? reasoning, string finishReason)
         => new(HttpStatusCode.OK)
         {

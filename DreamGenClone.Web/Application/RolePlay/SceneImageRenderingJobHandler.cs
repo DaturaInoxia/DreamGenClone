@@ -25,6 +25,7 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler
     private readonly IModelResolutionService _modelResolutionService;
     private readonly IImageGenerationClient _imageClient;
     private readonly IPonySceneImagePromptBuilder _preprocessor;
+    private readonly ISdxlSceneImagePromptBuilder _sdxlPreprocessor;
     private readonly IRolePlayDebugEventSink _debugEventSink;
     private readonly ILogger<SceneImageRenderingJobHandler> _logger;
 
@@ -34,6 +35,7 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler
         IModelResolutionService modelResolutionService,
         IImageGenerationClient imageClient,
         IPonySceneImagePromptBuilder preprocessor,
+        ISdxlSceneImagePromptBuilder sdxlPreprocessor,
         IRolePlayDebugEventSink debugEventSink,
         ILogger<SceneImageRenderingJobHandler> logger)
     {
@@ -42,6 +44,7 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler
         _modelResolutionService = modelResolutionService;
         _imageClient = imageClient;
         _preprocessor = preprocessor;
+        _sdxlPreprocessor = sdxlPreprocessor;
         _debugEventSink = debugEventSink;
         _logger = logger;
     }
@@ -79,15 +82,26 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler
         {
             // Resolve the image model + provider content policy (fail-fast, no fallback).
             var resolved = await _modelResolutionService.ResolveImageModelAsync(null, cancellationToken);
+            var modelFamily = SceneImageModelFamilyResolver.Classify(resolved.ModelIdentifier);
+            if (modelFamily == SceneImageModelFamily.Unknown)
+            {
+                throw new InvalidOperationException(
+                    $"Unsupported scene-image model family for checkpoint '{resolved.ModelIdentifier}'. " +
+                    "Register a Pony or SDXL/Juggernaut model as the RolePlaySceneImage default in Model Manager.");
+            }
 
             var prompt = image.PromptSnapshot;
 
             // Hard content-policy guarantee: never send explicit content to a SFW-filtered provider.
-            // Deterministic clamp, logged — never silently skipped, never auto-escalated.
+            // Deterministic clamp, logged — never silently skipped, never auto-escalated. The clamp
+            // suffix is model-family aware (Pony vs SDXL prose), never a silent default.
+            var sfwClampSuffix = modelFamily == SceneImageModelFamily.Sdxl
+                ? _sdxlPreprocessor.SfwClampSuffix
+                : PonySceneImagePromptBuilder.SfwClampSuffix;
             if (resolved.ContentPolicy == ImageContentPolicy.SfwFiltered
-                && !prompt.Contains(PonySceneImagePromptBuilder.SfwClampSuffix, StringComparison.OrdinalIgnoreCase))
+                && !prompt.Contains(sfwClampSuffix, StringComparison.OrdinalIgnoreCase))
             {
-                prompt = $"{prompt.TrimEnd()}, {PonySceneImagePromptBuilder.SfwClampSuffix}";
+                prompt = $"{prompt.TrimEnd()}, {sfwClampSuffix}";
                 _logger.LogWarning(
                     "Scene image prompt clamped to SFW (content_policy_clamped): SessionId={SessionId}, ImageRecordId={ImageRecordId}",
                     payload.SessionId,
@@ -95,7 +109,7 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler
             }
 
             var stopwatch = Stopwatch.StartNew();
-            var negative = await ResolveNegativePromptAsync(image, cancellationToken);
+            var negative = await ResolveNegativePromptAsync(image, modelFamily, cancellationToken);
             var injectedPrompt = InjectPlaceholders(prompt, image.SettingsJson);
             var seed = ResolveSeed(image.SettingsJson);
 
@@ -248,7 +262,7 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler
     /// on the prompt record. Returns null when no beat/POV is available (e.g. legacy images) so the
     /// downstream client falls back to its own baseline negative.
     /// </summary>
-    private async Task<string?> ResolveNegativePromptAsync(SceneImageRecord image, CancellationToken cancellationToken)
+    private async Task<string?> ResolveNegativePromptAsync(SceneImageRecord image, SceneImageModelFamily modelFamily, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(image.BeatId) || string.IsNullOrWhiteSpace(image.Pov))
             return null;
@@ -275,7 +289,10 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler
 
         try
         {
-            return _preprocessor.BuildDeterministicBeatNegativePrompt(beat, image.Pov);
+            // Model-family aware negative: SDXL uses its heavier guard set, Pony its short set.
+            return modelFamily == SceneImageModelFamily.Sdxl
+                ? _sdxlPreprocessor.BuildDeterministicBeatNegativePrompt(beat, image.Pov)
+                : _preprocessor.BuildDeterministicBeatNegativePrompt(beat, image.Pov);
         }
         catch
         {

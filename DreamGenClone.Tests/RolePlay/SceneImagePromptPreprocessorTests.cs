@@ -58,6 +58,62 @@ public sealed class SceneImagePromptPreprocessorTests
         Assert.Contains("explicit content allowed", user, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Theory]
+    [InlineData(NarrativePhase.Opening, "rating_safe")]
+    [InlineData(NarrativePhase.BuildUp, "rating_safe")]
+    [InlineData(NarrativePhase.Committed, "rating_questionable")]
+    [InlineData(NarrativePhase.Approaching, "rating_questionable")]
+    [InlineData(NarrativePhase.Climax, "rating_explicit")]
+    [InlineData(NarrativePhase.Reset, "rating_questionable")]
+    public void BuildMessages_RatingTag_FollowsNarrativePhase(NarrativePhase phase, string expectedRating)
+    {
+        var state = MakeState();
+        state.CurrentPhase = phase;
+        var settings = new SceneImageStudioSettings { Style = "anime", ImageSize = "1024x1024" };
+        var (system, user) = _preprocessor.BuildMessages(
+            MakeSession(), MakeInteraction(), state, settings,
+            ImageContentPolicy.AdultAllowed, null, null);
+
+        // The system prompt instructs the model to emit the phase-driven rating tag.
+        Assert.Contains($"\"{expectedRating}\"", system, StringComparison.Ordinal);
+        // The user prompt states the exact Pony rating tag to use.
+        Assert.Contains($"Pony rating tag to use: {expectedRating}", user, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildMessages_SfwPolicy_ForcesRatingSafe_RegardlessOfClimaxPhase()
+    {
+        var state = MakeState();
+        state.CurrentPhase = NarrativePhase.Climax;
+        var settings = new SceneImageStudioSettings { Style = "anime", ImageSize = "1024x1024", AllowExplicitImage = true };
+        var (system, user) = _preprocessor.BuildMessages(
+            MakeSession(), MakeInteraction(), state, settings,
+            ImageContentPolicy.SfwFiltered, null, null);
+
+        // A SFW-filtered provider is a hard clamp: even at Climax the rating must be safe.
+        Assert.Contains("\"rating_safe\"", system, StringComparison.Ordinal);
+        Assert.Contains("Pony rating tag to use: rating_safe", user, StringComparison.Ordinal);
+        Assert.Contains(PonySceneImagePromptBuilder.SfwClampSuffix, system, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void BuildMessages_SystemPrompt_IsPonyExpertAndDemandsShortDenseTags()
+    {
+        var settings = new SceneImageStudioSettings { Style = "anime", ImageSize = "1024x1024" };
+        var (system, _) = _preprocessor.BuildMessages(
+            MakeSession(), MakeInteraction(), MakeState(), settings,
+            ImageContentPolicy.AdultAllowed, null, null);
+
+        Assert.Contains("PONY DIFFUSION V6 XL", system, StringComparison.OrdinalIgnoreCase);
+        // Full quality tag string required.
+        Assert.Contains("score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up", system, StringComparison.Ordinal);
+        // Short + dense is the explicit guidance (no prose/metadata blocks).
+        Assert.Contains("COMMA-SEPARATED TAGS", system, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("never a metadata block", system, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("count tag", system, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("under 800 characters", system, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public void BuildMessages_IncludesSceneContextAndSettings()
     {
@@ -156,8 +212,8 @@ public sealed class SceneImagePromptPreprocessorTests
         Assert.Contains("auburn", user, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("green", user, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("athletic", user, StringComparison.OrdinalIgnoreCase);
-        // The likeness directive tells the pre-processor to keep identity fixed.
-        Assert.Contains("CHARACTER LIKENESS", system, StringComparison.OrdinalIgnoreCase);
+        // The system prompt tells the model it is a Pony Diffusion V6 XL prompt expert.
+        Assert.Contains("PONY DIFFUSION V6 XL", system, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -451,8 +507,11 @@ public sealed class SceneImagePromptPreprocessorTests
         var kenPrompt = kenPov.ToLowerInvariant();
         Assert.Contains("becky: appearance", deanPrompt, StringComparison.Ordinal);
         Assert.Contains("becky: appearance", kenPrompt, StringComparison.Ordinal);
-        // Adult-allowed deterministic prompts force nudity over profile clothing.
-        Assert.Contains("naked", deanPrompt, StringComparison.Ordinal);
+        // Beat-stated wardrobe (yellow dress) is honored even under an adult policy — B-098: no
+        // forced nudity over an explicitly described outfit.
+        Assert.Contains("yellow dress", deanPrompt, StringComparison.Ordinal);
+        Assert.Contains("yellow dress", kenPrompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("naked", deanPrompt, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -464,7 +523,9 @@ public sealed class SceneImagePromptPreprocessorTests
             ImageContentPolicy.AdultAllowed, null, MakeThreeCharactersWithDistinctAppearances());
 
         Assert.Contains("Becky: Appearance", prompt, StringComparison.Ordinal);
-        Assert.Contains("naked", prompt, StringComparison.Ordinal);
+        // Beat-stated clothing (yellow dress) is honored, not forced to naked (B-098).
+        Assert.Contains("yellow dress", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("naked", prompt, StringComparison.Ordinal);
         // The POV character (Ken) is not a subject here; their identity is not emitted as a cast line.
         Assert.DoesNotContain("Ken: Appearance", prompt, StringComparison.OrdinalIgnoreCase);
     }
@@ -532,6 +593,117 @@ public sealed class SceneImagePromptPreprocessorTests
             new SceneImageStudioSettings { Style = "cinematic", ImageSize = "1024x1024", OmniscientAngle = "High wide angle" },
             ImageContentPolicy.AdultAllowed, null, MakeThreeCharactersWithDistinctAppearances());
         Assert.Contains("{{angle}}", omni, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildDeterministicBeatPrompt_StartsWithFullQualityString_AndRatingByPolicy()
+    {
+        // Full 6-tag quality string is required — short form is documented as much weaker (B-098).
+        var adult = _preprocessor.BuildDeterministicBeatPrompt(
+            MakeSession(), MakeThreeCharacterBeat(), "Ken",
+            new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024" },
+            ImageContentPolicy.AdultAllowed, null, MakeThreeCharactersWithDistinctAppearances());
+        Assert.StartsWith("score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_explicit", adult, StringComparison.Ordinal);
+
+        var sfw = _preprocessor.BuildDeterministicBeatPrompt(
+            MakeSession(), MakeThreeCharacterBeat(), "Ken",
+            new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024" },
+            ImageContentPolicy.SfwFiltered, null, MakeThreeCharactersWithDistinctAppearances());
+        Assert.StartsWith("score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_safe", sfw, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildDeterministicBeatPrompt_AddsCountTags_ToPreventPersonCollapse()
+    {
+        // Genders known from profiles → gender-tagged count.
+        var characters = MakeThreeCharactersWithDistinctAppearances().ToList();
+        characters.Single(c => c.Name == "Becky").Gender = "Female";
+        characters.Single(c => c.Name == "Dean").Gender = "Male";
+        characters.Single(c => c.Name == "Ken").Gender = "Male";
+
+        var deanPov = _preprocessor.BuildDeterministicBeatPrompt(
+            MakeSession(), MakeThreeCharacterBeat(), "Dean",
+            new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024" },
+            ImageContentPolicy.SfwFiltered, null, characters);
+        // Dean POV sees Becky + Ken (both visible to him) — genders resolved for both.
+        Assert.Contains("1woman", deanPov, StringComparison.Ordinal);
+        Assert.Contains("1man", deanPov, StringComparison.Ordinal);
+
+        // Gender unknown → neutral count tag.
+        var kenPov = _preprocessor.BuildDeterministicBeatPrompt(
+            MakeSession(), MakeThreeCharacterBeat(), "Ken",
+            new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024" },
+            ImageContentPolicy.SfwFiltered, null, MakeThreeCharactersWithDistinctAppearances());
+        Assert.Contains("1person", kenPov, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildDeterministicBeatPrompt_ConvertsProseToTags_NotVerbatimSentence()
+    {
+        var beat = MakeThreeCharacterBeat() with
+        {
+            VisualDescription = "Becky stands in the center of the room, arms at her sides, watching the doorway."
+        };
+
+        var prompt = _preprocessor.BuildDeterministicBeatPrompt(
+            MakeSession(), beat, SceneImagePovFramer.Omniscient,
+            new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024" },
+            ImageContentPolicy.SfwFiltered, null, MakeThreeCharactersWithDistinctAppearances());
+
+        // The prose sentence is folded into comma-separated tags, not pasted with sentence punctuation.
+        Assert.Contains("Becky stands in the center of the room", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain(". Becky", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("watching the doorway.", prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildDeterministicBeatPrompt_ExplicitPolicy_HonorsBeatStatedClothing()
+    {
+        var beat = MakeThreeCharacterBeat() with
+        {
+            Characters =
+            [
+                new SceneImageBeatCharacter { Name = "Becky", Involvement = "active", PhysicalLocation = "living room", Position = "center", ActionOrObservation = "stands", Sightline = "toward Dean", VisibleCharacterNames = ["Dean"], Clothing = "yellow sundress" }
+            ]
+        };
+
+        var prompt = _preprocessor.BuildDeterministicBeatPrompt(
+            MakeSession(), beat, SceneImagePovFramer.Omniscient,
+            new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024" },
+            ImageContentPolicy.AdultAllowed, null, MakeThreeCharactersWithDistinctAppearances());
+
+        // B-098: an explicitly described outfit is NOT overridden by forced nudity.
+        Assert.Contains("yellow sundress", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("naked", prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildDeterministicBeatPrompt_NonExplicitBeat_OmitsPenetrationProse()
+    {
+        var beat = MakeThreeCharacterBeat() with
+        {
+            VisualDescription = "Becky and Dean kiss at the window, moonlight on their faces."
+        };
+
+        var prompt = _preprocessor.BuildDeterministicBeatPrompt(
+            MakeSession(), beat, SceneImagePovFramer.Omniscient,
+            new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024" },
+            ImageContentPolicy.SfwFiltered, null, MakeThreeCharactersWithDistinctAppearances());
+
+        Assert.DoesNotContain("penetrating", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("vagina", prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildDeterministicBeatNegativePrompt_UsesShortGuardSet()
+    {
+        var negative = _preprocessor.BuildDeterministicBeatNegativePrompt(MakeThreeCharacterBeat(), SceneImagePovFramer.Omniscient);
+
+        // Pony needs only a short negative guard set (B-098 — validated on pod).
+        Assert.Contains("lowres", negative, StringComparison.Ordinal);
+        Assert.Contains("bad anatomy", negative, StringComparison.Ordinal);
+        Assert.DoesNotContain("merged bodies", negative, StringComparison.Ordinal);
+        Assert.DoesNotContain("extra limbs", negative, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -2,7 +2,8 @@
 param(
     [Parameter(Mandatory=$true)][string]$ModelName,
     [Parameter(Mandatory=$true)][string]$SourceUrl,
-    [Parameter(Mandatory=$false)][string]$ExpectedSha256
+    [Parameter(Mandatory=$false)][string]$ExpectedSha256,
+    [Parameter(Mandatory=$false)][string]$Token
 )
 $ErrorActionPreference = "Stop"
 
@@ -25,7 +26,14 @@ set -eu
 model_name="$1"
 source_url="$2"
 expected_sha256="$3"
-checkpoint_dir="$(find / -type d -path '*/ComfyUI/models/checkpoints' 2>/dev/null | head -n 1)"
+auth_token="$4"
+checkpoint_dir=""
+for candidate in /workspace/comfyui/models/checkpoints /ComfyUI/models/checkpoints; do
+  if [ -d "$candidate" ]; then
+    checkpoint_dir="$candidate"
+    break
+  fi
+done
 if [ -z "$checkpoint_dir" ]; then
   echo "Could not find ComfyUI/models/checkpoints" >&2
   exit 2
@@ -33,7 +41,11 @@ fi
 mkdir -p "$checkpoint_dir"
 dest="$checkpoint_dir/$model_name"
 echo "Installing $model_name into $checkpoint_dir"
-wget -c -O "$dest" "$source_url"
+if [ -n "$auth_token" ]; then
+  wget -c -O "$dest" --header "Authorization: Bearer $auth_token" "$source_url"
+else
+  wget -c -O "$dest" "$source_url"
+fi
 if [ -n "$expected_sha256" ]; then
   actual_sha256="$(sha256sum "$dest" | awk '{print $1}')"
   if [ "$actual_sha256" != "$expected_sha256" ]; then
@@ -46,7 +58,7 @@ echo "Installed checkpoint: $dest"
 '@
 
 $encodedScript = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($remoteScript))
-$remoteCommand = "echo $encodedScript | base64 -d | bash -s -- '$ModelName' '$SourceUrl' '$ExpectedSha256'"
+$remoteCommand = "echo $encodedScript | base64 -d | bash -s -- '$ModelName' '$SourceUrl' '$ExpectedSha256' '$Token'"
 $sshArgs = @(
     "-tt", "-o", "BatchMode=yes", "-o", "ConnectTimeout=20",
     "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=NUL",

@@ -264,8 +264,11 @@ builder.Services.AddSingleton<IImageGenerationClient, ImageGenerationClientDispa
 builder.Services.AddSingleton<ISceneImageRepository, SceneImageRepository>();
 builder.Services.AddSingleton<ISceneImageStorageService, SceneImageStorageService>();
 builder.Services.AddScoped<ISceneImageService, SceneImageService>();
-builder.Services.AddSingleton<IPonySceneImagePromptBuilder, PonySceneImagePromptBuilder>();
+builder.Services.AddSingleton<PonySceneImagePromptBuilder>();
+builder.Services.AddSingleton<IPonySceneImagePromptBuilder>(sp => sp.GetRequiredService<PonySceneImagePromptBuilder>());
 builder.Services.AddSingleton<ISceneImageLLMPromptBuilder>(sp => sp.GetRequiredService<PonySceneImagePromptBuilder>());
+builder.Services.AddSingleton<SdxlSceneImagePromptBuilder>();
+builder.Services.AddSingleton<ISdxlSceneImagePromptBuilder>(sp => sp.GetRequiredService<SdxlSceneImagePromptBuilder>());
 
 // Prompt-queue navigation resilience (B-027)
 builder.Services.AddSingleton<RolePlaySubmissionTracker>();

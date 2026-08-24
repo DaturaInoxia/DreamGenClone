@@ -1,0 +1,66 @@
+{
+  "4": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "ponyDiffusionV6XL_v6.safetensors"
+    }
+  },
+  "10": {
+    "class_type": "CLIPSetLastLayer",
+    "inputs": {
+      "stop_at_clip_layer": -2,
+      "clip": ["4", 1]
+    }
+  },
+  "6": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_safe, 2people, middle-aged man, short brown hair, blue eyes, average body, baseball cap, casual clothes, sitting on striped towel, leaning back on elbows, looking toward lake, cooler beside him, middle-aged woman, brown bun, blue eyes, curvy, fair skin, tongue ring, nose ring, tattoos on arms and legs, yellow sundress, lying on striped towel, knees drawn up, arms wrapped around herself, eyes closed, late morning, lakeside beach, bright golden sunlight, striped umbrella, folding chairs, dock, distant kayaks, peaceful mood, wide shot",
+      "clip": ["10", 0]
+    }
+  },
+  "7": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "ugly, deformed",
+      "clip": ["10", 0]
+    }
+  },
+  "3": {
+    "class_type": "KSampler",
+    "inputs": {
+      "seed": 24680,
+      "steps": 25,
+      "cfg": 7.0,
+      "sampler_name": "euler_ancestral",
+      "scheduler": "normal",
+      "denoise": 1.0,
+      "model": ["4", 0],
+      "positive": ["6", 0],
+      "negative": ["7", 0],
+      "latent_image": ["5", 0]
+    }
+  },
+  "5": {
+    "class_type": "EmptyLatentImage",
+    "inputs": {
+      "width": 1024,
+      "height": 1024,
+      "batch_size": 1
+    }
+  },
+  "8": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": ["3", 0],
+      "vae": ["4", 2]
+    }
+  },
+  "9": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "dreamgen_user_prompt",
+      "images": ["8", 0]
+    }
+  }
+}

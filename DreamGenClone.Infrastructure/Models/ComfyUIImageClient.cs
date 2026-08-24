@@ -6,6 +6,7 @@ using System.Text.Json.Nodes;
 using DreamGenClone.Application.Abstractions;
 using DreamGenClone.Application.ModelManager;
 using DreamGenClone.Domain.ModelManager;
+using DreamGenClone.Domain.RolePlay;
 using Microsoft.Extensions.Logging;
 
 namespace DreamGenClone.Infrastructure.Models;
@@ -98,6 +99,68 @@ public sealed class ComfyUIImageClient : IImageGenerationClient
         return wf;
     }
 
+    /// <summary>
+    /// SDXL/Juggernaut text-to-image workflow (node ids 4/6/7/3/5/8/9). Unlike the Pony workflow
+    /// there is NO CLIPSetLastLayer (SDXL/Juggernaut use default CLIP — CLIP skip 2 is Pony-only),
+    /// and the sampler follows the Juggernaut-recommended DPM++ 2M SDE / 30 steps / CFG 5. The
+    /// checkpoint name and positive/negative prompts are injected at call time.
+    /// </summary>
+    internal static JsonObject BuildSdxlWorkflow(string checkpointName, string prompt, string negative, string? size, long? seed)
+    {
+        var (width, height) = ParseSize(size);
+        var wf = new JsonObject
+        {
+            ["4"] = new JsonObject
+            {
+                ["class_type"] = "CheckpointLoaderSimple",
+                ["inputs"] = new JsonObject { ["ckpt_name"] = checkpointName }
+            },
+            ["6"] = new JsonObject
+            {
+                ["class_type"] = "CLIPTextEncode",
+                ["inputs"] = new JsonObject { ["text"] = prompt, ["clip"] = new JsonArray("4", 1) }
+            },
+            ["7"] = new JsonObject
+            {
+                ["class_type"] = "CLIPTextEncode",
+                ["inputs"] = new JsonObject { ["text"] = negative, ["clip"] = new JsonArray("4", 1) }
+            },
+            ["3"] = new JsonObject
+            {
+                ["class_type"] = "KSampler",
+                ["inputs"] = new JsonObject
+                {
+                    ["seed"] = seed ?? Random.Shared.Next(0, int.MaxValue),
+                    ["steps"] = 30,
+                    ["cfg"] = 5.0,
+                    ["sampler_name"] = "dpmpp_2m_sde",
+                    ["scheduler"] = "karras",
+                    ["denoise"] = 1.0,
+                    ["model"] = new JsonArray("4", 0),
+                    ["positive"] = new JsonArray("6", 0),
+                    ["negative"] = new JsonArray("7", 0),
+                    ["latent_image"] = new JsonArray("5", 0)
+                }
+            },
+            ["5"] = new JsonObject
+            {
+                ["class_type"] = "EmptyLatentImage",
+                ["inputs"] = new JsonObject { ["width"] = width, ["height"] = height, ["batch_size"] = 1 }
+            },
+            ["8"] = new JsonObject
+            {
+                ["class_type"] = "VAEDecode",
+                ["inputs"] = new JsonObject { ["samples"] = new JsonArray("3", 0), ["vae"] = new JsonArray("4", 2) }
+            },
+            ["9"] = new JsonObject
+            {
+                ["class_type"] = "SaveImage",
+                ["inputs"] = new JsonObject { ["filename_prefix"] = "dreamgen_app", ["images"] = new JsonArray("8", 0) }
+            }
+        };
+        return wf;
+    }
+
     private static (int Width, int Height) ParseSize(string? size)
     {
         if (!string.IsNullOrWhiteSpace(size))
@@ -136,19 +199,39 @@ public sealed class ComfyUIImageClient : IImageGenerationClient
                 client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", decryptedKey);
             }
 
-            // Checkpoint name: use the model identifier if it looks like a filename, else default.
-            var checkpoint = LooksLikeFilename(model.ModelIdentifier)
-                ? model.ModelIdentifier
-                : "ponyDiffusionV6XL_v6.safetensors";
+            // Checkpoint name: the model identifier is used verbatim when it looks like a ComfyUI
+            // checkpoint filename. Any other identifier is a misconfiguration — fail fast, never a
+            // silent default model.
+            if (!LooksLikeFilename(model.ModelIdentifier))
+            {
+                throw new ImageGenerationException(
+                    $"Model identifier '{model.ModelIdentifier}' is not a ComfyUI checkpoint filename. Configure the checkpoint filename as the model identifier in Model Manager.",
+                    model.ProviderName,
+                    reasonCode: "invalid_checkpoint_identifier");
+            }
+            var checkpoint = model.ModelIdentifier;
 
-            // Use the deterministic per-scene negative when provided; otherwise the baseline guard.
-            // Order matters: anti-duplication reset token must be near the start so the encoder
-            // attends to it strongly. Matches the reference PonyV6 negative.
+            // Model-family aware baseline negative: SDXL/Juggernaut needs a heavier guard set than
+            // Pony. When a deterministic per-scene negative is provided it takes precedence.
+            var family = SceneImageModelFamilyResolver.Classify(checkpoint);
+            var baselineNegative = family == SceneImageModelFamily.Sdxl
+                ? "deformed, bad anatomy, extra limbs, extra legs, four legs, fused legs, extra fingers, extra arms, missing limbs, malformed hands, malformed feet, blurry genitals, featureless genitals, censored, cartoon, anime, illustration, painting, sketch, watermark, text, low quality, oversaturated, plastic skin"
+                : "extra penis, multiple penises, two penises, duplicate anatomy, blurry, low quality, ugly, deformed, extra limbs, bad anatomy, watermark, text, censored, mosaic, airbrushed, plastic skin";
             var effectiveNegative = string.IsNullOrWhiteSpace(negativePrompt)
-                ? "extra penis, multiple penises, two penises, duplicate anatomy, blurry, low quality, ugly, deformed, extra limbs, bad anatomy, watermark, text, censored, mosaic, airbrushed, plastic skin"
+                ? baselineNegative
                 : negativePrompt.Trim();
 
-            var workflow = BuildDefaultWorkflow(checkpoint, prompt, effectiveNegative, size, seed);
+            // Select the workflow by model family: Pony keeps its CLIP-skip workflow; SDXL/Juggernaut
+            // uses the no-CLIP-skip workflow. Unknown families fail fast (no fallback model).
+            var workflow = family switch
+            {
+                SceneImageModelFamily.Pony => BuildDefaultWorkflow(checkpoint, prompt, effectiveNegative, size, seed),
+                SceneImageModelFamily.Sdxl => BuildSdxlWorkflow(checkpoint, prompt, effectiveNegative, size, seed),
+                _ => throw new ImageGenerationException(
+                    $"Unsupported scene-image checkpoint '{checkpoint}'. Register a Pony or SDXL/Juggernaut model in Model Manager.",
+                    model.ProviderName,
+                    reasonCode: "unsupported_checkpoint")
+            };
 
             var payload = new JsonObject
             {

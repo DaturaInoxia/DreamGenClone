@@ -170,4 +170,114 @@ public sealed class ComfyUIImageClientTests
 
         Assert.True(success);
     }
+
+    [Fact]
+    public void BuildSdxlWorkflow_NoClipSkip_UsesJuggernautSettings()
+    {
+        var wf = ComfyUIImageClient.BuildSdxlWorkflow(
+            "Juggernaut_XL_Ragnarok_ByRunDiffusion.safetensors",
+            "a photorealistic man and woman on a beach",
+            "deformed, four legs",
+            "1024x1024",
+            seed: 24680L);
+
+        var json = wf.ToJsonString();
+
+        // No Pony CLIP-skip node in the SDXL/Juggernaut workflow.
+        Assert.DoesNotContain("CLIPSetLastLayer", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"stop_at_clip_layer\"", json, StringComparison.Ordinal);
+
+        // Juggernaut-recommended sampler settings.
+        Assert.Contains("\"dpmpp_2m_sde\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"scheduler\":\"karras\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"steps\":30", json, StringComparison.Ordinal);
+        Assert.Contains("\"cfg\":5", json, StringComparison.Ordinal);
+
+        // Checkpoint + prompt are injected.
+        Assert.Contains("Juggernaut_XL_Ragnarok_ByRunDiffusion.safetensors", json, StringComparison.Ordinal);
+        Assert.Contains("a photorealistic man and woman on a beach", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task GenerateAsync_SdxlCheckpoint_UsesSdxlWorkflow()
+    {
+        var pngBytes = new byte[] { 137, 80, 78, 71, 1, 2, 3 };
+        var promptId = "sdxl-1";
+        HttpRequestMessage? submitRequest = null;
+        var client = BuildClient(req =>
+        {
+            if (req.RequestUri!.AbsolutePath.EndsWith("/prompt"))
+            {
+                submitRequest = req;
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(JsonNode.Parse($"{{\"prompt_id\":\"{promptId}\"}}")!.ToJsonString())
+                };
+            }
+            if (req.RequestUri!.AbsolutePath.Contains($"/history/{promptId}"))
+            {
+                var history = JsonNode.Parse($$"""
+                {
+                  "{{promptId}}": {
+                    "status": { "status_str": "success" },
+                    "outputs": {
+                      "9": { "images": [ { "filename": "out.png", "subfolder": "", "type": "output" } ] }
+                    }
+                  }
+                }
+                """);
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(history!.ToJsonString())
+                };
+            }
+            if (req.RequestUri!.AbsolutePath.EndsWith("/view"))
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent(pngBytes)
+                };
+            }
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        });
+
+        var model = Resolve() with { ModelIdentifier = "Juggernaut_XL_Ragnarok_ByRunDiffusion.safetensors" };
+        var result = await client.GenerateAsync(model, "photorealistic couple", "1024x1024", null, seed: 1L, CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.NotNull(submitRequest);
+        var body = await submitRequest!.Content!.ReadAsStringAsync();
+        // SDXL workflow: no CLIP skip, Juggernaut sampler, correct checkpoint wired in.
+        Assert.DoesNotContain("CLIPSetLastLayer", body, StringComparison.Ordinal);
+        Assert.Contains("\"dpmpp_2m_sde\"", body, StringComparison.Ordinal);
+        Assert.Contains("Juggernaut_XL_Ragnarok_ByRunDiffusion.safetensors", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task GenerateAsync_NonFilenameIdentifier_ThrowsInvalidCheckpoint()
+    {
+        var client = BuildClient(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("{}")
+        });
+        var model = Resolve() with { ModelIdentifier = "gpt-image-1" };
+
+        var ex = await Assert.ThrowsAsync<ImageGenerationException>(() =>
+            client.GenerateAsync(model, "prompt", null, null, null, CancellationToken.None));
+        Assert.Equal("invalid_checkpoint_identifier", ex.ReasonCode);
+    }
+
+    [Fact]
+    public async Task GenerateAsync_UnknownCheckpoint_ThrowsUnsupported()
+    {
+        var client = BuildClient(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("{}")
+        });
+        var model = Resolve() with { ModelIdentifier = "flux1-schnell-fp8.safetensors" };
+
+        var ex = await Assert.ThrowsAsync<ImageGenerationException>(() =>
+            client.GenerateAsync(model, "prompt", null, null, null, CancellationToken.None));
+        Assert.Equal("unsupported_checkpoint", ex.ReasonCode);
+    }
 }

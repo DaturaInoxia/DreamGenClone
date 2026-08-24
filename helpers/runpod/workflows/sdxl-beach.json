@@ -1,0 +1,59 @@
+{
+  "4": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "sd_xl_base_1.0.safetensors"
+    }
+  },
+  "6": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "photorealistic photo of a middle-aged man and a middle-aged woman relaxing on a sandy lakeside beach, the man sitting on a striped beach towel leaning back on his elbows wearing casual shorts, the woman lying beside him on a neighboring towel wearing a yellow sundress, a striped beach umbrella and a cooler nearby, calm lake water in the background, bright late morning sunlight, natural skin texture, candid travel photography, 35mm lens, sharp focus",
+      "clip": ["4", 1]
+    }
+  },
+  "7": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "cartoon, anime, illustration, drawing, painting, deformed, bad anatomy, extra limbs, extra legs, four legs, malformed hands, watermark, text, blurry, low quality",
+      "clip": ["4", 1]
+    }
+  },
+  "3": {
+    "class_type": "KSampler",
+    "inputs": {
+      "seed": 24680,
+      "steps": 25,
+      "cfg": 7.0,
+      "sampler_name": "euler_ancestral",
+      "scheduler": "normal",
+      "denoise": 1.0,
+      "model": ["4", 0],
+      "positive": ["6", 0],
+      "negative": ["7", 0],
+      "latent_image": ["5", 0]
+    }
+  },
+  "5": {
+    "class_type": "EmptyLatentImage",
+    "inputs": {
+      "width": 1024,
+      "height": 1024,
+      "batch_size": 1
+    }
+  },
+  "8": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": ["3", 0],
+      "vae": ["4", 2]
+    }
+  },
+  "9": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "dreamgen_sdxl_beach",
+      "images": ["8", 0]
+    }
+  }
+}

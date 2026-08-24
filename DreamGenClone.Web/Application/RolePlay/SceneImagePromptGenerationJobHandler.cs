@@ -25,32 +25,41 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
 
     private readonly ISessionService _sessionService;
     private readonly ISceneImageRepository _repository;
-    private readonly IPonySceneImagePromptBuilder _preprocessor;
+    private readonly ISceneImageLLMPromptBuilder _preprocessor;
+    private readonly SdxlSceneImagePromptBuilder _sdxlPreprocessor;
     private readonly IRolePlayStateRepository _stateRepository;
     private readonly IRolePlayDebugEventSink _debugEventSink;
     private readonly StoryAnalysisFacade _storyAnalysis;
     private readonly IScenarioService _scenarioService;
+    private readonly IModelResolutionService _modelResolutionService;
+    private readonly ICompletionClient _completionClient;
     private readonly SceneImageTurnResolver _turnResolver;
     private readonly ILogger<SceneImagePromptGenerationJobHandler> _logger;
 
     public SceneImagePromptGenerationJobHandler(
         ISessionService sessionService,
         ISceneImageRepository repository,
-        IPonySceneImagePromptBuilder preprocessor,
+        ISceneImageLLMPromptBuilder preprocessor,
+        SdxlSceneImagePromptBuilder sdxlPreprocessor,
         IRolePlayStateRepository stateRepository,
         IRolePlayDebugEventSink debugEventSink,
         StoryAnalysisFacade storyAnalysis,
         IScenarioService scenarioService,
+        IModelResolutionService modelResolutionService,
+        ICompletionClient completionClient,
         SceneImageTurnResolver turnResolver,
         ILogger<SceneImagePromptGenerationJobHandler> logger)
     {
         _sessionService = sessionService;
         _repository = repository;
         _preprocessor = preprocessor;
+        _sdxlPreprocessor = sdxlPreprocessor;
         _stateRepository = stateRepository;
         _debugEventSink = debugEventSink;
         _storyAnalysis = storyAnalysis;
         _scenarioService = scenarioService;
+        _modelResolutionService = modelResolutionService;
+        _completionClient = completionClient;
         _turnResolver = turnResolver;
         _logger = logger;
     }
@@ -133,30 +142,63 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
             // the job must fail rather than silently dropping the canonical render brief.
             var fullTurn = await ResolveFullTurnAsync(session, interaction, cancellationToken);
 
-            var outputPrompt = _preprocessor.BuildDeterministicBeatPrompt(
+            // Resolve the target DIFFUSION model (the checkpoint that will render the image) to
+            // select the matching prompt builder. The preprocessor is an LLM that is an EXPERT in
+            // that target image model: Pony → dense tag prompt; SDXL/Juggernaut → natural-language
+            // photography brief. Explicitness (Pony rating_* tag / SDXL explicitness prose) is
+            // driven by the narrative phase (theme intensity) per the approved mapping, not by the
+            // studio's AllowExplicitImage. Unknown checkpoint families fail fast (no fallback).
+            var resolvedImageModel = await _modelResolutionService.ResolveImageModelAsync(null, cancellationToken);
+            var modelFamily = SceneImageModelFamilyResolver.Classify(resolvedImageModel.ModelIdentifier);
+            ISceneImageLLMPromptBuilder builder = modelFamily switch
+            {
+                SceneImageModelFamily.Pony => _preprocessor,
+                SceneImageModelFamily.Sdxl => _sdxlPreprocessor,
+                _ => throw new InvalidOperationException(
+                    $"Unsupported scene-image model family for checkpoint '{resolvedImageModel.ModelIdentifier}'. " +
+                    "Register a Pony or SDXL/Juggernaut model as the RolePlaySceneImage default in Model Manager.")
+            };
+
+            var resolvedTextModel = await _modelResolutionService.ResolveImagePromptModelAsync(
+                session.SessionModelId,
+                cancellationToken);
+            var (systemPrompt, userPrompt) = builder.BuildMessages(
                 session,
-                selectedBeat,
-                record.Pov,
+                fullTurn,
+                session.AdaptiveState,
                 settings,
                 requestedPolicy,
+                null,
                 record.RefineInstruction,
-                characters);
+                characters,
+                selectedBeat,
+                record.Pov);
 
             await WriteDebugEventAsync("SceneImagePromptProjected", session.Id, interaction.Id, new
             {
                 promptRecordId = record.Id,
                 requestedPolicy = requestedPolicy.ToString(),
+                narrativePhase = session.AdaptiveState.CurrentPhase.ToString(),
                 settingsJson = record.SettingsJson,
                 turnId = fullTurn.Turn?.TurnId,
                 beatAnalysisId = record.BeatAnalysisId,
                 beatId = selectedBeat.BeatId,
                 pov = record.Pov,
                 turnInteractionCount = fullTurn.Interactions.Count,
-                outputPrompt
+                modelIdentifier = resolvedTextModel.ModelIdentifier,
+                systemPrompt,
+                userPrompt
             }, cancellationToken);
 
-            record.OutputPrompt = outputPrompt;
-            record.ModelIdentifier = null;
+            var (rawResponse, reasoning) = await _completionClient.GenerateWithReasoningAsync(
+                systemPrompt,
+                userPrompt,
+                resolvedTextModel,
+                cancellationToken);
+            var parsed = _preprocessor.ParseOutput(rawResponse);
+
+            record.OutputPrompt = parsed.Prompt;
+            record.ModelIdentifier = resolvedTextModel.ModelIdentifier;
             record.Status = SceneImagePromptStatus.Complete;
             record.UpdatedUtc = DateTime.UtcNow;
             await _repository.UpsertPromptAsync(record, cancellationToken);
@@ -164,9 +206,12 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
             await WriteDebugEventAsync("SceneImagePromptProjectionCompleted", session.Id, interaction.Id, new
             {
                 recordId = record.Id,
-                stage = "deterministic-projection",
+                stage = "llm-preprocessor",
                 status = "Complete",
-                outputPromptLength = outputPrompt.Length
+                outputPromptLength = record.OutputPrompt.Length,
+                rawResponseLength = rawResponse.Length,
+                reasoningLength = reasoning?.Length ?? 0,
+                excerpt = parsed.Excerpt
             }, cancellationToken);
 
             _logger.LogInformation(
@@ -174,7 +219,7 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
                 session.Id,
                 interaction.Id,
                 record.Id,
-                outputPrompt.Length);
+                record.OutputPrompt.Length);
         }
         catch (Exception ex)
         {

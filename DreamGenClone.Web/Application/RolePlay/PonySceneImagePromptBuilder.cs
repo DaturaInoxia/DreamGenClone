@@ -24,8 +24,13 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
     /// <summary>Deterministic SFW clamp appended to prompts sent to SFW-filtered providers.</summary>
     public const string SfwClampSuffix = "keep fully clothed / non-explicit";
 
-    /// <summary>Pony-style quality tags prepended to adult-allowed dense prompts.</summary>
-    public const string PonyQualityTags = "score_9, score_8_up, score_7_up, rating_explicit";
+    /// <summary>
+    /// Pony-style quality tags. The FULL string is required — Pony V6 learned the whole long string
+    /// as the quality signal; the short `score_9` form is documented as "much weaker" and yields
+    /// low-quality/deformed output. The `rating_*` tag is appended separately, chosen by content
+    /// policy (see <see cref="ResolveRatingTag"/>), never hardcoded here.
+    /// </summary>
+    public const string PonyQualityTags = "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up";
 
     public (string SystemPrompt, string UserPrompt) BuildMessages(
         RolePlaySession session,
@@ -38,8 +43,8 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
         IReadOnlyList<Character>? characters = null)
     {
         return (
-            BuildSystemPrompt(resolvedPolicy),
-            BuildUserPrompt(session, interaction, scenarioState, settings, resolvedPolicy, excerptOverride, refineInstruction, characters, null, null));
+            BuildSystemPrompt(resolvedPolicy, scenarioState.CurrentPhase),
+            BuildUserPrompt(session, interaction, scenarioState, settings, resolvedPolicy, scenarioState.CurrentPhase, excerptOverride, refineInstruction, characters, null, null));
     }
 
     /// <summary>
@@ -60,7 +65,7 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
         string? pov = null)
     {
         var selected = fullTurn.SelectedInteraction;
-        var baseUser = BuildUserPrompt(session, selected, scenarioState, settings, resolvedPolicy, excerptOverride, refineInstruction, characters, selectedBeat, pov);
+        var baseUser = BuildUserPrompt(session, selected, scenarioState, settings, resolvedPolicy, scenarioState.CurrentPhase, excerptOverride, refineInstruction, characters, selectedBeat, pov);
 
         // Append the full-turn context (sibling interactions + Narrative synthesis) so the
         // pre-processor has the complete scene, not just the selected actor's slice.
@@ -80,7 +85,7 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
             baseUser += "\n" + renderBrief;
         }
 
-        return (BuildSystemPrompt(resolvedPolicy), baseUser);
+        return (BuildSystemPrompt(resolvedPolicy, scenarioState.CurrentPhase), baseUser);
     }
 
     public SceneImagePreprocessorResult ParseOutput(string rawOutput)
@@ -178,10 +183,16 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
 
         var isExplicit = resolvedPolicy == ImageContentPolicy.AdultAllowed
             || resolvedPolicy == ImageContentPolicy.AdultAllowedConfigurable;
-        if (isExplicit)
-        {
-            tags.Add(PonyQualityTags);
-        }
+
+        // Head: FULL Pony quality string (short form is documented as much weaker and yields
+        // deformed output) + a rating_* tag chosen by content policy, never hardcoded.
+        tags.Add(PonyQualityTags);
+        tags.Add(ResolveRatingTag(resolvedPolicy));
+
+        // Count tags prevent Pony collapsing multiple people into a single figure.
+        var countTag = BuildCountTag(visibleCharacters, profilesByName);
+        if (!string.IsNullOrWhiteSpace(countTag))
+            tags.Add(countTag);
 
         // Style + size/aspect + omniscient angle are INJECTED placeholders, not baked values.
         // They are substituted at render time with the current studio setting so changing options
@@ -189,19 +200,20 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
         tags.Add("{{style}}");
         tags.Add("{{size}}");
 
-        // Primary scene: frozen beat + location + environment.
+        // Primary scene: frozen beat + location + environment. Narrative prose is converted to
+        // dense comma-separated tags (Pony reads tags, not sentence prose — validated 2026-08-23).
         // Only Omniscient narrates the complete event (incl. any remote observer). A participant POV
         // must NOT receive the full scene description — that leaks in characters/observers outside
         // the frame and muddles the act. Participant details come from labeled spatial facts below.
         if (isOmniscient)
         {
-            AddTag(tags, beat.VisualDescription, excludedNames, cameraHolderName: null);
+            AddTag(tags, ConvertProseToTags(beat.VisualDescription), excludedNames, cameraHolderName: null);
         }
-        AddTag(tags, beat.Location, [], null);
-        AddTag(tags, beat.Environment, [], null);
-        AddTag(tags, beat.TimeOfDay, [], null);
-        AddTag(tags, beat.Lighting, [], null);
-        AddTag(tags, beat.Mood, [], null);
+        AddTag(tags, ConvertProseToTags(beat.Location), [], null);
+        AddTag(tags, ConvertProseToTags(beat.Environment), [], null);
+        AddTag(tags, ConvertProseToTags(beat.TimeOfDay), [], null);
+        AddTag(tags, ConvertProseToTags(beat.Lighting), [], null);
+        AddTag(tags, ConvertProseToTags(beat.Mood), [], null);
 
         // Visible cast: identity + wardrobe (forced nudity for explicit beats).
         foreach (var beatCharacter in visibleCharacters)
@@ -212,7 +224,7 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
 
             var clothing = ResolveDeterministicClothing(session, personaName, beatCharacter.Name, beatCharacter.Clothing, profilesByName, isExplicit);
             if (!string.IsNullOrWhiteSpace(clothing))
-                tags.Add($"{beatCharacter.Name}: {(isExplicit && EqualsNudity(clothing) ? "naked" : clothing)}");
+                tags.Add($"{beatCharacter.Name}: {(EqualsNudity(clothing) ? "naked" : clothing)}");
         }
 
         // Spatial facts: labeled pose / action / position per visible character (projected for POV).
@@ -225,18 +237,22 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
             tags.Add($"{beatCharacter.Name}: {string.Join(", ", spatialFacts)}");
         }
 
-        // Explicit anatomical detail: describe the act concretely from the beat description + the
-        // POV character's own-body awareness.
-        tags.Add(isOmniscient
-            ? DescribeAct(beat, null)
-            : DescribeAct(beat, pov));
+        // Explicit anatomical detail: describe the act concretely for explicit beats only. For
+        // non-explicit beats nothing is emitted (the scene/action tags already convey the action).
+        var actClause = isOmniscient
+            ? DescribeAct(beat, null, isExplicit)
+            : DescribeAct(beat, pov, isExplicit);
+        if (!string.IsNullOrWhiteSpace(actClause))
+            tags.Add(actClause);
 
         // POV framing line.
         // For Omniscient, the camera angle is an injected placeholder ({{angle}}) substituted at
-        // render time with the current studio selection; participant POVs bake their framing.
+        // render time with the current studio selection; an explicit front/eye-level view tag is
+        // added first because Pony defaults to overhead/top-down angles without one (validated).
+        // Participant POVs bake their framing.
         if (string.Equals(pov, SceneImagePovFramer.Omniscient, StringComparison.OrdinalIgnoreCase))
         {
-            tags.Add("External third-person camera (fly-on-the-wall). {{angle}}");
+            tags.Add("External third-person camera (fly-on-the-wall), front view, eye level. {{angle}}");
         }
         else
         {
@@ -256,7 +272,9 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
     /// </summary>
     public string BuildDeterministicBeatNegativePrompt(SceneImageBeat beat, string pov)
     {
-        var artifacts = "extra or missing body parts, extra limbs, extra arms, extra legs, extra hands, extra fingers, malformed anatomy, merged bodies, duplicate or extra people, wrong number of people, cropped anatomy, bad hands, wrong hand ownership, text, watermark, frame, border, signature, logo";
+        // Pony is designed not to need a heavy negative; a short guard set suffices (validated on
+        // pod 2026-08-23 — large negatives fight the model and cause artifacts).
+        var artifacts = "lowres, bad anatomy, bad hands, extra digits, watermark, text, blurry";
 
         var excludedNames = SceneImageRenderBriefBuilder.ResolveVisibleCharacters(beat, pov)
             .Select(character => character.Name)
@@ -287,6 +305,85 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
         => clothing.Contains("naked", StringComparison.OrdinalIgnoreCase)
            || clothing.Contains("nude", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Converts narrative prose into dense, comma-separated Pony-friendly tags. Pony reads tags and
+    /// short phrases, not sentence prose — sentence punctuation is turned into commas and the result
+    /// is capped to keep the prompt short.
+    /// </summary>
+    private static string ConvertProseToTags(string? prose)
+    {
+        if (string.IsNullOrWhiteSpace(prose)) return string.Empty;
+        var phrases = prose
+            .Split(['.', ';', '!', '?', '\n', '\r'], StringSplitOptions.RemoveEmptyEntries)
+            .SelectMany(part => part.Split(',', StringSplitOptions.RemoveEmptyEntries))
+            .Select(part => part.Trim().TrimEnd('.').Trim())
+            .Where(part => part.Length > 0)
+            .Take(24)
+            .ToList();
+        return string.Join(", ", phrases);
+    }
+
+    /// <summary>
+    /// Builds Pony count tags for the visible cast (prevents person-collapse). Uses gender from
+    /// character profiles when known; otherwise a neutral count.
+    /// </summary>
+    private static string? BuildCountTag(
+        IReadOnlyList<SceneImageBeatCharacter> visibleCharacters,
+        IReadOnlyDictionary<string, Character> profilesByName)
+    {
+        var names = visibleCharacters
+            .Select(character => character.Name)
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .ToList();
+        if (names.Count == 0) return null;
+
+        var males = 0;
+        var females = 0;
+        var unknown = 0;
+        foreach (var name in names)
+        {
+            if (profilesByName.TryGetValue(name, out var character))
+            {
+                var gender = character.Gender?.Trim();
+                if (!string.IsNullOrWhiteSpace(gender) && gender.StartsWith("f", StringComparison.OrdinalIgnoreCase)) females++;
+                else if (!string.IsNullOrWhiteSpace(gender) && gender.StartsWith("m", StringComparison.OrdinalIgnoreCase)) males++;
+                else unknown++;
+            }
+            else unknown++;
+        }
+
+        if (unknown == 0)
+        {
+            var parts = new List<string>();
+            if (males > 0) parts.Add(males == 1 ? "1man" : $"{males}men");
+            if (females > 0) parts.Add(females == 1 ? "1woman" : $"{females}women");
+            return string.Join(", ", parts);
+        }
+        return names.Count == 1 ? "1person" : $"{names.Count}people";
+    }
+
+    /// <summary>Pony requires a `rating_*` tag; choose it from the resolved content policy, never hardcode.</summary>
+    private static string ResolveRatingTag(ImageContentPolicy policy)
+        => policy == ImageContentPolicy.SfwFiltered ? "rating_safe" : "rating_explicit";
+
+    /// <summary>
+    /// Chooses the Pony `rating_*` tag from the narrative phase (theme intensity), per the approved
+    /// mapping: BuildUp → safe, Committed/Approaching → questionable, Climax → explicit, Reset
+    /// (after climax) → questionable, anything else (Opening) → safe. A SFW-filtered provider policy
+    /// is a hard clamp to safe regardless of phase.
+    /// </summary>
+    private static string ResolveRatingTag(NarrativePhase phase, ImageContentPolicy policy)
+    {
+        if (policy == ImageContentPolicy.SfwFiltered)
+            return "rating_safe";
+        return phase switch
+        {
+            NarrativePhase.Climax => "rating_explicit",
+            NarrativePhase.Committed or NarrativePhase.Approaching or NarrativePhase.Reset => "rating_questionable",
+            _ => "rating_safe"
+        };
+    }
+
     private static string ResolveDeterministicClothing(
         RolePlaySession session,
         string personaName,
@@ -295,17 +392,22 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
         IReadOnlyDictionary<string, Character> profilesByName,
         bool isExplicit)
     {
-        // For explicit/adult beats on a comfy-style backend, nudity is the expected state unless
-        // the beat explicitly states clothing. Prefer "naked" so wardrobe never wrongly reintroduces
-        // casual clothing from a profile during an explicit scene.
+        // Beat-stated clothing is authoritative whenever the beat actually states it — never
+        // override a described outfit (e.g. "yellow sundress") with forced nudity for an explicit
+        // policy; that contradiction was the validated failure mode (Pony rendered a mangled hybrid).
+        if (!string.IsNullOrWhiteSpace(beatClothing)
+            && !string.Equals(beatClothing, "not established", StringComparison.OrdinalIgnoreCase))
+        {
+            return beatClothing.Trim();
+        }
+
+        // The beat did not state clothing. For explicit/adult beats on a comfy-style backend,
+        // nudity is the expected state so wardrobe never wrongly reintroduces casual clothing from a
+        // profile during an explicit scene.
         if (isExplicit)
             return "naked";
 
-        var profileClothing = ResolveProfileClothing(session, personaName, name, profilesByName);
-        return !string.IsNullOrWhiteSpace(beatClothing)
-            && !string.Equals(beatClothing, "not established", StringComparison.OrdinalIgnoreCase)
-                ? beatClothing.Trim()
-                : profileClothing;
+        return ResolveProfileClothing(session, personaName, name, profilesByName);
     }
 
     /// <summary>
@@ -314,8 +416,11 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
     /// action. For a participant POV, the act is framed from that character's own eyes (their body is
     /// visible). Omniscient gets a full external statement.
     /// </summary>
-    private static string DescribeAct(SceneImageBeat beat, string? pov)
+    private static string DescribeAct(SceneImageBeat beat, string? pov, bool isExplicit)
     {
+        if (!isExplicit)
+            return string.Empty;
+
         var povClause = string.IsNullOrWhiteSpace(pov)
             ? "external view of the couple"
             : $"{pov}'s first-person view, {pov}'s own body in frame";
@@ -324,12 +429,10 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
         if (!string.IsNullOrWhiteSpace(marker))
             return $"{marker}, {povClause}";
 
-        // No explicit penetration could be derived — fall back to the beat's visual description so
-        // the scene's action is still conveyed (without leaking remote observers). 
-        var description = beat.VisualDescription.Trim();
-        return string.IsNullOrWhiteSpace(description)
-            ? string.Empty
-            : $"{description}, {povClause}";
+        // Explicit but no penetration clause could be derived — emit only the framing rather than
+        // pasting the beat's full prose description (which duplicates the scene tags and degrades
+        // Pony output).
+        return povClause;
     }
 
     /// <summary>
@@ -468,19 +571,23 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
             : string.Empty;
     }
 
-    private static string BuildSystemPrompt(ImageContentPolicy policy)
+    private static string BuildSystemPrompt(ImageContentPolicy policy, NarrativePhase phase)
     {
+        var ratingTag = ResolveRatingTag(phase, policy);
         var sb = new StringBuilder();
-        sb.AppendLine("You are an expert image prompt engineer for a narrative roleplay app.");
-        sb.AppendLine("You will be given a story moment, scene context, characters, and image settings.");
-        sb.AppendLine("Produce ONE dense, image-model-ready prompt that captures the single most depictable beat of the moment.");
+        sb.AppendLine("You are an expert prompt engineer for the PONY DIFFUSION V6 XL image model (a Stable Diffusion XL finetune).");
+        sb.AppendLine("Pony reads DENSE, COMMA-SEPARATED TAGS — not prose, not sentences, not attribute metadata. Short prompts work; long ones degrade output into garbage.");
         sb.AppendLine("Rules:");
-        sb.AppendLine("- Pick the exact part of the moment to depict: the salient beat, pose, framing, and expression.");
-        sb.AppendLine("- Merge setting, time of day, mood, characters, and intensity into vivid visual language.");
-        sb.AppendLine("- Honor the requested style, size, and aspect.");
-        sb.AppendLine($@"- Keep the prompt under {OutputPromptTargetChars} characters, dense and comma-separated.");
-        sb.AppendLine("- CHARACTER LIKENESS: the scene context lists each character's fixed visual identity (hair, eyes, skin, body type, age, marks). Reproduce those EXACT descriptors in the image prompt for every depicted character — do not invent or change hair color, eye color, body type, or age. The same character must look like the same person in every image.");
-        sb.AppendLine("- Return ONLY the final image prompt as plain text. Do not add commentary, quotes, or markdown around it.");
+        sb.AppendLine("- ALWAYS start the prompt with the full quality tag string: score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up");
+        sb.AppendLine($@"- Immediately after the quality tags, add the rating tag ""{ratingTag}"" (chosen for you — keep it verbatim).");
+        sb.AppendLine("- Add a danbooru-style count tag (1boy, 1girl, 2people, 1girl and 1boy) matching the number of people in frame. This prevents the model merging people into one figure.");
+        sb.AppendLine("- Describe each character with 3-6 SHORT visual tags (hair, eyes, body type, age, key clothing) — never a metadata block, never 'Age: 51; Height: 5'8\"; Weight: 150 lbs', never 'Appearance — ...'. Use concrete single tokens (e.g. chubby, not 'full figure').");
+        sb.AppendLine("- Fold the scene into a few short tags: location, time of day, lighting, mood. Do not repeat the same fact twice.");
+        sb.AppendLine("- Add one explicit camera/view tag (e.g. front view, eye level, from side).");
+        sb.AppendLine("- Honor beat-stated clothing exactly; only use nudity when the beat explicitly implies it.");
+        sb.AppendLine("- For explicit scenes use concrete anatomical language; for safe/questionable scenes imply rather than spell out.");
+        sb.AppendLine($@"- Keep the ENTIRE prompt under {OutputPromptTargetChars} characters and under ~40 tags. Short and dense beats verbose.");
+        sb.AppendLine("- Return ONLY the final comma-separated image prompt as plain text. No commentary, quotes, or markdown.");
 
         if (policy == ImageContentPolicy.SfwFiltered)
         {
@@ -489,7 +596,7 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
         }
         else
         {
-            sb.AppendLine("- The provider allows adult content. Follow the user's explicitness setting exactly.");
+            sb.AppendLine("- The provider allows adult content. Follow the rating tag and the scene's explicitness exactly; do not add explicitness beyond the rating tag you were given.");
         }
 
         return sb.ToString();
@@ -501,6 +608,7 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
         AdaptiveScenarioState scenarioState,
         SceneImageStudioSettings settings,
         ImageContentPolicy resolvedPolicy,
+        NarrativePhase phase,
         string? excerptOverride,
         string? refineInstruction,
         IReadOnlyList<Character>? characters,
@@ -540,8 +648,9 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
         sb.AppendLine($"- Actor: {interaction.ActorName}");
         sb.AppendLine($"- Setting: {scenarioState.CurrentSceneLocation ?? "unknown"}");
         sb.AppendLine($"- Time of day: {scenarioState.CurrentTimeOfDay}");
-        sb.AppendLine($"- Narrative phase: {scenarioState.CurrentPhase}");
+        sb.AppendLine($"- Narrative phase: {phase}");
         sb.AppendLine($"- Resolved intensity: {session.LastResolvedIntensityLabel ?? "unknown"}");
+        sb.AppendLine($"- Pony rating tag to use: {ResolveRatingTag(phase, resolvedPolicy)}");
 
         // Characters present: resolved via the authoritative presence model (CR-006 P1) so the
         // line shows real character names, not role labels.

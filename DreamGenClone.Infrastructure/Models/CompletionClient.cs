@@ -982,8 +982,8 @@ public sealed class CompletionClient : ICompletionClient
             var forceRaw = await forceResponse.Content.ReadAsStringAsync(cancellationToken);
             var (forceContent, forceReasoningExtracted, forceFinishReason, _) = ParseContentWithReasoning(forceRaw, resolved);
 
-            // If the follow-up ALSO hit length with empty content, try the standard continuation
-            // path (which appends "continue exactly where you left off") as a last attempt.
+            // If the follow-up ALSO hit length with empty content, return empty so callers fail
+            // explicitly rather than receive reasoning text as if it were content.
             if (string.IsNullOrWhiteSpace(forceContent)
                 && string.Equals(forceFinishReason, "length", StringComparison.OrdinalIgnoreCase)
                 && !string.IsNullOrWhiteSpace(forceReasoningExtracted))
@@ -992,6 +992,24 @@ public sealed class CompletionClient : ICompletionClient
                     "Force-answer call still empty after length: Model={ModelIdentifier}, ReasoningLen={ReasoningLen}, DurationMs={DurationMs}",
                     resolved.ModelIdentifier, forceReasoningExtracted?.Length ?? 0, stopwatch.ElapsedMilliseconds);
                 return string.Empty;
+            }
+
+            // If the follow-up produced content but STILL hit the token ceiling (e.g. a truncated
+            // structured JSON answer), attempt the standard continuation so the remaining answer
+            // has a chance to complete. Mirrors the main reasoning-aware path's length handling.
+            if (!string.IsNullOrWhiteSpace(forceContent)
+                && string.Equals(forceFinishReason, "length", StringComparison.OrdinalIgnoreCase))
+            {
+                var continuationResult = await ContinueTruncatedResponseAsync(
+                    client, relativePath, originalMessages, resolved, forceContent, cancellationToken);
+                var continuationContent = continuationResult.Content;
+                _logger.LogWarning(
+                    "Force-answer call hit length with content; continuation attempted: Model={ModelIdentifier}, ContentLen={ContentLen}, ContinuationCalls={ContinuationCalls}, ContinuationContentLen={ContinuationContentLen}",
+                    resolved.ModelIdentifier, continuationContent.Length, continuationResult.CallCount, continuationContent.Length);
+                if (continuationContent.Length > forceContent.Length)
+                {
+                    forceContent = continuationContent;
+                }
             }
 
             _logger.LogInformation(

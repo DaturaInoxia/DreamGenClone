@@ -1,0 +1,66 @@
+{
+  "4": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "ponyDiffusionV6XL_v6.safetensors"
+    }
+  },
+  "10": {
+    "class_type": "CLIPSetLastLayer",
+    "inputs": {
+      "stop_at_clip_layer": -2,
+      "clip": ["4", 1]
+    }
+  },
+  "6": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "score_9, score_8_up, score_7_up, rating_safe, wide shot, public lakeside beach, sandy shore, two separate people, a man and a woman relaxing on two separate beach towels with a gap between them near the water's edge in the foreground, man sitting upright on a striped towel leaning back on his elbows wearing casual shorts, woman lying on her own towel wearing a yellow sundress, striped beach umbrella, cooler, many other people on the beach in the background, a family resting under a striped umbrella further along the shore, two older men sitting in folding chairs, a young couple standing near a wooden dock, several people wading in the shallow water, two kayaks drifting on the calm lake, late morning, bright golden sunlight, photorealistic, candid photo",
+      "clip": ["10", 0]
+    }
+  },
+  "7": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "blurry, low quality, ugly, deformed, extra limbs, extra legs, four legs, wrong number of legs, fused bodies, merged bodies, merged legs, conjoined, body merge, two people as one, bad anatomy, malformed hands, extra fingers, watermark, text, frame, nudity, naked, nude",
+      "clip": ["10", 0]
+    }
+  },
+  "3": {
+    "class_type": "KSampler",
+    "inputs": {
+      "seed": 24680,
+      "steps": 25,
+      "cfg": 7.0,
+      "sampler_name": "euler",
+      "scheduler": "normal",
+      "denoise": 1.0,
+      "model": ["4", 0],
+      "positive": ["6", 0],
+      "negative": ["7", 0],
+      "latent_image": ["5", 0]
+    }
+  },
+  "5": {
+    "class_type": "EmptyLatentImage",
+    "inputs": {
+      "width": 1024,
+      "height": 1024,
+      "batch_size": 1
+    }
+  },
+  "8": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": ["3", 0],
+      "vae": ["4", 2]
+    }
+  },
+  "9": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "dreamgen_beach_people2",
+      "images": ["8", 0]
+    }
+  }
+}
