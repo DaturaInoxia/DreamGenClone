@@ -1,6 +1,7 @@
 # B-032 — Scene Image Generator Engine
 
 **State:** `planned` (large epic; Phase 1 implemented, Phase 1B vision-aware editing planned next)
+**2026-08-25 rework:** B-097 re-opened — ControlNet OpenPose + Depth conditioning is a required control starting Phase 1B/2
 **Priority:** low
 **Scope:** large
 **Plan author:** Copilot session 2026-08-19 (refined 2026-08-22)
@@ -56,6 +57,14 @@ blocking, multi-POV shots, validation, repair, and approved continuity frames.
   becomes shared infrastructure for identity work and later validation.
 - The identity vertical slice follows Phase 1B: two recurring characters, persisted references,
   controlled edits/renders, and an evidence-based decision on whether LoRA training is needed.
+- **2026-08-25 rework (B-097 re-opened):** Community + creator research confirms position/anatomy
+  failures (e.g. doggy style) happen because text is low-bandwidth for pose — geometry needs a
+  control input, not prose. ControlNet **OpenPose + Depth** conditioning is now a hard requirement
+  for earlier phases: Phase 1B (one-pod runtime must carry the ControlNet models + workflow
+  conditioning) and Phase 2 (identity renders must be pose/layout-controlled). The previously
+  rejected "OpenPose + Juggernaut inpainting exact-contact" route stays rejected; ControlNet
+  text-to-image conditioning is a separate mechanism. Findings:
+  `specs/Planning/B-032-scene-image-generator/phase-0-architecture-and-evidence/juggernaut-nsfw-community-findings.md`.
 
 The durable proof artifacts are preserved under `specs/image-generator-tests/` (organized by generator: `juggernaut/` and `qwen/`, each with `images/`, `prompts/`, and a `manifest.json`). Transient generation outputs stay under ignored `artifacts/tmp/images/`; the corresponding proof reports and handoffs are kept here.
 
@@ -75,9 +84,12 @@ Phase 0 contains the architecture and proof history. Phase 1 implementation is c
 manual Qwen editing, but its final end-to-end manual acceptance matrix remains open. See
 `phase-1-prompt-to-image-mvp/README.md` for the exact tested scope and remaining checks. Phase 1B
 is the next active delivery slice and replaces raw edit-text pass-through with source-aware
-compilation. Phase 2 follows its multimodal and provenance exit gate. Phase 3 and Phase 4 are
-sequenced behind the identity and location/control contracts they depend on; Phase 4 reuses the
-multimodal transport but retains a separate validation call and schema.
+compilation. **ControlNet OpenPose + Depth conditioning is required starting Phase 1B/2** (B-097
+re-open 2026-08-25): the one-pod runtime provisions the ControlNet models + workflow conditioning,
+and Phase 2 identity renders use it as the pose/layout control. Phase 2 follows its multimodal and
+provenance exit gate. Phase 3 and Phase 4 are sequenced behind the identity and location/control
+contracts they depend on; Phase 4 reuses the multimodal transport but retains a separate validation
+call and schema.
 
 ---
 
@@ -111,8 +123,11 @@ multimodal transport but retains a separate validation call and schema.
 
 ### Non-Goals (Phase 1 / v1)
 - No automatic/background generation after turns (D2).
-- No automatic image repair, inpainting pipeline, or ControlNet integration. Manual Qwen
-  source-image editing was added later as an approved Phase 1 vertical slice.
+- No automatic image repair or inpainting repair pipeline yet (bounded repair remains Phase 4).
+- **ControlNet rework (2026-08-25):** ControlNet OpenPose + Depth conditioning IS in scope from
+  earlier phases (1B/2) as the pose/layout control — the old "no ControlNet integration" stance is
+  superseded. The rejected OpenPose + Juggernaut inpainting exact-contact route remains out of
+  scope. Manual Qwen source-image editing remains the approved Phase 1 vertical slice.
 - No character-likeness / reference-image rendering yet (D9, later phase).
 - No cross-session gallery (v1 gallery is per-session).
 - No advanced iteration UX beyond: edit prompt / change settings / regenerate / refine with AI.

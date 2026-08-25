@@ -5,6 +5,16 @@
 **Owner:** Scene Image Generator (B-032)  
 **Proof result:** OpenPose and Juggernaut inpainting exact-contact routes rejected
 
+> **RE-OPENED 2026-08-25 (B-097):** Community + creator research
+> (`specs/Planning/B-032-scene-image-generator/phase-0-architecture-and-evidence/juggernaut-nsfw-community-findings.md`)
+> confirms position/anatomy failures are a geometry
+> problem, not a prompt problem. **ControlNet OpenPose + Depth conditioning is re-opened as a
+> required control in earlier phases** — Phase 1B one-pod runtime and Phase 2 identity. Mechanism:
+> thibaud `controlnet-openpose-sdxl-1.0` + SDXL depth, DWPose preprocessor, weights 0.35–0.85,
+> ADetailer hands/faces, CFG 5–7.5 for position adherence. This is **separate from** the rejected
+> exact-contact route: do NOT resume prompt/keypoint/strength/mask-coordinate tuning for
+> exact-contact inpainting correction. Sections 8–10 evidence is preserved as-is.
+
 > **Superseded execution guidance:** The ControlNet-first target and delivery sequence in Sections
 > 8-10 were executed and failed their gates. Preserve them as evidence; do not resume prompt,
 > keypoint, strength, or mask-coordinate tuning for exact-contact correction. Start implementation

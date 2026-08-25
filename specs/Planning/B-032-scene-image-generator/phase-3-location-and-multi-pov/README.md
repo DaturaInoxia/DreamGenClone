@@ -2,6 +2,8 @@
 
 **Status:** Planned
 **Epic:** B-032 Scene Image Generator
+**Prerequisite (2026-08-25 B-097 re-open):** ControlNet OpenPose + Depth conditioning is established
+in Phase 1B/2; camera-specific pose/depth controls derive from the canonical visual plan.
 
 ## Goal
 

@@ -26,6 +26,10 @@ Make recurring characters visually recognizable across renders, poses, and camer
 	one that passes. Do not preselect or silently substitute a backend.
 - Prove two recurring characters across at least two poses and two camera angles while preserving identity and clothing assignment.
 - Use regional masks or equivalent conditioning for multi-character scenes to prevent identity bleed.
+- **ControlNet pose/layout control (B-097 re-open 2026-08-25):** add ControlNet OpenPose + Depth
+  conditioning as the pose/layout control for identity renders (thibaud
+  `controlnet-openpose-sdxl-1.0`, weights 0.35–0.85; regional masks to prevent identity bleed).
+  Required earlier (Phase 1B/2), not deferred to Phase 3.
 - Decide from measured results whether principal characters require checkpoint-compatible LoRAs.
 - If LoRAs are justified, define dataset curation, trigger tokens, training provenance, checkpoint family, versioning, and inference strength as persisted configuration.
 

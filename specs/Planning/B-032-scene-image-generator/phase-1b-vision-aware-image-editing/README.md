@@ -38,6 +38,11 @@ execution, comparison, and audit history.
 - Keep one RunPod pod and one persistent volume containing Juggernaut, Qwen Image Edit 2511, and a
   pinned Qwen VL vision runtime. Remove the Pony checkpoint after an inventory, hash,
   configuration-impact check, and measured capacity gate because Pony is no longer part of the POC.
+- **ControlNet (B-097 re-open 2026-08-25):** provision ControlNet OpenPose (thibaud
+  `controlnet-openpose-sdxl-1.0`) + SDXL Depth + DWPose aux on the single pod, and add ControlNet
+  conditioning (pose + depth) to the ComfyUI workflow builder. ControlNet pose/layout control is a
+  requirement pulled into earlier phases, not deferred to Phase 3. This is separate from the
+  rejected OpenPose-inpainting exact-contact route.
 
 ## Boundaries
 
