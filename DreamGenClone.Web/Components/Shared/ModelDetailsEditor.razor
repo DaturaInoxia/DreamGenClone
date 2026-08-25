@@ -53,6 +53,51 @@
                 </div>
                 <div class="form-text">Enable only when the provider supports chat_template_kwargs.thinking.</div>
             </div>
+            @if (Model.ModelKind == ModelKind.Image)
+            {
+                <div class="col-12"><hr class="my-1" /><strong>Qwen Source-Image Editor Settings</strong></div>
+                <div class="col-md-4">
+                    <label class="form-label">Diffusion Model</label>
+                    <input type="text" class="form-control" @bind="Model.ImageEditorDiffusionModel" placeholder="qwen_image_edit_2511_fp8mixed.safetensors" />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Text Encoder</label>
+                    <input type="text" class="form-control" @bind="Model.ImageEditorTextEncoder" placeholder="qwen_2.5_vl_7b_fp8_scaled.safetensors" />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">VAE</label>
+                    <input type="text" class="form-control" @bind="Model.ImageEditorVae" placeholder="qwen_image_vae.safetensors" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Steps</label>
+                    <input type="number" class="form-control" @bind="Model.ImageEditorSteps" min="1" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">CFG</label>
+                    <input type="number" class="form-control" @bind="Model.ImageEditorCfg" min="0" step="0.1" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Sampler</label>
+                    <input type="text" class="form-control" @bind="Model.ImageEditorSampler" placeholder="euler" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Scheduler</label>
+                    <input type="text" class="form-control" @bind="Model.ImageEditorScheduler" placeholder="simple" />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Denoise</label>
+                    <input type="number" class="form-control" @bind="Model.ImageEditorDenoise" min="0" step="0.1" />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">AuraFlow Shift</label>
+                    <input type="number" class="form-control" @bind="Model.ImageEditorAuraFlowShift" min="0" step="0.1" />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">CFGNorm Strength</label>
+                    <input type="number" class="form-control" @bind="Model.ImageEditorCfgNormStrength" min="0" step="0.1" />
+                </div>
+                <div class="col-12"><div class="form-text">These values are used only when this model is assigned to RP Scene Image Editor. Missing values fail explicitly when an edit is requested.</div></div>
+            }
             <div class="col-12">
                 <label class="form-label">Notes</label>
                 <textarea class="form-control" rows="2" @bind="_notes" maxlength="1000"

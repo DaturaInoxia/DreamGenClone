@@ -20,5 +20,6 @@ public enum AppFunction
     RolePlaySteering,
     RolePlayEncounterDetection,
     RolePlaySceneImagePreprocessor,
-    RolePlaySceneImage
+    RolePlaySceneImage,
+    RolePlaySceneImageEditor
 }

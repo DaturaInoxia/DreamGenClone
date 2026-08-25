@@ -254,7 +254,7 @@ Store under:
 
 Required durable report:
 
-`specs/001-scene-image-generator/controlnet-touch-proof.md`
+`specs/Planning/B-032-scene-image-generator/phase-0-architecture-and-evidence/controlnet-touch-proof.md`
 
 The report must include host/pod identity, ComfyUI/node/model inventory, workflow path, control asset path, parameters, four results, gate decision, and next architecture decision. Never include API tokens or private keys.
 
@@ -327,8 +327,8 @@ Every agent or host handoff must report:
 
 Start here on resume, then read:
 
-1. `specs/001-scene-image-generator/continuity-rendering-architecture.md`
-2. `specs/001-scene-image-generator/controlnet-touch-proof.md` once created
-3. `specs/001-scene-image-generator/RESUME-HANDOFF-pony-builder.md`
+1. `specs/Planning/B-032-scene-image-generator/phase-0-architecture-and-evidence/continuity-rendering-architecture.md`
+2. `specs/Planning/B-032-scene-image-generator/phase-0-architecture-and-evidence/controlnet-touch-proof.md`
+3. `specs/Planning/B-032-scene-image-generator/phase-0-architecture-and-evidence/RESUME-HANDOFF-pony-builder.md`
 4. `.github/instructions/sdxl-juggernaut-prompting.instructions.md`
 5. `.github/instructions/pony-v6-prompting.instructions.md`

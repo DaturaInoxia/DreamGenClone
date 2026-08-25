@@ -1,6 +1,6 @@
 ---
 description: "Pony V6 XL (ComfyUI) prompting rules for the scene image generator. Validated on the RunPod pod 2026-08-23. Read before building or changing any Pony/ComfyUI image prompt."
-applyTo: DreamGenClone.Web/Application/RolePlay/PonySceneImagePromptBuilder.cs,DreamGenClone.Web/Application/RolePlay/IPonySceneImagePromptBuilder.cs,DreamGenClone.Web/Application/RolePlay/SceneImagePromptGenerationJobHandler.cs,DreamGenClone.Web/Application/RolePlay/SceneImageRenderingJobHandler.cs,DreamGenClone.Infrastructure/Models/ComfyUIImageClient.cs,DreamGenClone.Web/Application/RolePlay/SceneImageBeatAnalysisService.cs,DreamGenClone.Tests/RolePlay/**/*.cs,helpers/runpod/workflows/**,specs/001-scene-image-generator/**
+applyTo: DreamGenClone.Web/Application/RolePlay/PonySceneImagePromptBuilder.cs,DreamGenClone.Web/Application/RolePlay/IPonySceneImagePromptBuilder.cs,DreamGenClone.Web/Application/RolePlay/SceneImagePromptGenerationJobHandler.cs,DreamGenClone.Web/Application/RolePlay/SceneImageRenderingJobHandler.cs,DreamGenClone.Infrastructure/Models/ComfyUIImageClient.cs,DreamGenClone.Web/Application/RolePlay/SceneImageBeatAnalysisService.cs,DreamGenClone.Tests/RolePlay/**/*.cs,helpers/runpod/workflows/**,specs/Planning/B-032-scene-image-generator/**
 ---
 
 # Pony V6 XL Prompting Rules (Scene Image Generator)

@@ -25,8 +25,8 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
 
         var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO RegisteredModels (Id, ProviderId, ModelIdentifier, DisplayName, IsEnabled, SupportsThinkingControl, CreatedUtc, ContextWindowSize, Quantization, ParameterCount, Notes, ModelKind, ImageSizeSupported)
-            VALUES ($id, $providerId, $identifier, $displayName, $enabled, $supportsThinkingControl, $created, $ctxWindow, $quant, $paramCount, $notes, $modelKind, $imageSizeSupported)
+            INSERT INTO RegisteredModels (Id, ProviderId, ModelIdentifier, DisplayName, IsEnabled, SupportsThinkingControl, CreatedUtc, ContextWindowSize, Quantization, ParameterCount, Notes, ModelKind, ImageSizeSupported, ImageEditorDiffusionModel, ImageEditorTextEncoder, ImageEditorVae, ImageEditorSteps, ImageEditorCfg, ImageEditorSampler, ImageEditorScheduler, ImageEditorDenoise, ImageEditorAuraFlowShift, ImageEditorCfgNormStrength)
+            VALUES ($id, $providerId, $identifier, $displayName, $enabled, $supportsThinkingControl, $created, $ctxWindow, $quant, $paramCount, $notes, $modelKind, $imageSizeSupported, $imageEditorDiffusionModel, $imageEditorTextEncoder, $imageEditorVae, $imageEditorSteps, $imageEditorCfg, $imageEditorSampler, $imageEditorScheduler, $imageEditorDenoise, $imageEditorAuraFlowShift, $imageEditorCfgNormStrength)
             ON CONFLICT(Id) DO UPDATE SET
                 ProviderId = $providerId,
                 ModelIdentifier = $identifier,
@@ -38,7 +38,17 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
                 ParameterCount = $paramCount,
                 Notes = $notes,
                 ModelKind = $modelKind,
-                ImageSizeSupported = $imageSizeSupported
+                ImageSizeSupported = $imageSizeSupported,
+                ImageEditorDiffusionModel = $imageEditorDiffusionModel,
+                ImageEditorTextEncoder = $imageEditorTextEncoder,
+                ImageEditorVae = $imageEditorVae,
+                ImageEditorSteps = $imageEditorSteps,
+                ImageEditorCfg = $imageEditorCfg,
+                ImageEditorSampler = $imageEditorSampler,
+                ImageEditorScheduler = $imageEditorScheduler,
+                ImageEditorDenoise = $imageEditorDenoise,
+                ImageEditorAuraFlowShift = $imageEditorAuraFlowShift,
+                ImageEditorCfgNormStrength = $imageEditorCfgNormStrength
             """;
 
         command.Parameters.AddWithValue("$id", model.Id);
@@ -54,6 +64,16 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
         command.Parameters.AddWithValue("$notes", (object?)model.Notes ?? DBNull.Value);
         command.Parameters.AddWithValue("$modelKind", (int)model.ModelKind);
         command.Parameters.AddWithValue("$imageSizeSupported", (object?)model.ImageSizeSupported ?? DBNull.Value);
+        command.Parameters.AddWithValue("$imageEditorDiffusionModel", (object?)model.ImageEditorDiffusionModel ?? DBNull.Value);
+        command.Parameters.AddWithValue("$imageEditorTextEncoder", (object?)model.ImageEditorTextEncoder ?? DBNull.Value);
+        command.Parameters.AddWithValue("$imageEditorVae", (object?)model.ImageEditorVae ?? DBNull.Value);
+        command.Parameters.AddWithValue("$imageEditorSteps", (object?)model.ImageEditorSteps ?? DBNull.Value);
+        command.Parameters.AddWithValue("$imageEditorCfg", (object?)model.ImageEditorCfg ?? DBNull.Value);
+        command.Parameters.AddWithValue("$imageEditorSampler", (object?)model.ImageEditorSampler ?? DBNull.Value);
+        command.Parameters.AddWithValue("$imageEditorScheduler", (object?)model.ImageEditorScheduler ?? DBNull.Value);
+        command.Parameters.AddWithValue("$imageEditorDenoise", (object?)model.ImageEditorDenoise ?? DBNull.Value);
+        command.Parameters.AddWithValue("$imageEditorAuraFlowShift", (object?)model.ImageEditorAuraFlowShift ?? DBNull.Value);
+        command.Parameters.AddWithValue("$imageEditorCfgNormStrength", (object?)model.ImageEditorCfgNormStrength ?? DBNull.Value);
 
         await command.ExecuteNonQueryAsync(cancellationToken);
         _logger.LogInformation("Registered model saved: {ModelId} ({DisplayName})", model.Id, model.DisplayName);
@@ -66,7 +86,7 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
         await connection.OpenAsync(cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, ProviderId, ModelIdentifier, DisplayName, IsEnabled, SupportsThinkingControl, CreatedUtc, ContextWindowSize, Quantization, ParameterCount, Notes, ModelKind, ImageSizeSupported FROM RegisteredModels WHERE Id = $id";
+        command.CommandText = "SELECT Id, ProviderId, ModelIdentifier, DisplayName, IsEnabled, SupportsThinkingControl, CreatedUtc, ContextWindowSize, Quantization, ParameterCount, Notes, ModelKind, ImageSizeSupported, ImageEditorDiffusionModel, ImageEditorTextEncoder, ImageEditorVae, ImageEditorSteps, ImageEditorCfg, ImageEditorSampler, ImageEditorScheduler, ImageEditorDenoise, ImageEditorAuraFlowShift, ImageEditorCfgNormStrength FROM RegisteredModels WHERE Id = $id";
         command.Parameters.AddWithValue("$id", id);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -84,7 +104,7 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
         await connection.OpenAsync(cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, ProviderId, ModelIdentifier, DisplayName, IsEnabled, SupportsThinkingControl, CreatedUtc, ContextWindowSize, Quantization, ParameterCount, Notes, ModelKind, ImageSizeSupported FROM RegisteredModels WHERE ProviderId = $providerId ORDER BY DisplayName";
+        command.CommandText = "SELECT Id, ProviderId, ModelIdentifier, DisplayName, IsEnabled, SupportsThinkingControl, CreatedUtc, ContextWindowSize, Quantization, ParameterCount, Notes, ModelKind, ImageSizeSupported, ImageEditorDiffusionModel, ImageEditorTextEncoder, ImageEditorVae, ImageEditorSteps, ImageEditorCfg, ImageEditorSampler, ImageEditorScheduler, ImageEditorDenoise, ImageEditorAuraFlowShift, ImageEditorCfgNormStrength FROM RegisteredModels WHERE ProviderId = $providerId ORDER BY DisplayName";
         command.Parameters.AddWithValue("$providerId", providerId);
 
         var models = new List<RegisteredModel>();
@@ -105,7 +125,10 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
         var command = connection.CreateCommand();
         command.CommandText = """
             SELECT rm.Id, rm.ProviderId, rm.ModelIdentifier, rm.DisplayName, rm.IsEnabled, rm.SupportsThinkingControl, rm.CreatedUtc,
-                   rm.ContextWindowSize, rm.Quantization, rm.ParameterCount, rm.Notes, rm.ModelKind, rm.ImageSizeSupported, p.Name AS ProviderName
+                   rm.ContextWindowSize, rm.Quantization, rm.ParameterCount, rm.Notes, rm.ModelKind, rm.ImageSizeSupported,
+                   rm.ImageEditorDiffusionModel, rm.ImageEditorTextEncoder, rm.ImageEditorVae, rm.ImageEditorSteps, rm.ImageEditorCfg,
+                   rm.ImageEditorSampler, rm.ImageEditorScheduler, rm.ImageEditorDenoise, rm.ImageEditorAuraFlowShift, rm.ImageEditorCfgNormStrength,
+                   p.Name AS ProviderName
             FROM RegisteredModels rm
             INNER JOIN Providers p ON rm.ProviderId = p.Id
             WHERE rm.IsEnabled = 1 AND p.IsEnabled = 1
@@ -167,6 +190,16 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
         ParameterCount = reader.GetString(9),
         Notes = reader.IsDBNull(10) ? null : reader.GetString(10),
         ModelKind = (ModelKind)reader.GetInt32(11),
-        ImageSizeSupported = reader.IsDBNull(12) ? null : reader.GetString(12)
+        ImageSizeSupported = reader.IsDBNull(12) ? null : reader.GetString(12),
+        ImageEditorDiffusionModel = reader.IsDBNull(13) ? null : reader.GetString(13),
+        ImageEditorTextEncoder = reader.IsDBNull(14) ? null : reader.GetString(14),
+        ImageEditorVae = reader.IsDBNull(15) ? null : reader.GetString(15),
+        ImageEditorSteps = reader.IsDBNull(16) ? null : reader.GetInt32(16),
+        ImageEditorCfg = reader.IsDBNull(17) ? null : reader.GetDouble(17),
+        ImageEditorSampler = reader.IsDBNull(18) ? null : reader.GetString(18),
+        ImageEditorScheduler = reader.IsDBNull(19) ? null : reader.GetString(19),
+        ImageEditorDenoise = reader.IsDBNull(20) ? null : reader.GetDouble(20),
+        ImageEditorAuraFlowShift = reader.IsDBNull(21) ? null : reader.GetDouble(21),
+        ImageEditorCfgNormStrength = reader.IsDBNull(22) ? null : reader.GetDouble(22)
     };
 }

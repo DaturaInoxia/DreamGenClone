@@ -1,7 +1,7 @@
 # Setup DreamGenClone on a New Machine — Complete Reference
 
 **Purpose**: Exact steps to recreate this project on another machine (fresh OS, no prior setup).
-**Source of truth**: This file + `docs/db-snapshot-setup.md` (DB-specific) + `specs/001-scene-image-generator/RESUME-HANDOFF.md` (if resuming the scene-image work).
+**Source of truth**: This file + `docs/db-snapshot-setup.md` (DB-specific) + `specs/Planning/B-032-scene-image-generator/RESUME-HANDOFF.md` (if resuming the scene-image work).
 **Last verified**: 2026-08-20 — snapshot `dreamgenclone.snapshot.db` is refreshed and pushed (commit `d41b2fd`).
 
 ---
@@ -132,7 +132,7 @@ Expected: **all pass** (1157+ tests on the feature branch).
 
 ## If you are resuming the Scene Image Generator work
 
-See `specs/001-scene-image-generator/RESUME-HANDOFF.md` — it has the full plan (CR-006 P1→P6), current state (1157/1157 tests), file map, DI registrations, and the domain facts needed to continue.
+See `specs/Planning/B-032-scene-image-generator/RESUME-HANDOFF.md` — it has the full plan (CR-006 P1→P6), current state, file map, DI registrations, and the domain facts needed to continue.
 
 ---
 

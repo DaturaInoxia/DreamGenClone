@@ -4,7 +4,7 @@
 **Scope:** Hosted-GPU ComfyUI development and DreamGenClone integration
 **Plan author:** Copilot session 2026-08-22
 **Backlog ref:** `specs/Planning/backlog.md` → B-032
-**Depends on:** `specs/Planning/B-032-scene-image-generator.md`
+**Depends on:** `specs/Planning/B-032-scene-image-generator/README.md`
 
 ---
 

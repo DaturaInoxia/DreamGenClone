@@ -28,6 +28,10 @@ public interface ISceneImageService
     Task<SceneImageRecord> EnqueueRenderAsync(
         SceneRenderRequest request, CancellationToken cancellationToken = default);
 
+    /// <summary>Enqueue a manual edit from an existing completed image using the configured source-image editor.</summary>
+    Task<SceneImageRecord> EnqueueEditAsync(
+        SceneImageEditRequest request, CancellationToken cancellationToken = default);
+
     Task<SceneImagePromptRecord?> GetPromptAsync(
         string sessionId, string promptId, CancellationToken cancellationToken = default);
 

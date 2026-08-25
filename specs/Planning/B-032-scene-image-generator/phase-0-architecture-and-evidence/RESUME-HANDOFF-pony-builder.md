@@ -26,9 +26,9 @@
 ## 2. How to orient (read these first)
 
 1. `.github/copilot-instructions.md` — **mandatory repo rules** (no git restore, no fallback gate values, tests must pass, no RP-engine change without plan+confirmation).
-2. `specs/001-scene-image-generator/continuity-rendering-architecture.md` — controlling Phase 2 goal, architecture, terminology, persisted domain draft, studio workflow, and gates.
-3. `specs/001-scene-image-generator/controlnet-touch-proof.md` — accumulating host inventory and first proof results.
-4. `specs/001-scene-image-generator/RESUME-HANDOFF.md` — the earlier B-032 preprocessor handoff. Its file table contains historical names; use current code for exact symbols.
+2. `specs/Planning/B-032-scene-image-generator/phase-0-architecture-and-evidence/continuity-rendering-architecture.md` — controlling continuity goal, architecture, terminology, persisted domain draft, studio workflow, and gates.
+3. `specs/Planning/B-032-scene-image-generator/phase-0-architecture-and-evidence/controlnet-touch-proof.md` — host inventory and preserved proof results.
+4. `specs/Planning/B-032-scene-image-generator/phase-0-architecture-and-evidence/RESUME-HANDOFF.md` — the earlier B-032 preprocessor handoff. Its file table contains historical names; use current code for exact symbols.
 5. `specs/Planning/backlog.md` — B-032, B-096, B-097, B-098, and B-099.
 6. `artifacts/tmp/image-prompts.md` — historical prompt catalog; useful evidence, not the Phase 2 control architecture.
 
@@ -173,6 +173,6 @@ There are **two access paths** — HTTP (for image generation) and SSH (for pod 
 **⚠️ Read these before touching ANY Pony/ComfyUI prompt code:**
 
 - **`.github/instructions/pony-v6-prompting.instructions.md`** — authoritative, pod-validated Pony V6 XL prompting rules. The current builder output was proven broken (cartoon/overhead/deformed, 1-person collapse, dropped background people, forced-naked vs sundress contradiction). Key facts: Pony is an anime/cartoon model; must use the FULL quality string `score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up`; always a `rating_*` tag by policy; short tag-like prompts (never narrative prose); count tags (`1boy, 1girl`); explicit camera view tag; `euler_ancestral` 25 steps; minimal negative.
-- **`specs/001-scene-image-generator/plan-pony-beat-prose.md`** — the plan to convert Beat Prose → Pony tag prompt in `PonySceneImagePromptBuilder.BuildDeterministicBeatPrompt`, with the exact code changes, tests, blast radius, and validation steps. **Not yet implemented — requires explicit go-ahead (RP engine files).**
+- **`specs/Planning/B-032-scene-image-generator/phase-1-prompt-to-image-mvp/plan-pony-beat-prose.md`** — the plan to convert Beat Prose → Pony tag prompt in `PonySceneImagePromptBuilder.BuildDeterministicBeatPrompt`, with the exact code changes, tests, blast radius, and validation steps.
 - The app constant `PonyQualityTags` is **wrong** (short form + hardcoded `rating_explicit`) — flagged in the plan §5.1.
 - For photorealistic output, Pony is the wrong model — use `sd_xl_base_1.0.safetensors` or `flux1-schnell-fp8.safetensors` (both on the pod) with natural-language prompts. Reference workflow: `helpers/runpod/workflows/sdxl-beach.json`.

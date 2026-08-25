@@ -319,11 +319,11 @@ public sealed class SceneImageRepository : ISceneImageRepository
         command.CommandText = """
             INSERT OR REPLACE INTO SceneImages (
                 Id, SessionId, InteractionId, PromptRecordId, PromptSnapshot, Status,
-                FileRelativePath, ModelIdentifier, ProviderName, ContentPolicy, ImageSize, Style, SettingsJson,
+                Operation, SourceImageId, FileRelativePath, ModelIdentifier, ProviderName, ContentPolicy, ImageSize, Style, SettingsJson,
                 ErrorMessage, RegenerateOfId, BeatId, Pov, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc)
             VALUES (
                 $id, $sessionId, $interactionId, $promptRecordId, $promptSnapshot, $status,
-                $fileRelativePath, $modelIdentifier, $providerName, $contentPolicy, $imageSize, $style, $settingsJson,
+                $operation, $sourceImageId, $fileRelativePath, $modelIdentifier, $providerName, $contentPolicy, $imageSize, $style, $settingsJson,
                 $errorMessage, $regenerateOfId, $beatId, $pov, $createdUtc, $startedUtc, $completedUtc, $updatedUtc);
             """;
         command.Parameters.AddWithValue("$id", image.Id);
@@ -332,6 +332,8 @@ public sealed class SceneImageRepository : ISceneImageRepository
         command.Parameters.AddWithValue("$promptRecordId", image.PromptRecordId.Trim());
         command.Parameters.AddWithValue("$promptSnapshot", image.PromptSnapshot);
         command.Parameters.AddWithValue("$status", image.Status.ToString());
+        command.Parameters.AddWithValue("$operation", image.Operation.ToString());
+        command.Parameters.AddWithValue("$sourceImageId", (object?)image.SourceImageId ?? DBNull.Value);
         command.Parameters.AddWithValue("$fileRelativePath", (object?)image.FileRelativePath ?? DBNull.Value);
         command.Parameters.AddWithValue("$modelIdentifier", (object?)image.ModelIdentifier ?? DBNull.Value);
         command.Parameters.AddWithValue("$providerName", (object?)image.ProviderName ?? DBNull.Value);
@@ -365,7 +367,7 @@ public sealed class SceneImageRepository : ISceneImageRepository
         await using var command = connection.CreateCommand();
         command.CommandText = """
             SELECT Id, SessionId, InteractionId, PromptRecordId, PromptSnapshot, Status,
-                   FileRelativePath, ModelIdentifier, ProviderName, ContentPolicy, ImageSize, Style, SettingsJson,
+                 Operation, SourceImageId, FileRelativePath, ModelIdentifier, ProviderName, ContentPolicy, ImageSize, Style, SettingsJson,
                    ErrorMessage, RegenerateOfId, BeatId, Pov, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc
             FROM SceneImages
             WHERE Id = $id;
@@ -396,7 +398,7 @@ public sealed class SceneImageRepository : ISceneImageRepository
         await using var command = connection.CreateCommand();
         command.CommandText = """
             SELECT Id, SessionId, InteractionId, PromptRecordId, PromptSnapshot, Status,
-                   FileRelativePath, ModelIdentifier, ProviderName, ContentPolicy, ImageSize, Style, SettingsJson,
+                 Operation, SourceImageId, FileRelativePath, ModelIdentifier, ProviderName, ContentPolicy, ImageSize, Style, SettingsJson,
                    ErrorMessage, RegenerateOfId, BeatId, Pov, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc
             FROM SceneImages
             WHERE SessionId = $sessionId AND InteractionId = $interactionId
@@ -430,7 +432,7 @@ public sealed class SceneImageRepository : ISceneImageRepository
         await using var command = connection.CreateCommand();
         command.CommandText = """
             SELECT Id, SessionId, InteractionId, PromptRecordId, PromptSnapshot, Status,
-                   FileRelativePath, ModelIdentifier, ProviderName, ContentPolicy, ImageSize, Style, SettingsJson,
+                 Operation, SourceImageId, FileRelativePath, ModelIdentifier, ProviderName, ContentPolicy, ImageSize, Style, SettingsJson,
                    ErrorMessage, RegenerateOfId, BeatId, Pov, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc
             FROM SceneImages
             WHERE SessionId = $sessionId
@@ -536,21 +538,23 @@ public sealed class SceneImageRepository : ISceneImageRepository
             PromptRecordId = reader.GetString(3),
             PromptSnapshot = reader.GetString(4),
             Status = ParseEnum<SceneImageStatus>(reader.GetString(5), sessionId, interactionId, "SceneImages"),
-            FileRelativePath = reader.IsDBNull(6) ? null : reader.GetString(6),
-            ModelIdentifier = reader.IsDBNull(7) ? null : reader.GetString(7),
-            ProviderName = reader.IsDBNull(8) ? null : reader.GetString(8),
-            ContentPolicy = ParseEnum<ImageContentPolicy>(reader.GetString(9), sessionId, interactionId, "SceneImages"),
-            ImageSize = reader.IsDBNull(10) ? null : reader.GetString(10),
-            Style = reader.IsDBNull(11) ? null : reader.GetString(11),
-            SettingsJson = reader.IsDBNull(12) ? "{}" : reader.GetString(12),
-            ErrorMessage = reader.IsDBNull(13) ? null : reader.GetString(13),
-            RegenerateOfId = reader.IsDBNull(14) ? null : reader.GetString(14),
-            BeatId = reader.IsDBNull(15) ? null : reader.GetString(15),
-            Pov = reader.IsDBNull(16) ? null : reader.GetString(16),
-            CreatedUtc = ParseUtc(reader.GetString(17), sessionId, interactionId, "CreatedUtc"),
-            StartedUtc = reader.IsDBNull(18) ? null : ParseUtc(reader.GetString(18), sessionId, interactionId, "StartedUtc"),
-            CompletedUtc = reader.IsDBNull(19) ? null : ParseUtc(reader.GetString(19), sessionId, interactionId, "CompletedUtc"),
-            UpdatedUtc = ParseUtc(reader.GetString(20), sessionId, interactionId, "UpdatedUtc")
+            Operation = ParseEnum<SceneImageOperation>(reader.GetString(6), sessionId, interactionId, "SceneImages"),
+            SourceImageId = reader.IsDBNull(7) ? null : reader.GetString(7),
+            FileRelativePath = reader.IsDBNull(8) ? null : reader.GetString(8),
+            ModelIdentifier = reader.IsDBNull(9) ? null : reader.GetString(9),
+            ProviderName = reader.IsDBNull(10) ? null : reader.GetString(10),
+            ContentPolicy = ParseEnum<ImageContentPolicy>(reader.GetString(11), sessionId, interactionId, "SceneImages"),
+            ImageSize = reader.IsDBNull(12) ? null : reader.GetString(12),
+            Style = reader.IsDBNull(13) ? null : reader.GetString(13),
+            SettingsJson = reader.IsDBNull(14) ? "{}" : reader.GetString(14),
+            ErrorMessage = reader.IsDBNull(15) ? null : reader.GetString(15),
+            RegenerateOfId = reader.IsDBNull(16) ? null : reader.GetString(16),
+            BeatId = reader.IsDBNull(17) ? null : reader.GetString(17),
+            Pov = reader.IsDBNull(18) ? null : reader.GetString(18),
+            CreatedUtc = ParseUtc(reader.GetString(19), sessionId, interactionId, "CreatedUtc"),
+            StartedUtc = reader.IsDBNull(20) ? null : ParseUtc(reader.GetString(20), sessionId, interactionId, "StartedUtc"),
+            CompletedUtc = reader.IsDBNull(21) ? null : ParseUtc(reader.GetString(21), sessionId, interactionId, "CompletedUtc"),
+            UpdatedUtc = ParseUtc(reader.GetString(22), sessionId, interactionId, "UpdatedUtc")
         };
     }
 
@@ -606,6 +610,8 @@ public sealed class SceneImageRepository : ISceneImageRepository
                 PromptRecordId   TEXT NOT NULL,
                 PromptSnapshot   TEXT NOT NULL,
                 Status           TEXT NOT NULL,
+                Operation        TEXT NOT NULL DEFAULT 'Generate',
+                SourceImageId    TEXT NULL,
                 FileRelativePath TEXT NULL,
                 ModelIdentifier  TEXT NULL,
                 ProviderName     TEXT NULL,
@@ -629,6 +635,7 @@ public sealed class SceneImageRepository : ISceneImageRepository
             """;
         await command.ExecuteNonQueryAsync(cancellationToken);
         await EnsurePromptBeatColumnsAsync(connection, cancellationToken);
+        await EnsureImageEditColumnsAsync(connection, cancellationToken);
     }
 
     private static async Task EnsurePromptBeatColumnsAsync(SqliteConnection connection, CancellationToken cancellationToken)
@@ -656,6 +663,24 @@ public sealed class SceneImageRepository : ISceneImageRepository
         {
             await using var check = connection.CreateCommand();
             check.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('SceneImagePrompts') WHERE name = '{name}'";
+            var exists = Convert.ToInt32(await check.ExecuteScalarAsync(cancellationToken)) > 0;
+            if (exists) continue;
+            await using var alter = connection.CreateCommand();
+            alter.CommandText = sql;
+            await alter.ExecuteNonQueryAsync(cancellationToken);
+        }
+    }
+
+    private static async Task EnsureImageEditColumnsAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        foreach (var (name, sql) in new[]
+        {
+            ("Operation", "ALTER TABLE SceneImages ADD COLUMN Operation TEXT NOT NULL DEFAULT 'Generate'"),
+            ("SourceImageId", "ALTER TABLE SceneImages ADD COLUMN SourceImageId TEXT NULL")
+        })
+        {
+            await using var check = connection.CreateCommand();
+            check.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('SceneImages') WHERE name = '{name}'";
             var exists = Convert.ToInt32(await check.ExecuteScalarAsync(cancellationToken)) > 0;
             if (exists) continue;
             await using var alter = connection.CreateCommand();
@@ -704,6 +729,8 @@ public sealed class SceneImageRepository : ISceneImageRepository
             throw new InvalidOperationException("Scene image requires PromptRecordId.");
         if (string.IsNullOrWhiteSpace(image.PromptSnapshot))
             throw new InvalidOperationException("Scene image requires a non-empty PromptSnapshot.");
+        if (image.Operation == SceneImageOperation.Edit && string.IsNullOrWhiteSpace(image.SourceImageId))
+            throw new InvalidOperationException("An edited scene image requires a SourceImageId.");
     }
 
     private static T ParseEnum<T>(string value, string sessionId, string interactionId, string table)

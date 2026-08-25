@@ -22,14 +22,14 @@
 
 ## 2. How to orient (read these first, in order)
 
-1. `specs/001-scene-image-generator/continuity-rendering-architecture.md` — controlling Phase 2 architecture, terminology, delivery phases, and first gate.
-2. `specs/001-scene-image-generator/controlnet-touch-proof.md` — live host inventory and proof ledger; resume its single next action.
-3. `specs/001-scene-image-generator/spec.md` — formal Phase 1 and Phase 2 user stories and requirements.
-4. `specs/001-scene-image-generator/change-requests.md` — historical Phase 1 change log. CR-001..CR-006 are implemented.
-5. `specs/001-scene-image-generator/design/preprocessor-refinement-design.md` — approved historical CR-006 design.
-6. `specs/001-scene-image-generator/data-model.md` — current Phase 1 entities/tables; Phase 2 domain draft is in the continuity architecture.
-7. `specs/001-scene-image-generator/contracts/scene-image-pipeline-contract.md` — current pipeline contract + debug events.
-8. `specs/001-scene-image-generator/tasks.md` — original Phase 1 task list; it does not yet decompose Phase 2.
+1. `specs/Planning/B-032-scene-image-generator/phase-0-architecture-and-evidence/continuity-rendering-architecture.md` — controlling continuity architecture, terminology, delivery phases, and gates.
+2. `specs/Planning/B-032-scene-image-generator/phase-0-architecture-and-evidence/controlnet-touch-proof.md` — host inventory and preserved proof results.
+3. `specs/Planning/B-032-scene-image-generator/phase-1-prompt-to-image-mvp/spec.md` — formal Phase 1 and Phase 2 user stories and requirements.
+4. `specs/Planning/B-032-scene-image-generator/phase-1-prompt-to-image-mvp/change-requests.md` — historical Phase 1 change log. CR-001..CR-006 are implemented.
+5. `specs/Planning/B-032-scene-image-generator/phase-1-prompt-to-image-mvp/design/preprocessor-refinement-design.md` — approved historical CR-006 design.
+6. `specs/Planning/B-032-scene-image-generator/phase-1-prompt-to-image-mvp/data-model.md` — current Phase 1 entities/tables; Phase 2 domain draft is in the continuity architecture.
+7. `specs/Planning/B-032-scene-image-generator/phase-1-prompt-to-image-mvp/contracts/scene-image-pipeline-contract.md` — current pipeline contract + debug events.
+8. `specs/Planning/B-032-scene-image-generator/phase-1-prompt-to-image-mvp/tasks.md` — original Phase 1 task list; it does not yet decompose Phase 2.
 
 Also mandatory repo rules: `.github/copilot-instructions.md` (hard rules: no git restore, no fallback gate values, tests must pass, no RP-engine changes without plan+confirmation) and `helpers/start-webapp.ps1` for running the app.
 
@@ -105,7 +105,7 @@ Also mandatory repo rules: `.github/copilot-instructions.md` (hard rules: no git
 
 ## 5. THE PLAN TO IMPLEMENT (CR-006) — approved design
 
-Design doc: `specs/001-scene-image-generator/design/preprocessor-refinement-design.md` (READ IT FULLY).
+Design doc: `specs/Planning/B-032-scene-image-generator/phase-1-prompt-to-image-mvp/design/preprocessor-refinement-design.md` (READ IT FULLY).
 
 ### Confirmed decisions (do not re-litigate)
 1. **Beat selector always shown, user-selectable.**

@@ -740,6 +740,16 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 Notes TEXT,
                 ModelKind INTEGER NOT NULL DEFAULT 0,
                 ImageSizeSupported TEXT NULL,
+                ImageEditorDiffusionModel TEXT NULL,
+                ImageEditorTextEncoder TEXT NULL,
+                ImageEditorVae TEXT NULL,
+                ImageEditorSteps INTEGER NULL,
+                ImageEditorCfg REAL NULL,
+                ImageEditorSampler TEXT NULL,
+                ImageEditorScheduler TEXT NULL,
+                ImageEditorDenoise REAL NULL,
+                ImageEditorAuraFlowShift REAL NULL,
+                ImageEditorCfgNormStrength REAL NULL,
                 FOREIGN KEY (ProviderId) REFERENCES Providers(Id) ON DELETE CASCADE,
                 UNIQUE (ProviderId, ModelIdentifier)
             );
@@ -1367,6 +1377,33 @@ public sealed class SqlitePersistence : ISqlitePersistence
             }
         }
 
+        var registeredModelEditorColumns = new (string Column, string Ddl)[]
+        {
+            ("ImageEditorDiffusionModel", "ALTER TABLE RegisteredModels ADD COLUMN ImageEditorDiffusionModel TEXT NULL"),
+            ("ImageEditorTextEncoder", "ALTER TABLE RegisteredModels ADD COLUMN ImageEditorTextEncoder TEXT NULL"),
+            ("ImageEditorVae", "ALTER TABLE RegisteredModels ADD COLUMN ImageEditorVae TEXT NULL"),
+            ("ImageEditorSteps", "ALTER TABLE RegisteredModels ADD COLUMN ImageEditorSteps INTEGER NULL"),
+            ("ImageEditorCfg", "ALTER TABLE RegisteredModels ADD COLUMN ImageEditorCfg REAL NULL"),
+            ("ImageEditorSampler", "ALTER TABLE RegisteredModels ADD COLUMN ImageEditorSampler TEXT NULL"),
+            ("ImageEditorScheduler", "ALTER TABLE RegisteredModels ADD COLUMN ImageEditorScheduler TEXT NULL"),
+            ("ImageEditorDenoise", "ALTER TABLE RegisteredModels ADD COLUMN ImageEditorDenoise REAL NULL"),
+            ("ImageEditorAuraFlowShift", "ALTER TABLE RegisteredModels ADD COLUMN ImageEditorAuraFlowShift REAL NULL"),
+            ("ImageEditorCfgNormStrength", "ALTER TABLE RegisteredModels ADD COLUMN ImageEditorCfgNormStrength REAL NULL")
+        };
+        foreach (var (column, ddl) in registeredModelEditorColumns)
+        {
+            var checkCmd = connection.CreateCommand();
+            checkCmd.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('RegisteredModels') WHERE name='{column}'";
+            var present = Convert.ToInt64(await checkCmd.ExecuteScalarAsync(cancellationToken)) > 0;
+            if (!present)
+            {
+                var alter = connection.CreateCommand();
+                alter.CommandText = ddl;
+                await alter.ExecuteNonQueryAsync(cancellationToken);
+                _logger.LogInformation("Migrated RegisteredModels table: added {Column} column", column);
+            }
+        }
+
         // SceneImagePrompts: add RefineInstruction column (US3 refine pass) if the table exists.
         // The table is created lazily by SceneImageRepository.EnsureSchemaAsync, so guard on table
         // existence before attempting the ALTER (a fresh DB with no scene-image activity has no table).
@@ -1420,6 +1457,24 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 alterImagePov.CommandText = "ALTER TABLE SceneImages ADD COLUMN Pov TEXT NULL";
                 await alterImagePov.ExecuteNonQueryAsync(cancellationToken);
                 _logger.LogInformation("Migrated SceneImages table: added Pov column");
+            }
+
+            var sceneImageEditColumns = new (string Column, string Ddl)[]
+            {
+                ("Operation", "ALTER TABLE SceneImages ADD COLUMN Operation TEXT NOT NULL DEFAULT 'Generate'"),
+                ("SourceImageId", "ALTER TABLE SceneImages ADD COLUMN SourceImageId TEXT NULL")
+            };
+            foreach (var (column, ddl) in sceneImageEditColumns)
+            {
+                var checkColumn = connection.CreateCommand();
+                checkColumn.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('SceneImages') WHERE name='{column}'";
+                if (Convert.ToInt64(await checkColumn.ExecuteScalarAsync(cancellationToken)) == 0)
+                {
+                    var alterColumn = connection.CreateCommand();
+                    alterColumn.CommandText = ddl;
+                    await alterColumn.ExecuteNonQueryAsync(cancellationToken);
+                    _logger.LogInformation("Migrated SceneImages table: added {Column} column", column);
+                }
             }
         }
 

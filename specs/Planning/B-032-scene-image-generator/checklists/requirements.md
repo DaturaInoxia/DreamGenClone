@@ -44,5 +44,5 @@
 ## Notes
 
 - Items marked incomplete require spec updates before `/speckit.clarify` or `/speckit.plan`.
-- All items pass. Design-level decisions (layout, style presets, image sizes, prompt versioning, etc.) are intentionally deferred to the plan phase and documented in `specs/Planning/B-032-scene-image-generator.md` §14 — they are not spec-level ambiguities.
+- All items pass. Design-level decisions (layout, style presets, image sizes, prompt versioning, etc.) are intentionally deferred to the plan phase and documented in `specs/Planning/B-032-scene-image-generator/README.md` §14 — they are not spec-level ambiguities.
 - Validation iterations: 1 of 3 — PASS on first pass.

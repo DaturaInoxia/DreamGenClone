@@ -1,6 +1,6 @@
 ---
 description: "SDXL / Juggernaut (ComfyUI) prompting rules for the scene image generator — the fully-separate photorealistic path alongside Pony. Validated on the RunPod pod 2026-08-23. Read before building or changing any SDXL/Juggernaut image prompt."
-applyTo: DreamGenClone.Web/Application/RolePlay/SdxlSceneImagePromptBuilder.cs,DreamGenClone.Web/Application/RolePlay/ISdxlSceneImagePromptBuilder.cs,DreamGenClone.Domain/RolePlay/SceneImageModelFamily.cs,DreamGenClone.Web/Application/RolePlay/SceneImagePromptGenerationJobHandler.cs,DreamGenClone.Web/Application/RolePlay/SceneImageRenderingJobHandler.cs,DreamGenClone.Infrastructure/Models/ComfyUIImageClient.cs,DreamGenClone.Tests/RolePlay/**/*.cs,helpers/runpod/workflows/**,specs/001-scene-image-generator/**
+applyTo: DreamGenClone.Web/Application/RolePlay/SdxlSceneImagePromptBuilder.cs,DreamGenClone.Web/Application/RolePlay/ISdxlSceneImagePromptBuilder.cs,DreamGenClone.Domain/RolePlay/SceneImageModelFamily.cs,DreamGenClone.Web/Application/RolePlay/SceneImagePromptGenerationJobHandler.cs,DreamGenClone.Web/Application/RolePlay/SceneImageRenderingJobHandler.cs,DreamGenClone.Infrastructure/Models/ComfyUIImageClient.cs,DreamGenClone.Tests/RolePlay/**/*.cs,helpers/runpod/workflows/**,specs/Planning/B-032-scene-image-generator/**
 ---
 
 # SDXL / Juggernaut Prompting Rules (Scene Image Generator)

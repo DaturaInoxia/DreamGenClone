@@ -8,6 +8,23 @@ public sealed class RegisteredModel
     public string DisplayName { get; set; } = string.Empty;
     public ModelKind ModelKind { get; set; } = ModelKind.Text;
     public string? ImageSizeSupported { get; set; }
+
+    /// <summary>Qwen diffusion model artifact for source-image editing.</summary>
+    public string? ImageEditorDiffusionModel { get; set; }
+
+    /// <summary>Qwen text encoder artifact for source-image editing.</summary>
+    public string? ImageEditorTextEncoder { get; set; }
+
+    /// <summary>Qwen VAE artifact for source-image editing.</summary>
+    public string? ImageEditorVae { get; set; }
+
+    public int? ImageEditorSteps { get; set; }
+    public double? ImageEditorCfg { get; set; }
+    public string? ImageEditorSampler { get; set; }
+    public string? ImageEditorScheduler { get; set; }
+    public double? ImageEditorDenoise { get; set; }
+    public double? ImageEditorAuraFlowShift { get; set; }
+    public double? ImageEditorCfgNormStrength { get; set; }
     public bool IsEnabled { get; set; } = true;
     /// <summary>Whether this model's chat template supports chat_template_kwargs.thinking.</summary>
     public bool SupportsThinkingControl { get; set; }

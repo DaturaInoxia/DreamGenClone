@@ -1,7 +1,7 @@
 # Implementation Plan: Scene Image Generator
 
 **Branch**: `001-scene-image-generator` | **Date**: 2026-08-19 | **Spec**: [spec.md](spec.md)
-**Input**: Feature specification from `/specs/001-scene-image-generator/spec.md`
+**Input**: Feature specification from `/specs/Planning/B-032-scene-image-generator/spec.md`
 
 ## Summary
 
@@ -61,7 +61,7 @@ The first implementation gate is a standalone four-seed Juggernaut + SDXL Contro
 ### Documentation (this feature)
 
 ```text
-specs/001-scene-image-generator/
+specs/Planning/B-032-scene-image-generator/
 ├── plan.md              # This file
 ├── research.md          # Phase 0 output
 ├── data-model.md        # Phase 1 output

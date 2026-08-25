@@ -329,6 +329,51 @@
                                     </div>
                                     <div class="form-text">Enable only when the provider supports chat_template_kwargs.thinking.</div>
                                 </div>
+                                @if (_editingModel!.ModelKind == ModelKind.Image)
+                                {
+                                    <div class="col-12"><hr class="my-1" /><strong>Qwen Source-Image Editor Settings</strong></div>
+                                    <div class="col-md-4">
+                                        <label class="form-label">Diffusion Model</label>
+                                        <input type="text" class="form-control" @bind="_editingModel.ImageEditorDiffusionModel" placeholder="qwen_image_edit_2511_fp8mixed.safetensors" />
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label">Text Encoder</label>
+                                        <input type="text" class="form-control" @bind="_editingModel.ImageEditorTextEncoder" placeholder="qwen_2.5_vl_7b_fp8_scaled.safetensors" />
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label">VAE</label>
+                                        <input type="text" class="form-control" @bind="_editingModel.ImageEditorVae" placeholder="qwen_image_vae.safetensors" />
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label">Steps</label>
+                                        <input type="number" class="form-control" @bind="_editingModel.ImageEditorSteps" min="1" />
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label">CFG</label>
+                                        <input type="number" class="form-control" @bind="_editingModel.ImageEditorCfg" min="0" step="0.1" />
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label">Sampler</label>
+                                        <input type="text" class="form-control" @bind="_editingModel.ImageEditorSampler" placeholder="euler" />
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label">Scheduler</label>
+                                        <input type="text" class="form-control" @bind="_editingModel.ImageEditorScheduler" placeholder="simple" />
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label">Denoise</label>
+                                        <input type="number" class="form-control" @bind="_editingModel.ImageEditorDenoise" min="0" step="0.1" />
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label">AuraFlow Shift</label>
+                                        <input type="number" class="form-control" @bind="_editingModel.ImageEditorAuraFlowShift" min="0" step="0.1" />
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label">CFGNorm Strength</label>
+                                        <input type="number" class="form-control" @bind="_editingModel.ImageEditorCfgNormStrength" min="0" step="0.1" />
+                                    </div>
+                                    <div class="col-12"><div class="form-text">Required only when this image model is assigned to RP Scene Image Editor. Missing values fail explicitly when an edit is requested.</div></div>
+                                }
                             </div>
                             @if (!string.IsNullOrEmpty(_modelFormError))
                             {
@@ -812,6 +857,16 @@
             SupportsThinkingControl = model.SupportsThinkingControl,
             ModelKind = model.ModelKind,
             ImageSizeSupported = model.ImageSizeSupported,
+            ImageEditorDiffusionModel = model.ImageEditorDiffusionModel,
+            ImageEditorTextEncoder = model.ImageEditorTextEncoder,
+            ImageEditorVae = model.ImageEditorVae,
+            ImageEditorSteps = model.ImageEditorSteps,
+            ImageEditorCfg = model.ImageEditorCfg,
+            ImageEditorSampler = model.ImageEditorSampler,
+            ImageEditorScheduler = model.ImageEditorScheduler,
+            ImageEditorDenoise = model.ImageEditorDenoise,
+            ImageEditorAuraFlowShift = model.ImageEditorAuraFlowShift,
+            ImageEditorCfgNormStrength = model.ImageEditorCfgNormStrength,
             CreatedUtc = model.CreatedUtc
         };
         _modelFormError = null;
@@ -904,6 +959,18 @@
             CreatedUtc = model.CreatedUtc,
             ProviderName = model.ProviderName,
             SupportsThinkingControl = model.SupportsThinkingControl,
+            ModelKind = model.ModelKind,
+            ImageSizeSupported = model.ImageSizeSupported,
+            ImageEditorDiffusionModel = model.ImageEditorDiffusionModel,
+            ImageEditorTextEncoder = model.ImageEditorTextEncoder,
+            ImageEditorVae = model.ImageEditorVae,
+            ImageEditorSteps = model.ImageEditorSteps,
+            ImageEditorCfg = model.ImageEditorCfg,
+            ImageEditorSampler = model.ImageEditorSampler,
+            ImageEditorScheduler = model.ImageEditorScheduler,
+            ImageEditorDenoise = model.ImageEditorDenoise,
+            ImageEditorAuraFlowShift = model.ImageEditorAuraFlowShift,
+            ImageEditorCfgNormStrength = model.ImageEditorCfgNormStrength,
             ContextWindowSize = model.ContextWindowSize,
             Quantization = model.Quantization,
             ParameterCount = model.ParameterCount,
@@ -1043,12 +1110,13 @@
         AppFunction.RolePlaySummaryEnhancement => "RP Summary Enhancement (Background)",
         AppFunction.RolePlaySceneImagePreprocessor => "RP Scene Image Preprocessor (Background)",
         AppFunction.RolePlaySceneImage => "RP Scene Image (Render)",
+        AppFunction.RolePlaySceneImageEditor => "RP Scene Image Editor (Qwen)",
         _ => func.ToString()
     };
 
     private List<(Provider Provider, List<RegisteredModel> Models)> GetFunctionModelDropdown(AppFunction func)
     {
-        if (func == AppFunction.RolePlaySceneImage)
+        if (func == AppFunction.RolePlaySceneImage || func == AppFunction.RolePlaySceneImageEditor)
         {
             // Image render function: only image-kind models are valid. Fail-fast at the UI by
             // not offering text models (resolution also enforces this).

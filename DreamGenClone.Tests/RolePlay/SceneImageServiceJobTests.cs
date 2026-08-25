@@ -241,6 +241,105 @@ public sealed class SceneImageServiceJobTests
     }
 
     [Fact]
+    public async Task EnqueueEditAsync_CreatesPendingEditRecordAndEnqueuesDedicatedJob()
+    {
+        var session = MakeSession();
+        var (service, queue, repo, _, dbPath, root) = Build(session);
+        try
+        {
+            var prompt = CreatePromptRecord();
+            await repo.UpsertPromptAsync(prompt);
+            var source = new SceneImageRecord
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                PromptRecordId = prompt.Id,
+                PromptSnapshot = "original prompt",
+                Status = SceneImageStatus.Complete,
+                FileRelativePath = "s1/source.png"
+            };
+            await repo.InsertImageAsync(source);
+
+            var record = await service.EnqueueEditAsync(new SceneImageEditRequest
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                SourceImageId = source.Id,
+                Instruction = "  Change only the hand position.  "
+            });
+
+            Assert.Equal(SceneImageStatus.Pending, record.Status);
+            Assert.Equal(SceneImageOperation.Edit, record.Operation);
+            Assert.Equal(source.Id, record.SourceImageId);
+            Assert.Equal("Change only the hand position.", record.PromptSnapshot);
+            Assert.Single(queue.Enqueued);
+            Assert.Equal(BackgroundJobTypes.SceneImageEditing, queue.Enqueued[0].JobType);
+            Assert.Contains(record.Id, queue.Enqueued[0].DedupeKey, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    [Fact]
+    public async Task EnqueueEditAsync_IncompleteSource_FailsFast()
+    {
+        var session = MakeSession();
+        var (service, _, repo, _, dbPath, root) = Build(session);
+        try
+        {
+            var prompt = CreatePromptRecord();
+            await repo.UpsertPromptAsync(prompt);
+            var source = new SceneImageRecord
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                PromptRecordId = prompt.Id,
+                PromptSnapshot = "original prompt",
+                Status = SceneImageStatus.Pending
+            };
+            await repo.InsertImageAsync(source);
+
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => service.EnqueueEditAsync(new SceneImageEditRequest
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                SourceImageId = source.Id,
+                Instruction = "Change the lighting."
+            }));
+
+            Assert.Contains("completed", exception.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    [Fact]
+    public async Task EnqueueEditAsync_BlankInstruction_FailsFast()
+    {
+        var (service, _, _, _, dbPath, root) = Build(MakeSession());
+        try
+        {
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => service.EnqueueEditAsync(new SceneImageEditRequest
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                SourceImageId = "source",
+                Instruction = "  "
+            }));
+
+            Assert.Contains("instruction", exception.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    [Fact]
     public async Task EnqueueRenderAsync_SnapshotsSettingsAndStyle()
     {
         var session = MakeSession();

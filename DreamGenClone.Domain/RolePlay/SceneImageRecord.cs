@@ -18,6 +18,16 @@ public enum SceneImageStatus
     Failed = 3
 }
 
+/// <summary>How a scene image was created.</summary>
+public enum SceneImageOperation
+{
+    /// <summary>Initial text-to-image render or a regeneration.</summary>
+    Generate = 0,
+
+    /// <summary>Source-image edit performed by the configured image editor.</summary>
+    Edit = 1
+}
+
 /// <summary>
 /// A rendered image for an interaction. Each render is a distinct record (regenerate creates a new
 /// one with <see cref="RegenerateOfId"/> pointing at the parent). Files live on disk; this holds
@@ -43,6 +53,12 @@ public sealed class SceneImageRecord
     public string? NegativePromptSnapshot { get; set; }
 
     public SceneImageStatus Status { get; set; } = SceneImageStatus.Pending;
+
+    /// <summary>Whether this record was generated from text or edited from a source image.</summary>
+    public SceneImageOperation Operation { get; set; } = SceneImageOperation.Generate;
+
+    /// <summary>Required parent image when <see cref="Operation"/> is <see cref="SceneImageOperation.Edit"/>.</summary>
+    public string? SourceImageId { get; set; }
 
     /// <summary>Relative path under the scene-image root, e.g. "{sessionId}/{imageId}.png".</summary>
     public string? FileRelativePath { get; set; }

@@ -12,7 +12,7 @@ The authoritative Studio full-turn display confirms that the Narrative interacti
 
 ## Plan
 
-Implement the approved plan at `specs/001-scene-image-generator/design/ensemble-beat-render-brief-plan.md`: versioned ensemble beats, strict active/observer parsing, Narrative-led extraction, geometry-aware POV framing, deterministic long-form render briefs, explicit legacy regeneration, and focused regression coverage.
+Implement the approved plan at `specs/Planning/B-032-scene-image-generator/design/ensemble-beat-render-brief-plan.md`: versioned ensemble beats, strict active/observer parsing, Narrative-led extraction, geometry-aware POV framing, deterministic long-form render briefs, explicit legacy regeneration, and focused regression coverage.
 
 ## Resolution
 

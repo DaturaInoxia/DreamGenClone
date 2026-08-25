@@ -1,6 +1,6 @@
 # B-032 — Scene Image Generator Engine
 
-**State:** `new` (design draft — pending approval to move to `designed`)
+**State:** `planned` (large epic; Phase 1 implemented, Phase 2 continuity plan active)
 **Priority:** low
 **Scope:** large
 **Plan author:** Copilot session 2026-08-19 (refined 2026-08-22)
@@ -32,6 +32,44 @@ with a real image-capable provider. Later phases build out iteration polish, and
 
 This document is the design + analysis for B-032: current-state analysis, agreed decisions, domain
 model, implementation phases, and blast radius.
+
+## 1A. Consolidated Epic Status (2026-08-24)
+
+This folder is the single planning home for the complete B-032 epic. It includes the Phase 1
+prompt-to-image implementation package and the Phase 2 continuity-rendering package covering
+canonical beats, character identity, location alignment, LoRA/reference conditioning, shared
+blocking, multi-POV shots, validation, repair, and approved continuity frames.
+
+- Phase 1 application plumbing is implemented and tested: Model Manager image support, Pony and
+  Juggernaut/SDXL paths, beat analysis, Studio/Gallery, persistence, iteration, and provenance.
+- Qwen Image Edit 2511 is the selected semantic editing mechanism after a six-of-six controlled
+  non-explicit editing proof. The preserved proof remains incomplete for adult-content editing.
+- The OpenPose and Juggernaut inpainting exact-contact proofs are preserved as rejected evidence;
+  do not resume prompt/mask tuning for that route.
+- Character identity packs, reference conditioning, optional character LoRAs, location visual
+  profiles, canonical visual plans, shared blocking, multi-POV shot plans, structured validation,
+  and bounded repair are designed but not yet implemented.
+- The next implementation slice is the identity vertical slice: two recurring characters,
+  persisted references, controlled edits/renders, and an evidence-based decision on whether LoRA
+  training is needed.
+
+The durable proof artifacts remain outside this planning folder under
+`artifacts/tmp/images/`; the corresponding proof reports and handoffs are kept here.
+
+## 1B. Epic Phase Map
+
+```text
+B-032-scene-image-generator/
+├── phase-0-architecture-and-evidence/   # architecture, host inventory, proofs, handoffs
+├── phase-1-prompt-to-image-mvp/          # formal spec, implementation plan, tasks, contracts
+├── phase-2-character-identity/           # references, identity packs, adapters, LoRA decision
+├── phase-3-location-and-multi-pov/       # location profiles, anchors, blocking, camera shots
+└── phase-4-validation-and-repair/        # validation, bounded repair, continuity anchors
+```
+
+Phase 0 and Phase 1 contain the completed design and implementation history. Phase 2 is the next
+active delivery slice. Phase 3 and Phase 4 are sequenced behind the identity and location/control
+contracts they depend on.
 
 ---
 

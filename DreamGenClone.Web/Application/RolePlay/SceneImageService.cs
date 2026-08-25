@@ -241,6 +241,57 @@ public sealed class SceneImageService : ISceneImageService
         return record;
     }
 
+    public async Task<SceneImageRecord> EnqueueEditAsync(SceneImageEditRequest request, CancellationToken cancellationToken = default)
+    {
+        var session = await LoadSessionAsync(request.SessionId, cancellationToken);
+        var interaction = FindInteraction(session, request.InteractionId);
+        if (string.IsNullOrWhiteSpace(request.SourceImageId))
+            throw new InvalidOperationException("A source image id is required to edit a scene image.");
+        if (string.IsNullOrWhiteSpace(request.Instruction))
+            throw new InvalidOperationException("A non-empty edit instruction is required to edit a scene image.");
+
+        var source = await _repository.GetImageAsync(request.SourceImageId, cancellationToken)
+            ?? throw new InvalidOperationException($"Source scene image '{request.SourceImageId}' was not found.");
+        if (source.Status != SceneImageStatus.Complete)
+            throw new InvalidOperationException("Only completed scene images can be edited.");
+        if (!string.Equals(source.SessionId, session.Id, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(source.InteractionId, interaction.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("The source scene image must belong to the selected session and interaction.");
+        }
+        if (string.IsNullOrWhiteSpace(source.FileRelativePath))
+            throw new InvalidOperationException("The completed source scene image has no stored image path.");
+
+        var record = new SceneImageRecord
+        {
+            SessionId = session.Id,
+            InteractionId = interaction.Id,
+            PromptRecordId = source.PromptRecordId,
+            PromptSnapshot = request.Instruction.Trim(),
+            Status = SceneImageStatus.Pending,
+            Operation = SceneImageOperation.Edit,
+            SourceImageId = source.Id,
+            ImageSize = source.ImageSize,
+            Style = source.Style,
+            SettingsJson = source.SettingsJson,
+            BeatId = source.BeatId,
+            Pov = source.Pov
+        };
+        await _repository.InsertImageAsync(record, cancellationToken);
+        _backgroundJobQueue.Enqueue(
+            BackgroundJobTypes.SceneImageEditing,
+            JsonSerializer.Serialize(new SceneImageEditingJobPayload
+            {
+                SessionId = session.Id,
+                InteractionId = interaction.Id,
+                ImageRecordId = record.Id
+            }),
+            dedupeKey: $"{BackgroundJobTypes.SceneImageEditing}:{record.Id}");
+
+        _logger.LogInformation("Enqueued scene image edit: SessionId={SessionId}, InteractionId={InteractionId}, ImageRecordId={ImageRecordId}, SourceImageId={SourceImageId}", session.Id, interaction.Id, record.Id, source.Id);
+        return record;
+    }
+
     public Task<SceneImagePromptRecord?> GetPromptAsync(string sessionId, string promptId, CancellationToken cancellationToken = default)
         => _repository.GetPromptAsync(promptId, cancellationToken);
 

@@ -4,7 +4,7 @@ description: "Task list for Scene Image Generator (B-032) feature implementation
 
 # Tasks: Scene Image Generator
 
-**Input**: Design documents from `/specs/001-scene-image-generator/`
+**Input**: Design documents from `/specs/Planning/B-032-scene-image-generator/`
 **Prerequisites**: plan.md (required), spec.md (required for user stories), research.md, data-model.md, contracts/
 
 **Tests**: Tests are included — the repo's hard rule requires every implementation change to leave the test suite green, and the design's state machines + parser + resolution paths are explicitly unit-test-covered per `data-model.md` and the contract. Tests are written alongside implementation (not strict TDD) since the no-fallback rule requires the fail-fast paths to be verified by tests before a task is marked complete.
@@ -209,8 +209,20 @@ This is an additive feature in an existing 4-project .NET 9 layered solution (no
 - [X] T065 Verify debug events (`SceneImagePromptSent` / `SceneImageResponseReceived`) are inspectable in the workspace Debug View and via `QuerySessionEventsAsync` in `DreamGenClone.Web/Components/Pages/RolePlayWorkspace.razor` (Debug View integration)
 - [X] T066 Run `dotnet build DreamGenClone.sln` and confirm 0 errors / 0 warnings
 - [X] T067 Run the full test suite `dotnet test DreamGenClone.Tests/DreamGenClone.Tests.csproj` and confirm all tests pass (no pre-existing failures hidden, no new failures)
-- [ ] T068 Run the POC validation checklist from `specs/001-scene-image-generator/quickstart.md` §6 — NSFW (filtered clamp / adult-allowed / unset policy), image quality across styles/sizes, basics (generate/edit/regenerate/indicator/gallery/delete), unconfigured guidance
+- [ ] T068 Run the POC validation checklist from `specs/Planning/B-032-scene-image-generator/phase-1-prompt-to-image-mvp/quickstart.md` §6 — NSFW (filtered clamp / adult-allowed / unset policy), image quality across styles/sizes, basics (generate/edit/regenerate/indicator/gallery/delete), unconfigured guidance
 - [ ] T069 Update backlog: B-032 state `new` → `designed` (design approved) then `planned` (tasks generated) in `specs/Planning/backlog.md`; record POC findings and decide Phase 2 (likeness) scope
+
+---
+
+## Phase 11: Manual Qwen Source-Image Editing (Approved Vertical Slice)
+
+**Purpose**: Add a dedicated, manual source-image editing path without changing the existing Pony or SDXL text-to-image routes.
+
+- [X] T070 Add the dedicated `IImageEditingClient` ComfyUI Qwen workflow client with source upload, prompt submission, history polling, and output download. Read all Qwen artifacts and sampler settings solely from `ResolvedImageEditorModel`.
+- [X] T071 Add `SceneImageEditRequest`, edit payload/type/handler, DI registration, and `ISceneImageService.EnqueueEditAsync`; validate source existence, completion, session/interaction ownership, file path, and non-empty instruction before record creation.
+- [X] T072 Update Model Manager add/details forms with all persisted Qwen artifact and sampler settings; filter `RolePlaySceneImageEditor` to image-kind models.
+- [X] T073 Add a per-completed-image instruction/action in `SceneImageStudio.razor` that queues a manual edit only when explicitly invoked.
+- [X] T074 Add focused workflow/service tests and validate with the full test suite.
 
 ---
 

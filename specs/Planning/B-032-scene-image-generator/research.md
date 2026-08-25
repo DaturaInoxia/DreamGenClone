@@ -2,7 +2,7 @@
 
 **Feature**: 001-scene-image-generator | **Date**: 2026-08-19
 
-This document resolves the open questions from the design draft (`specs/Planning/B-032-scene-image-generator.md` §14) and records the technical decisions grounding the plan. Each entry follows the spec-kit research format: Decision → Rationale → Alternatives considered.
+This document resolves the open questions from the design draft (`specs/Planning/B-032-scene-image-generator/README.md` §14) and records the technical decisions grounding the plan. Each entry follows the spec-kit research format: Decision → Rationale → Alternatives considered.
 
 ---
 
