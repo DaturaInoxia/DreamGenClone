@@ -1,14 +1,14 @@
 # B-032 Scene Image Generator - Implementation Handoff
 
-**Status:** Architecture and implementation plan complete; Phase 2 is next
-**Prepared:** 2026-08-24
-**Scope:** Phase 0 through Phase 4
+**Status:** Architecture and implementation plan complete; Phase 1B is next
+**Prepared:** 2026-08-24; updated 2026-08-25
+**Scope:** Phase 0 through Phase 4, including inserted Phase 1B
 **Backlog:** `B-032`
 
 ## 1. Purpose
 
 This is the controlling entry point for implementing the remaining B-032 work. It reconciles the
-implemented application, the preserved generation proofs, and the detailed Phase 2-4 plans.
+implemented application, the preserved generation proofs, and the detailed Phase 1B-4 plans.
 Implementers must read this file before a phase package.
 
 The product target is not merely prompt-to-image generation. It is an auditable continuity
@@ -21,7 +21,8 @@ relationships between actors while producing multiple camera views and bounded r
 |---|---|---|
 | 0 - Architecture and evidence | Complete | Prompt-only generation and exact-contact ControlNet/inpaint proofs established the limits of the baseline. |
 | 1 - Prompt-to-image MVP | Implemented, manual acceptance open | Beat analysis, Pony and SDXL/Juggernaut generation, persistence, Studio/Gallery, and manual Qwen editing exist. T068 remains open. |
-| 2 - Character identity | Planned, next | Add persisted identity packs and prove two-character assignment before deciding on LoRA training. |
+| 1B - Vision-aware image editing | Planned, next | Add source-aware Qwen prompt compilation, clarification, dedicated edit UI, provenance, and the pod vision runtime. |
+| 2 - Character identity | Planned after Phase 1B | Add persisted identity packs and prove two-character assignment before deciding on LoRA training. |
 | 3 - Location and multi-POV | Planned | Add location profiles, canonical visual plans, blocking, controls, and shot plans derived from one plan version. |
 | 4 - Validation and repair | Planned | Add constraint reports, policy-driven bounded repair, approval, and continuity anchors. |
 
@@ -131,6 +132,17 @@ Phase 4 begins with persisted structured findings and user approval. Automatic r
 only for finding classes that pass their own bounded proof. A vision model cannot silently mark a
 hard relationship as satisfied; low-confidence or conflicting findings require review.
 
+### D-032-09 - Renderer-family changes require an adult-capability proof
+
+Juggernaut XL Ragnarok remains the pinned adult-capable photorealistic text-to-image baseline
+while Phases 1B-4 prove editing, identity, controls, and validation. Any later alternative,
+including a FLUX-family finetune, is a candidate rather than an assumed upgrade. Before promotion,
+freeze its exact artifact and workflow provenance, then compare it with Juggernaut using the same
+application-specific corpus: permitted adult fictional cases, multi-character anatomy and
+separation, camera/POV compliance, character/wardrobe continuity, environmental scenes, and
+source-image continuation where supported. The alternative must demonstrate improvement on those
+criteria; newer general-model benchmarks alone are insufficient.
+
 ## 5. Target Architecture
 
 ```mermaid
@@ -227,9 +239,18 @@ asset IDs and checksums, source plan/shot versions, seed, content policy, and ou
 ### Gate A - Phase 1 acceptance hygiene
 
 T068 may proceed independently, but claims of complete Phase 1 acceptance require all manual
-rows to be recorded. Phase 2 automated work may begin because it uses separate records and jobs.
+rows to be recorded. Phase 1B automated work may begin because it uses separate records and jobs.
 
-### Gate B - Phase 2 identity proof
+### Gate B - Phase 1B vision-aware edit proof
+
+1. Inventory the pod and freeze the Qwen VL candidate, capacity thresholds, and Pony retirement manifest.
+2. Prove source-image compilation and strict schema behavior outside the application.
+3. Add multimodal transport, strict resolution, compilation persistence, and clarification.
+4. Add the dedicated edit workbench and require accepted compilation provenance for Qwen jobs.
+5. Retire only the verified deployed Pony checkpoint and finalize the accepted vision runtime.
+6. Pass the frozen compiler/application corpus and record the runtime mode.
+
+### Gate C - Phase 2 identity proof
 
 1. Implement reference asset and identity-pack persistence/UI.
 2. Freeze a two-character evaluation set.
@@ -238,7 +259,7 @@ rows to be recorded. Phase 2 automated work may begin because it uses separate r
 5. Implement the controlled-render compiler/client path.
 6. Pass the identity matrix and record the LoRA decision.
 
-### Gate C - Phase 3 frozen-scene proof
+### Gate D - Phase 3 frozen-scene proof
 
 1. Implement location profiles and visual-plan versioning.
 2. Implement the Three.js blocking editor and shot-plan persistence.
@@ -246,7 +267,7 @@ rows to be recorded. Phase 2 automated work may begin because it uses separate r
 4. Render at least three cameras from one frozen plan.
 5. Pass the multi-POV matrix without reinterpreting the plan per shot.
 
-### Gate D - Phase 4 validation and repair
+### Gate E - Phase 4 validation and repair
 
 1. Persist validation policies and reports.
 2. Add manual review and approval.
@@ -286,6 +307,7 @@ After each implementation task group:
 |---|---|
 | Existing proofs and architecture history | `phase-0-architecture-and-evidence/` |
 | Implemented MVP and remaining T068 acceptance | `phase-1-prompt-to-image-mvp/` |
+| Vision-aware Qwen compilation, dedicated editor, pod migration | `phase-1b-vision-aware-image-editing/` |
 | Identity packs, conditioning proof, LoRA decision | `phase-2-character-identity/` |
 | Locations, visual plans, blocking, multi-POV | `phase-3-location-and-multi-pov/` |
 | Validation, bounded repair, approval, anchors | `phase-4-validation-and-repair/` |

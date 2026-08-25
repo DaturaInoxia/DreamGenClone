@@ -1,15 +1,10 @@
-# B-032 - Scene Image Generator Engine
+# B-032 — Scene Image Generator Engine
 
-**State:** `planned` (Phase 1 implemented with T068 open; Phases 2-4 implementation-ready)
+**State:** `planned` (large epic; Phase 1 implemented, Phase 1B vision-aware editing planned next)
 **Priority:** low
 **Scope:** large
-**Plan author:** Copilot session 2026-08-19 (implementation handoff completed 2026-08-24)
+**Plan author:** Copilot session 2026-08-19 (refined 2026-08-22)
 **Backlog ref:** `specs/Planning/backlog.md` → B-032
-
-> **Implementation agents:** Start with [`IMPLEMENTATION-HANDOFF.md`](IMPLEMENTATION-HANDOFF.md),
-> then read the complete package for the target phase. This older epic design remains useful for
-> Phase 1 history, but the handoff controls architecture, dependencies, proof gates, and execution
-> order for Phases 2-4.
 
 ---
 
@@ -41,7 +36,8 @@ model, implementation phases, and blast radius.
 ## 1A. Consolidated Epic Status (2026-08-24)
 
 This folder is the single planning home for the complete B-032 epic. It includes the Phase 1
-prompt-to-image implementation package and complete Phase 2-4 packages covering
+prompt-to-image implementation package, the Phase 1B vision-aware editing package, and the Phase 2
+continuity-rendering package covering
 canonical beats, character identity, location alignment, LoRA/reference conditioning, shared
 blocking, multi-POV shots, validation, repair, and approved continuity frames.
 
@@ -54,11 +50,12 @@ blocking, multi-POV shots, validation, repair, and approved continuity frames.
   do not resume prompt/mask tuning for that route.
 - Character identity packs, reference conditioning, optional character LoRAs, location visual
   profiles, canonical visual plans, shared blocking, multi-POV shot plans, structured validation,
-  and bounded repair have implementation-agent-ready research, specifications, data models,
-  contracts, plans, and dependency-ordered task ledgers. They are not yet implemented.
-- The next implementation slice is the identity vertical slice: two recurring characters,
-  persisted references, controlled edits/renders, and an evidence-based decision on whether LoRA
-  training is needed.
+  and bounded repair are designed but not yet implemented.
+- The next implementation slice is Phase 1B: a dedicated vision-aware edit workbench, grounded
+  Qwen prompt compilation, strict clarification/provenance, and a one-pod vision runtime. It
+  becomes shared infrastructure for identity work and later validation.
+- The identity vertical slice follows Phase 1B: two recurring characters, persisted references,
+  controlled edits/renders, and an evidence-based decision on whether LoRA training is needed.
 
 The durable proof artifacts are preserved under `specs/image-generator-tests/` (organized by generator: `juggernaut/` and `qwen/`, each with `images/`, `prompts/`, and a `manifest.json`). Transient generation outputs stay under ignored `artifacts/tmp/images/`; the corresponding proof reports and handoffs are kept here.
 
@@ -66,20 +63,21 @@ The durable proof artifacts are preserved under `specs/image-generator-tests/` (
 
 ```text
 B-032-scene-image-generator/
-├── IMPLEMENTATION-HANDOFF.md             # controlling architecture and agent start point
 ├── phase-0-architecture-and-evidence/   # architecture, host inventory, proofs, handoffs
 ├── phase-1-prompt-to-image-mvp/          # formal spec, implementation plan, tasks, contracts
+├── phase-1b-vision-aware-image-editing/  # source analysis, prompt compiler, dedicated editor
 ├── phase-2-character-identity/           # references, identity packs, adapters, LoRA decision
 ├── phase-3-location-and-multi-pov/       # location profiles, anchors, blocking, camera shots
 └── phase-4-validation-and-repair/        # validation, bounded repair, continuity anchors
 ```
 
-Phase 0 contains architecture and proof history; its former ControlNet-first delivery sequence is
-superseded by the controlling handoff. Phase 1 implementation is complete, including
+Phase 0 contains the architecture and proof history. Phase 1 implementation is complete, including
 manual Qwen editing, but its final end-to-end manual acceptance matrix remains open. See
-`phase-1-prompt-to-image-mvp/README.md` for the exact tested scope and remaining checks. Phase 2 is
-the next active delivery slice. Phase 3 and Phase 4 are sequenced behind the identity and
-location/control contracts they depend on.
+`phase-1-prompt-to-image-mvp/README.md` for the exact tested scope and remaining checks. Phase 1B
+is the next active delivery slice and replaces raw edit-text pass-through with source-aware
+compilation. Phase 2 follows its multimodal and provenance exit gate. Phase 3 and Phase 4 are
+sequenced behind the identity and location/control contracts they depend on; Phase 4 reuses the
+multimodal transport but retains a separate validation call and schema.
 
 ---
 
@@ -775,6 +773,21 @@ Per the repo's hard rules (fail fast, no hidden defaults, UI-backed config):
   - Optional pose/depth/control workflow for multi-character composition.
   - Optional upscaling workflow after composition is accepted.
   - Start/stop and idle-shutdown operating instructions for RunPod or equivalent GPU rental.
+- **Deferred renderer-family evaluation (after the active Phase 1B-4 gates):**
+  - Keep `juggernautXL_ragnarok.safetensors` as the pinned, adult-capable photorealistic
+    text-to-image baseline. It was selected because it has a reproducible ComfyUI workflow and
+    verified behavior for this application; it is not merely a low-cost placeholder.
+  - Evaluate one exact alternative adult-capable photorealistic checkpoint at a time. A FLUX-family
+    finetune is a candidate category, not an approved replacement: record its provenance, license,
+    artifact URL, SHA-256, ComfyUI/node revisions, hardware, and workflow before generating.
+  - Run a frozen side-by-side corpus against the current Juggernaut baseline: adult fictional
+    character anatomy/activity cases allowed by the application, two-character separation,
+    character and wardrobe continuity, camera/POV compliance, normal environmental scenes, and
+    source-image continuation where supported. Preserve prompts, negative conditioning, reference
+    assets, seeds, settings, duration, and accepted/rejected outcomes for every result.
+  - Promote an alternative only when it demonstrably improves the corpus on adult-capability,
+    photorealism, multi-character anatomy/composition, prompt adherence, and continuity. Do not
+    replace the active renderer merely because a newer model family has stronger general benchmarks.
 - Prompt and render separation:
   - Keep the current text LLM as the scene-to-visual-prompt stage.
   - Use concise composition-first positive prompts and a real negative conditioning input where the

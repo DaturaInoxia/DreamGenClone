@@ -1,7 +1,8 @@
 # Phase 2 - Character Identity
 
-**Status:** Planned, next implementation slice
+**Status:** Planned after Phase 1B vision-aware editing
 **Epic:** B-032 Scene Image Generator
+**Prerequisite:** Phase 1B vision-aware editing exit gate
 
 ## Goal
 

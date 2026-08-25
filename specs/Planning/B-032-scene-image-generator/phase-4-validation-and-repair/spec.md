@@ -1,12 +1,13 @@
 # Phase 4 Specification - Validation, Repair, and Continuity Anchors
 
-**Status:** Ready after Phase 3 exit gate
+**Status:** POC manual-gate slice ready for review; automated validation remains gated by proof
 **Depends on:** Frozen visual plans, shots, controls, identities, and render attempts
 
 ## Goal
 
 Produce auditable constraint findings for scene images, support explicit approval, execute only
-proven and configured bounded repairs, and reuse approved frames as continuity evidence.
+proven and configured bounded repairs, support bounded candidate selection, and reuse approved
+frames as continuity evidence.
 
 ## Non-Goals
 
@@ -22,6 +23,15 @@ proven and configured bounded repairs, and reuse approved frames as continuity e
 
 The user runs a configured policy. Deterministic and vision validators produce a structured report
 against exact visual-plan and shot constraints.
+
+For the POC, a render receives a validation run and may proceed to human review when no proven
+configured vision validator exists. The run records unavailable optional automation and never
+represents it as a pass.
+
+### US4.1A - Select from bounded candidates
+
+The user requests a configured candidate count, compares render attempts with distinct persisted
+seeds, and accepts or rejects each candidate without losing its provenance.
 
 ### US4.2 - Review findings
 
@@ -71,6 +81,24 @@ reference the anchor for validation or editing.
 - **FR4-021:** UI exposes pending/running/review/approved/failed/exhausted states and actionable
   errors.
 - **FR4-022:** Debug events never include binary data or secrets.
+- **FR4-023:** Candidate count and seed-allocation policy are required persisted UI-backed values;
+  no runtime candidate-count fallback exists.
+- **FR4-024:** Every candidate is an independent immutable render attempt in one candidate set with
+  its own seed and complete provenance.
+- **FR4-025:** Candidate accept/reject decisions are immutable and include reviewer, timestamp, and
+  optional reason; selecting one candidate does not delete siblings.
+- **FR4-026:** `Complete`, validation `Passed`, and user `Accepted` are distinct states. Only an
+  accepted image with a checksum-guarded `ApprovedSceneFrame` is eligible for later phases,
+  publication-oriented source edits, or continuity anchors. Acceptance records the candidate
+  decision and approved frame atomically; there is no second approval authority.
+- **FR4-027:** Manual Qwen repair creates a child render linked to its source and instruction. The
+  child starts unaccepted and requires review even when the parent was accepted.
+- **FR4-028:** Pose, person/hand detection, Detailer, SAM, and LaMa results are advisory or
+  user-directed evidence; none independently establishes anatomy validity.
+- **FR4-029:** An automated anatomy finding may influence rejection, ranking, or repair eligibility
+  only after the exact evaluator/config/schema version passes the frozen per-code corpus.
+- **FR4-030:** The one-pod POC cannot require a second large validator runtime. Any later local or
+  remote validator is explicitly configured and missing capacity fails visibly without fallback.
 
 ## Finding Vocabulary
 
@@ -90,12 +118,20 @@ Extend through persisted/schema-versioned codes; do not use ad hoc free text for
 6. A structural finding cannot invoke a local edit policy.
 7. A valid report can be approved, and an approved image can become a scoped anchor.
 8. An anchor supersession leaves prior provenance resolvable.
+9. A completed but unaccepted candidate is blocked from every downstream image-consumption path.
+10. A configured three-candidate request creates three independently traceable render attempts and
+  preserves rejected siblings after one is accepted.
+11. A Qwen repair child is unaccepted and cannot inherit its parent's approval.
+12. With no configured proven vision evaluator, the validation run records automation as
+  unavailable, manual review remains available, and the system does not emit a synthetic pass.
 
 ## Exit Gate
 
 - The labeled validation corpus has per-code precision/recall and disagreement results.
 - Every automatically eligible repair code has a separate proof and bounded termination evidence.
 - At least one scene completes render -> validate -> review/repair -> revalidate -> approve -> anchor.
+- At least one scene completes candidate set -> compare -> reject siblings -> accept -> downstream
+  eligibility, preserving every candidate's provenance.
 - Attempt bounds survive concurrency tests.
 - No validation or repair fallback exists.
 - Narrow tests, build, full suite, and manual/browser matrix pass.

@@ -37,8 +37,11 @@ if (-not (Test-Path $keyPath)) {
     exit 1
 }
 
-$cmdArgs = @("-tt", "-i", $keyPath, "-o", "StrictHostKeyChecking=no",
-             "-o", "UserKnownHostsFile=/dev/null", "-o", "IdentitiesOnly=yes",
+$cmdArgs = @("-tt", "-i", $keyPath, "-o", "BatchMode=yes",
+             "-o", "PasswordAuthentication=no", "-o", "KbdInteractiveAuthentication=no",
+             "-o", "StrictHostKeyChecking=no",
+             "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR",
+             "-o", "IdentitiesOnly=yes",
              "-p", $port, "${user}@${hostName}")
 
 if ($Command) {

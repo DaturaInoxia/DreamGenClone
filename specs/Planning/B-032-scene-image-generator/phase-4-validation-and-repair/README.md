@@ -5,7 +5,22 @@
 
 ## Goal
 
-Make controlled rendering auditable and recoverable without hiding failures behind random-seed searches.
+Make controlled rendering auditable and recoverable through bounded candidate selection, explicit
+acceptance, and provenance-preserving repair without hiding failures behind random-seed searches.
+
+## POC Delivery Decision (2026-08-25)
+
+- First ship a persisted manual quality gate: generated images require review and only an explicitly
+	accepted image can feed later phases or continuity anchors.
+- Generate a configured small candidate set, initially three distinct seeds, and present it for
+	side-by-side accept/reject selection. The count is UI-backed persisted configuration, not a
+	hardcoded runtime default.
+- Allow an otherwise valuable candidate to create one or more bounded Qwen semantic-edit children;
+	every child returns to review and never overwrites or inherits acceptance from its parent.
+- Treat pose estimators, person/hand detectors, detailers, SAM, and LaMa as prevention,
+	localization, or repair tools, not authoritative anatomy validators.
+- Defer automated anatomy decisions and automatic repair until a configured evaluator passes the
+	frozen per-code corpus. The current one-pod POC must not require another large model runtime.
 
 ## Implementation Package
 
@@ -19,6 +34,8 @@ Make controlled rendering auditable and recoverable without hiding failures behi
 ## Delivery
 
 - Add `SceneValidationReport` with constraint-level pass/fail, confidence, evidence, and repair recommendation.
+- Add candidate-set provenance and immutable accept/reject decisions; keep render completion,
+  validation result, and user acceptance as separate states.
 - Validate cast count, identity, wardrobe, required and forbidden relationships, blocking, POV, object anchors, location, anatomy, and image integrity.
 - Add bounded local repair only for finding/action pairs that pass a dedicated frozen proof. Qwen is
 	the current semantic-editor candidate; rejected Juggernaut inpainting is not a default route.
@@ -30,4 +47,7 @@ Make controlled rendering auditable and recoverable without hiding failures behi
 
 ## Exit Gate
 
-Every controlled render has an auditable validation result, repairs stop at the configured bound, unresolved constraints are exposed, and approved frames can be reused as continuity anchors.
+Every controlled render has an auditable review/validation result, only accepted frames are
+downstream-eligible, candidate and repair bounds are enforced, unresolved constraints are exposed,
+and approved frames can be reused as continuity anchors. Automated validator and repair behavior is
+enabled only for exact finding/action pairs with accepted proof evidence.

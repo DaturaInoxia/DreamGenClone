@@ -1,5 +1,19 @@
 # Phase 4 Contracts - Validation, Repair, and Anchors
 
+## Candidate and Eligibility Contract
+
+A candidate request resolves one approved persisted policy containing candidate count, seed
+allocation, and bounds. It creates exactly that many independent render attempts in one candidate
+set. Each attempt records its seed and full render provenance; no failed candidate is silently
+replaced beyond the configured policy.
+
+Accept/reject is an immutable reviewer decision. Acceptance is one transaction that verifies the
+review/validation run and disk checksum, records the candidate decision, and creates its
+`ApprovedSceneFrame`. A single eligibility service is the authority for downstream image use and
+requires that approved frame. It never treats render `Complete`, validation `Passed`, checksum
+success alone, or parent approval as substitutes. Repair children begin ineligible and return to
+review.
+
 ## Validator Contracts
 
 ```csharp
@@ -22,6 +36,12 @@ public interface ISceneVisionValidator
 The orchestrating job always invokes deterministic validation first. It skips the vision call only
 when deterministic findings make the inputs invalid or the policy explicitly does not require
 vision validation.
+
+When no proven vision validator is configured for the POC policy, the validation run reports
+automation as unavailable and the image proceeds to manual review. The service must not fabricate
+a pass or resolve a different provider/model. Pose, person/hand detection, Detailer, SAM, and LaMa
+outputs may be attached as advisory evidence only unless their exact decision role has passed the
+labeled corpus.
 
 ## Vision Schema
 
@@ -50,6 +70,10 @@ one of:
 
 It cannot change models, lower a threshold, remove controls, or select prompt-only behavior.
 
+A user-directed Qwen repair may be proposed for a localized defect without asserting that Qwen
+validated the defect. It still reserves a configured attempt, creates a derived render, preserves
+the source, and requires a new review/validation decision.
+
 ## Attempt Reservation
 
 The repository operation `TryReserveRepairAttemptAsync` is transactional. Inputs include source
@@ -62,6 +86,10 @@ they are auditable attempts.
 Approval requires a completed validation run, no unresolved required fail/unknown/conflict after
 overrides, and checksum equality with the image currently on disk. Approval is idempotent for the
 same image/run/reviewer decision. It never changes validation findings.
+
+For the manual-gate POC policy, explicit candidate acceptance supplies the human quality decision
+and atomically creates the `ApprovedSceneFrame` after the same checksum and provenance guards.
+There is no later competing approval path. Descendants and siblings are never accepted implicitly.
 
 ## Anchor Contract
 

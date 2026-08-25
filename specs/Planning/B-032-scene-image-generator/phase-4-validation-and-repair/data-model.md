@@ -1,5 +1,25 @@
 # Phase 4 Data Model - Validation, Repair, and Anchors
 
+## `SceneCandidateSet`
+
+Fields: `Id`, `SourceVisualPlanId`, `SourceShotPlanId`, `PolicyId`, `RequestedCount`,
+`SeedAllocationSnapshotJson`, `Status`, `CreatedUtc`, `CompletedUtc`.
+
+Each member is an independent immutable render attempt linked through `CandidateSetId` and
+`CandidateOrdinal`. `RequestedCount` and seed allocation come from an approved persisted policy;
+they have no runtime defaults. Candidate-set completion does not select or approve an image.
+
+## `SceneCandidateDecision`
+
+Fields: `Id`, `CandidateSetId`, `RenderAttemptId`, `Decision` (`Accepted`, `Rejected`),
+`ReviewerId`, optional `Reason`, optional `ApprovedSceneFrameId`, `CreatedUtc`.
+
+Decisions append and preserve all siblings. Effective selection is resolved explicitly from the
+decision history. Acceptance affects downstream eligibility but does not mutate render completion
+or validation findings. The acceptance transaction validates the review/validation run and image
+checksum, then creates both the accepted decision and `ApprovedSceneFrame`. Rejection never creates
+an approved frame.
+
 ## `SceneValidationPolicy`
 
 Versioned configuration: `Id`, `Name`, `Version`, `Status`, `ValidatorModelId`,
@@ -42,6 +62,9 @@ Fields: `Id`, `SourceRenderAttemptId`, `SourceValidationRunId`, `FindingId`, `Po
 Unique index: `(SourceRenderAttemptId, FindingId, PolicyId, Ordinal)`. The repository reserves the
 next ordinal and checks the policy bound transactionally.
 
+Every derived render starts without a candidate decision or approval. Parent acceptance is never
+copied. Manual Qwen edits and future automatic repairs use the same lineage rule.
+
 ## `ApprovedSceneFrame`
 
 Fields: `Id`, `RenderAttemptId`, `ValidationRunId`, `ApprovalDecision`, `ReviewerId`, `Notes`,
@@ -63,6 +86,10 @@ Fields: `Id`, `ContinuityAnchorId`, `TargetVisualPlanId` or `TargetValidationRun
 ```mermaid
 erDiagram
     SceneValidationPolicy ||--o{ SceneValidationRun : configures
+    SceneCandidateSet ||--o{ SceneRenderAttempt : groups
+    SceneCandidateSet ||--o{ SceneCandidateDecision : reviewed_by
+    SceneRenderAttempt ||--o{ SceneValidationRun : validated_by
+    SceneCandidateDecision o|--o| ApprovedSceneFrame : acceptance_creates
     SceneValidationRun ||--o{ SceneValidationFinding : reports
     SceneValidationFinding ||--o{ SceneValidationOverride : reviewed_by
     SceneValidationFinding ||--o{ SceneRepairAttempt : may_trigger

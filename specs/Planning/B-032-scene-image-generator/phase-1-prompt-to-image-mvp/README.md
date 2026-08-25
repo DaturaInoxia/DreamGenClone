@@ -5,7 +5,10 @@
 
 ## Purpose
 
-Phase 1 proves the complete application path from a selected roleplay interaction to persisted scene images. It also includes the later approved Qwen source-image editing vertical slice. Phase 2 begins when work moves from manual image generation/editing to persisted character identity packs and repeatable identity conditioning.
+Phase 1 proves the complete application path from a selected roleplay interaction to persisted
+scene images. It also includes the later approved raw-instruction Qwen source-image editing
+vertical slice. Phase 1B replaces that raw pass-through with a vision-aware compiler and dedicated
+editor before Phase 2 begins persisted character identity packs and repeatable conditioning.
 
 ## Implemented
 
@@ -60,4 +63,7 @@ Only the final end-to-end manual POC acceptance coverage in T068 remains:
 - Record a representative style/size image-quality sample.
 - Exercise the complete running-app workflow: generate prompt, edit prompt, render, regenerate with prior version retained, indicator, gallery, Qwen edit, and delete.
 
-Builds, automated tests, Qwen non-explicit proof, backlog state, and the Phase 2 identity/LoRA scope decision are complete. T069 is closed. Phase 2 can begin independently of the remaining Phase 1 manual acceptance checks, but Phase 1 should not be described as fully accepted until those checks are recorded.
+Builds, automated tests, Qwen non-explicit proof, backlog state, and the Phase 2 identity/LoRA scope
+decision are complete. T069 is closed. Phase 1B can begin independently of the remaining Phase 1
+manual acceptance checks. Phase 2 now waits for Phase 1B's multimodal/provenance exit gate, and
+Phase 1 should not be described as fully accepted until its remaining checks are recorded.

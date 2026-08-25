@@ -3,6 +3,8 @@
 **Execution rule:** Complete in order unless marked `[P]`. Check a task only after its tests and
 evidence are recorded.
 
+**Prerequisite:** Record the Phase 1B vision-aware editing exit gate before starting P2-001.
+
 ## A. Persistence and Assets
 
 - [ ] P2-001 Add identity enums and records in `DreamGenClone.Domain/RolePlay`.

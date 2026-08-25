@@ -6,6 +6,10 @@ Add identity assets and immutable pack versions, prove one SDXL conditioning mec
 new controlled render path that compiles actor-scoped references and regions. Existing prompt-only
 and Qwen-edit paths remain unchanged.
 
+Phase 1B first establishes the multimodal transport, dedicated edit workbench, source-aware Qwen
+prompt compilation, and edit provenance. Phase 2 reuses those contracts where applicable but does
+not merge identity conditioning with edit compilation.
+
 ## Change Surface
 
 ### Domain

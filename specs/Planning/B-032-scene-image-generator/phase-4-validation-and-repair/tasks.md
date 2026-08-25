@@ -1,6 +1,25 @@
 # Phase 4 Tasks - Validation, Repair, and Anchors
 
-**Prerequisite:** Phase 3 exit gate is recorded.
+**Prerequisite:** Manual quality-gate POC may proceed for review before Phase 3; automated
+validation/repair and final Phase 4 exit still require the Phase 3 exit gate.
+
+## POC-0. Manual Gate and Candidate Selection
+
+- [ ] P4-000A Add persisted UI-backed candidate count, repair variant count, seed-allocation policy,
+  and bounds with no runtime defaults.
+- [ ] P4-000B Add candidate-set and immutable accept/reject decision records over independent render
+  attempts with complete per-candidate provenance; accepting atomically creates the checksum-
+  guarded `ApprovedSceneFrame` used by downstream eligibility.
+- [ ] P4-000C Separate render `Complete`, validation `Passed`, and user `Accepted`; enforce accepted-
+  only eligibility at every downstream image-consumption boundary.
+- [ ] P4-000D Add a stable side-by-side Studio candidate review surface with accept, reject,
+  regenerate-set, and provenance navigation.
+- [ ] P4-000E Add user-directed Qwen repair variants as bounded child renders; require re-review and
+  forbid inherited acceptance or source overwrite.
+- [ ] P4-000F Add lifecycle, accepted-only boundary, candidate preservation, child-lineage, no-
+  fallback configuration, Razor diagnostic, and browser workflow tests.
+- [ ] P4-000G Run a POC corpus and record acceptance rate by configured batch size, generation cost,
+  Qwen target correction, and unintended identity/wardrobe/cast/relationship changes.
 
 ## A. Policies and Persistence
 
@@ -23,7 +42,10 @@
 ## C. Vision Validation Proof
 
 - [ ] P4-011 Freeze a labeled corpus containing valid examples and known violations for every
-  initial finding code, including unknown/occluded cases.
+  initial finding code, including extra/missing/fused limbs, malformed hands/feet, multiple people,
+  reflections/background people, and unknown/occluded cases.
+- [ ] P4-011A Record that OpenPose/DWPose, detector/Detailer, SAM, and LaMa outputs are advisory
+  evidence only; prove any signal separately before it can affect ranking or eligibility.
 - [ ] P4-012 Add explicit validation-model configuration and one strict resolver with image-input,
   schema, content-policy, and threshold validation.
 - [ ] P4-013 Implement compact prompt/schema v1, strict parser, raw-response persistence, and
@@ -32,6 +54,9 @@
   codes as human-only.
 - [ ] P4-015 Integrate only codes meeting the documented report-quality threshold; do not enable
   repair merely because reporting passes.
+- [ ] P4-015A Keep manual review functional when no proven validator is configured; represent
+  automation as unavailable in the validation run, never as a pass. Do not require another large
+  runtime on the current one-pod POC.
 - [ ] P4-016 [P] Add schema, parse failure, model failure, raw evidence, and resolver tests.
 
 ## D. Review and Approval
