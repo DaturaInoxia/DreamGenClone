@@ -2,17 +2,17 @@
   "status": "passed-covered-scenarios",
   "coverage": {
     "nonExplicitEditing": "passed",
-    "adultContentEditing": "not-tested",
+    "adultContentEditing": "tested-exploratory-unscored",
     "overall": "pass-incomplete-adult-content-coverage"
   },
   "completedUtc": "2026-08-24T23:08:30Z",
   "design": "Six independent edits of increasing complexity from one validated two-person base image",
   "workflows": {
-    "base": "helpers/runpod/workflows/qwen-simple-people-base.json",
-    "edit": "helpers/runpod/workflows/qwen-simple-people-edit.json"
+    "base": "prompts/qwen-simple-people-base.json",
+    "edit": "prompts/qwen-simple-people-edit.json"
   },
   "base": {
-    "path": "accepted/base.png",
+    "path": "images/base.png",
     "generator": "Juggernaut XL Ragnarok",
     "seed": 73190,
     "promptId": "4bda719e-0a0a-4134-895c-2e9d09b36dd7",
@@ -23,8 +23,8 @@
   "edits": [
     {
       "id": "man-shirt-blue-to-red",
-      "path": "accepted/edit-red-shirt.png",
-      "source": "accepted/base.png",
+      "path": "images/edit-red-shirt.png",
+      "source": "images/base.png",
       "seed": 73191,
       "promptId": "60c9a4e6-81b9-4969-98e0-ef3fb3920a05",
       "elapsedSeconds": 198.83,
@@ -35,8 +35,8 @@
     },
     {
       "id": "woman-add-black-glasses",
-      "path": "accepted/edit-woman-glasses.png",
-      "source": "accepted/base.png",
+      "path": "images/edit-woman-glasses.png",
+      "source": "images/base.png",
       "seed": 73192,
       "promptId": "8130ab8f-207e-4711-9287-2e6a0413cf59",
       "elapsedSeconds": 198.98,
@@ -47,8 +47,8 @@
     },
     {
       "id": "man-raise-right-arm-wave",
-      "path": "accepted/edit-man-right-wave.png",
-      "source": "accepted/base.png",
+      "path": "images/edit-man-right-wave.png",
+      "source": "images/base.png",
       "seed": 73193,
       "promptId": "22aff29d-f1c5-4b26-b2a1-f17299b8975f",
       "elapsedSeconds": 198.86,
@@ -60,8 +60,8 @@
     },
     {
       "id": "woman-pregnant-body-shape",
-      "path": "accepted/edit-woman-pregnant.png",
-      "source": "accepted/base.png",
+      "path": "images/edit-woman-pregnant.png",
+      "source": "images/base.png",
       "seed": 73194,
       "promptId": "15a031e5-c970-4c9b-900a-cddc5ce9ab2a",
       "elapsedSeconds": 199.52,
@@ -73,8 +73,8 @@
     },
     {
       "id": "woman-left-facing-profile",
-      "path": "accepted/edit-woman-profile.png",
-      "source": "accepted/base.png",
+      "path": "images/edit-woman-profile.png",
+      "source": "images/base.png",
       "seed": 73195,
       "promptId": "96b480fb-9386-46b8-8b56-e222a9058545",
       "elapsedSeconds": 198.61,
@@ -86,8 +86,8 @@
     },
     {
       "id": "swap-people-positions",
-      "path": "accepted/edit-swap-positions.png",
-      "source": "accepted/base.png",
+      "path": "images/edit-swap-positions.png",
+      "source": "images/base.png",
       "seed": 73196,
       "promptId": "9a5cb1a4-5558-4ecb-8413-7b9027e7d804",
       "elapsedSeconds": 199.43,
@@ -116,22 +116,22 @@
     "reason": "The interaction experiments informed manual staged-edit guidance, but their original per-image prompt and execution ledger was not retained. They are preservation artifacts, not quality evidence.",
     "images": [
       {
-        "path": "exploratory/interaction-one-pass.png",
+        "path": "images/exploratory/interaction-one-pass.png",
         "bytes": 993732,
         "sha256": "e10cc3a10518e94ccd880b2ff62fd449136c5a88d77d5f543c3d135f712a94e3"
       },
       {
-        "path": "exploratory/interaction-stage1-close-pose.png",
+        "path": "images/exploratory/interaction-stage1-close-pose.png",
         "bytes": 1004616,
         "sha256": "6f4e631e982f0299a226622c5fe364a0cadc62871ee5055e51bf8373c073cf02"
       },
       {
-        "path": "exploratory/interaction-stage1-pose.png",
+        "path": "images/exploratory/interaction-stage1-pose.png",
         "bytes": 864118,
         "sha256": "06a4a4eeecbe5a85bc415a05068939c1df41775a9b89229d3f5da39cee484188"
       },
       {
-        "path": "exploratory/interaction-stage2-man-hands-head.png",
+        "path": "images/exploratory/interaction-stage2-man-hands-head.png",
         "bytes": 977007,
         "sha256": "9c4af8e2a4ab2f6be889e14dd4e3187a92117f0cd3296b6466cd61a6b90a1760"
       }
@@ -142,5 +142,64 @@
     "qwenPort": 3002,
     "productionComfyUiVersion": "v0.3.10",
     "productionPort": 3000
+  },
+  "adultFellatio": {
+    "status": "exploratory-unscored",
+    "note": "Adult-content Qwen editing was exercised in a staged four-edit session from the standing couple base image (face-to-face -> kneel -> hands -> fellatio). Results are recorded for evidence only and are NOT scored capability evidence; anatomy alignment was still being corrected (stage 5 failed on pod disk quota before rendering).",
+    "source": "images/base.png",
+    "modelSettings": {
+      "steps": 40,
+      "cfg": 4.0,
+      "sampler": "euler",
+      "scheduler": "simple",
+      "denoise": 1.0,
+      "auraFlowShift": 3.1,
+      "cfgNormStrength": 1.0
+    },
+    "stages": [
+      {
+        "id": "fellatio-stage1-facing",
+        "path": "images/adult-fellatio/stage1-facing.png",
+        "seed": 81001,
+        "result": "accepted",
+        "prompt": "Reposition the two people so they now stand directly facing each other, the man on the viewer's left facing right toward the woman, and the woman on the viewer's right facing left toward the man, standing close together with no gap between them, both fully upright and full-body in frame. Keep their faces, hair, identity, clothing (man's light blue button-up shirt and dark blue jeans; woman's plain white t-shirt and dark skinny jeans), lighting, and plain gray studio background unchanged. Both arms remain relaxed at their sides.",
+        "bytes": 998142,
+        "sha256": "d44620ed8ab526cd67b0a279b57db791d3bc801309de3be94a37017602ce3921"
+      },
+      {
+        "id": "fellatio-stage2-kneel",
+        "path": "images/adult-fellatio/stage2-kneel.png",
+        "seed": 81002,
+        "result": "accepted",
+        "prompt": "Move the woman down so she is kneeling on the floor directly in front of the man, facing his body, at his feet, with her head at about the height of his hips. The man remains standing, facing her. Keep the man fully upright. Keep their faces, hair, identity, clothing (man's light blue button-up shirt and dark blue jeans; woman's plain white t-shirt and dark skinny jeans), lighting, and plain gray studio background unchanged. Keep the man's arms relaxed at his sides.",
+        "bytes": 910118,
+        "sha256": "069a8af9d953400eee3d95b5f7a65203c8430a76ebeddfb1cb50965d0d887ca6"
+      },
+      {
+        "id": "fellatio-stage3-hands",
+        "path": "images/adult-fellatio/stage3-hands.png",
+        "seed": 81003,
+        "result": "accepted",
+        "prompt": "Now place the man's both hands on the top of the woman's head, and place the woman's both hands on the man's hips. She is kneeling in front of him facing his body. Keep their faces, hair, identity, clothing (man's light blue button-up shirt and dark blue jeans; woman's plain white t-shirt and dark skinny jeans), lighting, and plain gray studio background unchanged. Keep the man standing and the woman kneeling.",
+        "bytes": 982380,
+        "sha256": "cd7f6d3db6bb46bd6e44883933f6f15ccc2a0d2516670d31409ae7ed4eedfea8"
+      },
+      {
+        "id": "fellatio-stage4-fellatio",
+        "path": "images/adult-fellatio/stage4-fellatio.png",
+        "seed": 81004,
+        "result": "accepted",
+        "prompt": "Now make the scene explicit: the man's dark blue jeans are unzipped and pulled down slightly at the front, his erect penis out of his pants. The kneeling woman's mouth is open with his erect penis inside her mouth, performing fellatio. Keep both people's faces, hair, identity, the man's light blue button-up shirt, the woman's plain white t-shirt and dark skinny jeans, lighting, and plain gray studio background unchanged. Keep the man standing with his hands on her head and her hands on his hips.",
+        "bytes": 966375,
+        "sha256": "66c1a9fd1ea127af7c298ced3090573453bf861ce717a93f0113ad98034ff2e4"
+      },
+      {
+        "id": "fellatio-stage5-aligned",
+        "path": null,
+        "seed": 81005,
+        "result": "failed-disk-quota",
+        "prompt": "Fix the anatomy and alignment. The man's erect penis is positioned too high and disconnected from his body; move it down so it rises correctly from between his thighs at his crotch, emerging from his open unzipped dark blue jeans at his pelvis. Reposition the woman so she kneels slightly lower and closer to the man, her head tilted up and her open mouth directly at the penis, taking his erect penis fully into her mouth. Her hands stay on his hips. Keep both people's faces, hair, identity, the man's light blue button-up shirt, the woman's plain white t-shirt and dark skinny jeans, lighting, and plain gray studio background unchanged."
+      }
+    ]
   }
 }

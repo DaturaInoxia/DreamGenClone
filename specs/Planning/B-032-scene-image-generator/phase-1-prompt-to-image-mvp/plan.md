@@ -19,7 +19,7 @@ The prompt-to-image POC is necessary plumbing but is not the final rendering arc
 - validate explicit constraints and apply bounded, targeted repair;
 - fail fast when a controlled shot is missing required configuration, with no text-only fallback.
 
-The earlier implementation gate was a standalone four-seed Juggernaut + SDXL ControlNet proof for one clothed, one-way hand-on-chest contact. That OpenPose/inpainting route was tested and rejected. Qwen Image Edit 2511 is now the selected semantic editing mechanism; its proof is recorded in `artifacts/tmp/images/qwen-simple-people-proof/`. No continuity app integration begins until the identity, location, control, and validation contracts are defined and tested.
+The earlier implementation gate was a standalone four-seed Juggernaut + SDXL ControlNet proof for one clothed, one-way hand-on-chest contact. That OpenPose/inpainting route was tested and rejected. Qwen Image Edit 2511 is now the selected semantic editing mechanism; its proof is recorded in `specs/image-generator-tests/qwen/`. No continuity app integration begins until the identity, location, control, and validation contracts are defined and tested.
 
 ## Technical Context
 

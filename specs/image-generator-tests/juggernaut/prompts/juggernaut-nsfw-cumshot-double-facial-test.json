@@ -1,0 +1,59 @@
+{
+  "4": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "juggernautXL_ragnarok.safetensors"
+    }
+  },
+  "6": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "Photorealistic explicit cumshot, exactly two adult men standing over one kneeling adult woman, both men's faces out of frame, only their erect penises and lower torsos visible in the frame, both men finishing on the woman's face, close-up of her face covered in semen from both men, thick cum on her cheeks and lips, both penises in the foreground, correct anatomy, natural realistic skin texture, soft warm bedroom lighting, 35mm macro lens, sharp focus, highly detailed",
+      "clip": ["4", 1]
+    }
+  },
+  "7": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "deformed, bad anatomy, extra limbs, extra legs, four legs, fused legs, extra fingers, extra arms, missing limbs, malformed hands, malformed feet, fused bodies, merged bodies, extra people, men's faces, men's heads, male faces in frame, misplaced genitals, penis on arm, penis on hand, detached penis, extra penis, blurry genitals, featureless genitals, censored, cartoon, anime, illustration, painting, sketch, watermark, text, low quality, oversaturated, plastic skin",
+      "clip": ["4", 1]
+    }
+  },
+  "3": {
+    "class_type": "KSampler",
+    "inputs": {
+      "seed": 20505,
+      "steps": 30,
+      "cfg": 5.0,
+      "sampler_name": "dpmpp_2m_sde",
+      "scheduler": "karras",
+      "denoise": 1.0,
+      "model": ["4", 0],
+      "positive": ["6", 0],
+      "negative": ["7", 0],
+      "latent_image": ["5", 0]
+    }
+  },
+  "5": {
+    "class_type": "EmptyLatentImage",
+    "inputs": {
+      "width": 1024,
+      "height": 1024,
+      "batch_size": 1
+    }
+  },
+  "8": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": ["3", 0],
+      "vae": ["4", 2]
+    }
+  },
+  "9": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "dreamgen_juggernaut_cumshot_double_facial",
+      "images": ["8", 0]
+    }
+  }
+}

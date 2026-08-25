@@ -19,7 +19,7 @@ Make recurring characters visually recognizable across renders, poses, and camer
 
 ## Evidence
 
-Qwen Image Edit 2511 is the selected semantic editing mechanism. The covered non-explicit proof passed 6/6 controlled edits; adult-content editing remains untested. Proof outputs remain under `artifacts/tmp/images/qwen-simple-people-proof/`.
+Qwen Image Edit 2511 is the selected semantic editing mechanism. The covered non-explicit proof passed 6/6 controlled edits; adult-content editing has been exercised in an exploratory, unscored session (`specs/image-generator-tests/qwen/images/adult-fellatio/`). Proof outputs remain under `specs/image-generator-tests/qwen/`.
 
 ## Exit Gate
 

@@ -35,7 +35,7 @@ One Juggernaut two-person base image was used for six independent Qwen edits:
 
 The covered non-explicit proof passed 6/6. Acceptance covered requested-edit presence, people count, visual identity, clothing ownership, unrequested pose/limb preservation, framing, lighting, background, laterality, body orientation, and spatial assignment. Preservation was judged visually, not pixel-for-pixel.
 
-Adult-content editing was not tested. The result is therefore `passed-covered-scenarios`, not complete coverage of every intended content path. Exact prompts, seeds, prompt IDs, timings, hashes, observations, and outputs are preserved under `artifacts/tmp/images/qwen-simple-people-proof/`.
+Adult-content editing was not part of the scored proof; it was later exercised in an exploratory, unscored staged session (`specs/image-generator-tests/qwen/images/adult-fellatio/`). The result is therefore `passed-covered-scenarios`, not complete coverage of every intended content path. Exact prompts, seeds, prompt IDs, timings, hashes, observations, and outputs are preserved under `specs/image-generator-tests/qwen/`.
 
 ### Added To The Application
 

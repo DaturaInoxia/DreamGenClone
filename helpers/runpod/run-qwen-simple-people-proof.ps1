@@ -7,10 +7,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
-$proofRoot = Join-Path $repoRoot "specs\Planning\B-032-scene-image-generator\phase-2-character-identity\qwen-simple-people-proof"
+$proofRoot = Join-Path $repoRoot "specs\image-generator-tests\qwen"
 $manifestPath = Join-Path $proofRoot "manifest.json"
-$baseWorkflow = Join-Path $repoRoot "helpers\runpod\workflows\qwen-simple-people-base.json"
-$editWorkflow = Join-Path $repoRoot "helpers\runpod\workflows\qwen-simple-people-edit.json"
+$baseWorkflow = Join-Path $proofRoot "prompts\qwen-simple-people-base.json"
+$editWorkflow = Join-Path $proofRoot "prompts\qwen-simple-people-edit.json"
 $runner = Join-Path $PSScriptRoot "generate-one.ps1"
 
 foreach ($path in $manifestPath, $baseWorkflow, $editWorkflow, $runner) {

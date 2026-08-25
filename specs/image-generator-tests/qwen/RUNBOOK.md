@@ -2,11 +2,15 @@
 
 ## Purpose
 
-This directory is the source-controlled evidence package for the six-of-six controlled, non-explicit Qwen Image Edit 2511 proof. It contains the base image, six accepted independent edits, exact prompt/seed metadata, hashes, and visual acceptance notes.
+This directory (`specs/image-generator-tests/qwen/`) is the source-controlled evidence package for the six-of-six controlled, non-explicit Qwen Image Edit 2511 proof, plus the exploratory adult-content session.
 
-`exploratory/` retains four later interaction experiments. They are unscored, not part of the six-of-six result, and must never be used as a capability score.
+- `images/` — `base.png`, the six accepted edits, `exploratory/` (four unscored interaction experiments), and `adult-fellatio/` (the staged adult-content session).
+- `prompts/` — the base and edit ComfyUI workflows (the exact prompts, seeds, and settings used).
+- `manifest.json` — full prompt/seed/hash metadata.
 
-Adult-content editing is not tested by this package.
+`images/exploratory/` retains four interaction experiments. They are unscored, not part of the six-of-six result, and must never be used as a capability score.
+
+Adult-content editing was exercised in an exploratory, unscored staged session under `images/adult-fellatio/`; it is recorded as evidence only and is NOT scored capability evidence.
 
 ## Package Integrity
 
@@ -58,7 +62,7 @@ powershell -ExecutionPolicy RemoteSigned -File helpers/runpod/run-juggernaut-sim
   -ComfyUiUrl "https://<your-base-comfyui-endpoint>"
 ```
 
-It writes exactly one newly generated image to `artifacts/tmp/images/juggernaut-simple-people-replay/`. Compare it visually with `accepted/base.png`; the packaged image hash proves the original evidence, not byte-identical output across changed environments.
+It writes exactly one newly generated image to `artifacts/tmp/images/juggernaut-simple-people-replay/`. Compare it visually with `images/base.png`; the packaged image hash proves the original evidence, not byte-identical output across changed environments.
 
 Run the replay with explicit endpoints:
 

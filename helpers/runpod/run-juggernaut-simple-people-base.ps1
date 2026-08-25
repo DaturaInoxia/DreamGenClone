@@ -8,9 +8,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
-$workflowPath = Join-Path $repoRoot "helpers\runpod\workflows\qwen-simple-people-base.json"
+$workflowPath = Join-Path $repoRoot "specs\image-generator-tests\qwen\prompts\qwen-simple-people-base.json"
 $runnerPath = Join-Path $PSScriptRoot "generate-one.ps1"
-$proofManifestPath = Join-Path $repoRoot "specs\Planning\B-032-scene-image-generator\phase-2-character-identity\qwen-simple-people-proof\manifest.json"
+$proofManifestPath = Join-Path $repoRoot "specs\image-generator-tests\qwen\manifest.json"
 
 foreach ($path in $workflowPath, $runnerPath, $proofManifestPath) {
     if (-not (Test-Path $path -PathType Leaf)) { throw "Required source-controlled file was not found: $path" }
