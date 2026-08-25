@@ -89,7 +89,28 @@ the previously-missing pieces were the genital + fused-bodies guards and the boo
 5. **Surgical inpaint**: hands denoise 0.8–0.9; face micro-pass 0.6–0.75; upscale denoise 0.2–0.4.
 6. **VRAM**: ~+1–1.5 GB per SDXL ControlNet; the A40 pod handles OpenPose+Depth fine.
 
-## 5. Model-level reality
+## 5. Candidate NSFW model landscape (what's available to choose from)
+
+Snapshot of the mainstream NSFW-capable image models as of 2026-08-25, so a checkpoint choice is a
+deliberate, documented decision rather than an accident. "Lane" = the style/realism region a model
+is strong in; the repo routes checkpoints via `SceneImageModelFamilyResolver.Classify` (Pony vs
+Sdxl vs Unknown, fail-fast on unknown).
+
+| Model | Family | Lane / style | Prompt style | NSFW capability | Notes |
+|---|---|---|---|---|---|
+| **Pony Diffusion V6 XL** | SDXL (booru) | Anime / illustration-heavy | Booru tags + `score_9…score_4_up` rating, CLIP skip 2 | Strong (explicit) | 1.07M dl / 76K likes. Repo's original path; being retired from the pod in Phase 1B. Tag-driven, garbles long prose. |
+| **Pony Realism** | SDXL (Pony-derived) | Photoreal Pony | Booru tags + rating tokens, realistic | Strong (explicit photoreal) | Photoreal fine-tune of the Pony lineage; keeps booru anatomy tags. Follows ControlNet pose at slightly lower weight than RealVisXL. |
+| **CyberRealistic Pony** | SDXL (Pony-derived) | Photoreal Pony | Booru tags + rating tokens | Strong (explicit photoreal) | 764K dl / 32K likes. Photoreal Pony NSFW alternative. |
+| **Juggernaut XL Ragnarok** | SDXL | Photoreal (magazine skin), soft NSFW | Natural-language photo brief + booru tokens; CFG 3–6 | Good (softer NSFW) | 1.62M dl / 36K likes. **Current repo checkpoint.** Trained using Lustify as an input; weak hard-explicit positional guarantee (this doc's whole subject). |
+| **Juggernaut-Z V2** | SDXL | Photoreal, NSFW restrictions lifted | Same family prompting | Good–strong | Newest; creator says corporate NSFW restrictions lifted → stronger explicit lane than Ragnarok. |
+| **Lustify (ZENITH / APEX)** | SDXL | Dedicated photoreal EXPLICIT | Natural-language + concrete anatomy; minimal negative | Strong (hard explicit) | 373K dl / 14K likes. **Parked 2026-08-24** (B-032 "OUT OF PLAN") but shares DNA with Juggernaut and is the community pick for guaranteed explicit + positions. |
+| **RealVisXL v3** | SDXL | Photoreal | Natural-language | Good | Better full-body consistency reported vs Juggernaut; single-subject strong. |
+| **Nova Anime XL / Illustrious** | SDXL (Illustrious) | Anime NSFW leader | Booru tags | Strong (anime explicit) | 467K dl. Only relevant if an anime/illustration lane is ever needed. |
+| **Realistic Vision v5.1 / epiCRealism / majicMIX / BRA / epiCPhotoGasm** | SD 1.5 | Photoreal workhorses | Natural-language + tags | Good (explicit via fine-tunes) | 403K–885K dl. Older 512/768 architecture, SDXL-era quality gap; legacy options. |
+| **Flux / Pixelwave** | Flux (next-gen) | Photoreal / style | Natural-language | SFW-leaning (explicit needs fine-tunes) | Base is SFW-trained. **Creator pipeline:** FluxDev / Pixelwave → Juggernaut Ragnarok refiner (Flux composition, Juggernaut detail). |
+| **Base SDXL 1.0** | SDXL | Generic photoreal | Natural-language | **Cannot render explicit genitals** (verified in B-099) | Baseline only; not an NSFW choice. |
+
+### Model-level reality for B-032
 
 - **Juggernaut = soft NSFW / magazine skin.** For hard explicit + guaranteed positions the community
   points to **Lustify** (parked; shares DNA with Juggernaut) or **RealVisXL v3** (better full-body
@@ -98,6 +119,8 @@ the previously-missing pieces were the genital + fused-bodies guards and the boo
   detail).
 - **Juggernaut-Z V2** (newest, NSFW restrictions lifted per creator) is a stronger NSFW base if the
   checkpoint ever changes.
+- Repo state: pod volume holds `juggernautXL_ragnarok.safetensors`; `/ComfyUI/extra_model_paths.yaml`
+  needs recreating to load it (2026-08-25); Pony retired from the active pod per Phase 1B.
 
 ## 6. Plan consequence (2026-08-25)
 
