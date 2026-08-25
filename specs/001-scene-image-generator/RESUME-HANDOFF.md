@@ -4,12 +4,14 @@
 > Everything needed to resume lives in this repo. Do NOT rely on prior chat memory.
 
 **Feature**: `001-scene-image-generator` (backlog B-032, Scene Image Generator)  
-**Last updated**: 2026-08-20  
+**Last updated**: 2026-08-24
 **Branch/work dir**: repo root `D:\src\DreamGenClone` (on other machines: the same repo, same paths relative to root)
 
 ---
 
 ## 1. TL;DR — where we are
+
+> **Phase 2 continuity work:** read `continuity-rendering-architecture.md` first, then continue the current gate in `controlnet-touch-proof.md`. The original prompt-to-image pipeline below remains valid Phase 1 plumbing, but it is not sufficient for repeatable identity, exact pose/contact, detailed location geometry, or multiple POVs of one frozen moment. Do not resume by tuning prompts or generating random seeds.
 
 - The Scene Image Generator feature is **fully implemented and tested** (a two-stage pipeline: text preprocessor → image model; Model Manager image config; Image Studio + Gallery pages; workspace triggers/indicators).
 - **Build: 0 errors. Tests: 1195/1195 passing.**
@@ -20,12 +22,14 @@
 
 ## 2. How to orient (read these first, in order)
 
-1. `specs/001-scene-image-generator/spec.md` — the feature spec (user stories).
-2. `specs/001-scene-image-generator/change-requests.md` — **the running change log**. CR-001..CR-006 all implemented.
-3. `specs/001-scene-image-generator/design/preprocessor-refinement-design.md` — **the approved design for CR-006** (the main thing to implement).
-4. `specs/001-scene-image-generator/data-model.md` — entities/tables.
-5. `specs/001-scene-image-generator/contracts/scene-image-pipeline-contract.md` — pipeline contract + debug events.
-6. `specs/001-scene-image-generator/tasks.md` — task list (all `[X]` except T068/T069 which are manual/validation).
+1. `specs/001-scene-image-generator/continuity-rendering-architecture.md` — controlling Phase 2 architecture, terminology, delivery phases, and first gate.
+2. `specs/001-scene-image-generator/controlnet-touch-proof.md` — live host inventory and proof ledger; resume its single next action.
+3. `specs/001-scene-image-generator/spec.md` — formal Phase 1 and Phase 2 user stories and requirements.
+4. `specs/001-scene-image-generator/change-requests.md` — historical Phase 1 change log. CR-001..CR-006 are implemented.
+5. `specs/001-scene-image-generator/design/preprocessor-refinement-design.md` — approved historical CR-006 design.
+6. `specs/001-scene-image-generator/data-model.md` — current Phase 1 entities/tables; Phase 2 domain draft is in the continuity architecture.
+7. `specs/001-scene-image-generator/contracts/scene-image-pipeline-contract.md` — current pipeline contract + debug events.
+8. `specs/001-scene-image-generator/tasks.md` — original Phase 1 task list; it does not yet decompose Phase 2.
 
 Also mandatory repo rules: `.github/copilot-instructions.md` (hard rules: no git restore, no fallback gate values, tests must pass, no RP-engine changes without plan+confirmation) and `helpers/start-webapp.ps1` for running the app.
 

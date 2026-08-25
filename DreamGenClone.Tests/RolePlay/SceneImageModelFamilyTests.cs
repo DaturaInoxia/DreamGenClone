@@ -14,7 +14,7 @@ public sealed class SceneImageModelFamilyTests
     }
 
     [Theory]
-    [InlineData("Juggernaut_XL_Ragnarok_ByRunDiffusion.safetensors")]
+    [InlineData("juggernautXL_ragnarok.safetensors")]
     [InlineData("sd_xl_base_1.0.safetensors")]
     [InlineData("RealVisXL_V4.0.safetensors")]
     [InlineData("juggernautXL_ragnarok.safetensors")]

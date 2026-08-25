@@ -1,0 +1,84 @@
+{
+  "4": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "juggernautXL_ragnarok.safetensors"
+    }
+  },
+  "6": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "Photorealistic 35mm photograph of a fully clothed middle-aged woman facing a fully clothed middle-aged man. Her open right palm rests flat on the center front of his black shirt-covered chest, with visible naturally spread fingers. Her right forearm connects naturally to her hand. Preserve black clothing, lighting, skin tone, and realistic anatomy.",
+      "clip": ["4", 1]
+    }
+  },
+  "7": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "deformed, bad anatomy, malformed hand, extra fingers, missing fingers, extra arms, disconnected arm, hidden hand, hand behind torso, hovering hand, wrong hand, mutual touching, nude, naked, topless, shirtless, cartoon, illustration, watermark, text",
+      "clip": ["4", 1]
+    }
+  },
+  "10": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "contact-inpaint-source.png"
+    }
+  },
+  "11": {
+    "class_type": "LoadImageMask",
+    "inputs": {
+      "image": "contact-inpaint-mask-v2.png",
+      "channel": "red"
+    }
+  },
+  "12": {
+    "class_type": "VAEEncodeForInpaint",
+    "inputs": {
+      "pixels": ["10", 0],
+      "vae": ["4", 2],
+      "mask": ["11", 0],
+      "grow_mask_by": 8
+    }
+  },
+  "3": {
+    "class_type": "KSampler",
+    "inputs": {
+      "seed": 24690,
+      "steps": 30,
+      "cfg": 5.0,
+      "sampler_name": "dpmpp_2m_sde",
+      "scheduler": "karras",
+      "denoise": 1.0,
+      "model": ["4", 0],
+      "positive": ["6", 0],
+      "negative": ["7", 0],
+      "latent_image": ["12", 0]
+    }
+  },
+  "8": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": ["3", 0],
+      "vae": ["4", 2]
+    }
+  },
+  "13": {
+    "class_type": "ImageCompositeMasked",
+    "inputs": {
+      "destination": ["10", 0],
+      "source": ["8", 0],
+      "x": 0,
+      "y": 0,
+      "resize_source": false,
+      "mask": ["11", 0]
+    }
+  },
+  "9": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "contact-inpaint-proof-v2/render",
+      "images": ["13", 0]
+    }
+  }
+}

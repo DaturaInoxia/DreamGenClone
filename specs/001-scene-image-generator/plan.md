@@ -7,6 +7,20 @@
 
 Add a scene image generation engine to DreamGenClone. The user selects a narrative interaction in the RP workspace, clicks **Generate image**, and a dedicated **Image Studio** page opens (`/roleplay/studio/{sessionId}/{interactionId}`). The studio runs a two-stage pipeline: (1) a **pre-processor LLM** (new `AppFunction.RolePlaySceneImagePreprocessor`) consumes the interaction, the scene's atmosphere (setting, time of day, phase, characters, resolved intensity), and the user's image settings (style, size, explicitness) to produce an **editable image prompt**; (2) an **image generation model** (new `AppFunction.RolePlaySceneImage`) renders the prompt into an image saved to disk and persisted in SQLite. Both stages are queued as background jobs (reusing the existing `GenericBackgroundJobQueue`) so the UI never blocks. The studio supports iterative refinement (edit prompt, change settings, "Refine prompt" with AI, regenerate — each render is a distinct saved version). Interactions with images show an **indicator** with a count badge in the workspace; a separate **per-session gallery** page (`/roleplay/gallery/{sessionId}`) lists all images grouped by interaction. Provider integration extends the existing Model Manager with image capability on providers/models and a first-class **content policy** (SFW-filtered vs adult-allowed) that gates explicit generation — never bypassing a provider's filter, never assuming a default policy. **Phase 1 = all plumbing + a POC** to validate NSFW behavior, image quality, and the basic flow with a real image-capable provider (expected: Together AI FLUX.1). Character likeness from reference images on character profiles is a later roadmap phase.
 
+### Phase 2 Continuity Amendment (2026-08-24)
+
+The prompt-to-image POC is necessary plumbing but is not the final rendering architecture. Live Juggernaut testing proved that prose and fixed seeds do not reliably preserve asymmetric touch, exact blocking, object anchors, or one frozen moment across POVs. Phase 2 therefore adopts `continuity-rendering-architecture.md` as the controlling design:
+
+- compile beat metadata into a persisted, camera-independent canonical visual plan;
+- condition recurring identities and locations with persisted visual assets;
+- use pose/depth/mask controls for geometry instead of relying on prompt wording;
+- derive every POV shot from one frozen scene plan;
+- persist complete workflow/control provenance;
+- validate explicit constraints and apply bounded, targeted repair;
+- fail fast when a controlled shot is missing required configuration, with no text-only fallback.
+
+The first implementation gate is a standalone four-seed Juggernaut + SDXL ControlNet proof for one clothed, one-way hand-on-chest contact. No app integration begins until that proof passes and its exact host dependencies, workflow, control asset, and results are recorded in `controlnet-touch-proof.md`.
+
 ## Technical Context
 
 **Language/Version**: C# / .NET 9.0

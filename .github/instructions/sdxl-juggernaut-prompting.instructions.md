@@ -16,7 +16,7 @@ applyTo: DreamGenClone.Web/Application/RolePlay/SdxlSceneImagePromptBuilder.cs,D
   direction far better than Pony and render correct human/gender anatomy (validated: SDXL base
   produced correct man+woman, correct bodies; base SDXL **cannot** render explicit genital anatomy —
   it is trained to avoid it → use **Juggernaut XL** (NSFW-capable) or Pony for explicit genital shots).
-- **Juggernaut XL Ragnarok** (`Juggernaut_XL_Ragnarok_ByRunDiffusion.safetensors`, 6.62GB) is the
+- **Juggernaut XL Ragnarok** (`juggernautXL_ragnarok.safetensors`, 6.62GB) is the
   recommended photorealistic NSFW-capable model (RAIL++-M license, "Overwhelmingly Positive" on
   Civitai, ~1.9M downloads). Download requires a **Civitai API token** (anonymous = 403 on the R2
   delivery CDN; the token goes in `Authorization: Bearer`).
@@ -64,7 +64,7 @@ Used by: `SceneImagePromptGenerationJobHandler` (picks the LLM prompt builder), 
 
 ## Model Manager steps (Juggernaut)
 
-1. Add Model: DisplayName `Juggernaut XL Ragnarok`, **ModelIdentifier** `Juggernaut_XL_Ragnarok_ByRunDiffusion.safetensors`
+1. Add Model: DisplayName `Juggernaut XL Ragnarok`, **ModelIdentifier** `juggernautXL_ragnarok.safetensors`
    (must EXACTLY match the pod filename — ComfyUI client uses the identifier verbatim as the checkpoint
    when it looks like a filename, else fails fast), Provider `RunPod ComfyUI`, ModelKind `Image`,
    ImageSizeSupported `1024x1024`, Enabled.

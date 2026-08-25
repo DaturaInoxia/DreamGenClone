@@ -4,13 +4,15 @@
 > Everything needed to resume lives in this repo. Do NOT rely on prior chat memory.
 
 **Feature area**: Scene Image Generator (backlog B-032) — PonyV6/ComfyUI integration + per-model prompt-builder refactor
-**Last updated**: 2026-08-23
+**Last updated**: 2026-08-24
 **Branch**: `001-scene-image-generator`
 **Repo root**: `C:\zPersonal\Source\DreamGenClone` (on other machines: same repo, same relative paths)
 
 ---
 
 ## 1. TL;DR — where we are
+
+> **Phase 2 continuity work now starts at `continuity-rendering-architecture.md`.** The prompt-only POC cannot reliably preserve pose, asymmetric contact, identity, location geometry, or a frozen moment across POVs. B-097 is no longer an undecided ControlNet-vs-accept item: the approved first gate is the standalone four-seed ControlNet touch proof recorded in `controlnet-touch-proof.md`. Do not change app prompt code or integrate ControlNet before that proof passes.
 
 - **PonyV6 + ComfyUI is fully wired** into the app (client + protocol + storage). The app records `ponyDiffusionV6XL_v6.safetensors` on every rendered image via the Comfy provider (`ImageProtocol = ComfyUi`).
 - **Seed control added** — `SceneImageStudioSettings.Seed` (nullable `long?`), threaded through `IImageGenerationClient.GenerateAsync` → dispatcher → `ComfyUIImageClient` (KSampler seed). Blank = random, fixed value = reproducible. **This is the fix for "app renders differently every time vs the script."**
@@ -24,9 +26,11 @@
 ## 2. How to orient (read these first)
 
 1. `.github/copilot-instructions.md` — **mandatory repo rules** (no git restore, no fallback gate values, tests must pass, no RP-engine change without plan+confirmation).
-2. `specs/001-scene-image-generator/RESUME-HANDOFF.md` — the earlier handoff (B-032 preprocessor refinement). **Note: its file table still lists the OLD names** (`SceneImagePromptPreprocessor.cs` / `ISceneImagePromptPreprocessor.cs`) — those were renamed this session (see §4).
-3. `specs/Planning/backlog.md` — B-032 (scene image engine), B-096, B-097.
-4. `artifacts/tmp/image-prompts.md` — **the working prompt catalog** (validated PonyV6 prompts + the "describe what the POV watches" recipe + body-token findings).
+2. `specs/001-scene-image-generator/continuity-rendering-architecture.md` — controlling Phase 2 goal, architecture, terminology, persisted domain draft, studio workflow, and gates.
+3. `specs/001-scene-image-generator/controlnet-touch-proof.md` — accumulating host inventory and first proof results.
+4. `specs/001-scene-image-generator/RESUME-HANDOFF.md` — the earlier B-032 preprocessor handoff. Its file table contains historical names; use current code for exact symbols.
+5. `specs/Planning/backlog.md` — B-032, B-096, B-097, B-098, and B-099.
+6. `artifacts/tmp/image-prompts.md` — historical prompt catalog; useful evidence, not the Phase 2 control architecture.
 
 ---
 
@@ -115,18 +119,18 @@ There are **two access paths** — HTTP (for image generation) and SSH (for pod 
 
 **B. SSH (for pod maintenance — install models, fix `extra_paths`, restart ComfyUI):**
 1. Place the private key at `artifacts/runpod/ssh_ed25519` (git-ignored via `artifacts/`).
-2. Create `artifacts/runpod/.ssh-env.ps1` with the SSH host/port from the RunPod console:
+2. Create `artifacts/runpod/.ssh-env.ps1` with the **SSH over exposed TCP** host/port from the RunPod console:
    ```powershell
    $env:RUNPOD_SSH_USER = "root"
-   $env:RUNPOD_SSH_HOST = "qguv5e029u58lb-64411bc8@ssh.runpod.io"   # the SSH gateway shown in console
-   $env:RUNPOD_SSH_PORT = "22"
+   $env:RUNPOD_SSH_HOST = "<PUBLIC_IP>"
+   $env:RUNPOD_SSH_PORT = "<PUBLIC_SSH_PORT>"
    ```
 3. Connect:
    ```powershell
    .\helpers\runpod\ssh.ps1 -Command 'whoami'    # run one remote command
    .\helpers\runpod\ssh.ps1                        # interactive shell
    ```
-   **Note**: the RunPod SSH gateway requires a **PTY** (`-tt` is already set in `ssh.ps1`). Direct TCP `root@host -p` fails; use the gateway host shown in the console.
+   **Note**: the exposed TCP route is required for automation. The basic gateway route requires a PTY and echoes piped commands, so it is for interactive use only. The public IP and port can change after pod migration/recreation; always copy them from the current Connect tab.
 
 ### Critical operational warnings
 - **Never commit** `.runpod-env.ps1`, `.ssh-env.ps1`, or the SSH key — all git-ignored.
@@ -139,7 +143,7 @@ There are **two access paths** — HTTP (for image generation) and SSH (for pod 
 ## 7. Backlog state
 
 - **B-096** (`new`): auto-place facial-hair suppression in the negative when prompt requests clean-shaven. Awaiting go-ahead.
-- **B-097** (`new`): ControlNet pose/angle lock for POV composition. Awaiting scope decision (ControlNet vs IMG2IMG vs accept).
+- **B-097** (`designed`): ControlNet/controlled-render architecture. First gate is the four-seed clothed touch proof; inventory exact host dependencies before selecting node/model packages.
 - **B-032** (`planned`): scene image engine — the parent feature.
 
 ---
@@ -155,11 +159,12 @@ There are **two access paths** — HTTP (for image generation) and SSH (for pod 
 
 ## 9. Immediate next steps (for the next agent)
 
-1. **Commit the uncommitted builder split** (or finish the full two-class split + dispatch seam first — see §4).
-2. **Restart the dev server** so the new types load.
-3. **Verify the `SceneImageRequestSubmitted` debug event** fires on a studio render (confirms the exact positive/negative/seed).
-4. **Decide B-097** (ControlNet vs IMG2IMG vs accept) — the POV/occlusion limit is real.
-5. **Decide B-096** (facial-hair negative auto-injection) — go-ahead needed.
+1. Read `continuity-rendering-architecture.md` and continue only the current gate.
+2. Inventory the current RunPod ComfyUI host's installed nodes and model directories without installing anything or exposing secrets.
+3. Record that inventory in `controlnet-touch-proof.md`.
+4. Select and document one SDXL-compatible pose-control dependency from evidence, then obtain approval before modifying the host.
+5. Author the one-way clothed touch control asset and API workflow; run exactly the four predetermined-seed gate.
+6. Do not change app prompt code or add app integration until the proof report records a pass.
 
 ---
 

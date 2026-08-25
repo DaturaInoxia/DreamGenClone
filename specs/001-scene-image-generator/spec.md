@@ -119,6 +119,25 @@ As a user (or administrator), I can configure an image provider, register an ima
 
 ---
 
+### User Story 8 - Render one frozen beat consistently (Priority: P1, Phase 2)
+
+As a user, I can turn a resolved beat into a canonical visual plan and render controlled shots from multiple POVs, so recurring characters, required actions, clothing, location details, and object placement remain consistent without searching through large random batches.
+
+**Why this priority**: The prompt-to-image POC proves transport, persistence, and basic image quality, but prose alone cannot reliably preserve asymmetric touch, character identity, scene geometry, or one frozen moment across cameras. These controls are required for the intended scene-visualization product.
+
+**Independent Test**: Can be tested with a beat containing exactly two clothed characters and one asymmetric contact constraint, rendering four predetermined seeds from one unchanged pose control and confirming every result preserves the required contact, cast count, clothing boundary, and forbidden reciprocal action.
+
+**Acceptance Scenarios**:
+
+1. **Given** a resolved beat, **When** I create its visual plan, **Then** the plan records the visible cast, identity assets, wardrobe, blocking, required and forbidden relationships, location anchors, and content boundary independently of any camera.
+2. **Given** an approved visual plan, **When** I create multiple POV shots, **Then** every shot derives from the same frozen scene plan and differs by camera/visibility controls rather than independently reinterpreting the beat.
+3. **Given** a controlled shot, **When** it is rendered, **Then** the exact checkpoint, adapters, control assets, masks, workflow version, prompt, negative prompt, seed, and settings are persisted.
+4. **Given** a completed render, **When** validation runs, **Then** each required constraint receives a structured pass/fail result with evidence and confidence.
+5. **Given** a local validation failure, **When** repair is requested, **Then** the system repairs the bounded region or control responsible for that failure instead of starting an unbounded random-seed search.
+6. **Given** a controlled shot whose required control or identity configuration is missing, **When** rendering is requested, **Then** the system fails with an explicit diagnostic and does not silently fall back to text-only generation.
+
+---
+
 ### Edge Cases
 
 - **No image model configured**: generation must surface clear setup guidance, never silently fail.
@@ -129,6 +148,10 @@ As a user (or administrator), I can configure an image provider, register an ima
 - **Deleting an image**: deletion removes the image from the image screen and the gallery, and updates the interaction indicator count.
 - **Regenerate while a generation is in progress**: duplicate in-flight generation is prevented.
 - **Interaction that no longer exists** (e.g. session data changed): the image screen should handle a missing source interaction gracefully with a message.
+- **Required controlled-render asset missing**: controlled rendering must fail explicitly; it must not silently switch to prompt-only generation.
+- **Multiple character identities bleed or swap**: validation must reject the render and identify the affected character assignments.
+- **A POV changes the underlying action**: validation must reject the shot because POV changes camera/visibility, not the canonical frozen moment.
+- **Validation repeatedly fails**: automatic attempts stop at the configured bound and return the unresolved constraints to the user.
 
 ## Requirements *(mandatory)*
 
@@ -152,6 +175,15 @@ As a user (or administrator), I can configure an image provider, register an ima
 - **FR-016**: Application logging MUST use Serilog with structured message templates and contextual properties aligned with .NET 9 logging best practices.
 - **FR-017**: Major execution paths across layers/components/services MUST emit Information-level logs and provide actionable failure/error logs.
 - **FR-018**: Log levels MUST be configurable via settings (including Verbose) without code changes.
+- **FR-019**: System MUST persist a versioned, camera-independent canonical visual plan for a controlled beat, including visible cast, identity references, wardrobe, blocking, required and forbidden relationships, location/object anchors, lighting, mood, and content boundary.
+- **FR-020**: System MUST support persisted character identity packs and location visual profiles whose reference assets, adapter/LoRA metadata, versions, and provenance are auditable.
+- **FR-021**: System MUST represent required and forbidden action/contact relationships structurally rather than relying only on prose (for example, one character's right palm contacting another character's chest while reciprocal touch is forbidden).
+- **FR-022**: System MUST compile each POV shot from the same canonical visual plan and MUST persist camera metadata plus pose, depth, region-mask, and other configured control assets used by that shot.
+- **FR-023**: A shot configured for controlled rendering MUST fail fast when a required control, identity asset, model, or persisted setting is unavailable; it MUST NOT use a hidden text-only fallback.
+- **FR-024**: System MUST persist complete render provenance including workflow version, checkpoint, adapters, controls, masks, prompts, seed, sampler settings, and parent visual/shot plan identifiers.
+- **FR-025**: System MUST validate completed controlled renders against the canonical visual constraints and persist a structured result for each constraint with pass/fail status, confidence, and evidence.
+- **FR-026**: Automatic rerender and repair MUST be bounded by UI-backed persisted configuration and MUST target the failed control or image region; unbounded random-seed search is forbidden.
+- **FR-027**: System MUST allow the user to approve a rendered frame as a continuity anchor for the beat, POV, characters, and location.
 
 ### Key Entities *(include if feature involves data)*
 
@@ -173,6 +205,11 @@ As a user (or administrator), I can configure an image provider, register an ima
 - **SC-006**: 100% of generation attempts made while image generation is unconfigured result in clear configuration guidance rather than silent failure.
 - **SC-007**: 100% of session images appear in the gallery grouped by interaction.
 - **SC-008**: Regenerating an image never loses the previous version (100% of regeneration attempts).
+- **SC-009**: In the first pose-control proof, 4 of 4 predetermined-seed renders from one unchanged control asset satisfy the required one-way clothed touch, exactly-two-person cast, and no-reciprocal-touch constraints.
+- **SC-010**: 100% of controlled render attempts persist enough provenance to reproduce the workflow inputs or explain why an external dependency is no longer available.
+- **SC-011**: 100% of controlled shots with missing required controls fail explicitly without a text-only fallback.
+- **SC-012**: 100% of automatic repair sequences stop at their configured bound and expose unresolved failed constraints.
+- **SC-013**: For an approved canonical beat with multiple POVs, every approved shot preserves the same cast assignments, wardrobe snapshot, required relationships, and location anchors unless the visual plan is explicitly versioned.
 
 ### Assumptions
 
@@ -180,5 +217,5 @@ As a user (or administrator), I can configure an image provider, register an ima
 - The image screen is a **dedicated view** (not embedded in the story stream); the story stream only shows an indicator.
 - The gallery is **per-session** (not a global cross-session gallery) in this scope.
 - Phase 1 delivers the full plumbing plus a proof-of-concept validated for NSFW behavior, image quality, and the basic flow; advanced iteration polish and character-likeness features are later phases.
-- Character likeness from reference photos on character profiles is out of scope for this phase (roadmap item).
+- Character likeness from reference images, controlled pose/layout, location continuity, multi-POV scene blocking, and validation/repair are Phase 2 capabilities defined by `continuity-rendering-architecture.md`; they remain outside the completed prompt-to-image POC but are no longer unspecified roadmap ideas.
 - The user edits image attributes (style/size/explicitness) per request; sensible defaults are seeded from session settings.

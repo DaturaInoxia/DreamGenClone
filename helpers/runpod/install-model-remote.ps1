@@ -18,6 +18,10 @@ if ($env:RUNPOD_SSH_USER) { $user = $env:RUNPOD_SSH_USER }
 if ($env:RUNPOD_SSH_HOST) { $hostName = $env:RUNPOD_SSH_HOST }
 if ($env:RUNPOD_SSH_PORT) { $port = $env:RUNPOD_SSH_PORT }
 
+$runpodEnv = Join-Path $PSScriptRoot ".runpod-env.ps1"
+if (Test-Path $runpodEnv) { . $runpodEnv }
+if ([string]::IsNullOrWhiteSpace($Token)) { $Token = $env:CIVITAI_API_TOKEN }
+
 if (-not (Test-Path $keyPath)) { throw "SSH private key not found: $keyPath" }
 if (-not $hostName) { throw "RUNPOD_SSH_HOST is not configured in $sshEnv" }
 
@@ -27,24 +31,18 @@ model_name="$1"
 source_url="$2"
 expected_sha256="$3"
 auth_token="$4"
-checkpoint_dir=""
-for candidate in /workspace/comfyui/models/checkpoints /ComfyUI/models/checkpoints; do
-  if [ -d "$candidate" ]; then
-    checkpoint_dir="$candidate"
-    break
-  fi
-done
-if [ -z "$checkpoint_dir" ]; then
-  echo "Could not find ComfyUI/models/checkpoints" >&2
+checkpoint_dir="/workspace/comfyui/models/checkpoints"
+if [ ! -d "$checkpoint_dir" ]; then
+  echo "Required persistent checkpoint directory is missing: $checkpoint_dir" >&2
   exit 2
 fi
 mkdir -p "$checkpoint_dir"
 dest="$checkpoint_dir/$model_name"
 echo "Installing $model_name into $checkpoint_dir"
 if [ -n "$auth_token" ]; then
-  wget -c -O "$dest" --header "Authorization: Bearer $auth_token" "$source_url"
+  curl -fL --retry 3 -C - -o "$dest" -H "Authorization: Bearer $auth_token" "$source_url"
 else
-  wget -c -O "$dest" "$source_url"
+  curl -fL --retry 3 -C - -o "$dest" "$source_url"
 fi
 if [ -n "$expected_sha256" ]; then
   actual_sha256="$(sha256sum "$dest" | awk '{print $1}')"
@@ -57,13 +55,24 @@ ls -lh "$dest"
 echo "Installed checkpoint: $dest"
 '@
 
+$remoteScript = $remoteScript -replace "`r", ""
 $encodedScript = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($remoteScript))
-$remoteCommand = "echo $encodedScript | base64 -d | bash -s -- '$ModelName' '$SourceUrl' '$ExpectedSha256' '$Token'"
+
+function ConvertTo-BashSingleQuoted([string]$Value) {
+  $singleQuote = [string][char]39
+  $escapedQuote = $singleQuote + '"' + $singleQuote + '"' + $singleQuote
+  return $singleQuote + $Value.Replace($singleQuote, $escapedQuote) + $singleQuote
+}
+
+$remoteInvocation = "bash -s -- " + @($ModelName, $SourceUrl, $ExpectedSha256, $Token | ForEach-Object {
+  ConvertTo-BashSingleQuoted ([string]$_)
+}) -join " "
+$remoteInput = "$remoteInvocation`n$remoteScript`nexit`n" -replace "`r", ""
 $sshArgs = @(
-    "-tt", "-o", "BatchMode=yes", "-o", "ConnectTimeout=20",
+    "-o", "BatchMode=yes", "-o", "ConnectTimeout=20",
     "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=NUL",
     "-o", "IdentitiesOnly=yes", "-i", $keyPath, "-p", $port,
-    "${user}@${hostName}", $remoteCommand
+  "${user}@${hostName}"
 )
-& ssh @sshArgs
+$remoteInput | & ssh @sshArgs
 if ($LASTEXITCODE -ne 0) { throw "Remote model installation failed (ssh exit $LASTEXITCODE)." }

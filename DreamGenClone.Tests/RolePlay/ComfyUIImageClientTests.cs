@@ -175,7 +175,7 @@ public sealed class ComfyUIImageClientTests
     public void BuildSdxlWorkflow_NoClipSkip_UsesJuggernautSettings()
     {
         var wf = ComfyUIImageClient.BuildSdxlWorkflow(
-            "Juggernaut_XL_Ragnarok_ByRunDiffusion.safetensors",
+            "juggernautXL_ragnarok.safetensors",
             "a photorealistic man and woman on a beach",
             "deformed, four legs",
             "1024x1024",
@@ -194,7 +194,7 @@ public sealed class ComfyUIImageClientTests
         Assert.Contains("\"cfg\":5", json, StringComparison.Ordinal);
 
         // Checkpoint + prompt are injected.
-        Assert.Contains("Juggernaut_XL_Ragnarok_ByRunDiffusion.safetensors", json, StringComparison.Ordinal);
+        Assert.Contains("juggernautXL_ragnarok.safetensors", json, StringComparison.Ordinal);
         Assert.Contains("a photorealistic man and woman on a beach", json, StringComparison.Ordinal);
     }
 
@@ -241,7 +241,7 @@ public sealed class ComfyUIImageClientTests
             return new HttpResponseMessage(HttpStatusCode.NotFound);
         });
 
-        var model = Resolve() with { ModelIdentifier = "Juggernaut_XL_Ragnarok_ByRunDiffusion.safetensors" };
+        var model = Resolve() with { ModelIdentifier = "juggernautXL_ragnarok.safetensors" };
         var result = await client.GenerateAsync(model, "photorealistic couple", "1024x1024", null, seed: 1L, CancellationToken.None);
 
         Assert.NotNull(result);
@@ -250,7 +250,7 @@ public sealed class ComfyUIImageClientTests
         // SDXL workflow: no CLIP skip, Juggernaut sampler, correct checkpoint wired in.
         Assert.DoesNotContain("CLIPSetLastLayer", body, StringComparison.Ordinal);
         Assert.Contains("\"dpmpp_2m_sde\"", body, StringComparison.Ordinal);
-        Assert.Contains("Juggernaut_XL_Ragnarok_ByRunDiffusion.safetensors", body, StringComparison.Ordinal);
+        Assert.Contains("juggernautXL_ragnarok.safetensors", body, StringComparison.Ordinal);
     }
 
     [Fact]

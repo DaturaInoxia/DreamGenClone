@@ -5,14 +5,18 @@ param(
     [Parameter(Mandatory=$true)][string]$WorkflowPath,
     [Parameter(Mandatory=$false)][string]$Prompt,          # optional override of positive prompt
     [Parameter(Mandatory=$false)][string]$Negative,        # optional override of negative prompt
+    [Parameter(Mandatory=$false)][string]$Checkpoint,      # optional checkpoint override
     [Parameter(Mandatory=$false)][int]$Seed = -1,          # optional fixed seed
     [Parameter(Mandatory=$false)][string]$Prefix = "img",  # output filename prefix
     [Parameter(Mandatory=$false)][string]$OutputDir = "./out",
-    [Parameter(Mandatory=$false)][int]$TimeoutSec = 600
+    [Parameter(Mandatory=$false)][int]$TimeoutSec = 600,
+    [Parameter(Mandatory=$false)][string]$ComfyUiUrl,
+    [Parameter(Mandatory=$false)][string]$InputImage
 )
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "common.ps1")
 Get-RunPodEnv
+$endpoint = if ([string]::IsNullOrWhiteSpace($ComfyUiUrl)) { $env:COMFYUI_URL } else { $ComfyUiUrl.TrimEnd('/') }
 
 if (-not (Test-Path $WorkflowPath)) { throw "Workflow not found: $WorkflowPath" }
 $wf = Get-Content -Raw $WorkflowPath | ConvertFrom-Json
@@ -23,9 +27,21 @@ $prefix = "dg_${prefix}_${stamp}"
 
 # Standard node ids used by our workflow: 6=positive CLIP, 7=negative CLIP, 3=KSampler seed,
 # 9=SaveImage filename_prefix. (Optional-ish; only override if present.)
-if ($Prompt   -and $wf.PSObject.Properties["6"]) { $wf.PSObject.Properties["6"].Value.inputs.text = $Prompt }
-if ($Negative -and $wf.PSObject.Properties["7"]) { $wf.PSObject.Properties["7"].Value.inputs.text = $Negative }
+if ($Prompt -and $wf.PSObject.Properties["6"]) {
+    $positiveInputs = $wf.PSObject.Properties["6"].Value.inputs
+    if ($positiveInputs.PSObject.Properties["text"]) { $positiveInputs.text = $Prompt }
+    elseif ($positiveInputs.PSObject.Properties["prompt"]) { $positiveInputs.prompt = $Prompt }
+}
+if ($Negative -and $wf.PSObject.Properties["7"]) {
+    $negativeInputs = $wf.PSObject.Properties["7"].Value.inputs
+    if ($negativeInputs.PSObject.Properties["text"]) { $negativeInputs.text = $Negative }
+    elseif ($negativeInputs.PSObject.Properties["prompt"]) { $negativeInputs.prompt = $Negative }
+}
 if ($Seed -ge 0 -and $wf.PSObject.Properties["3"]) { $wf.PSObject.Properties["3"].Value.inputs.seed = $Seed }
+if ($Checkpoint -and $wf.PSObject.Properties["4"]) { $wf.PSObject.Properties["4"].Value.inputs.ckpt_name = $Checkpoint }
+if ($InputImage -and $wf.PSObject.Properties["1"] -and $wf.PSObject.Properties["1"].Value.inputs.PSObject.Properties["image"]) {
+    $wf.PSObject.Properties["1"].Value.inputs.image = $InputImage
+}
 if ($wf.PSObject.Properties["9"] -and $wf.PSObject.Properties["9"].Value.inputs.PSObject.Properties["filename_prefix"]) {
     $wf.PSObject.Properties["9"].Value.inputs.filename_prefix = $prefix
 }
@@ -33,7 +49,7 @@ if ($wf.PSObject.Properties["9"] -and $wf.PSObject.Properties["9"].Value.inputs.
 # 1) Submit exactly once.
 Write-Host "Submitting workflow once..."
 $payload = @{ prompt = $wf; client_id = "dreamgen-one" }
-$resp = Invoke-RestMethod -Uri "$env:COMFYUI_URL/prompt" -Method POST -ContentType "application/json" -Body ($payload | ConvertTo-Json -Depth 20) -TimeoutSec 60
+$resp = Invoke-RestMethod -Uri "$endpoint/prompt" -Method POST -ContentType "application/json" -Body ($payload | ConvertTo-Json -Depth 20) -TimeoutSec 60
 $promptId = $resp.prompt_id
 if (-not $promptId) { throw "ComfyUI returned no prompt_id: $($resp | ConvertTo-Json -Depth 5)" }
 Write-Host "Queued prompt_id=$promptId  output_prefix=$prefix"
@@ -43,7 +59,7 @@ $deadline = (Get-Date).AddSeconds($TimeoutSec)
 $entry = $null
 do {
     Start-Sleep -Seconds 2
-    $hist = Invoke-RestMethod -Uri "$env:COMFYUI_URL/history" -Method GET -TimeoutSec 30
+    $hist = Invoke-RestMethod -Uri "$endpoint/history" -Method GET -TimeoutSec 30
     if ($hist.PSObject.Properties.Name -contains $promptId) {
         $entry = $hist.$promptId
         break
@@ -69,13 +85,17 @@ $img = $images[0]
 $query = "filename=$([uri]::EscapeDataString($img.filename))"
 if ($img.subfolder) { $query += "&subfolder=$([uri]::EscapeDataString($img.subfolder))" }
 if ($img.type)      { $query += "&type=$([uri]::EscapeDataString($img.type))" }
-$url = "$env:COMFYUI_URL/view?$query"
+$url = "$endpoint/view?$query"
 
-if (-not (Test-Path $OutputDir)) { New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null }
 # $OutputDir may be a directory path OR a target file. If it ends in .png treat as file, else directory.
 if ([IO.Path]::GetExtension($OutputDir) -eq ".png") {
     $outFile = $OutputDir
+    $parentDir = Split-Path -Parent $outFile
+    if ($parentDir -and -not (Test-Path $parentDir)) {
+        New-Item -ItemType Directory -Path $parentDir -Force | Out-Null
+    }
 } else {
+    if (-not (Test-Path $OutputDir)) { New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null }
     $outFile = Join-Path $OutputDir "$prefix.png"
 }
 Invoke-RestMethod -Uri $url -Method GET -OutFile $outFile -TimeoutSec 120

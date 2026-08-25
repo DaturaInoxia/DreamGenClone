@@ -12,6 +12,8 @@ ComfyUI. These are repository-local; they do **not** store or transmit secrets o
 ```powershell
 $env:RUNPOD_API_KEY = "rp-xxxxxxxx"
 $env:COMFYUI_URL    = "https://<POD_ID>-3000.proxy.runpod.net"
+$env:RUNPOD_POD_ID  = "<POD_ID>"
+$env:CIVITAI_API_TOKEN = "<CIVITAI_TOKEN>" # only for authenticated model downloads
 ```
 
 Make sure `.runpod-env.ps1` is covered by `.gitignore`.
@@ -23,6 +25,8 @@ Make sure `.runpod-env.ps1` is covered by `.gitignore`.
 - `workflow.ps1` — validate/export a saved workflow JSON.
 - `generate.ps1` — POST a workflow to `/prompt`, poll history, save the image.
 - `pod.ps1` — pod `status` / `start` / `stop`; `usage`; `terminate` is explicit-confirm only.
+- `ssh.ps1` — SSH maintenance through the local `artifacts/runpod/.ssh-env.ps1` connection file.
+- `install-model-remote.ps1` — authenticated checkpoint download to the persistent `/workspace` volume.
 
 ## Usage
 
@@ -46,6 +50,67 @@ Make sure `.runpod-env.ps1` is covered by `.gitignore`.
 - Run scripts from the repo root so relative `ComfyUI/...` paths resolve, or set the paths to your
   pod layout.
 - Terminate/delete actions are intentionally never automatic; each requires explicit user input.
+
+## SSH setup on another development machine
+
+RunPod SSH keys are account-level. A pod does not normally have an SSH-key editor. The key used by
+the machine must already be listed in RunPod account settings under **SSH Public Keys**. Add the
+complete one-line public key, beginning with `ssh-ed25519`; do not add the fingerprint or private key.
+
+1. Clone/pull the repository on the other machine.
+2. Copy the matching private key to `artifacts/runpod/ssh_ed25519` and ensure its public key is
+   registered in RunPod. Never commit either key. If the machine has a different key, register that
+   key and copy its private half to this exact local path.
+3. In the pod's **Connect** tab, copy the current **SSH over exposed TCP** values. Set
+   `artifacts/runpod/.ssh-env.ps1` to the current public IP and port:
+
+   ```powershell
+   $env:RUNPOD_SSH_USER = "root"
+   $env:RUNPOD_SSH_HOST = "<PUBLIC_IP>"
+   $env:RUNPOD_SSH_PORT = "<PUBLIC_SSH_PORT>"
+   ```
+
+   The basic `SSH` gateway command is useful for interactive access, but it allocates a PTY and
+   echoes piped commands. Use the exposed TCP route for automation and model installation.
+4. Test from the repository root, bypassing stale host-key entries on a new machine:
+
+   ```powershell
+   ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL `
+     -o IdentitiesOnly=yes -i artifacts\runpod\ssh_ed25519 `
+     -p <PUBLIC_SSH_PORT> root@<PUBLIC_IP> whoami
+   ```
+
+   Expected output is `root`. A `Host key verification failed` message is local host-key state;
+   `Permission denied (publickey)` means the public key does not match the private key or is not
+   registered/authorized for the pod.
+5. Set the same values in `.ssh-env.ps1`, then use:
+
+   ```powershell
+   .\helpers\runpod\ssh.ps1 -Command "whoami"
+   ```
+
+## Persistent model storage
+
+The container root filesystem is small (typically 5 GB). Store checkpoints only under
+`/workspace/comfyui/models/checkpoints`, which is on the persistent volume. The installer refuses
+to use `/ComfyUI/models/checkpoints` so a model cannot silently fill the container disk.
+
+For the current Juggernaut Ragnarok model:
+
+```powershell
+.\helpers\runpod\install-model-remote.ps1 `
+  -ModelName "juggernautXL_ragnarok.safetensors" `
+  -SourceUrl "https://civitai.com/api/download/models/1759168?fileId=1659952"
+```
+
+After a new pod or ComfyUI restart, verify the checkpoint through:
+
+```powershell
+. helpers\runpod\.runpod-env.ps1
+$r = Invoke-RestMethod "$env:COMFYUI_URL/object_info/CheckpointLoaderSimple"
+$r.CheckpointLoaderSimple.input.required.ckpt_name[0] |
+  Where-Object { $_ -eq "juggernautXL_ragnarok.safetensors" }
+```
 
 ## Integration note
 
