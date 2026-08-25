@@ -14,6 +14,8 @@ Keep a detailed location, important object placement, and one frozen beat consis
 - [`data-model.md`](data-model.md) - versioned aggregates, coordinate contract, and staleness rules.
 - [`contracts.md`](contracts.md) - Three.js interop, control compiler, renderer, and browser proof.
 - [`plan.md`](plan.md) - layered implementation slices and risk boundaries.
+- [`pose-editor-plan.md`](pose-editor-plan.md) - DWPose import, 3D rig editing, IK, control export,
+	and acceptance plan.
 - [`tasks.md`](tasks.md) - dependency-ordered implementation ledger.
 
 ## Delivery

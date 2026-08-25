@@ -50,6 +50,8 @@ disk/GPU constraints after retiring the unused Pony checkpoint.
   the checkpoint is deleted.
 - One pod retains healthy Juggernaut, Qwen Edit, and Qwen VL artifacts and endpoints.
 - Any GPU model loading/unloading occurs within that pod and is explicit, measured, and observable.
+- The persisted transition timeout covers the measured full launcher-to-health path with explicit
+  operational margin; no exact replacement value is inferred from the old 180-second gate.
 - Missing runtime/model/configuration fails explicitly; no cloud or text-only substitute runs.
 
 ## Functional Requirements
@@ -87,7 +89,14 @@ disk/GPU constraints after retiring the unused Pony checkpoint.
   Historical source code/workflows/evidence remain for provenance; Pony reinstallation is outside
   this plan.
 - **FR1B-021:** Juggernaut, Qwen Edit, and Qwen VL artifacts reside on one pod and one persistent
-  volume. Separate runtime directories/processes must not create or require another pod.
+  volume for the active initial implementation. Separate runtime directories/processes must not
+  create or require another pod.
+- **FR1B-022:** Provider/model endpoints and lifecycle strategy are UI-backed persisted
+  configuration. Application contracts use HTTP/binary transfer and contain no hardcoded RunPod
+  host/port, SSH, `/workspace`, shared-filesystem, provider, model, timeout, or fallback route.
+- **FR1B-023:** Model lifecycle is resolved through one configured abstraction supporting initial
+  scheduled single-pod residency and future always-on separate providers. Only one strategy is
+  active; missing strategy or behavior values fail explicitly.
 
 ## Non-Functional Requirements
 
@@ -96,6 +105,9 @@ disk/GPU constraints after retiring the unused Pony checkpoint.
 - The editor remains usable at desktop and mobile widths without source/result overlap.
 - All model and runtime settings are persisted and UI-backed; no runtime defaults or fallback.
 - Compilation retries are explicit new attempts, not hidden loops.
+- Initial Qwen VL transition configuration covers the approximately 276-second process-to-health
+  measurement plus the approximately 137-second launcher preflight evidence and explicit operator
+  margin; the plan does not freeze an unsupported replacement number.
 
 ## Exit Gates
 
@@ -105,3 +117,7 @@ disk/GPU constraints after retiring the unused Pony checkpoint.
 4. Permitted adult-image analysis is either separately accepted or explicitly remains blocked.
 5. Pod capacity and runtime switching/co-residency decision are recorded with evidence.
 6. Affected tests, solution build, full suite, Razor diagnostics, and manual browser matrix pass.
+
+Application infrastructure work is authorized before gates 1 and 2 complete. Production
+enablement, end-to-end application acceptance, and phase exit are not authorized until every
+applicable exit gate passes.

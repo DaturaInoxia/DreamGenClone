@@ -25,6 +25,7 @@ Make sure `.runpod-env.ps1` is covered by `.gitignore`.
 - `workflow.ps1` — validate/export a saved workflow JSON.
 - `generate.ps1` — POST a workflow to `/prompt`, poll history, save the image.
 - `pod.ps1` — pod `status` / `start` / `stop`; `usage`; `terminate` is explicit-confirm only.
+- `deployment.ps1` — validate/preview one manifest-defined deployment and operate its assigned pod.
 - `ssh.ps1` — SSH maintenance through the local `artifacts/runpod/.ssh-env.ps1` connection file.
 - `install-model-remote.ps1` — authenticated checkpoint download to the persistent `/workspace` volume.
 
@@ -39,7 +40,26 @@ Make sure `.runpod-env.ps1` is covered by `.gitignore`.
 .\helpers\runpod\pod.ps1 -Action status
 .\helpers\runpod\pod.ps1 -Action stop
 .\helpers\runpod\pod.ps1 -Action terminate   # requires typing exact PodId
+.\helpers\runpod\deployment.ps1 -Action validate -ManifestPath helpers\runpod\deployments\image-gen-juggernaut\deployment.json
+.\helpers\runpod\deployment.ps1 -Action preview -ManifestPath helpers\runpod\deployments\image-gen-juggernaut\deployment.json
 ```
+
+## Manifest-driven deployments
+
+New model deployments are defined under `helpers/runpod/deployments/<deployment-name>/`. The
+manifest records capability, model/runtime identity, GPU/container requirements, persistent volume,
+inference port, SSH-over-TCP port, and readiness identity. A blank `podId` means the deployment has
+not been created yet and is valid for offline validation/preview only.
+
+`deployment.ps1` currently supports offline `validate` and `preview`, plus `status`, `start`, and
+`stop` for an already assigned pod. The next provisioning slice will add explicit-confirm creation
+of a new pod and volume, expose SSH over TCP, discover the assigned endpoint, and write the resulting
+runtime assignment to local ignored state. It will never modify the existing legacy pod, and it will
+not include automatic terminate or volume-delete behavior.
+
+Before live provisioning, replace every `REQUIRED_*` value in the selected manifest and confirm the
+RunPod API key has the required create/start/stop permissions. Resource creation is billable and
+requires a separate explicit approval after the preview output has been reviewed.
 
 ## Dependencies / caveats
 

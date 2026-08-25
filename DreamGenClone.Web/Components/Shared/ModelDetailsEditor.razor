@@ -53,6 +53,46 @@
                 </div>
                 <div class="form-text">Enable only when the provider supports chat_template_kwargs.thinking.</div>
             </div>
+            <div class="col-12"><hr class="my-1" /><strong>Multimodal Input Contract</strong></div>
+            <div class="col-md-3">
+                <label class="form-label">Image Input</label>
+                <div class="form-check form-switch mt-2">
+                    <input class="form-check-input" type="checkbox" @bind="Model.SupportsImageInput" id="details-image-input" />
+                    <label class="form-check-label" for="details-image-input">Accepts source images</label>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Max Images</label>
+                <input type="number" class="form-control" @bind="Model.MaximumInputImages" min="1" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Max Image Bytes</label>
+                <input type="number" class="form-control" @bind="Model.MaximumInputImageBytes" min="1" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Max Response Bytes</label>
+                <input type="number" class="form-control" @bind="Model.MaximumResponseBytes" min="1" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Max Image Pixels</label>
+                <input type="number" class="form-control" @bind="Model.MaximumInputImagePixels" min="1" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Max Image Dimension</label>
+                <input type="number" class="form-control" @bind="Model.MaximumInputImageDimension" min="1" />
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Accepted Media Types</label>
+                <input type="text" class="form-control" @bind="Model.AcceptedInputMediaTypes" placeholder="image/png,image/jpeg,image/webp" />
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Runtime Revision</label>
+                <input type="text" class="form-control" @bind="Model.RuntimeRevision" />
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Artifact Revision</label>
+                <input type="text" class="form-control" @bind="Model.ArtifactRevision" />
+            </div>
             @if (Model.ModelKind == ModelKind.Image)
             {
                 <div class="col-12"><hr class="my-1" /><strong>Qwen Source-Image Editor Settings</strong></div>
@@ -363,6 +403,11 @@
             _formError = "Display name is required.";
             return;
         }
+        if (!ValidateMultimodalModel(Model, out var multimodalError))
+        {
+            _formError = multimodalError;
+            return;
+        }
 
         _isSaving = true;
         _formError = null;
@@ -567,5 +612,28 @@
     {
         // "RolePlayGeneration" → "Role Play Generation"
         return System.Text.RegularExpressions.Regex.Replace(name, "(?<!^)([A-Z])", " $1");
+    }
+
+    private static bool ValidateMultimodalModel(RegisteredModel model, out string? error)
+    {
+        error = null;
+        if (!model.SupportsImageInput)
+            return true;
+        if (model.MaximumInputImages is null or <= 0
+            || model.MaximumInputImageBytes is null or <= 0
+            || model.MaximumInputImagePixels is null or <= 0
+            || model.MaximumInputImageDimension is null or <= 0
+            || model.MaximumResponseBytes is null or <= 0)
+        {
+            error = "Image-input models require positive image count, byte, pixel, dimension, and response byte limits.";
+            return false;
+        }
+        var mediaTypes = model.AcceptedInputMediaTypes?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) ?? [];
+        if (mediaTypes.Length == 0 || mediaTypes.Any(value => !value.StartsWith("image/", StringComparison.OrdinalIgnoreCase)))
+        {
+            error = "Image-input models require one or more comma-separated image/* media types.";
+            return false;
+        }
+        return true;
     }
 }

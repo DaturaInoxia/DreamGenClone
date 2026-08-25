@@ -719,6 +719,17 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 ContentPolicy INTEGER NOT NULL DEFAULT 0,
                 ImageProtocol INTEGER NOT NULL DEFAULT 0,
                 TimeoutSeconds INTEGER NOT NULL DEFAULT 120,
+                LifecycleStrategyIdentifier TEXT NULL,
+                ReadinessPath TEXT NULL,
+                ReadinessSuccessContractJson TEXT NULL,
+                TransitionTimeoutSeconds INTEGER NULL,
+                TransitionMarginSeconds INTEGER NULL,
+                ShutdownDrainPolicyJson TEXT NULL,
+                MaximumActiveRequests INTEGER NULL,
+                QueueCapacity INTEGER NULL,
+                CredentialReference TEXT NULL,
+                ServerIdentityPolicyJson TEXT NULL,
+                AllowedNetworkBoundary TEXT NULL,
                 ApiKeyEncrypted TEXT,
                 IsEnabled INTEGER NOT NULL DEFAULT 1,
                 CreatedUtc TEXT NOT NULL,
@@ -740,6 +751,15 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 Notes TEXT,
                 ModelKind INTEGER NOT NULL DEFAULT 0,
                 ImageSizeSupported TEXT NULL,
+                SupportsImageInput INTEGER NOT NULL DEFAULT 0,
+                MaximumInputImages INTEGER NULL,
+                MaximumInputImageBytes INTEGER NULL,
+                MaximumInputImagePixels INTEGER NULL,
+                MaximumInputImageDimension INTEGER NULL,
+                AcceptedInputMediaTypes TEXT NULL,
+                MaximumResponseBytes INTEGER NULL,
+                RuntimeRevision TEXT NULL,
+                ArtifactRevision TEXT NULL,
                 ImageEditorDiffusionModel TEXT NULL,
                 ImageEditorTextEncoder TEXT NULL,
                 ImageEditorVae TEXT NULL,
@@ -1343,6 +1363,17 @@ public sealed class SqlitePersistence : ISqlitePersistence
             ("ImageGenerationPath", "ALTER TABLE Providers ADD COLUMN ImageGenerationPath TEXT NOT NULL DEFAULT '/v1/images/generations'"),
             ("ContentPolicy", "ALTER TABLE Providers ADD COLUMN ContentPolicy INTEGER NOT NULL DEFAULT 0"),
             ("ImageProtocol", "ALTER TABLE Providers ADD COLUMN ImageProtocol INTEGER NOT NULL DEFAULT 0"),
+            ("LifecycleStrategyIdentifier", "ALTER TABLE Providers ADD COLUMN LifecycleStrategyIdentifier TEXT NULL"),
+            ("ReadinessPath", "ALTER TABLE Providers ADD COLUMN ReadinessPath TEXT NULL"),
+            ("ReadinessSuccessContractJson", "ALTER TABLE Providers ADD COLUMN ReadinessSuccessContractJson TEXT NULL"),
+            ("TransitionTimeoutSeconds", "ALTER TABLE Providers ADD COLUMN TransitionTimeoutSeconds INTEGER NULL"),
+            ("TransitionMarginSeconds", "ALTER TABLE Providers ADD COLUMN TransitionMarginSeconds INTEGER NULL"),
+            ("ShutdownDrainPolicyJson", "ALTER TABLE Providers ADD COLUMN ShutdownDrainPolicyJson TEXT NULL"),
+            ("MaximumActiveRequests", "ALTER TABLE Providers ADD COLUMN MaximumActiveRequests INTEGER NULL"),
+            ("QueueCapacity", "ALTER TABLE Providers ADD COLUMN QueueCapacity INTEGER NULL"),
+            ("CredentialReference", "ALTER TABLE Providers ADD COLUMN CredentialReference TEXT NULL"),
+            ("ServerIdentityPolicyJson", "ALTER TABLE Providers ADD COLUMN ServerIdentityPolicyJson TEXT NULL"),
+            ("AllowedNetworkBoundary", "ALTER TABLE Providers ADD COLUMN AllowedNetworkBoundary TEXT NULL"),
         };
         foreach (var (column, ddl) in providerImageColumns)
         {
@@ -1362,6 +1393,15 @@ public sealed class SqlitePersistence : ISqlitePersistence
         {
             ("ModelKind", "ALTER TABLE RegisteredModels ADD COLUMN ModelKind INTEGER NOT NULL DEFAULT 0"),
             ("ImageSizeSupported", "ALTER TABLE RegisteredModels ADD COLUMN ImageSizeSupported TEXT NULL"),
+            ("SupportsImageInput", "ALTER TABLE RegisteredModels ADD COLUMN SupportsImageInput INTEGER NOT NULL DEFAULT 0"),
+            ("MaximumInputImages", "ALTER TABLE RegisteredModels ADD COLUMN MaximumInputImages INTEGER NULL"),
+            ("MaximumInputImageBytes", "ALTER TABLE RegisteredModels ADD COLUMN MaximumInputImageBytes INTEGER NULL"),
+            ("MaximumInputImagePixels", "ALTER TABLE RegisteredModels ADD COLUMN MaximumInputImagePixels INTEGER NULL"),
+            ("MaximumInputImageDimension", "ALTER TABLE RegisteredModels ADD COLUMN MaximumInputImageDimension INTEGER NULL"),
+            ("AcceptedInputMediaTypes", "ALTER TABLE RegisteredModels ADD COLUMN AcceptedInputMediaTypes TEXT NULL"),
+            ("MaximumResponseBytes", "ALTER TABLE RegisteredModels ADD COLUMN MaximumResponseBytes INTEGER NULL"),
+            ("RuntimeRevision", "ALTER TABLE RegisteredModels ADD COLUMN RuntimeRevision TEXT NULL"),
+            ("ArtifactRevision", "ALTER TABLE RegisteredModels ADD COLUMN ArtifactRevision TEXT NULL"),
         };
         foreach (var (column, ddl) in registeredModelImageColumns)
         {
@@ -1462,7 +1502,12 @@ public sealed class SqlitePersistence : ISqlitePersistence
             var sceneImageEditColumns = new (string Column, string Ddl)[]
             {
                 ("Operation", "ALTER TABLE SceneImages ADD COLUMN Operation TEXT NOT NULL DEFAULT 'Generate'"),
-                ("SourceImageId", "ALTER TABLE SceneImages ADD COLUMN SourceImageId TEXT NULL")
+                ("SourceImageId", "ALTER TABLE SceneImages ADD COLUMN SourceImageId TEXT NULL"),
+                ("EditSessionId", "ALTER TABLE SceneImages ADD COLUMN EditSessionId TEXT NULL"),
+                ("EditCompilationAttemptId", "ALTER TABLE SceneImages ADD COLUMN EditCompilationAttemptId TEXT NULL"),
+                ("EditPromptRevisionId", "ALTER TABLE SceneImages ADD COLUMN EditPromptRevisionId TEXT NULL"),
+                ("EditIntentSnapshot", "ALTER TABLE SceneImages ADD COLUMN EditIntentSnapshot TEXT NULL"),
+                ("EditCompilerProvenanceJson", "ALTER TABLE SceneImages ADD COLUMN EditCompilerProvenanceJson TEXT NULL")
             };
             foreach (var (column, ddl) in sceneImageEditColumns)
             {
@@ -1477,6 +1522,64 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 }
             }
         }
+
+        var sceneImageEditSchema = connection.CreateCommand();
+        sceneImageEditSchema.CommandText = """
+            CREATE TABLE IF NOT EXISTS SceneImageEditSessions (
+                Id TEXT PRIMARY KEY,
+                SourceImageId TEXT NOT NULL,
+                SourceImageSha256 TEXT NOT NULL,
+                SessionId TEXT NOT NULL,
+                InteractionId TEXT NOT NULL,
+                Status TEXT NOT NULL,
+                CreatedUtc TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL,
+                CompletedUtc TEXT NULL
+            );
+            CREATE INDEX IF NOT EXISTS IX_SceneImageEditSessions_Source
+                ON SceneImageEditSessions (SourceImageId);
+            CREATE INDEX IF NOT EXISTS IX_SceneImageEditSessions_Session
+                ON SceneImageEditSessions (SessionId, UpdatedUtc DESC);
+
+            CREATE TABLE IF NOT EXISTS SceneImageEditCompilationAttempts (
+                Id TEXT PRIMARY KEY,
+                EditSessionId TEXT NOT NULL,
+                Ordinal INTEGER NOT NULL CHECK (Ordinal >= 0),
+                RawIntent TEXT NOT NULL,
+                ClarificationContextJson TEXT NULL,
+                SourceImageSha256 TEXT NOT NULL,
+                Status TEXT NOT NULL,
+                ResolvedModelSnapshotJson TEXT NOT NULL,
+                CompilerSchemaVersion TEXT NOT NULL,
+                SystemPromptVersion TEXT NOT NULL,
+                RawModelResponse TEXT NULL,
+                ParsedResultJson TEXT NULL,
+                Error TEXT NULL,
+                CreatedUtc TEXT NOT NULL,
+                StartedUtc TEXT NULL,
+                CompletedUtc TEXT NULL,
+                FOREIGN KEY (EditSessionId) REFERENCES SceneImageEditSessions(Id) ON DELETE RESTRICT,
+                UNIQUE (EditSessionId, Ordinal)
+            );
+            CREATE INDEX IF NOT EXISTS IX_SceneImageEditCompilationAttempts_SessionStatus
+                ON SceneImageEditCompilationAttempts (EditSessionId, Status, Ordinal DESC);
+
+            CREATE TABLE IF NOT EXISTS SceneImageEditPromptRevisions (
+                Id TEXT PRIMARY KEY,
+                CompilationAttemptId TEXT NOT NULL,
+                Ordinal INTEGER NOT NULL CHECK (Ordinal >= 0),
+                Prompt TEXT NOT NULL,
+                RevisionKind TEXT NOT NULL,
+                PromptSha256 TEXT NOT NULL,
+                CreatedUtc TEXT NOT NULL,
+                FOREIGN KEY (CompilationAttemptId) REFERENCES SceneImageEditCompilationAttempts(Id) ON DELETE RESTRICT,
+                UNIQUE (CompilationAttemptId, Ordinal),
+                UNIQUE (CompilationAttemptId, PromptSha256)
+            );
+            CREATE INDEX IF NOT EXISTS IX_SceneImageEditPromptRevisions_Attempt
+                ON SceneImageEditPromptRevisions (CompilationAttemptId, Ordinal DESC);
+            """;
+        await sceneImageEditSchema.ExecuteNonQueryAsync(cancellationToken);
 
         var checkAdaptiveStateJsonColumn = connection.CreateCommand();
         checkAdaptiveStateJsonColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('Sessions') WHERE name='AdaptiveStateJson'";

@@ -455,10 +455,8 @@
                                             <span>
                                                 @if (img.Status == SceneImageStatus.Complete)
                                                 {
-                                                    <input type="text" class="form-control form-control-sm mb-1" value="@GetEditInstruction(img.Id)" @oninput="e => SetEditInstruction(img.Id, e.Value?.ToString())"
-                                                       placeholder="Describe the edit" />
-                                                    <button class="btn btn-sm btn-outline-primary py-0 px-1" title="Edit this image with the configured Qwen editor" disabled="@(_busy || string.IsNullOrWhiteSpace(GetEditInstruction(img.Id)))"
-                                                        @onclick="() => EditImageAsync(img)"><i class="bi bi-pencil-square"></i></button>
+                                                    <button class="btn btn-sm btn-outline-primary py-0 px-1" title="Edit this image" disabled="@_busy"
+                                                        @onclick="() => OpenImageEditor(img)"><i class="bi bi-pencil-square"></i></button>
                                                     <button class="btn btn-sm btn-outline-secondary scene-image-continue-btn py-0 px-1" title="Continue from this image (reuse prompt + settings)" disabled="@_busy"
                                                             @onclick="() => ContinueFromImageAsync(img)">&#8635;</button>
                                                     <button class="btn btn-sm btn-outline-secondary py-0 px-1" title="Regenerate (keeps this version)" disabled="@(_busy || HasInFlightWork())"
@@ -549,7 +547,6 @@
     private string? _selectedBeatId;
     private string? _selectedPov;
     private SceneImageRecord? _viewerImage;
-    private readonly Dictionary<string, string> _editInstructions = new(StringComparer.OrdinalIgnoreCase);
 
     private SceneImageBeat? _selectedBeat
         => _analysis?.Beats.FirstOrDefault(b => b.BeatId == _selectedBeatId);
@@ -1054,31 +1051,9 @@
         });
     }
 
-    private string GetEditInstruction(string imageId)
-        => _editInstructions.GetValueOrDefault(imageId) ?? string.Empty;
-
-    private void SetEditInstruction(string imageId, string? instruction)
-        => _editInstructions[imageId] = instruction ?? string.Empty;
-
-    private async Task EditImageAsync(SceneImageRecord image)
+    private void OpenImageEditor(SceneImageRecord image)
     {
-        var instruction = GetEditInstruction(image.Id).Trim();
-        if (string.IsNullOrWhiteSpace(instruction)) return;
-
-        await RunAsync(async () =>
-        {
-            var record = await ImageService.EnqueueEditAsync(new SceneImageEditRequest
-            {
-                SessionId = sessionId,
-                InteractionId = interactionId,
-                SourceImageId = image.Id,
-                Instruction = instruction
-            });
-            _editInstructions[image.Id] = string.Empty;
-            _images.Insert(0, record);
-            _statusMessage = "Image edit queued.";
-            EnsurePolling();
-        });
+        Nav.NavigateTo($"/roleplay/image-editor/{sessionId}/{interactionId}/{image.Id}");
     }
 
     private async Task ContinueFromImageAsync(SceneImageRecord image)

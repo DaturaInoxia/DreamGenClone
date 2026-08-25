@@ -13,6 +13,7 @@ namespace DreamGenClone.Web.Application.RolePlay;
 public sealed class SceneImageEditingJobHandler : IBackgroundJobHandler
 {
     private readonly ISceneImageRepository _repository;
+    private readonly ISceneImageEditRepository _editRepository;
     private readonly ISceneImageStorageService _storage;
     private readonly IImageEditorModelResolver _modelResolver;
     private readonly IImageEditingClient _imageEditingClient;
@@ -20,12 +21,14 @@ public sealed class SceneImageEditingJobHandler : IBackgroundJobHandler
 
     public SceneImageEditingJobHandler(
         ISceneImageRepository repository,
+        ISceneImageEditRepository editRepository,
         ISceneImageStorageService storage,
         IImageEditorModelResolver modelResolver,
         IImageEditingClient imageEditingClient,
         ILogger<SceneImageEditingJobHandler> logger)
     {
         _repository = repository;
+        _editRepository = editRepository;
         _storage = storage;
         _modelResolver = modelResolver;
         _imageEditingClient = imageEditingClient;
@@ -55,6 +58,26 @@ public sealed class SceneImageEditingJobHandler : IBackgroundJobHandler
 
         try
         {
+            if (string.IsNullOrWhiteSpace(image.EditSessionId)
+                || string.IsNullOrWhiteSpace(image.EditCompilationAttemptId)
+                || string.IsNullOrWhiteSpace(image.EditPromptRevisionId)
+                || string.IsNullOrWhiteSpace(image.EditCompilerProvenanceJson))
+                throw new InvalidOperationException("Scene image editing requires exact compiler provenance.");
+            using var provenance = JsonDocument.Parse(image.EditCompilerProvenanceJson);
+            var sourceSha256 = provenance.RootElement.GetProperty("sourceImageSha256").GetString()
+                ?? throw new InvalidOperationException("Edit provenance is missing the source checksum.");
+            var promptSha256 = provenance.RootElement.GetProperty("promptSha256").GetString()
+                ?? throw new InvalidOperationException("Edit provenance is missing the prompt checksum.");
+            var revision = await _editRepository.GetExecutableRevisionAsync(
+                image.EditSessionId,
+                image.EditCompilationAttemptId,
+                image.EditPromptRevisionId,
+                sourceSha256,
+                promptSha256,
+                cancellationToken);
+            if (!string.Equals(revision.Prompt, image.PromptSnapshot, StringComparison.Ordinal))
+                throw new InvalidOperationException("The queued edit prompt does not match the accepted prompt revision.");
+
             var source = await _repository.GetImageAsync(image.SourceImageId, cancellationToken)
                 ?? throw new InvalidOperationException($"Source scene image '{image.SourceImageId}' was not found.");
             if (source.Status != SceneImageStatus.Complete
@@ -80,6 +103,9 @@ public sealed class SceneImageEditingJobHandler : IBackgroundJobHandler
             image.CompletedUtc = DateTime.UtcNow;
             image.UpdatedUtc = DateTime.UtcNow;
             await _repository.InsertImageAsync(image, cancellationToken);
+            var latestAttempt = await _editRepository.GetLatestAttemptAsync(image.EditSessionId, cancellationToken);
+            if (latestAttempt?.Id == image.EditCompilationAttemptId)
+                await _editRepository.UpdateSessionStatusAsync(image.EditSessionId, SceneImageEditSessionStatus.Completed, DateTime.UtcNow, image.CompletedUtc, cancellationToken);
 
             _logger.LogInformation("Scene image edit completed: SessionId={SessionId}, InteractionId={InteractionId}, ImageRecordId={ImageRecordId}, SourceImageId={SourceImageId}, Model={ModelIdentifier}, DurationMs={DurationMs}", payload.SessionId, payload.InteractionId, image.Id, source.Id, resolved.ModelIdentifier, stopwatch.ElapsedMilliseconds);
         }
@@ -89,6 +115,12 @@ public sealed class SceneImageEditingJobHandler : IBackgroundJobHandler
             image.ErrorMessage = ex.Message;
             image.UpdatedUtc = DateTime.UtcNow;
             await _repository.InsertImageAsync(image, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(image.EditSessionId) && !string.IsNullOrWhiteSpace(image.EditCompilationAttemptId))
+            {
+                var latestAttempt = await _editRepository.GetLatestAttemptAsync(image.EditSessionId, cancellationToken);
+                if (latestAttempt?.Id == image.EditCompilationAttemptId)
+                    await _editRepository.UpdateSessionStatusAsync(image.EditSessionId, SceneImageEditSessionStatus.Failed, DateTime.UtcNow, cancellationToken: cancellationToken);
+            }
             _logger.LogWarning(ex, "Scene image edit failed: SessionId={SessionId}, ImageRecordId={ImageRecordId}", payload.SessionId, image.Id);
             throw;
         }

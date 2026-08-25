@@ -9,7 +9,7 @@ if [[ ! -d "$runtime/.git" ]]; then
 fi
 git -C "$runtime" fetch --depth 1 origin "$revision"
 git -C "$runtime" checkout --detach "$revision"
-python3 -m venv "$runtime/.venv"
+python3 -m venv --system-site-packages "$runtime/.venv"
 "$runtime/.venv/bin/pip" install --upgrade pip
 "$runtime/.venv/bin/pip" install -r "$runtime/requirements.txt"
 "$(dirname "$0")/download-models.sh" "$runtime"

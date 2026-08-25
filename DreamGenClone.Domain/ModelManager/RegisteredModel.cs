@@ -9,6 +9,18 @@ public sealed class RegisteredModel
     public ModelKind ModelKind { get; set; } = ModelKind.Text;
     public string? ImageSizeSupported { get; set; }
 
+    /// <summary>Whether this model accepts image content in multimodal completion requests.</summary>
+    public bool SupportsImageInput { get; set; }
+
+    public int? MaximumInputImages { get; set; }
+    public long? MaximumInputImageBytes { get; set; }
+    public long? MaximumInputImagePixels { get; set; }
+    public int? MaximumInputImageDimension { get; set; }
+    public string? AcceptedInputMediaTypes { get; set; }
+    public long? MaximumResponseBytes { get; set; }
+    public string? RuntimeRevision { get; set; }
+    public string? ArtifactRevision { get; set; }
+
     /// <summary>Qwen diffusion model artifact for source-image editing.</summary>
     public string? ImageEditorDiffusionModel { get; set; }
 

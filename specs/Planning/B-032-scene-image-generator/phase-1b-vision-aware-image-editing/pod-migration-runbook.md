@@ -2,9 +2,13 @@
 
 ## Purpose
 
-Reclaim the persistent volume space occupied by Pony and install the vision compiler on the same
-pod and persistent volume as Qwen Image Edit and Juggernaut. Pony is no longer an active POC model.
-This runbook is a plan; commands and paths must be filled from live inventory.
+Migrate Juggernaut, Qwen Image Edit, Qwen VL, and DWPose from the legacy combined deployment to
+independent capability pods and volumes. The legacy pod remains intact as the migration source until
+all dedicated replacements and assignments pass. This runbook is a plan; commands and paths must be
+filled from live inventory.
+
+This dedicated-pod amendment supersedes the earlier same-pod instructions in this document. The
+authoritative architecture and acceptance gates are in `multi-pod-separation-plan.md`.
 
 ## Hard Rules
 
@@ -14,8 +18,8 @@ This runbook is a plan; commands and paths must be filled from live inventory.
 - Never treat the Qwen Edit text encoder as a multimodal analysis endpoint.
 - Never download into container root; all runtimes/artifacts live under `/workspace`.
 - Never claim recovery until artifact hashes and health checks pass.
-- Never create a second pod for the vision service; runtime isolation means directories/processes
-  on the existing pod.
+- Never install a replacement or candidate capability into the legacy combined pod.
+- Never terminate a pod or delete a volume without separate explicit user authorization.
 
 ## Preflight Evidence
 
@@ -52,9 +56,10 @@ Before file deletion:
 
 If any active required function still resolves to Pony, stop. Do not delete the artifact.
 
-## Authorized Retirement
+## Legacy Artifact Retirement
 
-The implementation script must require:
+Pony retirement is deferred until its dedicated candidate decision and all legacy cutover gates are
+complete. Any later implementation script must require:
 
 - exact absolute expected path;
 - expected filename `ponyDiffusionV6XL_v6.safetensors` unless inventory proves a different deployed
@@ -68,8 +73,8 @@ space. It does not remove workflows, previews, metadata, generated images, or di
 
 ## Vision Runtime Provisioning
 
-Use a separate dependency/runtime path such as `/workspace/qwen-vl-edit-compiler` on the same pod
-and persistent volume. "Separate" does not mean another pod. The committed provisioner must:
+Use the dedicated `image-vision-qwen-vl-prod` pod and its own persistent volume. The committed
+provisioner must:
 
 1. pin source/runtime revisions;
 2. use a dedicated virtual environment;
@@ -83,35 +88,28 @@ and persistent volume. "Separate" does not mean another pod. The committed provi
 The endpoint is forwarded privately for development. Model Manager stores the HTTP provider/model
 configuration, not SSH credentials.
 
-## One-Pod Residency Gate
+## Dedicated Capability Pod Gate
 
-Juggernaut, Qwen Edit, and Qwen VL artifacts remain installed on this pod. Measure two GPU-loading
-modes and approve exactly one:
-
-- **Co-resident:** vision endpoint and Qwen ComfyUI remain started, and worst-case compilation/edit
-  operations each pass with the approved VRAM headroom.
-- **Same-pod scheduled residency:** services and artifacts remain on the pod, but a pinned
-  coordinator unloads/stops the GPU-heavy model not in use, verifies GPU release, loads/starts the
-  required model, and waits for health before jobs run.
-
-Scheduled residency is expected on the 24 GB-class GPU. This is not multi-pod routing or model
-fallback. The final manifest records process commands, ports, transition time, health probes, and
-failure behavior. Endpoint unavailability is failure, never permission to create another pod or
-use another model.
+Juggernaut, Qwen Edit, Qwen VL, and DWPose each run on their manifest-selected dedicated pod and
+volume. Start, endpoint discovery, exact identity readiness, drain, and stop are verified
+independently for each deployment. A workflow resolves exactly one configured deployment for each
+required capability; endpoint unavailability is failure and never permission to use another pod or
+model.
 
 ## Post-Migration Verification
 
-- Persistent and root volumes remain above their approved free-space floors.
+- Each dedicated persistent volume and container root remains above its approved free-space floor.
 - Vision `/v1/models`, health, one-image schema request, and frozen corpus pass.
 - Qwen ComfyUI `/system_stats`, object info, and one canonical edit pass.
 - Juggernaut generation path resolves and one health/proof request passes.
-- Pony is absent from live checkpoint inventory and unavailable in Model Manager.
-- Existing Pony workflows remain in git and fail with an explicit missing-model diagnostic if run.
+- The legacy combined pod remains intact until every dedicated replacement and cutover gate passes.
+- Pony is not assigned to an active production function; its dedicated candidate is evaluated
+  independently without changing Juggernaut's production assignment.
 - No `.partial` downloads, duplicate model caches, or unbounded logs remain.
 
 ## Recovery
 
-Recovery is explicit same-pod operator action, not application fallback. If the vision deployment
-cannot be accepted, preserve its failure evidence and repair or reprovision only its manifest-listed
-runtime on the existing pod. Do not reinstall Pony, create another pod, or modify retained Qwen and
-Juggernaut artifacts as an unrelated recovery step.
+Recovery is an explicit operator action, not application fallback. If a dedicated deployment cannot
+be accepted, preserve its failure evidence and repair or reprovision only that deployment from its
+manifest. Do not alter another capability pod or the retained legacy source as an unrelated recovery
+step. Rollback is a new explicit persisted assignment to a previously proven deployment.

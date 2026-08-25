@@ -1,0 +1,565 @@
+@page "/roleplay/image-editor/{sessionId}/{interactionId}/{sourceImageId}"
+@rendermode InteractiveServer
+
+@using System.Text.Json
+@using DreamGenClone.Domain.RolePlay
+@using DreamGenClone.Web.Application.RolePlay
+@using DreamGenClone.Web.Application.RolePlay.Models
+@implements IAsyncDisposable
+
+@inject ISceneImageService ImageService
+@inject ISceneImageEditCompilationService CompilationService
+@inject NavigationManager Nav
+@inject ILogger<SceneImageEditor> Logger
+
+<PageTitle>Scene Image Editor - DreamGenClone</PageTitle>
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center gap-2 mb-3">
+        <div class="d-flex align-items-center gap-2">
+            <a href="/roleplay/studio/@sessionId/@interactionId" class="btn btn-outline-secondary btn-sm" title="Back to Scene Image Studio">
+                <i class="bi bi-arrow-left"></i>
+            </a>
+            <h4 class="mb-0">Scene Image Editor</h4>
+        </div>
+        <a href="/roleplay/gallery/@sessionId" class="btn btn-outline-primary btn-sm">
+            <i class="bi bi-images me-1"></i> Gallery
+        </a>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_errorMessage))
+    {
+        <div class="alert alert-danger">@_errorMessage</div>
+    }
+    @if (!string.IsNullOrWhiteSpace(_statusMessage))
+    {
+        <div class="alert alert-info">@_statusMessage</div>
+    }
+
+    @if (_loading)
+    {
+        <div class="d-flex align-items-center gap-2 text-muted">
+            <span class="spinner-border spinner-border-sm"></span>
+            <span>Loading source image...</span>
+        </div>
+    }
+    else if (_sourceImage is null)
+    {
+        <div class="alert alert-warning">The selected source image is unavailable or is not complete.</div>
+    }
+    else
+    {
+        <div class="row g-3">
+            <div class="col-lg-6">
+                <section class="scene-edit-media-panel">
+                    <div class="scene-edit-panel-heading">
+                        <div>
+                            <span class="scene-edit-kicker">Source</span>
+                            <strong>Original image</strong>
+                        </div>
+                        <span class="badge bg-secondary">@_sourceImage.ImageSize</span>
+                    </div>
+                    <div class="scene-edit-image-stage">
+                        <img src="/scene-images/@_sourceImage.FileRelativePath" alt="Source scene" class="scene-edit-image" />
+                    </div>
+                </section>
+            </div>
+
+            <div class="col-lg-6">
+                <section class="scene-edit-workbench">
+                    <div class="scene-edit-panel-heading">
+                        <div>
+                            <span class="scene-edit-kicker">Vision compiler</span>
+                            <strong>Describe the change</strong>
+                        </div>
+                        @if (_attempt is not null)
+                        {
+                            <span class="badge @AttemptBadgeClass">@FormatAttemptStatus(_attempt.Status)</span>
+                        }
+                    </div>
+
+                    <label class="form-label" for="edit-intent">Edit intent</label>
+                    <textarea id="edit-intent" class="form-control" rows="4" @bind="_rawIntent" @bind:event="oninput"
+                              disabled="@(_busy || _editSession?.Status == SceneImageEditSessionStatus.Completed)"
+                              placeholder="Describe only what should visibly change."></textarea>
+
+                    @if (IsCompilationStale)
+                    {
+                        <div class="alert alert-warning py-2 mt-2 mb-0">
+                            The intent changed after compilation. Prepare it again before running the edit.
+                        </div>
+                    }
+
+                    <div class="d-flex justify-content-end mt-3">
+                        <button class="btn btn-primary" @onclick="PrepareAsync"
+                            disabled="@(_busy || HasInFlightWork() || string.IsNullOrWhiteSpace(_rawIntent) || _editSession?.Status == SceneImageEditSessionStatus.Completed)">
+                            @if (_busy && _attempt?.Status is SceneImageEditCompilationAttemptStatus.Pending or SceneImageEditCompilationAttemptStatus.Compiling)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1"></span>
+                            }
+                            <i class="bi bi-magic me-1"></i> Prepare edit
+                        </button>
+                    </div>
+
+                    @if (_attempt?.Status is SceneImageEditCompilationAttemptStatus.Pending or SceneImageEditCompilationAttemptStatus.Compiling)
+                    {
+                        <div class="scene-edit-progress mt-3">
+                            <span class="spinner-border spinner-border-sm"></span>
+                            <span>The vision model is inspecting the source and compiling a grounded instruction.</span>
+                        </div>
+                    }
+
+                    @if (_compilationResult?.Status == SceneImageEditCompilationResultStatus.ClarificationRequired)
+                    {
+                        <div class="scene-edit-clarification mt-3">
+                            <span class="scene-edit-kicker">Clarification needed</span>
+                            <p class="mb-2">@_compilationResult.ClarificationQuestion</p>
+                            <div class="input-group">
+                                <input class="form-control" @bind="_clarificationAnswer" placeholder="Answer using visible details" />
+                                <button class="btn btn-outline-primary" @onclick="SubmitClarificationAsync"
+                                        disabled="@(_busy || string.IsNullOrWhiteSpace(_clarificationAnswer))">
+                                    <i class="bi bi-send me-1"></i> Submit
+                                </button>
+                            </div>
+                        </div>
+                    }
+
+                    @if (_compilationResult?.Status == SceneImageEditCompilationResultStatus.Invalid)
+                    {
+                        <div class="alert alert-danger mt-3 mb-0">
+                            <strong>Cannot prepare this edit.</strong> @_compilationResult.InvalidReason
+                        </div>
+                    }
+                    @if (_attempt?.Status == SceneImageEditCompilationAttemptStatus.Failed)
+                    {
+                        <div class="alert alert-danger mt-3 mb-0">
+                            <strong>Compilation failed.</strong> @_attempt.Error
+                        </div>
+                    }
+                </section>
+            </div>
+        </div>
+
+        @if (_compilationResult?.Status == SceneImageEditCompilationResultStatus.Ready && _attempt is not null)
+        {
+            <div class="row g-3 mt-0">
+                <div class="col-lg-5">
+                    <section class="scene-edit-summary h-100">
+                        <div class="scene-edit-panel-heading">
+                            <div>
+                                <span class="scene-edit-kicker">Grounded analysis</span>
+                                <strong>What the compiler found</strong>
+                            </div>
+                        </div>
+                        <p>@_compilationResult.SourceSummary</p>
+                        <div class="scene-edit-summary-group">
+                            <span>Targets</span>
+                            @foreach (var target in _compilationResult.Targets)
+                            {
+                                <div><strong>@target.Key:</strong> @target.VisibleLocator</div>
+                            }
+                        </div>
+                        <div class="scene-edit-summary-group">
+                            <span>Changes</span>
+                            <ul>
+                                @foreach (var change in _compilationResult.RequestedChanges)
+                                {
+                                    <li>@change</li>
+                                }
+                            </ul>
+                        </div>
+                        <div class="scene-edit-summary-group">
+                            <span>Preserve</span>
+                            <ul>
+                                @foreach (var item in _compilationResult.Preserve)
+                                {
+                                    <li>@item</li>
+                                }
+                            </ul>
+                        </div>
+                    </section>
+                </div>
+
+                <div class="col-lg-7">
+                    <section class="scene-edit-workbench h-100">
+                        <div class="scene-edit-panel-heading">
+                            <div>
+                                <span class="scene-edit-kicker">Advanced</span>
+                                <strong>Compiled prompt</strong>
+                            </div>
+                            @if (_activeRevision is not null)
+                            {
+                                <span class="badge bg-secondary">Revision @(_activeRevision.Ordinal + 1)</span>
+                            }
+                        </div>
+                        <textarea class="form-control font-monospace" rows="7" @bind="_editablePrompt" @bind:event="oninput"></textarea>
+                        @if (IsPromptModified)
+                        {
+                            <div class="form-text text-warning">Your changes will be saved as a new accepted revision before execution.</div>
+                        }
+                        <div class="d-flex justify-content-end mt-3">
+                            <button class="btn btn-success" @onclick="RunEditAsync"
+                                    disabled="@(_busy || HasInFlightWork() || IsCompilationStale || string.IsNullOrWhiteSpace(_editablePrompt) || _activeRevision is null || _editSession?.Status == SceneImageEditSessionStatus.Completed)">
+                                <i class="bi bi-play-fill me-1"></i> Run edit
+                            </button>
+                        </div>
+                    </section>
+                </div>
+            </div>
+        }
+
+        @if (_resultImage is not null || _lineage.Count > 1)
+        {
+            <section class="scene-edit-results mt-3">
+                <div class="scene-edit-panel-heading">
+                    <div>
+                        <span class="scene-edit-kicker">Lineage</span>
+                        <strong>Source and results</strong>
+                    </div>
+                </div>
+
+                @if (_resultImage is not null)
+                {
+                    <div class="row g-3 align-items-stretch mb-3">
+                        <div class="col-md-6">
+                            <div class="scene-edit-compare-frame">
+                                <span>Before</span>
+                                <img src="/scene-images/@_sourceImage.FileRelativePath" alt="Source before editing" />
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="scene-edit-compare-frame">
+                                <span>After</span>
+                                @if (_resultImage.Status == SceneImageStatus.Complete && !string.IsNullOrWhiteSpace(_resultImage.FileRelativePath))
+                                {
+                                    <img src="/scene-images/@_resultImage.FileRelativePath" alt="Edited result" />
+                                }
+                                else if (_resultImage.Status is SceneImageStatus.Pending or SceneImageStatus.Generating)
+                                {
+                                    <div class="scene-edit-result-state"><span class="spinner-border"></span><span>Editing image...</span></div>
+                                }
+                                else
+                                {
+                                    <div class="alert alert-danger m-3">@_resultImage.ErrorMessage</div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                }
+
+                <div class="scene-edit-lineage">
+                    @foreach (var image in _lineage)
+                    {
+                        <div class="scene-edit-lineage-item">
+                            <span class="badge @(image.Operation == SceneImageOperation.Edit ? "bg-info text-dark" : "bg-secondary")">@image.Operation</span>
+                            <span class="font-monospace small">@image.Id</span>
+                            <span class="text-muted small">@image.Status · @image.CreatedUtc.ToLocalTime().ToString("g")</span>
+                            @if (image.Status == SceneImageStatus.Complete && image.Operation == SceneImageOperation.Edit)
+                            {
+                                <button class="btn btn-sm btn-outline-primary ms-auto" @onclick="() => EditResult(image)">
+                                    <i class="bi bi-pencil-square me-1"></i> Edit result
+                                </button>
+                            }
+                        </div>
+                    }
+                </div>
+            </section>
+        }
+    }
+</div>
+
+@code {
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    [Parameter]
+    public string sessionId { get; set; } = string.Empty;
+
+    [Parameter]
+    public string interactionId { get; set; } = string.Empty;
+
+    [Parameter]
+    public string sourceImageId { get; set; } = string.Empty;
+
+    private SceneImageRecord? _sourceImage;
+    private SceneImageEditSession? _editSession;
+    private SceneImageEditCompilationAttempt? _attempt;
+    private SceneImageEditCompilationResult? _compilationResult;
+    private SceneImageEditPromptRevision? _activeRevision;
+    private SceneImageRecord? _resultImage;
+    private IReadOnlyList<SceneImageRecord> _lineage = [];
+    private readonly List<string> _clarificationHistory = [];
+    private string _rawIntent = string.Empty;
+    private string _preparedIntent = string.Empty;
+    private string _clarificationAnswer = string.Empty;
+    private string _editablePrompt = string.Empty;
+    private string _statusMessage = string.Empty;
+    private string _errorMessage = string.Empty;
+    private bool _loading = true;
+    private bool _busy;
+    private bool _polling;
+    private CancellationTokenSource? _pollingCts;
+    private Task? _pollingTask;
+
+    private bool IsCompilationStale => _attempt is not null
+        && !string.Equals(_rawIntent.Trim(), _preparedIntent, StringComparison.Ordinal);
+
+    private bool IsPromptModified => _activeRevision is not null
+        && !string.Equals(_editablePrompt.Trim(), _activeRevision.Prompt, StringComparison.Ordinal);
+
+    private string AttemptBadgeClass => _attempt?.Status switch
+    {
+        SceneImageEditCompilationAttemptStatus.Ready => "bg-success",
+        SceneImageEditCompilationAttemptStatus.ClarificationRequired => "bg-warning text-dark",
+        SceneImageEditCompilationAttemptStatus.Invalid or SceneImageEditCompilationAttemptStatus.Failed => "bg-danger",
+        _ => "bg-info text-dark"
+    };
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+        await LoadAsync();
+        StateHasChanged();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _errorMessage = string.Empty;
+        try
+        {
+            var images = await ImageService.ListImagesByInteractionAsync(sessionId, interactionId);
+            _sourceImage = images.FirstOrDefault(image => string.Equals(image.Id, sourceImageId, StringComparison.OrdinalIgnoreCase));
+            if (_sourceImage is null || _sourceImage.Status != SceneImageStatus.Complete || string.IsNullOrWhiteSpace(_sourceImage.FileRelativePath))
+            {
+                _sourceImage = null;
+                return;
+            }
+
+            _editSession = await CompilationService.CreateSessionAsync(new CreateSceneImageEditSessionRequest
+            {
+                SessionId = sessionId,
+                InteractionId = interactionId,
+                SourceImageId = sourceImageId
+            });
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Failed to open the image editor: {ex.Message}";
+            Logger.LogError(ex, "SceneImageEditor load failed: SessionId={SessionId}, InteractionId={InteractionId}, SourceImageId={SourceImageId}", sessionId, interactionId, sourceImageId);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task PrepareAsync()
+    {
+        if (_editSession is null || string.IsNullOrWhiteSpace(_rawIntent))
+            return;
+        await RunAsync(async () =>
+        {
+            _attempt = await CompilationService.EnqueueCompilationAsync(new EnqueueSceneImageEditCompilationRequest
+            {
+                EditSessionId = _editSession.Id,
+                RawIntent = _rawIntent.Trim(),
+                ClarificationHistory = _clarificationHistory.ToList()
+            });
+            _preparedIntent = _rawIntent.Trim();
+            _compilationResult = null;
+            _activeRevision = null;
+            _editablePrompt = string.Empty;
+            _statusMessage = "Edit compilation queued.";
+            EnsurePolling();
+        });
+    }
+
+    private async Task SubmitClarificationAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_clarificationAnswer))
+            return;
+        _clarificationHistory.Add(_clarificationAnswer.Trim());
+        _clarificationAnswer = string.Empty;
+        await PrepareAsync();
+    }
+
+    private async Task RunEditAsync()
+    {
+        if (_editSession is null || _attempt is null || _activeRevision is null || _sourceImage is null)
+            return;
+        await RunAsync(async () =>
+        {
+            var revision = _activeRevision;
+            if (IsPromptModified)
+            {
+                revision = await CompilationService.AppendPromptRevisionAsync(new AppendSceneImageEditPromptRevisionRequest
+                {
+                    EditSessionId = _editSession.Id,
+                    CompilationAttemptId = _attempt.Id,
+                    Prompt = _editablePrompt.Trim()
+                });
+                _activeRevision = revision;
+            }
+
+            _resultImage = await ImageService.EnqueueEditAsync(new SceneImageEditRequest
+            {
+                SessionId = sessionId,
+                InteractionId = interactionId,
+                SourceImageId = _sourceImage.Id,
+                EditSessionId = _editSession.Id,
+                CompilationAttemptId = _attempt.Id,
+                PromptRevisionId = revision.Id,
+                SourceImageSha256 = _editSession.SourceImageSha256,
+                PromptSha256 = revision.PromptSha256
+            });
+            _statusMessage = "Image edit queued.";
+            EnsurePolling();
+        });
+    }
+
+    private async Task RefreshAsync()
+    {
+        if (_editSession is null)
+            return;
+        _editSession = await CompilationService.GetSessionAsync(_editSession.Id) ?? _editSession;
+        var latestAttempt = await CompilationService.GetLatestAttemptAsync(_editSession.Id);
+        if (latestAttempt is not null)
+        {
+            var changedAttempt = !string.Equals(_attempt?.Id, latestAttempt.Id, StringComparison.Ordinal);
+            _attempt = latestAttempt;
+            _compilationResult = ParseResult(latestAttempt.ParsedResultJson);
+            var revisions = await CompilationService.ListRevisionsAsync(latestAttempt.Id);
+            var latestRevision = revisions.OrderByDescending(revision => revision.Ordinal).FirstOrDefault();
+            if (latestRevision is not null && (changedAttempt || _activeRevision is null))
+            {
+                _activeRevision = latestRevision;
+                _editablePrompt = latestRevision.Prompt;
+            }
+        }
+
+        var images = await ImageService.ListImagesByInteractionAsync(sessionId, interactionId);
+        _resultImage = images
+            .Where(image => string.Equals(image.EditSessionId, _editSession.Id, StringComparison.Ordinal))
+            .OrderByDescending(image => image.CreatedUtc)
+            .FirstOrDefault();
+        _lineage = BuildLineage(images, sourceImageId);
+    }
+
+    private static SceneImageEditCompilationResult? ParseResult(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return null;
+        return JsonSerializer.Deserialize<SceneImageEditCompilationResult>(json, JsonOptions)
+            ?? throw new InvalidOperationException("The stored compiler result is invalid.");
+    }
+
+    private static IReadOnlyList<SceneImageRecord> BuildLineage(IReadOnlyList<SceneImageRecord> images, string rootId)
+    {
+        var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { rootId };
+        var changed = true;
+        while (changed)
+        {
+            changed = false;
+            foreach (var image in images)
+            {
+                if (!string.IsNullOrWhiteSpace(image.SourceImageId) && ids.Contains(image.SourceImageId) && ids.Add(image.Id))
+                    changed = true;
+            }
+        }
+        return images.Where(image => ids.Contains(image.Id)).OrderBy(image => image.CreatedUtc).ToList();
+    }
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        _busy = true;
+        _errorMessage = string.Empty;
+        _statusMessage = string.Empty;
+        try
+        {
+            await action();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.Message;
+            Logger.LogWarning(ex, "SceneImageEditor action failed: SessionId={SessionId}, SourceImageId={SourceImageId}", sessionId, sourceImageId);
+        }
+        finally
+        {
+            _busy = false;
+            StateHasChanged();
+        }
+    }
+
+    private bool HasInFlightWork()
+    {
+        if (_attempt?.Status is SceneImageEditCompilationAttemptStatus.Pending or SceneImageEditCompilationAttemptStatus.Compiling)
+            return true;
+        return _resultImage?.Status is SceneImageStatus.Pending or SceneImageStatus.Generating;
+    }
+
+    private void EnsurePolling()
+    {
+        if (_polling)
+            return;
+        _polling = true;
+        _pollingCts = new CancellationTokenSource();
+        _pollingTask = Task.Run(() => PollAsync(_pollingCts.Token));
+    }
+
+    private async Task PollAsync(CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+            {
+                var stillWorking = false;
+                await InvokeAsync(async () =>
+                {
+                    try
+                    {
+                        await RefreshAsync();
+                    }
+                    catch (Exception ex)
+                    {
+                        _errorMessage = $"Refresh failed: {ex.Message}";
+                        Logger.LogWarning(ex, "SceneImageEditor poll failed: SessionId={SessionId}, SourceImageId={SourceImageId}", sessionId, sourceImageId);
+                    }
+                    stillWorking = HasInFlightWork();
+                    StateHasChanged();
+                });
+                if (!stillWorking)
+                    break;
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (ObjectDisposedException) { }
+        finally
+        {
+            _polling = false;
+        }
+    }
+
+    private void EditResult(SceneImageRecord image)
+    {
+        Nav.NavigateTo($"/roleplay/image-editor/{sessionId}/{interactionId}/{image.Id}", forceLoad: true);
+    }
+
+    private static string FormatAttemptStatus(SceneImageEditCompilationAttemptStatus status) => status switch
+    {
+        SceneImageEditCompilationAttemptStatus.ClarificationRequired => "Needs clarification",
+        _ => status.ToString()
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_pollingCts is not null)
+        {
+            await _pollingCts.CancelAsync();
+            _pollingCts.Dispose();
+            _pollingCts = null;
+        }
+    }
+}

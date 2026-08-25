@@ -23,12 +23,25 @@ def fail(message: str) -> None:
     raise SystemExit(message)
 
 
-if len(sys.argv) != 4:
-    fail("Usage: prove-one-image.py <port> <source-image> <raw-response-path>")
+if len(sys.argv) not in (4, 5):
+    fail("Usage: prove-one-image.py <port> <source-image> <raw-response-path> [edit-intent]")
 
 port = int(sys.argv[1])
 source_path = Path(sys.argv[2])
 response_path = Path(sys.argv[3])
+edit_intent_argument = (
+    sys.argv[4]
+    if len(sys.argv) == 5
+    else (
+        "Change the main symbol to warm red while preserving its identity, composition, "
+        "background, and clean icon rendering."
+    )
+)
+edit_intent = (
+    base64.b64decode(edit_intent_argument.removeprefix("base64:")).decode("utf-8")
+    if edit_intent_argument.startswith("base64:")
+    else edit_intent_argument
+)
 image_bytes = source_path.read_bytes()
 mime_type = mimetypes.guess_type(source_path.name)[0]
 
@@ -74,13 +87,7 @@ payload = {
         {
             "role": "user",
             "content": [
-                {
-                    "type": "text",
-                    "text": (
-                        "Change the main symbol to warm red while preserving its identity, "
-                        "composition, background, and clean icon rendering."
-                    ),
-                },
+                {"type": "text", "text": edit_intent},
                 {"type": "image_url", "image_url": {"url": data_url}},
             ],
         },

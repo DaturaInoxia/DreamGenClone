@@ -1,0 +1,27 @@
+{
+  "deploymentKey": "image-gen-juggernaut-prod",
+  "displayName": "Juggernaut image generation",
+  "capability": "ImageGeneration",
+  "modelIdentifier": "juggernautXL_ragnarok.safetensors",
+  "podId": "mb5pwrm14psof5",
+  "podName": "dreamgen-image-gen-juggernaut",
+  "containerImage": "runpod/stable-diffusion:comfy-ui-6.0.0",
+  "cloudType": "SECURE",
+  "interruptible": false,
+  "gpuTypeId": "NVIDIA A40",
+  "gpuCount": 1,
+  "volumeInGb": 50,
+  "containerDiskInGb": 20,
+  "volumeMountPath": "/workspace",
+  "inferencePort": 3000,
+  "sshTcpPort": 22,
+  "sshUser": "root",
+  "readinessPath": "/system_stats",
+  "identityProbePath": "/object_info/CheckpointLoaderSimple",
+  "identityExpectedText": "juggernautXL_ragnarok.safetensors",
+  "expectedIdentity": {
+    "deploymentKey": "image-gen-juggernaut-prod",
+    "modelIdentifier": "juggernautXL_ragnarok.safetensors",
+    "runtimeRevision": "runpod/stable-diffusion:comfy-ui-6.0.0"
+  }
+}

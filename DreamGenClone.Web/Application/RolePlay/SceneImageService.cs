@@ -21,6 +21,7 @@ public sealed class SceneImageService : ISceneImageService
 
     private readonly ISessionService _sessionService;
     private readonly ISceneImageRepository _repository;
+    private readonly ISceneImageEditRepository _editRepository;
     private readonly ISceneImageStorageService _storage;
     private readonly IBackgroundJobQueue _backgroundJobQueue;
     private readonly SceneImageTurnResolver? _turnResolver;
@@ -29,16 +30,18 @@ public sealed class SceneImageService : ISceneImageService
     public SceneImageService(
         ISessionService sessionService,
         ISceneImageRepository repository,
+        ISceneImageEditRepository editRepository,
         ISceneImageStorageService storage,
         IBackgroundJobQueue backgroundJobQueue,
         ILogger<SceneImageService> logger)
-        : this(sessionService, repository, storage, backgroundJobQueue, null, logger)
+        : this(sessionService, repository, editRepository, storage, backgroundJobQueue, null, logger)
     {
     }
 
     public SceneImageService(
         ISessionService sessionService,
         ISceneImageRepository repository,
+        ISceneImageEditRepository editRepository,
         ISceneImageStorageService storage,
         IBackgroundJobQueue backgroundJobQueue,
         SceneImageTurnResolver? turnResolver,
@@ -46,6 +49,7 @@ public sealed class SceneImageService : ISceneImageService
     {
         _sessionService = sessionService;
         _repository = repository;
+        _editRepository = editRepository;
         _storage = storage;
         _backgroundJobQueue = backgroundJobQueue;
         _turnResolver = turnResolver;
@@ -247,8 +251,12 @@ public sealed class SceneImageService : ISceneImageService
         var interaction = FindInteraction(session, request.InteractionId);
         if (string.IsNullOrWhiteSpace(request.SourceImageId))
             throw new InvalidOperationException("A source image id is required to edit a scene image.");
-        if (string.IsNullOrWhiteSpace(request.Instruction))
-            throw new InvalidOperationException("A non-empty edit instruction is required to edit a scene image.");
+        if (string.IsNullOrWhiteSpace(request.EditSessionId)
+            || string.IsNullOrWhiteSpace(request.CompilationAttemptId)
+            || string.IsNullOrWhiteSpace(request.PromptRevisionId)
+            || string.IsNullOrWhiteSpace(request.SourceImageSha256)
+            || string.IsNullOrWhiteSpace(request.PromptSha256))
+            throw new InvalidOperationException("An exact compiled edit session, attempt, prompt revision, source checksum, and prompt checksum are required.");
 
         var source = await _repository.GetImageAsync(request.SourceImageId, cancellationToken)
             ?? throw new InvalidOperationException($"Source scene image '{request.SourceImageId}' was not found.");
@@ -262,15 +270,49 @@ public sealed class SceneImageService : ISceneImageService
         if (string.IsNullOrWhiteSpace(source.FileRelativePath))
             throw new InvalidOperationException("The completed source scene image has no stored image path.");
 
+        var editSession = await _editRepository.GetSessionAsync(request.EditSessionId, cancellationToken)
+            ?? throw new InvalidOperationException($"Edit session '{request.EditSessionId}' was not found.");
+        if (!string.Equals(editSession.SourceImageId, source.Id, StringComparison.Ordinal)
+            || !string.Equals(editSession.SessionId, session.Id, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(editSession.InteractionId, interaction.Id, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("The edit session does not belong to the selected source image, session, and interaction.");
+        var revision = await _editRepository.GetExecutableRevisionAsync(
+            editSession.Id,
+            request.CompilationAttemptId,
+            request.PromptRevisionId,
+            request.SourceImageSha256,
+            request.PromptSha256,
+            cancellationToken);
+        var attempt = await _editRepository.GetAttemptAsync(request.CompilationAttemptId, cancellationToken)
+            ?? throw new InvalidOperationException($"Compilation attempt '{request.CompilationAttemptId}' was not found.");
+        var provenanceJson = JsonSerializer.Serialize(new
+        {
+            editSessionId = editSession.Id,
+            compilationAttemptId = attempt.Id,
+            attemptOrdinal = attempt.Ordinal,
+            promptRevisionId = revision.Id,
+            revisionOrdinal = revision.Ordinal,
+            sourceImageSha256 = editSession.SourceImageSha256,
+            promptSha256 = revision.PromptSha256,
+            attempt.CompilerSchemaVersion,
+            attempt.SystemPromptVersion,
+            resolvedModelSnapshot = JsonSerializer.Deserialize<JsonElement>(attempt.ResolvedModelSnapshotJson)
+        }, JsonOptions);
+
         var record = new SceneImageRecord
         {
             SessionId = session.Id,
             InteractionId = interaction.Id,
             PromptRecordId = source.PromptRecordId,
-            PromptSnapshot = request.Instruction.Trim(),
+            PromptSnapshot = revision.Prompt,
             Status = SceneImageStatus.Pending,
             Operation = SceneImageOperation.Edit,
             SourceImageId = source.Id,
+            EditSessionId = editSession.Id,
+            EditCompilationAttemptId = attempt.Id,
+            EditPromptRevisionId = revision.Id,
+            EditIntentSnapshot = attempt.RawIntent,
+            EditCompilerProvenanceJson = provenanceJson,
             ImageSize = source.ImageSize,
             Style = source.Style,
             SettingsJson = source.SettingsJson,

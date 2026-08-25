@@ -225,9 +225,14 @@ builder.Services.AddSingleton<IPromptTestRunRepository, PromptTestRunRepository>
 builder.Services.AddSingleton<IDatabaseBackupRepository, DatabaseBackupRepository>();
 builder.Services.AddSingleton<IApiKeyEncryptionService, ApiKeyEncryptionService>();
 builder.Services.AddSingleton<ICompletionClient, CompletionClient>();
+builder.Services.AddSingleton<IMultimodalCompletionClient, OpenAiMultimodalCompletionClient>();
 builder.Services.AddSingleton<IClimaxBeatRepository, ClimaxBeatRepository>();
 builder.Services.AddHttpClient("CompletionClient");
+builder.Services.AddHttpClient("MultimodalCompletionClient");
 builder.Services.AddScoped<IModelResolutionService, ModelResolutionService>();
+builder.Services.AddScoped<IMultimodalModelResolutionService>(serviceProvider =>
+    serviceProvider.GetRequiredService<IModelResolutionService>() as ModelResolutionService
+    ?? throw new InvalidOperationException("The configured model resolver does not support multimodal resolution."));
 builder.Services.AddScoped<IImageEditorModelResolver, ImageEditorModelResolver>();
 builder.Services.AddScoped<IHealthCheckService, HealthCheckService>();
 builder.Services.AddScoped<ModelManagerFacade>();
@@ -252,6 +257,7 @@ builder.Services.AddScoped<IBackgroundJobHandler, SceneImageBeatGenerationJobHan
 builder.Services.AddScoped<IBackgroundJobHandler, SceneImagePromptGenerationJobHandler>();
 builder.Services.AddScoped<IBackgroundJobHandler, SceneImageRenderingJobHandler>();
 builder.Services.AddScoped<IBackgroundJobHandler, SceneImageEditingJobHandler>();
+builder.Services.AddScoped<IBackgroundJobHandler, SceneImageEditCompilationJobHandler>();
 builder.Services.AddScoped<SceneImageTurnResolver>();
 builder.Services.AddScoped<SceneImageBeatAnalysisService>();
 builder.Services.AddHostedService<GenericBackgroundJobWorker>();
@@ -265,11 +271,14 @@ builder.Services.AddSingleton<ComfyUIImageClient>();
 builder.Services.AddSingleton<IImageGenerationClient, ImageGenerationClientDispatcher>();
 builder.Services.AddSingleton<IImageEditingClient, ComfyUIImageEditingClient>();
 builder.Services.AddSingleton<ISceneImageRepository, SceneImageRepository>();
+builder.Services.AddSingleton<ISceneImageEditRepository, SceneImageEditRepository>();
 builder.Services.AddSingleton<ISceneImageStorageService, SceneImageStorageService>();
 builder.Services.AddScoped<ISceneImageService, SceneImageService>();
+builder.Services.AddScoped<ISceneImageEditCompilationService, SceneImageEditCompilationService>();
 builder.Services.AddSingleton<PonySceneImagePromptBuilder>();
 builder.Services.AddSingleton<IPonySceneImagePromptBuilder>(sp => sp.GetRequiredService<PonySceneImagePromptBuilder>());
 builder.Services.AddSingleton<ISceneImageLLMPromptBuilder>(sp => sp.GetRequiredService<PonySceneImagePromptBuilder>());
+builder.Services.AddSingleton<ISceneImageEditPromptCompiler, QwenSceneImageEditPromptCompiler>();
 builder.Services.AddSingleton<SdxlSceneImagePromptBuilder>();
 builder.Services.AddSingleton<ISdxlSceneImagePromptBuilder>(sp => sp.GetRequiredService<SdxlSceneImagePromptBuilder>());
 

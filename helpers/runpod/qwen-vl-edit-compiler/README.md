@@ -20,7 +20,7 @@ QWEN_VL_WORKSPACE_CAPACITY_GIB=85 \
 QWEN_VL_WORKSPACE_CAPACITY_GIB=85 \
 	bash helpers/runpod/qwen-vl-edit-compiler/provision-runtime.sh /workspace/qwen-vl-edit-compiler
 bash helpers/runpod/qwen-vl-edit-compiler/start-vllm.sh /workspace/qwen-vl-edit-compiler <port> <gpu-memory-utilization>
-bash helpers/runpod/qwen-vl-edit-compiler/health-check.sh <port> 180
+bash helpers/runpod/qwen-vl-edit-compiler/health-check.sh <port> <configured-health-timeout-seconds>
 python helpers/runpod/qwen-vl-edit-compiler/prove-one-image.py <port> <source-image> <raw-response-path>
 bash helpers/runpod/qwen-vl-edit-compiler/stop-vllm.sh /workspace/qwen-vl-edit-compiler
 ```
@@ -31,11 +31,14 @@ pod volume quota. Provisioning fails before writing unless the runtime, model, a
 post-install headroom fit.
 
 The service binds to `127.0.0.1` and exposes the OpenAI-compatible `/v1/chat/completions` API.
-The health check's 180-second limit is the same-pod transition gate. The proof runner separately
-enforces the 90-second one-image response limit, one image per request, source media limits, and a
-strict structured-output schema. The 2026-08-25 standalone run served a schema-valid image request
-in 2.444 seconds with 5,403 MiB free VRAM, but cold startup took about 276 seconds after the vLLM
-process spawned and therefore failed the transition gate.
+The health timeout is an explicit operator input sourced from persisted deployment/Model Manager
+configuration; scripts and application code must not supply a hidden default. It must cover the
+measured full transition with operational margin. The proof runner separately enforces the
+90-second one-image response limit, one image per request, source media limits, and a strict
+structured-output schema. The 2026-08-25 standalone run served a schema-valid image request in
+2.444 seconds with 5,403 MiB free VRAM. Startup took about 276 seconds after the vLLM process
+spawned, plus about 137 seconds of launcher preflight; the user accepted this envelope for the
+initial one-pod implementation.
 Initial GPU residency is scheduled: stop Qwen VL before loading Qwen Edit or the base ComfyUI model,
 and prove the selected runtime healthy before sending work. No script creates a second pod, chooses
 another model/provider, or uses a text-only path.

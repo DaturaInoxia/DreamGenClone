@@ -3,7 +3,10 @@ param(
     [Parameter(Mandatory=$true)][string]$ModelName,
     [Parameter(Mandatory=$true)][string]$SourceUrl,
     [Parameter(Mandatory=$false)][string]$ExpectedSha256,
-    [Parameter(Mandatory=$false)][string]$Token
+  [Parameter(Mandatory=$false)][string]$Token,
+  [Parameter(Mandatory=$false)][string]$SshUser,
+  [Parameter(Mandatory=$false)][string]$SshHost,
+  [Parameter(Mandatory=$false)][int]$SshPort
 )
 $ErrorActionPreference = "Stop"
 
@@ -17,6 +20,9 @@ if (Test-Path $sshEnv) { . $sshEnv }
 if ($env:RUNPOD_SSH_USER) { $user = $env:RUNPOD_SSH_USER }
 if ($env:RUNPOD_SSH_HOST) { $hostName = $env:RUNPOD_SSH_HOST }
 if ($env:RUNPOD_SSH_PORT) { $port = $env:RUNPOD_SSH_PORT }
+if ($SshUser) { $user = $SshUser }
+if ($SshHost) { $hostName = $SshHost }
+if ($SshPort) { $port = $SshPort }
 
 $runpodEnv = Join-Path $PSScriptRoot ".runpod-env.ps1"
 if (Test-Path $runpodEnv) { . $runpodEnv }
@@ -67,12 +73,12 @@ function ConvertTo-BashSingleQuoted([string]$Value) {
 $remoteInvocation = "bash -s -- " + @($ModelName, $SourceUrl, $ExpectedSha256, $Token | ForEach-Object {
   ConvertTo-BashSingleQuoted ([string]$_)
 }) -join " "
-$remoteInput = "$remoteInvocation`n$remoteScript`nexit`n" -replace "`r", ""
+$remoteCommand = "echo $encodedScript | base64 -d | $remoteInvocation"
 $sshArgs = @(
     "-o", "BatchMode=yes", "-o", "ConnectTimeout=20",
     "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=NUL",
     "-o", "IdentitiesOnly=yes", "-i", $keyPath, "-p", $port,
   "${user}@${hostName}"
 )
-$remoteInput | & ssh @sshArgs
+& ssh @sshArgs $remoteCommand
 if ($LASTEXITCODE -ne 0) { throw "Remote model installation failed (ssh exit $LASTEXITCODE)." }

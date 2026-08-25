@@ -5,7 +5,7 @@ using System.Diagnostics;
 
 namespace DreamGenClone.Web.Application.ModelManager;
 
-public sealed class ModelResolutionService : IModelResolutionService
+public sealed class ModelResolutionService : IModelResolutionService, IMultimodalModelResolutionService
 {
     private readonly IFunctionDefaultRepository _functionDefaultRepository;
     private readonly IRegisteredModelRepository _modelRepository;
@@ -230,4 +230,111 @@ public sealed class ModelResolutionService : IModelResolutionService
             ImageProtocol: provider.ImageProtocol,
             ComfyUiUrl: provider.ImageProtocol == ImageProtocol.ComfyUi ? provider.BaseUrl : null);
     }
+
+    public async Task<ResolvedMultimodalModel> ResolveAsync(
+        AppFunction function,
+        CancellationToken cancellationToken = default)
+    {
+        if (function is not AppFunction.RolePlaySceneImageEditPromptCompiler
+            and not AppFunction.RolePlaySceneImageValidator)
+        {
+            throw new ModelResolutionException($"Function '{function}' is not a multimodal scene-image function.");
+        }
+
+        var functionDefault = await _functionDefaultRepository.GetByFunctionAsync(function, cancellationToken)
+            ?? throw new ModelResolutionException($"No model configured for function '{function}'. Configure it in Model Manager (/model-manager).");
+        var model = await _modelRepository.GetByIdAsync(functionDefault.ModelId, cancellationToken);
+        if (model is null || !model.IsEnabled)
+            throw new ModelResolutionException($"The configured model for function '{function}' is unavailable.");
+        if (!model.SupportsImageInput)
+            throw new ModelResolutionException($"Model '{model.DisplayName}' does not have image-input capability enabled.");
+
+        var provider = await _providerRepository.GetByIdAsync(model.ProviderId, cancellationToken);
+        if (provider is null || !provider.IsEnabled)
+            throw new ModelResolutionException($"The configured provider for function '{function}' is unavailable.");
+
+        var providerBaseUrl = Require(provider.BaseUrl, "provider base endpoint", function);
+        if (!Uri.TryCreate(providerBaseUrl, UriKind.Absolute, out var providerUri)
+            || providerUri.Scheme is not ("http" or "https"))
+        {
+            throw new ModelResolutionException($"Function '{function}' has an invalid provider base endpoint.");
+        }
+        var chatCompletionsPath = RequirePath(provider.ChatCompletionsPath, "chat completions path", function);
+        var readinessPath = RequirePath(provider.ReadinessPath, "readiness path", function);
+        Require(provider.ReadinessSuccessContractJson, "readiness success contract", function);
+        Require(provider.LifecycleStrategyIdentifier, "lifecycle strategy", function);
+        Require(provider.CredentialReference, "credential reference", function);
+        Require(provider.ApiKeyEncrypted, "inference credential", function);
+        if (!Enum.TryParse<ModelLifecycleStrategy>(provider.LifecycleStrategyIdentifier, out var lifecycleStrategy)
+            || lifecycleStrategy == ModelLifecycleStrategy.Unknown)
+        {
+            throw new ModelResolutionException($"Function '{function}' has invalid lifecycle strategy '{provider.LifecycleStrategyIdentifier}'.");
+        }
+        if (provider.ContentPolicy == ImageContentPolicy.Unknown)
+            throw new ModelResolutionException($"Function '{function}' requires an explicit image content policy.");
+        if (functionDefault.Temperature < 0)
+            throw new ModelResolutionException($"Function '{function}' requires a non-negative configured temperature.");
+        if (functionDefault.TopP is <= 0 or > 1)
+            throw new ModelResolutionException($"Function '{function}' requires configured top-p in the range (0, 1].");
+
+        var acceptedMediaTypes = RequireMediaTypes(model.AcceptedInputMediaTypes, function);
+        return new ResolvedMultimodalModel(
+            provider.Id,
+            model.Id,
+            providerBaseUrl,
+            chatCompletionsPath,
+            readinessPath,
+            provider.ReadinessSuccessContractJson!,
+            RequirePositive(provider.TimeoutSeconds, "request timeout", function),
+            RequirePositive(provider.TransitionTimeoutSeconds, "transition timeout", function),
+            RequirePositive(provider.TransitionMarginSeconds, "transition margin", function),
+            provider.CredentialReference!,
+            provider.ApiKeyEncrypted,
+            Require(model.ModelIdentifier, "model identifier", function),
+            Require(provider.Name, "provider name", function),
+            provider.ContentPolicy,
+            lifecycleStrategy,
+            RequirePositive(model.MaximumInputImages, "maximum input images", function),
+            RequirePositive(model.MaximumInputImageBytes, "maximum input image bytes", function),
+            RequirePositive(model.MaximumInputImagePixels, "maximum input image pixels", function),
+            RequirePositive(model.MaximumInputImageDimension, "maximum input image dimension", function),
+            acceptedMediaTypes,
+            RequirePositive(model.MaximumResponseBytes, "maximum response bytes", function),
+            RequirePositive(provider.MaximumActiveRequests, "maximum active requests", function),
+            RequirePositive(provider.QueueCapacity, "queue capacity", function),
+            functionDefault.Temperature,
+            functionDefault.TopP,
+            RequirePositive(functionDefault.MaxTokens, "maximum output tokens", function),
+            model.RuntimeRevision,
+            model.ArtifactRevision);
+    }
+
+    private static IReadOnlySet<string> RequireMediaTypes(string? configured, AppFunction function)
+    {
+        Require(configured, "accepted input media types", function);
+        var values = configured!.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (values.Count == 0 || values.Any(value => !value.StartsWith("image/", StringComparison.OrdinalIgnoreCase)))
+            throw new ModelResolutionException($"Function '{function}' has invalid accepted input media types.");
+        return values;
+    }
+
+    private static string Require(string? value, string name, AppFunction function) =>
+        !string.IsNullOrWhiteSpace(value)
+            ? value
+            : throw new ModelResolutionException($"Function '{function}' requires configured {name}.");
+
+    private static string RequirePath(string? value, string name, AppFunction function)
+    {
+        var path = Require(value, name, function);
+        if (!path.StartsWith("/", StringComparison.Ordinal) || path.StartsWith("//", StringComparison.Ordinal))
+            throw new ModelResolutionException($"Function '{function}' has invalid configured {name}.");
+        return path;
+    }
+
+    private static int RequirePositive(int? value, string name, AppFunction function) =>
+        value is > 0 ? value.Value : throw new ModelResolutionException($"Function '{function}' requires positive configured {name}.");
+
+    private static long RequirePositive(long? value, string name, AppFunction function) =>
+        value is > 0 ? value.Value : throw new ModelResolutionException($"Function '{function}' requires positive configured {name}.");
 }

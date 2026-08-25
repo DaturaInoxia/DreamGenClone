@@ -60,6 +60,12 @@ public sealed class SceneImageRecord
     /// <summary>Required parent image when <see cref="Operation"/> is <see cref="SceneImageOperation.Edit"/>.</summary>
     public string? SourceImageId { get; set; }
 
+    public string? EditSessionId { get; set; }
+    public string? EditCompilationAttemptId { get; set; }
+    public string? EditPromptRevisionId { get; set; }
+    public string? EditIntentSnapshot { get; set; }
+    public string? EditCompilerProvenanceJson { get; set; }
+
     /// <summary>Relative path under the scene-image root, e.g. "{sessionId}/{imageId}.png".</summary>
     public string? FileRelativePath { get; set; }
 
