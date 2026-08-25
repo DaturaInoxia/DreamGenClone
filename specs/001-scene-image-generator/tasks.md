@@ -4,7 +4,7 @@ description: "Task list for Scene Image Generator (B-032) feature implementation
 
 # Tasks: Scene Image Generator
 
-**Input**: Design documents from `/specs/Planning/B-032-scene-image-generator/`
+**Input**: Design documents from `/specs/001-scene-image-generator/`
 **Prerequisites**: plan.md (required), spec.md (required for user stories), research.md, data-model.md, contracts/
 
 **Tests**: Tests are included — the repo's hard rule requires every implementation change to leave the test suite green, and the design's state machines + parser + resolution paths are explicitly unit-test-covered per `data-model.md` and the contract. Tests are written alongside implementation (not strict TDD) since the no-fallback rule requires the fail-fast paths to be verified by tests before a task is marked complete.
@@ -209,7 +209,7 @@ This is an additive feature in an existing 4-project .NET 9 layered solution (no
 - [X] T065 Verify debug events (`SceneImagePromptSent` / `SceneImageResponseReceived`) are inspectable in the workspace Debug View and via `QuerySessionEventsAsync` in `DreamGenClone.Web/Components/Pages/RolePlayWorkspace.razor` (Debug View integration)
 - [X] T066 Run `dotnet build DreamGenClone.sln` and confirm 0 errors / 0 warnings
 - [X] T067 Run the full test suite `dotnet test DreamGenClone.Tests/DreamGenClone.Tests.csproj` and confirm all tests pass (no pre-existing failures hidden, no new failures)
-- [ ] T068 Run the POC validation checklist from `specs/Planning/B-032-scene-image-generator/quickstart.md` §6 — NSFW (filtered clamp / adult-allowed / unset policy), image quality across styles/sizes, basics (generate/edit/regenerate/indicator/gallery/delete), unconfigured guidance
+- [ ] T068 Run the POC validation checklist from `specs/001-scene-image-generator/quickstart.md` §6 — NSFW (filtered clamp / adult-allowed / unset policy), image quality across styles/sizes, basics (generate/edit/regenerate/indicator/gallery/delete), unconfigured guidance
 - [ ] T069 Update backlog: B-032 state `new` → `designed` (design approved) then `planned` (tasks generated) in `specs/Planning/backlog.md`; record POC findings and decide Phase 2 (likeness) scope
 
 ---

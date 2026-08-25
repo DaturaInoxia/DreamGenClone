@@ -75,13 +75,18 @@ This is a developer quickstart for running and validating the feature locally. I
 
 ## 6. POC validation checklist (Phase 1 success criteria)
 
+Status note (2026-08-24): automated coverage and the Qwen non-explicit semantic-editing proof are
+complete. The unchecked items below remain running-app/manual acceptance work. Qwen adult-content
+editing is explicitly untested and must not be inferred from the 6/6 non-explicit result. See
+`README.md` in this folder for the proof scenarios and implemented editor surface.
+
 - [ ] **NSFW — filtered provider**: request an explicit image against a `SfwFiltered` provider. Confirm the system either produces a safe-for-work version (clamp) or a clear policy-rejection message — **never** silently bypasses. (SC-004: 0% bypass.)
 - [ ] **NSFW — adult-allowed provider**: with `AllowExplicitImage` on and an `AdultAllowed` provider, confirm explicit content can be generated.
 - [ ] **NSFW — unset policy**: with `ContentPolicy == Unknown`, confirm generation fails fast with Model Manager guidance (no silent SFW assumption).
 - [ ] **Image quality**: render a small sample across styles/sizes; record quality findings and any prompt-shape improvements to feed back into the preprocessor instructions. (SC-005: ≥90% acceptable.)
 - [ ] **Basics**: generate → edit prompt → render → regenerate (previous version kept) → indicator appears → gallery lists it → delete removes it. (SC-001, SC-002, SC-003, SC-007, SC-008.)
 - [ ] **Unconfigured**: with no image model assigned, confirm generation surfaces clear configuration guidance (SC-006: 100% guidance, 0% silent failure).
-- [ ] **Build + tests**: `dotnet build DreamGenClone.sln` is green; the full RP test suite passes.
+- [x] **Build + tests**: the implementation build and full test suite passed; rerun after any further implementation change.
 
 ---
 

@@ -43,7 +43,8 @@ blocking, multi-POV shots, validation, repair, and approved continuity frames.
 - Phase 1 application plumbing is implemented and tested: Model Manager image support, Pony and
   Juggernaut/SDXL paths, beat analysis, Studio/Gallery, persistence, iteration, and provenance.
 - Qwen Image Edit 2511 is the selected semantic editing mechanism after a six-of-six controlled
-  non-explicit editing proof. The preserved proof remains incomplete for adult-content editing.
+  non-explicit editing proof. Its manual source-image editing vertical slice is implemented in
+  Image Studio. The preserved proof remains incomplete for adult-content editing.
 - The OpenPose and Juggernaut inpainting exact-contact proofs are preserved as rejected evidence;
   do not resume prompt/mask tuning for that route.
 - Character identity packs, reference conditioning, optional character LoRAs, location visual
@@ -67,9 +68,11 @@ B-032-scene-image-generator/
 └── phase-4-validation-and-repair/        # validation, bounded repair, continuity anchors
 ```
 
-Phase 0 and Phase 1 contain the completed design and implementation history. Phase 2 is the next
-active delivery slice. Phase 3 and Phase 4 are sequenced behind the identity and location/control
-contracts they depend on.
+Phase 0 contains the architecture and proof history. Phase 1 implementation is complete, including
+manual Qwen editing, but its final end-to-end manual acceptance matrix remains open. See
+`phase-1-prompt-to-image-mvp/README.md` for the exact tested scope and remaining checks. Phase 2 is
+the next active delivery slice. Phase 3 and Phase 4 are sequenced behind the identity and
+location/control contracts they depend on.
 
 ---
 
@@ -103,7 +106,8 @@ contracts they depend on.
 
 ### Non-Goals (Phase 1 / v1)
 - No automatic/background generation after turns (D2).
-- No image editing, inpainting, or controlnet.
+- No automatic image repair, inpainting pipeline, or ControlNet integration. Manual Qwen
+  source-image editing was added later as an approved Phase 1 vertical slice.
 - No character-likeness / reference-image rendering yet (D9, later phase).
 - No cross-session gallery (v1 gallery is per-session).
 - No advanced iteration UX beyond: edit prompt / change settings / regenerate / refine with AI.

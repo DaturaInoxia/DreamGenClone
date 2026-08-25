@@ -16,7 +16,7 @@
 - The Scene Image Generator feature is **fully implemented and tested** (a two-stage pipeline: text preprocessor → image model; Model Manager image config; Image Studio + Gallery pages; workspace triggers/indicators).
 - **Build: 0 errors. Tests: 1195/1195 passing.**
 - **CR-006 (Preprocessor Refinement) is now IMPLEMENTED** — beats + participants + full-turn + POV + transparency, in the order P1 → P2 → P3 → P4 → P5 → P6 (see §5). All six phases landed.
-- Remaining manual items: `tasks.md` T068 (POC validation with a real image provider) and T069 (backlog state + Phase 2 likeness scope decision).
+- Remaining manual item: `tasks.md` T068 (the running-app POC acceptance matrix). T069 is complete: the backlog is `planned`, Qwen findings are recorded, and Phase 2 is the character identity/reference-conditioning slice with an evidence-based LoRA decision.
 
 ---
 
@@ -174,7 +174,7 @@ dotnet test DreamGenClone.Tests/DreamGenClone.Tests.csproj
 ## 7. What is NOT done / manual items
 
 - `tasks.md` **T068** — POC validation checklist (needs a running app + a configured image provider): NSFW (filtered clamp / adult-allowed / unset policy), image quality across styles/sizes, basics (generate/edit/regenerate/indicator/gallery/delete), unconfigured guidance.
-- `tasks.md` **T069** — backlog B-032 state already moved to `planned` (verified in `specs/Planning/backlog.md`); record POC findings + decide Phase 2 (likeness) scope when the POC is done.
+- `tasks.md` **T069 is complete** — backlog B-032 is `planned`; Qwen POC findings and the Phase 2 character identity/reference-conditioning scope are recorded.
 - **CR-006 is IMPLEMENTED (P1–P6 all landed).** Remaining: manual POC validation of the new beat/POV/transparency flow in the running app.
 
 ---

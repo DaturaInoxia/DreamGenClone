@@ -209,8 +209,14 @@ This is an additive feature in an existing 4-project .NET 9 layered solution (no
 - [X] T065 Verify debug events (`SceneImagePromptSent` / `SceneImageResponseReceived`) are inspectable in the workspace Debug View and via `QuerySessionEventsAsync` in `DreamGenClone.Web/Components/Pages/RolePlayWorkspace.razor` (Debug View integration)
 - [X] T066 Run `dotnet build DreamGenClone.sln` and confirm 0 errors / 0 warnings
 - [X] T067 Run the full test suite `dotnet test DreamGenClone.Tests/DreamGenClone.Tests.csproj` and confirm all tests pass (no pre-existing failures hidden, no new failures)
-- [ ] T068 Run the POC validation checklist from `specs/Planning/B-032-scene-image-generator/phase-1-prompt-to-image-mvp/quickstart.md` §6 — NSFW (filtered clamp / adult-allowed / unset policy), image quality across styles/sizes, basics (generate/edit/regenerate/indicator/gallery/delete), unconfigured guidance
-- [ ] T069 Update backlog: B-032 state `new` → `designed` (design approved) then `planned` (tasks generated) in `specs/Planning/backlog.md`; record POC findings and decide Phase 2 (likeness) scope
+- [ ] T068 Complete and record the remaining running-app POC acceptance matrix from `specs/Planning/B-032-scene-image-generator/phase-1-prompt-to-image-mvp/quickstart.md` §6:
+   - [ ] `SfwFiltered` explicit-request clamp/rejection.
+   - [ ] `AdultAllowed` explicit generation and separate Qwen adult-content editing coverage.
+   - [ ] `Unknown` content-policy and unconfigured-model UI guidance.
+   - [ ] Representative image-quality sample across configured styles/sizes.
+   - [ ] Full workflow: generate prompt → edit prompt → render → regenerate/version retention → indicator → gallery → Qwen edit → delete.
+   - [X] Build, automated tests, and Qwen covered non-explicit proof (6/6).
+- [X] T069 Backlog state is `planned`; POC findings are recorded; Phase 2 scope is persisted character identity packs, reference conditioning, a two-character identity matrix, and an evidence-based LoRA decision.
 
 ---
 

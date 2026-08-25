@@ -1,6 +1,6 @@
 ---
-description: "SDXL / Juggernaut (ComfyUI) prompting rules for the scene image generator — the fully-separate photorealistic path alongside Pony. Validated on the RunPod pod 2026-08-23. Read before building or changing any SDXL/Juggernaut image prompt."
-applyTo: DreamGenClone.Web/Application/RolePlay/SdxlSceneImagePromptBuilder.cs,DreamGenClone.Web/Application/RolePlay/ISdxlSceneImagePromptBuilder.cs,DreamGenClone.Domain/RolePlay/SceneImageModelFamily.cs,DreamGenClone.Web/Application/RolePlay/SceneImagePromptGenerationJobHandler.cs,DreamGenClone.Web/Application/RolePlay/SceneImageRenderingJobHandler.cs,DreamGenClone.Infrastructure/Models/ComfyUIImageClient.cs,DreamGenClone.Tests/RolePlay/**/*.cs,helpers/runpod/workflows/**,specs/Planning/B-032-scene-image-generator/**
+description: "SDXL / Juggernaut (ComfyUI) prompting and portable generation-test rules for the scene image generator. Read before building or changing any SDXL/Juggernaut image prompt or running the Juggernaut proof harness."
+applyTo: DreamGenClone.Web/Application/RolePlay/SdxlSceneImagePromptBuilder.cs,DreamGenClone.Web/Application/RolePlay/ISdxlSceneImagePromptBuilder.cs,DreamGenClone.Domain/RolePlay/SceneImageModelFamily.cs,DreamGenClone.Web/Application/RolePlay/SceneImagePromptGenerationJobHandler.cs,DreamGenClone.Web/Application/RolePlay/SceneImageRenderingJobHandler.cs,DreamGenClone.Infrastructure/Models/ComfyUIImageClient.cs,DreamGenClone.Tests/RolePlay/**/*.cs,helpers/runpod/workflows/**,helpers/runpod/run-juggernaut-simple-people-base.ps1,specs/Planning/B-032-scene-image-generator/**
 ---
 
 # SDXL / Juggernaut Prompting Rules (Scene Image Generator)
@@ -70,3 +70,11 @@ Used by: `SceneImagePromptGenerationJobHandler` (picks the LLM prompt builder), 
    ImageSizeSupported `1024x1024`, Enabled.
 2. Set the `RolePlaySceneImage` FunctionDefault → Juggernaut (replaces Pony V6 XL).
 3. Provider unchanged: `RunPod ComfyUI`, `ImageCapability=ImageOnly`, `ContentPolicy=AdultAllowed`.
+
+## Source-Controlled Generation Harness
+
+- The canonical Juggernaut generation workflow is `helpers/runpod/workflows/qwen-simple-people-base.json`. It contains the exact natural-language prompt, negative prompt, `juggernautXL_ragnarok.safetensors` checkpoint, seed `73190`, 1024x1024 dimensions, and validated `dpmpp_2m_sde` / `karras` / 30-step / CFG-5 settings.
+- Its source-controlled accepted output is `specs/Planning/B-032-scene-image-generator/phase-2-character-identity/qwen-simple-people-proof/accepted/base.png`; integrity metadata is in the sibling `manifest.json`.
+- To test a reachable Juggernaut ComfyUI service exactly once, run: `powershell -ExecutionPolicy RemoteSigned -File helpers/runpod/run-juggernaut-simple-people-base.ps1 -ComfyUiUrl <base-comfyui-url>`.
+- The runner saves a new result only under ignored `artifacts/tmp/images/juggernaut-simple-people-replay/`. Review it visually against the accepted base image. Do not expect byte-identical output when ComfyUI, CUDA, PyTorch, or model environments differ.
+- For the complete six-edit Qwen replay that consumes a new Juggernaut base, follow `specs/Planning/B-032-scene-image-generator/phase-2-character-identity/qwen-simple-people-proof/RUNBOOK.md` and use `helpers/runpod/run-qwen-simple-people-proof.ps1`.

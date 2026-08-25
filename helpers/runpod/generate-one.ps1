@@ -11,15 +11,58 @@ param(
     [Parameter(Mandatory=$false)][string]$OutputDir = "./out",
     [Parameter(Mandatory=$false)][int]$TimeoutSec = 600,
     [Parameter(Mandatory=$false)][string]$ComfyUiUrl,
-    [Parameter(Mandatory=$false)][string]$InputImage
+    [Parameter(Mandatory=$false)][string]$InputImage,
+    [Parameter(Mandatory=$false)][string]$InputImagePath
 )
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "common.ps1")
-Get-RunPodEnv
-$endpoint = if ([string]::IsNullOrWhiteSpace($ComfyUiUrl)) { $env:COMFYUI_URL } else { $ComfyUiUrl.TrimEnd('/') }
+if ([string]::IsNullOrWhiteSpace($ComfyUiUrl)) {
+    Get-RunPodEnv
+    $endpoint = $env:COMFYUI_URL
+}
+else {
+    $endpoint = $ComfyUiUrl.TrimEnd('/')
+}
 
 if (-not (Test-Path $WorkflowPath)) { throw "Workflow not found: $WorkflowPath" }
+if ($InputImage -and $InputImagePath) { throw "Specify either InputImage (an existing ComfyUI image name) or InputImagePath (a local file), not both." }
+if ($InputImagePath -and -not (Test-Path $InputImagePath -PathType Leaf)) { throw "Input image file was not found: $InputImagePath" }
 $wf = Get-Content -Raw $WorkflowPath | ConvertFrom-Json
+
+function Upload-ComfyUiImage {
+    param(
+        [Parameter(Mandatory=$true)][string]$Endpoint,
+        [Parameter(Mandatory=$true)][string]$Path
+    )
+
+    $fileStream = $null
+    $multipart = $null
+    $httpClient = $null
+    try {
+        $fileName = "dg_input_$((Get-Date).ToUniversalTime().ToString('yyyyMMddHHmmssfff'))_$([IO.Path]::GetFileName($Path))"
+        $fileStream = [IO.File]::OpenRead((Resolve-Path $Path))
+        $streamContent = [System.Net.Http.StreamContent]::new($fileStream)
+        $extension = [IO.Path]::GetExtension($Path).ToLowerInvariant()
+        $contentType = if ($extension -in '.jpg', '.jpeg') { 'image/jpeg' } else { 'image/png' }
+        $streamContent.Headers.ContentType = [System.Net.Http.Headers.MediaTypeHeaderValue]::Parse($contentType)
+        $multipart = [System.Net.Http.MultipartFormDataContent]::new()
+        $multipart.Add($streamContent, 'image', $fileName)
+        $httpClient = [System.Net.Http.HttpClient]::new()
+        $httpClient.Timeout = [TimeSpan]::FromSeconds(120)
+        $response = $httpClient.PostAsync("$Endpoint/upload/image", $multipart).GetAwaiter().GetResult()
+        $body = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        if (-not $response.IsSuccessStatusCode) { throw "ComfyUI image upload failed ($([int]$response.StatusCode)): $body" }
+        $upload = $body | ConvertFrom-Json
+        if ([string]::IsNullOrWhiteSpace($upload.name)) { throw "ComfyUI image upload returned no image name: $body" }
+        if ([string]::IsNullOrWhiteSpace($upload.subfolder)) { return $upload.name }
+        return "$($upload.subfolder)/$($upload.name)"
+    }
+    finally {
+        if ($httpClient) { $httpClient.Dispose() }
+        if ($multipart) { $multipart.Dispose() }
+        if ($fileStream) { $fileStream.Dispose() }
+    }
+}
 
 # Deterministic unique prefix so every run is a distinct output file on the pod.
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
@@ -39,6 +82,10 @@ if ($Negative -and $wf.PSObject.Properties["7"]) {
 }
 if ($Seed -ge 0 -and $wf.PSObject.Properties["3"]) { $wf.PSObject.Properties["3"].Value.inputs.seed = $Seed }
 if ($Checkpoint -and $wf.PSObject.Properties["4"]) { $wf.PSObject.Properties["4"].Value.inputs.ckpt_name = $Checkpoint }
+if ($InputImagePath) {
+    $InputImage = Upload-ComfyUiImage -Endpoint $endpoint -Path $InputImagePath
+    Write-Host "Uploaded input image as: $InputImage"
+}
 if ($InputImage -and $wf.PSObject.Properties["1"] -and $wf.PSObject.Properties["1"].Value.inputs.PSObject.Properties["image"]) {
     $wf.PSObject.Properties["1"].Value.inputs.image = $InputImage
 }
