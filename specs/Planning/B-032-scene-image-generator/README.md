@@ -1,10 +1,15 @@
-# B-032 — Scene Image Generator Engine
+# B-032 - Scene Image Generator Engine
 
-**State:** `planned` (large epic; Phase 1 implemented, Phase 2 continuity plan active)
+**State:** `planned` (Phase 1 implemented with T068 open; Phases 2-4 implementation-ready)
 **Priority:** low
 **Scope:** large
-**Plan author:** Copilot session 2026-08-19 (refined 2026-08-22)
+**Plan author:** Copilot session 2026-08-19 (implementation handoff completed 2026-08-24)
 **Backlog ref:** `specs/Planning/backlog.md` → B-032
+
+> **Implementation agents:** Start with [`IMPLEMENTATION-HANDOFF.md`](IMPLEMENTATION-HANDOFF.md),
+> then read the complete package for the target phase. This older epic design remains useful for
+> Phase 1 history, but the handoff controls architecture, dependencies, proof gates, and execution
+> order for Phases 2-4.
 
 ---
 
@@ -36,7 +41,7 @@ model, implementation phases, and blast radius.
 ## 1A. Consolidated Epic Status (2026-08-24)
 
 This folder is the single planning home for the complete B-032 epic. It includes the Phase 1
-prompt-to-image implementation package and the Phase 2 continuity-rendering package covering
+prompt-to-image implementation package and complete Phase 2-4 packages covering
 canonical beats, character identity, location alignment, LoRA/reference conditioning, shared
 blocking, multi-POV shots, validation, repair, and approved continuity frames.
 
@@ -49,7 +54,8 @@ blocking, multi-POV shots, validation, repair, and approved continuity frames.
   do not resume prompt/mask tuning for that route.
 - Character identity packs, reference conditioning, optional character LoRAs, location visual
   profiles, canonical visual plans, shared blocking, multi-POV shot plans, structured validation,
-  and bounded repair are designed but not yet implemented.
+  and bounded repair have implementation-agent-ready research, specifications, data models,
+  contracts, plans, and dependency-ordered task ledgers. They are not yet implemented.
 - The next implementation slice is the identity vertical slice: two recurring characters,
   persisted references, controlled edits/renders, and an evidence-based decision on whether LoRA
   training is needed.
@@ -60,6 +66,7 @@ The durable proof artifacts are preserved under `specs/image-generator-tests/` (
 
 ```text
 B-032-scene-image-generator/
+├── IMPLEMENTATION-HANDOFF.md             # controlling architecture and agent start point
 ├── phase-0-architecture-and-evidence/   # architecture, host inventory, proofs, handoffs
 ├── phase-1-prompt-to-image-mvp/          # formal spec, implementation plan, tasks, contracts
 ├── phase-2-character-identity/           # references, identity packs, adapters, LoRA decision
@@ -67,7 +74,8 @@ B-032-scene-image-generator/
 └── phase-4-validation-and-repair/        # validation, bounded repair, continuity anchors
 ```
 
-Phase 0 contains the architecture and proof history. Phase 1 implementation is complete, including
+Phase 0 contains architecture and proof history; its former ControlNet-first delivery sequence is
+superseded by the controlling handoff. Phase 1 implementation is complete, including
 manual Qwen editing, but its final end-to-end manual acceptance matrix remains open. See
 `phase-1-prompt-to-image-mvp/README.md` for the exact tested scope and remaining checks. Phase 2 is
 the next active delivery slice. Phase 3 and Phase 4 are sequenced behind the identity and

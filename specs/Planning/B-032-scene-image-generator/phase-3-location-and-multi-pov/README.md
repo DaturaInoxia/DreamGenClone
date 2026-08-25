@@ -7,15 +7,26 @@
 
 Keep a detailed location, important object placement, and one frozen beat consistent while rendering multiple camera viewpoints.
 
+## Implementation Package
+
+- [`research.md`](research.md) - editor/control alternatives and the shared-scene decision.
+- [`spec.md`](spec.md) - location, plan, blocking, shot, and control requirements.
+- [`data-model.md`](data-model.md) - versioned aggregates, coordinate contract, and staleness rules.
+- [`contracts.md`](contracts.md) - Three.js interop, control compiler, renderer, and browser proof.
+- [`plan.md`](plan.md) - layered implementation slices and risk boundaries.
+- [`tasks.md`](tasks.md) - dependency-ordered implementation ledger.
+
 ## Delivery
 
 - Add persisted `LocationVisualProfile` records for reusable scenario locations.
 - Store approved location references, canonical objects, spatial anchors, lighting variants, layout/depth references, provenance, and checksums.
 - Introduce the camera-independent `SceneVisualPlan` as the source of truth for cast, wardrobe, blocking, relationships, objects, lighting, mood, and content boundary.
 - Add `SceneShotPlan` records compiled from one frozen visual plan.
-- Generate camera-specific pose, depth, edge/segmentation, and character-region mask controls.
+- Generate camera-specific pose, depth, semantic, and character-region controls. Add edge/canny
+	only after a frozen proof demonstrates measurable value.
 - Derive omniscient and character POV shots by changing the camera/framing, not by reinterpreting the beat.
-- Evaluate whether environment LoRAs are useful after reference/location conditioning is measured.
+- Use Three.js for the first integrated blocking editor while persisting engine-neutral scene data;
+	Blender remains an optional later compiler, not a prerequisite.
 
 ## Exit Gate
 

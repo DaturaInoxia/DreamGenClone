@@ -1,9 +1,16 @@
 # Scene Image Continuity Rendering Architecture
 
-**Status:** proposed - Phase 2 architecture baseline  
+**Status:** historical architecture and proof proposal; execution sequence superseded
 **Created:** 2026-08-24  
 **Owner:** Scene Image Generator (B-032)  
-**First delivery target:** ControlNet touch-pose proof  
+**Proof result:** OpenPose and Juggernaut inpainting exact-contact routes rejected
+
+> **Superseded execution guidance:** The ControlNet-first target and delivery sequence in Sections
+> 8-10 were executed and failed their gates. Preserve them as evidence; do not resume prompt,
+> keypoint, strength, or mask-coordinate tuning for exact-contact correction. Start implementation
+> with [`../IMPLEMENTATION-HANDOFF.md`](../IMPLEMENTATION-HANDOFF.md) and the complete Phase 2-4
+> packages. Qwen Image Edit 2511 is the separate proven non-explicit semantic editor. Three.js is
+> the selected first blocker, and the identity backend remains proof-gated.
 
 ## 1. Product Goal
 
@@ -144,14 +151,14 @@ Recommended long-term implementation: a small Three.js or Blender-backed scene/p
 
 Keep Juggernaut XL Ragnarok as the first renderer while proving controls. Do not introduce another checkpoint until the control path is measured.
 
-Initial workflow capabilities:
+Candidate workflow capabilities, subject to the later proof decisions:
 
-- SDXL OpenPose/DWPose ControlNet;
+- SDXL OpenPose/DWPose for macro pose only, never exact-contact guarantees;
 - SDXL Depth ControlNet;
 - Juggernaut-recommended sampler settings already used by the app;
 - optional identity reference conditioning after pose proof;
 - regional masks for multiple identities;
-- masked inpainting for local repair;
+- Qwen source-image editing for proven semantic repair classes;
 - face/hand detail pass after composition approval.
 
 All node/model dependencies must be explicit persisted configuration. Missing controls fail fast; no hidden text-only fallback is allowed for a shot marked `Controlled`.
@@ -208,7 +215,12 @@ Image/control bytes stay on disk under the existing scene-image root pattern. SQ
 
 The editable text prompt remains available as an expert control, but it is no longer the only representation of the scene.
 
-## 8. First Proof: Controlled Clothed Touch
+## 8. Completed Proof: Controlled Clothed Touch
+
+**Result:** Rejected. OpenPose revisions scored `0/4`, `1/4`, and `0/4`; Juggernaut masked
+inpainting revisions scored `0/4` each. The complete ledger and decision are in
+`controlnet-touch-proof.md`. The procedure below is historical and must not be rerun as the next
+implementation step.
 
 ### Question
 
@@ -258,7 +270,9 @@ Required durable report:
 
 The report must include host/pod identity, ComfyUI/node/model inventory, workflow path, control asset path, parameters, four results, gate decision, and next architecture decision. Never include API tokens or private keys.
 
-## 9. Delivery Phases
+## 9. Historical Delivery Phases
+
+This sequence is superseded by `../IMPLEMENTATION-HANDOFF.md` and the phase task ledgers.
 
 ### Phase 0 - Architecture And Inventory
 
@@ -302,11 +316,12 @@ Decided:
 - Automatic rerendering is bounded; no unbounded seed search.
 - Juggernaut remains the initial renderer for control proofs.
 
-Not yet decided:
+Resolved by the implementation handoff:
 
-- Exact SDXL ControlNet model and ComfyUI node pack; inventory first.
-- Three.js versus Blender for long-term blocking.
-- IP-Adapter versus PuLID/InstantID-equivalent for first identity slice.
+- Exact spatial-control artifacts remain proof-gated; OpenPose is macro pose only.
+- Three.js is the first browser blocker; Blender is optional later.
+- IP-Adapter and PuLID are frozen-proof candidates; InstantID is excluded from the first
+    multi-person slice; one backend is pinned only after passing.
 - Character LoRA training service and dataset workflow.
 - Vision validator model.
 
