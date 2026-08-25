@@ -66,7 +66,8 @@ blocking, multi-POV shots, validation, repair, and approved continuity frames.
   text-to-image conditioning is a separate mechanism. Findings:
   `specs/Planning/B-032-scene-image-generator/phase-0-architecture-and-evidence/juggernaut-nsfw-community-findings.md`.
 
-The durable proof artifacts are preserved under `specs/image-generator-tests/` (organized by generator: `juggernaut/` and `qwen/`, each with `images/`, `prompts/`, and a `manifest.json`). Transient generation outputs stay under ignored `artifacts/tmp/images/`; the corresponding proof reports and handoffs are kept here.
+The durable proof artifacts remain outside this planning folder under
+`artifacts/tmp/images/`; the corresponding proof reports and handoffs are kept here.
 
 ## 1B. Epic Phase Map
 

@@ -77,14 +77,24 @@ visible but cannot execute. Recompilation creates a new attempt.
 
 ## Runtime Contract
 
-The application sees configured HTTP providers on one pod, not SSH or RunPod credentials. The
-Juggernaut, Qwen Edit, and Qwen VL artifacts remain installed on that pod's persistent volume.
-Separate runtime directories isolate dependencies only; they are not separate hosts.
+The application sees configured HTTP providers, model identifiers, and lifecycle strategy, not
+RunPod host/port constants, SSH, `/workspace` paths, or shared filesystems. Images cross provider
+boundaries as validated binary HTTP content, never provider-local paths. The initial deployment
+keeps Juggernaut, Qwen Edit, and Qwen VL on one pod and persistent volume; separate runtime
+directories isolate dependencies only.
 
-GPU residency is an operator/deployment concern with explicit health checks. If all models cannot
-remain loaded simultaneously, a pinned same-pod coordinator or explicit procedure loads/unloads the
-required model and proves its endpoint ready before the application job runs. Endpoint absence
-fails; the app does not start another pod or select a substitute model.
+GPU residency is behind one configured lifecycle abstraction. `ScheduledSinglePod` serializes
+GPU-heavy work, loads/unloads the required model, and proves endpoint/model health within the
+persisted transition envelope before the application job runs. `AlwaysOnSeparateProvider` is
+reserved for a future explicitly migrated deployment and verifies an already resident endpoint.
+Exactly one strategy is active. Missing lifecycle, health, timeout, margin, queue, concurrency, or
+endpoint configuration fails; the app does not start another pod, infer a strategy, or select a
+substitute provider/model.
+
+The future migration, security, storage, queue, observability, acceptance, and coordinator
+retirement contracts are defined in
+[`multi-pod-separation-plan.md`](multi-pod-separation-plan.md). They do not create an active fallback
+route in the initial deployment.
 
 ## Logging and Privacy
 

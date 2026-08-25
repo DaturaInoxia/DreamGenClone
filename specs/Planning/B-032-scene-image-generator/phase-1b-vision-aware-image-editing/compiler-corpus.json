@@ -1,0 +1,98 @@
+{
+  "corpusVersion": "phase-1b-compiler-corpus-v1",
+  "compilerSchemaVersion": "scene-image-edit-compiler-v1",
+  "systemPromptVersion": "qwen-edit-rules-v1",
+  "modelIdentifier": "qwen2.5-vl-7b-edit-compiler",
+  "settings": {
+    "temperature": 0.0,
+    "topP": 1.0,
+    "maxTokens": 1024,
+    "requestTimeoutSeconds": 90
+  },
+  "source": {
+    "path": "../../../image-generator-tests/qwen/images/base.png",
+    "mediaType": "image/png",
+    "bytes": 1098739,
+    "sha256": "8EE9518964A913C27BD19BB6B6387A030B0612B7976FB956072C2AB7C4E18833"
+  },
+  "acceptance": {
+    "schemaValidityRate": 1.0,
+    "statusAccuracyRate": 1.0,
+    "readyTargetAccuracyRate": 1.0,
+    "ambiguityPrecisionRate": 1.0,
+    "maximumInventionCount": 0,
+    "maximumRequestSeconds": 90.0
+  },
+  "cases": [
+    {
+      "id": "ready-man-shirt-red",
+      "intent": "Change only the man's blue shirt to solid red.",
+      "expectedStatus": "ready",
+      "requiredTargetTerms": ["man", "blue shirt"],
+      "forbiddenInventions": ["name", "husband", "brother"]
+    },
+    {
+      "id": "ready-woman-glasses",
+      "intent": "Add thin black rectangular eyeglasses to the woman.",
+      "expectedStatus": "ready",
+      "requiredTargetTerms": ["woman", "white shirt"],
+      "forbiddenInventions": ["name", "wife", "sister"]
+    },
+    {
+      "id": "ready-man-right-arm",
+      "intent": "Raise the man's right arm in a friendly wave.",
+      "expectedStatus": "ready",
+      "requiredTargetTerms": ["man"],
+      "forbiddenInventions": ["name", "relationship"]
+    },
+    {
+      "id": "ready-woman-profile",
+      "intent": "Rotate the woman on the viewer's right toward the man so she is shown in left-facing profile.",
+      "expectedStatus": "ready",
+      "requiredTargetTerms": ["woman", "viewer"],
+      "forbiddenInventions": ["name", "relationship"]
+    },
+    {
+      "id": "ready-swap-positions",
+      "intent": "Swap the positions of the man and woman while preserving each person's identity and clothing.",
+      "expectedStatus": "ready",
+      "requiredTargetTerms": ["man", "woman"],
+      "forbiddenInventions": ["name", "relationship"]
+    },
+    {
+      "id": "ready-woman-shirt-green",
+      "intent": "Change only the white shirt worn by the woman on the viewer's right to solid green.",
+      "expectedStatus": "ready",
+      "requiredTargetTerms": ["woman", "white shirt", "viewer"],
+      "forbiddenInventions": ["name", "wife", "sister"]
+    },
+    {
+      "id": "clarify-ambiguous-person",
+      "intent": "Change their shirt to green.",
+      "expectedStatus": "clarification_required",
+      "requiredTargetTerms": [],
+      "forbiddenInventions": ["name", "relationship"]
+    },
+    {
+      "id": "clarify-ambiguous-arm",
+      "intent": "Raise the arm.",
+      "expectedStatus": "clarification_required",
+      "requiredTargetTerms": [],
+      "forbiddenInventions": ["name", "relationship"]
+    },
+    {
+      "id": "invalid-unseen-person",
+      "intent": "Make the person standing behind the camera wave.",
+      "expectedStatus": "invalid",
+      "requiredTargetTerms": [],
+      "forbiddenInventions": ["photographer", "camera operator", "name"]
+    },
+    {
+      "id": "invalid-hidden-story-fact",
+      "intent": "Change the woman's shirt to the exact color of her childhood bedroom.",
+      "expectedStatus": "invalid",
+      "requiredTargetTerms": [],
+      "forbiddenInventions": ["childhood bedroom was", "name", "relationship"]
+    }
+  ]
+}

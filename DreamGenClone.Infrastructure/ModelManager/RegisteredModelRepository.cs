@@ -25,8 +25,12 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
 
         var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO RegisteredModels (Id, ProviderId, ModelIdentifier, DisplayName, IsEnabled, SupportsThinkingControl, CreatedUtc, ContextWindowSize, Quantization, ParameterCount, Notes, ModelKind, ImageSizeSupported, ImageEditorDiffusionModel, ImageEditorTextEncoder, ImageEditorVae, ImageEditorSteps, ImageEditorCfg, ImageEditorSampler, ImageEditorScheduler, ImageEditorDenoise, ImageEditorAuraFlowShift, ImageEditorCfgNormStrength)
-            VALUES ($id, $providerId, $identifier, $displayName, $enabled, $supportsThinkingControl, $created, $ctxWindow, $quant, $paramCount, $notes, $modelKind, $imageSizeSupported, $imageEditorDiffusionModel, $imageEditorTextEncoder, $imageEditorVae, $imageEditorSteps, $imageEditorCfg, $imageEditorSampler, $imageEditorScheduler, $imageEditorDenoise, $imageEditorAuraFlowShift, $imageEditorCfgNormStrength)
+            INSERT INTO RegisteredModels (Id, ProviderId, ModelIdentifier, DisplayName, IsEnabled, SupportsThinkingControl, CreatedUtc, ContextWindowSize, Quantization, ParameterCount, Notes, ModelKind, ImageSizeSupported,
+                SupportsImageInput, MaximumInputImages, MaximumInputImageBytes, MaximumInputImagePixels, MaximumInputImageDimension, AcceptedInputMediaTypes, MaximumResponseBytes, RuntimeRevision, ArtifactRevision,
+                ImageEditorDiffusionModel, ImageEditorTextEncoder, ImageEditorVae, ImageEditorSteps, ImageEditorCfg, ImageEditorSampler, ImageEditorScheduler, ImageEditorDenoise, ImageEditorAuraFlowShift, ImageEditorCfgNormStrength)
+            VALUES ($id, $providerId, $identifier, $displayName, $enabled, $supportsThinkingControl, $created, $ctxWindow, $quant, $paramCount, $notes, $modelKind, $imageSizeSupported,
+                $supportsImageInput, $maximumInputImages, $maximumInputImageBytes, $maximumInputImagePixels, $maximumInputImageDimension, $acceptedInputMediaTypes, $maximumResponseBytes, $runtimeRevision, $artifactRevision,
+                $imageEditorDiffusionModel, $imageEditorTextEncoder, $imageEditorVae, $imageEditorSteps, $imageEditorCfg, $imageEditorSampler, $imageEditorScheduler, $imageEditorDenoise, $imageEditorAuraFlowShift, $imageEditorCfgNormStrength)
             ON CONFLICT(Id) DO UPDATE SET
                 ProviderId = $providerId,
                 ModelIdentifier = $identifier,
@@ -39,6 +43,15 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
                 Notes = $notes,
                 ModelKind = $modelKind,
                 ImageSizeSupported = $imageSizeSupported,
+                SupportsImageInput = $supportsImageInput,
+                MaximumInputImages = $maximumInputImages,
+                MaximumInputImageBytes = $maximumInputImageBytes,
+                MaximumInputImagePixels = $maximumInputImagePixels,
+                MaximumInputImageDimension = $maximumInputImageDimension,
+                AcceptedInputMediaTypes = $acceptedInputMediaTypes,
+                MaximumResponseBytes = $maximumResponseBytes,
+                RuntimeRevision = $runtimeRevision,
+                ArtifactRevision = $artifactRevision,
                 ImageEditorDiffusionModel = $imageEditorDiffusionModel,
                 ImageEditorTextEncoder = $imageEditorTextEncoder,
                 ImageEditorVae = $imageEditorVae,
@@ -64,6 +77,15 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
         command.Parameters.AddWithValue("$notes", (object?)model.Notes ?? DBNull.Value);
         command.Parameters.AddWithValue("$modelKind", (int)model.ModelKind);
         command.Parameters.AddWithValue("$imageSizeSupported", (object?)model.ImageSizeSupported ?? DBNull.Value);
+        command.Parameters.AddWithValue("$supportsImageInput", model.SupportsImageInput ? 1 : 0);
+        command.Parameters.AddWithValue("$maximumInputImages", (object?)model.MaximumInputImages ?? DBNull.Value);
+        command.Parameters.AddWithValue("$maximumInputImageBytes", (object?)model.MaximumInputImageBytes ?? DBNull.Value);
+        command.Parameters.AddWithValue("$maximumInputImagePixels", (object?)model.MaximumInputImagePixels ?? DBNull.Value);
+        command.Parameters.AddWithValue("$maximumInputImageDimension", (object?)model.MaximumInputImageDimension ?? DBNull.Value);
+        command.Parameters.AddWithValue("$acceptedInputMediaTypes", (object?)model.AcceptedInputMediaTypes ?? DBNull.Value);
+        command.Parameters.AddWithValue("$maximumResponseBytes", (object?)model.MaximumResponseBytes ?? DBNull.Value);
+        command.Parameters.AddWithValue("$runtimeRevision", (object?)model.RuntimeRevision ?? DBNull.Value);
+        command.Parameters.AddWithValue("$artifactRevision", (object?)model.ArtifactRevision ?? DBNull.Value);
         command.Parameters.AddWithValue("$imageEditorDiffusionModel", (object?)model.ImageEditorDiffusionModel ?? DBNull.Value);
         command.Parameters.AddWithValue("$imageEditorTextEncoder", (object?)model.ImageEditorTextEncoder ?? DBNull.Value);
         command.Parameters.AddWithValue("$imageEditorVae", (object?)model.ImageEditorVae ?? DBNull.Value);
@@ -86,7 +108,7 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
         await connection.OpenAsync(cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, ProviderId, ModelIdentifier, DisplayName, IsEnabled, SupportsThinkingControl, CreatedUtc, ContextWindowSize, Quantization, ParameterCount, Notes, ModelKind, ImageSizeSupported, ImageEditorDiffusionModel, ImageEditorTextEncoder, ImageEditorVae, ImageEditorSteps, ImageEditorCfg, ImageEditorSampler, ImageEditorScheduler, ImageEditorDenoise, ImageEditorAuraFlowShift, ImageEditorCfgNormStrength FROM RegisteredModels WHERE Id = $id";
+        command.CommandText = $"{ModelSelectColumns} WHERE rm.Id = $id";
         command.Parameters.AddWithValue("$id", id);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -104,7 +126,7 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
         await connection.OpenAsync(cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, ProviderId, ModelIdentifier, DisplayName, IsEnabled, SupportsThinkingControl, CreatedUtc, ContextWindowSize, Quantization, ParameterCount, Notes, ModelKind, ImageSizeSupported, ImageEditorDiffusionModel, ImageEditorTextEncoder, ImageEditorVae, ImageEditorSteps, ImageEditorCfg, ImageEditorSampler, ImageEditorScheduler, ImageEditorDenoise, ImageEditorAuraFlowShift, ImageEditorCfgNormStrength FROM RegisteredModels WHERE ProviderId = $providerId ORDER BY DisplayName";
+        command.CommandText = $"{ModelSelectColumns} WHERE rm.ProviderId = $providerId ORDER BY rm.DisplayName";
         command.Parameters.AddWithValue("$providerId", providerId);
 
         var models = new List<RegisteredModel>();
@@ -124,10 +146,12 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
 
         var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT rm.Id, rm.ProviderId, rm.ModelIdentifier, rm.DisplayName, rm.IsEnabled, rm.SupportsThinkingControl, rm.CreatedUtc,
-                   rm.ContextWindowSize, rm.Quantization, rm.ParameterCount, rm.Notes, rm.ModelKind, rm.ImageSizeSupported,
-                   rm.ImageEditorDiffusionModel, rm.ImageEditorTextEncoder, rm.ImageEditorVae, rm.ImageEditorSteps, rm.ImageEditorCfg,
-                   rm.ImageEditorSampler, rm.ImageEditorScheduler, rm.ImageEditorDenoise, rm.ImageEditorAuraFlowShift, rm.ImageEditorCfgNormStrength,
+                 SELECT rm.Id, rm.ProviderId, rm.ModelIdentifier, rm.DisplayName, rm.IsEnabled, rm.SupportsThinkingControl, rm.CreatedUtc,
+                     rm.ContextWindowSize, rm.Quantization, rm.ParameterCount, rm.Notes, rm.ModelKind, rm.ImageSizeSupported,
+                     rm.SupportsImageInput, rm.MaximumInputImages, rm.MaximumInputImageBytes, rm.MaximumInputImagePixels, rm.MaximumInputImageDimension,
+                     rm.AcceptedInputMediaTypes, rm.MaximumResponseBytes, rm.RuntimeRevision, rm.ArtifactRevision,
+                     rm.ImageEditorDiffusionModel, rm.ImageEditorTextEncoder, rm.ImageEditorVae, rm.ImageEditorSteps, rm.ImageEditorCfg,
+                     rm.ImageEditorSampler, rm.ImageEditorScheduler, rm.ImageEditorDenoise, rm.ImageEditorAuraFlowShift, rm.ImageEditorCfgNormStrength,
                    p.Name AS ProviderName
             FROM RegisteredModels rm
             INNER JOIN Providers p ON rm.ProviderId = p.Id
@@ -176,6 +200,16 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
         return Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken)) > 0;
     }
 
+    private const string ModelSelectColumns = """
+        SELECT rm.Id, rm.ProviderId, rm.ModelIdentifier, rm.DisplayName, rm.IsEnabled, rm.SupportsThinkingControl, rm.CreatedUtc,
+               rm.ContextWindowSize, rm.Quantization, rm.ParameterCount, rm.Notes, rm.ModelKind, rm.ImageSizeSupported,
+               rm.SupportsImageInput, rm.MaximumInputImages, rm.MaximumInputImageBytes, rm.MaximumInputImagePixels, rm.MaximumInputImageDimension,
+               rm.AcceptedInputMediaTypes, rm.MaximumResponseBytes, rm.RuntimeRevision, rm.ArtifactRevision,
+               rm.ImageEditorDiffusionModel, rm.ImageEditorTextEncoder, rm.ImageEditorVae, rm.ImageEditorSteps, rm.ImageEditorCfg,
+               rm.ImageEditorSampler, rm.ImageEditorScheduler, rm.ImageEditorDenoise, rm.ImageEditorAuraFlowShift, rm.ImageEditorCfgNormStrength
+        FROM RegisteredModels rm
+        """;
+
     private static RegisteredModel ReadModel(SqliteDataReader reader) => new()
     {
         Id = reader.GetString(0),
@@ -191,15 +225,24 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
         Notes = reader.IsDBNull(10) ? null : reader.GetString(10),
         ModelKind = (ModelKind)reader.GetInt32(11),
         ImageSizeSupported = reader.IsDBNull(12) ? null : reader.GetString(12),
-        ImageEditorDiffusionModel = reader.IsDBNull(13) ? null : reader.GetString(13),
-        ImageEditorTextEncoder = reader.IsDBNull(14) ? null : reader.GetString(14),
-        ImageEditorVae = reader.IsDBNull(15) ? null : reader.GetString(15),
-        ImageEditorSteps = reader.IsDBNull(16) ? null : reader.GetInt32(16),
-        ImageEditorCfg = reader.IsDBNull(17) ? null : reader.GetDouble(17),
-        ImageEditorSampler = reader.IsDBNull(18) ? null : reader.GetString(18),
-        ImageEditorScheduler = reader.IsDBNull(19) ? null : reader.GetString(19),
-        ImageEditorDenoise = reader.IsDBNull(20) ? null : reader.GetDouble(20),
-        ImageEditorAuraFlowShift = reader.IsDBNull(21) ? null : reader.GetDouble(21),
-        ImageEditorCfgNormStrength = reader.IsDBNull(22) ? null : reader.GetDouble(22)
+        SupportsImageInput = reader.GetInt32(13) == 1,
+        MaximumInputImages = reader.IsDBNull(14) ? null : reader.GetInt32(14),
+        MaximumInputImageBytes = reader.IsDBNull(15) ? null : reader.GetInt64(15),
+        MaximumInputImagePixels = reader.IsDBNull(16) ? null : reader.GetInt64(16),
+        MaximumInputImageDimension = reader.IsDBNull(17) ? null : reader.GetInt32(17),
+        AcceptedInputMediaTypes = reader.IsDBNull(18) ? null : reader.GetString(18),
+        MaximumResponseBytes = reader.IsDBNull(19) ? null : reader.GetInt64(19),
+        RuntimeRevision = reader.IsDBNull(20) ? null : reader.GetString(20),
+        ArtifactRevision = reader.IsDBNull(21) ? null : reader.GetString(21),
+        ImageEditorDiffusionModel = reader.IsDBNull(22) ? null : reader.GetString(22),
+        ImageEditorTextEncoder = reader.IsDBNull(23) ? null : reader.GetString(23),
+        ImageEditorVae = reader.IsDBNull(24) ? null : reader.GetString(24),
+        ImageEditorSteps = reader.IsDBNull(25) ? null : reader.GetInt32(25),
+        ImageEditorCfg = reader.IsDBNull(26) ? null : reader.GetDouble(26),
+        ImageEditorSampler = reader.IsDBNull(27) ? null : reader.GetString(27),
+        ImageEditorScheduler = reader.IsDBNull(28) ? null : reader.GetString(28),
+        ImageEditorDenoise = reader.IsDBNull(29) ? null : reader.GetDouble(29),
+        ImageEditorAuraFlowShift = reader.IsDBNull(30) ? null : reader.GetDouble(30),
+        ImageEditorCfgNormStrength = reader.IsDBNull(31) ? null : reader.GetDouble(31)
     };
 }

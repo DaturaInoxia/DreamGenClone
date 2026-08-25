@@ -28,4 +28,5 @@ public interface IModelResolutionService
     Task<ResolvedImageModel> ResolveImageModelAsync(
         string? sessionOverrideId = null,
         CancellationToken cancellationToken = default);
+
 }

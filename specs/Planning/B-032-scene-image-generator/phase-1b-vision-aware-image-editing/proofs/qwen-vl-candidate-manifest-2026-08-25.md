@@ -67,9 +67,12 @@ vllm serve <pinned-local-model-path>
   --gpu-memory-utilization 0.90
 ```
 
-The P1B-004 limits are 1,048,576 source pixels, 10 MiB per source image, 180 seconds for the
-same-pod transition, 90 seconds for a one-image response, and at least 4 GiB free VRAM after load.
-The vision compiler emits schema-bound JSON; it does not use model thinking/reasoning output or a
+The P1B-004 limits are 1,048,576 source pixels, 10 MiB per source image, 90 seconds for a one-image
+response, and at least 4 GiB free VRAM after load. The original 180-second same-pod transition gate
+was superseded for initial deployment after measurement. Model Manager/configuration must persist a
+timeout covering approximately 276 seconds process-to-health plus approximately 137 seconds of
+launcher preflight and explicit operational margin; no exact replacement constant is inferred. The
+vision compiler emits schema-bound JSON; it does not use model thinking/reasoning output or a
 text-only mode.
 
 ## Evidence Sources
@@ -82,6 +85,6 @@ text-only mode.
 ## Result
 
 P1B-003 is complete. P1B-007 proved endpoint identity, loopback binding, one-image structured
-output, and post-load VRAM, but the candidate remains unaccepted because its approximately
-276-second process-to-health time exceeded the frozen 180-second transition limit. The failure is
-recorded and is not replaced silently.
+output, post-load VRAM, and storage floors. The user explicitly accepted the measured startup and
+waived the old timing gate for initial deployment, so P1B-007 is complete. Corpus quality
+acceptance remains open in P1B-008 through P1B-010.

@@ -263,4 +263,176 @@ public sealed class SceneImageResolutionTests
         Assert.Equal("deepseek-chat", resolved.ModelIdentifier);
         Assert.Equal(1000, resolved.MaxTokens);
     }
+
+    [Fact]
+    public async Task ResolveMultimodalModel_NonMultimodalFunction_FailsFast()
+    {
+        var (service, _, _, _) = Build();
+
+        var exception = await Assert.ThrowsAsync<ModelResolutionException>(
+            () => ((IMultimodalModelResolutionService)service).ResolveAsync(AppFunction.RolePlaySceneImage));
+
+        Assert.Contains("not a multimodal", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ResolveMultimodalModel_NoFunctionDefault_FailsFast()
+    {
+        var (service, _, _, _) = Build();
+
+        var exception = await Assert.ThrowsAsync<ModelResolutionException>(
+            () => ((IMultimodalModelResolutionService)service).ResolveAsync(AppFunction.RolePlaySceneImageEditPromptCompiler));
+
+        Assert.Contains("No model configured", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ResolveMultimodalModel_CompleteConfiguration_ReturnsExactSnapshot()
+    {
+        var (service, defaults, models, providers) = Build();
+        SeedMultimodal(defaults, models, providers, AppFunction.RolePlaySceneImageEditPromptCompiler, "compiler-default");
+
+        var resolved = await ((IMultimodalModelResolutionService)service)
+            .ResolveAsync(AppFunction.RolePlaySceneImageEditPromptCompiler);
+
+        Assert.Equal("provider-vl", resolved.ProviderId);
+        Assert.Equal("model-vl", resolved.ModelId);
+        Assert.Equal("qwen-vl", resolved.ModelIdentifier);
+        Assert.Equal(ModelLifecycleStrategy.ScheduledSinglePod, resolved.LifecycleStrategy);
+        Assert.Equal(10_485_760, resolved.MaximumInputImageBytes);
+        Assert.Equal(0.2, resolved.Temperature);
+        Assert.Equal("runtime-1", resolved.RuntimeRevision);
+        Assert.Contains("image/webp", resolved.AcceptedInputMediaTypes);
+    }
+
+    [Fact]
+    public async Task ResolveMultimodalModel_CompilerAndValidatorResolveIndependently()
+    {
+        var (service, defaults, models, providers) = Build();
+        SeedMultimodal(defaults, models, providers, AppFunction.RolePlaySceneImageEditPromptCompiler, "compiler-default");
+        defaults.Set(AppFunction.RolePlaySceneImageValidator, new FunctionModelDefault
+        {
+            Id = "validator-default",
+            FunctionName = AppFunction.RolePlaySceneImageValidator.ToString(),
+            ModelId = "model-validator",
+            Temperature = 0.1,
+            TopP = 0.7,
+            MaxTokens = 256
+        });
+        models.Add(new RegisteredModel
+        {
+            Id = "model-validator",
+            ProviderId = "provider-vl",
+            ModelIdentifier = "validator-vl",
+            DisplayName = "Validator VL",
+            SupportsImageInput = true,
+            MaximumInputImages = 1,
+            MaximumInputImageBytes = 10_485_760,
+            MaximumInputImagePixels = 16_777_216,
+            MaximumInputImageDimension = 4096,
+            AcceptedInputMediaTypes = "image/png,image/jpeg,image/webp",
+            MaximumResponseBytes = 1_048_576,
+            IsEnabled = true
+        });
+
+        var compiler = await ((IMultimodalModelResolutionService)service)
+            .ResolveAsync(AppFunction.RolePlaySceneImageEditPromptCompiler);
+        var validator = await ((IMultimodalModelResolutionService)service)
+            .ResolveAsync(AppFunction.RolePlaySceneImageValidator);
+
+        Assert.Equal("qwen-vl", compiler.ModelIdentifier);
+        Assert.Equal("validator-vl", validator.ModelIdentifier);
+        Assert.Equal(0.1, validator.Temperature);
+    }
+
+    [Fact]
+    public async Task ResolveMultimodalModel_MissingRequiredCapability_FailsFast()
+    {
+        var (service, defaults, models, providers) = Build();
+        SeedMultimodal(defaults, models, providers, AppFunction.RolePlaySceneImageEditPromptCompiler, "compiler-default");
+        var model = await models.GetByIdAsync("model-vl");
+        model!.SupportsImageInput = false;
+
+        var exception = await Assert.ThrowsAsync<ModelResolutionException>(
+            () => ((IMultimodalModelResolutionService)service).ResolveAsync(AppFunction.RolePlaySceneImageEditPromptCompiler));
+
+        Assert.Contains("image-input capability", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("lifecycle")]
+    [InlineData("credential")]
+    [InlineData("readiness")]
+    [InlineData("response limit")]
+    public async Task ResolveMultimodalModel_MissingRequiredConfiguration_FailsFast(string missing)
+    {
+        var (service, defaults, models, providers) = Build();
+        SeedMultimodal(defaults, models, providers, AppFunction.RolePlaySceneImageEditPromptCompiler, "compiler-default");
+        var provider = await providers.GetByIdAsync("provider-vl");
+        var model = await models.GetByIdAsync("model-vl");
+        switch (missing)
+        {
+            case "lifecycle": provider!.LifecycleStrategyIdentifier = null; break;
+            case "credential": provider!.ApiKeyEncrypted = null; break;
+            case "readiness": provider!.ReadinessSuccessContractJson = null; break;
+            case "response limit": model!.MaximumResponseBytes = null; break;
+        }
+
+        await Assert.ThrowsAsync<ModelResolutionException>(
+            () => ((IMultimodalModelResolutionService)service).ResolveAsync(AppFunction.RolePlaySceneImageEditPromptCompiler));
+    }
+
+    private static void SeedMultimodal(
+        FakeFunctionDefaultRepository defaults,
+        FakeRegisteredModelRepository models,
+        FakeProviderRepository providers,
+        AppFunction function,
+        string defaultId)
+    {
+        providers.Add(new Provider
+        {
+            Id = "provider-vl",
+            Name = "Vision",
+            BaseUrl = "https://vision.test",
+            ChatCompletionsPath = "/v1/chat/completions",
+            ContentPolicy = ImageContentPolicy.AdultAllowed,
+            TimeoutSeconds = 30,
+            LifecycleStrategyIdentifier = nameof(ModelLifecycleStrategy.ScheduledSinglePod),
+            ReadinessPath = "/v1/models",
+            ReadinessSuccessContractJson = """{"data":[{"id":"qwen-vl"}]}""",
+            TransitionTimeoutSeconds = 420,
+            TransitionMarginSeconds = 30,
+            MaximumActiveRequests = 1,
+            QueueCapacity = 4,
+            CredentialReference = "vision-api-key",
+            ApiKeyEncrypted = "encrypted-key",
+            IsEnabled = true
+        });
+        models.Add(new RegisteredModel
+        {
+            Id = "model-vl",
+            ProviderId = "provider-vl",
+            ModelIdentifier = "qwen-vl",
+            DisplayName = "Qwen VL",
+            SupportsImageInput = true,
+            MaximumInputImages = 1,
+            MaximumInputImageBytes = 10_485_760,
+            MaximumInputImagePixels = 16_777_216,
+            MaximumInputImageDimension = 4096,
+            AcceptedInputMediaTypes = "image/png,image/jpeg,image/webp",
+            MaximumResponseBytes = 1_048_576,
+            RuntimeRevision = "runtime-1",
+            ArtifactRevision = "artifact-1",
+            IsEnabled = true
+        });
+        defaults.Set(function, new FunctionModelDefault
+        {
+            Id = defaultId,
+            FunctionName = function.ToString(),
+            ModelId = "model-vl",
+            Temperature = 0.2,
+            TopP = 0.8,
+            MaxTokens = 512
+        });
+    }
 }

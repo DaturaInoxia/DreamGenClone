@@ -15,6 +15,7 @@ param(
     [Parameter(Mandatory=$false)][string]$InputImagePath
 )
 $ErrorActionPreference = "Stop"
+Add-Type -AssemblyName System.Net.Http
 . (Join-Path $PSScriptRoot "common.ps1")
 if ([string]::IsNullOrWhiteSpace($ComfyUiUrl)) {
     Get-RunPodEnv

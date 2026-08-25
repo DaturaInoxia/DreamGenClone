@@ -3,6 +3,9 @@
 **Tasks:** P1B-004 and P1B-005
 **Decision:** Keep Juggernaut, Qwen Image Edit 2511, and Qwen VL artifacts on one pod and one
 persistent volume. Select same-pod scheduled GPU residency for the initial proof.
+**Amended:** The 180-second transition gate below is superseded for initial deployment by the
+explicit user acceptance recorded in
+[`../multi-pod-separation-plan.md`](../multi-pod-separation-plan.md).
 
 ## Why Scheduled Residency
 
@@ -30,7 +33,7 @@ the approved same-pod transition did not produce a healthy service.
 | Qwen VL max model length | 8,192 tokens |
 | Qwen VL post-load free VRAM | at least 4 GiB |
 | One-image compiler health response | no more than 90 seconds |
-| Same-pod unload/start/health transition | no more than 180 seconds |
+| Same-pod unload/start/health transition | Original gate: no more than 180 seconds; superseded for initial deployment by the measured full transition plus explicit configured operational margin |
 | GPU-heavy model load retries | 0 hidden retries; each retry is an explicit recorded attempt |
 
 ## Interpretation
@@ -40,7 +43,13 @@ the corresponding provider/model limits and timeouts through Model Manager befor
 If any threshold fails, the candidate proof fails with diagnostics. It does not lower the limit,
 switch to a cloud service, route to a second pod, or use raw/text-only prompt compilation.
 
+The accepted startup evidence is approximately 276 seconds process-to-health plus approximately
+137 seconds of launcher preflight overhead. No exact replacement timeout is frozen. Persisted
+configuration must cover the measured full launcher-to-health path with explicit operator margin.
+The one-image 90-second response, VRAM, storage, media, and zero-hidden-retry constraints are not
+waived.
+
 ## Result
 
-P1B-004 and P1B-005 are complete. The next task is P1B-006: add scripts that enforce this manifest
-while provisioning, starting, stopping, and health-checking Qwen VL on the existing pod.
+P1B-004 and P1B-005 remain complete. P1B-007 is accepted by explicit timing-gate waiver; corpus
+quality tasks P1B-008 through P1B-010 remain open.

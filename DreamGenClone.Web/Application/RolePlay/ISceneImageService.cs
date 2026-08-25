@@ -28,7 +28,7 @@ public interface ISceneImageService
     Task<SceneImageRecord> EnqueueRenderAsync(
         SceneRenderRequest request, CancellationToken cancellationToken = default);
 
-    /// <summary>Enqueue a manual edit from an existing completed image using the configured source-image editor.</summary>
+    /// <summary>Enqueue an edit using the exact latest accepted compiler revision and source checksum.</summary>
     Task<SceneImageRecord> EnqueueEditAsync(
         SceneImageEditRequest request, CancellationToken cancellationToken = default);
 

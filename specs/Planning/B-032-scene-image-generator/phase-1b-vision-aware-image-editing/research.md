@@ -59,8 +59,10 @@ The deployment topology is one pod and one persistent `/workspace` volume. That 
 - Qwen Image Edit 2511 for source-image manipulation;
 - Qwen VL for source analysis and edit-prompt compilation.
 
-No second pod is planned. Separate runtime directories and processes on the same pod isolate pinned
-Python/ComfyUI/vLLM dependencies; they do not imply separate hosts.
+No second pod is active or required for initial implementation. Separate runtime directories and
+processes on the same pod isolate pinned Python/ComfyUI/vLLM dependencies; they do not imply
+separate hosts. A later deployment may separate the three providers only through the migration
+gates in [`multi-pod-separation-plan.md`](multi-pod-separation-plan.md).
 
 Disk and GPU memory are separate gates. Removing Pony reclaims persistent disk for Qwen VL. It does
 not prove all three retained models can be loaded into the 24 GB GPU simultaneously. All three
@@ -84,6 +86,14 @@ model loading, keep all artifacts installed and use explicit sequential GPU resi
 model needed for generation, compilation, or editing, then release it before the next GPU-heavy
 operation. This is resource scheduling within one pod, not a fallback or another deployment.
 Fully loaded co-residency may be selected only if measured headroom passes the recorded threshold.
+
+The initial Qwen VL proof measured approximately 276 seconds from process start to health and an
+additional approximately 137 seconds of launcher preflight on the FUSE-backed volume. The user
+accepted that startup behavior for initial application implementation and superseded the old
+180-second transition gate. The persisted transition timeout must cover the measured full path with
+explicit operator margin; the evidence does not justify inventing a new exact constant. One-image
+inference must still complete within 90 seconds, and all other media, VRAM, storage, and no-fallback
+constraints remain unchanged.
 
 ## Compiler Responsibilities
 

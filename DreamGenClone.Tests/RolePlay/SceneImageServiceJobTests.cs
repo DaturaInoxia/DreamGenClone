@@ -1,9 +1,12 @@
 using System.Text.Json;
+using System.Security.Cryptography;
+using System.Text;
 using DreamGenClone.Application.Abstractions;
 using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Infrastructure.Configuration;
 using DreamGenClone.Infrastructure.RolePlay;
+using DreamGenClone.Infrastructure.Persistence;
 using DreamGenClone.Infrastructure.Storage;
 using DreamGenClone.Web.Application.BackgroundJobs;
 using DreamGenClone.Web.Application.RolePlay;
@@ -58,9 +61,17 @@ public sealed class SceneImageServiceJobTests
     {
         var dbPath = Path.Combine(Path.GetTempPath(), $"scene-image-svc-{Guid.NewGuid():N}.db");
         var root = Path.Combine(Path.GetTempPath(), $"scene-image-svc-files-{Guid.NewGuid():N}");
-        var repo = new SceneImageRepository(Options.Create(new PersistenceOptions { ConnectionString = $"Data Source={dbPath}" }));
+        var persistenceOptions = Options.Create(new PersistenceOptions { ConnectionString = $"Data Source={dbPath};Pooling=False", SceneImageRoot = root });
+        new SqlitePersistence(
+            persistenceOptions,
+            Options.Create(new LmStudioOptions()),
+            Options.Create(new StoryAnalysisOptions()),
+            Options.Create(new ScenarioAdaptationOptions()),
+            NullLogger<SqlitePersistence>.Instance).InitializeAsync().GetAwaiter().GetResult();
+        var repo = new SceneImageRepository(persistenceOptions);
+        var editRepository = new SceneImageEditRepository(persistenceOptions);
         var storage = new SceneImageStorageService(
-            Options.Create(new PersistenceOptions { SceneImageRoot = root }),
+            persistenceOptions,
             NullLogger<SceneImageStorageService>.Instance);
         var queue = new CapturingBackgroundJobQueue();
         var stateRepository = new RolePlayStateRepository(Options.Create(new PersistenceOptions { ConnectionString = $"Data Source={dbPath}" }));
@@ -81,6 +92,7 @@ public sealed class SceneImageServiceJobTests
         var service = new SceneImageService(
             new StubSessionService(session),
             repo,
+            editRepository,
             storage,
             queue,
             new SceneImageTurnResolver(stateRepository),
@@ -259,19 +271,29 @@ public sealed class SceneImageServiceJobTests
                 FileRelativePath = "s1/source.png"
             };
             await repo.InsertImageAsync(source);
+            var (editSession, attempt, revision) = await CreateReadyEditAsync(dbPath, source, "Change only the hand position.");
 
             var record = await service.EnqueueEditAsync(new SceneImageEditRequest
             {
                 SessionId = "s1",
                 InteractionId = "i1",
                 SourceImageId = source.Id,
-                Instruction = "  Change only the hand position.  "
+                EditSessionId = editSession.Id,
+                CompilationAttemptId = attempt.Id,
+                PromptRevisionId = revision.Id,
+                SourceImageSha256 = editSession.SourceImageSha256,
+                PromptSha256 = revision.PromptSha256
             });
 
             Assert.Equal(SceneImageStatus.Pending, record.Status);
             Assert.Equal(SceneImageOperation.Edit, record.Operation);
             Assert.Equal(source.Id, record.SourceImageId);
             Assert.Equal("Change only the hand position.", record.PromptSnapshot);
+            Assert.Equal(editSession.Id, record.EditSessionId);
+            Assert.Equal(attempt.Id, record.EditCompilationAttemptId);
+            Assert.Equal(revision.Id, record.EditPromptRevisionId);
+            Assert.Equal(attempt.RawIntent, record.EditIntentSnapshot);
+            Assert.Contains(attempt.CompilerSchemaVersion, record.EditCompilerProvenanceJson, StringComparison.Ordinal);
             Assert.Single(queue.Enqueued);
             Assert.Equal(BackgroundJobTypes.SceneImageEditing, queue.Enqueued[0].JobType);
             Assert.Contains(record.Id, queue.Enqueued[0].DedupeKey, StringComparison.Ordinal);
@@ -306,7 +328,11 @@ public sealed class SceneImageServiceJobTests
                 SessionId = "s1",
                 InteractionId = "i1",
                 SourceImageId = source.Id,
-                Instruction = "Change the lighting."
+                EditSessionId = "edit-session",
+                CompilationAttemptId = "attempt",
+                PromptRevisionId = "revision",
+                SourceImageSha256 = new string('A', 64),
+                PromptSha256 = new string('B', 64)
             }));
 
             Assert.Contains("completed", exception.Message, StringComparison.OrdinalIgnoreCase);
@@ -318,7 +344,50 @@ public sealed class SceneImageServiceJobTests
     }
 
     [Fact]
-    public async Task EnqueueEditAsync_BlankInstruction_FailsFast()
+    public async Task EnqueueEditAsync_WrongPromptChecksum_CreatesNoEditOrJob()
+    {
+        var session = MakeSession();
+        var (service, queue, repo, _, dbPath, root) = Build(session);
+        try
+        {
+            var prompt = CreatePromptRecord();
+            await repo.UpsertPromptAsync(prompt);
+            var source = new SceneImageRecord
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                PromptRecordId = prompt.Id,
+                PromptSnapshot = "original prompt",
+                Status = SceneImageStatus.Complete,
+                FileRelativePath = "s1/source.png"
+            };
+            await repo.InsertImageAsync(source);
+            var (editSession, attempt, revision) = await CreateReadyEditAsync(dbPath, source, "Change only the lighting.");
+
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => service.EnqueueEditAsync(new SceneImageEditRequest
+            {
+                SessionId = source.SessionId,
+                InteractionId = source.InteractionId,
+                SourceImageId = source.Id,
+                EditSessionId = editSession.Id,
+                CompilationAttemptId = attempt.Id,
+                PromptRevisionId = revision.Id,
+                SourceImageSha256 = editSession.SourceImageSha256,
+                PromptSha256 = new string('F', 64)
+            }));
+
+            Assert.Contains("checksum", exception.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Empty(queue.Enqueued);
+            Assert.Single(await repo.ListImagesByInteractionAsync(source.SessionId, source.InteractionId));
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    [Fact]
+    public async Task EnqueueEditAsync_MissingCompiledRevision_FailsFast()
     {
         var (service, _, _, _, dbPath, root) = Build(MakeSession());
         try
@@ -327,16 +396,56 @@ public sealed class SceneImageServiceJobTests
             {
                 SessionId = "s1",
                 InteractionId = "i1",
-                SourceImageId = "source",
-                Instruction = "  "
+                SourceImageId = "source"
             }));
 
-            Assert.Contains("instruction", exception.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("compiled edit", exception.Message, StringComparison.OrdinalIgnoreCase);
         }
         finally
         {
             Cleanup(dbPath, root);
         }
+    }
+
+    private static async Task<(SceneImageEditSession Session, SceneImageEditCompilationAttempt Attempt, SceneImageEditPromptRevision Revision)> CreateReadyEditAsync(
+        string dbPath,
+        SceneImageRecord source,
+        string prompt)
+    {
+        var repository = new SceneImageEditRepository(Options.Create(new PersistenceOptions { ConnectionString = $"Data Source={dbPath};Pooling=False" }));
+        var session = new SceneImageEditSession
+        {
+            SourceImageId = source.Id,
+            SourceImageSha256 = new string('A', 64),
+            SessionId = source.SessionId,
+            InteractionId = source.InteractionId,
+            Status = SceneImageEditSessionStatus.Active
+        };
+        await repository.CreateSessionAsync(session);
+        var attempt = new SceneImageEditCompilationAttempt
+        {
+            EditSessionId = session.Id,
+            RawIntent = "change only the hand position",
+            SourceImageSha256 = session.SourceImageSha256,
+            Status = SceneImageEditCompilationAttemptStatus.Pending,
+            ResolvedModelSnapshotJson = "{\"modelIdentifier\":\"qwen-vl\"}",
+            CompilerSchemaVersion = "scene-image-edit-compiler-v1",
+            SystemPromptVersion = "qwen-edit-rules-v1"
+        };
+        await repository.CreateAttemptAsync(attempt);
+        attempt.Status = SceneImageEditCompilationAttemptStatus.Compiling;
+        await repository.UpdateAttemptAsync(attempt);
+        attempt.Status = SceneImageEditCompilationAttemptStatus.Ready;
+        await repository.UpdateAttemptAsync(attempt);
+        var revision = new SceneImageEditPromptRevision
+        {
+            CompilationAttemptId = attempt.Id,
+            Prompt = prompt,
+            RevisionKind = SceneImageEditPromptRevisionKind.CompilerOutput,
+            PromptSha256 = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(prompt)))
+        };
+        await repository.CreateRevisionAsync(revision);
+        return (session, attempt, revision);
     }
 
     [Fact]

@@ -1,6 +1,6 @@
 # Phase 1B - Vision-Aware Image Editing
 
-**Status:** Planned, next implementation slice
+**Status:** Application infrastructure authorized; corpus quality acceptance remains open
 **Epic:** B-032 Scene Image Generator
 **Prerequisite:** Phase 1 prompt-to-image and manual Qwen edit path
 **Blocks:** Phase 2 character identity and the automated vision slice of Phase 4
@@ -24,6 +24,8 @@ execution, comparison, and audit history.
 - [`plan.md`](plan.md) - implementation slices, file surface, risks, and rollout.
 - [`tasks.md`](tasks.md) - dependency-ordered implementation ledger.
 - [`pod-migration-runbook.md`](pod-migration-runbook.md) - Pony retirement and vision runtime plan.
+- [`multi-pod-separation-plan.md`](multi-pod-separation-plan.md) - accepted initial startup envelope,
+  task-order amendment, and future topology-independent pod separation plan.
 
 ## Delivery
 
@@ -56,6 +58,8 @@ execution, comparison, and audit history.
 - Pony is removed from the active POC deployment and Model Manager configuration. Historical source
   code, workflows, and evidence remain in source control for provenance, but reinstalling Pony is
   not part of this plan.
+- The active initial topology is one pod with scheduled residency. Separate pods are a future
+  migration and must never be configured as a simultaneous fallback route.
 
 ## Exit Gate
 
@@ -63,4 +67,4 @@ The phase exits only when the running application completes the frozen edit corp
 dedicated page, ambiguity cases request clarification, exact compilation provenance is persisted,
 Qwen receives only the reviewed compiled prompt, and the single-pod migration evidence shows enough
 disk for all three retained model families plus a measured GPU-residency strategy without hidden
-fallback.
+fallback. Authorization to begin application infrastructure does not satisfy this exit gate.

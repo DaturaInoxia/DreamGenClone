@@ -1,9 +1,10 @@
 # Qwen VL Provision Attempt - 2026-08-25
 
 **Task:** P1B-007
-**Outcome:** Failed acceptance; runtime and one-image inference work, but the candidate exceeds the
-frozen 180-second same-pod transition limit. The candidate is not accepted and the task remains
-open.
+**Outcome:** Accepted by explicit user waiver on 2026-08-25. Runtime and one-image inference work;
+the measured startup exceeds the original 180-second gate, which is superseded for initial
+deployment by the accepted evidence-based startup envelope in
+[`../multi-pod-separation-plan.md`](../multi-pod-separation-plan.md).
 
 ## Scope
 
@@ -128,7 +129,7 @@ This launch became functional with the following evidence:
 | Endpoint | `http://127.0.0.1:8002` |
 | Served model | `qwen2.5-vl-7b-edit-compiler` |
 | Maximum model length | 8,192 |
-| Process-to-health time | approximately 276 seconds; **fails** the 180-second gate |
+| Process-to-health time | approximately 276 seconds; exceeds the original 180-second gate and is accepted for initial deployment by explicit waiver |
 | Post-load GPU memory | 46,068 MiB total, 40,086 MiB used, 5,403 MiB free; passes 4 GiB floor |
 | Source image | PNG, 32 x 32, 1,148 bytes, exactly one image |
 | One-image response | 2.444 seconds; passes 90-second gate |
@@ -136,8 +137,9 @@ This launch became functional with the following evidence:
 | Raw response | `/workspace/qwen-vl-edit-compiler/proofs/one-image-response.json` |
 
 The full launcher path was slower than process-to-health because its isolated Python/Torch/CUDA
-preflight took approximately 137 additional seconds from the FUSE-backed volume. This does not
-alter the acceptance result: even process-to-health alone exceeded the frozen transition limit.
+preflight took approximately 137 additional seconds from the FUSE-backed volume. Configured
+transition timeout must cover this measured full path with explicit operational margin. The
+evidence does not support inventing one exact replacement timeout.
 
 After the proof, the Qwen VL process was stopped, its PID file was removed, port 8002 had no
 listener, and GPU usage returned to 271 MiB. Final quota-aware workspace availability was
@@ -146,8 +148,9 @@ bytes (approximately 4.8 GiB); both storage floors pass.
 
 ## Decision
 
-Do not change the model, create a second pod, use a cloud or text-only compiler, or add a hidden
+Do not change the model, activate a second pod, use a cloud or text-only compiler, or add a hidden
 fallback. Hashes, imports, loopback service health, image input, structured JSON, response latency,
-and VRAM headroom are proven. P1B-007 remains incomplete solely because the frozen 180-second
-same-pod transition gate failed. Application integration remains blocked pending an explicit
-decision on this recorded candidate failure.
+VRAM headroom, and storage floors are proven. The user explicitly accepts the measured startup for
+initial application implementation, so P1B-007 is complete. This is functional acceptance only:
+P1B-008 through P1B-010 remain open and block production enablement and end-to-end acceptance until
+the frozen compiler corpus passes.

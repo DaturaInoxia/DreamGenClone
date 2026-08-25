@@ -6,7 +6,9 @@ Insert a vision-grounded compilation stage before the existing Qwen edit job and
 dedicated workbench. Build the reusable multimodal transport once, but keep prompt compilation and
 future result validation as separate functions and records. Update the one-pod development host by
 removing Pony from the POC and provisioning a pinned Qwen VL service alongside the retained
-Juggernaut and Qwen Image Edit capabilities.
+Juggernaut and Qwen Image Edit capabilities. Application infrastructure may begin under the
+2026-08-25 [deployment amendment](multi-pod-separation-plan.md) while compiler corpus quality
+acceptance remains a production and phase-exit gate.
 
 ## Architecture
 
@@ -68,8 +70,9 @@ flowchart LR
 
 ### RunPod
 
-- Enforce one pod and one persistent volume for Juggernaut, Qwen Edit, and Qwen VL. Separate
-  runtimes are dependency/process isolation on that pod, not separate pods.
+- Keep one pod and one persistent volume as the active initial deployment for Juggernaut, Qwen
+  Edit, and Qwen VL. Separate runtimes are dependency/process isolation on that pod, not separate
+  pods.
 - Add pinned vision runtime provision/start/stop/health scripts and artifact manifest.
 - Add a capacity/inventory script that reports persistent disk and GPU memory without deleting.
 - Add an exact-path Pony retirement script requiring expected path, size, hash, and explicit model
@@ -77,6 +80,8 @@ flowchart LR
 - Prove and persist either simultaneous model residency or explicit same-pod load/unload scheduling.
 - Keep the retained Juggernaut and Qwen editor artifacts unchanged unless verification finds a
   concrete defect.
+- Keep application contracts independent of deployment topology and use the future separation
+  gates in `multi-pod-separation-plan.md`; no second active or fallback route is introduced now.
 
 ### Tests
 
@@ -91,8 +96,9 @@ flowchart LR
 ## Delivery Slices
 
 1. **Host inventory and proof manifest:** measure disk/VRAM, freeze candidate, verify Pony impact.
-2. **Vision runtime proof:** provision pinned Qwen VL on the same pod, then test schema output and
-  the frozen corpus outside the application.
+2. **Vision runtime proof:** provision pinned Qwen VL on the same pod and prove schema output. The
+   old 180-second gate is waived for initial deployment; the persisted transition timeout must
+   cover the measured full startup with explicit operational margin.
 3. **Persistence and contracts:** additive schema, records, strict parser, repository invariants.
 4. **Multimodal infrastructure:** capability/config UI, resolver, client, health diagnostics.
 5. **Compilation pipeline:** builder, job, debug events, staleness and clarification orchestration.
@@ -102,6 +108,10 @@ flowchart LR
   VL on the same pod, and prove all three retained capabilities plus capacity evidence.
 9. **Acceptance:** frozen corpus, existing six edit intents through app, manual browser matrix, build
    and full test suite.
+
+Slices 3 through 6 are authorized to begin while the standalone corpus work continues. The corpus
+must still pass before Qwen enforcement is production-enabled, pod migration is accepted, the
+application end-to-end corpus runs, or Phase 1B exits.
 
 Each implementation slice receives focused executable validation immediately after its first edit,
 then solution build and full tests before being marked complete.
@@ -122,6 +132,11 @@ is:
 8. verify Juggernaut, Qwen Edit, and Qwen VL from the same pod;
 9. record endpoint configuration and whether same-pod GPU model unload/switching is required.
 
+Scheduled one-pod residency is the accepted initial strategy. Approximately 276 seconds from
+process start to health plus approximately 137 seconds of launcher preflight are accepted evidence,
+not application constants. Model Manager/configuration must persist a transition envelope that
+covers the measured full path with explicit margin. Missing configuration fails explicitly.
+
 If Qwen VL provisioning fails after Pony deletion, preserve the failure evidence and repair the
 Qwen VL deployment forward. Do not reinstall Pony as part of this phase and do not create a second
 pod or silently reroute requests.
@@ -140,7 +155,9 @@ gates before every download.
 
 ## Rollout
 
-Enable the dedicated editor only after a compiler model/configuration is complete and its corpus is
-accepted. Existing historical edit records remain displayable. New raw edit enqueue requests fail
-with migration guidance rather than bypassing compilation. Phase 2 may start after this phase's
-exit gate; Phase 4 reuses the multimodal transport but implements a separate validator contract.
+Application infrastructure and the dedicated editor implementation may proceed now. Production
+enablement and end-to-end acceptance remain blocked until compiler model/configuration is complete
+and P1B-008 through P1B-010 accept the corpus. Existing historical edit records remain displayable.
+New raw edit enqueue requests fail with migration guidance rather than bypassing compilation. Phase
+2 may start after this phase's exit gate; Phase 4 reuses the multimodal transport but implements a
+separate validator contract.

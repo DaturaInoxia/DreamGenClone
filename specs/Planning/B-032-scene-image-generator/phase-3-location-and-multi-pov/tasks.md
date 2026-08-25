@@ -23,6 +23,9 @@
 
 ## C. Three.js Blocking Editor
 
+Pose-specific behavior, contracts, build gates, and acceptance cases for P3-014 through P3-024 are
+defined in [`pose-editor-plan.md`](pose-editor-plan.md).
+
 - [ ] P3-012 Read Razor instructions and complete target Razor/JS/CSS context before editing.
 - [ ] P3-013 Add Three.js through the repository's package/static-asset strategy with a pinned
   version and recorded license; do not load an unpinned CDN dependency.

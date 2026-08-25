@@ -1,0 +1,27 @@
+{
+  "deploymentKey": "pose-dwpose-prod",
+  "displayName": "DWPose extraction",
+  "capability": "PoseExtraction",
+  "modelIdentifier": "dw-ll_ucoco_384_bs5.torchscript.pt",
+  "podId": "wwbl2kjjvizb46",
+  "podName": "dreamgen-pose-dwpose-pro-4500",
+  "containerImage": "runpod/stable-diffusion:comfy-ui-6.0.0",
+  "cloudType": "SECURE",
+  "interruptible": false,
+  "gpuTypeId": "NVIDIA RTX PRO 4500 Blackwell",
+  "gpuCount": 1,
+  "volumeInGb": 40,
+  "containerDiskInGb": 20,
+  "volumeMountPath": "/workspace",
+  "inferencePort": 3003,
+  "sshTcpPort": 22,
+  "sshUser": "root",
+  "readinessPath": "/system_stats",
+  "identityProbePath": "/object_info/DWPreprocessor",
+  "identityExpectedText": "dw-ll_ucoco_384_bs5.torchscript.pt",
+  "expectedIdentity": {
+    "deploymentKey": "pose-dwpose-prod",
+    "modelIdentifier": "dw-ll_ucoco_384_bs5.torchscript.pt",
+    "runtimeRevision": "runpod/stable-diffusion:comfy-ui-6.0.0"
+  }
+}

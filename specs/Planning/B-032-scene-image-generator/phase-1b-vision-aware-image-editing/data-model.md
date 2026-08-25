@@ -82,6 +82,13 @@ The exact compiler resolution snapshot includes provider/model IDs, endpoint, mo
 content policy, timeout, image limits, generation settings, and capability flags. Secrets are not
 included.
 
+Provider/model configuration also persists a lifecycle strategy identifier, readiness contract,
+transition timeout, explicit operational margin, request timeout, queue/concurrency limits, and
+credential reference. The initial strategy is scheduled single-pod residency; a future deployment
+may select always-on separate providers. Strategy and values are required, UI-backed, and included
+in the immutable resolution snapshot. No topology is inferred from a host, port, or filesystem
+path.
+
 ## Relationships
 
 ```mermaid
