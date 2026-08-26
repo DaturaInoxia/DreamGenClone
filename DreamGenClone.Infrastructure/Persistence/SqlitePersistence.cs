@@ -770,6 +770,10 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 ImageEditorDenoise REAL NULL,
                 ImageEditorAuraFlowShift REAL NULL,
                 ImageEditorCfgNormStrength REAL NULL,
+                IdentityMechanism TEXT NULL,
+                IdentityStrength REAL NULL,
+                IdentityAdapterRef TEXT NULL,
+                IdentityClipVisionRef TEXT NULL,
                 FOREIGN KEY (ProviderId) REFERENCES Providers(Id) ON DELETE CASCADE,
                 UNIQUE (ProviderId, ModelIdentifier)
             );
@@ -1431,6 +1435,27 @@ public sealed class SqlitePersistence : ISqlitePersistence
             ("ImageEditorCfgNormStrength", "ALTER TABLE RegisteredModels ADD COLUMN ImageEditorCfgNormStrength REAL NULL")
         };
         foreach (var (column, ddl) in registeredModelEditorColumns)
+        {
+            var checkCmd = connection.CreateCommand();
+            checkCmd.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('RegisteredModels') WHERE name='{column}'";
+            var present = Convert.ToInt64(await checkCmd.ExecuteScalarAsync(cancellationToken)) > 0;
+            if (!present)
+            {
+                var alter = connection.CreateCommand();
+                alter.CommandText = ddl;
+                await alter.ExecuteNonQueryAsync(cancellationToken);
+                _logger.LogInformation("Migrated RegisteredModels table: added {Column} column", column);
+            }
+        }
+
+        var registeredModelIdentityColumns = new (string Column, string Ddl)[]
+        {
+            ("IdentityMechanism", "ALTER TABLE RegisteredModels ADD COLUMN IdentityMechanism TEXT NULL"),
+            ("IdentityStrength", "ALTER TABLE RegisteredModels ADD COLUMN IdentityStrength REAL NULL"),
+            ("IdentityAdapterRef", "ALTER TABLE RegisteredModels ADD COLUMN IdentityAdapterRef TEXT NULL"),
+            ("IdentityClipVisionRef", "ALTER TABLE RegisteredModels ADD COLUMN IdentityClipVisionRef TEXT NULL")
+        };
+        foreach (var (column, ddl) in registeredModelIdentityColumns)
         {
             var checkCmd = connection.CreateCommand();
             checkCmd.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('RegisteredModels') WHERE name='{column}'";

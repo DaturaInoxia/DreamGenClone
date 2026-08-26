@@ -321,12 +321,12 @@ public sealed class SceneImageRepository : ISceneImageRepository
                 Id, SessionId, InteractionId, PromptRecordId, PromptSnapshot, Status,
                 Operation, SourceImageId, EditSessionId, EditCompilationAttemptId, EditPromptRevisionId, EditIntentSnapshot, EditCompilerProvenanceJson,
                 FileRelativePath, ModelIdentifier, ProviderName, ContentPolicy, ImageSize, Style, SettingsJson,
-                ErrorMessage, RegenerateOfId, BeatId, Pov, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc)
+                ErrorMessage, RegenerateOfId, BeatId, Pov, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc, RenderMode, IdentityPackId)
             VALUES (
                 $id, $sessionId, $interactionId, $promptRecordId, $promptSnapshot, $status,
                 $operation, $sourceImageId, $editSessionId, $editCompilationAttemptId, $editPromptRevisionId, $editIntentSnapshot, $editCompilerProvenanceJson,
                 $fileRelativePath, $modelIdentifier, $providerName, $contentPolicy, $imageSize, $style, $settingsJson,
-                $errorMessage, $regenerateOfId, $beatId, $pov, $createdUtc, $startedUtc, $completedUtc, $updatedUtc);
+                $errorMessage, $regenerateOfId, $beatId, $pov, $createdUtc, $startedUtc, $completedUtc, $updatedUtc, $renderMode, $identityPackId);
             """;
         command.Parameters.AddWithValue("$id", image.Id);
         command.Parameters.AddWithValue("$sessionId", image.SessionId.Trim());
@@ -352,6 +352,8 @@ public sealed class SceneImageRepository : ISceneImageRepository
         command.Parameters.AddWithValue("$regenerateOfId", (object?)image.RegenerateOfId ?? DBNull.Value);
         command.Parameters.AddWithValue("$beatId", (object?)image.BeatId ?? DBNull.Value);
         command.Parameters.AddWithValue("$pov", (object?)image.Pov ?? DBNull.Value);
+        command.Parameters.AddWithValue("$renderMode", image.RenderMode.ToString());
+        command.Parameters.AddWithValue("$identityPackId", (object?)image.IdentityPackId ?? DBNull.Value);
         command.Parameters.AddWithValue("$createdUtc", image.CreatedUtc.ToString("O"));
         command.Parameters.AddWithValue("$startedUtc", image.StartedUtc?.ToString("O") ?? (object)DBNull.Value);
         command.Parameters.AddWithValue("$completedUtc", image.CompletedUtc?.ToString("O") ?? (object)DBNull.Value);
@@ -376,7 +378,7 @@ public sealed class SceneImageRepository : ISceneImageRepository
             SELECT Id, SessionId, InteractionId, PromptRecordId, PromptSnapshot, Status,
                  Operation, SourceImageId, EditSessionId, EditCompilationAttemptId, EditPromptRevisionId, EditIntentSnapshot, EditCompilerProvenanceJson,
                  FileRelativePath, ModelIdentifier, ProviderName, ContentPolicy, ImageSize, Style, SettingsJson,
-                   ErrorMessage, RegenerateOfId, BeatId, Pov, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc
+                   ErrorMessage, RegenerateOfId, BeatId, Pov, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc, RenderMode, IdentityPackId
             FROM SceneImages
             WHERE Id = $id;
             """;
@@ -408,7 +410,7 @@ public sealed class SceneImageRepository : ISceneImageRepository
             SELECT Id, SessionId, InteractionId, PromptRecordId, PromptSnapshot, Status,
                  Operation, SourceImageId, EditSessionId, EditCompilationAttemptId, EditPromptRevisionId, EditIntentSnapshot, EditCompilerProvenanceJson,
                  FileRelativePath, ModelIdentifier, ProviderName, ContentPolicy, ImageSize, Style, SettingsJson,
-                   ErrorMessage, RegenerateOfId, BeatId, Pov, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc
+                   ErrorMessage, RegenerateOfId, BeatId, Pov, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc, RenderMode, IdentityPackId
             FROM SceneImages
             WHERE SessionId = $sessionId AND InteractionId = $interactionId
             ORDER BY CreatedUtc DESC;
@@ -443,7 +445,7 @@ public sealed class SceneImageRepository : ISceneImageRepository
             SELECT Id, SessionId, InteractionId, PromptRecordId, PromptSnapshot, Status,
                  Operation, SourceImageId, EditSessionId, EditCompilationAttemptId, EditPromptRevisionId, EditIntentSnapshot, EditCompilerProvenanceJson,
                  FileRelativePath, ModelIdentifier, ProviderName, ContentPolicy, ImageSize, Style, SettingsJson,
-                   ErrorMessage, RegenerateOfId, BeatId, Pov, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc
+                   ErrorMessage, RegenerateOfId, BeatId, Pov, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc, RenderMode, IdentityPackId
             FROM SceneImages
             WHERE SessionId = $sessionId
             ORDER BY CreatedUtc DESC;
@@ -590,7 +592,9 @@ public sealed class SceneImageRepository : ISceneImageRepository
             CreatedUtc = ParseUtc(reader.GetString(24), sessionId, interactionId, "CreatedUtc"),
             StartedUtc = reader.IsDBNull(25) ? null : ParseUtc(reader.GetString(25), sessionId, interactionId, "StartedUtc"),
             CompletedUtc = reader.IsDBNull(26) ? null : ParseUtc(reader.GetString(26), sessionId, interactionId, "CompletedUtc"),
-            UpdatedUtc = ParseUtc(reader.GetString(27), sessionId, interactionId, "UpdatedUtc")
+            UpdatedUtc = ParseUtc(reader.GetString(27), sessionId, interactionId, "UpdatedUtc"),
+            RenderMode = ParseEnum<SceneImageRenderMode>(reader.GetString(28), sessionId, interactionId, "SceneImages"),
+            IdentityPackId = reader.IsDBNull(29) ? null : reader.GetString(29)
         };
     }
 
@@ -667,7 +671,9 @@ public sealed class SceneImageRepository : ISceneImageRepository
                 CreatedUtc       TEXT NOT NULL,
                 StartedUtc       TEXT NULL,
                 CompletedUtc     TEXT NULL,
-                UpdatedUtc       TEXT NOT NULL
+                UpdatedUtc       TEXT NOT NULL,
+                RenderMode       TEXT NOT NULL DEFAULT 'PromptOnly',
+                IdentityPackId   TEXT NULL
             );
             CREATE INDEX IF NOT EXISTS IX_SceneImages_Session
                 ON SceneImages (SessionId);
@@ -722,7 +728,9 @@ public sealed class SceneImageRepository : ISceneImageRepository
             ("EditCompilationAttemptId", "ALTER TABLE SceneImages ADD COLUMN EditCompilationAttemptId TEXT NULL"),
             ("EditPromptRevisionId", "ALTER TABLE SceneImages ADD COLUMN EditPromptRevisionId TEXT NULL"),
             ("EditIntentSnapshot", "ALTER TABLE SceneImages ADD COLUMN EditIntentSnapshot TEXT NULL"),
-            ("EditCompilerProvenanceJson", "ALTER TABLE SceneImages ADD COLUMN EditCompilerProvenanceJson TEXT NULL")
+            ("EditCompilerProvenanceJson", "ALTER TABLE SceneImages ADD COLUMN EditCompilerProvenanceJson TEXT NULL"),
+            ("RenderMode", "ALTER TABLE SceneImages ADD COLUMN RenderMode TEXT NOT NULL DEFAULT 'PromptOnly'"),
+            ("IdentityPackId", "ALTER TABLE SceneImages ADD COLUMN IdentityPackId TEXT NULL")
         })
         {
             await using var check = connection.CreateCommand();

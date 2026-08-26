@@ -1,5 +1,7 @@
 namespace DreamGenClone.Web.Application.RolePlay.Models;
 
+using DreamGenClone.Domain.RolePlay;
+
 /// <summary>Request to render an image from a prompt.</summary>
 public sealed class SceneRenderRequest
 {
@@ -24,4 +26,11 @@ public sealed class SceneRenderRequest
 
     /// <summary>The POV framing this render uses (CR-006 P5).</summary>
     public string? Pov { get; set; }
+
+    /// <summary>Render mode: prompt-only or identity-controlled.</summary>
+    public SceneImageRenderMode RenderMode { get; set; } = SceneImageRenderMode.PromptOnly;
+
+    /// <summary>Approved identity pack version when <see cref="RenderMode"/> is
+    /// <see cref="SceneImageRenderMode.IdentityControlled"/>.</summary>
+    public string? IdentityPackId { get; set; }
 }

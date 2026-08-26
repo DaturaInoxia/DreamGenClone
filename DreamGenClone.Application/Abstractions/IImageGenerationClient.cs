@@ -18,7 +18,8 @@ public interface IImageGenerationClient
         string? size,
         string? negativePrompt = null,
         long? seed = null,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        SceneImageGenerationOptions? options = null);
 
     /// <summary>
     /// Reachability/health probe for an image model. POSTs a minimal image request to the provider's

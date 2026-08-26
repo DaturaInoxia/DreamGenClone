@@ -98,6 +98,25 @@ A permanent .NET 9 console project lives at `DreamGenClone.DbQuery/DreamGenClone
 - The dev DB balloons because `RolePlayDebugEvents.MetadataJson` stores full built LLM prompts (600 KB+ each); keep session data out of git via the snapshot model.
 - Full workflow (why the DB grows, pruning, snapshot refresh, other-machine setup) is in `.github/instructions/db-snapshot-workflow.instructions.md` and `docs/db-snapshot-setup.md`.
 
+## RunPod ComfyUI Checkpoint Outage (RECURRING — read before re-diagnosing)
+
+When the Juggernaut/ComfyUI pod returns `400: ckpt_name '...' not in [...]`, or when **"no
+prompt works in the app"** after a pod recycle/migrate, the cause is the lost
+`/ComfyUI/extra_model_paths.yaml` (container overlay wiped; the checkpoint is still on the
+persistent `/workspace` volume). This has recurred across pods `qguv5e029u58lb` →
+`emqmxptqdxu7pp` → `orknbkfc0pxktv`.
+
+Fix = run the idempotent provisioner ONCE over SSH (it also patches `/pre_start.sh` to
+self-heal on stop/resume):
+
+```bash
+ssh -i artifacts/runpod/ssh_ed25519 -p <SSH_PORT> root@<SSH_IP> \
+  'bash -s' < helpers/runpod/deployments/image-gen-juggernaut/provision-runtime.sh
+```
+
+Full runbook: `helpers/runpod/deployments/image-gen-juggernaut/README.md`. Do not tune prompts
+or settings to chase this — it is an infrastructure issue.
+
 ## Project Backlog
 
 The project backlog is at `specs/Planning/backlog.md`.

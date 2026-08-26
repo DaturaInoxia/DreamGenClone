@@ -24,6 +24,9 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler
     private readonly ISceneImageStorageService _storage;
     private readonly IModelResolutionService _modelResolutionService;
     private readonly IImageGenerationClient _imageClient;
+    private readonly IIdentityConditionedImageClient _identityClient;
+    private readonly ICharacterImageIdentityRepository _identityRepository;
+    private readonly ICharacterImageAssetStorageService _identityStorage;
     private readonly IPonySceneImagePromptBuilder _preprocessor;
     private readonly ISdxlSceneImagePromptBuilder _sdxlPreprocessor;
     private readonly IRolePlayDebugEventSink _debugEventSink;
@@ -34,6 +37,9 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler
         ISceneImageStorageService storage,
         IModelResolutionService modelResolutionService,
         IImageGenerationClient imageClient,
+        IIdentityConditionedImageClient identityClient,
+        ICharacterImageIdentityRepository identityRepository,
+        ICharacterImageAssetStorageService identityStorage,
         IPonySceneImagePromptBuilder preprocessor,
         ISdxlSceneImagePromptBuilder sdxlPreprocessor,
         IRolePlayDebugEventSink debugEventSink,
@@ -43,6 +49,9 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler
         _storage = storage;
         _modelResolutionService = modelResolutionService;
         _imageClient = imageClient;
+        _identityClient = identityClient;
+        _identityRepository = identityRepository;
+        _identityStorage = identityStorage;
         _preprocessor = preprocessor;
         _sdxlPreprocessor = sdxlPreprocessor;
         _debugEventSink = debugEventSink;
@@ -128,7 +137,15 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler
                 negative = negative ?? "(baseline client negative)"
             }, cancellationToken);
 
-            var bytes = await _imageClient.GenerateAsync(resolved, injectedPrompt, image.ImageSize, negative, seed, cancellationToken);
+            byte[] bytes;
+            if (image.RenderMode == SceneImageRenderMode.IdentityControlled)
+            {
+                bytes = await RenderIdentityControlledAsync(image, injectedPrompt, negative, seed, payload, cancellationToken);
+            }
+            else
+            {
+                bytes = await _imageClient.GenerateAsync(resolved, injectedPrompt, image.ImageSize, negative, seed, cancellationToken, ResolveGenerationOptions(image.SettingsJson));
+            }
             stopwatch.Stop();
 
             if (bytes is null || bytes.Length == 0)
@@ -187,6 +204,73 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler
 
             throw;
         }
+    }
+
+    private async Task<byte[]> RenderIdentityControlledAsync(
+        SceneImageRecord image,
+        string prompt,
+        string? negative,
+        long? seed,
+        SceneImageRenderingJobPayload payload,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(image.IdentityPackId))
+        {
+            throw new InvalidOperationException("Identity-controlled rendering requires an approved identity pack.");
+        }
+
+        // Identity models are resolved through the identity path only: mechanism, strength and
+        // adapter ref are required configuration. Missing/invalid config fails fast here.
+        var identityModel = await _modelResolutionService.ResolveIdentityImageModelAsync(null, cancellationToken);
+
+        var pack = await _identityRepository.GetPackAsync(image.IdentityPackId, cancellationToken)
+            ?? throw new InvalidOperationException($"Identity pack '{image.IdentityPackId}' was not found.");
+        if (pack.Status != CharacterImageIdentityPackStatus.Approved)
+        {
+            throw new InvalidOperationException(
+                $"Identity pack '{image.IdentityPackId}' is not approved; only approved packs can be used for identity-controlled rendering.");
+        }
+        if (string.IsNullOrWhiteSpace(pack.CanonicalFaceAssetId))
+        {
+            throw new InvalidOperationException($"Identity pack '{image.IdentityPackId}' has no canonical face asset.");
+        }
+
+        var face = await _identityRepository.GetAssetAsync(pack.CanonicalFaceAssetId, cancellationToken)
+            ?? throw new InvalidOperationException($"Canonical face asset '{pack.CanonicalFaceAssetId}' was not found.");
+
+        byte[] referenceBytes;
+        await using (var source = await _identityStorage.OpenReadAsync(face.FileRelativePath, cancellationToken))
+        using (var buffer = new MemoryStream())
+        {
+            await source.CopyToAsync(buffer, cancellationToken);
+            referenceBytes = buffer.ToArray();
+        }
+
+        var request = new IdentityControlledImageRequest
+        {
+            PositivePrompt = prompt,
+            NegativePrompt = negative ?? string.Empty,
+            Size = image.ImageSize,
+            Seed = seed,
+            ReferenceImageBytes = referenceBytes,
+            CorrelationId = image.Id
+        };
+
+        await WriteDebugEventAsync("IdentityRenderRequestSubmitted", payload.SessionId, payload.InteractionId, new
+        {
+            recordId = image.Id,
+            checkpoint = identityModel.ModelIdentifier,
+            mechanism = identityModel.Mechanism,
+            strength = identityModel.IdentityStrength,
+            packId = image.IdentityPackId,
+            faceAssetId = face.Id,
+            referenceBytes = referenceBytes.Length,
+            seed = seed.HasValue ? seed.Value.ToString() : "random",
+            positive = prompt,
+            negative = negative ?? string.Empty
+        }, cancellationToken);
+
+        return await _identityClient.GenerateAsync(identityModel, request, cancellationToken);
     }
 
     private async Task WriteDebugEventAsync<T>(string kind, string sessionId, string interactionId, T metadata, CancellationToken cancellationToken)
@@ -258,12 +342,62 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler
     }
 
     /// <summary>
-    /// Builds the deterministic negative prompt for this render using the beat snapshot + POV stored
-    /// on the prompt record. Returns null when no beat/POV is available (e.g. legacy images) so the
-    /// downstream client falls back to its own baseline negative.
+    /// Resolves the optional ComfyUI sampler/CLIP overrides from the studio settings snapshot.
+    /// Returns null when none are set so the client applies its model-family default recipe.
+    /// </summary>
+    private static SceneImageGenerationOptions? ResolveGenerationOptions(string settingsJson)
+    {
+        if (string.IsNullOrWhiteSpace(settingsJson)) return null;
+        try
+        {
+            var settings = JsonSerializer.Deserialize<SceneImageStudioSettings>(settingsJson, JsonOptions);
+            if (settings is null) return null;
+            int? clipSkip = int.TryParse(settings.ClipSkip, out var parsed) ? parsed : null;
+            return new SceneImageGenerationOptions
+            {
+                Cfg = settings.Cfg,
+                Steps = settings.Steps,
+                SamplerName = settings.SamplerName,
+                Scheduler = settings.Scheduler,
+                ClipSkip = clipSkip
+            };
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Reads the user-editable negative prompt from the studio settings snapshot. Returns null when
+    /// unset or blank so the deterministic beat negative (or client baseline) applies instead.
+    /// </summary>
+    private static string? ResolveNegativeOverride(string settingsJson)
+    {
+        if (string.IsNullOrWhiteSpace(settingsJson)) return null;
+        try
+        {
+            var settings = JsonSerializer.Deserialize<SceneImageStudioSettings>(settingsJson, JsonOptions);
+            var negative = settings?.NegativePrompt;
+            return string.IsNullOrWhiteSpace(negative) ? null : negative.Trim();
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Resolves the negative prompt for this render. A user-editable negative in the studio settings
+    /// snapshot takes precedence; otherwise the deterministic beat negative (beat snapshot + POV) is
+    /// used. Returns null when neither is available so the client falls back to its baseline negative.
     /// </summary>
     private async Task<string?> ResolveNegativePromptAsync(SceneImageRecord image, SceneImageModelFamily modelFamily, CancellationToken cancellationToken)
     {
+        var overrideNegative = ResolveNegativeOverride(image.SettingsJson);
+        if (!string.IsNullOrWhiteSpace(overrideNegative))
+            return overrideNegative;
+
         if (string.IsNullOrWhiteSpace(image.BeatId) || string.IsNullOrWhiteSpace(image.Pov))
             return null;
         if (string.IsNullOrWhiteSpace(image.PromptRecordId))

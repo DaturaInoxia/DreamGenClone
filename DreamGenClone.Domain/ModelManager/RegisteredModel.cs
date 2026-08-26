@@ -37,6 +37,22 @@ public sealed class RegisteredModel
     public double? ImageEditorDenoise { get; set; }
     public double? ImageEditorAuraFlowShift { get; set; }
     public double? ImageEditorCfgNormStrength { get; set; }
+
+    /// <summary>Identity conditioning mechanism for the controlled render path ("IpAdapter" or "PuLid").
+    /// Empty = identity rendering not configured (fails fast when requested).</summary>
+    public string? IdentityMechanism { get; set; }
+
+    /// <summary>Identity adapter strength (IP-Adapter weight / PuLID weight). Required when mechanism is set.</summary>
+    public double? IdentityStrength { get; set; }
+
+    /// <summary>IP-Adapter preset (e.g. "PLUS FACE (portraits)") or PuLID file
+    /// (e.g. "ip-adapter_pulid_sdxl_fp16.safetensors"). Required when mechanism is set.</summary>
+    public string? IdentityAdapterRef { get; set; }
+
+    /// <summary>CLIP vision model file for IP-Adapter (e.g. "CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors").
+    /// Null for PuLID (EVA02-CLIP is loaded by the node).</summary>
+    public string? IdentityClipVisionRef { get; set; }
+
     public bool IsEnabled { get; set; } = true;
     /// <summary>Whether this model's chat template supports chat_template_kwargs.thinking.</summary>
     public bool SupportsThinkingControl { get; set; }

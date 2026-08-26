@@ -28,10 +28,11 @@ public sealed class ImageGenerationClientDispatcher : IImageGenerationClient
         string? size,
         string? negativePrompt = null,
         long? seed = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        SceneImageGenerationOptions? options = null)
         => model.ImageProtocol == ImageProtocol.ComfyUi
-            ? _comfyUiClient.GenerateAsync(model, prompt, size, negativePrompt, seed, cancellationToken)
-            : _openAiClient.GenerateAsync(model, prompt, size, negativePrompt, seed, cancellationToken);
+            ? _comfyUiClient.GenerateAsync(model, prompt, size, negativePrompt, seed, cancellationToken, options)
+            : _openAiClient.GenerateAsync(model, prompt, size, negativePrompt, seed, cancellationToken, options);
 
     public Task<(bool Success, string Message)> CheckImageModelHealthAsync(
         string providerBaseUrl,

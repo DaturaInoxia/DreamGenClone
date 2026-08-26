@@ -100,14 +100,22 @@ public sealed class ComfyUIImageClient : IImageGenerationClient
     }
 
     /// <summary>
-    /// SDXL/Juggernaut text-to-image workflow (node ids 4/6/7/3/5/8/9). Unlike the Pony workflow
-    /// there is NO CLIPSetLastLayer (SDXL/Juggernaut use default CLIP — CLIP skip 2 is Pony-only),
-    /// and the sampler follows the Juggernaut-recommended DPM++ 2M SDE / 30 steps / CFG 5. The
-    /// checkpoint name and positive/negative prompts are injected at call time.
+    /// SDXL/Juggernaut text-to-image workflow (node ids 4/6/7/3/5/8/9). Sampler/CLIP values follow
+    /// the studio-configurable <paramref name="options"/> when provided, otherwise the Juggernaut
+    /// defaults (DPM++ 2M SDE / karras / 30 steps / CFG 5, no CLIP skip). A CLIPSetLastLayer node
+    /// (id 13) is added only when a clip-skip value is set. The checkpoint name and
+    /// positive/negative prompts are injected at call time.
     /// </summary>
-    internal static JsonObject BuildSdxlWorkflow(string checkpointName, string prompt, string negative, string? size, long? seed)
+    internal static JsonObject BuildSdxlWorkflow(string checkpointName, string prompt, string negative, string? size, long? seed, SceneImageGenerationOptions? options = null)
     {
         var (width, height) = ParseSize(size);
+        var cfg = options?.Cfg ?? 5.0;
+        var steps = options?.Steps ?? 30;
+        var sampler = string.IsNullOrWhiteSpace(options?.SamplerName) ? "dpmpp_2m_sde" : options.SamplerName;
+        var scheduler = string.IsNullOrWhiteSpace(options?.Scheduler) ? "karras" : options.Scheduler;
+        var clipNodeId = options?.ClipSkip is not null ? "13" : "4";
+        var clipSlot = options?.ClipSkip is not null ? 0 : 1;
+
         var wf = new JsonObject
         {
             ["4"] = new JsonObject
@@ -118,12 +126,12 @@ public sealed class ComfyUIImageClient : IImageGenerationClient
             ["6"] = new JsonObject
             {
                 ["class_type"] = "CLIPTextEncode",
-                ["inputs"] = new JsonObject { ["text"] = prompt, ["clip"] = new JsonArray("4", 1) }
+                ["inputs"] = new JsonObject { ["text"] = prompt, ["clip"] = new JsonArray(clipNodeId, clipSlot) }
             },
             ["7"] = new JsonObject
             {
                 ["class_type"] = "CLIPTextEncode",
-                ["inputs"] = new JsonObject { ["text"] = negative, ["clip"] = new JsonArray("4", 1) }
+                ["inputs"] = new JsonObject { ["text"] = negative, ["clip"] = new JsonArray(clipNodeId, clipSlot) }
             },
             ["3"] = new JsonObject
             {
@@ -131,10 +139,10 @@ public sealed class ComfyUIImageClient : IImageGenerationClient
                 ["inputs"] = new JsonObject
                 {
                     ["seed"] = seed ?? Random.Shared.Next(0, int.MaxValue),
-                    ["steps"] = 30,
-                    ["cfg"] = 5.0,
-                    ["sampler_name"] = "dpmpp_2m_sde",
-                    ["scheduler"] = "karras",
+                    ["steps"] = steps,
+                    ["cfg"] = cfg,
+                    ["sampler_name"] = sampler,
+                    ["scheduler"] = scheduler,
                     ["denoise"] = 1.0,
                     ["model"] = new JsonArray("4", 0),
                     ["positive"] = new JsonArray("6", 0),
@@ -158,6 +166,16 @@ public sealed class ComfyUIImageClient : IImageGenerationClient
                 ["inputs"] = new JsonObject { ["filename_prefix"] = "dreamgen_app", ["images"] = new JsonArray("8", 0) }
             }
         };
+
+        if (options?.ClipSkip is { } skip)
+        {
+            wf["13"] = new JsonObject
+            {
+                ["class_type"] = "CLIPSetLastLayer",
+                ["inputs"] = new JsonObject { ["stop_at_clip_layer"] = skip, ["clip"] = new JsonArray("4", 1) }
+            };
+        }
+
         return wf;
     }
 
@@ -183,7 +201,8 @@ public sealed class ComfyUIImageClient : IImageGenerationClient
         string? size,
         string? negativePrompt = null,
         long? seed = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        SceneImageGenerationOptions? options = null)
     {
         var stopwatch = Stopwatch.StartNew();
         var baseUrl = (model.ComfyUiUrl ?? model.ProviderBaseUrl).TrimEnd('/');
@@ -226,7 +245,7 @@ public sealed class ComfyUIImageClient : IImageGenerationClient
             var workflow = family switch
             {
                 SceneImageModelFamily.Pony => BuildDefaultWorkflow(checkpoint, prompt, effectiveNegative, size, seed),
-                SceneImageModelFamily.Sdxl => BuildSdxlWorkflow(checkpoint, prompt, effectiveNegative, size, seed),
+                SceneImageModelFamily.Sdxl => BuildSdxlWorkflow(checkpoint, prompt, effectiveNegative, size, seed, options),
                 _ => throw new ImageGenerationException(
                     $"Unsupported scene-image checkpoint '{checkpoint}'. Register a Pony or SDXL/Juggernaut model in Model Manager.",
                     model.ProviderName,

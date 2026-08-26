@@ -280,6 +280,49 @@ public sealed class SceneImageRepositoryTests
     }
 
     [Fact]
+    public async Task InsertImage_PersistsRenderModeAndIdentityPackId()
+    {
+        var (repo, dbPath) = CreateRepo();
+        try
+        {
+            var image = new SceneImageRecord
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                PromptRecordId = "p1",
+                PromptSnapshot = "a single man",
+                Status = SceneImageStatus.Pending,
+                RenderMode = SceneImageRenderMode.IdentityControlled,
+                IdentityPackId = "pack-1"
+            };
+            await repo.InsertImageAsync(image);
+
+            var loaded = await repo.GetImageAsync(image.Id);
+            Assert.NotNull(loaded);
+            Assert.Equal(SceneImageRenderMode.IdentityControlled, loaded!.RenderMode);
+            Assert.Equal("pack-1", loaded.IdentityPackId);
+
+            // Prompt-only default round-trips with a null pack id.
+            var promptOnly = new SceneImageRecord
+            {
+                SessionId = "s1",
+                InteractionId = "i2",
+                PromptRecordId = "p2",
+                PromptSnapshot = "just a prompt",
+                Status = SceneImageStatus.Pending
+            };
+            await repo.InsertImageAsync(promptOnly);
+            var loadedPromptOnly = await repo.GetImageAsync(promptOnly.Id);
+            Assert.Equal(SceneImageRenderMode.PromptOnly, loadedPromptOnly!.RenderMode);
+            Assert.Null(loadedPromptOnly.IdentityPackId);
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
+    [Fact]
     public async Task InsertImage_RequiresNonEmptyPromptSnapshot()
     {
         var (repo, dbPath) = CreateRepo();

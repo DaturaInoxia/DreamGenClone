@@ -1,5 +1,6 @@
 using DreamGenClone.Application.ModelManager;
 using DreamGenClone.Domain.ModelManager;
+using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Web.Application.ModelManager;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -434,5 +435,93 @@ public sealed class SceneImageResolutionTests
             TopP = 0.8,
             MaxTokens = 512
         });
+    }
+
+    private static void SeedIdentityModel(
+        FakeRegisteredModelRepository models,
+        string? mechanism,
+        double? strength,
+        string? adapterRef,
+        string? clipVisionRef)
+    {
+        models.Add(new RegisteredModel
+        {
+            Id = "model-1",
+            ProviderId = "prov-1",
+            ModelIdentifier = "black-forest-labs/FLUX.1-schnell",
+            DisplayName = "FLUX",
+            ModelKind = ModelKind.Image,
+            IsEnabled = true,
+            IdentityMechanism = mechanism,
+            IdentityStrength = strength,
+            IdentityAdapterRef = adapterRef,
+            IdentityClipVisionRef = clipVisionRef
+        });
+    }
+
+    [Fact]
+    public async Task ResolveIdentityImageModel_MissingMechanism_FailsFast()
+    {
+        var (service, funcDefaults, models, providers) = Build();
+        SeedHappyPath(funcDefaults, models, providers);
+        SeedIdentityModel(models, mechanism: null, strength: 0.8, adapterRef: "PLUS FACE (portraits)", clipVisionRef: null);
+
+        var ex = await Assert.ThrowsAsync<ModelResolutionException>(
+            () => service.ResolveIdentityImageModelAsync(null, CancellationToken.None));
+        Assert.Contains("mechanism", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ResolveIdentityImageModel_UnknownMechanism_FailsFast()
+    {
+        var (service, funcDefaults, models, providers) = Build();
+        SeedHappyPath(funcDefaults, models, providers);
+        SeedIdentityModel(models, mechanism: "Nope", strength: 0.8, adapterRef: "PLUS FACE (portraits)", clipVisionRef: null);
+
+        var ex = await Assert.ThrowsAsync<ModelResolutionException>(
+            () => service.ResolveIdentityImageModelAsync(null, CancellationToken.None));
+        Assert.Contains("mechanism", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ResolveIdentityImageModel_MissingStrength_FailsFast()
+    {
+        var (service, funcDefaults, models, providers) = Build();
+        SeedHappyPath(funcDefaults, models, providers);
+        SeedIdentityModel(models, mechanism: "IpAdapter", strength: null, adapterRef: "PLUS FACE (portraits)", clipVisionRef: null);
+
+        var ex = await Assert.ThrowsAsync<ModelResolutionException>(
+            () => service.ResolveIdentityImageModelAsync(null, CancellationToken.None));
+        Assert.Contains("strength", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ResolveIdentityImageModel_MissingAdapterRef_FailsFast()
+    {
+        var (service, funcDefaults, models, providers) = Build();
+        SeedHappyPath(funcDefaults, models, providers);
+        SeedIdentityModel(models, mechanism: "IpAdapter", strength: 0.8, adapterRef: null, clipVisionRef: null);
+
+        var ex = await Assert.ThrowsAsync<ModelResolutionException>(
+            () => service.ResolveIdentityImageModelAsync(null, CancellationToken.None));
+        Assert.Contains("adapter", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ResolveIdentityImageModel_Success_ReusesModelProviderAndIdentityConfig()
+    {
+        var (service, funcDefaults, models, providers) = Build();
+        SeedHappyPath(funcDefaults, models, providers);
+        SeedIdentityModel(models, mechanism: "IpAdapter", strength: 0.8, adapterRef: "PLUS FACE (portraits)", clipVisionRef: null);
+
+        var resolved = await service.ResolveIdentityImageModelAsync(null, CancellationToken.None);
+
+        Assert.Equal(SceneImageIdentityMechanism.IpAdapter, resolved.Mechanism);
+        Assert.Equal(0.8, resolved.IdentityStrength);
+        Assert.Equal("PLUS FACE (portraits)", resolved.AdapterRef);
+        Assert.Null(resolved.ClipVisionRef);
+        Assert.Equal("https://api.together.ai", resolved.ProviderBaseUrl);
+        Assert.Equal("black-forest-labs/FLUX.1-schnell", resolved.ModelIdentifier);
+        Assert.Equal(ImageContentPolicy.AdultAllowed, resolved.ContentPolicy);
     }
 }

@@ -1,0 +1,422 @@
+@page "/characters/identity"
+@rendermode InteractiveServer
+
+@using DreamGenClone.Web.Application.RolePlay
+@using DreamGenClone.Web.Application.Scenarios
+@using DreamGenClone.Web.Domain.Scenarios
+@using DreamGenClone.Domain.RolePlay
+@using System.Text.Json
+
+@inject IScenarioService ScenarioService
+@inject ICharacterImageIdentityService IdentityService
+@inject ILogger<CharacterIdentity> Logger
+
+<PageTitle>Character Identity - DreamGenClone</PageTitle>
+
+<div class="container-fluid mt-4">
+    <h4 class="mb-3">Character Identity</h4>
+
+    @if (!string.IsNullOrEmpty(_error))
+    {
+        <div class="alert alert-danger">@_error</div>
+    }
+    @if (!string.IsNullOrEmpty(_status))
+    {
+        <div class="alert alert-info">@_status</div>
+    }
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <label class="form-label">Character</label>
+            <select class="form-select" @onchange="OnCharacterChanged" disabled="@_busy">
+                <option value="">Select a scenario character…</option>
+                @foreach (var option in _characterOptions)
+                {
+                    <option value="@option.Id" selected="@(option.Id == _selectedCharacterId)">@option.Label</option>
+                }
+            </select>
+            <div class="form-text">Identity packs are scoped to a scenario character and hold its face, full-body, and wardrobe reference images.</div>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(_selectedCharacterId))
+    {
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <h6 class="mb-0">Pack versions</h6>
+            <button class="btn btn-sm btn-outline-primary" @onclick="CreateDraftAsync" disabled="@_busy">New draft</button>
+        </div>
+
+        @if (_packs.Count == 0)
+        {
+            <div class="alert alert-secondary">No identity packs for this character yet. Click <strong>New draft</strong> to begin.</div>
+        }
+        else
+        {
+            <div class="table-responsive mb-3">
+                <table class="table table-sm align-middle">
+                    <thead>
+                        <tr>
+                            <th>Version</th>
+                            <th>Status</th>
+                            <th>Created</th>
+                            <th>Supersedes</th>
+                            <th class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var pack in _packs)
+                        {
+                            <tr>
+                                <td>v@(pack.Version)</td>
+                                <td><span class="badge @StatusBadge(pack.Status)">@pack.Status</span></td>
+                                <td>@pack.CreatedUtc.ToLocalTime().ToString("g")</td>
+                                <td>@(pack.SupersedesId is null ? "" : "v" + _packs.FirstOrDefault(p => p.Id == pack.SupersedesId)?.Version)</td>
+                                <td class="text-end">
+                                    @if (pack.Status == CharacterImageIdentityPackStatus.Approved)
+                                    {
+                                        <button class="btn btn-sm btn-outline-primary" @onclick="() => SupersedeAsync(pack.Id)" disabled="@_busy">Supersede</button>
+                                    }
+                                    @if (pack.Status == CharacterImageIdentityPackStatus.Draft)
+                                    {
+                                        <button class="btn btn-sm btn-outline-danger" @onclick="() => DeletePackAsync(pack.Id)" disabled="@_busy">Delete</button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+
+        @if (_draft is not null)
+        {
+            <div class="card mb-3">
+                <div class="card-header"><strong>Draft v@_draft.Version</strong></div>
+                <div class="card-body">
+                    <div class="row g-3 mb-3">
+                        <div class="col-lg-6">
+                            <label class="form-label">Visual descriptor (frozen at approval)</label>
+                            <textarea class="form-control" rows="2" @bind="_descriptor" placeholder="Short stable description of the character's look."></textarea>
+                        </div>
+                        <div class="col-lg-6">
+                            <label class="form-label">Canonical face (approved Face asset)</label>
+                            <select class="form-select" @onchange="OnCanonicalFaceChanged" disabled="@_busy">
+                                <option value="">Select a canonical face…</option>
+                                @foreach (var asset in _assets.Where(a => a.AssetKind == SceneImageReferenceAssetKind.Face && a.IsApproved))
+                                {
+                                    <option value="@asset.Id" selected="@(asset.Id == _canonicalFaceId)">@asset.SourceLabel (@asset.MediaType)</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+                    <button class="btn btn-primary" @onclick="ApprovePackAsync" disabled="@(_busy || _draft is null)">Approve pack</button>
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-header"><strong>Upload reference asset</strong></div>
+                <div class="card-body">
+                    <div class="row g-2 align-items-end">
+                        <div class="col-md-3">
+                            <label class="form-label">Kind</label>
+                            <select class="form-select" @bind="_uploadKind">
+                                <option value="Face">Face</option>
+                                <option value="FullBody">Full body</option>
+                                <option value="Wardrobe">Wardrobe</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Source / provenance</label>
+                            <input type="text" class="form-control" @bind="_uploadSourceLabel" placeholder="e.g. curated reference photo" />
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Consent</label>
+                            <select class="form-select" @bind="_uploadConsent">
+                                <option value="Unknown">Unknown</option>
+                                <option value="Confirmed">Confirmed</option>
+                                <option value="NotApplicable">Not applicable</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <div class="form-check mt-4">
+                                <input class="form-check-input" type="checkbox" @bind="_uploadApproved" id="uploadApproved" />
+                                <label class="form-check-label" for="uploadApproved">Approved</label>
+                            </div>
+                        </div>
+                        <div class="col-md-1">
+                            <InputFile OnChange="OnAssetPicked" accept="image/png,image/jpeg,image/webp" class="form-control" disabled="@_busy" />
+                        </div>
+                    </div>
+                    <div class="form-text">Only PNG, JPEG, and WebP reference images are accepted. Provenance and a confirmed/not-applicable consent state are required before an asset can be approved.</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header"><strong>Assets</strong></div>
+                <div class="card-body p-0">
+                    @if (_assets.Count == 0)
+                    {
+                        <div class="p-3 text-muted">No reference assets yet. Upload a face, full-body, or wardrobe image above.</div>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-sm align-middle mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Kind</th>
+                                        <th>Media</th>
+                                        <th>SHA-256</th>
+                                        <th>Source</th>
+                                        <th>Consent</th>
+                                        <th>Approved</th>
+                                        <th class="text-end">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var asset in _assets)
+                                    {
+                                        <tr>
+                                            <td>@asset.AssetKind</td>
+                                            <td class="text-nowrap">@asset.MediaType<br /><small class="text-muted">@(asset.Width)x@(asset.Height) · @asset.ByteLength B</small></td>
+                                            <td class="font-monospace small">@asset.Sha256.Substring(0, 12)…</td>
+                                            <td><input type="text" class="form-control form-control-sm" @bind="asset.SourceLabel" style="min-width: 140px;" /></td>
+                                            <td>
+                                                <select class="form-select form-select-sm" @bind="asset.ConsentState">
+                                                    <option value="Unknown">Unknown</option>
+                                                    <option value="Confirmed">Confirmed</option>
+                                                    <option value="NotApplicable">Not applicable</option>
+                                                </select>
+                                            </td>
+                                            <td><input type="checkbox" class="form-check-input" @bind="asset.IsApproved" /></td>
+                                            <td class="text-end text-nowrap">
+                                                <button class="btn btn-sm btn-outline-primary" @onclick="() => SaveAssetAsync(asset)" disabled="@_busy">Save</button>
+                                                <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteAssetAsync(asset.Id)" disabled="@_busy">Delete</button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private sealed record CharacterOption(string Id, string Label);
+
+    private List<Scenario> _scenarios = [];
+    private List<CharacterOption> _characterOptions = [];
+    private string? _selectedCharacterId;
+    private List<CharacterImageIdentityPack> _packs = [];
+    private List<SceneImageReferenceAsset> _assets = [];
+    private CharacterImageIdentityPack? _draft;
+
+    private SceneImageReferenceAssetKind _uploadKind = SceneImageReferenceAssetKind.Face;
+    private string _uploadSourceLabel = string.Empty;
+    private SceneImageReferenceConsentState _uploadConsent = SceneImageReferenceConsentState.Unknown;
+    private bool _uploadApproved;
+
+    private string _descriptor = string.Empty;
+    private string? _canonicalFaceId;
+
+    private bool _busy;
+    private string? _error;
+    private string? _status;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _scenarios = await ScenarioService.GetAllScenariosAsync();
+        _characterOptions = _scenarios
+            .SelectMany(s => s.Characters.Select(c => new CharacterOption(c.Id, $"{s.Name} — {c.Name ?? "Unnamed"}")))
+            .ToList();
+    }
+
+    private async Task OnCharacterChanged(ChangeEventArgs e)
+    {
+        _selectedCharacterId = e.Value?.ToString();
+        await ReloadPacksAsync();
+    }
+
+    private async Task ReloadPacksAsync()
+    {
+        _error = null;
+        _status = null;
+        _draft = null;
+        _assets = [];
+        _canonicalFaceId = null;
+
+        if (string.IsNullOrEmpty(_selectedCharacterId))
+        {
+            _packs = [];
+            return;
+        }
+
+        _packs = (await IdentityService.ListPacksAsync(_selectedCharacterId)).ToList();
+        _draft = _packs.FirstOrDefault(p => p.Status == CharacterImageIdentityPackStatus.Draft);
+        if (_draft is not null)
+        {
+            _assets = (await IdentityService.ListAssetsAsync(_draft.Id)).ToList();
+            _descriptor = _draft.DescriptorSnapshotJson == "{}" ? string.Empty : _draft.DescriptorSnapshotJson;
+        }
+    }
+
+    private async Task CreateDraftAsync()
+    {
+        await RunAsync(async () =>
+        {
+            var draft = await IdentityService.CreateDraftPackAsync(_selectedCharacterId!);
+            _status = $"Draft v{draft.Version} ready.";
+            await ReloadPacksAsync();
+        });
+    }
+
+    private async Task SupersedeAsync(string packId)
+    {
+        await RunAsync(async () =>
+        {
+            var next = await IdentityService.SupersedePackAsync(packId);
+            _status = $"Created draft v{next.Version} from v{_packs.First(p => p.Id == packId).Version}.";
+            await ReloadPacksAsync();
+        });
+    }
+
+    private async Task DeletePackAsync(string packId)
+    {
+        await RunAsync(async () =>
+        {
+            await IdentityService.DeletePackAsync(packId);
+            _status = "Draft pack deleted.";
+            await ReloadPacksAsync();
+        });
+    }
+
+    private async Task ApprovePackAsync()
+    {
+        if (_draft is null)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_canonicalFaceId))
+        {
+            _error = "Select an approved canonical face asset before approving the pack.";
+            return;
+        }
+
+        await RunAsync(async () =>
+        {
+            var descriptorJson = JsonSerializer.Serialize(new { descriptor = _descriptor.Trim() });
+            await IdentityService.ApprovePackAsync(_draft.Id, descriptorJson, _canonicalFaceId!);
+            _status = "Pack approved.";
+            await ReloadPacksAsync();
+        });
+    }
+
+    private async Task OnCanonicalFaceChanged(ChangeEventArgs e)
+    {
+        _canonicalFaceId = e.Value?.ToString();
+    }
+
+    private async Task OnAssetPicked(InputFileChangeEventArgs args)
+    {
+        if (_draft is null)
+        {
+            return;
+        }
+
+        // Validate approval prerequisites BEFORE uploading so a failed approval does not
+        // leave an orphaned asset row that the user cannot see (and cannot explain).
+        if (_uploadApproved
+            && (_uploadConsent == SceneImageReferenceConsentState.Unknown || string.IsNullOrWhiteSpace(_uploadSourceLabel)))
+        {
+            _error = "To upload an approved asset, set Source / provenance and a Confirmed (or Not applicable) consent state first — or uncheck Approved.";
+            return;
+        }
+
+        await RunAsync(async () =>
+        {
+            var file = args.File;
+            await using var stream = file.OpenReadStream(20 * 1024 * 1024);
+            var asset = await IdentityService.UploadAssetAsync(_draft.Id, _uploadKind, file.Name, stream);
+
+            if (_uploadConsent != SceneImageReferenceConsentState.Unknown && !string.IsNullOrWhiteSpace(_uploadSourceLabel))
+            {
+                await IdentityService.SetAssetProvenanceAsync(asset.Id, _uploadSourceLabel, _uploadConsent);
+            }
+            if (_uploadApproved)
+            {
+                await IdentityService.SetAssetApprovalAsync(asset.Id, true);
+            }
+
+            _status = $"Uploaded {asset.AssetKind} asset.";
+            await ReloadAssetsAsync();
+        });
+    }
+
+    private async Task SaveAssetAsync(SceneImageReferenceAsset asset)
+    {
+        await RunAsync(async () =>
+        {
+            if (asset.ConsentState != SceneImageReferenceConsentState.Unknown && !string.IsNullOrWhiteSpace(asset.SourceLabel))
+            {
+                await IdentityService.SetAssetProvenanceAsync(asset.Id, asset.SourceLabel, asset.ConsentState);
+            }
+            await IdentityService.SetAssetApprovalAsync(asset.Id, asset.IsApproved);
+            _status = "Asset saved.";
+            await ReloadAssetsAsync();
+        });
+    }
+
+    private async Task DeleteAssetAsync(string assetId)
+    {
+        await RunAsync(async () =>
+        {
+            await IdentityService.DeleteAssetAsync(assetId);
+            _status = "Asset deleted.";
+            await ReloadAssetsAsync();
+        });
+    }
+
+    private async Task ReloadAssetsAsync()
+    {
+        if (_draft is null)
+        {
+            _assets = [];
+            return;
+        }
+
+        _assets = (await IdentityService.ListAssetsAsync(_draft.Id)).ToList();
+    }
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        _busy = true;
+        _error = null;
+        _status = null;
+        try
+        {
+            await action();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+            Logger.LogWarning(ex, "Character identity operation failed");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private static string StatusBadge(CharacterImageIdentityPackStatus status) => status switch
+    {
+        CharacterImageIdentityPackStatus.Draft => "bg-secondary",
+        CharacterImageIdentityPackStatus.Approved => "bg-success",
+        CharacterImageIdentityPackStatus.Superseded => "bg-dark",
+        _ => "bg-light text-dark"
+    };
+}

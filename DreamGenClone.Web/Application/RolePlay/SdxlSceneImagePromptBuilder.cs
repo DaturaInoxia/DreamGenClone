@@ -24,6 +24,17 @@ public sealed class SdxlSceneImagePromptBuilder : ISdxlSceneImagePromptBuilder
     /// <summary>Deterministic SFW clamp appended to prompts sent to SFW-filtered providers.</summary>
     public const string DefaultSfwClampSuffix = "fully clothed, wholesome, non-explicit";
 
+    /// <summary>
+    /// Default SDXL/Juggernaut negative guard set. Exposed as the studio's editable negative
+    /// default and reused by the deterministic beat negative builder.
+    /// </summary>
+    public const string DefaultNegativePrompt =
+        "deformed, bad anatomy, extra limbs, extra legs, four legs, fused legs, extra fingers, extra arms, " +
+        "missing limbs, malformed hands, malformed feet, misplaced genitals, penis on arm, penis on hand, " +
+        "detached penis, extra penis, penis from mouth, mouth to mouth, wrong attachment, double mouth, " +
+        "blurry genitals, featureless genitals, censored, cartoon, anime, illustration, painting, sketch, " +
+        "watermark, text, low quality, oversaturated, plastic skin";
+
     /// <inheritdoc/>
     public string SfwClampSuffix => DefaultSfwClampSuffix;
 
@@ -142,10 +153,7 @@ public sealed class SdxlSceneImagePromptBuilder : ISdxlSceneImagePromptBuilder
     {
         // SDXL-family models need a heavier guard set than Pony: limb/leg artifacts, censored or
         // featureless genitals, and non-photoreal styles. Validated on pod 2026-08-23.
-        var artifacts =
-            "deformed, bad anatomy, extra limbs, extra legs, four legs, fused legs, extra fingers, extra arms, " +
-            "missing limbs, malformed hands, malformed feet, blurry genitals, featureless genitals, censored, " +
-            "cartoon, anime, illustration, painting, sketch, watermark, text, low quality, oversaturated, plastic skin";
+        var artifacts = DefaultNegativePrompt;
 
         var excludedNames = SceneImageRenderBriefBuilder.ResolveVisibleCharacters(beat, pov)
             .Select(character => character.Name)

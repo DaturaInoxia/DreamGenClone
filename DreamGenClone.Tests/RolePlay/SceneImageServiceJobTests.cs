@@ -253,6 +253,64 @@ public sealed class SceneImageServiceJobTests
     }
 
     [Fact]
+    public async Task EnqueueRenderAsync_IdentityMode_MissingPackId_FailsFast()
+    {
+        var session = MakeSession();
+        var (service, _, repo, _, dbPath, root) = Build(session);
+        try
+        {
+            var prompt = CreatePromptRecord();
+            await repo.UpsertPromptAsync(prompt);
+
+            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => service.EnqueueRenderAsync(new SceneRenderRequest
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                PromptRecordId = prompt.Id,
+                Prompt = "a draft",
+                RenderMode = SceneImageRenderMode.IdentityControlled
+            }));
+            Assert.Contains("identity pack", ex.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    [Fact]
+    public async Task EnqueueRenderAsync_IdentityMode_PersistsRenderModeAndPackId()
+    {
+        var session = MakeSession();
+        var (service, queue, repo, _, dbPath, root) = Build(session);
+        try
+        {
+            var prompt = CreatePromptRecord();
+            await repo.UpsertPromptAsync(prompt);
+
+            var record = await service.EnqueueRenderAsync(new SceneRenderRequest
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                PromptRecordId = prompt.Id,
+                Prompt = "a draft",
+                RenderMode = SceneImageRenderMode.IdentityControlled,
+                IdentityPackId = "pack-1"
+            });
+
+            Assert.Equal(SceneImageStatus.Pending, record.Status);
+            Assert.Equal(SceneImageRenderMode.IdentityControlled, record.RenderMode);
+            Assert.Equal("pack-1", record.IdentityPackId);
+            Assert.Single(queue.Enqueued);
+            Assert.Equal(BackgroundJobTypes.SceneImageRendering, queue.Enqueued[0].JobType);
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    [Fact]
     public async Task EnqueueEditAsync_CreatesPendingEditRecordAndEnqueuesDedicatedJob()
     {
         var session = MakeSession();

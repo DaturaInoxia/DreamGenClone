@@ -186,6 +186,12 @@ public sealed class SceneImageService : ISceneImageService
 
         var settingsJson = string.IsNullOrWhiteSpace(request.SettingsJson) ? "{}" : request.SettingsJson;
 
+        if (request.RenderMode == SceneImageRenderMode.IdentityControlled
+            && string.IsNullOrWhiteSpace(request.IdentityPackId))
+        {
+            throw new InvalidOperationException("An approved identity pack is required for identity-controlled rendering.");
+        }
+
         var record = new SceneImageRecord
         {
             SessionId = session.Id,
@@ -197,7 +203,9 @@ public sealed class SceneImageService : ISceneImageService
             SettingsJson = settingsJson,
             RegenerateOfId = request.RegenerateOfId,
             BeatId = request.BeatId,
-            Pov = request.Pov
+            Pov = request.Pov,
+            RenderMode = request.RenderMode,
+            IdentityPackId = request.RenderMode == SceneImageRenderMode.IdentityControlled ? request.IdentityPackId : null
         };
 
         // Extract the style/size labels from the settings snapshot so the image card can display

@@ -28,6 +28,16 @@ public enum SceneImageOperation
     Edit = 1
 }
 
+/// <summary>Render mode for a scene image: prompt-only or identity-controlled.</summary>
+public enum SceneImageRenderMode
+{
+    /// <summary>Existing Phase 1 path; no continuity guarantee.</summary>
+    PromptOnly = 0,
+
+    /// <summary>Identity-conditioned render using an approved identity pack. No prompt-only fallback.</summary>
+    IdentityControlled = 1
+}
+
 /// <summary>
 /// A rendered image for an interaction. Each render is a distinct record (regenerate creates a new
 /// one with <see cref="RegenerateOfId"/> pointing at the parent). Files live on disk; this holds
@@ -91,6 +101,13 @@ public sealed class SceneImageRecord
     /// <summary>The POV framing this image was rendered from (CR-006 P5), e.g. "Omniscient", "Becky".
     /// Null for legacy images.</summary>
     public string? Pov { get; set; }
+
+    /// <summary>Render mode: prompt-only or identity-controlled.</summary>
+    public SceneImageRenderMode RenderMode { get; set; } = SceneImageRenderMode.PromptOnly;
+
+    /// <summary>Approved identity pack version used when <see cref="RenderMode"/> is
+    /// <see cref="SceneImageRenderMode.IdentityControlled"/>. Null for prompt-only renders.</summary>
+    public string? IdentityPackId { get; set; }
 
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
     public DateTime? StartedUtc { get; set; }

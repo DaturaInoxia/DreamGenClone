@@ -42,10 +42,8 @@ Used by: `SceneImagePromptGenerationJobHandler` (picks the LLM prompt builder), 
 4. **Keep it short** — target under ~800 chars. Long caption prose degrades output.
 5. **Honor beat-stated clothing exactly;** nudity only when the beat implies it AND the explicitness
    level allows it.
-6. **No CLIP skip.** SDXL/Juggernaut use default CLIP. The Pony `CLIPSetLastLayer` node must NOT be
-   present in the SDXL workflow (`ComfyUIImageClient.BuildSdxlWorkflow` has none).
-7. **Sampler for Juggernaut:** `dpmpp_2m_sde`, `karras`, 30 steps, CFG 5 (Juggernaut-recommended).
-   Pony keeps `euler_ancestral` / 25 / 7.
+6. **No CLIP skip by default.** The SDXL workflow (`ComfyUIImageClient.BuildSdxlWorkflow`) adds the `CLIPSetLastLayer` node only when a clip-skip value is explicitly set; the studio default is "None". Pony keeps its own CLIP-skip-2 workflow untouched.
+7. **Sampler for Juggernaut (studio-configurable):** default `dpmpp_2m_sde` / `karras` / 30 steps / CFG 5.0 (matches the validated test prompts and the author's guidance). Pony keeps `euler_ancestral` / 25 / 7.
 8. **Heavier negative than Pony** (SDXL needs a bigger guard set):
    `deformed, bad anatomy, extra limbs, extra legs, four legs, fused legs, extra fingers, extra arms,
    missing limbs, malformed hands, malformed feet, blurry genitals, featureless genitals, censored,

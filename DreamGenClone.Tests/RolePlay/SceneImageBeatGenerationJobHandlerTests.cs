@@ -173,6 +173,9 @@ public sealed class SceneImageBeatGenerationJobHandlerTests
 
         public Task<ResolvedImageModel> ResolveImageModelAsync(string? sessionOverrideId = null, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
+
+        public Task<ResolvedIdentityImageModel> ResolveIdentityImageModelAsync(string? sessionOverrideId = null, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
     }
 
     private sealed class CapturingCompletionClient : ICompletionClient

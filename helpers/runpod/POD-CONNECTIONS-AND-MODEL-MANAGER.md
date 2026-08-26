@@ -20,11 +20,11 @@ dynamic SSH-over-TCP mapping, and records the application configuration boundary
 
 | Capability | Deployment key | Stable pod ID | GPU | Persistent volume | Inference port | Manifest | State at record time |
 |---|---|---|---|---:|---:|---|---|
-| Image generation, Juggernaut Ragnarok | `image-gen-juggernaut-prod` | `mb5pwrm14psof5` | A40 | 40 GB | 3000 | `deployments/image-gen-juggernaut/deployment.json` | Stopped |
+| Image generation, Juggernaut Ragnarok | `image-gen-juggernaut-prod` | `mb5pwrm14psof5` | A40 | 40 GB | 3000 | `deployments/image-gen-juggernaut/deployment.json` | Migrated 2026-08-26 to `orknbkfc0pxktv` (RUNNING); recycle-proof provisioner installed — see `deployments/image-gen-juggernaut/README.md` |
 | Image editing, Qwen Image Edit 2511 | `image-edit-qwen-2511-prod` | `jkms7ljhb54we9` | L40S | 85 GB | 3002 | `deployments/image-edit-qwen-2511/deployment.json` | Stopped |
 | Preserved unused Qwen Image Edit allocation | `image-edit-qwen-2511-a40-preserved` | `u1bykx2grhns82` | A40 | 85 GB | 3002 | `deployments/image-edit-qwen-2511-a40-preserved/deployment.json` | Stopped; do not use or delete without approval |
 | Image identification/compiler, Qwen VL | `image-vision-qwen-vl-prod` | `h7c0jzlxl1u0rn` | L40S | 85 GB | 3004 | `deployments/image-vision-qwen-vl/deployment.json` | Stopped; runtime not yet provisioned |
-| Pose extraction, DWPose | `pose-dwpose-prod` | `wwbl2kjjvizb46` | RTX PRO 4500 Blackwell | 40 GB | 3003 | `deployments/pose-dwpose/deployment.json` | Stopped; runtime not yet provisioned |
+| Pose extraction, DWPose | `pose-dwpose-prod` | `wwbl2kjjvizb46` | RTX PRO 4500 Blackwell | 40 GB | 3003 | `deployments/pose-dwpose/deployment.json` | Migrated 2026-08-26 to `bmcqknli61o49b` (`dreamgen-pose-dwpose-pro-4500-migration`, RUNNING); runtime provisioned + service-proven; not in Model Manager — see `deployments/pose-dwpose/README.md` |
 
 The pre-existing all-in-one pod is a migration source only. Do not add it to Model Manager and do
 not assign new application traffic to it.
@@ -241,7 +241,7 @@ Do not assign it to `RolePlaySceneImageEditor`; that function remains the separa
 | Juggernaut | `RolePlaySceneImage` | Configure/retain the ComfyUI image provider and the enabled Juggernaut image model only after endpoint and workflow identity proof. |
 | Qwen Image Edit 2511 | `RolePlaySceneImageEditor` | Configure/retain the ComfyUI image provider, pinned editor artifacts/settings, and the editor function default only after the port `3002` endpoint is healthy. |
 | Qwen VL | `RolePlaySceneImageEditPromptCompiler` | Configure as described above after vLLM provisioning and proof. |
-| DWPose | No Model Manager function assignment yet | Do not register it as an image model or compiler until its dedicated service contract and application capability integration exist. |
+| DWPose | No Model Manager function assignment yet | Provisioned + service-proven 2026-08-26 on migration successor `bmcqknli61o49b` (endpoint `https://bmcqknli61o49b-3003.proxy.runpod.net`; repro: `deployments/pose-dwpose/provision-runtime.sh` + `README.md`). Still do not register as an image model or compiler until its dedicated service contract and application capability integration exist. |
 | Preserved Qwen A40 pod | None | Keep disabled and unassigned. |
 
 ## After Any Restart
@@ -249,3 +249,21 @@ Do not assign it to `RolePlaySceneImageEditor`; that function remains the separa
 Public endpoints and TCP SSH ports can rotate. Always repeat status discovery, update only ignored
 SSH connection state, verify readiness and identity, then update the provider Base URL only if the
 inference endpoint changed. Never update application configuration with an SSH mapping.
+
+## Recycle-Proof Provisioning (image-gen-juggernaut)
+
+When the Juggernaut pod starts returning `400: ckpt_name 'juggernautXL_ragnarok.safetensors'
+not in [...]` (or "no prompt works in the app" right after a recycle/migrate), the cause is the
+lost `/ComfyUI/extra_model_paths.yaml` — the container overlay is wiped but the checkpoint is
+still on `/workspace`. Do NOT re-diagnose this from scratch.
+
+Run the idempotent provisioner once over SSH (it also patches `/pre_start.sh` to self-heal on
+stop/resume):
+
+```bash
+ssh -i artifacts/runpod/ssh_ed25519 -p <SSH_PORT> root@<SSH_IP> \
+  'bash -s' < helpers/runpod/deployments/image-gen-juggernaut/provision-runtime.sh
+```
+
+Full runbook and persistent-vs-ephemeral table:
+`helpers/runpod/deployments/image-gen-juggernaut/README.md`.

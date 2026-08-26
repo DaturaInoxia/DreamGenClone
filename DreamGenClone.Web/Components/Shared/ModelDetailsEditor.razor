@@ -137,6 +137,28 @@
                     <input type="number" class="form-control" @bind="Model.ImageEditorCfgNormStrength" min="0" step="0.1" />
                 </div>
                 <div class="col-12"><div class="form-text">These values are used only when this model is assigned to RP Scene Image Editor. Missing values fail explicitly when an edit is requested.</div></div>
+                <div class="col-12"><hr class="my-1" /><strong>Character Identity Conditioning</strong></div>
+                <div class="col-md-3">
+                    <label class="form-label">Mechanism</label>
+                    <select class="form-select" @bind="Model.IdentityMechanism">
+                        <option value="">Not configured</option>
+                        <option value="IpAdapter">IP-Adapter</option>
+                        <option value="PuLid">PuLID</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Strength</label>
+                    <input type="number" class="form-control" @bind="Model.IdentityStrength" min="0" step="0.05" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Adapter Ref</label>
+                    <input type="text" class="form-control" @bind="Model.IdentityAdapterRef" placeholder="PLUS FACE (portraits)" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Clip Vision Ref (optional)</label>
+                    <input type="text" class="form-control" @bind="Model.IdentityClipVisionRef" />
+                </div>
+                <div class="col-12"><div class="form-text">Used for identity-controlled scene rendering (IP-Adapter or PuLID face conditioning). Missing or invalid values fail explicitly when an identity render is requested.</div></div>
             }
             <div class="col-12">
                 <label class="form-label">Notes</label>

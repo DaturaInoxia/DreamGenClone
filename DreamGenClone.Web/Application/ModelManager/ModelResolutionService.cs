@@ -1,5 +1,6 @@
 using DreamGenClone.Application.ModelManager;
 using DreamGenClone.Domain.ModelManager;
+using DreamGenClone.Domain.RolePlay;
 using Microsoft.Extensions.Logging;
 using System.Diagnostics;
 
@@ -229,6 +230,59 @@ public sealed class ModelResolutionService : IModelResolutionService, IMultimoda
             IsSessionOverride: !string.IsNullOrEmpty(sessionOverrideId),
             ImageProtocol: provider.ImageProtocol,
             ComfyUiUrl: provider.ImageProtocol == ImageProtocol.ComfyUi ? provider.BaseUrl : null);
+    }
+
+    public async Task<ResolvedIdentityImageModel> ResolveIdentityImageModelAsync(
+        string? sessionOverrideId = null,
+        CancellationToken cancellationToken = default)
+    {
+        var resolved = await ResolveImageModelAsync(sessionOverrideId, cancellationToken);
+
+        var funcDefault = await _functionDefaultRepository.GetByFunctionAsync(AppFunction.RolePlaySceneImage, cancellationToken);
+        var model = funcDefault is null ? null : await _modelRepository.GetByIdAsync(funcDefault.ModelId, cancellationToken);
+        if (model is null)
+        {
+            throw new ModelResolutionException(
+                $"No identity model configured for function '{AppFunction.RolePlaySceneImage}'. Configure its identity mechanism in Model Manager (/model-manager).");
+        }
+
+        if (!Enum.TryParse<SceneImageIdentityMechanism>(model.IdentityMechanism, ignoreCase: true, out var mechanism)
+            || mechanism == SceneImageIdentityMechanism.Unknown)
+        {
+            throw new ModelResolutionException(
+                $"Identity mechanism not configured or unknown for model '{model.DisplayName}' (IdentityMechanism='{model.IdentityMechanism}'). " +
+                "Set it to IpAdapter or PuLid in Model Manager (/model-manager).");
+        }
+
+        if (model.IdentityStrength is not { } strength || strength <= 0)
+        {
+            throw new ModelResolutionException(
+                $"Identity strength not configured for model '{model.DisplayName}'. Set a positive IdentityStrength in Model Manager (/model-manager).");
+        }
+
+        if (string.IsNullOrWhiteSpace(model.IdentityAdapterRef))
+        {
+            throw new ModelResolutionException(
+                $"Identity adapter reference not configured for model '{model.DisplayName}'. Set IdentityAdapterRef in Model Manager (/model-manager).");
+        }
+
+        _logger.LogInformation(
+            "Identity image model resolved: Model={ModelIdentifier}, Mechanism={Mechanism}, Strength={Strength}, Adapter={Adapter}",
+            resolved.ModelIdentifier,
+            mechanism,
+            strength,
+            model.IdentityAdapterRef);
+
+        return new ResolvedIdentityImageModel(
+            ProviderBaseUrl: resolved.ProviderBaseUrl,
+            ProviderTimeoutSeconds: resolved.ProviderTimeoutSeconds,
+            ModelIdentifier: resolved.ModelIdentifier,
+            ContentPolicy: resolved.ContentPolicy,
+            ProviderName: resolved.ProviderName,
+            Mechanism: mechanism,
+            AdapterRef: model.IdentityAdapterRef.Trim(),
+            ClipVisionRef: string.IsNullOrWhiteSpace(model.IdentityClipVisionRef) ? null : model.IdentityClipVisionRef.Trim(),
+            IdentityStrength: strength);
     }
 
     public async Task<ResolvedMultimodalModel> ResolveAsync(

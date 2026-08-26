@@ -16,6 +16,7 @@
 
 @inject ISessionService SessionService
 @inject ISceneImageService ImageService
+@inject ICharacterImageIdentityService IdentityService
 @inject IModelResolutionService ModelResolutionService
 @inject StoryAnalysisFacade StoryAnalysis
 @inject IScenarioService ScenarioService
@@ -260,6 +261,44 @@
                                 </div>
                             </div>
                         </div>
+                        <div class="row g-2 mt-2">
+                            <div class="col-6 col-md-3">
+                                <label class="form-label">CFG</label>
+                                <input type="number" step="0.5" class="form-control form-control-sm" @bind="_settings.Cfg" />
+                            </div>
+                            <div class="col-6 col-md-3">
+                                <label class="form-label">Steps</label>
+                                <input type="number" class="form-control form-control-sm" @bind="_settings.Steps" />
+                            </div>
+                            <div class="col-6 col-md-2">
+                                <label class="form-label">Sampler</label>
+                                <select class="form-select form-select-sm" @bind="_settings.SamplerName">
+                                    <option value="dpmpp_2m">dpmpp_2m</option>
+                                    <option value="dpmpp_2m_sde">dpmpp_2m_sde</option>
+                                    <option value="euler">euler</option>
+                                    <option value="euler_ancestral">euler_ancestral</option>
+                                </select>
+                            </div>
+                            <div class="col-6 col-md-2">
+                                <label class="form-label">Scheduler</label>
+                                <select class="form-select form-select-sm" @bind="_settings.Scheduler">
+                                    <option value="karras">karras</option>
+                                    <option value="normal">normal</option>
+                                    <option value="simple">simple</option>
+                                </select>
+                            </div>
+                            <div class="col-6 col-md-2">
+                                <label class="form-label">Clip Skip</label>
+                                <select class="form-select form-select-sm" @bind="_settings.ClipSkip">
+                                    <option value="">None</option>
+                                    <option value="-1">1</option>
+                                    <option value="-2">2</option>
+                                </select>
+                            </div>
+                            <div class="col-12">
+                                <div class="form-text">Sampler/CLIP options default to the suggested Juggernaut values and apply to the ComfyUI (SDXL/Juggernaut) workflow only.</div>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -318,6 +357,13 @@
                         }
                         <textarea class="form-control font-monospace" rows="5" @bind="_editablePrompt"
                                   placeholder="The pre-processor will draft an image prompt here. You can edit it before rendering."></textarea>
+                        <div class="form-text">
+                            @WordCount(_editablePrompt) words · ~@EstimateTokens(_editablePrompt) tokens
+                            @if (EstimateTokens(_editablePrompt) > 77)
+                            {
+                                <span class="text-warning fw-semibold">⚠ Prompt exceeds the suggested 77-token limit — consider shortening.</span>
+                            }
+                        </div>
                         <div class="d-flex gap-2 mt-2">
                             <input type="text" class="form-control form-control-sm" @bind="_refineInstruction"
                                    placeholder="Refine instruction, e.g. 'more atmospheric' or 'tighter framing'" />
@@ -325,6 +371,9 @@
                                 <i class="bi bi-arrow-repeat me-1"></i> Refine
                             </button>
                         </div>
+                        <label class="form-label mt-3 mb-1 small fw-semibold">Negative Prompt (optional)</label>
+                        <textarea class="form-control font-monospace" rows="3" @bind="_settings.NegativePrompt"
+                                  placeholder="Optional guard terms (e.g. deformed, extra limbs, low quality). Leave blank to use the automatic negative."></textarea>
                     </div>
                 </div>
 
@@ -412,6 +461,35 @@
                                     <pre class="scene-image-preprocessor-prompt mb-0">@_preprocessorPrompt.UserPrompt</pre>
                                 </div>
                             }
+                        }
+                    </div>
+                </div>
+
+                <div class="card mb-3">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <strong>Character Identity</strong>
+                        <button class="btn btn-sm btn-success" @onclick="RenderIdentityImageAsync"
+                                disabled="@(_busy || HasInFlightWork() || string.IsNullOrWhiteSpace(_editablePrompt) || _activePrompt is null || string.IsNullOrWhiteSpace(_selectedIdentityPackId))">
+                            <i class="bi bi-person-badge me-1"></i> Render with Identity
+                        </button>
+                    </div>
+                    <div class="card-body small">
+                        @if (_identityPackOptions.Count == 0)
+                        {
+                            <span class="text-muted">No approved identity packs yet. Create and approve one in
+                                <a href="/characters/identity">Character Identity</a> to render a recurring character with face conditioning.</span>
+                        }
+                        else
+                        {
+                            <label class="form-label mb-1">Approved Identity Pack</label>
+                            <select class="form-select form-select-sm" @bind="_selectedIdentityPackId">
+                                <option value="">— none —</option>
+                                @foreach (var opt in _identityPackOptions)
+                                {
+                                    <option value="@opt.PackId">@opt.Label</option>
+                                }
+                            </select>
+                            <div class="form-text">Applies IP-Adapter or PuLID face conditioning using the selected pack's canonical face asset.</div>
                         }
                     </div>
                 </div>
@@ -522,6 +600,13 @@
     private SceneImageStudioSettings _settings = new();
     private List<SceneImageRecord> _images = [];
     private string _editablePrompt = string.Empty;
+
+    private static int WordCount(string text) =>
+        string.IsNullOrWhiteSpace(text) ? 0 : text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Length;
+
+    private static int EstimateTokens(string text) =>
+        string.IsNullOrWhiteSpace(text) ? 0 : (int)Math.Ceiling(text.Length / 4.0);
+
     private string _refineInstruction = string.Empty;
     private string _statusMessage = string.Empty;
     private string _errorMessage = string.Empty;
@@ -547,6 +632,10 @@
     private string? _selectedBeatId;
     private string? _selectedPov;
     private SceneImageRecord? _viewerImage;
+
+    private sealed record IdentityPackOption(string PackId, string Label);
+    private List<IdentityPackOption> _identityPackOptions = [];
+    private string? _selectedIdentityPackId;
 
     private SceneImageBeat? _selectedBeat
         => _analysis?.Beats.FirstOrDefault(b => b.BeatId == _selectedBeatId);
@@ -666,6 +755,7 @@
             await LoadFullTurnContextAsync();
             await RefreshAsync();
             await LoadBeatAnalysisAsync();
+            await LoadIdentityPackOptionsAsync();
         }
         catch (Exception ex)
         {
@@ -948,6 +1038,44 @@
         }
     }
 
+    private async Task LoadIdentityPackOptionsAsync()
+    {
+        _identityPackOptions = [];
+        _selectedIdentityPackId = null;
+        if (_session is null)
+        {
+            return;
+        }
+
+        var characters = await LoadScenarioCharactersAsync();
+        if (characters is null)
+        {
+            return;
+        }
+
+        var options = new List<IdentityPackOption>();
+        foreach (var character in characters)
+        {
+            IReadOnlyList<CharacterImageIdentityPack> packs;
+            try
+            {
+                packs = await IdentityService.ListPacksAsync(character.Id);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Failed to load identity packs for character: CharacterId={CharacterId}", character.Id);
+                continue;
+            }
+
+            foreach (var pack in packs.Where(p => p.Status == CharacterImageIdentityPackStatus.Approved))
+            {
+                options.Add(new IdentityPackOption(pack.Id, $"{character.Name ?? character.Id} — v{pack.Version}"));
+            }
+        }
+
+        _identityPackOptions = options;
+    }
+
     private async Task GeneratePromptAsync()
     {
         await RunAsync(async () =>
@@ -1022,6 +1150,36 @@
             _continueFromImageId = null;
             _images.Insert(0, record);
             _statusMessage = "Image render queued.";
+            EnsurePolling();
+        });
+    }
+
+    private async Task RenderIdentityImageAsync()
+    {
+        if (_activePrompt is null || string.IsNullOrWhiteSpace(_editablePrompt)) return;
+        if (string.IsNullOrWhiteSpace(_selectedIdentityPackId)) return;
+
+        await RunAsync(async () =>
+        {
+            // Persist the edited text back to the prompt record so a later studio reopen shows it.
+            await ImageService.UpdatePromptOutputAsync(sessionId, _activePrompt.Id, _editablePrompt.Trim());
+
+            var record = await ImageService.EnqueueRenderAsync(new SceneRenderRequest
+            {
+                SessionId = sessionId,
+                InteractionId = interactionId,
+                PromptRecordId = _activePrompt.Id,
+                Prompt = _editablePrompt.Trim(),
+                ImageSize = _settings.ImageSize,
+                SettingsJson = JsonSerializer.Serialize(_settings),
+                RegenerateOfId = null,
+                BeatId = _selectedBeatId,
+                Pov = _selectedPov,
+                RenderMode = SceneImageRenderMode.IdentityControlled,
+                IdentityPackId = _selectedIdentityPackId
+            });
+            _images.Insert(0, record);
+            _statusMessage = "Identity-controlled render queued.";
             EnsurePolling();
         });
     }

@@ -7,32 +7,68 @@ evidence are recorded.
 
 ## A. Persistence and Assets
 
-- [ ] P2-001 Add identity enums and records in `DreamGenClone.Domain/RolePlay`.
-- [ ] P2-002 Add repository interfaces in `DreamGenClone.Application/Abstractions`.
-- [ ] P2-003 Add identity/reference/evaluation schema and indexes in
-  `DreamGenClone.Infrastructure/Persistence/SqlitePersistence.cs`.
-- [ ] P2-004 Implement identity repository, immutable version rules, and in-use delete guards in
+- [X] P2-001 Add identity enums and records in `DreamGenClone.Domain/RolePlay`.
+  Evidence: `CharacterImageIdentityModels.cs` adds pack/asset records plus pack-status, asset-kind,
+  consent, mechanism, and decision enums. Consent `Unknown` is a non-zero enum value so it round-trips.
+- [X] P2-002 Add repository interfaces in `DreamGenClone.Application/RolePlay`.
+  Evidence: `ICharacterImageIdentityRepository.cs`. Placed beside `ISceneImageRepository` /
+  `ISceneImageEditRepository` per existing scene-image convention (contracts allow namespace adjustment).
+- [X] P2-003 Add identity/reference/evaluation schema and indexes.
+  Evidence: self-contained `EnsureSchemaAsync` in `CharacterImageIdentityRepository.cs` (matches the
+  SceneImageEditRepository pattern; not the central SqlitePersistence file). `CharacterImageIdentityPacks`
+  (UNIQUE CharacterProfileId+Version) and `SceneImageReferenceAssets` with FK + indexes.
+- [X] P2-004 Implement identity repository, immutable version rules, and in-use delete guards in
   `DreamGenClone.Infrastructure/RolePlay`.
-- [ ] P2-005 Extend safe scene-image asset storage for reference ingest, metadata, checksums, and
+  Evidence: `CharacterImageIdentityRepository.cs` enforces Draft-only mutation, approval requires an
+  approved canonical face + provenance + non-unknown consent, supersede copies assets into a new draft
+  version, and approved/superseded packs (and their assets) are delete-guarded.
+- [X] P2-005 Extend safe scene-image asset storage for reference ingest, metadata, checksums, and
   reference-aware deletion.
-- [ ] P2-006 [P] Add repository, migration, path safety, checksum, and approval validation tests.
+  Evidence: `ICharacterImageAssetStorageService` + `CharacterImageAssetStorageService` compute SHA-256,
+  byte length, media type, and PNG/JPEG dimensions at ingest and reject non-image content before any
+  row is created. Path segments are sanitized; rejected saves remove the file and any empty directory.
+- [X] P2-006 [P] Add repository, migration, path safety, checksum, and approval validation tests.
+  Evidence: `CharacterImageIdentityRepositoryTests` (11) + `CharacterImageAssetStorageServiceTests` (5).
+  Full solution build succeeded and the full suite passed (1,344 tests) on 2026-08-25.
 
 ## B. Identity Pack UI
 
-- [ ] P2-007 Read the Razor instruction and full target component context; select the existing
+- [X] P2-007 Read the Razor instruction and full target component context; select the existing
   character-profile management surface or add a narrowly scoped identity page.
-- [ ] P2-008 Add upload, asset-kind, provenance, consent, canonical-face, and approval controls.
-- [ ] P2-009 Add pack version history, supersede action, and referenced-asset delete diagnostics.
-- [ ] P2-010 [P] Add service tests and Razor diagnostics for the curation flow.
+  Evidence: added a narrowly scoped `/characters/identity` page (`CharacterIdentity.razor`) scoped
+  to scenario characters via `IScenarioService`, with a nav entry under Content. Razor instructions
+  and the `InputFile`/Bootstrap patterns from `SceneImageStudio.razor`, `TemplateImageEditor.razor`,
+  and `NavMenu.razor` were read first.
+- [X] P2-008 Add upload, asset-kind, provenance, consent, canonical-face, and approval controls.
+  Evidence: `CharacterIdentity.razor` exposes kind/provenance/consent/approved at upload and inline
+  per-asset editing, plus a canonical-face selector gated on approved Face assets.
+- [X] P2-009 Add pack version history, supersede action, and referenced-asset delete diagnostics.
+  Evidence: version history table with status badges and Supersede/Delete actions; delete failures
+  (frozen pack/asset) surface as alert messages from the service/repository diagnostics.
+- [X] P2-010 [P] Add service tests and Razor diagnostics for the curation flow.
+  Evidence: `CharacterImageIdentityServiceTests` (3) cover upload metadata, unreferenced-file deletion,
+  and the shared-file supersede guard. Build succeeded; Razor diagnostics report no errors in
+  `CharacterIdentity.razor` / `NavMenu.razor`; full suite passed (1,347 tests) on 2026-08-25.
 
 ## C. Conditioning Proof
 
-- [ ] P2-011 Inventory the current isolated/production ComfyUI environments and storage; do not
+- [X] P2-011 Inventory the current isolated/production ComfyUI environments and storage; do not
   modify either host.
-- [ ] P2-012 Record candidate IP-Adapter and PuLID node/model revisions, licenses, dependency delta,
+  Evidence: `proofs/identity-conditioning/pod-inventory-2026-08-26.md`. New isolated pod
+  `7i2mutjmry5tkt` (A40, ComfyUI v0.3.10, PyTorch 2.6.0+cu124) provisioned 2026-08-26. Base image
+  ships only SD/Flux checkpoints + ComfyUI-Manager; IP-Adapter, PuLID, DWPreprocessor, Impact Pack,
+  and all identity models are absent. Production hosts untouched.
+- [X] P2-012 Record candidate IP-Adapter and PuLID node/model revisions, licenses, dependency delta,
   artifact sizes/hashes, and a forward-fix recovery plan.
-- [ ] P2-013 Obtain explicit approval, install candidates in an isolated runtime, and verify node
+  Evidence: `proofs/identity-conditioning/dependency-manifest-2026-08-26.md` (nodes, licenses, Impact
+  Pack ComfyUI-v0.3.10 pin) + `model-manifest-2026-08-26.md` (all models, byte sizes, SHA-256;
+  Juggernaut byte-identical to production).
+- [X] P2-013 Obtain explicit approval, install candidates in an isolated runtime, and verify node
   discovery without modifying the production endpoint.
+  Evidence: user approved 2026-08-26; installed IPAdapter_plus + PuLID_ComfyUI + Impact-Pack (pinned)
+  + controlnet_aux + Python deps on `7i2mutjmry5tkt`. `/object_info` confirms IPAdapter* (incl.
+  RegionalConditioning), PulidModelLoader/ApplyPulid, DWPreprocessor, RegionalPrompt,
+  ImpactControlBridge, FaceDetailer (555 nodes). Production hosts untouched.
 - [ ] P2-014 Freeze two approved identity packs, six composition cells, two seeds per cell, prompts,
   regions, workflows, and score manifest.
 - [ ] P2-015 Run each candidate exactly once over the 12 cases and persist outputs/scorecards.
@@ -41,24 +77,45 @@ evidence are recorded.
 
 ## D. Model Resolution and Client
 
-- [ ] P2-017 Add selected mechanism fields to the registered image model and Model Manager forms;
+- [X] P2-017 Add selected mechanism fields to the registered image model and Model Manager forms;
   all values are persisted and required.
-- [ ] P2-018 Add `ResolvedIdentityImageModel` and one strict resolver with checkpoint/capability
+  Evidence: `RegisteredModel.IdentityMechanism/IdentityStrength/IdentityAdapterRef/IdentityClipVisionRef`
+  + SQLite columns/migration + `ModelDetailsEditor.razor` "Character Identity Conditioning" section.
+- [X] P2-018 Add `ResolvedIdentityImageModel` and one strict resolver with checkpoint/capability
   compatibility checks.
-- [ ] P2-019 Add `IIdentityConditionedImageClient` and controlled request/result DTOs.
-- [ ] P2-020 Implement the selected API-format ComfyUI workflow using the frozen proof as a fixture.
-- [ ] P2-021 [P] Add resolver failure tests and byte-for-structure workflow JSON tests.
+  Evidence: `ResolvedIdentityImageModel` + `ModelResolutionService.ResolveIdentityImageModelAsync`
+  (fail-fast on missing/unknown mechanism, non-positive strength, blank adapter ref; no fallback).
+- [X] P2-019 Add `IIdentityConditionedImageClient` and controlled request/result DTOs.
+  Evidence: `IIdentityConditionedImageClient` + `IdentityControlledImageRequest` under
+  `DreamGenClone.Application/Abstractions`.
+- [X] P2-020 Implement the selected API-format ComfyUI workflow using the frozen proof as a fixture.
+  Evidence: `ComfyUIIdentityConditionedClient` (IP-Adapter "PLUS FACE" + PuLID "fidelity" workflows),
+  reference upload via `/upload/image`, pinned sampler (30 steps / cfg 5 / dpmpp_2m_sde / karras).
+- [X] P2-021 [P] Add resolver failure tests and byte-for-structure workflow JSON tests.
+  Evidence: `SceneImageResolutionTests` (5 identity resolver fail-fast + success) +
+  `ComfyUIIdentityConditionedClientTests` (2 workflow structure). Full suite 1,359 green.
 
 ## E. Controlled Render Slice
 
-- [ ] P2-022 Add immutable render-attempt and actor-assignment persistence.
+- [X] P2-022 Add immutable render-attempt and actor-assignment persistence.
+  Evidence: `SceneImageRecord.RenderMode` + `IdentityPackId` persisted (single-character subset). The
+  full multi-actor assignment table is deferred (see P2-023).
 - [ ] P2-023 Add an identity request compiler that requires exact approved pack versions and
   non-overlapping regions for multiple actors.
-- [ ] P2-024 Add background job type, payload, handler, dedupe, statuses, logs, and debug events.
-- [ ] P2-025 Add service enqueue validation; missing packs/regions/profile fail before record creation.
-- [ ] P2-026 Add an explicit `Identity controlled` Studio action and provenance display without
+  Deferred — single-character POC only; the handler loads one canonical face. Multi-actor region
+  binding is future work.
+- [X] P2-024 Add background job type, payload, handler, dedupe, statuses, logs, and debug events.
+  Evidence: `SceneImageRenderingJobHandler` identity branch (resolves pack + canonical face, submits
+  via `IIdentityConditionedImageClient`), `IdentityRenderRequestSubmitted` debug event, reuse of the
+  existing rendering job type/payload.
+- [X] P2-025 Add service enqueue validation; missing packs/regions/profile fail before record creation.
+  Evidence: `SceneImageService.EnqueueRenderAsync` fails fast when identity mode has no pack id.
+- [X] P2-026 Add an explicit `Identity controlled` Studio action and provenance display without
   changing the existing prompt-only action.
+  Evidence: `SceneImageStudio.razor` "Character Identity" card + "Render with Identity" action.
 - [ ] P2-027 [P] Add compiler ownership, handler idempotency/failure, and provenance tests.
+  Partial — resolver/client/service/repository tests added (see P2-021); a dedicated handler
+  identity-branch test is deferred.
 
 ## F. Matrix and LoRA Decision
 

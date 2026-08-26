@@ -1,3 +1,5 @@
+using DreamGenClone.Web.Application.RolePlay;
+
 namespace DreamGenClone.Web.Application.RolePlay.Models;
 
 /// <summary>User-controlled image generation attributes for the studio.</summary>
@@ -24,4 +26,25 @@ public sealed class SceneImageStudioSettings
     /// client draws a random seed each call (matching the studio's previous behavior).
     /// </summary>
     public long? Seed { get; set; }
+
+    /// <summary>
+    /// User-editable negative prompt (guard terms). Defaults to the server's SDXL guard set; blank
+    /// reverts to the automatic deterministic negative.
+    /// </summary>
+    public string? NegativePrompt { get; set; } = SdxlSceneImagePromptBuilder.DefaultNegativePrompt;
+
+    /// <summary>CFG scale override (Juggernaut-validated default 5.0). Null = model-family default.</summary>
+    public double? Cfg { get; set; } = 5.0;
+
+    /// <summary>Sampling step count (30). Null = model-family default.</summary>
+    public int? Steps { get; set; } = 30;
+
+    /// <summary>Sampler name (Juggernaut-validated default dpmpp_2m_sde).</summary>
+    public string? SamplerName { get; set; } = "dpmpp_2m_sde";
+
+    /// <summary>Scheduler name (karras).</summary>
+    public string? Scheduler { get; set; } = "karras";
+
+    /// <summary>CLIP skip layer ("" = none, matching the validated test prompts).</summary>
+    public string? ClipSkip { get; set; } = "";
 }

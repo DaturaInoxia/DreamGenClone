@@ -36,7 +36,8 @@ public sealed class ImageGenerationClient : IImageGenerationClient
         string? size,
         string? negativePrompt = null,
         long? seed = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        SceneImageGenerationOptions? options = null)
     {
         var stopwatch = Stopwatch.StartNew();
         try

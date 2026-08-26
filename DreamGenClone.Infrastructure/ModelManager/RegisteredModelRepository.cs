@@ -27,10 +27,12 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
         command.CommandText = """
             INSERT INTO RegisteredModels (Id, ProviderId, ModelIdentifier, DisplayName, IsEnabled, SupportsThinkingControl, CreatedUtc, ContextWindowSize, Quantization, ParameterCount, Notes, ModelKind, ImageSizeSupported,
                 SupportsImageInput, MaximumInputImages, MaximumInputImageBytes, MaximumInputImagePixels, MaximumInputImageDimension, AcceptedInputMediaTypes, MaximumResponseBytes, RuntimeRevision, ArtifactRevision,
-                ImageEditorDiffusionModel, ImageEditorTextEncoder, ImageEditorVae, ImageEditorSteps, ImageEditorCfg, ImageEditorSampler, ImageEditorScheduler, ImageEditorDenoise, ImageEditorAuraFlowShift, ImageEditorCfgNormStrength)
+                ImageEditorDiffusionModel, ImageEditorTextEncoder, ImageEditorVae, ImageEditorSteps, ImageEditorCfg, ImageEditorSampler, ImageEditorScheduler, ImageEditorDenoise, ImageEditorAuraFlowShift, ImageEditorCfgNormStrength,
+                IdentityMechanism, IdentityStrength, IdentityAdapterRef, IdentityClipVisionRef)
             VALUES ($id, $providerId, $identifier, $displayName, $enabled, $supportsThinkingControl, $created, $ctxWindow, $quant, $paramCount, $notes, $modelKind, $imageSizeSupported,
                 $supportsImageInput, $maximumInputImages, $maximumInputImageBytes, $maximumInputImagePixels, $maximumInputImageDimension, $acceptedInputMediaTypes, $maximumResponseBytes, $runtimeRevision, $artifactRevision,
-                $imageEditorDiffusionModel, $imageEditorTextEncoder, $imageEditorVae, $imageEditorSteps, $imageEditorCfg, $imageEditorSampler, $imageEditorScheduler, $imageEditorDenoise, $imageEditorAuraFlowShift, $imageEditorCfgNormStrength)
+                $imageEditorDiffusionModel, $imageEditorTextEncoder, $imageEditorVae, $imageEditorSteps, $imageEditorCfg, $imageEditorSampler, $imageEditorScheduler, $imageEditorDenoise, $imageEditorAuraFlowShift, $imageEditorCfgNormStrength,
+                $identityMechanism, $identityStrength, $identityAdapterRef, $identityClipVisionRef)
             ON CONFLICT(Id) DO UPDATE SET
                 ProviderId = $providerId,
                 ModelIdentifier = $identifier,
@@ -61,7 +63,11 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
                 ImageEditorScheduler = $imageEditorScheduler,
                 ImageEditorDenoise = $imageEditorDenoise,
                 ImageEditorAuraFlowShift = $imageEditorAuraFlowShift,
-                ImageEditorCfgNormStrength = $imageEditorCfgNormStrength
+                ImageEditorCfgNormStrength = $imageEditorCfgNormStrength,
+                IdentityMechanism = $identityMechanism,
+                IdentityStrength = $identityStrength,
+                IdentityAdapterRef = $identityAdapterRef,
+                IdentityClipVisionRef = $identityClipVisionRef
             """;
 
         command.Parameters.AddWithValue("$id", model.Id);
@@ -96,6 +102,10 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
         command.Parameters.AddWithValue("$imageEditorDenoise", (object?)model.ImageEditorDenoise ?? DBNull.Value);
         command.Parameters.AddWithValue("$imageEditorAuraFlowShift", (object?)model.ImageEditorAuraFlowShift ?? DBNull.Value);
         command.Parameters.AddWithValue("$imageEditorCfgNormStrength", (object?)model.ImageEditorCfgNormStrength ?? DBNull.Value);
+        command.Parameters.AddWithValue("$identityMechanism", (object?)model.IdentityMechanism ?? DBNull.Value);
+        command.Parameters.AddWithValue("$identityStrength", (object?)model.IdentityStrength ?? DBNull.Value);
+        command.Parameters.AddWithValue("$identityAdapterRef", (object?)model.IdentityAdapterRef ?? DBNull.Value);
+        command.Parameters.AddWithValue("$identityClipVisionRef", (object?)model.IdentityClipVisionRef ?? DBNull.Value);
 
         await command.ExecuteNonQueryAsync(cancellationToken);
         _logger.LogInformation("Registered model saved: {ModelId} ({DisplayName})", model.Id, model.DisplayName);
@@ -152,6 +162,7 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
                      rm.AcceptedInputMediaTypes, rm.MaximumResponseBytes, rm.RuntimeRevision, rm.ArtifactRevision,
                      rm.ImageEditorDiffusionModel, rm.ImageEditorTextEncoder, rm.ImageEditorVae, rm.ImageEditorSteps, rm.ImageEditorCfg,
                      rm.ImageEditorSampler, rm.ImageEditorScheduler, rm.ImageEditorDenoise, rm.ImageEditorAuraFlowShift, rm.ImageEditorCfgNormStrength,
+                     rm.IdentityMechanism, rm.IdentityStrength, rm.IdentityAdapterRef, rm.IdentityClipVisionRef,
                    p.Name AS ProviderName
             FROM RegisteredModels rm
             INNER JOIN Providers p ON rm.ProviderId = p.Id
@@ -206,7 +217,8 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
                rm.SupportsImageInput, rm.MaximumInputImages, rm.MaximumInputImageBytes, rm.MaximumInputImagePixels, rm.MaximumInputImageDimension,
                rm.AcceptedInputMediaTypes, rm.MaximumResponseBytes, rm.RuntimeRevision, rm.ArtifactRevision,
                rm.ImageEditorDiffusionModel, rm.ImageEditorTextEncoder, rm.ImageEditorVae, rm.ImageEditorSteps, rm.ImageEditorCfg,
-               rm.ImageEditorSampler, rm.ImageEditorScheduler, rm.ImageEditorDenoise, rm.ImageEditorAuraFlowShift, rm.ImageEditorCfgNormStrength
+               rm.ImageEditorSampler, rm.ImageEditorScheduler, rm.ImageEditorDenoise, rm.ImageEditorAuraFlowShift, rm.ImageEditorCfgNormStrength,
+               rm.IdentityMechanism, rm.IdentityStrength, rm.IdentityAdapterRef, rm.IdentityClipVisionRef
         FROM RegisteredModels rm
         """;
 
@@ -243,6 +255,10 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
         ImageEditorScheduler = reader.IsDBNull(28) ? null : reader.GetString(28),
         ImageEditorDenoise = reader.IsDBNull(29) ? null : reader.GetDouble(29),
         ImageEditorAuraFlowShift = reader.IsDBNull(30) ? null : reader.GetDouble(30),
-        ImageEditorCfgNormStrength = reader.IsDBNull(31) ? null : reader.GetDouble(31)
+        ImageEditorCfgNormStrength = reader.IsDBNull(31) ? null : reader.GetDouble(31),
+        IdentityMechanism = reader.IsDBNull(32) ? null : reader.GetString(32),
+        IdentityStrength = reader.IsDBNull(33) ? null : reader.GetDouble(33),
+        IdentityAdapterRef = reader.IsDBNull(34) ? null : reader.GetString(34),
+        IdentityClipVisionRef = reader.IsDBNull(35) ? null : reader.GetString(35)
     };
 }

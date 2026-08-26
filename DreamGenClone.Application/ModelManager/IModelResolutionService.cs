@@ -29,4 +29,13 @@ public interface IModelResolutionService
         string? sessionOverrideId = null,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Resolve the identity-conditioned image model (RolePlaySceneImage + identity mechanism config).
+    /// Fails fast when the identity mechanism, strength, or required artifacts are missing. Never
+    /// substitutes a mechanism or artifact default.
+    /// </summary>
+    Task<ResolvedIdentityImageModel> ResolveIdentityImageModelAsync(
+        string? sessionOverrideId = null,
+        CancellationToken cancellationToken = default);
+
 }
