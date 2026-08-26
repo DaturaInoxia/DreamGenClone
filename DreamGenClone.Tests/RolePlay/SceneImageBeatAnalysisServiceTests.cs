@@ -58,6 +58,21 @@ public sealed class SceneImageBeatAnalysisServiceTests
     }
 
     [Fact]
+    public void ParseOutput_RejectsObserverOnlyBeat()
+    {
+        var service = new SceneImageBeatAnalysisService();
+        var observerOnly = SoloBeat.Replace(
+            "\"involvement\":\"active\"",
+            "\"involvement\":\"observer\"");
+
+        var error = Assert.Throws<InvalidOperationException>(() => service.ParseOutput(
+            observerOnly,
+            [new RolePlayInteraction { Id = "n1", ActorName = "Narrative" }]));
+
+        Assert.Contains("at least one active character", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ParseOutput_RejectsLegacySchema()
     {
         var service = new SceneImageBeatAnalysisService();
@@ -166,6 +181,8 @@ public sealed class SceneImageBeatAnalysisServiceTests
         Assert.Contains("observer-only establishing beat", system, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("same action at the same narrative time", system, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("active only when", system, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("at least one active character", system, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("never emit establishing, transition, or contrast shots with zero active characters", system, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("never place a literal newline", system, StringComparison.OrdinalIgnoreCase);
     }
 }
