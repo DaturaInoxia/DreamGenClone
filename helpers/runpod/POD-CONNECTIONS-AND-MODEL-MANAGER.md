@@ -23,7 +23,7 @@ dynamic SSH-over-TCP mapping, and records the application configuration boundary
 | Image generation, Juggernaut Ragnarok | `image-gen-juggernaut-prod` | `mb5pwrm14psof5` | A40 | 40 GB | 3000 | `deployments/image-gen-juggernaut/deployment.json` | Migrated 2026-08-26 to `orknbkfc0pxktv` (RUNNING); recycle-proof provisioner installed — see `deployments/image-gen-juggernaut/README.md` |
 | Image editing, Qwen Image Edit 2511 | `image-edit-qwen-2511-prod` | `jkms7ljhb54we9` | L40S | 85 GB | 3002 | `deployments/image-edit-qwen-2511/deployment.json` | Stopped |
 | Preserved unused Qwen Image Edit allocation | `image-edit-qwen-2511-a40-preserved` | `u1bykx2grhns82` | A40 | 85 GB | 3002 | `deployments/image-edit-qwen-2511-a40-preserved/deployment.json` | Stopped; do not use or delete without approval |
-| Image identification/compiler, Qwen VL | `image-vision-qwen-vl-prod` | `h7c0jzlxl1u0rn` | L40S | 85 GB | 3004 | `deployments/image-vision-qwen-vl/deployment.json` | Stopped; runtime not yet provisioned |
+| Image identification/compiler, Qwen VL | `image-vision-qwen-vl-prod` | `h7c0jzlxl1u0rn` | L40S | 85 GB | 3004 | `deployments/image-vision-qwen-vl/deployment.json` | Migrated 2026-08-27 to `yx7zudzunz95b3` (RUNNING); model swapped to `huihui-ai/Qwen2.5-VL-7B-Instruct-abliterated` (uncensored) — see `qwen-vl-edit-compiler/README.md` |
 | Pose extraction, DWPose | `pose-dwpose-prod` | `wwbl2kjjvizb46` | RTX PRO 4500 Blackwell | 40 GB | 3003 | `deployments/pose-dwpose/deployment.json` | Migrated 2026-08-26 to `bmcqknli61o49b` (`dreamgen-pose-dwpose-pro-4500-migration`, RUNNING); runtime provisioned + service-proven; not in Model Manager — see `deployments/pose-dwpose/README.md` |
 
 The pre-existing all-in-one pod is a migration source only. Do not add it to Model Manager and do
@@ -212,7 +212,7 @@ Create one enabled registered model under that provider:
 | Field | Required value |
 |---|---|
 | Display Name | `Qwen2.5-VL 7B AWQ image compiler` |
-| Model Identifier | `Qwen/Qwen2.5-VL-7B-Instruct-AWQ` |
+| Model Identifier | `qwen2.5-vl-7b-edit-compiler` — the vLLM `--served-model-name` (see `start-vllm.sh`). The app sends `ModelIdentifier` as the `model` field and validates the response identity against it, so the registered value MUST equal the served name. The pinned HF repo id `Qwen/Qwen2.5-VL-7B-Instruct-AWQ` is recorded by Artifact Revision; do not register the repo id as the model identifier. |
 | Model Kind | `Text` |
 | Supports Image Input | Enabled |
 | Maximum Input Images | `1` |

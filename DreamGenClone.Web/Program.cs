@@ -277,6 +277,7 @@ builder.Services.AddSingleton<ISceneImageStorageService, SceneImageStorageServic
 builder.Services.AddSingleton<ICharacterImageIdentityRepository, CharacterImageIdentityRepository>();
 builder.Services.AddSingleton<ICharacterImageAssetStorageService, CharacterImageAssetStorageService>();
 builder.Services.AddScoped<ICharacterImageIdentityService, CharacterImageIdentityService>();
+builder.Services.AddScoped<IReferenceImageQualityAnalyzer, ReferenceImageQualityAnalyzer>();
 builder.Services.AddScoped<ISceneImageService, SceneImageService>();
 builder.Services.AddScoped<ISceneImageEditCompilationService, SceneImageEditCompilationService>();
 builder.Services.AddSingleton<PonySceneImagePromptBuilder>();

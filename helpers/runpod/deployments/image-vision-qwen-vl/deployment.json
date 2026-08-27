@@ -2,7 +2,7 @@
   "deploymentKey": "image-vision-qwen-vl-prod",
   "displayName": "Qwen VL image identification compiler",
   "capability": "ImageVisionCompiler",
-  "modelIdentifier": "Qwen/Qwen2.5-VL-7B-Instruct-AWQ",
+  "modelIdentifier": "huihui-ai/Qwen2.5-VL-7B-Instruct-abliterated",
   "podId": "h7c0jzlxl1u0rn",
   "podName": "dreamgen-image-vision-qwen-vl-l40s",
   "containerImage": "runpod/stable-diffusion:comfy-ui-6.0.0",
@@ -18,10 +18,10 @@
   "sshUser": "root",
   "readinessPath": "/health",
   "identityProbePath": "/v1/models",
-  "identityExpectedText": "Qwen/Qwen2.5-VL-7B-Instruct-AWQ",
+  "identityExpectedText": "huihui-ai/Qwen2.5-VL-7B-Instruct-abliterated",
   "expectedIdentity": {
     "deploymentKey": "image-vision-qwen-vl-prod",
-    "modelIdentifier": "Qwen/Qwen2.5-VL-7B-Instruct-AWQ",
-    "runtimeRevision": "536a35794df8831aa814970ee8f89eff577e7718;vllm==0.27.1"
+    "modelIdentifier": "huihui-ai/Qwen2.5-VL-7B-Instruct-abliterated",
+    "runtimeRevision": "fa935a7958b3669b194c7ba4d1cfcebbe222641d;vllm==0.27.1"
   }
 }

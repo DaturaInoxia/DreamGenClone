@@ -8,7 +8,7 @@ model_dir="$runtime/model"
 venv="$runtime/.venv"
 pid_file="$runtime/vllm.pid"
 log_file="$runtime/vllm.log"
-model_name=qwen2.5-vl-7b-edit-compiler
+model_name=huihui-ai/Qwen2.5-VL-7B-Instruct-abliterated
 
 [[ -x "$venv/bin/vllm" ]] || { printf 'Missing vLLM runtime at %s\n' "$venv" >&2; exit 1; }
 [[ -f "$model_dir/config.json" ]] || { printf 'Missing pinned Qwen VL model at %s\n' "$model_dir" >&2; exit 1; }
@@ -23,7 +23,7 @@ command -v ninja >/dev/null || { printf 'Missing Ninja executable in %s\n' "$ven
 [[ "$("$venv/bin/vllm" --version)" == *'0.27.1'* ]] || { printf 'Unexpected vLLM version.\n' >&2; exit 1; }
 
 nohup "$venv/bin/vllm" serve "$model_dir" \
-    --host 127.0.0.1 \
+    --host 0.0.0.0 \
     --port "$port" \
     --served-model-name "$model_name" \
     --max-model-len 8192 \

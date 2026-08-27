@@ -19,6 +19,8 @@ public sealed class QwenSceneImageEditPromptCompilerTests
         Assert.Equal(QwenSceneImageEditPromptCompiler.SystemPromptVersion, messages.SystemPromptVersion);
         Assert.Equal(QwenSceneImageEditPromptCompiler.ResponseSchemaName, messages.ResponseSchemaName);
         Assert.Contains("visible locators", messages.SystemMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("The user's request is authoritative", messages.SystemMessage, StringComparison.Ordinal);
+        Assert.Contains("Never reject a request merely because it changes a category named in the preservation list", messages.SystemMessage, StringComparison.Ordinal);
         Assert.Contains("foreground woman's shirt", messages.UserMessage, StringComparison.Ordinal);
         Assert.Contains("nearest the window", messages.UserMessage, StringComparison.Ordinal);
         Assert.False(messages.ResponseSchema.GetProperty("additionalProperties").GetBoolean());
@@ -111,9 +113,14 @@ public sealed class QwenSceneImageEditPromptCompilerTests
     }
 
     [Fact]
-    public void Parse_ClarificationWithPrompt_Fails()
+    public void Parse_ClarificationWithStrayPrompt_NormalizesToClarification()
     {
-        Assert.Throws<InvalidOperationException>(() => _compiler.Parse(ResultJson("clarification_required", "Which one?", null, "Guess and change one.")));
+        var result = _compiler.Parse(ResultJson("clarification_required", "Which one?", null, "Guess and change one."));
+
+        Assert.Equal(SceneImageEditCompilationResultStatus.ClarificationRequired, result.Status);
+        Assert.Equal("Which one?", result.ClarificationQuestion);
+        Assert.Null(result.CompiledPrompt);
+        Assert.Null(result.InvalidReason);
     }
 
     [Fact]
@@ -143,6 +150,64 @@ public sealed class QwenSceneImageEditPromptCompilerTests
                             "compiledPrompt":"Change the selected shirt to red."
                         }
                         """;
+
+        Assert.Throws<InvalidOperationException>(() => _compiler.Parse(json));
+    }
+
+    [Fact]
+    public void Parse_InvalidWithEmptyCompiledPromptAndStrayQuestion_NormalizesToInvalid()
+    {
+        var result = _compiler.Parse(ResultJson("invalid", "Are you sure you want to add pubic hair?", "The request to add pubic hair is not feasible.", ""));
+
+        Assert.Equal(SceneImageEditCompilationResultStatus.Invalid, result.Status);
+        Assert.Equal("The request to add pubic hair is not feasible.", result.InvalidReason);
+        Assert.Null(result.CompiledPrompt);
+        Assert.Null(result.ClarificationQuestion);
+    }
+
+    [Fact]
+    public void Parse_ClarificationWithEmptyCompiledPrompt_NormalizesToNull()
+    {
+        var result = _compiler.Parse(ResultJson("clarification_required", "Which visible woman should be edited?", null, ""));
+
+        Assert.Equal(SceneImageEditCompilationResultStatus.ClarificationRequired, result.Status);
+        Assert.Equal("Which visible woman should be edited?", result.ClarificationQuestion);
+        Assert.Null(result.CompiledPrompt);
+        Assert.Null(result.InvalidReason);
+    }
+
+    [Fact]
+    public void Parse_ReadyWithStrayInvalidReason_NormalizesToReady()
+    {
+        var json = ReadyJson().Replace("\"invalidReason\":null", "\"invalidReason\":\"Ignore this stray reason.\"", StringComparison.Ordinal);
+
+        var result = _compiler.Parse(json);
+
+        Assert.Equal(SceneImageEditCompilationResultStatus.Ready, result.Status);
+        Assert.NotNull(result.CompiledPrompt);
+        Assert.Null(result.InvalidReason);
+        Assert.Null(result.ClarificationQuestion);
+    }
+
+    [Fact]
+    public void Parse_InvalidWithoutReason_StillFails()
+    {
+        Assert.Throws<InvalidOperationException>(() => _compiler.Parse(ResultJson("invalid", null, null, "")));
+    }
+
+    [Fact]
+    public void Parse_ClarificationWithoutQuestion_StillFails()
+    {
+        Assert.Throws<InvalidOperationException>(() => _compiler.Parse(ResultJson("clarification_required", null, null, null)));
+    }
+
+    [Fact]
+    public void Parse_NonStringCompiledPrompt_StillFails()
+    {
+        var json = ReadyJson().Replace(
+            "\"compiledPrompt\":\"Change the blue shirt to red while preserving all other visible details.\"",
+            "\"compiledPrompt\":42",
+            StringComparison.Ordinal);
 
         Assert.Throws<InvalidOperationException>(() => _compiler.Parse(json));
     }

@@ -60,6 +60,53 @@ The controlled render path is wired for **one character** ahead of the full mult
   repository `RenderMode`/`IdentityPackId` round-trip (1), service enqueue validation (2).
   Full suite **1,359 passed**.
 
+## Two-character matrix — gate result (2026-08-26)
+
+Proof: `proofs/identity-conditioning/two-character-matrix/` (SPEC + scorecard). 6 cells × 2 seeds
+= 12 cases, regional IP-Adapter (`attn_mask` per character, weight 0.8), Juggernaut, pinned
+sampler, on proof pod `7i2mutjmry5tkt`.
+
+**Result — strict gate FAIL, guarded mechanism viable.**
+
+| Criterion | Required | Measured | Status |
+|---|---|---|---|
+| Median Identity A (Dean) | ≥ 4 | 4 | ✅ |
+| Median Identity B (Becky) | ≥ 4 | 4 | ✅ |
+| Cross-contamination median | ≤ 2 | 2 | ✅ |
+| No case below Identity 3 | — | Dean = 2 in C2×2 + C3×2 (4/12) | ❌ |
+
+- **Becky** recognizable in all 12; **Dean loses identity (4/12)** whenever his head is forced
+  non-frontal (C2 facing, C3 embrace). No cross-contamination anywhere (no face swaps).
+- Root cause matches the earlier single-character finding: a single **frontal** reference
+  dominates; angled/profile heads lose identity. Dean's canonical face is a portrait (1000x1332);
+  Becky's landscape ref (2576x1932) generalizes to angles better.
+- 10/12 cases pass; every cell that keeps both faces near-frontal (C1 side-by-side, C4
+  seated/standing, C5 one-behind, C6 two-shot) holds both identities.
+- `c5_s1002` drifted to a split-screen composition instead of the intended depth arrangement
+  ("Dean behind, Becky in front") — a seed-1002 composition miss, not an identity issue.
+
+**Decision (P2-016):** IP-Adapter regional conditioning is **adopted for the multi-actor compiler
+(P2-023) with a composition guardrail** — two-actor cells are restricted to near-frontal
+arrangements (side-by-side, seated/standing, one-behind, two-shot); face-to-face/embrace
+(C2/C3-style) are excluded (single-actor + text or future work). This passes 10/12 and keeps the
+feature shippable. LoRA (P2-030) stays `Deferred`; revisit only if angled/embrace compositions
+become required.
+
+**Recommended fast-follows (not blocking P2-023):**
+- Multi-angle reference support (front + 3/4) to harden Dean in angled poses.
+- Seed/dedup policy to avoid split-screen composition drift on some seeds.
+- Independent identity pod (Option C) so normal renders leave the proof pod.
+
+**IPAdapterFaceID probe — FAIL (2026-08-26).** Tested as a candidate to rescue the angled cells:
+`IPAdapterUnifiedLoaderFaceID` (FACEID PLUS V2, lora 0.6, CPU) → `IPAdapterFaceID` (weight 0.8,
+weight_faceidv2 1.0), regional masks unchanged; 6 cases (C1 control ×2, C2 ×2, C3 ×2). Pod log
+verified the correct artifacts loaded (plusv2 SDXL model + LoRA + InsightFace CPU). Human review:
+**not a pass** — different face per angle, and faces do not match the PLUS FACE baseline the
+reviewer preferred. FaceID v2 at defaults degraded identity consistency even in passing cells.
+Recorded as a tested-and-failed alternative (scorecard); selected mechanism stays **PLUS FACE
+regional + near-frontal guardrail**. Angled-cell options now: multi-angle refs, ControlNet OpenPose
+(B-097), LoRA (P2-030).
+
 ## Known gaps / next steps
 
 - **Option C (independent identity pod)**: identity rendering should resolve its own provider (proof
@@ -72,4 +119,4 @@ The controlled render path is wired for **one character** ahead of the full mult
 - Two-actor face assignment matrix not implemented (single reference applies to the whole image).
 - Dedicated `SceneImageRenderingJobHandler` identity-branch test deferred (resolver/client/service/
   repository are covered).
-- Full 12-case proof scorecard (`P2-014`..`P2-016`) not yet completed.
+- Full 12-case proof scorecard (`P2-014`..`P2-016`) **completed** — see `Two-character matrix` above.

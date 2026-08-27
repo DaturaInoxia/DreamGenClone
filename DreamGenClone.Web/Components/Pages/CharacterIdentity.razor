@@ -88,6 +88,8 @@
             </div>
         }
 
+        <div class="form-text mb-3">Only drafts are editable. Click <strong>Supersede</strong> on an approved pack to create a new editable draft — its assets carry forward — then edit the draft below.</div>
+
         @if (_draft is not null)
         {
             <div class="card mb-3">
@@ -104,7 +106,7 @@
                                 <option value="">Select a canonical face…</option>
                                 @foreach (var asset in _assets.Where(a => a.AssetKind == SceneImageReferenceAssetKind.Face && a.IsApproved))
                                 {
-                                    <option value="@asset.Id" selected="@(asset.Id == _canonicalFaceId)">@asset.SourceLabel (@asset.MediaType)</option>
+                                    <option value="@asset.Id" selected="@(asset.Id == _canonicalFaceId)">@asset.SourceLabel · @asset.FaceView (@asset.MediaType)</option>
                                 }
                             </select>
                         </div>
@@ -126,10 +128,19 @@
                             </select>
                         </div>
                         <div class="col-md-3">
+                            <label class="form-label">Face view (face only)</label>
+                            <select class="form-select" @bind="_uploadFaceView" disabled="@(_uploadKind != SceneImageReferenceAssetKind.Face)">
+                                @foreach (var view in Enum.GetValues<SceneImageReferenceFaceView>())
+                                {
+                                    <option value="@view">@view</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-3">
                             <label class="form-label">Source / provenance</label>
                             <input type="text" class="form-control" @bind="_uploadSourceLabel" placeholder="e.g. curated reference photo" />
                         </div>
-                        <div class="col-md-3">
+                        <div class="col-md-2">
                             <label class="form-label">Consent</label>
                             <select class="form-select" @bind="_uploadConsent">
                                 <option value="Unknown">Unknown</option>
@@ -137,7 +148,7 @@
                                 <option value="NotApplicable">Not applicable</option>
                             </select>
                         </div>
-                        <div class="col-md-2">
+                        <div class="col-md-1">
                             <div class="form-check mt-4">
                                 <input class="form-check-input" type="checkbox" @bind="_uploadApproved" id="uploadApproved" />
                                 <label class="form-check-label" for="uploadApproved">Approved</label>
@@ -148,6 +159,50 @@
                         </div>
                     </div>
                     <div class="form-text">Only PNG, JPEG, and WebP reference images are accepted. Provenance and a confirmed/not-applicable consent state are required before an asset can be approved.</div>
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-header"><strong>Face reference images</strong></div>
+                <div class="card-body">
+                    <div class="d-flex flex-wrap gap-3">
+                        @foreach (var view in FaceViewOrder)
+                        {
+                            var face = FacesByView.TryGetValue(view, out var existing) ? existing : null;
+                            if (face is null)
+                            {
+                                <div class="card" style="width: 150px; border: 1px dashed #adb5bd;">
+                                    <div class="card-header small py-1 px-2 text-center fw-semibold">@FaceViewPosition(view) · @FaceViewLabel(view)</div>
+                                    <div class="card-body p-2 text-center">
+                                        <div class="text-muted small" style="height: 150px; display: flex; align-items: center; justify-content: center;">Not uploaded</div>
+                                        <div class="mt-2">
+                                            <InputFile OnChange="(e) => OnFaceAddPicked(view, e)" accept="image/png,image/jpeg,image/webp" id="@("faceadd_" + view)" style="display:none;" />
+                                            <label class="btn btn-sm btn-outline-secondary w-100" for="@("faceadd_" + view)">Add</label>
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="card" style="width: 150px;">
+                                    <div class="card-header small py-1 px-2 text-center fw-semibold">@FaceViewPosition(view) · @FaceViewLabel(view)</div>
+                                    <img src="/scene-images/@face.FileRelativePath" class="card-img-top" style="height: 150px; object-fit: cover;" alt="@face.FaceView" />
+                                    <div class="card-body p-2">
+                                        <span class="badge @QualityBadgeClass(face.QualityRating)">@face.QualityRating</span>
+                                        <div class="small text-muted mt-1" style="min-height: 2.5rem;">@face.QualityNotes</div>
+                                        <div class="mt-1">
+                                            <button class="btn btn-sm btn-outline-secondary w-100" @onclick="() => AnalyseFaceAsync(face)" disabled="@_busy">Re-analyse</button>
+                                        </div>
+                                        <div class="mt-1">
+                                            <InputFile OnChange="(e) => OnFaceReplacePicked(face, e)" accept="image/png,image/jpeg,image/webp" id="@("facerpl_" + face.Id)" style="display:none;" />
+                                            <label class="btn btn-sm btn-outline-secondary w-100" for="@("facerpl_" + face.Id)">Replace</label>
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                        }
+                    </div>
+                    <div class="form-text mt-2">Left to right: profile left, 3/4 left, front, 3/4 right, profile right. Quality tags are non-blocking. Add/Replace swaps the photo for a view.</div>
                 </div>
             </div>
 
@@ -165,11 +220,13 @@
                                 <thead>
                                     <tr>
                                         <th>Kind</th>
+                                        <th>View</th>
                                         <th>Media</th>
                                         <th>SHA-256</th>
                                         <th>Source</th>
                                         <th>Consent</th>
                                         <th>Approved</th>
+                                        <th>Quality</th>
                                         <th class="text-end">Actions</th>
                                     </tr>
                                 </thead>
@@ -178,6 +235,7 @@
                                     {
                                         <tr>
                                             <td>@asset.AssetKind</td>
+                                            <td>@(asset.FaceView?.ToString() ?? "—")</td>
                                             <td class="text-nowrap">@asset.MediaType<br /><small class="text-muted">@(asset.Width)x@(asset.Height) · @asset.ByteLength B</small></td>
                                             <td class="font-monospace small">@asset.Sha256.Substring(0, 12)…</td>
                                             <td><input type="text" class="form-control form-control-sm" @bind="asset.SourceLabel" style="min-width: 140px;" /></td>
@@ -189,6 +247,7 @@
                                                 </select>
                                             </td>
                                             <td><input type="checkbox" class="form-check-input" @bind="asset.IsApproved" /></td>
+                                            <td><span class="badge @QualityBadgeClass(asset.QualityRating)">@asset.QualityRating</span></td>
                                             <td class="text-end text-nowrap">
                                                 <button class="btn btn-sm btn-outline-primary" @onclick="() => SaveAssetAsync(asset)" disabled="@_busy">Save</button>
                                                 <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteAssetAsync(asset.Id)" disabled="@_busy">Delete</button>
@@ -216,6 +275,7 @@
     private CharacterImageIdentityPack? _draft;
 
     private SceneImageReferenceAssetKind _uploadKind = SceneImageReferenceAssetKind.Face;
+    private SceneImageReferenceFaceView? _uploadFaceView = SceneImageReferenceFaceView.Front;
     private string _uploadSourceLabel = string.Empty;
     private SceneImageReferenceConsentState _uploadConsent = SceneImageReferenceConsentState.Unknown;
     private bool _uploadApproved;
@@ -261,6 +321,18 @@
         {
             _assets = (await IdentityService.ListAssetsAsync(_draft.Id)).ToList();
             _descriptor = _draft.DescriptorSnapshotJson == "{}" ? string.Empty : _draft.DescriptorSnapshotJson;
+
+            // Automatically analyse any face reference that has not been rated yet.
+            var pending = _assets.Where(a => a.AssetKind == SceneImageReferenceAssetKind.Face
+                                             && a.QualityRating == SceneImageReferenceQuality.NotRated).ToList();
+            if (pending.Count > 0)
+            {
+                foreach (var asset in pending)
+                {
+                    await IdentityService.AnalyzeAssetQualityAsync(asset.Id);
+                }
+                _assets = (await IdentityService.ListAssetsAsync(_draft.Id)).ToList();
+            }
         }
     }
 
@@ -341,7 +413,8 @@
         {
             var file = args.File;
             await using var stream = file.OpenReadStream(20 * 1024 * 1024);
-            var asset = await IdentityService.UploadAssetAsync(_draft.Id, _uploadKind, file.Name, stream);
+            var faceView = _uploadKind == SceneImageReferenceAssetKind.Face ? _uploadFaceView : null;
+            var asset = await IdentityService.UploadAssetAsync(_draft.Id, _uploadKind, file.Name, stream, faceView);
 
             if (_uploadConsent != SceneImageReferenceConsentState.Unknown && !string.IsNullOrWhiteSpace(_uploadSourceLabel))
             {
@@ -353,6 +426,97 @@
             }
 
             _status = $"Uploaded {asset.AssetKind} asset.";
+            await ReloadAssetsAsync();
+        });
+    }
+
+    private static readonly SceneImageReferenceFaceView[] FaceViewOrder =
+    {
+        SceneImageReferenceFaceView.ProfileLeft,
+        SceneImageReferenceFaceView.ThreeQuarterLeft,
+        SceneImageReferenceFaceView.Front,
+        SceneImageReferenceFaceView.ThreeQuarterRight,
+        SceneImageReferenceFaceView.ProfileRight
+    };
+
+    private static int FaceViewPosition(SceneImageReferenceFaceView view) => Array.IndexOf(FaceViewOrder, view) + 1;
+
+    private static string FaceViewLabel(SceneImageReferenceFaceView view) => view switch
+    {
+        SceneImageReferenceFaceView.Front => "Front",
+        SceneImageReferenceFaceView.ThreeQuarterLeft => "3/4 Left",
+        SceneImageReferenceFaceView.ThreeQuarterRight => "3/4 Right",
+        SceneImageReferenceFaceView.ProfileLeft => "Profile Left",
+        SceneImageReferenceFaceView.ProfileRight => "Profile Right",
+        _ => view.ToString()
+    };
+
+    private IReadOnlyDictionary<SceneImageReferenceFaceView, SceneImageReferenceAsset> FacesByView
+        => _assets.Where(a => a.AssetKind == SceneImageReferenceAssetKind.Face && a.FaceView is not null)
+                  .GroupBy(a => a.FaceView!.Value)
+                  .ToDictionary(g => g.Key, g => g.First());
+
+    private static string QualityBadgeClass(SceneImageReferenceQuality quality) => quality switch
+    {
+        SceneImageReferenceQuality.Good => "text-bg-success",
+        SceneImageReferenceQuality.Ok => "text-bg-warning",
+        SceneImageReferenceQuality.NotGood => "text-bg-danger",
+        _ => "text-bg-secondary"
+    };
+
+    private async Task AnalyseFaceAsync(SceneImageReferenceAsset face)
+    {
+        await RunAsync(async () =>
+        {
+            await IdentityService.AnalyzeAssetQualityAsync(face.Id);
+            _status = $"Analysed quality for {face.FaceView}.";
+            await ReloadAssetsAsync();
+        });
+    }
+
+    private async Task OnFaceAddPicked(SceneImageReferenceFaceView view, InputFileChangeEventArgs args)
+    {
+        if (_draft is null)
+        {
+            return;
+        }
+
+        await RunAsync(async () =>
+        {
+            var file = args.File;
+            await using var stream = file.OpenReadStream(20 * 1024 * 1024);
+            await IdentityService.UploadAssetAsync(_draft.Id, SceneImageReferenceAssetKind.Face, file.Name, stream, view);
+            _status = $"Uploaded {view} face.";
+            await ReloadAssetsAsync();
+        });
+    }
+
+    private async Task OnFaceReplacePicked(SceneImageReferenceAsset oldAsset, InputFileChangeEventArgs args)
+    {
+        if (_draft is null)
+        {
+            return;
+        }
+
+        await RunAsync(async () =>
+        {
+            var file = args.File;
+            await using var stream = file.OpenReadStream(20 * 1024 * 1024);
+            var asset = await IdentityService.UploadAssetAsync(_draft.Id, SceneImageReferenceAssetKind.Face, file.Name, stream, oldAsset.FaceView);
+            if (!string.IsNullOrWhiteSpace(oldAsset.SourceLabel) && oldAsset.ConsentState != SceneImageReferenceConsentState.Unknown)
+            {
+                await IdentityService.SetAssetProvenanceAsync(asset.Id, oldAsset.SourceLabel, oldAsset.ConsentState);
+            }
+            if (oldAsset.IsApproved)
+            {
+                await IdentityService.SetAssetApprovalAsync(asset.Id, true);
+            }
+            await IdentityService.DeleteAssetAsync(oldAsset.Id);
+            if (_canonicalFaceId == oldAsset.Id)
+            {
+                _canonicalFaceId = null;
+            }
+            _status = $"Replaced {oldAsset.FaceView} face.";
             await ReloadAssetsAsync();
         });
     }

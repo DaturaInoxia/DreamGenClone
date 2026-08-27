@@ -8,7 +8,7 @@ namespace DreamGenClone.Web.Application.RolePlay;
 public sealed class QwenSceneImageEditPromptCompiler : ISceneImageEditPromptCompiler
 {
     public const string SchemaVersion = "scene-image-edit-compiler-v1";
-    public const string SystemPromptVersion = "qwen-edit-rules-v1";
+    public const string SystemPromptVersion = "qwen-edit-rules-v2";
     public const string ResponseSchemaName = "scene_image_edit_compilation";
 
     private static readonly HashSet<string> RootFields = new(StringComparer.Ordinal)
@@ -85,7 +85,7 @@ public sealed class QwenSceneImageEditPromptCompiler : ISceneImageEditPromptComp
                 CompiledPrompt = OptionalString(root, "compiledPrompt")
             };
 
-            ValidateTerminalState(result);
+            NormalizeTerminalState(result);
             return result;
         }
         catch (JsonException ex)
@@ -97,11 +97,15 @@ public sealed class QwenSceneImageEditPromptCompiler : ISceneImageEditPromptComp
     private static string BuildSystemMessage() => """
         You are a vision-grounded compiler for Qwen Image Edit. Inspect the supplied source image and compile the user's request into one concise edit instruction.
 
-        Observe only visible facts needed to satisfy the request. Identify targets with visible locators such as clothing, position, laterality, or nearby objects. Do not invent names, relationships, hidden anatomy, unseen details, or story facts. Preserve visible identity, wardrobe unless requested, unaffected people, objects, composition, lighting, and style.
+        Observe only visible facts needed to satisfy the request. Identify targets with visible locators such as clothing, position, laterality, or nearby objects. Do not invent names, relationships, hidden anatomy, unseen details, or story facts.
 
-        When the target is ambiguous, contradictory, impossible, unsupported by the source, or unsafe under the configured policy, return clarification_required or invalid. Never guess a ready edit. Ready instructions must be direct, feasible, and describe only the requested change plus necessary visible disambiguation and preservation.
+        The user's request is authoritative. If they ask to add, remove, or alter a specific visible thing — clothing, an accessory such as glasses, an object (including moving or repositioning it), pose (looking another way, standing, lowering the head, opening the mouth), framing or zoom, or facial expression — compile that change directly. Never reject a request merely because it changes a category named in the preservation list.
 
-        Return only JSON matching the supplied schema. Do not use markdown fences or explanatory text.
+        Preserve only what the request did not ask to change: the location and surroundings, the subject's identity, and any unaffected people. When a request changes framing or moves an object, keep the surrounding location and identity intact while applying the change.
+
+        Return clarification_required only when the target is ambiguous (more than one visible candidate) or a visible detail is uncertain. Return invalid only when the request is genuinely impossible or self-contradictory (for example, two mutually exclusive outcomes), the thing to change is not visible in the source, or the content is clearly harmful or illegal. This editor is used for private, consensual adult fictional scenes; do not refuse an edit merely because it is sexual or adult in nature when the target and change are visible and feasible. Never guess a ready edit.
+
+        Ready instructions must be direct and feasible, describe only the requested change, and state the specific things to keep unchanged (usually the setting and identity). Return only JSON matching the supplied schema. Do not use markdown fences or explanatory text.
         """;
 
     private static JsonElement CreateResponseSchema()
@@ -154,22 +158,36 @@ public sealed class QwenSceneImageEditPromptCompiler : ISceneImageEditPromptComp
         return document.RootElement.Clone();
     }
 
-    private static void ValidateTerminalState(SceneImageEditCompilationResult result)
+    /// <summary>
+    /// Normalizes the terminal result so the declared status is authoritative, then validates that
+    /// the status's essential field is present. Vision models frequently emit an empty string
+    /// instead of null for unused terminal fields (for example <c>"compiledPrompt": ""</c>), or
+    /// populate a second terminal field; those formatting slips are discarded deterministically
+    /// rather than failing the whole compilation. Nothing is fabricated: if the essential field for
+    /// the declared status is missing, the parse still fails.
+    /// </summary>
+    private static void NormalizeTerminalState(SceneImageEditCompilationResult result)
     {
         switch (result.Status)
         {
             case SceneImageEditCompilationResultStatus.Ready:
                 if (result.Targets.Count == 0 || result.RequestedChanges.Count == 0 || result.Preserve.Count == 0
-                    || string.IsNullOrWhiteSpace(result.CompiledPrompt) || result.ClarificationQuestion is not null || result.InvalidReason is not null)
+                    || string.IsNullOrWhiteSpace(result.CompiledPrompt))
                     throw new InvalidOperationException("A ready compiler result requires targets, changes, preservation, and a compiled prompt only.");
+                result.ClarificationQuestion = null;
+                result.InvalidReason = null;
                 break;
             case SceneImageEditCompilationResultStatus.ClarificationRequired:
-                if (string.IsNullOrWhiteSpace(result.ClarificationQuestion) || result.CompiledPrompt is not null || result.InvalidReason is not null)
-                    throw new InvalidOperationException("A clarification compiler result requires exactly a clarification question and no executable prompt.");
+                if (string.IsNullOrWhiteSpace(result.ClarificationQuestion))
+                    throw new InvalidOperationException("A clarification compiler result requires a clarification question and no executable prompt.");
+                result.CompiledPrompt = null;
+                result.InvalidReason = null;
                 break;
             case SceneImageEditCompilationResultStatus.Invalid:
-                if (string.IsNullOrWhiteSpace(result.InvalidReason) || result.CompiledPrompt is not null || result.ClarificationQuestion is not null)
-                    throw new InvalidOperationException("An invalid compiler result requires exactly an invalid reason and no executable prompt.");
+                if (string.IsNullOrWhiteSpace(result.InvalidReason))
+                    throw new InvalidOperationException("An invalid compiler result requires an invalid reason and no executable prompt.");
+                result.CompiledPrompt = null;
+                result.ClarificationQuestion = null;
                 break;
             default:
                 throw new InvalidOperationException("Scene image edit compiler response has a non-terminal status.");
@@ -249,9 +267,9 @@ public sealed class QwenSceneImageEditPromptCompiler : ISceneImageEditPromptComp
         var value = Required(parent, name);
         if (value.ValueKind == JsonValueKind.Null)
             return null;
-        if (value.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(value.GetString()))
-            throw new InvalidOperationException($"Compiler response field '{name}' must be a non-empty string or null.");
-        return value.GetString()!.Trim();
+        if (value.ValueKind == JsonValueKind.String)
+            return string.IsNullOrWhiteSpace(value.GetString()) ? null : value.GetString()!.Trim();
+        throw new InvalidOperationException($"Compiler response field '{name}' must be a non-empty string or null.");
     }
 
     private static double RequiredNumber(JsonElement parent, string name)

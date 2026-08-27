@@ -18,11 +18,15 @@
 ### `SceneImageReferenceAsset`
 
 Fields: `Id`, `IdentityPackId`, `AssetKind` (`Face`, `FullBody`, `Wardrobe`),
+`FaceView` (`Front`, `ThreeQuarterLeft`, `ThreeQuarterRight`, `ProfileLeft`, `ProfileRight`;
+required for Face assets, null for other kinds),
 `FileRelativePath`, `MediaType`, `Width`, `Height`, `ByteLength`, `Sha256`, `SourceLabel`,
 `ConsentState` (`Unknown`, `Confirmed`, `NotApplicable`), `IsApproved`, `CreatedUtc`.
 
 `Unknown` consent cannot be approved. A referenced file is immutable; replacement creates a new
-asset. Paths use the existing scene-image storage safety rules.
+asset. Paths use the existing scene-image storage safety rules. A pack may hold **multiple Face
+assets with different `FaceView`s** (multi-angle conditioning): the render compiler picks the
+reference whose angle matches the target head angle.
 
 ### `IdentityConditioningProfile`
 

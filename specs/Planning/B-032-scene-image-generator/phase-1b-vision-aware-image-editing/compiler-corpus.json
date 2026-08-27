@@ -1,7 +1,7 @@
 {
   "corpusVersion": "phase-1b-compiler-corpus-v1",
   "compilerSchemaVersion": "scene-image-edit-compiler-v1",
-  "systemPromptVersion": "qwen-edit-rules-v1",
+  "systemPromptVersion": "qwen-edit-rules-v2",
   "modelIdentifier": "qwen2.5-vl-7b-edit-compiler",
   "settings": {
     "temperature": 0.0,

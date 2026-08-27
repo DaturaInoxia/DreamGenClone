@@ -69,11 +69,20 @@ evidence are recorded.
   + controlnet_aux + Python deps on `7i2mutjmry5tkt`. `/object_info` confirms IPAdapter* (incl.
   RegionalConditioning), PulidModelLoader/ApplyPulid, DWPreprocessor, RegionalPrompt,
   ImpactControlBridge, FaceDetailer (555 nodes). Production hosts untouched.
-- [ ] P2-014 Freeze two approved identity packs, six composition cells, two seeds per cell, prompts,
+- [X] P2-014 Freeze two approved identity packs, six composition cells, two seeds per cell, prompts,
   regions, workflows, and score manifest.
-- [ ] P2-015 Run each candidate exactly once over the 12 cases and persist outputs/scorecards.
-- [ ] P2-016 Select one mechanism only if it meets the gate; otherwise stop and record the closest
+  Evidence: `proofs/identity-conditioning/two-character-matrix/SPEC.md` (packs, 6 cells, prompts,
+  regions) + `scorecard-2026-08-26.md` (12 cases, prompt ids, file sizes). Dean pack
+  `3341c088-...` (canonical face 1000x1332), Becky pack `8a7dc2ae-...` (canonical face 2576x1932).
+- [X] P2-015 Run each candidate exactly once over the 12 cases and persist outputs/scorecards.
+  Evidence: 12/12 submitted with no node_errors, outputs 1.3–1.5 MB PNGs in
+  `artifacts/tmp/two-character-proof/outputs/`; scores in `scorecard-2026-08-26.md`.
+- [X] P2-016 Select one mechanism only if it meets the gate; otherwise stop and record the closest
   failed constraints before proposing another mechanism.
+  Evidence: strict gate FAIL (Dean identity = 2 in C2/C3, 4/12 below Identity 3; Becky perfect,
+  cross-contamination clean). Closest failure recorded in `scorecard-2026-08-26.md` + DECISIONS.
+  Decision: adopt regional IP-Adapter for P2-023 **with a near-frontal composition guardrail**
+  (10/12 pass); LoRA stays Deferred (P2-030).
 
 ## D. Model Resolution and Client
 

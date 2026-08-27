@@ -14,15 +14,18 @@ public sealed class CharacterImageIdentityService : ICharacterImageIdentityServi
 {
     private readonly ICharacterImageIdentityRepository _repository;
     private readonly ICharacterImageAssetStorageService _storage;
+    private readonly IReferenceImageQualityAnalyzer _analyzer;
     private readonly ILogger<CharacterImageIdentityService> _logger;
 
     public CharacterImageIdentityService(
         ICharacterImageIdentityRepository repository,
         ICharacterImageAssetStorageService storage,
+        IReferenceImageQualityAnalyzer analyzer,
         ILogger<CharacterImageIdentityService> logger)
     {
         _repository = repository;
         _storage = storage;
+        _analyzer = analyzer;
         _logger = logger;
     }
 
@@ -101,12 +104,18 @@ public sealed class CharacterImageIdentityService : ICharacterImageIdentityServi
         SceneImageReferenceAssetKind kind,
         string fileName,
         Stream content,
+        SceneImageReferenceFaceView? faceView = null,
         CancellationToken cancellationToken = default)
     {
         var pack = await _repository.GetPackAsync(packId, cancellationToken)
             ?? throw new InvalidOperationException($"Identity pack '{packId}' was not found.");
         if (pack.Status != CharacterImageIdentityPackStatus.Draft)
             throw new InvalidOperationException("Reference assets can only be uploaded to a draft pack.");
+        if (kind == SceneImageReferenceAssetKind.Face && faceView is null)
+            throw new InvalidOperationException(
+                "A face reference asset requires a face view (Front, ThreeQuarterLeft, ThreeQuarterRight, ProfileLeft, ProfileRight).");
+        if (kind != SceneImageReferenceAssetKind.Face && faceView is not null)
+            throw new InvalidOperationException("Only face reference assets carry a face view.");
 
         var assetId = Guid.NewGuid().ToString("N");
         var extension = Path.GetExtension(fileName);
@@ -116,18 +125,23 @@ public sealed class CharacterImageIdentityService : ICharacterImageIdentityServi
         }
 
         var stored = await _storage.SaveAsync(pack.CharacterProfileId, $"{assetId}{extension.ToLowerInvariant()}", content, cancellationToken);
+        await using var analyzeStream = await _storage.OpenReadAsync(stored.RelativePath, cancellationToken);
+        (var rating, var qualityNotes) = _analyzer.Analyze(analyzeStream, stored.Width ?? 0, stored.Height ?? 0, stored.ByteLength);
 
         var asset = new SceneImageReferenceAsset
         {
             Id = assetId,
             IdentityPackId = packId,
             AssetKind = kind,
+            FaceView = faceView,
             FileRelativePath = stored.RelativePath,
             MediaType = stored.MediaType,
             Width = stored.Width,
             Height = stored.Height,
             ByteLength = stored.ByteLength,
             Sha256 = stored.Sha256,
+            QualityRating = rating,
+            QualityNotes = qualityNotes,
             IsApproved = false
         };
 
@@ -155,6 +169,27 @@ public sealed class CharacterImageIdentityService : ICharacterImageIdentityServi
 
     public Task SetAssetApprovalAsync(string assetId, bool isApproved, CancellationToken cancellationToken = default)
         => _repository.SetAssetApprovalAsync(assetId, isApproved, cancellationToken);
+
+    public Task SetAssetQualityAsync(
+        string assetId,
+        SceneImageReferenceQuality quality,
+        string qualityNotes,
+        CancellationToken cancellationToken = default)
+        => _repository.UpdateAssetQualityAsync(assetId, quality, qualityNotes, cancellationToken);
+
+    public async Task<SceneImageReferenceAsset> AnalyzeAssetQualityAsync(
+        string assetId, CancellationToken cancellationToken = default)
+    {
+        var asset = await _repository.GetAssetAsync(assetId, cancellationToken)
+            ?? throw new InvalidOperationException($"Reference asset '{assetId}' was not found.");
+        await using var stream = await _storage.OpenReadAsync(asset.FileRelativePath, cancellationToken);
+        (var rating, var notes) = _analyzer.Analyze(stream, asset.Width ?? 0, asset.Height ?? 0, asset.ByteLength);
+        await _repository.UpdateAssetQualityAsync(asset.Id, rating, notes, cancellationToken);
+        asset.QualityRating = rating;
+        asset.QualityNotes = notes;
+        _logger.LogInformation("Analysed quality for reference asset {AssetId}: {Rating}", asset.Id, rating);
+        return asset;
+    }
 
     public async Task DeleteAssetAsync(string assetId, CancellationToken cancellationToken = default)
     {

@@ -488,7 +488,7 @@ public sealed class SceneImageServiceJobTests
             Status = SceneImageEditCompilationAttemptStatus.Pending,
             ResolvedModelSnapshotJson = "{\"modelIdentifier\":\"qwen-vl\"}",
             CompilerSchemaVersion = "scene-image-edit-compiler-v1",
-            SystemPromptVersion = "qwen-edit-rules-v1"
+            SystemPromptVersion = "qwen-edit-rules-v2"
         };
         await repository.CreateAttemptAsync(attempt);
         attempt.Status = SceneImageEditCompilationAttemptStatus.Compiling;

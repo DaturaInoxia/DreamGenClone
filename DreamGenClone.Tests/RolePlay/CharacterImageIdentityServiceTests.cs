@@ -22,7 +22,7 @@ public sealed class CharacterImageIdentityServiceTests
             var png = MinimalPng(320, 240);
             await using var input = new MemoryStream(png);
 
-            var asset = await service.UploadAssetAsync(pack.Id, SceneImageReferenceAssetKind.Face, "face.png", input);
+            var asset = await service.UploadAssetAsync(pack.Id, SceneImageReferenceAssetKind.Face, "face.png", input, SceneImageReferenceFaceView.Front);
 
             Assert.Equal(SceneImageReferenceAssetKind.Face, asset.AssetKind);
             Assert.Equal("image/png", asset.MediaType);
@@ -49,7 +49,7 @@ public sealed class CharacterImageIdentityServiceTests
         {
             var pack = await service.CreateDraftPackAsync("char-1");
             await using var input = new MemoryStream(MinimalPng(64, 64));
-            var asset = await service.UploadAssetAsync(pack.Id, SceneImageReferenceAssetKind.Face, "face.png", input);
+            var asset = await service.UploadAssetAsync(pack.Id, SceneImageReferenceAssetKind.Face, "face.png", input, SceneImageReferenceFaceView.Front);
             var fullPath = Path.Combine(root, asset.FileRelativePath);
             Assert.True(File.Exists(fullPath));
 
@@ -71,7 +71,7 @@ public sealed class CharacterImageIdentityServiceTests
         {
             var pack = await service.CreateDraftPackAsync("char-1");
             await using var input = new MemoryStream(MinimalPng(64, 64));
-            var asset = await service.UploadAssetAsync(pack.Id, SceneImageReferenceAssetKind.Face, "face.png", input);
+            var asset = await service.UploadAssetAsync(pack.Id, SceneImageReferenceAssetKind.Face, "face.png", input, SceneImageReferenceFaceView.Front);
 
             await service.SetAssetProvenanceAsync(asset.Id, "curated reference", SceneImageReferenceConsentState.Confirmed);
             await service.SetAssetApprovalAsync(asset.Id, true);
@@ -94,6 +94,109 @@ public sealed class CharacterImageIdentityServiceTests
         }
     }
 
+    [Fact]
+    public async Task UploadFace_WithoutFaceView_Throws()
+    {
+        var (service, _, root, dbPath) = CreateFixture();
+        try
+        {
+            var pack = await service.CreateDraftPackAsync("char-1");
+            await using var input = new MemoryStream(MinimalPng(64, 64));
+
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                service.UploadAssetAsync(pack.Id, SceneImageReferenceAssetKind.Face, "face.png", input, faceView: null));
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    [Fact]
+    public async Task UploadNonFace_WithFaceView_Throws()
+    {
+        var (service, _, root, dbPath) = CreateFixture();
+        try
+        {
+            var pack = await service.CreateDraftPackAsync("char-1");
+            await using var input = new MemoryStream(MinimalPng(64, 64));
+
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                service.UploadAssetAsync(
+                    pack.Id, SceneImageReferenceAssetKind.Wardrobe, "outfit.png", input,
+                    SceneImageReferenceFaceView.Front));
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    [Fact]
+    public async Task UploadFace_WithFaceView_PersistsView()
+    {
+        var (service, repo, root, dbPath) = CreateFixture();
+        try
+        {
+            var pack = await service.CreateDraftPackAsync("char-1");
+            await using var input = new MemoryStream(MinimalPng(64, 64));
+
+            var asset = await service.UploadAssetAsync(
+                pack.Id, SceneImageReferenceAssetKind.Face, "profile.png", input,
+                SceneImageReferenceFaceView.ThreeQuarterLeft);
+
+            Assert.Equal(SceneImageReferenceFaceView.ThreeQuarterLeft, asset.FaceView);
+            var loaded = await repo.GetAssetAsync(asset.Id);
+            Assert.Equal(SceneImageReferenceFaceView.ThreeQuarterLeft, loaded!.FaceView);
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    [Fact]
+    public async Task SetAssetQuality_PersistsRatingAndNotes()
+    {
+        var (service, repo, root, dbPath) = CreateFixture();
+        try
+        {
+            var pack = await service.CreateDraftPackAsync("char-1");
+            await using var input = new MemoryStream(MinimalPng(64, 64));
+            var asset = await service.UploadAssetAsync(pack.Id, SceneImageReferenceAssetKind.Face, "face.png", input, SceneImageReferenceFaceView.Front);
+
+            await service.SetAssetQualityAsync(asset.Id, SceneImageReferenceQuality.Ok, "Moderate resolution.");
+
+            var loaded = await repo.GetAssetAsync(asset.Id);
+            Assert.Equal(SceneImageReferenceQuality.Ok, loaded!.QualityRating);
+            Assert.Equal("Moderate resolution.", loaded.QualityNotes);
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    [Fact]
+    public async Task UploadFace_AutoAnalyzesQuality()
+    {
+        var (service, _, root, dbPath) = CreateFixture();
+        try
+        {
+            var pack = await service.CreateDraftPackAsync("char-1");
+            await using var input = new MemoryStream(MinimalPng(64, 64));
+
+            var asset = await service.UploadAssetAsync(pack.Id, SceneImageReferenceAssetKind.Face, "tiny.png", input, SceneImageReferenceFaceView.Front);
+
+            Assert.NotEqual(SceneImageReferenceQuality.NotRated, asset.QualityRating);
+            Assert.False(string.IsNullOrWhiteSpace(asset.QualityNotes));
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
     private static (CharacterImageIdentityService Service, CharacterImageIdentityRepository Repo, string Root, string DbPath) CreateFixture()
     {
         var dbPath = Path.Combine(Path.GetTempPath(), $"identity-service-{Guid.NewGuid():N}.db");
@@ -106,7 +209,7 @@ public sealed class CharacterImageIdentityServiceTests
 
         var repo = new CharacterImageIdentityRepository(options);
         var storage = new CharacterImageAssetStorageService(options, NullLogger<CharacterImageAssetStorageService>.Instance);
-        var service = new CharacterImageIdentityService(repo, storage, NullLogger<CharacterImageIdentityService>.Instance);
+        var service = new CharacterImageIdentityService(repo, storage, new ReferenceImageQualityAnalyzer(), NullLogger<CharacterImageIdentityService>.Instance);
         return (service, repo, root, dbPath);
     }
 

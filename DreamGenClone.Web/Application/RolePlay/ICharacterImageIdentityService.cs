@@ -36,6 +36,7 @@ public interface ICharacterImageIdentityService
         SceneImageReferenceAssetKind kind,
         string fileName,
         Stream content,
+        SceneImageReferenceFaceView? faceView = null,
         CancellationToken cancellationToken = default);
 
     Task SetAssetProvenanceAsync(
@@ -45,6 +46,17 @@ public interface ICharacterImageIdentityService
         CancellationToken cancellationToken = default);
 
     Task SetAssetApprovalAsync(string assetId, bool isApproved, CancellationToken cancellationToken = default);
+
+    /// <summary>Set the non-blocking quality rating + notes on a draft-pack asset (informational only).</summary>
+    Task SetAssetQualityAsync(
+        string assetId,
+        SceneImageReferenceQuality quality,
+        string qualityNotes,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Re-run automatic quality analysis on an asset and persist the rating + reasons.</summary>
+    Task<SceneImageReferenceAsset> AnalyzeAssetQualityAsync(
+        string assetId, CancellationToken cancellationToken = default);
 
     Task DeleteAssetAsync(string assetId, CancellationToken cancellationToken = default);
 }

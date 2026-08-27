@@ -5,8 +5,8 @@ They use a dedicated `/workspace` virtual environment and model directory. The e
 pinned Torch/CUDA package graph; compiler packages, temporary files, model artifacts, process, and
 endpoint remain isolated. The scripts never modify the base ComfyUI or Qwen Image Edit 2511 runtime.
 
-The candidate is fixed to `Qwen/Qwen2.5-VL-7B-Instruct-AWQ` revision
-`536a35794df8831aa814970ee8f89eff577e7718`, managed Python 3.13.2, and `vllm==0.27.1`.
+The candidate is fixed to `huihui-ai/Qwen2.5-VL-7B-Instruct-abliterated` revision
+`fa935a7958b3669b194c7ba4d1cfcebbe222641d`, managed Python 3.13.2, and `vllm==0.27.1`.
 The provisioner downloads only that revision and verifies required LFS artifact byte counts and
 SHA-256 values. The launcher selects vLLM's native sampler explicitly because the pod's CUDA 11.8
 compiler cannot build the pinned FlashInfer sampler; model and vision attention remain on
@@ -30,7 +30,8 @@ actual usage with `du` because the FUSE mount's `df` output reports shared-backe
 pod volume quota. Provisioning fails before writing unless the runtime, model, and approved 20 GiB
 post-install headroom fit.
 
-The service binds to `127.0.0.1` and exposes the OpenAI-compatible `/v1/chat/completions` API.
+The service binds to `0.0.0.0` (exposed through the RunPod HTTP proxy) and exposes the
+OpenAI-compatible `/v1/chat/completions` API.
 The health timeout is an explicit operator input sourced from persisted deployment/Model Manager
 configuration; scripts and application code must not supply a hidden default. It must cover the
 measured full transition with operational margin. The proof runner separately enforces the

@@ -65,6 +65,13 @@ public interface ICharacterImageIdentityRepository
     /// </summary>
     Task SetAssetApprovalAsync(string assetId, bool isApproved, CancellationToken cancellationToken = default);
 
+    /// <summary>Set the non-blocking quality rating + notes on a draft-pack asset (informational only).</summary>
+    Task UpdateAssetQualityAsync(
+        string assetId,
+        SceneImageReferenceQuality quality,
+        string qualityNotes,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Delete an asset belonging to a draft pack. Assets of frozen packs cannot be deleted.</summary>
     Task DeleteAssetAsync(string assetId, CancellationToken cancellationToken = default);
 

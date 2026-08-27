@@ -220,6 +220,8 @@ public sealed class CharacterImageIdentityRepository : ICharacterImageIdentityRe
             {
                 IdentityPackId = newPack.Id,
                 AssetKind = asset.AssetKind,
+                FaceView = asset.FaceView,
+                QualityRating = asset.QualityRating,
                 FileRelativePath = asset.FileRelativePath,
                 MediaType = asset.MediaType,
                 Width = asset.Width,
@@ -251,6 +253,23 @@ public sealed class CharacterImageIdentityRepository : ICharacterImageIdentityRe
         if (pack.Status != CharacterImageIdentityPackStatus.Draft)
             throw new InvalidOperationException($"Identity pack '{packId}' is {pack.Status} and cannot be deleted; only draft packs can be deleted.");
 
+        // Deleting a supersede-created draft must restore its parent to Approved. Otherwise removing
+        // the draft would leave the parent stranded as Superseded and the character would have no
+        // usable (approved) identity pack — the pack vanishes from the studio's identity dropdown.
+        // The parent's own assets are untouched (supersede only copies them), so restoring it is safe.
+        if (!string.IsNullOrWhiteSpace(pack.SupersedesId))
+        {
+            var parent = await GetPackAsync(connection, pack.SupersedesId.Trim(), cancellationToken);
+            if (parent is not null && parent.Status == CharacterImageIdentityPackStatus.Superseded)
+            {
+                await using var restore = connection.CreateCommand();
+                restore.Transaction = (SqliteTransaction)transaction;
+                restore.CommandText = "UPDATE CharacterImageIdentityPacks SET Status = 'Approved' WHERE Id = $id;";
+                restore.Parameters.AddWithValue("$id", parent.Id.Trim());
+                await restore.ExecuteNonQueryAsync(cancellationToken);
+            }
+        }
+
         await using var deleteAssets = connection.CreateCommand();
         deleteAssets.Transaction = (SqliteTransaction)transaction;
         deleteAssets.CommandText = "DELETE FROM SceneImageReferenceAssets WHERE IdentityPackId = $packId;";
@@ -281,9 +300,9 @@ public sealed class CharacterImageIdentityRepository : ICharacterImageIdentityRe
         await using var command = connection.CreateCommand();
         command.CommandText = """
             INSERT INTO SceneImageReferenceAssets
-                (Id, IdentityPackId, AssetKind, FileRelativePath, MediaType, Width, Height, ByteLength, Sha256, SourceLabel, ConsentState, IsApproved, CreatedUtc)
+                (Id, IdentityPackId, AssetKind, FaceView, FileRelativePath, MediaType, Width, Height, ByteLength, Sha256, SourceLabel, ConsentState, IsApproved, QualityRating, QualityNotes, CreatedUtc)
             VALUES
-                ($id, $packId, $kind, $path, $mediaType, $width, $height, $byteLength, $sha256, $sourceLabel, $consent, $approved, $createdUtc);
+                ($id, $packId, $kind, $faceView, $path, $mediaType, $width, $height, $byteLength, $sha256, $sourceLabel, $consent, $approved, $quality, $qualityNotes, $createdUtc);
             """;
         AddAssetParameters(command, asset);
         await command.ExecuteNonQueryAsync(cancellationToken);
@@ -324,6 +343,29 @@ public sealed class CharacterImageIdentityRepository : ICharacterImageIdentityRe
         command.CommandText = "UPDATE SceneImageReferenceAssets SET SourceLabel = $sourceLabel, ConsentState = $consent WHERE Id = $id;";
         command.Parameters.AddWithValue("$sourceLabel", sourceLabel.Trim());
         command.Parameters.AddWithValue("$consent", consentState.ToString());
+        command.Parameters.AddWithValue("$id", assetId.Trim());
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    public async Task UpdateAssetQualityAsync(
+        string assetId,
+        SceneImageReferenceQuality quality,
+        string qualityNotes,
+        CancellationToken cancellationToken = default)
+    {
+        Require(assetId, "Reference asset id");
+        if (!Enum.IsDefined(quality))
+            throw new InvalidOperationException("Reference asset quality rating must be a valid value.");
+
+        await using var connection = await OpenAsync(cancellationToken);
+        var asset = await GetAssetAsync(connection, assetId.Trim(), cancellationToken)
+            ?? throw new InvalidOperationException($"Reference asset '{assetId}' was not found.");
+        await RequireDraftPackAsync(connection, asset.IdentityPackId, cancellationToken);
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = "UPDATE SceneImageReferenceAssets SET QualityRating = $quality, QualityNotes = $qualityNotes WHERE Id = $id;";
+        command.Parameters.AddWithValue("$quality", quality.ToString());
+        command.Parameters.AddWithValue("$qualityNotes", qualityNotes);
         command.Parameters.AddWithValue("$id", assetId.Trim());
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
@@ -414,6 +456,7 @@ public sealed class CharacterImageIdentityRepository : ICharacterImageIdentityRe
                 Id TEXT PRIMARY KEY,
                 IdentityPackId TEXT NOT NULL,
                 AssetKind TEXT NOT NULL,
+                FaceView TEXT NULL,
                 FileRelativePath TEXT NOT NULL,
                 MediaType TEXT NOT NULL,
                 Width INTEGER NULL,
@@ -423,6 +466,8 @@ public sealed class CharacterImageIdentityRepository : ICharacterImageIdentityRe
                 SourceLabel TEXT NOT NULL DEFAULT '',
                 ConsentState TEXT NOT NULL,
                 IsApproved INTEGER NOT NULL DEFAULT 0,
+                QualityRating TEXT NOT NULL DEFAULT 'NotRated',
+                QualityNotes TEXT NOT NULL DEFAULT '',
                 CreatedUtc TEXT NOT NULL,
                 FOREIGN KEY (IdentityPackId) REFERENCES CharacterImageIdentityPacks(Id) ON DELETE RESTRICT
             );
@@ -430,6 +475,49 @@ public sealed class CharacterImageIdentityRepository : ICharacterImageIdentityRe
                 ON SceneImageReferenceAssets (IdentityPackId);
             """;
         await command.ExecuteNonQueryAsync(cancellationToken);
+
+        // Multi-angle support: add FaceView to existing reference asset tables and backfill the
+        // pre-existing Face rows (all canonical portraits) as Front.
+        var assetColumns = await QueryColumnsAsync(connection, "SceneImageReferenceAssets", cancellationToken);
+        if (!assetColumns.Contains("FaceView"))
+        {
+            await using var alter = connection.CreateCommand();
+            alter.CommandText = "ALTER TABLE SceneImageReferenceAssets ADD COLUMN FaceView TEXT NULL;";
+            await alter.ExecuteNonQueryAsync(cancellationToken);
+
+            await using var backfill = connection.CreateCommand();
+            backfill.CommandText = "UPDATE SceneImageReferenceAssets SET FaceView = 'Front' WHERE AssetKind = 'Face' AND FaceView IS NULL;";
+            await backfill.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        // Non-blocking quality rating (informational only; never gates approval or rendering).
+        if (!assetColumns.Contains("QualityRating"))
+        {
+            await using var alter = connection.CreateCommand();
+            alter.CommandText = "ALTER TABLE SceneImageReferenceAssets ADD COLUMN QualityRating TEXT NOT NULL DEFAULT 'NotRated';";
+            await alter.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        if (!assetColumns.Contains("QualityNotes"))
+        {
+            await using var alter = connection.CreateCommand();
+            alter.CommandText = "ALTER TABLE SceneImageReferenceAssets ADD COLUMN QualityNotes TEXT NOT NULL DEFAULT '';";
+            await alter.ExecuteNonQueryAsync(cancellationToken);
+        }
+    }
+
+    private static async Task<HashSet<string>> QueryColumnsAsync(
+        SqliteConnection connection, string table, CancellationToken cancellationToken)
+    {
+        var columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"PRAGMA table_info({table});";
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            columns.Add(reader.GetString(1));
+        }
+        return columns;
     }
 
     private const string PackSelect = """
@@ -438,7 +526,7 @@ public sealed class CharacterImageIdentityRepository : ICharacterImageIdentityRe
         """;
 
     private const string AssetSelect = """
-        SELECT Id, IdentityPackId, AssetKind, FileRelativePath, MediaType, Width, Height, ByteLength, Sha256, SourceLabel, ConsentState, IsApproved, CreatedUtc
+        SELECT Id, IdentityPackId, AssetKind, FaceView, FileRelativePath, MediaType, Width, Height, ByteLength, Sha256, SourceLabel, ConsentState, IsApproved, QualityRating, QualityNotes, CreatedUtc
         FROM SceneImageReferenceAssets
         """;
 
@@ -504,9 +592,9 @@ public sealed class CharacterImageIdentityRepository : ICharacterImageIdentityRe
         command.Transaction = transaction;
         command.CommandText = """
             INSERT INTO SceneImageReferenceAssets
-                (Id, IdentityPackId, AssetKind, FileRelativePath, MediaType, Width, Height, ByteLength, Sha256, SourceLabel, ConsentState, IsApproved, CreatedUtc)
+                (Id, IdentityPackId, AssetKind, FaceView, FileRelativePath, MediaType, Width, Height, ByteLength, Sha256, SourceLabel, ConsentState, IsApproved, QualityRating, QualityNotes, CreatedUtc)
             VALUES
-                ($id, $packId, $kind, $path, $mediaType, $width, $height, $byteLength, $sha256, $sourceLabel, $consent, $approved, $createdUtc);
+                ($id, $packId, $kind, $faceView, $path, $mediaType, $width, $height, $byteLength, $sha256, $sourceLabel, $consent, $approved, $quality, $qualityNotes, $createdUtc);
             """;
         AddAssetParameters(command, asset);
         await command.ExecuteNonQueryAsync(cancellationToken);
@@ -537,16 +625,19 @@ public sealed class CharacterImageIdentityRepository : ICharacterImageIdentityRe
             Id = id,
             IdentityPackId = reader.GetString(1),
             AssetKind = ParseEnum<SceneImageReferenceAssetKind>(reader.GetString(2), "reference asset", id),
-            FileRelativePath = reader.GetString(3),
-            MediaType = reader.GetString(4),
-            Width = reader.IsDBNull(5) ? null : reader.GetInt32(5),
-            Height = reader.IsDBNull(6) ? null : reader.GetInt32(6),
-            ByteLength = reader.GetInt64(7),
-            Sha256 = reader.GetString(8),
-            SourceLabel = reader.GetString(9),
-            ConsentState = ParseEnum<SceneImageReferenceConsentState>(reader.GetString(10), "reference asset", id),
-            IsApproved = reader.GetInt32(11) != 0,
-            CreatedUtc = ParseUtc(reader.GetString(12), "reference asset", id)
+            FaceView = reader.IsDBNull(3) ? null : ParseEnum<SceneImageReferenceFaceView>(reader.GetString(3), "reference asset", id),
+            FileRelativePath = reader.GetString(4),
+            MediaType = reader.GetString(5),
+            Width = reader.IsDBNull(6) ? null : reader.GetInt32(6),
+            Height = reader.IsDBNull(7) ? null : reader.GetInt32(7),
+            ByteLength = reader.GetInt64(8),
+            Sha256 = reader.GetString(9),
+            SourceLabel = reader.GetString(10),
+            ConsentState = ParseEnum<SceneImageReferenceConsentState>(reader.GetString(11), "reference asset", id),
+            IsApproved = reader.GetInt32(12) != 0,
+            QualityRating = ParseEnum<SceneImageReferenceQuality>(reader.GetString(13), "reference asset", id),
+            QualityNotes = reader.GetString(14),
+            CreatedUtc = ParseUtc(reader.GetString(15), "reference asset", id)
         };
     }
 
@@ -568,6 +659,7 @@ public sealed class CharacterImageIdentityRepository : ICharacterImageIdentityRe
         command.Parameters.AddWithValue("$id", asset.Id.Trim());
         command.Parameters.AddWithValue("$packId", asset.IdentityPackId.Trim());
         command.Parameters.AddWithValue("$kind", asset.AssetKind.ToString());
+        command.Parameters.AddWithValue("$faceView", (object?)asset.FaceView?.ToString() ?? DBNull.Value);
         command.Parameters.AddWithValue("$path", asset.FileRelativePath);
         command.Parameters.AddWithValue("$mediaType", asset.MediaType);
         command.Parameters.AddWithValue("$width", (object?)asset.Width ?? DBNull.Value);
@@ -577,6 +669,8 @@ public sealed class CharacterImageIdentityRepository : ICharacterImageIdentityRe
         command.Parameters.AddWithValue("$sourceLabel", asset.SourceLabel);
         command.Parameters.AddWithValue("$consent", asset.ConsentState.ToString());
         command.Parameters.AddWithValue("$approved", asset.IsApproved ? 1 : 0);
+        command.Parameters.AddWithValue("$quality", asset.QualityRating.ToString());
+        command.Parameters.AddWithValue("$qualityNotes", asset.QualityNotes);
         command.Parameters.AddWithValue("$createdUtc", asset.CreatedUtc.ToString("O"));
     }
 
@@ -596,6 +690,11 @@ public sealed class CharacterImageIdentityRepository : ICharacterImageIdentityRe
         RequireSha256(asset.Sha256, "Reference asset checksum");
         if (asset.ByteLength <= 0) throw new InvalidOperationException("Reference asset byte length must be positive.");
         if (asset.AssetKind == default) throw new InvalidOperationException("Reference asset kind must be explicit.");
+        if (asset.AssetKind == SceneImageReferenceAssetKind.Face && asset.FaceView is null)
+            throw new InvalidOperationException(
+                "A face reference asset requires an explicit face view (Front, ThreeQuarterLeft, ThreeQuarterRight, ProfileLeft, ProfileRight).");
+        if (!Enum.IsDefined(asset.QualityRating))
+            throw new InvalidOperationException("Reference asset quality rating must be a valid value.");
         if (asset.ConsentState == SceneImageReferenceConsentState.Unknown && asset.IsApproved)
             throw new InvalidOperationException("A reference asset with unknown consent cannot be approved.");
     }

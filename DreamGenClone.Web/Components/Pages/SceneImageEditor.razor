@@ -114,6 +114,7 @@
                         <div class="scene-edit-clarification mt-3">
                             <span class="scene-edit-kicker">Clarification needed</span>
                             <p class="mb-2">@_compilationResult.ClarificationQuestion</p>
+                            <div class="form-text text-muted mb-2">Model observed: @_compilationResult.SourceSummary</div>
                             <div class="input-group">
                                 <input class="form-control" @bind="_clarificationAnswer" placeholder="Answer using visible details" />
                                 <button class="btn btn-outline-primary" @onclick="SubmitClarificationAsync"
@@ -128,6 +129,31 @@
                     {
                         <div class="alert alert-danger mt-3 mb-0">
                             <strong>Cannot prepare this edit.</strong> @_compilationResult.InvalidReason
+                            <div class="scene-edit-summary-group mt-2">
+                                <span>What the model observed</span>
+                                <p class="mb-0">@_compilationResult.SourceSummary</p>
+                            </div>
+                            <div class="scene-edit-summary-group">
+                                <span>Requested changes</span>
+                                <ul class="mb-0">
+                                    @foreach (var change in _compilationResult.RequestedChanges)
+                                    {
+                                        <li>@change</li>
+                                    }
+                                </ul>
+                            </div>
+                            <div class="scene-edit-summary-group">
+                                <span>Preserve</span>
+                                <ul class="mb-0">
+                                    @foreach (var item in _compilationResult.Preserve)
+                                    {
+                                        <li>@item</li>
+                                    }
+                                </ul>
+                            </div>
+                            <div class="form-text text-muted">
+                                If the model's observation does not match the image, rephrase the intent to describe what is actually visible, then prepare the edit again.
+                            </div>
                         </div>
                     }
                     @if (_attempt?.Status == SceneImageEditCompilationAttemptStatus.Failed)
