@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "updatedUtc": "2026-08-27",
+  "purpose": "Registry for RunPod Serverless endpoints (B-101 migration). One entry per endpoint = one worker image + one endpoint config + one Model Manager provider mapping. Mirrors helpers/runpod/pod-registry.json for the old pods. Every image/endpoint change MUST be recorded here and reproducible from the Dockerfile + config.",
+  "containerRegistry": "ghcr.io/daturoinoxia/dreamgenclone",
+  "notes": [
+    "Docker is NOT installed on the dev host. Default builder = GitHub Actions workflow .github/workflows/build-serverless-worker.yml -> pushes to GHCR (containerRegistry). Repo DaturaInoxia/DreamGenClone is PUBLIC; set GHCR package visibility to Public so RunPod can pull without credentials (or use a read:packages PAT in the endpoint container.imageAuth).",
+    "Endpoint API field names (minWorkers/maxWorkers/idleTimeout/gpuIds) verified at P0 against the live RunPod serverless API/console before the first create.",
+    "Serverless workers have no SSH. Debugging = build -> deploy -> send job -> read job logs -> iterate.",
+    "Migration order: DWPose (infra proof, no app changes) -> Juggernaut (first app-integrated) -> identity -> Qwen VL -> Qwen Edit.",
+    "Pods stay running (stopped-not-deleted) as rollback until each endpoint soaks green.",
+    "QWEN EDIT MODEL DECISION (2026-08-28): stock qwen_image_edit_2511_fp8mixed.safetensors is safety-aligned (genital region blanks to 'mannequin'); the pod-side Scottzilla MCNL v1 NSFW LoRA proof FAILED (anatomy confusion). The qwen-edit-worker MUST bake Phr00t/Qwen-Image-Edit-Rapid-AIO-NSFW-v23 (26.48 GB FP8, ungated: huggingface.co/Phr00t/Qwen-Image-Edit-Rapid-AIO/resolve/main/v23/Qwen-Rapid-AIO-NSFW-v23.safetensors; SFW sibling v23/Qwen-Rapid-AIO-SFW-v23.safetensors). No runtime LoRA (baked). Load via CheckpointLoaderSimple (model+clip+vae), ~4-8 steps / 1 CFG / euler_ancestral/beta. GGUF NVFP4 variants need Blackwell/CUDA 13+ - dead end on this fleet. Full detail: specs/Planning/B-101-serverless-migration/plan.md MODEL DECISION block."
+  ],
+  "endpoints": [
+    {
+      "endpointKey": "pose-dwpose-serverless",
+      "function": "Pose extraction (DWPose)",
+      "capability": "PoseExtraction",
+      "status": "smoke-testing",
+      "endpointId": "06lhf1akdg34c2",
+      "requestUrls": {
+        "run": "https://api.runpod.ai/v2/06lhf1akdg34c2/run",
+        "runSync": "https://api.runpod.ai/v2/06lhf1akdg34c2/runsync",
+        "health": "https://api.runpod.ai/v2/06lhf1akdg34c2/health"
+      },
+      "workerImage": "ghcr.io/daturoinoxia/dreamgenclone/dreamgen-dwpose-worker:0.3.0",
+      "workerDir": "helpers/runpod/serverless/dwpose-worker",
+      "imageVerified": {
+        "built": "2026-08-28 run 33139945603 (GH Actions, 25m)",
+        "publicPullVerified": "anonymous docker pull OK - digest sha256:49321d6895aad1e8e6aa7f2b0556ea34f40f72a78bdd9e13507ef675b2eb5afd",
+        "note": "GHCR visibility took ~50 min to propagate to the registry edge after the push (see /memories/repo/ghcr-public-propagation-delay.md)"
+      },
+      "verifiedSecurePricePerHr": {"gpu": "RTX 4000 Ada", "price": 0.28, "source": "live gpuTypes query 2026-08-28 via get-available-gpus.ps1"},
+      "gpuTypeId": "RTX 4000 Ada",
+      "candidateGpuTypeIds": [
+        "NVIDIA RTX 4000 Ada",
+        "NVIDIA RTX A5000",
+        "NVIDIA GeForce RTX 3090 Ti"
+      ],
+      "candidateNotes": "DWPose is light (OpenCV-CPU pose extractor). Any cheap GPU works; a NON-Blackwell GPU avoids the cu128 torch requirement (Blackwell sm_120 needs torch 2.7.0+cu128).",
+      "minWorkers": 0,
+      "maxWorkers": 1,
+      "idleTimeoutSec": 180,
+      "env": {},
+      "modelManager": {
+        "registered": false,
+        "providerName": "Not registered in Model Manager (intentional) - same as pod"
+      },
+      "smokeTest": {
+        "jobInput": "{\"image_b64\":\"<data:image/png;base64,...>\"}",
+        "expectedOutput": "OpenPose JSON keypoints + rendered PNG",
+        "deepProof": "helpers/runpod/workflows/dwpose-extract-proof.json equivalent run through the endpoint handler"
+      },
+      "persistence": {
+        "standard": "Worker image is immutable; cold start = fresh container from image. Model/ckpt downloads happen at image build or first start.",
+        "restartProof": true
+      },
+      "migratedFromDeploymentKey": "pose-dwpose-prod"
+    }
+  ]
+}
