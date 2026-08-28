@@ -1,8 +1,9 @@
 # smoke-test.ps1 - send a test job to a Serverless endpoint and read the result/logs
 #
 # B-101. Replaces the pod readiness/identity probes (no persistent HTTP to probe).
-# Uses the RunPod Serverless job API: POST /v2/{endpointId}/runsync (or /run + /status).
-# P0 GATE: verify the /v2 job API response shape against live RunPod before first use.
+# Uses the RunPod Serverless job API: POST https://api.runpod.ai/v2/{endpointId}/runsync?wait=N
+# (the base URL + requestUrls come from the created endpoint; the create returned api.runpod.ai).
+# First call cold-starts (pulls image + boots), so wait is set high (600s) for the smoke test.
 #
 # Usage:
 #   powershell -ExecutionPolicy RemoteSigned -File helpers/runpod/serverless/smoke-test.ps1 `
@@ -38,12 +39,31 @@ if ($ImagePath) {
 $headers = @{ Authorization = "Bearer $env:RUNPOD_API_KEY" }
 $body = @{ input = $jobInput } | ConvertTo-Json -Depth 10
 
-Write-Host "Sending test job to $EndpointKey ($endpointId) ..."
-$resp = Invoke-RestMethod -Uri "https://api.runpod.io/v2/$endpointId/runsync" -Method POST -Headers $headers -ContentType "application/json" -Body $body
-$resp | ConvertTo-Json -Depth 12
+# Async submit + poll (runsync 'wait' is capped at 300000 ms = 5 min, which is too
+# short for a cold start that pulls a ~15-20 GB image; this is also the pattern the
+# app will need for long jobs).
+$base = "https://api.runpod.ai/v2/$endpointId"
+Write-Host "Submitting job to $EndpointKey ($endpointId) ... (cold start may take several minutes)"
+$submit = Invoke-RestMethod -Uri "$base/run" -Method POST -Headers $headers -ContentType "application/json" -Body $body -TimeoutSec 60
+$jobId = $submit.id
+Write-Host "submitted job: $jobId (status $($submit.status))"
 
-if ($resp.status -eq "COMPLETED") {
-    Write-Host "`nPASS: job completed. Inspect output for OpenPose JSON + rendered PNG."
-} else {
-    Write-Host "`nFAIL/other: inspect 'status' + 'output' above; check RunPod console for job logs (no SSH)."
+$done = $false
+for ($i = 1; $i -le 90; $i++) {   # up to ~15 min
+    Start-Sleep -Seconds 10
+    try {
+        $st = Invoke-RestMethod -Uri "$base/status/$jobId" -Headers $headers -TimeoutSec 60
+    } catch {
+        Write-Host "  ... status poll error: $($_.Exception.Message) (retrying)"
+        continue
+    }
+    Write-Host "  poll $i : status=$($st.status)"
+    if ($st.status -in @("COMPLETED", "FAILED", "CANCELLED", "TIMED_OUT")) {
+        $st | ConvertTo-Json -Depth 12
+        $done = $true
+        break
+    }
 }
+if (-not $done) { Write-Host "`nTIMEOUT after 15 min - check RunPod console for the job's status/logs." }
+elseif ($st.status -eq "COMPLETED") { Write-Host "`nPASS: job completed. Inspect output for OpenPose JSON + rendered PNG." }
+else { Write-Host "`nFAIL: inspect 'output'/'error' above; check RunPod console for job logs (no SSH)." }

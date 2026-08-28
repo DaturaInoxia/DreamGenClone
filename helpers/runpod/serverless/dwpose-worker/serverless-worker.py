@@ -24,18 +24,17 @@ COMFYUI_PORT = 8188
 COMFYUI_HOST = f"http://127.0.0.1:{COMFYUI_PORT}"
 INPUT_DIR = Path(COMFYUI_DIR) / "input"
 
-# DWPose ckpts resolved by comfyui_controlnet_aux (into its ckpts dir). These are
-# the pod's verified files (sha256 in the phase-0 identity model manifest); URLs are
-# finalized at P1 by reusing the pod's existing files/URLs.
+# DWPose ckpts BAKED into the image (see Dockerfile) under the aux node's ckpts dir.
+# Sha256 = the pod's verified files (identity model manifest). ensure_ckpts() verifies
+# presence + integrity and FAILS FAST - no runtime download (cold containers are
+# deterministic; a runtime download hung the workflow on the 0.3.0 image).
+# Source URLs (pinned aux README):
+#   dw-ll_ucoco_384_bs5.torchscript.pt  https://huggingface.co/hr16/DWPose-TorchScript-BatchSize5/resolve/main/dw-ll_ucoco_384_bs5.torchscript.pt
+#   yolox_l.torchscript.pt              https://huggingface.co/hr16/yolox-onnx/resolve/main/yolox_l.torchscript.pt
+AUX_CKPTS_DIR = Path(COMFYUI_DIR) / "custom_nodes" / "comfyui_controlnet_aux" / "ckpts" / "dwpose"
 CKPT_FILES = {
-    "dw-ll_ucoco_384_bs5.torchscript.pt": {
-        "url": None,  # TODO(P1): exact URL; sha256 d86a0b2b59fddc0901a7076e9f59c9f8602602133ed72511c693fd11eea23d91
-        "sha256": "d86a0b2b59fddc0901a7076e9f59c9f8602602133ed72511c693fd11eea23d91",
-    },
-    "yolox_l.torchscript.pt": {
-        "url": None,  # TODO(P1): exact URL; sha256 80bc14b13c260c24b3014cd42c02994bf52296ab8fa2d80a60b6afe08c93ef42
-        "sha256": "80bc14b13c260c24b3014cd42c02994bf52296ab8fa2d80a60b6afe08c93ef42",
-    },
+    "dw-ll_ucoco_384_bs5.torchscript.pt": "d86a0b2b59fddc0901a7076e9f59c9f8602602133ed72511c693fd11eea23d91",
+    "yolox_l.torchscript.pt": "80bc14b13c260c24b3014cd42c02994bf52296ab8fa2d80a60b6afe08c93ef42",
 }
 
 _comfy_started = False
@@ -47,12 +46,20 @@ def _log(msg: str) -> None:
 
 
 def ensure_ckpts() -> None:
-    """Download verified DWPose ckpts if not already present (idempotent, small)."""
-    # Resolve the aux ckpts dir. ControlNet aux looks in
-    #   <repo>/ckpts/dwpose  (i.e. /ComfyUI/custom_nodes/comfyui_controlnet_aux/ckpts/dwpose)
-    # and downloads if missing. TODO(P1): implement exact download+sha256 verify here
-    # (reuse helpers/runpod/author-touch-pose.py helpers or the pod's files).
-    _log("ensure_ckpts: TODO(P1) - verify/download dw-ll_ucoco_384_bs5 + yolox_l")
+    """Verify the baked DWPose ckpts exist + sha256-match. Fail fast, no download."""
+    import hashlib
+    bad = []
+    for name, expected_sha in CKPT_FILES.items():
+        p = AUX_CKPTS_DIR / name
+        if not p.is_file():
+            bad.append(f"{name} MISSING at {p}")
+        else:
+            actual = hashlib.sha256(p.read_bytes()).hexdigest()
+            if actual != expected_sha:
+                bad.append(f"{name} sha256 mismatch: {actual} (expected {expected_sha})")
+    if bad:
+        raise RuntimeError("DWPose ckpts not ready: " + "; ".join(bad))
+    _log(f"ensure_ckpts: OK ({len(CKPT_FILES)} files verified)")
 
 
 def ensure_comfyui() -> None:
@@ -91,9 +98,8 @@ def _write_input_image(image_b64: str) -> str:
 
 def build_workflow(image_name: str) -> dict:
     """Same shape as helpers/runpod/workflows/dwpose-extract-proof.json:
-    LoadImage -> DWPreprocessor -> SaveImage.
-    TODO(P1): finalize exact node ids + how the OpenPose JSON is serialized for
-    return (the pod proof writes a .json artifact alongside the PNG)."""
+    LoadImage -> DWPreprocessor -> SaveImage. Returns the rendered pose PNG.
+    TODO(P1): also emit OpenPose JSON keypoints (decode_json_as_poses) for return."""
     return {
         "1": {
             "class_type": "LoadImage",
@@ -101,7 +107,16 @@ def build_workflow(image_name: str) -> dict:
         },
         "2": {
             "class_type": "DWPreprocessor",
-            "inputs": {"image": ["1", 0], "detect_hand": "enable", "detect_body": "enable", "detect_face": "enable"},
+            "inputs": {
+                "image": ["1", 0],
+                "detect_hand": "enable",
+                "detect_body": "enable",
+                "detect_face": "enable",
+                "resolution": 512,
+                "bbox_detector": "yolox_l.torchscript.pt",
+                "pose_estimator": "dw-ll_ucoco_384_bs5.torchscript.pt",
+                "scale_stick_for_xinsr_cn": "disable",
+            },
         },
         "3": {
             "class_type": "SaveImage",
@@ -116,8 +131,14 @@ def _run_comfyui_workflow(workflow: dict) -> dict:
     prompt_id = resp.json()["prompt_id"]
     for _ in range(180):  # up to 6 min
         hist = requests.get(f"{COMFYUI_HOST}/history/{prompt_id}", timeout=15).json()
-        if prompt_id in hist and hist[prompt_id].get("outputs"):
-            return hist[prompt_id]["outputs"]
+        if prompt_id in hist:
+            entry = hist[prompt_id]
+            if entry.get("outputs"):
+                return entry["outputs"]
+            status = entry.get("status", {})
+            if status.get("status_str") == "error":
+                errs = [m[1] for m in status.get("messages", []) if isinstance(m, list) and m and m[0] == "execution_error"]
+                raise RuntimeError("ComfyUI workflow error: " + (json.dumps(errs[0]) if errs else json.dumps(status)))
         time.sleep(2)
     raise TimeoutError("workflow did not finish in time")
 
