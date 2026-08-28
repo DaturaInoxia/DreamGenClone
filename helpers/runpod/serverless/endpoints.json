@@ -136,6 +136,33 @@
       },
       "migratedFromDeploymentKey": "image-gen-juggernaut",
       "note": "Juggernaut uses the STOCK base image + volume (no custom Dockerfile, no custom nodes). Next: confirm upload complete -> create endpoint (create-endpoint.ps1) -> smoke test with juggernaut-t2i.json -> PATCH idleTimeout per dev-warm strategy."
+    },
+    {
+      "endpointKey": "compiler-qwen-vl-serverless",
+      "function": "Qwen2.5-VL 7B abliterated image compiler (vLLM)",
+      "capability": "ImageVisionCompiler",
+      "status": "pending-model-upload",
+      "endpointId": "",
+      "deployment": "vLLM serverless worker (NOT worker-comfyui) - worker image TBD. Model served from Network Volume at /runpod-volume/qwen-vl-edit-compiler/model. Create via create-endpoint.ps1 with minCudaVersion 13.0.",
+      "workerImage": "<vllm-worker-image-tbd>",
+      "baseImage": "TBD (vLLM serverless worker; torch CUDA 13.0 required)",
+      "gpuTypeId": "NVIDIA L40S",
+      "gpuPool": "ADA_48_PRO (L40S) - PROVEN for CUDA-13 vLLM; do NOT use A5000 (driver 550 = CUDA 12.4)",
+      "minCudaVersion": "13.0",
+      "minWorkers": 0,
+      "maxWorkers": 1,
+      "idleTimeoutSec": 1800,
+      "timeoutMs": 900000,
+      "flashboot": "OFF",
+      "networkVolumes": ["xkslgh6xo0"],
+      "dataCenterIds": ["EU-RO-1"],
+      "volumeModelPath": "/runpod-volume/qwen-vl-edit-compiler/model",
+      "env": { "VLLM_USE_FLASHINFER_SAMPLER": "0" },
+      "modelManager": { "registered": false, "providerName": "RunPod Qwen VL image compiler - TBD (existing provider 2dde3563 points at the dead pod; re-point or add when the vLLM endpoint is live)" },
+      "smokeTest": { "jobInput": "vLLM OpenAI /v1/chat/completions with image", "expectedOutput": "schema-valid structured JSON (prove-one-image.py)" },
+      "persistence": { "standard": "Model on volume; vLLM worker image immutable. CUDA-13 host required (minCudaVersion 13.0).", "restartProof": true },
+      "migratedFromDeploymentKey": "image-vision-qwen-vl-prod",
+      "note": "CRITICAL GPU CONSTRAINT: vLLM pinned torch CUDA 13.0 -> host driver >= 580. L40S is the PROVEN GPU; A5000 is FORBIDDEN (2026-08-27 driver-550 failure). create-endpoint.ps1 supports gpu.minCudaVersion since 2026-08-28."
     }
   ]
 }

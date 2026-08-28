@@ -47,11 +47,23 @@ $pool = [string]$gpu.pool
 #   dataCenterIds  : array of DC IDs to constrain placement to
 #   timeoutMs      : per-JOB execution cap in ms (default 300000 = 5 min, too short for cold starts)
 #   flashboot      : "FLASHBOOT" / "PRIORITY_FLASHBOOT" / "OFF" (cold-start acceleration)
+#   minCudaVersion / allowedCudaVersions : pin worker placement to hosts whose CUDA driver supports
+#       the workload's torch build (e.g. Qwen VL vLLM needs CUDA 13.0 = host driver >= 580).
+#       Set at most ONE of them (a non-empty allowedCudaVersions and minCudaVersion are mutually
+#       exclusive -> 400). format: "13.0" / ["13.0","12.8"].
+$gpuConfig = @{ pools = @($pool); count = 1 }
+if ($entry.PSObject.Properties.Name -contains 'minCudaVersion' -and -not [string]::IsNullOrWhiteSpace($entry.minCudaVersion)) {
+    $gpuConfig.minCudaVersion = [string]$entry.minCudaVersion
+}
+if ($entry.PSObject.Properties.Name -contains 'allowedCudaVersions' -and $entry.allowedCudaVersions -and $entry.allowedCudaVersions.Count -gt 0) {
+    $gpuConfig.allowedCudaVersions = @($entry.allowedCudaVersions)
+}
+
 $bodyObj = @{
     name  = $EndpointKey
     image = [string]$entry.workerImage
     type  = "QUEUE"
-    gpu   = @{ pools = @($pool); count = 1 }
+    gpu   = $gpuConfig
     workers = @{
         min         = [int]$entry.minWorkers
         max         = [int]$entry.maxWorkers
@@ -75,6 +87,8 @@ Write-Host "============================================================"
 Write-Host "Create Serverless endpoint: $($entry.function) [$EndpointKey]"
 Write-Host "  image      : $($entry.workerImage)"
 Write-Host "  gpu        : $($entry.gpuTypeId)  pool=$pool  srv=$($gpu.price.serverless)/hr"
+if ($gpuConfig.ContainsKey('minCudaVersion'))          { Write-Host "  cuda       : minCudaVersion=$($gpuConfig.minCudaVersion)" }
+if ($gpuConfig.ContainsKey('allowedCudaVersions'))     { Write-Host "  cuda       : allowedCudaVersions=$($gpuConfig.allowedCudaVersions -join ',')" }
 Write-Host "  workers    : min=$($entry.minWorkers) max=$($entry.maxWorkers) idle=$($entry.idleTimeoutSec)s  (QUEUE / QUEUE_DELAY)"
 if ($bodyObj.ContainsKey('networkVolumes')) { Write-Host "  volume     : $($bodyObj.networkVolumes -join ',')" }
 if ($bodyObj.ContainsKey('dataCenterIds'))  { Write-Host "  dc         : $($bodyObj.dataCenterIds -join ',')" }

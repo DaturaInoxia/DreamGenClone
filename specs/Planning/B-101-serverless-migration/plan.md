@@ -104,6 +104,16 @@ Volume budget check: 7.1 + 28.4 + 16.6 + 4.5 ≈ 56.6 GB of 80 GB. **Honest time
 downloads are fast (~10 MB/s); the bottleneck is the S3 upload through the dev host's upstream
 (Juggernaut 7.1 GB took ~30-45 min ⇒ Qwen Edit alone ≈ 2-4 h upload). Uploads run in background.
 
+**CUDA-GPU constraint for Qwen VL (CRITICAL — covers the 2026-08-27 A5000 driver failure):** the Qwen
+VL vLLM runtime is pinned to **torch CUDA 13.0** ⇒ every worker host must have a driver ≥ 580.
+- **L40S (serverless pool `ADA_48_PRO`) is the PROVEN GPU**; the old Qwen VL pod ran CUDA-13 vLLM on L40S.
+- **A5000 is FORBIDDEN** for this workload (landed on driver 550 = CUDA 12.4 → vLLM `driver too old 12040`).
+- The RunPod create-endpoint API pins this via `gpu.minCudaVersion: "13.0"` (or `allowedCudaVersions`).
+  `create-endpoint.ps1` now reads `minCudaVersion`/`allowedCudaVersions` from the entry
+  (mutually exclusive; set one). Draft entry `compiler-qwen-vl-serverless` added to `endpoints.json`
+  with `minCudaVersion: "13.0"`, `ADA_48_PRO`, volume model path. Qwen Edit (worker-comfyui cu128,
+  driver ≥ 570) and Juggernaut are less strict; a pin is optional there.
+
 ## 1.5 Storage integration (Network Volume) — proven on DWPose, then applied to big models
 
 **Goal (user decision 2026-08-28):** after the DWPose endpoint works with baked ckpts, move the
