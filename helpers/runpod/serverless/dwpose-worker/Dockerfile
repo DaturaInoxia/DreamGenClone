@@ -12,7 +12,10 @@
 #
 # Reference: https://github.com/runpod-workers/worker-comfyui/blob/main/docs/customization.md
 # (Method 1: custom Dockerfile FROM runpod/worker-comfyui:<version>-base).
-FROM runpod/worker-comfyui:5.8.7-base
+# NOTE: newest published -base tag is 5.8.4-base (5.8.7 has no -base on Docker Hub;
+# verified 2026-08-28 via hub.docker.com/v2/repositories/runpod/worker-comfyui/tags).
+# -base = clean ComfyUI runtime, NO models (~11-16 GB, vs 33 GB pod image).
+FROM runpod/worker-comfyui:5.8.4-base
 
 # [1] pinned comfyui_controlnet_aux (same commit verified on the pod + 0.5.0).
 ARG PINNED_AUX=e8b689a513c3e6b63edc44066560ca5919c0576e
