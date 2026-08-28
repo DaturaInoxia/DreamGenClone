@@ -1,6 +1,8 @@
 # watch-scale-down.ps1 - poll a RunPod serverless endpoint until it scales to zero workers.
 # Verifies the endpoint honors idleTimeout (scale-to-zero). Prints state changes; exits 0 when
-# total workers == 0, exits 1 if it does not scale down within MaxMinutes.
+# total workers == 0 OR when all workers are Idle (RunPod docs: Idle = "scaled down", NOT billed;
+# flex workers with minWorkers=0 keep their worker slot at total=1 while idle, so total=0 never
+# happens for them). Exits 1 if it is still Running (billing) at MaxMinutes.
 #
 # Usage:
 #   powershell -ExecutionPolicy RemoteSigned -File helpers/runpod/serverless/watch-scale-down.ps1 `
@@ -8,7 +10,8 @@
 param(
     [Parameter(Mandatory = $true)][string]$EndpointKey,
     [int]$MaxMinutes = 40,
-    [int]$PollSeconds = 60
+    [int]$PollSeconds = 60,
+    [switch]$RequireTotalZero   # strictly require total==0 (default: Idle counts as scaled-down)
 )
 
 $ErrorActionPreference = "Stop"
@@ -38,8 +41,12 @@ while ((Get-Date) -lt $deadline) {
             Write-Host "$(Get-Date -Format 'HH:mm:ss') $state"
             $last = $state
         }
-        if ($s.total -eq 0) {
-            Write-Host "SCALED DOWN: zero workers (idleTimeout honored)."
+        if ($s.total -eq 0 -or (-not $RequireTotalZero -and $s.total -gt 0 -and $s.idle -eq $s.total -and $s.running -eq 0 -and $s.initializing -eq 0)) {
+            if ($s.total -eq 0) {
+                Write-Host "SCALED DOWN: zero workers (idleTimeout honored)."
+            } else {
+                Write-Host "SCALED DOWN: all workers Idle (total=$($s.total)) - per RunPod docs Idle = scaled down, NOT billed. idleTimeout honored."
+            }
             exit 0
         }
     } catch {
