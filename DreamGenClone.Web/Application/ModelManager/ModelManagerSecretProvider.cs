@@ -1,15 +1,21 @@
 using DreamGenClone.Infrastructure.Configuration;
-using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Configuration;
 
 namespace DreamGenClone.Web.Application.ModelManager;
 
 public sealed class ModelManagerSecretProvider : IModelManagerSecretProvider
 {
-    private readonly ModelManagerSecretsOptions _options;
+    private readonly Dictionary<string, string> _keys;
 
-    public ModelManagerSecretProvider(IOptions<ModelManagerSecretsOptions> options)
+    public ModelManagerSecretProvider(IConfiguration configuration)
     {
-        _options = options.Value;
+        // Bind the ModelManagerSecrets section's children directly as named keys, e.g.
+        //   "ModelManagerSecrets": { "RunPod": "rps_...", "Civitai": "..." }
+        // (each child key => plaintext secret). Bound via IConfiguration so the git-ignored
+        // appsettings.Local.json shape works without a nested "Keys" property.
+        _keys = configuration.GetSection(ModelManagerSecretsOptions.SectionName)
+                             .Get<Dictionary<string, string>>()
+                 ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
     }
 
     public string? Resolve(string? keyName)
@@ -18,7 +24,7 @@ public sealed class ModelManagerSecretProvider : IModelManagerSecretProvider
         {
             return null;
         }
-        return _options.Keys.TryGetValue(keyName, out var value) && !string.IsNullOrWhiteSpace(value)
+        return _keys.TryGetValue(keyName, out var value) && !string.IsNullOrWhiteSpace(value)
             ? value
             : null;
     }

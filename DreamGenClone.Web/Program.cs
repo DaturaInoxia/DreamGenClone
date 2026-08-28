@@ -54,7 +54,6 @@ builder.WebHost.UseStaticWebAssets();
 LoggingSetup.ConfigureSerilog(builder);
 
 builder.Services.Configure<LmStudioOptions>(builder.Configuration.GetSection(LmStudioOptions.SectionName));
-builder.Services.Configure<ModelManagerSecretsOptions>(builder.Configuration.GetSection(ModelManagerSecretsOptions.SectionName));
 builder.Services.Configure<PersistenceOptions>(builder.Configuration.GetSection(PersistenceOptions.SectionName));
 builder.Services.Configure<StoryParserOptions>(builder.Configuration.GetSection(StoryParserOptions.SectionName));
 builder.Services.Configure<StoryAnalysisOptions>(builder.Configuration.GetSection(StoryAnalysisOptions.SectionName));
