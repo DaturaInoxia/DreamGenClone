@@ -1,0 +1,87 @@
+# Build a RunPod Serverless worker image and push it to GHCR.
+#
+# B-101. Docker is not installed on the dev host, so worker images are built here
+# (GitHub Actions runners have Docker) and pushed to GitHub Container Registry, from
+# where RunPod Serverless endpoints pull them.
+#
+# Usage: Actions -> "build-serverless-worker" -> Run workflow
+#   worker:     dwpose | comfy | qwen-edit | qwen-vl
+#   image_tag:  e.g. 0.1.0
+#
+# Build context: helpers/runpod/serverless/<worker>-worker/Dockerfile
+# Pushed to:     ghcr.io/<repo>/dreamgen-<worker>-worker:<tag>
+#
+# After the first push, set the GHCR package visibility to PUBLIC (repo -> Packages ->
+# package -> Settings) so the Serverless endpoint can pull it without credentials. If it
+# stays private, pass a fine-grained PAT (read:packages) in the endpoint container.imageAuth.
+
+name: build-serverless-worker
+
+on:
+  workflow_dispatch:
+    inputs:
+      worker:
+        description: "Worker image to build"
+        required: true
+        type: choice
+        options:
+          - dwpose
+          - comfy
+          - qwen-edit
+          - qwen-vl
+      image_tag:
+        description: "Image tag (e.g. 0.1.0)"
+        required: true
+        type: string
+        default: "0.1.0"
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  build-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # The ComfyUI base image is 15-20 GB; GitHub runners only have ~14 GB free.
+      # Remove pre-installed toolchains we don't need to make room for the build.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache
+          sudo rm -rf /usr/local/share/powershell
+          df -h / | tail -1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # GHCR requires lowercase repo names; GitHub Actions has no lower() function,
+      # so compute the image ref in a shell step (tr lowercases).
+      - name: Compute image ref
+        id: meta
+        env:
+          REPO: ${{ github.repository }}
+        run: |
+          REPO_LOWER=$(echo "$REPO" | tr '[:upper:]' '[:lower:]')
+          echo "image_ref=${REGISTRY}/${REPO_LOWER}/dreamgen-${{ inputs.worker }}-worker:${{ inputs.image_tag }}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: helpers/runpod/serverless/${{ inputs.worker }}-worker
+          push: true
+          tags: ${{ steps.meta.outputs.image_ref }}
