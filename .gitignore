@@ -27,6 +27,10 @@ data/
 DreamGenClone.Web/data/*
 !DreamGenClone.Web/data/dreamgenclone.snapshot.db
 
+# Python
+__pycache__/
+*.py[cod]
+
 # IDE/editor
 .vscode/
 .idea/
