@@ -469,7 +469,7 @@
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <strong>Character Identity</strong>
                         <button class="btn btn-sm btn-success" @onclick="RenderIdentityImageAsync"
-                                disabled="@(_busy || HasInFlightWork() || string.IsNullOrWhiteSpace(_editablePrompt) || _activePrompt is null || string.IsNullOrWhiteSpace(_selectedIdentityPackId))">
+                                disabled="@(_busy || HasInFlightWork() || string.IsNullOrWhiteSpace(_editablePrompt) || _activePrompt is null || !_identityPackOptions.Any(o => o.Selected))">
                             <i class="bi bi-person-badge me-1"></i> Render with Identity
                         </button>
                     </div>
@@ -481,15 +481,20 @@
                         }
                         else
                         {
-                            <label class="form-label mb-1">Approved Identity Pack</label>
-                            <select class="form-select form-select-sm" @bind="_selectedIdentityPackId">
-                                <option value="">— none —</option>
+                            <label class="form-label mb-1">Approved Identity Packs (select one or more)</label>
+                            <div class="list-group list-group-flush">
                                 @foreach (var opt in _identityPackOptions)
                                 {
-                                    <option value="@opt.PackId">@opt.Label</option>
+                                    <div class="list-group-item d-flex align-items-center gap-2 px-0">
+                                        <input type="checkbox" class="form-check-input m-0" @bind="opt.Selected" id="@("idp_" + opt.PackId)" />
+                                        <label class="form-check-label flex-grow-1 mb-0" for="@("idp_" + opt.PackId)">@opt.Label</label>
+                                        <input type="number" class="form-control form-control-sm" style="width: 90px;"
+                                               @bind="opt.Strength" min="0" max="2" step="0.05"
+                                               placeholder="strength" title="Optional per-character strength override; defaults to the model's configured identity strength" />
+                                    </div>
                                 }
-                            </select>
-                            <div class="form-text">Applies IP-Adapter or PuLID face conditioning using the selected pack's canonical face asset.</div>
+                            </div>
+                            <div class="form-text">Selecting more than one pack chains IP-Adapter face conditioning with a per-character regional mask (the verified two-character workflow). Strength overrides the model's configured identity strength.</div>
                         }
                     </div>
                 </div>
@@ -633,9 +638,14 @@
     private string? _selectedPov;
     private SceneImageRecord? _viewerImage;
 
-    private sealed record IdentityPackOption(string PackId, string Label);
+    private sealed class IdentityPackOption
+    {
+        public string PackId { get; set; } = string.Empty;
+        public string Label { get; set; } = string.Empty;
+        public bool Selected { get; set; }
+        public double? Strength { get; set; }
+    }
     private List<IdentityPackOption> _identityPackOptions = [];
-    private string? _selectedIdentityPackId;
 
     private SceneImageBeat? _selectedBeat
         => _analysis?.Beats.FirstOrDefault(b => b.BeatId == _selectedBeatId);
@@ -1041,7 +1051,6 @@
     private async Task LoadIdentityPackOptionsAsync()
     {
         _identityPackOptions = [];
-        _selectedIdentityPackId = null;
         if (_session is null)
         {
             return;
@@ -1069,7 +1078,11 @@
 
             foreach (var pack in packs.Where(p => p.Status == CharacterImageIdentityPackStatus.Approved))
             {
-                options.Add(new IdentityPackOption(pack.Id, $"{character.Name ?? character.Id} — v{pack.Version}"));
+                options.Add(new IdentityPackOption
+                {
+                    PackId = pack.Id,
+                    Label = $"{character.Name ?? character.Id} — v{pack.Version}"
+                });
             }
         }
 
@@ -1157,12 +1170,22 @@
     private async Task RenderIdentityImageAsync()
     {
         if (_activePrompt is null || string.IsNullOrWhiteSpace(_editablePrompt)) return;
-        if (string.IsNullOrWhiteSpace(_selectedIdentityPackId)) return;
+        var selected = _identityPackOptions.Where(o => o.Selected).ToList();
+        if (selected.Count == 0) return;
 
         await RunAsync(async () =>
         {
             // Persist the edited text back to the prompt record so a later studio reopen shows it.
             await ImageService.UpdatePromptOutputAsync(sessionId, _activePrompt.Id, _editablePrompt.Trim());
+
+            var identityPacks = selected
+                .Select(o => new IdentityPackSelection
+                {
+                    PackId = o.PackId,
+                    CharacterLabel = o.Label,
+                    Strength = o.Strength
+                })
+                .ToList();
 
             var record = await ImageService.EnqueueRenderAsync(new SceneRenderRequest
             {
@@ -1176,10 +1199,13 @@
                 BeatId = _selectedBeatId,
                 Pov = _selectedPov,
                 RenderMode = SceneImageRenderMode.IdentityControlled,
-                IdentityPackId = _selectedIdentityPackId
+                IdentityPackId = identityPacks[0].PackId,
+                IdentityPacks = identityPacks
             });
             _images.Insert(0, record);
-            _statusMessage = "Identity-controlled render queued.";
+            _statusMessage = selected.Count > 1
+                ? $"Identity-controlled render queued ({selected.Count} packs)."
+                : "Identity-controlled render queued.";
             EnsurePolling();
         });
     }

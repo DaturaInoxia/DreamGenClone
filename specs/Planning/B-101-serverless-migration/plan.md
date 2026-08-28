@@ -11,7 +11,97 @@ scaffold created under `helpers/runpod/serverless/` — `README.md` (no-local-Do
 `build-on-pod.ps1` (all P0/P1 gated). **Decision (2026-08-27):** registry = **GHCR** (`ghcr.io/daturoinoxia/dreamgenclone`, repo is public →
 set package visibility Public so RunPod pulls without creds) + builder = **GitHub Actions**
 (`.github/workflows/build-serverless-worker.yml`, Docker built-in, no local tooling). Temp-pod
-builder (`build-on-pod.ps1`) kept as fallback only.
+builder (`build-on-pod.ps1`) kept as fallback only. **(SUPERSEDED 2026-08-28 — replaced by RunPod
+GitHub Integration; see progress below. No GHCR/GA needed.)**
+
+**Progress (2026-08-28):** **DWPose image built + pushed** (GH Actions run 33139945603) and
+**public pull verified with a real anonymous `docker pull` on a runner**
+(`.github/workflows/verify-serverless-image.yml`, run 33143748737 → `ANON_PULL_EXIT=0`, digest
+sha256:49321d…; GHCR took ~50 min to propagate visibility — see
+`/memories/repo/ghcr-public-propagation-delay.md`). Live GPU prices pulled (RTX 4000 Ada $0.28/hr
+secure — chosen DWPose GPU). Remaining P0: validate `createEndpoint` mutation shape (RunPod
+introspection disabled — use documented shape) and get user go-ahead to create the endpoint (first
+RunPod action; `minWorkers 0` → no GPU cost until a job runs).
+
+**Progress (2026-08-28, endpoint live + debugging):** endpoint `pose-dwpose-serverless`
+(`06lhf1akdg34c2`) created via REST v2 (NOT GraphQL — the legacy `createEndpoint` mutation does
+not exist). Image `0.3.0` → `0.4.0` → `0.5.0`. Debug trail (each failed job had a distinct,
+diagnostic cause):
+1. `0.3.0`: job ran handler but workflow never finished → endpoint per-job `timeout:300000` (5 min)
+   too short for cold start + first-run ckpt download; **raised to `900000` (15 min)**. The handler's
+   own `"workflow did not finish in time"` (6-min poll) then exposed the real issue:
+2. `0.4.0`: **DWPose ckpts were not being found by the aux node** — baked into
+   `ckpts/dwpose/` but `custom_hf_download` resolves at `ckpts/<hf_repo_id>/<filename>`; the node
+   tried to download and crashed on `HF_HUB_ENABLE_HF_TRANSFER=1` with no `hf_transfer` package.
+   **Fix (`33f4fca`, image `0.5.0`)**: bake ckpts at `ckpts/hr16/DWPose-TorchScript-BatchSize5/…`
+   + `ckpts/hr16/yolox-onnx/…` (verified from pinned `util.py`/`node_wrappers/dwpose.py`), set
+   `HF_HUB_ENABLE_HF_TRANSFER=0`, handler `ensure_ckpts()` verifies repo-id layout, and
+   `_run_comfyui_workflow()` surfaces real ComfyUI errors (no more blind timeout).
+   **Key lesson:** worker `timeout` = per-JOB execution cap; base pod image
+   (`runpod/stable-diffusion:comfy-ui-6.0.0`) runs the serverless handler fine; old workers on a
+   deleted image show UNHEALTHY forever and rollout cycles them automatically — be patient.
+
+**Progress (2026-08-28, DWPose VALIDATED + pivot decision):** **DWPose serverless endpoint is
+WORKING.** Smoke test COMPLETED (job `2f61ca55`, image `0.5.0`, worker `j8f88p8hvx10nh` RTX 4000
+Ada): `executionTime 17449ms`, rendered pose PNG verified via `view_image` — real DWPose skeleton
+output. Endpoint `pose-dwpose-serverless` status → `working-validated` in `endpoints.json`.
+Infra proof complete: image build+public pull, REST-v2 create/patch/rollout, cold start
+(queue delay ~25 min = 33 GB runtime pull + GPU throttle), fast warm execution, correct output.
+**PIVOT (user question "are we doing it properly?" → YES, we should change base):** we hand-rolled a
+handler on a POD image; RunPod maintains the purpose-built `runpod-workers/worker-comfyui`
+(AGPL-3.0, latest 5.8.7, 13.8k deploys) with a clean serverless base, **standard API contract**
+(`input.workflow` + `input.images` → `output.images[{filename,type:base64,data}]`), **WebSocket**
+completion, **native network-volume model support**, SSH debug via `PUBLIC_KEY`. Plan: rebuild all
+worker images `FROM runpod/worker-comfyui:<ver>-base` + custom nodes/models; delete our
+hand-rolled `serverless-worker.py`; adopt the official API contract (our app's ComfyUI client
+already speaks workflow-JSON). This is the foundation for the network-volume storage integration
+(§1.5).
+
+**Progress (2026-08-28, GitHub-Integration endpoint VALIDATED — the proven pattern):** endpoint
+`pose-dwpose-serverless-comfy` (id `urls820tw26oew`) created via RunPod **"Start from GitHub Repo"**
+— RunPod built our Dockerfile from master @ `198c0a8` (image
+`registry.runpod.net/.../helpers-runpod-serverless-dwpose-worker-dockerfile:198c0a86f`, official
+`worker-comfyui:5.8.4-base` + `comfy-node-install` + baked ckpts). Smoke test **PASSED** (job
+`8053baca`, COMPLETED, exec 12829ms, delay 12632ms): official contract (`input.workflow` +
+`input.images` → `output.images[0]` = `dwpose_sls_00001_.png`, pose skeleton verified via
+`view_image`). **This is the pattern for ALL remaining workloads:** write the worker Dockerfile
+(official base + comfy-node-install + models) → push → RunPod auto-builds + deploys → job works.
+NO GHCR / NO GitHub Actions (superseded; the two old workflows can be removed). Old hand-built
+endpoint (`06lhf1akdg34c2`, 0.5.0) = rollback fallback; retire after soak.
+
+## 1.5 Storage integration (Network Volume) — proven on DWPose, then applied to big models
+
+**Goal (user decision 2026-08-28):** after the DWPose endpoint works with baked ckpts, move the
+model payload to a **RunPod Network Storage volume** (Standard $0.07/GB/mo) so worker images stay
+= base-only (smaller pull) and models are already in the data center (no internet download —
+fixes the DWPose-style hang; faster + reliable cold starts). Full model-payload sizing (~55–62 GB
+for all 5 workloads, Qwen Edit ≈ half) captured in the discussion; monthly ≈ $4–5 at Standard.
+
+**Proof on DWPose first (cheap, reuses the existing endpoint):**
+0. **PIVOT FIRST:** rebuild `dwpose-worker` on the official `runpod/worker-comfyui:<ver>-base`
+   image (deletes our hand-rolled handler; official API contract; native network-volume support).
+   This is a small Dockerfile change (base + `comfyui_controlnet_aux` + ckpts) and reuses the
+   endpoint. `0.6.0` = official base + baked ckpts (baseline), `0.7.0` = official base + ckpts on
+   volume (the proof).
+1. Create a small Network Volume (≤ 5 GB) in the workers' data center (EU-RO-1).
+2. Seed it with the two DWPose ckpts at the aux layout
+   `ckpts/hr16/{DWPose-TorchScript-BatchSize5,yolox-onnx}/…`.
+3. Build `0.7.0` worker image **without** baked ckpts (base-only image → smaller pull; models read
+   from the volume — official worker reads them from the volume mount natively).
+4. PATCH endpoint: add `networkVolumes: [<volumeId>]` (endpoint already exposes
+   `networkVolumes`/`dataCenterIds` fields — currently `[]`); set `dataCenterIds` to the volume's DC.
+5. Handler (official worker) reads ckpts from the volume mount path.
+6. Smoke test (official `input.workflow`+`input.images` contract) → measure cold start vs the
+   baked-ckpt baseline. Record timings here.
+7. **FlashBoot experiment** (endpoint field `flashboot` is currently `OFF`): enable, re-measure.
+   If it attacks the base-image pull as expected, adopt for the big-model endpoints.
+
+**Apply to big models after the proof:** Qwen Edit (~26.5 GB → dominates the volume), Qwen VL
+(~16 GB), Juggernaut (~7 GB), identity stack (~12 GB). Each worker becomes base-image + handler;
+models live on the shared volume. **Dev-usage operating model (user decision):** scale-to-zero +
+`idleTimeout` 30–60 min on heavy endpoints = warm during active work, $0 when away (only the
+trailing idle window is billed); the volume + small image + FlashBoot keep the one-per-session cold
+start in single-digit minutes. (DWPose keeps short idle 180 s.)
 
 ## 1. Problem statement
 
@@ -91,6 +181,35 @@ hardware, or anything that can't be containerized.
 | Qwen Edit backup | ✅ retire | Serverless gives redundancy via multiple workers / auto-scaling | the preserved pod can be stopped |
 
 **Conclusion:** 5 workloads, all transitionable. The migration cost is **app-side**, not pod-side:
+
+> ### ⚠️ MODEL DECISION for `qwen-edit-worker` (2026-08-28) — use Rapid-AIO-NSFW-v23, NOT the stock 2511 + LoRA
+>
+> **Problem the pod could not solve:** the stock `qwen_image_edit_2511_fp8mixed.safetensors` is a
+> safety-aligned model — it renders breasts but **blanks the genital region** ("mannequin" crotch
+> the user observed). A pod-side attempt to fix it with the Scottzilla **MCNL v1** NSFW LoRA
+> (`qwen-image-edit-plus-nsfw-lora.safetensors`, strength 1.0 on the fp8 UNET) **FAILED proof**
+> (2026-08-28): the render produced anatomy confusion — both male and female figures came out with
+> female anatomy. **Do NOT resume pod LoRA tuning; the LoRA-on-fp8-UNET path is dead.**
+>
+> **Chosen model for the Serverless Qwen Edit worker:** **`Phr00t/Qwen-Image-Edit-Rapid-AIO-NSFW-v23`**
+> — a **merged full checkpoint** with NSFW LoRAs baked in at merge time (SNOFS, Sex-tacular, GNASS…),
+> so the worker needs **no runtime LoRA**. Verified:
+> - **Ungated & downloadable** (26.48 GB, FP8): `huggingface.co/Phr00t/Qwen-Image-Edit-Rapid-AIO/resolve/main/v23/Qwen-Rapid-AIO-NSFW-v23.safetensors`
+> - SFW sibling exists at `v23/Qwen-Rapid-AIO-SFW-v23.safetensors` in the same repo.
+> - Runs on L40S/A40-class hardware (FP8). **The GGUF NVFP4 variants are a dead end — they require
+>   NVIDIA Blackwell (RTX 50-series) + CUDA 13.0+** (this fleet is CUDA 12.x).
+> - Author-validated settings: **~4–8 steps, 1 CFG, `euler_ancestral/beta`** (it is a Lightning
+>   accelerator merge — do NOT run at 40 steps / CFG 4).
+>
+> **Integration implications for the worker + app (different from today):**
+> - The Rapid-AIO file is a **full checkpoint** → the workflow must load it with
+>   `CheckpointLoaderSimple` (outputs model+clip+vae together), **not** the current
+>   `UNETLoader`+`CLIPLoader`+`VAELoader` split in `ComfyUIImageEditingClient.BuildWorkflow`.
+> - Persisted editor model fields change: `ImageEditorDiffusionModel` → checkpoint name;
+>   steps/cfg/sampler/scheduler defaults differ (4–8 / 1 / euler_ancestral / beta).
+> - Bake `Qwen-Rapid-AIO-NSFW-v23.safetensors` into the worker image at build (SHA-256 verified),
+>   not at first start.
+> - Update `.github/instructions/qwen-image-edit-2511.instructions.md` when this lands.
 
 ## 5. Target architecture
 

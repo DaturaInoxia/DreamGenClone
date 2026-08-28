@@ -3,6 +3,7 @@
   "displayName": "Qwen Image Edit 2511",
   "capability": "ImageEditing",
   "modelIdentifier": "qwen_image_edit_2511_fp8mixed.safetensors",
+  "nsfwLora": "qwen-image-edit-plus-nsfw-lora.safetensors (MCNL v1, ScottzillaSystems, 563 MB, added 2026-08-28)",
   "podId": "jkms7ljhb54we9",
   "podName": "dreamgen-image-edit-qwen-2511-l40s",
   "containerImage": "runpod/stable-diffusion:comfy-ui-6.0.0",

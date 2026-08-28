@@ -214,36 +214,50 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler
         SceneImageRenderingJobPayload payload,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(image.IdentityPackId))
+        var selections = DeserializePackSelections(image);
+        if (selections.Count == 0)
         {
-            throw new InvalidOperationException("Identity-controlled rendering requires an approved identity pack.");
+            throw new InvalidOperationException("Identity-controlled rendering requires at least one approved identity pack.");
         }
 
         // Identity models are resolved through the identity path only: mechanism, strength and
         // adapter ref are required configuration. Missing/invalid config fails fast here.
         var identityModel = await _modelResolutionService.ResolveIdentityImageModelAsync(null, cancellationToken);
 
-        var pack = await _identityRepository.GetPackAsync(image.IdentityPackId, cancellationToken)
-            ?? throw new InvalidOperationException($"Identity pack '{image.IdentityPackId}' was not found.");
-        if (pack.Status != CharacterImageIdentityPackStatus.Approved)
+        var references = new List<IdentityReferenceInput>();
+        var packAudit = new List<object>();
+        foreach (var selection in selections)
         {
-            throw new InvalidOperationException(
-                $"Identity pack '{image.IdentityPackId}' is not approved; only approved packs can be used for identity-controlled rendering.");
-        }
-        if (string.IsNullOrWhiteSpace(pack.CanonicalFaceAssetId))
-        {
-            throw new InvalidOperationException($"Identity pack '{image.IdentityPackId}' has no canonical face asset.");
-        }
+            var pack = await _identityRepository.GetPackAsync(selection.PackId, cancellationToken)
+                ?? throw new InvalidOperationException($"Identity pack '{selection.PackId}' was not found.");
+            if (pack.Status != CharacterImageIdentityPackStatus.Approved)
+            {
+                throw new InvalidOperationException(
+                    $"Identity pack '{selection.PackId}' is not approved; only approved packs can be used for identity-controlled rendering.");
+            }
+            if (string.IsNullOrWhiteSpace(pack.CanonicalFaceAssetId))
+            {
+                throw new InvalidOperationException($"Identity pack '{selection.PackId}' has no canonical face asset.");
+            }
 
-        var face = await _identityRepository.GetAssetAsync(pack.CanonicalFaceAssetId, cancellationToken)
-            ?? throw new InvalidOperationException($"Canonical face asset '{pack.CanonicalFaceAssetId}' was not found.");
+            var face = await _identityRepository.GetAssetAsync(pack.CanonicalFaceAssetId, cancellationToken)
+                ?? throw new InvalidOperationException($"Canonical face asset '{pack.CanonicalFaceAssetId}' was not found.");
 
-        byte[] referenceBytes;
-        await using (var source = await _identityStorage.OpenReadAsync(face.FileRelativePath, cancellationToken))
-        using (var buffer = new MemoryStream())
-        {
-            await source.CopyToAsync(buffer, cancellationToken);
-            referenceBytes = buffer.ToArray();
+            byte[] referenceBytes;
+            await using (var source = await _identityStorage.OpenReadAsync(face.FileRelativePath, cancellationToken))
+            using (var buffer = new MemoryStream())
+            {
+                await source.CopyToAsync(buffer, cancellationToken);
+                referenceBytes = buffer.ToArray();
+            }
+
+            references.Add(new IdentityReferenceInput
+            {
+                CharacterLabel = string.IsNullOrWhiteSpace(selection.CharacterLabel) ? pack.Id : selection.CharacterLabel,
+                ReferenceImageBytes = referenceBytes,
+                StrengthOverride = selection.Strength
+            });
+            packAudit.Add(new { packId = pack.Id, character = selection.CharacterLabel, faceAssetId = face.Id, referenceBytes = referenceBytes.Length, strength = selection.Strength });
         }
 
         var request = new IdentityControlledImageRequest
@@ -252,9 +266,15 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler
             NegativePrompt = negative ?? string.Empty,
             Size = image.ImageSize,
             Seed = seed,
-            ReferenceImageBytes = referenceBytes,
+            References = references,
             CorrelationId = image.Id
         };
+        // Single-actor renders keep using the dedicated single reference so the client's single-actor
+        // path and existing callers/tests remain stable.
+        if (references.Count == 1)
+        {
+            request.ReferenceImageBytes = references[0].ReferenceImageBytes;
+        }
 
         await WriteDebugEventAsync("IdentityRenderRequestSubmitted", payload.SessionId, payload.InteractionId, new
         {
@@ -262,15 +282,41 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler
             checkpoint = identityModel.ModelIdentifier,
             mechanism = identityModel.Mechanism,
             strength = identityModel.IdentityStrength,
-            packId = image.IdentityPackId,
-            faceAssetId = face.Id,
-            referenceBytes = referenceBytes.Length,
+            packs = packAudit,
             seed = seed.HasValue ? seed.Value.ToString() : "random",
             positive = prompt,
             negative = negative ?? string.Empty
         }, cancellationToken);
 
         return await _identityClient.GenerateAsync(identityModel, request, cancellationToken);
+    }
+
+    private static List<IdentityPackSelection> DeserializePackSelections(SceneImageRecord image)
+    {
+        var selections = new List<IdentityPackSelection>();
+        if (!string.IsNullOrWhiteSpace(image.IdentityPacksJson))
+        {
+            try
+            {
+                var parsed = JsonSerializer.Deserialize<List<IdentityPackSelection>>(image.IdentityPacksJson, JsonOptions);
+                if (parsed is { Count: > 0 })
+                {
+                    selections.AddRange(parsed);
+                }
+            }
+            catch (JsonException)
+            {
+                // Malformed selection JSON falls through to the single-pack path below rather than
+                // silently dropping identity conditioning.
+            }
+        }
+
+        if (selections.Count == 0 && !string.IsNullOrWhiteSpace(image.IdentityPackId))
+        {
+            selections.Add(new IdentityPackSelection { PackId = image.IdentityPackId });
+        }
+
+        return selections;
     }
 
     private async Task WriteDebugEventAsync<T>(string kind, string sessionId, string interactionId, T metadata, CancellationToken cancellationToken)

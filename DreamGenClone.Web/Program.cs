@@ -259,6 +259,9 @@ builder.Services.AddScoped<IBackgroundJobHandler, SceneImageRenderingJobHandler>
 builder.Services.AddScoped<IBackgroundJobHandler, SceneImageEditingJobHandler>();
 builder.Services.AddScoped<IBackgroundJobHandler, SceneImageEditCompilationJobHandler>();
 builder.Services.AddScoped<IBackgroundJobHandler, SceneImageEditDescriptionJobHandler>();
+builder.Services.AddScoped<IBackgroundJobHandler, SceneAssetGenerationJobHandler>();
+builder.Services.AddScoped<IBackgroundJobHandler, SceneAssetEditingJobHandler>();
+builder.Services.AddScoped<IBackgroundJobHandler, SceneAssetProfilePackJobHandler>();
 builder.Services.AddScoped<SceneImageTurnResolver>();
 builder.Services.AddScoped<SceneImageBeatAnalysisService>();
 builder.Services.AddHostedService<GenericBackgroundJobWorker>();
@@ -278,6 +281,9 @@ builder.Services.AddSingleton<ISceneImageStorageService, SceneImageStorageServic
 builder.Services.AddSingleton<ICharacterImageIdentityRepository, CharacterImageIdentityRepository>();
 builder.Services.AddSingleton<ICharacterImageAssetStorageService, CharacterImageAssetStorageService>();
 builder.Services.AddScoped<ICharacterImageIdentityService, CharacterImageIdentityService>();
+builder.Services.AddSingleton<ISceneAssetRepository, SceneAssetRepository>();
+builder.Services.AddSingleton<ISceneAssetStorageService, SceneAssetStorageService>();
+builder.Services.AddScoped<ISceneAssetService, SceneAssetService>();
 builder.Services.AddScoped<IReferenceImageQualityAnalyzer, ReferenceImageQualityAnalyzer>();
 builder.Services.AddScoped<ISceneImageService, SceneImageService>();
 builder.Services.AddScoped<ISceneImageEditCompilationService, SceneImageEditCompilationService>();
@@ -417,6 +423,14 @@ app.MapGet("/administration/backups/{backupId}/download", async (string backupId
     }
 
     return Results.File(download.Value.FilePath, "application/octet-stream", download.Value.Backup.FileName);
+});
+app.MapGet("/asset-studio/{assetId}/download", async (string assetId, ISceneAssetService assetService, CancellationToken cancellationToken) =>
+{
+    var (asset, stream) = await assetService.OpenForDownloadAsync(assetId, cancellationToken);
+    var name = string.IsNullOrWhiteSpace(asset.Name) ? asset.Id : asset.Name;
+    var extension = Path.GetExtension(asset.FileRelativePath ?? string.Empty);
+    if (string.IsNullOrWhiteSpace(extension)) extension = ".png";
+    return Results.Stream(stream, asset.MediaType, $"{name}{extension}");
 });
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();

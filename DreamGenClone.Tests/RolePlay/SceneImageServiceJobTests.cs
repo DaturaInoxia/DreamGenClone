@@ -311,6 +311,50 @@ public sealed class SceneImageServiceJobTests
     }
 
     [Fact]
+    public async Task EnqueueRenderAsync_IdentityMode_MultiPack_PersistsFullSelectionAndFirstPackId()
+    {
+        var session = MakeSession();
+        var (service, queue, repo, _, dbPath, root) = Build(session);
+        try
+        {
+            var prompt = CreatePromptRecord();
+            await repo.UpsertPromptAsync(prompt);
+
+            var record = await service.EnqueueRenderAsync(new SceneRenderRequest
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                PromptRecordId = prompt.Id,
+                Prompt = "two people",
+                RenderMode = SceneImageRenderMode.IdentityControlled,
+                IdentityPackId = "pack-1",
+                IdentityPacks =
+                [
+                    new IdentityPackSelection { PackId = "pack-1", CharacterLabel = "Dean — v1", Strength = 0.8 },
+                    new IdentityPackSelection { PackId = "pack-2", CharacterLabel = "Becky — v1" }
+                ]
+            });
+
+            Assert.Equal(SceneImageRenderMode.IdentityControlled, record.RenderMode);
+            Assert.Equal("pack-1", record.IdentityPackId);
+            Assert.NotNull(record.IdentityPacksJson);
+            var persisted = JsonSerializer.Deserialize<List<IdentityPackSelection>>(
+                record.IdentityPacksJson, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            Assert.NotNull(persisted);
+            Assert.Equal(2, persisted!.Count);
+            Assert.Equal("pack-1", persisted[0].PackId);
+            Assert.Equal(0.8, persisted[0].Strength);
+            Assert.Equal("pack-2", persisted[1].PackId);
+            Assert.Null(persisted[1].Strength);
+            Assert.Single(queue.Enqueued);
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    [Fact]
     public async Task EnqueueEditAsync_CreatesPendingEditRecordAndEnqueuesDedicatedJob()
     {
         var session = MakeSession();

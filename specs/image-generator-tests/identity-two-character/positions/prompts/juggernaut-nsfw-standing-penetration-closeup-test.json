@@ -47,13 +47,13 @@
     "11": {
       "class_type": "LoadImage",
       "inputs": {
-        "image": "dean_front.jpg"
+        "image": "dean_front.png"
       }
     },
     "12": {
       "class_type": "LoadImage",
       "inputs": {
-        "image": "becky_front.png"
+        "image": "becky_front.jpg"
       }
     },
     "13": {

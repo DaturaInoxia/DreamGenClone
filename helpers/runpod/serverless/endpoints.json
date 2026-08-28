@@ -4,21 +4,36 @@
   "purpose": "Registry for RunPod Serverless endpoints (B-101 migration). One entry per endpoint = one worker image + one endpoint config + one Model Manager provider mapping. Mirrors helpers/runpod/pod-registry.json for the old pods. Every image/endpoint change MUST be recorded here and reproducible from the Dockerfile + config.",
   "containerRegistry": "ghcr.io/daturoinoxia/dreamgenclone",
   "notes": [
-    "Docker is NOT installed on the dev host. Default builder = GitHub Actions workflow .github/workflows/build-serverless-worker.yml -> pushes to GHCR (containerRegistry). Repo DaturaInoxia/DreamGenClone is PUBLIC; set GHCR package visibility to Public so RunPod can pull without credentials (or use a read:packages PAT in the endpoint container.imageAuth).",
+    "Docker is NOT installed on the dev host. DEPLOYMENT = RunPod GitHub Integration (Serverless -> + New Endpoint -> \"Start from GitHub Repo\"; docs/deployment.md Method 2): RunPod clones DaturaInoxia/DreamGenClone, builds the worker Dockerfile, auto-updates the endpoint on every push. NO GHCR / NO GitHub Actions (the old GHCR + build-serverless-worker.yml pipeline is SUPERSEDED 2026-08-28; containerRegistry field kept for reference only).",
     "Endpoint API field names (minWorkers/maxWorkers/idleTimeout/gpuIds) verified at P0 against the live RunPod serverless API/console before the first create.",
     "Serverless workers have no SSH. Debugging = build -> deploy -> send job -> read job logs -> iterate.",
     "Migration order: DWPose (infra proof, no app changes) -> Juggernaut (first app-integrated) -> identity -> Qwen VL -> Qwen Edit.",
-    "Pods stay running (stopped-not-deleted) as rollback until each endpoint soaks green."
+    "PIVOT + DEPLOYMENT (2026-08-28): all workers rebuilt FROM the OFFICIAL runpod/worker-comfyui:<ver>-base (AGPL-3.0; newest -base tag = 5.8.4) with the OFFICIAL tooling (comfy-node-install). DEPLOYMENT = RunPod GitHub Integration ('Start from GitHub Repo', docs/deployment.md Method 2): RunPod clones this repo, builds the Dockerfile, auto-updates the endpoint on every push. NO GHCR / NO GitHub Actions worker workflow (superseded). Official API contract: input.workflow (ComfyUI API JSON) + input.images[{name,image}] -> output.images[{filename,type:base64,data}]. WebSocket completion; SSH debug via PUBLIC_KEY; native network-volume support (models at /runpod-volume/models) - DEFERRED (user). Hand-rolled serverless-worker.py deleted.",
+    "Pods stay running (stopped-not-deleted) as rollback until each endpoint soaks green.",
+    "QWEN EDIT MODEL DECISION (2026-08-28): stock qwen_image_edit_2511_fp8mixed.safetensors is safety-aligned (genital region blanks to 'mannequin'); the pod-side Scottzilla MCNL v1 NSFW LoRA proof FAILED (anatomy confusion). The qwen-edit-worker MUST bake Phr00t/Qwen-Image-Edit-Rapid-AIO-NSFW-v23 (26.48 GB FP8, ungated: huggingface.co/Phr00t/Qwen-Image-Edit-Rapid-AIO/resolve/main/v23/Qwen-Rapid-AIO-NSFW-v23.safetensors; SFW sibling v23/Qwen-Rapid-AIO-SFW-v23.safetensors). No runtime LoRA (baked). Load via CheckpointLoaderSimple (model+clip+vae), ~4-8 steps / 1 CFG / euler_ancestral/beta. GGUF NVFP4 variants need Blackwell/CUDA 13+ - dead end on this fleet. Full detail: specs/Planning/B-101-serverless-migration/plan.md MODEL DECISION block."
   ],
   "endpoints": [
     {
       "endpointKey": "pose-dwpose-serverless",
       "function": "Pose extraction (DWPose)",
       "capability": "PoseExtraction",
-      "status": "designed",
-      "workerImage": "ghcr.io/daturoinoxia/dreamgenclone/dreamgen-dwpose-worker:0.1.0",
+      "status": "working-validated",
+      "endpointId": "06lhf1akdg34c2",
+      "requestUrls": {
+        "run": "https://api.runpod.ai/v2/06lhf1akdg34c2/run",
+        "runSync": "https://api.runpod.ai/v2/06lhf1akdg34c2/runsync",
+        "health": "https://api.runpod.ai/v2/06lhf1akdg34c2/health"
+      },
+      "workerImage": "ghcr.io/daturoinoxia/dreamgenclone/dreamgen-dwpose-worker:0.5.0",
       "workerDir": "helpers/runpod/serverless/dwpose-worker",
-      "gpuTypeId": "NVIDIA RTX 4000 Ada",
+      "imageVerified": {
+        "built": "2026-08-28 run 33198038559 (GH Actions, 10m29s)",
+        "publicPullVerified": "anonymous pull OK (package public)",
+        "smokeTest": "COMPLETED 2026-08-28 job 2f61ca55: exec 17449ms, rendered pose PNG verified by view_image. Rollout to 0.5.0 all-healthy. See plan.md debug trail (0.3.0 timeout -> 0.4.0 ckpt path/hf_transfer -> 0.5.0 fix).",
+        "note": "DWPose ckpts baked at ckpts/<repo_id>/<file> (custom_hf_download layout); HF_HUB_ENABLE_HF_TRANSFER=0. keypoints JSON still TODO (handler returns keypoints:null)."
+      },
+      "verifiedSecurePricePerHr": {"gpu": "RTX 4000 Ada", "price": 0.28, "source": "live gpuTypes query 2026-08-28 via get-available-gpus.ps1"},
+      "gpuTypeId": "RTX 4000 Ada",
       "candidateGpuTypeIds": [
         "NVIDIA RTX 4000 Ada",
         "NVIDIA RTX A5000",
@@ -43,6 +58,79 @@
         "restartProof": true
       },
       "migratedFromDeploymentKey": "pose-dwpose-prod"
+    },
+    {
+      "endpointKey": "pose-dwpose-serverless-comfy",
+      "function": "Pose extraction (DWPose) - GitHub Integration endpoint (replaces 0.5.0 hand-built endpoint)",
+      "capability": "PoseExtraction",
+      "status": "working-validated",
+      "endpointId": "urls820tw26oew",
+      "requestUrls": {
+        "run": "https://api.runpod.ai/v2/urls820tw26oew/run",
+        "runSync": "https://api.runpod.ai/v2/urls820tw26oew/runsync",
+        "health": "https://api.runpod.ai/v2/urls820tw26oew/health"
+      },
+      "deployment": "RunPod GitHub Integration ('Start from GitHub Repo') - repo DaturaInoxia/DreamGenClone, branch master, Dockerfile helpers/runpod/serverless/dwpose-worker/Dockerfile. Every push to master auto-rebuilds + updates this endpoint. NO GHCR / NO GitHub Actions (superseded 2026-08-28).",
+      "workerImage": "registry.runpod.net/daturainoxia-dreamgenclone-master-helpers-runpod-serverless-dwpose-worker-dockerfile:198c0a86f (RunPod-built, ephemeral registry; rebuilt on push)",
+      "workerDir": "helpers/runpod/serverless/dwpose-worker",
+      "baseImage": "runpod/worker-comfyui:5.8.4-base (official worker-comfyui base)",
+      "apiContract": "OFFICIAL worker-comfyui: input.workflow (ComfyUI API JSON) + input.images[{name,image}] -> output.images[{filename,type:base64,data}]",
+      "minWorkers": 0,
+      "maxWorkers": 2,
+      "idleTimeoutSec": 300,
+      "timeoutMs": 600000,
+      "flashboot": false,
+      "gpuPool": "AMPERE_16 (RTX 4000 Ada)",
+      "env": {},
+      "modelManager": { "registered": false, "providerName": "Not registered (intentional) - same as pod" },
+      "persistence": { "standard": "Image immutable; cold start = pull RunPod-built image (~11-16 GB base) + boot. FlashBoot lever for faster pull (currently OFF).", "restartProof": true },
+      "migratedFromDeploymentKey": "pose-dwpose-prod",
+      "smokeTest": {
+        "result": "PASSED 2026-08-28 job 8053baca: COMPLETED, exec 12829ms, delay 12632ms, worker 39gtbwufhkdc5h. output.images[0] = dwpose_sls_00001_.png (base64) - pose skeleton verified via view_image. Official contract (input.workflow + input.images -> output.images) validated end-to-end.",
+        "jobInput": "official contract: {\"input\":{\"workflow\":<DWPose workflow JSON>,\"images\":[{\"name\":\"input_image.png\",\"image\":\"data:image/png;base64,...\"}]}}",
+        "expectedOutput": "rendered pose PNG at output.images[0].data (base64)"
+      },
+      "note": "Old pose-dwpose-serverless (06lhf1akdg34c2, image 0.5.0 hand-built) kept as validated fallback until this GitHub-Integration endpoint soaks green."
+    },
+    {
+      "endpointKey": "img-juggernaut-serverless",
+      "function": "SDXL / Juggernaut XL text-to-image (first app-integrated workload)",
+      "capability": "TextToImage",
+      "status": "pending-upload",
+      "endpointId": "",
+      "deployment": "STOCK runpod/worker-comfyui:5.8.4-base (no custom Dockerfile - plain SDXL T2I). Endpoint created via REST POST /v2/serverless with networkVolumes attached (create-endpoint.ps1 supports volume + dataCenterIds since 2026-08-28). Model served from the Network Volume.",
+      "workerImage": "runpod/worker-comfyui:5.8.4-base",
+      "workerDir": "",
+      "baseImage": "runpod/worker-comfyui:5.8.4-base (official)",
+      "apiContract": "OFFICIAL worker-comfyui: input.workflow + input.images -> output.images",
+      "minWorkers": 0,
+      "maxWorkers": 1,
+      "idleTimeoutSec": 1800,
+      "timeoutMs": 900000,
+      "flashboot": "OFF",
+      "gpuPool": "AMPERE_16 (RTX 4000 Ada) / AMPERE_24 (A5000) - pool resolved at create from gpuTypeId",
+      "gpuTypeId": "RTX 4000 Ada",
+      "candidateGpuTypeIds": [
+        "NVIDIA RTX 4000 Ada",
+        "NVIDIA RTX A5000",
+        "NVIDIA GeForce RTX 3090 Ti"
+      ],
+      "networkVolumes": ["xkslgh6xo0"],
+      "dataCenterIds": ["EU-RO-1"],
+      "volumeModelPath": "/runpod-volume/models/checkpoints/juggernautXL_ragnarok.safetensors",
+      "env": {},
+      "modelManager": { "registered": false, "providerName": "juggernaut - register when the app points here (B-032 SceneImageStudio) " },
+      "smokeTest": {
+        "result": "PENDING - upload of juggernautXL_ragnarok.safetensors (7,105,350,162 B) to volume xkslgh6xo0 via s3-volume.py in progress (2026-08-28).",
+        "jobInput": "official contract: {\"input\":{\"workflow\":<helpers/runpod/workflows/juggernaut-t2i.json>}} (pure T2I, no input images)",
+        "expectedOutput": "rendered PNG at output.images[0].data (base64)"
+      },
+      "persistence": {
+        "standard": "Model on Network Volume xkslgh6xo0 (persistent, survives cold start); worker image immutable stock base. FlashBoot lever for faster cold pull (currently OFF).",
+        "restartProof": true
+      },
+      "migratedFromDeploymentKey": "image-gen-juggernaut",
+      "note": "Juggernaut uses the STOCK base image + volume (no custom Dockerfile, no custom nodes). Next: confirm upload complete -> create endpoint (create-endpoint.ps1) -> smoke test with juggernaut-t2i.json -> PATCH idleTimeout per dev-warm strategy."
     }
   ]
 }

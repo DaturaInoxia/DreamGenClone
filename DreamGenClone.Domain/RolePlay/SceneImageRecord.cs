@@ -106,8 +106,17 @@ public sealed class SceneImageRecord
     public SceneImageRenderMode RenderMode { get; set; } = SceneImageRenderMode.PromptOnly;
 
     /// <summary>Approved identity pack version used when <see cref="RenderMode"/> is
-    /// <see cref="SceneImageRenderMode.IdentityControlled"/>. Null for prompt-only renders.</summary>
+    /// <see cref="SceneImageRenderMode.IdentityControlled"/>. Null for prompt-only renders. For
+    /// multi-character renders this is the first selected pack; the full list lives in
+    /// <see cref="IdentityPacksJson"/>.</summary>
     public string? IdentityPackId { get; set; }
+
+    /// <summary>
+    /// JSON list of identity pack selections for a multi-character identity-controlled render, each
+    /// <c>{ packId, characterLabel, strength? }</c>. Null/empty for prompt-only or single-actor
+    /// renders. Mirrors the first entry into <see cref="IdentityPackId"/> for gallery compat.
+    /// </summary>
+    public string? IdentityPacksJson { get; set; }
 
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
     public DateTime? StartedUtc { get; set; }

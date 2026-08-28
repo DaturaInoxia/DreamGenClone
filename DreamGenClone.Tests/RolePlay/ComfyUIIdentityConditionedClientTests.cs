@@ -1,6 +1,8 @@
 using System.Text.Json.Nodes;
 using DreamGenClone.Application.Abstractions;
 using DreamGenClone.Infrastructure.Models;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
 
 namespace DreamGenClone.Tests.RolePlay;
 
@@ -62,5 +64,78 @@ public sealed class ComfyUIIdentityConditionedClientTests
         Assert.Equal("ref.png", workflow["11"]!["inputs"]!["image"]!.GetValue<string>());
         Assert.Equal(7, workflow["3"]!["inputs"]!["seed"]!.GetValue<long>());
         Assert.Equal(new JsonArray("12", 0).ToJsonString(), workflow["3"]!["inputs"]!["model"]!.ToJsonString());
+    }
+
+    [Fact]
+    public void BuildMultiIpAdapterWorkflow_ChainsTwoRegionalIPAdapterNodes()
+    {
+        var request = Request(seed: 42);
+        var references = new List<(string ReferenceName, string MaskName, IdentityReferenceInput Reference)>
+        {
+            ("dean.png", "dean_mask.png", new IdentityReferenceInput { CharacterLabel = "Dean", ReferenceImageBytes = [1], StrengthOverride = 0.8 }),
+            ("becky.png", "becky_mask.png", new IdentityReferenceInput { CharacterLabel = "Becky", ReferenceImageBytes = [2] })
+        };
+
+        var workflow = ComfyUIIdentityConditionedClient.BuildMultiIpAdapterWorkflow(
+            "juggernautXL_ragnarok.safetensors", "PLUS FACE (portraits)", references, request, defaultStrength: 0.6);
+
+        // One LoadImage + LoadImageMask per character.
+        Assert.Equal("LoadImage", workflow["11"]!["class_type"]!.GetValue<string>());
+        Assert.Equal("dean.png", workflow["11"]!["inputs"]!["image"]!.GetValue<string>());
+        Assert.Equal("LoadImage", workflow["13"]!["class_type"]!.GetValue<string>());
+        Assert.Equal("becky.png", workflow["13"]!["inputs"]!["image"]!.GetValue<string>());
+
+        Assert.Equal("LoadImageMask", workflow["12"]!["class_type"]!.GetValue<string>());
+        Assert.Equal("dean_mask.png", workflow["12"]!["inputs"]!["image"]!.GetValue<string>());
+        Assert.Equal("red", workflow["12"]!["inputs"]!["channel"]!.GetValue<string>());
+        Assert.Equal("LoadImageMask", workflow["14"]!["class_type"]!.GetValue<string>());
+        Assert.Equal("becky_mask.png", workflow["14"]!["inputs"]!["image"]!.GetValue<string>());
+
+        // Two chained IPAdapter nodes, each with its own weight and regional mask.
+        Assert.Equal("IPAdapter", workflow["20"]!["class_type"]!.GetValue<string>());
+        Assert.Equal(0.8, workflow["20"]!["inputs"]!["weight"]!.GetValue<double>());
+        Assert.Equal(new JsonArray("10", 0).ToJsonString(), workflow["20"]!["inputs"]!["model"]!.ToJsonString());
+        Assert.Equal(new JsonArray("12", 0).ToJsonString(), workflow["20"]!["inputs"]!["attn_mask"]!.ToJsonString());
+        Assert.Equal(new JsonArray("11", 0).ToJsonString(), workflow["20"]!["inputs"]!["image"]!.ToJsonString());
+
+        Assert.Equal("IPAdapter", workflow["21"]!["class_type"]!.GetValue<string>());
+        // Becky has no override, so the default strength applies.
+        Assert.Equal(0.6, workflow["21"]!["inputs"]!["weight"]!.GetValue<double>());
+        Assert.Equal(new JsonArray("20", 0).ToJsonString(), workflow["21"]!["inputs"]!["model"]!.ToJsonString());
+        Assert.Equal(new JsonArray("14", 0).ToJsonString(), workflow["21"]!["inputs"]!["attn_mask"]!.ToJsonString());
+        Assert.Equal(new JsonArray("13", 0).ToJsonString(), workflow["21"]!["inputs"]!["image"]!.ToJsonString());
+
+        // KSampler is wired from the last chained IPAdapter node.
+        Assert.Equal(new JsonArray("21", 0).ToJsonString(), workflow["3"]!["inputs"]!["model"]!.ToJsonString());
+        Assert.Equal(42, workflow["3"]!["inputs"]!["seed"]!.GetValue<long>());
+    }
+
+    [Fact]
+    public void BuildMultiIpAdapterWorkflow_ThrowsForSingleReference()
+    {
+        var references = new List<(string, string, IdentityReferenceInput)>
+        {
+            ("a.png", "a_mask.png", new IdentityReferenceInput())
+        };
+
+        Assert.Throws<ArgumentException>(() => ComfyUIIdentityConditionedClient.BuildMultiIpAdapterWorkflow(
+            "ckpt", "preset", references, Request(), 0.6));
+    }
+
+    [Fact]
+    public void SynthesizeBandMask_ProducesValidRegionPng()
+    {
+        var left = ComfyUIIdentityConditionedClient.SynthesizeBandMask(4, 4, 0, 2);
+        using var leftImage = Image.Load<Rgba32>(left);
+        Assert.Equal(4, leftImage.Width);
+        Assert.Equal(4, leftImage.Height);
+        // Character 0 is the left band: white on the left half, black on the right half.
+        Assert.Equal(255, leftImage[0, 0].R);
+        Assert.Equal(0, leftImage[3, 0].R);
+
+        var right = ComfyUIIdentityConditionedClient.SynthesizeBandMask(4, 4, 1, 2);
+        using var rightImage = Image.Load<Rgba32>(right);
+        Assert.Equal(0, rightImage[0, 0].R);
+        Assert.Equal(255, rightImage[3, 0].R);
     }
 }

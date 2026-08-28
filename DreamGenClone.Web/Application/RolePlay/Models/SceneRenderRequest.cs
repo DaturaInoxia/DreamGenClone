@@ -2,6 +2,21 @@ namespace DreamGenClone.Web.Application.RolePlay.Models;
 
 using DreamGenClone.Domain.RolePlay;
 
+/// <summary>
+/// One identity pack selected for a multi-character identity-controlled render. The first selected
+/// pack is also mirrored into <see cref="SceneRenderRequest.IdentityPackId"/> for gallery compat.
+/// </summary>
+public sealed class IdentityPackSelection
+{
+    public string PackId { get; set; } = string.Empty;
+
+    /// <summary>Human-readable character label for provenance.</summary>
+    public string CharacterLabel { get; set; } = string.Empty;
+
+    /// <summary>Optional per-character conditioning strength override.</summary>
+    public double? Strength { get; set; }
+}
+
 /// <summary>Request to render an image from a prompt.</summary>
 public sealed class SceneRenderRequest
 {
@@ -31,6 +46,14 @@ public sealed class SceneRenderRequest
     public SceneImageRenderMode RenderMode { get; set; } = SceneImageRenderMode.PromptOnly;
 
     /// <summary>Approved identity pack version when <see cref="RenderMode"/> is
-    /// <see cref="SceneImageRenderMode.IdentityControlled"/>.</summary>
+    /// <see cref="SceneImageRenderMode.IdentityControlled"/>. For multi-character renders this is
+    /// the first selected pack; the full list lives in <see cref="IdentityPacks"/>.</summary>
     public string? IdentityPackId { get; set; }
+
+    /// <summary>
+    /// All identity pack selections when <see cref="RenderMode"/> is
+    /// <see cref="SceneImageRenderMode.IdentityControlled"/> (multi-character). Null/empty for
+    /// prompt-only or single-actor renders.
+    /// </summary>
+    public List<IdentityPackSelection>? IdentityPacks { get; set; }
 }

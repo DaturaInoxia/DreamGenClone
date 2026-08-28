@@ -323,6 +323,38 @@ public sealed class SceneImageRepositoryTests
     }
 
     [Fact]
+    public async Task InsertImage_PersistsMultiCharacterIdentityPacksJson()
+    {
+        var (repo, dbPath) = CreateRepo();
+        try
+        {
+            var packsJson = "[{\"packId\":\"pack-1\",\"characterLabel\":\"Dean — v1\",\"strength\":0.8}," +
+                            "{\"packId\":\"pack-2\",\"characterLabel\":\"Becky — v1\"}]";
+            var image = new SceneImageRecord
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                PromptRecordId = "p1",
+                PromptSnapshot = "two people",
+                Status = SceneImageStatus.Pending,
+                RenderMode = SceneImageRenderMode.IdentityControlled,
+                IdentityPackId = "pack-1",
+                IdentityPacksJson = packsJson
+            };
+            await repo.InsertImageAsync(image);
+
+            var loaded = await repo.GetImageAsync(image.Id);
+            Assert.NotNull(loaded);
+            Assert.Equal("pack-1", loaded!.IdentityPackId);
+            Assert.Equal(packsJson, loaded.IdentityPacksJson);
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
+    [Fact]
     public async Task InsertImage_RequiresNonEmptyPromptSnapshot()
     {
         var (repo, dbPath) = CreateRepo();

@@ -14,8 +14,8 @@
         "c4_top.png"
       ],
       "refs": {
-        "dean": "dean_34l.jpg",
-        "becky": "becky_34l.jpg"
+        "dean": "dean_34l.png",
+        "becky": "becky_34l.png"
       }
     },
     {
@@ -29,8 +29,8 @@
         "c4_top.png"
       ],
       "refs": {
-        "dean": "dean_front.jpg",
-        "becky": "becky_front.png"
+        "dean": "dean_front.png",
+        "becky": "becky_front.jpg"
       }
     },
     {
@@ -44,8 +44,8 @@
         "c4_top.png"
       ],
       "refs": {
-        "dean": "dean_front.jpg",
-        "becky": "becky_front.png"
+        "dean": "dean_front.png",
+        "becky": "becky_front.jpg"
       }
     },
     {
@@ -59,8 +59,8 @@
         "c1_left.png"
       ],
       "refs": {
-        "dean": "dean_front.jpg",
-        "becky": "becky_front.png"
+        "dean": "dean_front.png",
+        "becky": "becky_front.jpg"
       }
     },
     {
@@ -74,8 +74,8 @@
         "c1_left.png"
       ],
       "refs": {
-        "dean": "dean_front.jpg",
-        "becky": "becky_front.png"
+        "dean": "dean_front.png",
+        "becky": "becky_front.jpg"
       }
     },
     {
@@ -89,8 +89,8 @@
         "c1_left.png"
       ],
       "refs": {
-        "dean": "dean_front.jpg",
-        "becky": "becky_front.png"
+        "dean": "dean_front.png",
+        "becky": "becky_front.jpg"
       }
     },
     {
@@ -104,8 +104,8 @@
         "c1_left.png"
       ],
       "refs": {
-        "dean": "dean_front.jpg",
-        "becky": "becky_front.png"
+        "dean": "dean_front.png",
+        "becky": "becky_front.jpg"
       }
     },
     {
@@ -119,7 +119,7 @@
         "c1_left.png"
       ],
       "refs": {
-        "dean": "dean_front.jpg",
+        "dean": "dean_front.png",
         "becky": "becky_34r.png"
       }
     },
@@ -134,7 +134,7 @@
         "c1_left.png"
       ],
       "refs": {
-        "dean": "dean_front.jpg",
+        "dean": "dean_front.png",
         "becky": "becky_34r.png"
       }
     },
@@ -149,8 +149,8 @@
         "c4_bottom.png"
       ],
       "refs": {
-        "dean": "dean_front.jpg",
-        "becky": "becky_34l.jpg"
+        "dean": "dean_front.png",
+        "becky": "becky_34l.png"
       }
     },
     {
@@ -164,8 +164,8 @@
         "c4_bottom.png"
       ],
       "refs": {
-        "dean": "dean_front.jpg",
-        "becky": "becky_front.png"
+        "dean": "dean_front.png",
+        "becky": "becky_front.jpg"
       }
     },
     {
@@ -179,8 +179,8 @@
         "c4_bottom.png"
       ],
       "refs": {
-        "dean": "dean_front.jpg",
-        "becky": "becky_front.png"
+        "dean": "dean_front.png",
+        "becky": "becky_front.jpg"
       }
     },
     {
@@ -194,7 +194,7 @@
         "c4_top.png"
       ],
       "refs": {
-        "dean": "dean_front.jpg",
+        "dean": "dean_front.png",
         "becky": "becky_34r.png"
       }
     },
@@ -209,7 +209,7 @@
         "c4_top.png"
       ],
       "refs": {
-        "dean": "dean_front.jpg",
+        "dean": "dean_front.png",
         "becky": "becky_34r.png"
       }
     },
@@ -224,8 +224,8 @@
         "c1_left.png"
       ],
       "refs": {
-        "dean": "dean_34l.jpg",
-        "becky": "becky_34l.jpg"
+        "dean": "dean_34l.png",
+        "becky": "becky_34l.png"
       }
     },
     {
@@ -239,8 +239,8 @@
         "c1_left.png"
       ],
       "refs": {
-        "dean": "dean_34l.jpg",
-        "becky": "becky_34l.jpg"
+        "dean": "dean_34l.png",
+        "becky": "becky_34l.png"
       }
     },
     {
@@ -254,8 +254,8 @@
         "c1_left.png"
       ],
       "refs": {
-        "dean": "dean_front.jpg",
-        "becky": "becky_front.png"
+        "dean": "dean_front.png",
+        "becky": "becky_front.jpg"
       }
     },
     {
@@ -269,8 +269,8 @@
         "c1_left.png"
       ],
       "refs": {
-        "dean": "dean_front.jpg",
-        "becky": "becky_front.png"
+        "dean": "dean_front.png",
+        "becky": "becky_front.jpg"
       }
     }
   ]

@@ -1,0 +1,319 @@
+@page "/asset-studio"
+@rendermode InteractiveServer
+
+@using DreamGenClone.Web.Application.RolePlay
+@using DreamGenClone.Web.Application.Scenarios
+@using DreamGenClone.Web.Domain.Scenarios
+@using DreamGenClone.Domain.RolePlay
+@implements IAsyncDisposable
+
+@inject ISceneAssetService AssetService
+@inject IScenarioService ScenarioService
+@inject ILogger<AssetStudio> Logger
+
+<PageTitle>Asset Studio - DreamGenClone</PageTitle>
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <h4 class="mb-0">Asset Studio</h4>
+        <a href="/" class="btn btn-outline-secondary btn-sm">Back to Home</a>
+    </div>
+    <p class="text-muted small mb-3">Generate and manage reusable images for the application — character profile packs, locations, clothing, and more. Created assets are persisted, viewable, and downloadable. <strong>Generate Profile Pack</strong> is the special multi-view character identity function.</p>
+
+    @if (!string.IsNullOrEmpty(_error))
+    {
+        <div class="alert alert-danger">@_error</div>
+    }
+    @if (!string.IsNullOrEmpty(_status))
+    {
+        <div class="alert alert-info">@_status</div>
+    }
+
+    <div class="row g-3">
+        <div class="col-lg-6">
+            <div class="card mb-3">
+                <div class="card-header"><strong>Create From Prompt</strong></div>
+                <div class="card-body">
+                    <label class="form-label">Asset name</label>
+                    <input type="text" class="form-control" @bind="_promptName" placeholder="e.g. Forest clearing location" />
+                    <label class="form-label mt-2">Prompt</label>
+                    <textarea class="form-control" rows="3" @bind="_promptText" placeholder="Describe the image to generate…"></textarea>
+                    <button class="btn btn-primary mt-2" @onclick="GenerateFromPromptAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_promptText))">Generate Asset</button>
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-header"><strong>Create From Image</strong></div>
+                <div class="card-body">
+                    <label class="form-label">Asset name</label>
+                    <input type="text" class="form-control" @bind="_uploadName" placeholder="e.g. Becky front photo" />
+                    <label class="form-label mt-2">Image</label>
+                    <InputFile OnChange="OnUploadPicked" accept="image/png,image/jpeg,image/webp" />
+                    <button class="btn btn-primary mt-2" @onclick="UploadAssetAsync" disabled="@(_busy || _pendingUploadFile is null)">Upload Asset</button>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header"><strong>Generate Profile Pack</strong></div>
+                <div class="card-body small">
+                    <p class="text-muted mb-2">Creates the 5 face views (front, 3/4 left, 3/4 right, profile left, profile right) for one character and saves them into the character's identity pack plus the asset library. The front is your chosen photo, or is generated from the description; the other four views use the canned Qwen edits.</p>
+                    <label class="form-label">Character</label>
+                    <select class="form-select" @bind="_packCharacterId">
+                        <option value="">Select a scenario character…</option>
+                        @foreach (var option in _characterOptions)
+                        {
+                            <option value="@option.Id">@option.Label</option>
+                        }
+                    </select>
+                    <label class="form-label mt-2">Front photo (optional — else generated from description)</label>
+                    <select class="form-select" @bind="_packFrontAssetId">
+                        <option value="">— generate front from description —</option>
+                        @foreach (var asset in _assets.Where(a => a.Status == SceneAssetStatus.Complete))
+                        {
+                            <option value="@asset.Id">@asset.Name</option>
+                        }
+                    </select>
+                    <label class="form-label mt-2">Character description (when generating the front)</label>
+                    <textarea class="form-control" rows="2" @bind="_packDescription" placeholder="Short stable description of the character's look."></textarea>
+                    <button class="btn btn-success mt-2" @onclick="GenerateProfilePackAsync"
+                            disabled="@(_busy || string.IsNullOrWhiteSpace(_packCharacterId) || (string.IsNullOrWhiteSpace(_packFrontAssetId) && string.IsNullOrWhiteSpace(_packDescription)))">
+                        Generate Profile Pack Now
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <strong>Asset Library (@_assets.Count)</strong>
+                    @if (_hasInFlight)
+                    {
+                        <span class="text-muted small">updating…</span>
+                    }
+                </div>
+                <div class="card-body p-0">
+                    @if (_assets.Count == 0)
+                    {
+                        <div class="p-3 text-muted">No assets yet. Generate from a prompt or upload an image to begin.</div>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-sm align-middle mb-0">
+                                <thead>
+                                    <tr>
+                                        <th style="width:56px;"></th>
+                                        <th>Name</th>
+                                        <th>Kind</th>
+                                        <th>Status</th>
+                                        <th>Created</th>
+                                        <th class="text-end">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var asset in _assets)
+                                    {
+                                        <tr>
+                                            <td>
+                                                @if (asset.Status == SceneAssetStatus.Complete && !string.IsNullOrWhiteSpace(asset.FileRelativePath))
+                                                {
+                                                    <img src="/scene-images/@asset.FileRelativePath" style="width:48px;height:48px;object-fit:cover;border-radius:4px;" alt="@asset.Name" />
+                                                }
+                                            </td>
+                                            <td>
+                                                @asset.Name
+                                                @if (asset.FaceView is not null)
+                                                {
+                                                    <span class="text-muted small d-block">@asset.FaceView</span>
+                                                }
+                                            </td>
+                                            <td>@asset.Kind</td>
+                                            <td><span class="badge @StatusBadge(asset.Status)">@asset.Status</span></td>
+                                            <td class="text-nowrap">@asset.CreatedUtc.ToLocalTime().ToString("g")</td>
+                                            <td class="text-end text-nowrap">
+                                                <a class="btn btn-sm btn-outline-secondary" href="/asset-studio/@asset.Id">View</a>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private sealed record CharacterOption(string Id, string Label);
+
+    private readonly List<CharacterOption> _characterOptions = [];
+    private List<SceneAsset> _assets = [];
+    private readonly List<IBrowserFile> _pendingUploads = [];
+
+    private string _promptName = string.Empty;
+    private string _promptText = string.Empty;
+    private string _uploadName = string.Empty;
+    private string _packCharacterId = string.Empty;
+    private string _packFrontAssetId = string.Empty;
+    private string _packDescription = string.Empty;
+
+    private bool _busy;
+    private bool _hasInFlight;
+    private string? _error;
+    private string? _status;
+
+    private System.Threading.Timer? _timer;
+    private readonly object _timerLock = new();
+
+    private IBrowserFile? _pendingUploadFile => _pendingUploads.FirstOrDefault();
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var scenarios = await ScenarioService.GetAllScenariosAsync();
+            _characterOptions.AddRange(scenarios
+                .SelectMany(s => s.Characters.Select(c => new CharacterOption(c.Id, $"{s.Name} — {c.Name ?? "Unnamed"}")))
+                .ToList());
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to load scenario characters in Asset Studio.");
+        }
+
+        await ReloadAssetsAsync();
+    }
+
+    private async Task GenerateFromPromptAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_promptText)) return;
+
+        await RunAsync(async () =>
+        {
+            var name = string.IsNullOrWhiteSpace(_promptName) ? "Generated asset" : _promptName.Trim();
+            var asset = await AssetService.CreateFromPromptAsync(name, _promptText);
+            _promptName = string.Empty;
+            _promptText = string.Empty;
+            _status = "Asset generation queued.";
+            await ReloadAssetsAsync();
+            EnsurePolling();
+        });
+    }
+
+    private void OnUploadPicked(InputFileChangeEventArgs e)
+    {
+        _pendingUploads.Clear();
+        if (e.File is not null)
+        {
+            _pendingUploads.Add(e.File);
+        }
+    }
+
+    private async Task UploadAssetAsync()
+    {
+        var file = _pendingUploadFile;
+        if (file is null) return;
+
+        await RunAsync(async () =>
+        {
+            var name = string.IsNullOrWhiteSpace(_uploadName) ? "Uploaded asset" : _uploadName.Trim();
+            await using var stream = file.OpenReadStream(20 * 1024 * 1024);
+            var asset = await AssetService.CreateFromUploadAsync(name, file.Name, stream);
+            _uploadName = string.Empty;
+            _pendingUploads.Clear();
+            _status = $"Uploaded '{asset.Name}'.";
+            await ReloadAssetsAsync();
+        });
+    }
+
+    private async Task GenerateProfilePackAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_packCharacterId)) return;
+
+        await RunAsync(async () =>
+        {
+            var option = _characterOptions.FirstOrDefault(o => o.Id == _packCharacterId);
+            await AssetService.EnqueueProfilePackAsync(new SceneAssetProfilePackJobPayload
+            {
+                CharacterProfileId = _packCharacterId,
+                CharacterName = option?.Label ?? _packCharacterId,
+                Description = _packDescription.Trim(),
+                FrontAssetId = string.IsNullOrWhiteSpace(_packFrontAssetId) ? null : _packFrontAssetId
+            });
+            _status = "Profile pack generation queued — the 5 face views will appear here as they complete.";
+            await ReloadAssetsAsync();
+            EnsurePolling();
+        });
+    }
+
+    private async Task ReloadAssetsAsync()
+    {
+        _assets = (await AssetService.ListAssetsAsync()).ToList();
+        _hasInFlight = _assets.Any(a => a.Status == SceneAssetStatus.Pending);
+        StateHasChanged();
+    }
+
+    private void EnsurePolling()
+    {
+        lock (_timerLock)
+        {
+            if (_timer is null)
+            {
+                _timer = new System.Threading.Timer(async _ =>
+                {
+                    await ReloadAssetsAsync();
+                    if (!_hasInFlight)
+                    {
+                        StopPolling();
+                    }
+                }, null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
+            }
+        }
+    }
+
+    private void StopPolling()
+    {
+        lock (_timerLock)
+        {
+            _timer?.Dispose();
+            _timer = null;
+        }
+    }
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        _busy = true;
+        _error = null;
+        _status = null;
+        try
+        {
+            await action();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+            Logger.LogWarning(ex, "Asset Studio operation failed.");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private static string StatusBadge(SceneAssetStatus status) => status switch
+    {
+        SceneAssetStatus.Pending => "bg-secondary",
+        SceneAssetStatus.Complete => "bg-success",
+        SceneAssetStatus.Failed => "bg-danger",
+        _ => "bg-secondary"
+    };
+
+    public ValueTask DisposeAsync()
+    {
+        StopPolling();
+        return ValueTask.CompletedTask;
+    }
+}

@@ -1,6 +1,9 @@
+using System.Buffers.Binary;
 using System.Diagnostics;
+using System.IO.Compression;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json.Nodes;
 using DreamGenClone.Application.Abstractions;
 using DreamGenClone.Application.ModelManager;
@@ -42,17 +45,7 @@ public sealed class ComfyUIIdentityConditionedClient : IIdentityConditionedImage
             var client = _httpClientFactory.CreateClient("CompletionClient");
             client.Timeout = TimeSpan.FromSeconds(model.ProviderTimeoutSeconds);
 
-            var referenceName = await UploadReferenceImageAsync(client, baseUrl, request, cancellationToken);
-
-            var workflow = model.Mechanism switch
-            {
-                SceneImageIdentityMechanism.IpAdapter => BuildIpAdapterWorkflow(
-                    model.ModelIdentifier, model.AdapterRef, referenceName, request, model.IdentityStrength),
-                SceneImageIdentityMechanism.PuLid => BuildPuLidWorkflow(
-                    model.ModelIdentifier, model.AdapterRef, referenceName, request, model.IdentityStrength),
-                _ => throw new ImageGenerationException(
-                    $"Unsupported identity mechanism '{model.Mechanism}'.", model.ProviderName, reasonCode: "unsupported_identity_mechanism")
-            };
+            var workflow = await BuildWorkflowAsync(client, baseUrl, model, request, cancellationToken);
 
             var payload = new JsonObject
             {
@@ -61,8 +54,8 @@ public sealed class ComfyUIIdentityConditionedClient : IIdentityConditionedImage
             };
 
             _logger.LogInformation(
-                "ComfyUI identity generation start: Provider={ProviderName}, Checkpoint={Checkpoint}, Mechanism={Mechanism}, Reference={Reference}",
-                model.ProviderName, model.ModelIdentifier, model.Mechanism, referenceName);
+                "ComfyUI identity generation start: Provider={ProviderName}, Checkpoint={Checkpoint}, Mechanism={Mechanism}, References={ReferenceCount}",
+                model.ProviderName, model.ModelIdentifier, model.Mechanism, request.References.Count > 1 ? request.References.Count : 1);
 
             using var submitResponse = await client.PostAsJsonAsync($"{baseUrl}/prompt", payload, cancellationToken);
             if (!submitResponse.IsSuccessStatusCode)
@@ -175,13 +168,14 @@ public sealed class ComfyUIIdentityConditionedClient : IIdentityConditionedImage
     private async Task<string> UploadReferenceImageAsync(
         HttpClient client,
         string baseUrl,
-        IdentityControlledImageRequest request,
+        byte[] imageBytes,
+        string nameStem,
         CancellationToken cancellationToken)
     {
-        var referenceName = $"identity-ref-{request.CorrelationId}.png";
+        var referenceName = $"{nameStem}.png";
 
         using var content = new MultipartFormDataContent();
-        var fileContent = new ByteArrayContent(request.ReferenceImageBytes);
+        var fileContent = new ByteArrayContent(imageBytes);
         fileContent.Headers.ContentType = new MediaTypeHeaderValue("image/png");
         content.Add(fileContent, "image", referenceName);
 
@@ -352,6 +346,254 @@ public sealed class ComfyUIIdentityConditionedClient : IIdentityConditionedImage
                 ["inputs"] = new JsonObject { ["filename_prefix"] = "dreamgen_identity", ["images"] = new JsonArray("8", 0) }
             }
         };
+    }
+
+    private async Task<JsonObject> BuildWorkflowAsync(
+        HttpClient client,
+        string baseUrl,
+        ResolvedIdentityImageModel model,
+        IdentityControlledImageRequest request,
+        CancellationToken cancellationToken)
+    {
+        var isMulti = request.References.Count > 1;
+        if (isMulti && model.Mechanism != SceneImageIdentityMechanism.IpAdapter)
+        {
+            throw new ImageGenerationException(
+                $"Identity mechanism '{model.Mechanism}' does not support multi-character rendering; use IP-Adapter.",
+                model.ProviderName, reasonCode: "unsupported_identity_mechanism_multi");
+        }
+
+        if (isMulti)
+        {
+            var (width, height) = ParseSize(request.Size);
+            var uploaded = new List<(string ReferenceName, string MaskName, IdentityReferenceInput Reference)>();
+            for (var i = 0; i < request.References.Count; i++)
+            {
+                var reference = request.References[i];
+                var refName = await UploadReferenceImageAsync(
+                    client, baseUrl, reference.ReferenceImageBytes, $"{request.CorrelationId}-ref{i}", cancellationToken);
+                var maskBytes = reference.MaskBytes ?? SynthesizeBandMask(width, height, i, request.References.Count);
+                var maskName = await UploadReferenceImageAsync(
+                    client, baseUrl, maskBytes, $"{request.CorrelationId}-mask{i}", cancellationToken);
+                uploaded.Add((refName, maskName, reference));
+            }
+
+            return BuildMultiIpAdapterWorkflow(model.ModelIdentifier, model.AdapterRef, uploaded, request, model.IdentityStrength);
+        }
+
+        var referenceBytes = request.References.Count == 1
+            ? request.References[0].ReferenceImageBytes
+            : request.ReferenceImageBytes;
+        var referenceName = await UploadReferenceImageAsync(
+            client, baseUrl, referenceBytes, $"identity-ref-{request.CorrelationId}", cancellationToken);
+
+        return model.Mechanism switch
+        {
+            SceneImageIdentityMechanism.IpAdapter => BuildIpAdapterWorkflow(
+                model.ModelIdentifier, model.AdapterRef, referenceName, request, model.IdentityStrength),
+            SceneImageIdentityMechanism.PuLid => BuildPuLidWorkflow(
+                model.ModelIdentifier, model.AdapterRef, referenceName, request, model.IdentityStrength),
+            _ => throw new ImageGenerationException(
+                $"Unsupported identity mechanism '{model.Mechanism}'.", model.ProviderName, reasonCode: "unsupported_identity_mechanism")
+        };
+    }
+
+    /// <summary>
+    /// Builds the multi-character IP-Adapter workflow proven by the two-character proof harness: one
+    /// LoadImage + LoadImageMask + chained IPAdapter node per character, each with its own weight and
+    /// regional attention mask. The KSampler is wired from the final chained IPAdapter node.
+    /// </summary>
+    internal static JsonObject BuildMultiIpAdapterWorkflow(
+        string checkpointName,
+        string preset,
+        IReadOnlyList<(string ReferenceName, string MaskName, IdentityReferenceInput Reference)> references,
+        IdentityControlledImageRequest request,
+        double defaultStrength)
+    {
+        if (references.Count < 2)
+        {
+            throw new ArgumentException("Multi-character workflow requires at least two references.", nameof(references));
+        }
+
+        var (width, height) = ParseSize(request.Size);
+        var workflow = new JsonObject
+        {
+            ["4"] = new JsonObject
+            {
+                ["class_type"] = "CheckpointLoaderSimple",
+                ["inputs"] = new JsonObject { ["ckpt_name"] = checkpointName }
+            },
+            ["6"] = new JsonObject
+            {
+                ["class_type"] = "CLIPTextEncode",
+                ["inputs"] = new JsonObject { ["text"] = request.PositivePrompt, ["clip"] = new JsonArray("4", 1) }
+            },
+            ["7"] = new JsonObject
+            {
+                ["class_type"] = "CLIPTextEncode",
+                ["inputs"] = new JsonObject { ["text"] = request.NegativePrompt, ["clip"] = new JsonArray("4", 1) }
+            },
+            ["5"] = new JsonObject
+            {
+                ["class_type"] = "EmptyLatentImage",
+                ["inputs"] = new JsonObject { ["width"] = width, ["height"] = height, ["batch_size"] = 1 }
+            },
+            ["10"] = new JsonObject
+            {
+                ["class_type"] = "IPAdapterUnifiedLoader",
+                ["inputs"] = new JsonObject { ["model"] = new JsonArray("4", 0), ["preset"] = preset }
+            }
+        };
+
+        string previousModelNode = "10";
+        for (var i = 0; i < references.Count; i++)
+        {
+            var loadImageId = (11 + i * 2).ToString();
+            var loadMaskId = (12 + i * 2).ToString();
+            var ipNodeId = (20 + i).ToString();
+            var (refName, maskName, reference) = references[i];
+            var strength = reference.StrengthOverride ?? defaultStrength;
+
+            workflow[loadImageId] = new JsonObject
+            {
+                ["class_type"] = "LoadImage",
+                ["inputs"] = new JsonObject { ["image"] = refName }
+            };
+            workflow[loadMaskId] = new JsonObject
+            {
+                ["class_type"] = "LoadImageMask",
+                ["inputs"] = new JsonObject { ["image"] = maskName, ["channel"] = "red" }
+            };
+            workflow[ipNodeId] = new JsonObject
+            {
+                ["class_type"] = "IPAdapter",
+                ["inputs"] = new JsonObject
+                {
+                    ["model"] = new JsonArray(previousModelNode, 0),
+                    ["ipadapter"] = new JsonArray("10", 1),
+                    ["image"] = new JsonArray(loadImageId, 0),
+                    ["weight"] = strength,
+                    ["start_at"] = 0.0,
+                    ["end_at"] = 1.0,
+                    ["weight_type"] = "standard",
+                    ["attn_mask"] = new JsonArray(loadMaskId, 0)
+                }
+            };
+            previousModelNode = ipNodeId;
+        }
+
+        workflow["3"] = BuildKSampler(previousModelNode, request.Seed);
+        workflow["8"] = new JsonObject
+        {
+            ["class_type"] = "VAEDecode",
+            ["inputs"] = new JsonObject { ["samples"] = new JsonArray("3", 0), ["vae"] = new JsonArray("4", 2) }
+        };
+        workflow["9"] = new JsonObject
+        {
+            ["class_type"] = "SaveImage",
+            ["inputs"] = new JsonObject { ["filename_prefix"] = "dreamgen_identity", ["images"] = new JsonArray("8", 0) }
+        };
+        return workflow;
+    }
+
+    /// <summary>
+    /// Synthesizes a default regional mask (white = conditioned region) for one character in a
+    /// multi-character render: character <paramref name="index"/> of <paramref name="count"/> gets a
+    /// vertical band. Returns a grayscale PNG suitable for ComfyUI LoadImageMask.
+    /// </summary>
+    internal static byte[] SynthesizeBandMask(int width, int height, int index, int count)
+    {
+        if (count < 2) throw new ArgumentOutOfRangeException(nameof(count), "At least two characters are required for a band mask.");
+        if (index < 0 || index >= count) throw new ArgumentOutOfRangeException(nameof(index));
+        if (width <= 0 || height <= 0) throw new ArgumentOutOfRangeException(nameof(width));
+
+        var startX = (int)((long)index * width / count);
+        var endX = (int)((long)(index + 1) * width / count);
+
+        var stride = 1 + width;
+        var raw = new byte[height * stride];
+        for (var y = 0; y < height; y++)
+        {
+            var row = y * stride;
+            raw[row] = 0; // filter: None
+            for (var x = 0; x < width; x++)
+            {
+                raw[row + 1 + x] = (x >= startX && x < endX) ? (byte)255 : (byte)0;
+            }
+        }
+
+        return EncodeGrayPng(raw, width, height);
+    }
+
+    private static byte[] EncodeGrayPng(byte[] rawWithFilterBytes, int width, int height)
+    {
+        using var output = new MemoryStream();
+        output.Write(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A });
+
+        var ihdr = new byte[13];
+        BinaryPrimitives.WriteInt32BigEndian(ihdr.AsSpan(0, 4), width);
+        BinaryPrimitives.WriteInt32BigEndian(ihdr.AsSpan(4, 4), height);
+        ihdr[8] = 8;  // bit depth
+        ihdr[9] = 0;  // color type: grayscale
+        ihdr[10] = 0; // compression
+        ihdr[11] = 0; // filter
+        ihdr[12] = 0; // interlace
+        WriteChunk(output, "IHDR", ihdr);
+
+        using var compressed = new MemoryStream();
+        using (var zlib = new ZLibStream(compressed, CompressionLevel.Fastest, leaveOpen: true))
+        {
+            zlib.Write(rawWithFilterBytes, 0, rawWithFilterBytes.Length);
+        }
+        WriteChunk(output, "IDAT", compressed.ToArray());
+
+        WriteChunk(output, "IEND", Array.Empty<byte>());
+        return output.ToArray();
+    }
+
+    private static readonly uint[] CrcTable = BuildCrcTable();
+
+    private static uint[] BuildCrcTable()
+    {
+        var table = new uint[256];
+        for (uint n = 0; n < 256; n++)
+        {
+            var c = n;
+            for (var k = 0; k < 8; k++)
+            {
+                c = (c & 1) != 0 ? 0xEDB88320u ^ (c >> 1) : c >> 1;
+            }
+            table[n] = c;
+        }
+        return table;
+    }
+
+    private static uint Crc32(ReadOnlySpan<byte> bytes)
+    {
+        var crc = 0xFFFFFFFFu;
+        foreach (var b in bytes)
+        {
+            crc = CrcTable[(crc ^ b) & 0xFF] ^ (crc >> 8);
+        }
+        return crc ^ 0xFFFFFFFFu;
+    }
+
+    private static void WriteChunk(Stream stream, string type, byte[] data)
+    {
+        var length = new byte[4];
+        BinaryPrimitives.WriteUInt32BigEndian(length, (uint)data.Length);
+        stream.Write(length);
+
+        var typeBytes = Encoding.ASCII.GetBytes(type);
+        stream.Write(typeBytes);
+        stream.Write(data);
+
+        var crcInput = new byte[typeBytes.Length + data.Length];
+        typeBytes.CopyTo(crcInput, 0);
+        data.CopyTo(crcInput, typeBytes.Length);
+        var crc = new byte[4];
+        BinaryPrimitives.WriteUInt32BigEndian(crc, Crc32(crcInput));
+        stream.Write(crc);
     }
 
     private static JsonObject BuildKSampler(string modelNodeId, long? seed) => new()
