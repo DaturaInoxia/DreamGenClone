@@ -16,9 +16,20 @@ packages/
 # Logs and environment
 *.log
 .env*
+# RunPod automation local credentials (never commit)
+helpers/runpod/.runpod-env.ps1
+helpers/runpod/,addmodel-env.ps1
 
 # Application data (SQLite database with encrypted API keys)
 data/
+# Track only the sanitized content snapshot DB (no API keys); working DBs stay ignored
+!DreamGenClone.Web/data/
+DreamGenClone.Web/data/*
+!DreamGenClone.Web/data/dreamgenclone.snapshot.db
+
+# Python
+__pycache__/
+*.py[cod]
 
 # IDE/editor
 .vscode/
