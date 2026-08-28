@@ -96,8 +96,13 @@
       "endpointKey": "img-juggernaut-serverless",
       "function": "SDXL / Juggernaut XL text-to-image (first app-integrated workload)",
       "capability": "TextToImage",
-      "status": "pending-upload",
-      "endpointId": "",
+      "status": "working-validated",
+      "endpointId": "p3e3708j6s9oa6",
+      "requestUrls": {
+        "run": "https://api.runpod.ai/v2/p3e3708j6s9oa6/run",
+        "runSync": "https://api.runpod.ai/v2/p3e3708j6s9oa6/runsync",
+        "health": "https://api.runpod.ai/v2/p3e3708j6s9oa6/health"
+      },
       "deployment": "STOCK runpod/worker-comfyui:5.8.4-base (no custom Dockerfile - plain SDXL T2I). Endpoint created via REST POST /v2/serverless with networkVolumes attached (create-endpoint.ps1 supports volume + dataCenterIds since 2026-08-28). Model served from the Network Volume.",
       "workerImage": "runpod/worker-comfyui:5.8.4-base",
       "workerDir": "",
@@ -121,7 +126,7 @@
       "env": {},
       "modelManager": { "registered": false, "providerName": "juggernaut - register when the app points here (B-032 SceneImageStudio) " },
       "smokeTest": {
-        "result": "PENDING - upload of juggernautXL_ragnarok.safetensors (7,105,350,162 B) to volume xkslgh6xo0 via s3-volume.py in progress (2026-08-28).",
+        "result": "PASSED 2026-08-28 job 8ef8465a-ca59-43eb-9efd-6219e57efc21-u2: COMPLETED, exec 71084ms, worker 13zdho63aiq0g2. output.images[0] = juggernaut_t2i_00001_.png (base64) - rendered via helpers/runpod/workflows/juggernaut-t2i.json, checkpoint loaded from /runpod-volume/models/checkpoints/juggernautXL_ragnarok.safetensors. Render verified via view_image (clean SDXL portrait).",
         "jobInput": "official contract: {\"input\":{\"workflow\":<helpers/runpod/workflows/juggernaut-t2i.json>}} (pure T2I, no input images)",
         "expectedOutput": "rendered PNG at output.images[0].data (base64)"
       },
