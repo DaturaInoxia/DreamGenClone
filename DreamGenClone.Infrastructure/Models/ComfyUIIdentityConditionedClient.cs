@@ -614,7 +614,7 @@ public sealed class ComfyUIIdentityConditionedClient : IIdentityConditionedImage
         }
     };
 
-    private static (int Width, int Height) ParseSize(string? size)
+    internal static (int Width, int Height) ParseSize(string? size)
     {
         if (!string.IsNullOrWhiteSpace(size))
         {

@@ -16,4 +16,6 @@ public sealed record ResolvedIdentityImageModel(
     SceneImageIdentityMechanism Mechanism,
     string AdapterRef,
     string? ClipVisionRef,
-    double IdentityStrength);
+    double IdentityStrength,
+    string? ApiKeyEncrypted = null,
+    ImageProtocol ImageProtocol = ImageProtocol.ComfyUi);

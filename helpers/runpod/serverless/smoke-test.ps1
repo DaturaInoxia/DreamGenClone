@@ -10,10 +10,21 @@
 #     -EndpointKey pose-dwpose-serverless -ImagePath path/to/image.png
 #   powershell -ExecutionPolicy RemoteSigned -File helpers/runpod/serverless/smoke-test.ps1 `
 #     -EndpointKey img-juggernaut-serverless -WorkflowJsonPath helpers/runpod/workflows/juggernaut-t2i.json
+#   powershell -ExecutionPolicy RemoteSigned -File helpers/runpod/serverless/smoke-test.ps1 `
+#     -EndpointKey img-identity-serverless -WorkflowJsonPath helpers/runpod/serverless/proofs/identity-2char.json `
+#     -ImagesJsonPath helpers/runpod/serverless/proofs/identity-2char.images.json -OutDir artifacts/tmp/proofs/identity
+#
+# -ImagesJsonPath: a JSON file that is an ARRAY of { "name": <ComfyUI image field name>, "path": <local file> }.
+#   Each entry is attached to input.images under the given name (must match the LoadImage/LoadImageMask
+#   'image' fields in the workflow). Used for identity (refs + regional masks) and qwen-edit (source) proofs.
+# -OutDir: when the job COMPLETES, output.images[].data (base64) is decoded and written here as
+#   <endpointKey>_<i>.png, and the saved paths are printed on their own lines as SAVED:<path>.
 param(
     [Parameter(Mandatory = $true)][string]$EndpointKey,
     [string]$ImagePath,
-    [string]$WorkflowJsonPath
+    [string]$WorkflowJsonPath,
+    [string]$ImagesJsonPath,
+    [string]$OutDir
 )
 
 $ErrorActionPreference = "Stop"
@@ -65,6 +76,18 @@ if ($ImagePath) {
     $jobInput.images = @(@{ name = "input_image.png"; image = "data:image/png;base64,$b64" })
 }
 
+if ($ImagesJsonPath) {
+    # Multi-image manifest: [ { name, path }, ... ] -> input.images[]. Names MUST match the
+    # workflow's LoadImage / LoadImageMask 'image' fields (the worker substitutes by name).
+    $manifest = Get-Content -Raw -Path (Resolve-Path $ImagesJsonPath) | ConvertFrom-Json
+    $jobInput.images = @()
+    foreach ($item in $manifest) {
+        $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes((Resolve-Path $item.path)))
+        $jobInput.images += @{ name = $item.name; image = "data:image/png;base64,$b64" }
+        Write-Host "  attached image '$($item.name)' from $($item.path)"
+    }
+}
+
 $headers = @{ Authorization = "Bearer $env:RUNPOD_API_KEY" }
 $body = @{ input = $jobInput } | ConvertTo-Json -Depth 10
 
@@ -94,5 +117,28 @@ for ($i = 1; $i -le 90; $i++) {   # up to ~15 min
     }
 }
 if (-not $done) { Write-Host "`nTIMEOUT after 15 min - check RunPod console for the job's status/logs." }
-elseif ($st.status -eq "COMPLETED") { Write-Host "`nPASS: job completed. Inspect output.images[] for the rendered pose PNG (base64)." }
+elseif ($st.status -eq "COMPLETED") {
+    Write-Host "`nPASS: job completed. Inspect output.images[] for the rendered PNG (base64)."
+    # Decode output images when an output dir is requested (proof-runner flow).
+    if ($OutDir) {
+        $outRoot = Resolve-Path $OutDir -ErrorAction SilentlyContinue
+        if (-not $outRoot) { $outRoot = Join-Path $repoRoot $OutDir; New-Item -ItemType Directory -Force -Path $outRoot | Out-Null }
+        $outRoot = (Resolve-Path $outRoot).Path
+        $idx = 0
+        if ($st.output.images) {
+            foreach ($img in $st.output.images) {
+                if ($img.data) {
+                    $raw = $img.data
+                    if ($raw -match '^data:') { $raw = ($raw -split ',', 2)[1] }
+                    $bytes = [Convert]::FromBase64String($raw)
+                    $outPath = Join-Path $outRoot "$EndpointKey`_$idx.png"
+                    [IO.File]::WriteAllBytes($outPath, $bytes)
+                    Write-Host "SAVED:$outPath"
+                    $idx++
+                }
+            }
+        }
+        if ($idx -eq 0) { Write-Host "WARN: no output.images[].data found to save." }
+    }
+}
 else { Write-Host "`nFAIL: inspect 'output'/'error' above; check RunPod console for job logs (no SSH)." }

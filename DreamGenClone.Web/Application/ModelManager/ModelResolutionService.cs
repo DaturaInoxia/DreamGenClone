@@ -305,7 +305,9 @@ public sealed class ModelResolutionService : IModelResolutionService, IMultimoda
             Mechanism: mechanism,
             AdapterRef: model.IdentityAdapterRef.Trim(),
             ClipVisionRef: string.IsNullOrWhiteSpace(model.IdentityClipVisionRef) ? null : model.IdentityClipVisionRef.Trim(),
-            IdentityStrength: strength);
+            IdentityStrength: strength,
+            ApiKeyEncrypted: resolved.ApiKeyEncrypted,
+            ImageProtocol: resolved.ImageProtocol);
     }
 
     public async Task<ResolvedMultimodalModel> ResolveAsync(
