@@ -61,12 +61,26 @@ public sealed class SceneImageResolutionTests
             => Task.FromResult(_providers.Values.Any(x => x.Name == name));
     }
 
+    private sealed class FakeSecretProvider : IModelManagerSecretProvider
+    {
+        public string? Resolve(string? keyName) => null;
+    }
+
+    private sealed class FakeApiKeyEncryptionService : IApiKeyEncryptionService
+    {
+        public string Encrypt(string plainTextApiKey) => plainTextApiKey;
+        public string Decrypt(string encryptedApiKey) => encryptedApiKey;
+    }
+
     private static (ModelResolutionService service, FakeFunctionDefaultRepository funcDefaults, FakeRegisteredModelRepository models, FakeProviderRepository providers) Build()
     {
         var funcDefaults = new FakeFunctionDefaultRepository();
         var models = new FakeRegisteredModelRepository();
         var providers = new FakeProviderRepository();
-        var service = new ModelResolutionService(funcDefaults, models, providers, NullLogger<ModelResolutionService>.Instance);
+        var service = new ModelResolutionService(
+            funcDefaults, models, providers,
+            new FakeSecretProvider(), new FakeApiKeyEncryptionService(),
+            NullLogger<ModelResolutionService>.Instance);
         return (service, funcDefaults, models, providers);
     }
 

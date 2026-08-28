@@ -45,11 +45,16 @@ using Serilog.Context;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Load git-ignored per-instance secrets (Model Manager API keys, e.g. ModelManagerSecrets:RunPod).
+// The file is never committed; without it the app simply runs with DB-stored keys only.
+builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
+
 builder.WebHost.UseStaticWebAssets();
 
 LoggingSetup.ConfigureSerilog(builder);
 
 builder.Services.Configure<LmStudioOptions>(builder.Configuration.GetSection(LmStudioOptions.SectionName));
+builder.Services.Configure<ModelManagerSecretsOptions>(builder.Configuration.GetSection(ModelManagerSecretsOptions.SectionName));
 builder.Services.Configure<PersistenceOptions>(builder.Configuration.GetSection(PersistenceOptions.SectionName));
 builder.Services.Configure<StoryParserOptions>(builder.Configuration.GetSection(StoryParserOptions.SectionName));
 builder.Services.Configure<StoryAnalysisOptions>(builder.Configuration.GetSection(StoryAnalysisOptions.SectionName));
@@ -270,8 +275,10 @@ builder.Services.AddSingleton<ISemanticBackgroundJobQueue>(sp => sp.GetRequiredS
 builder.Services.AddHostedService<SemanticBackgroundJobWorker>();
 
 // Scene Image Generator (001-scene-image-generator): image pipeline services.
+builder.Services.AddSingleton<IModelManagerSecretProvider, ModelManagerSecretProvider>();
 builder.Services.AddSingleton<ImageGenerationClient>();
 builder.Services.AddSingleton<ComfyUIImageClient>();
+builder.Services.AddSingleton<RunPodServerlessImageClient>();
 builder.Services.AddSingleton<IImageGenerationClient, ImageGenerationClientDispatcher>();
 builder.Services.AddSingleton<IImageEditingClient, ComfyUIImageEditingClient>();
 builder.Services.AddSingleton<IIdentityConditionedImageClient, ComfyUIIdentityConditionedClient>();

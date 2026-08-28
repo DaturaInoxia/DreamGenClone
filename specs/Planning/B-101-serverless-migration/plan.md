@@ -69,6 +69,41 @@ already speaks workflow-JSON). This is the foundation for the network-volume sto
 NO GHCR / NO GitHub Actions (superseded; the two old workflows can be removed). Old hand-built
 endpoint (`06lhf1akdg34c2`, 0.5.0) = rollback fallback; retire after soak.
 
+**Progress (2026-08-28, JUGGERNAUT MIGRATED + VALIDATED on the Network Volume — first big model):**
+- 7.1 GB `juggernautXL_ragnarok.safetensors` uploaded to volume `xkslgh6xo0` via S3
+  (`s3-volume.py`, multipart, size-verified 7,105,350,162 B) at `/runpod-volume/models/checkpoints/`.
+- Endpoint `img-juggernaut-serverless` (id `p3e3708j6s9oa6`) created via REST `POST /v2/serverless`
+  with `networkVolumes:[xkslgh6xo0]` + `dataCenterIds:[EU-RO-1]` + AMPERE_16 pool + `timeout:900000`
+  + `idleTimeout:1800` + `flashboot:OFF` — STOCK `runpod/worker-comfyui:5.8.4-base` image, **no custom
+  Dockerfile** (plain SDXL T2I).
+- Smoke test **PASSED** (job `8ef8465a...-u2`, COMPLETED, exec 71084ms, worker `13zdho63aiq0g2`):
+  `juggernaut_t2i_00001_.png` from `/runpod-volume/models/checkpoints/juggernautXL_ragnarok.safetensors`,
+  render verified via `view_image`. This proves the **stock base + Network Volume** pattern end-to-end
+  for a heavy model — de-risks Qwen Edit/Qwen VL/identity (they become base image + volume model).
+- Tooling added: `create-endpoint.ps1` now supports `networkVolumes`/`dataCenterIds`/`timeoutMs`/
+  `flashboot`; `smoke-test.ps1` accepts `-WorkflowJsonPath` (external ComfyUI workflow);
+  `download-hf.ps1` (resumable HF downloads via manifest); `s3-upload-progress.py` (counts in-flight
+  multipart parts); `helpers/runpod/workflows/juggernaut-t2i.json` (reusable T2I smoke workflow).
+  Superseded GH Actions worker pipelines DELETED (commit `8f18235` on `001-scene-image-generator`).
+
+**Progress (2026-08-28, BULK MODEL STAGING to volume — Qwen Edit model decision applied):**
+All remaining models are being staged to volume `xkslgh6xo0` now (download locally → S3 upload), so
+each worker build is just base image + custom nodes (models already in DC):
+- **Qwen Edit (NEW MODEL, per MODEL DECISION):** `Qwen-Rapid-AIO-NSFW-v23.safetensors`
+  (28.43 GB, sha `cbb5b56c...`, ungated) → `/runpod-volume/models/checkpoints/`. Replaces the stock
+  safety-aligned `qwen_image_edit_2511_fp8mixed.safetensors`. Loaded via CheckpointLoaderSimple
+  (merged model+clip+vae). The old pod-side diffusion/TE/VAE split + failed MCNL LoRA are dead.
+- **Qwen VL:** `huihui-ai/Qwen2.5-VL-7B-Instruct-abliterated` (4 shards, 16.6 GB) →
+  `/runpod-volume/qwen-vl-edit-compiler/model/` (vLLM compiler reads the repo from the volume).
+- **Identity (PLUS FACE regional, the proven mechanism):** `ip-adapter-plus-face_sdxl_vit-h.safetensors`
+  (0.85 GB) → `/runpod-volume/models/ipadapter/` + OpenCLIP ViT-H-14 image encoder
+  (`h94/IP-Adapter sdxl_models/image_encoder/model.safetensors`, 3.69 GB) →
+  `/runpod-volume/models/clip_vision/CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors`. No insightface /
+  ControlNet / PuLID needed (not in the working graph).
+Volume budget check: 7.1 + 28.4 + 16.6 + 4.5 ≈ 56.6 GB of 80 GB. **Honest timeline:** local HF
+downloads are fast (~10 MB/s); the bottleneck is the S3 upload through the dev host's upstream
+(Juggernaut 7.1 GB took ~30-45 min ⇒ Qwen Edit alone ≈ 2-4 h upload). Uploads run in background.
+
 ## 1.5 Storage integration (Network Volume) — proven on DWPose, then applied to big models
 
 **Goal (user decision 2026-08-28):** after the DWPose endpoint works with baked ckpts, move the

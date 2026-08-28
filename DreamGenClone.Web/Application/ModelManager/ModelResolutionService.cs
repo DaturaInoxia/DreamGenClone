@@ -11,17 +11,23 @@ public sealed class ModelResolutionService : IModelResolutionService, IMultimoda
     private readonly IFunctionDefaultRepository _functionDefaultRepository;
     private readonly IRegisteredModelRepository _modelRepository;
     private readonly IProviderRepository _providerRepository;
+    private readonly IModelManagerSecretProvider _secretProvider;
+    private readonly IApiKeyEncryptionService _encryptionService;
     private readonly ILogger<ModelResolutionService> _logger;
 
     public ModelResolutionService(
         IFunctionDefaultRepository functionDefaultRepository,
         IRegisteredModelRepository modelRepository,
         IProviderRepository providerRepository,
+        IModelManagerSecretProvider secretProvider,
+        IApiKeyEncryptionService encryptionService,
         ILogger<ModelResolutionService> logger)
     {
         _functionDefaultRepository = functionDefaultRepository;
         _modelRepository = modelRepository;
         _providerRepository = providerRepository;
+        _secretProvider = secretProvider;
+        _encryptionService = encryptionService;
         _logger = logger;
     }
 
@@ -219,17 +225,34 @@ public sealed class ModelResolutionService : IModelResolutionService, IMultimoda
             provider.ImageCapability,
             stopwatch.ElapsedMilliseconds);
 
+        // Serverless image providers need the RunPod API key. Prefer the DB-encrypted key; if the
+        // provider has none, fall back to the git-ignored ModelManagerSecrets (by CredentialReference,
+        // then provider name, then the default "RunPod" key) and encrypt it for the client path. No
+        // fallback default is ever invented — if no key is configured anywhere, the client will fail
+        // fast with the RunPod 401.
+        var apiKeyEncrypted = provider.ApiKeyEncrypted;
+        if (string.IsNullOrEmpty(apiKeyEncrypted) && provider.ImageProtocol == ImageProtocol.ComfyUiServerless)
+        {
+            var secret = _secretProvider.Resolve(provider.CredentialReference)
+                         ?? _secretProvider.Resolve(provider.Name)
+                         ?? _secretProvider.Resolve("RunPod");
+            if (!string.IsNullOrEmpty(secret))
+            {
+                apiKeyEncrypted = _encryptionService.Encrypt(secret);
+            }
+        }
+
         return new ResolvedImageModel(
             ProviderBaseUrl: provider.BaseUrl,
             ImageGenerationPath: provider.ImageGenerationPath,
             ProviderTimeoutSeconds: provider.TimeoutSeconds,
-            ApiKeyEncrypted: provider.ApiKeyEncrypted,
+            ApiKeyEncrypted: apiKeyEncrypted,
             ModelIdentifier: model.ModelIdentifier,
             ContentPolicy: provider.ContentPolicy,
             ProviderName: provider.Name,
             IsSessionOverride: !string.IsNullOrEmpty(sessionOverrideId),
             ImageProtocol: provider.ImageProtocol,
-            ComfyUiUrl: provider.ImageProtocol == ImageProtocol.ComfyUi ? provider.BaseUrl : null);
+            ComfyUiUrl: provider.ImageProtocol is ImageProtocol.ComfyUi or ImageProtocol.ComfyUiServerless ? provider.BaseUrl : null);
     }
 
     public async Task<ResolvedIdentityImageModel> ResolveIdentityImageModelAsync(

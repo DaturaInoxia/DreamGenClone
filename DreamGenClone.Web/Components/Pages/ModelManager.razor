@@ -4,6 +4,7 @@
 @using DreamGenClone.Web.Application.ModelManager
 
 @inject ModelManagerFacade Facade
+@inject IModelManagerSecretProvider SecretProvider
 
 <PageTitle>Model Manager - DreamGenClone</PageTitle>
 
@@ -154,9 +155,10 @@
                                 <label class="form-label">Image Protocol</label>
                                 <select class="form-select" @bind="_editingProvider!.ImageProtocol">
                                     <option value="OpenAiImages">OpenAI Images API</option>
-                                    <option value="ComfyUi">ComfyUI</option>
+                                    <option value="ComfyUi">ComfyUI (pod HTTP)</option>
+                                    <option value="ComfyUiServerless">ComfyUI Serverless (RunPod)</option>
                                 </select>
-                                <div class="form-text">Wire protocol for image calls. ComfyUI uses /prompt + /history + /view.</div>
+                                <div class="form-text">Wire protocol for image calls. ComfyUI uses /prompt + /history + /view; ComfyUI Serverless uses the RunPod job API (/run + /status, base64 output). Base URL for serverless = https://api.runpod.ai/v2/{endpointId}.</div>
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label">Content Policy</label>
@@ -847,16 +849,29 @@
             _providerFormError = "Timeout must be between 1 and 600 seconds.";
             return;
         }
-        if (_editingProviderType != 0 && string.IsNullOrEmpty(_editingApiKey) && !_existingProviderIds.Contains(_editingProvider.Id))
+        // A blank API key is allowed when a matching local secret resolves from the git-ignored
+        // appsettings.Local.json (ModelManagerSecrets) — by CredentialReference, then provider name,
+        // then the default "RunPod" entry. The runtime falls back to that secret for serverless
+        // providers, so operators can keep instance keys out of git and out of the DB.
+        var localSecretAvailable = !string.IsNullOrWhiteSpace(
+            SecretProvider.Resolve(_editingProvider.CredentialReference)
+            ?? SecretProvider.Resolve(_editingProvider.Name)
+            ?? SecretProvider.Resolve("RunPod"));
+
+        if (_editingProviderType != 0
+            && string.IsNullOrEmpty(_editingApiKey)
+            && !_existingProviderIds.Contains(_editingProvider.Id)
+            && !localSecretAvailable)
         {
-            _providerFormError = "API key is required for cloud providers.";
+            _providerFormError = "API key is required for cloud providers (or provide a local secret in appsettings.Local.json matching the Credential Reference).";
             return;
         }
         if (!string.IsNullOrWhiteSpace(_editingProvider.CredentialReference)
             && string.IsNullOrEmpty(_editingApiKey)
-            && string.IsNullOrWhiteSpace(_editingProvider.ApiKeyEncrypted))
+            && string.IsNullOrWhiteSpace(_editingProvider.ApiKeyEncrypted)
+            && !localSecretAvailable)
         {
-            _providerFormError = "An API key is required when a credential reference is configured.";
+            _providerFormError = "An API key is required when a credential reference is configured (or provide a matching local secret in appsettings.Local.json).";
             return;
         }
         if (!ValidateMultimodalProvider(_editingProvider, out var multimodalError))

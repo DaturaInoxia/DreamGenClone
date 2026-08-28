@@ -19,6 +19,8 @@ packages/
 # RunPod automation local credentials (never commit)
 helpers/runpod/.runpod-env.ps1
 helpers/runpod/,addmodel-env.ps1
+# Local-only per-instance API keys for Model Manager (ModelManagerSecrets) - never commit
+DreamGenClone.Web/appsettings.Local.json
 
 # Application data (SQLite database with encrypted API keys)
 data/

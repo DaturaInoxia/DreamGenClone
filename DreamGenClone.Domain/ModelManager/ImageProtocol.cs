@@ -10,5 +10,8 @@ public enum ImageProtocol
     OpenAiImages = 0,
 
     /// <summary>ComfyUI HTTP API (<c>/prompt</c> + <c>/history</c> + <c>/view</c>, workflow JSON).</summary>
-    ComfyUi = 1
+    ComfyUi = 1,
+
+    /// <summary>RunPod Serverless worker-comfyui API (<c>/run</c> + <c>/status/{job}</c>, base64 output.images).</summary>
+    ComfyUiServerless = 2
 }
