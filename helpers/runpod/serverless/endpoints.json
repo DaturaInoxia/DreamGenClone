@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "updatedUtc": "2026-08-27",
+  "purpose": "Registry for RunPod Serverless endpoints (B-101 migration). One entry per endpoint = one worker image + one endpoint config + one Model Manager provider mapping. Mirrors helpers/runpod/pod-registry.json for the old pods. Every image/endpoint change MUST be recorded here and reproducible from the Dockerfile + config.",
+  "containerRegistry": "ghcr.io/daturoinoxia/dreamgenclone",
+  "notes": [
+    "Docker is NOT installed on the dev host. Default builder = GitHub Actions workflow .github/workflows/build-serverless-worker.yml -> pushes to GHCR (containerRegistry). Repo DaturaInoxia/DreamGenClone is PUBLIC; set GHCR package visibility to Public so RunPod can pull without credentials (or use a read:packages PAT in the endpoint container.imageAuth).",
+    "Endpoint API field names (minWorkers/maxWorkers/idleTimeout/gpuIds) verified at P0 against the live RunPod serverless API/console before the first create.",
+    "Serverless workers have no SSH. Debugging = build -> deploy -> send job -> read job logs -> iterate.",
+    "Migration order: DWPose (infra proof, no app changes) -> Juggernaut (first app-integrated) -> identity -> Qwen VL -> Qwen Edit.",
+    "Pods stay running (stopped-not-deleted) as rollback until each endpoint soaks green."
+  ],
+  "endpoints": [
+    {
+      "endpointKey": "pose-dwpose-serverless",
+      "function": "Pose extraction (DWPose)",
+      "capability": "PoseExtraction",
+      "status": "designed",
+      "workerImage": "ghcr.io/daturoinoxia/dreamgenclone/dreamgen-dwpose-worker:0.1.0",
+      "workerDir": "helpers/runpod/serverless/dwpose-worker",
+      "gpuTypeId": "NVIDIA RTX 4000 Ada",
+      "candidateGpuTypeIds": [
+        "NVIDIA RTX 4000 Ada",
+        "NVIDIA RTX A5000",
+        "NVIDIA GeForce RTX 3090 Ti"
+      ],
+      "candidateNotes": "DWPose is light (OpenCV-CPU pose extractor). Any cheap GPU works; a NON-Blackwell GPU avoids the cu128 torch requirement (Blackwell sm_120 needs torch 2.7.0+cu128).",
+      "minWorkers": 0,
+      "maxWorkers": 1,
+      "idleTimeoutSec": 180,
+      "env": {},
+      "modelManager": {
+        "registered": false,
+        "providerName": "Not registered in Model Manager (intentional) - same as pod"
+      },
+      "smokeTest": {
+        "jobInput": "{\"image_b64\":\"<data:image/png;base64,...>\"}",
+        "expectedOutput": "OpenPose JSON keypoints + rendered PNG",
+        "deepProof": "helpers/runpod/workflows/dwpose-extract-proof.json equivalent run through the endpoint handler"
+      },
+      "persistence": {
+        "standard": "Worker image is immutable; cold start = fresh container from image. Model/ckpt downloads happen at image build or first start.",
+        "restartProof": true
+      },
+      "migratedFromDeploymentKey": "pose-dwpose-prod"
+    }
+  ]
+}

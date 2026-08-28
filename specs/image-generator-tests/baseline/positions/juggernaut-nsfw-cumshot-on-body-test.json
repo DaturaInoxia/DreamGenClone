@@ -1,0 +1,27 @@
+{
+  "id": "juggernaut-nsfw-cumshot-on-body-test",
+  "title": "cumshot on body",
+  "actors": "1M1F",
+  "closeup": true,
+  "neutralScene": "An adult man finishing on an adult woman's chest; the man's face out of frame, only his erect penis and lower torso visible; close-up of her breasts and stomach covered in semen, cum dripping down her skin; correct anatomy, natural skin texture, soft warm light, sharp focus.",
+  "negative": "deformed, bad anatomy, extra limbs, extra legs, four legs, fused legs, extra fingers, extra arms, missing limbs, malformed hands, malformed feet, man's face, man's head, male face in frame, misplaced genitals, penis on arm, penis on hand, detached penis, extra penis, blurry genitals, featureless genitals, censored, cartoon, anime, illustration, painting, sketch, watermark, text, low quality, oversaturated, plastic skin",
+  "variants": {
+    "sdxl-juggernaut": "Photorealistic explicit cumshot, an adult man finishing on an adult woman's chest, the man's face out of frame, only his erect penis and lower torso visible in the frame, close-up of her breasts and stomach covered in semen, thick cum dripping down her skin, his penis in the foreground, correct anatomy, natural realistic skin texture, soft warm bedroom lighting, 35mm macro lens, sharp focus, highly detailed",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_explicit, 1girl and 1boy, 2people, cumshot, cum on chest, cum on body, semen on body, man's face out of frame, close-up, nude, correct anatomy, soft lighting, sharp focus",
+    "qwen-edit": "Change the scene so the man finishes on the woman's chest, cum dripping down her skin. Keep her face, hair, identity, body, skin, and lighting exactly unchanged; keep the man's face out of frame."
+  },
+  "settings": {
+    "seed": 20502,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1024,
+    "height": 1024
+  },
+  "source": {
+    "suite": "juggernaut",
+    "workflow": "juggernaut/prompts/juggernaut-nsfw-cumshot-on-body-test.json"
+  }
+}

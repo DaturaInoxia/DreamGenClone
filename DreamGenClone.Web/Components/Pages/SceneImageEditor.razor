@@ -78,6 +78,20 @@
                         }
                     </div>
 
+                    @if (_editSession is not null && !string.IsNullOrWhiteSpace(_editSession.DescriptionText))
+                    {
+                        <div class="scene-edit-clarification mb-2">
+                            <div class="d-flex justify-content-between align-items-center gap-2">
+                                <span class="scene-edit-kicker">What the model sees</span>
+                                <button class="btn btn-outline-secondary btn-sm" @onclick="ReanalyzeAsync"
+                                        disabled="@(_busy || _descriptionPending || _editSession.Status == SceneImageEditSessionStatus.Completed)">
+                                    <i class="bi bi-arrow-clockwise me-1"></i> Re-analyze
+                                </button>
+                            </div>
+                            <p class="mb-0">@_editSession.DescriptionText</p>
+                        </div>
+                    }
+
                     <label class="form-label" for="edit-intent">Edit intent</label>
                     <textarea id="edit-intent" class="form-control" rows="4" @bind="_rawIntent" @bind:event="oninput"
                               disabled="@(_busy || _editSession?.Status == SceneImageEditSessionStatus.Completed)"
@@ -323,6 +337,7 @@
     private bool _loading = true;
     private bool _busy;
     private bool _polling;
+    private bool _descriptionPending;
     private CancellationTokenSource? _pollingCts;
     private Task? _pollingTask;
 
@@ -369,6 +384,12 @@
                 SourceImageId = sourceImageId
             });
             await RefreshAsync();
+            if (_editSession is not null && string.IsNullOrWhiteSpace(_editSession.DescriptionText))
+            {
+                await CompilationService.EnqueueDescriptionAsync(_editSession.Id);
+                _descriptionPending = true;
+                EnsurePolling();
+            }
         }
         catch (Exception ex)
         {
@@ -411,6 +432,19 @@
         await PrepareAsync();
     }
 
+    private async Task ReanalyzeAsync()
+    {
+        if (_editSession is null)
+            return;
+        await RunAsync(async () =>
+        {
+            _descriptionPending = false;
+            await CompilationService.EnqueueDescriptionAsync(_editSession.Id, force: true);
+            _descriptionPending = true;
+            EnsurePolling();
+        });
+    }
+
     private async Task RunEditAsync()
     {
         if (_editSession is null || _attempt is null || _activeRevision is null || _sourceImage is null)
@@ -450,6 +484,8 @@
         if (_editSession is null)
             return;
         _editSession = await CompilationService.GetSessionAsync(_editSession.Id) ?? _editSession;
+        if (_descriptionPending && _editSession is not null && !string.IsNullOrWhiteSpace(_editSession.DescriptionText))
+            _descriptionPending = false;
         var latestAttempt = await CompilationService.GetLatestAttemptAsync(_editSession.Id);
         if (latestAttempt is not null)
         {
@@ -520,6 +556,8 @@
 
     private bool HasInFlightWork()
     {
+        if (_descriptionPending)
+            return true;
         if (_attempt?.Status is SceneImageEditCompilationAttemptStatus.Pending or SceneImageEditCompilationAttemptStatus.Compiling)
             return true;
         return _resultImage?.Status is SceneImageStatus.Pending or SceneImageStatus.Generating;

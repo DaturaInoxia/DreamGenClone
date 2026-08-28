@@ -1,0 +1,270 @@
+{
+  "suite": "baseline-positions",
+  "purpose": "Model-agnostic sexual position/act prompt catalog. Each entry carries a neutral scene description plus per-model variants (SDXL/Juggernaut natural language, Pony V6 tags, Qwen edit instruction). Consumed by model-specific test suites and the app prompt builders.",
+  "actorsLegend": {
+    "1M1F": "1 man + 1 woman",
+    "2F1M": "2 women + 1 man",
+    "1F2M": "1 woman + 2 men",
+    "2F2M": "2 women + 2 men",
+    "2M1F": "2 men + 1 woman"
+  },
+  "count": 32,
+  "positions": [
+    {
+      "id": "juggernaut-nsfw-69-test",
+      "path": "positions/juggernaut-nsfw-69-test.json",
+      "actors": "1M1F",
+      "closeup": false,
+      "bytes": 2211,
+      "sha256": "28da19a99312f16eab2df2ba59d7ea8ed22be0e9d2addf533c516875e2f2e609"
+    },
+    {
+      "id": "juggernaut-nsfw-cowgirl-test",
+      "path": "positions/juggernaut-nsfw-cowgirl-test.json",
+      "actors": "1M1F",
+      "closeup": false,
+      "bytes": 2091,
+      "sha256": "969dc38a03f447ef1a4bcf28d6949ef73c7d838d3a17a0e08c628f2431e79c3f"
+    },
+    {
+      "id": "juggernaut-nsfw-cowgirl-penetration-closeup-test",
+      "path": "positions/juggernaut-nsfw-cowgirl-penetration-closeup-test.json",
+      "actors": "1M1F",
+      "closeup": true,
+      "bytes": 2170,
+      "sha256": "40cb3cd4ba94fd363fecffc7e66bf2dd25496a9c69b0bb359a1b5e5d386c8683"
+    },
+    {
+      "id": "juggernaut-nsfw-missionary-test",
+      "path": "positions/juggernaut-nsfw-missionary-test.json",
+      "actors": "1M1F",
+      "closeup": false,
+      "bytes": 1952,
+      "sha256": "e7e415b57ccff20ae304a0f24fe2b7e2e0beebdb4166d81440ca84573f3f3840"
+    },
+    {
+      "id": "juggernaut-nsfw-missionary-penetration-closeup-test",
+      "path": "positions/juggernaut-nsfw-missionary-penetration-closeup-test.json",
+      "actors": "1M1F",
+      "closeup": true,
+      "bytes": 2080,
+      "sha256": "4419bfa68152d25c77f8dad79ea3fd3bbbd5fee9ee3e47f9ea99b5af2481a0a4"
+    },
+    {
+      "id": "juggernaut-nsfw-doggy-test",
+      "path": "positions/juggernaut-nsfw-doggy-test.json",
+      "actors": "1M1F",
+      "closeup": false,
+      "bytes": 2188,
+      "sha256": "0be8d9a41206c6446bbbeb195193806e8fa80d5f9bce8833f8611b5c363e061c"
+    },
+    {
+      "id": "juggernaut-nsfw-doggy-penetration-closeup-test",
+      "path": "positions/juggernaut-nsfw-doggy-penetration-closeup-test.json",
+      "actors": "1M1F",
+      "closeup": true,
+      "bytes": 2112,
+      "sha256": "acc2a6dc14e20f81af0783afa34f2b03926887005efaf28bedd1ff508a77e0a2"
+    },
+    {
+      "id": "juggernaut-nsfw-fellatio-test",
+      "path": "positions/juggernaut-nsfw-fellatio-test.json",
+      "actors": "1M1F",
+      "closeup": false,
+      "bytes": 1899,
+      "sha256": "f660d857926d3824548c6c4424ab39bc7e0b7ad03b856e7389a8eab12ec3466a"
+    },
+    {
+      "id": "juggernaut-nsfw-reverse-cowgirl-test",
+      "path": "positions/juggernaut-nsfw-reverse-cowgirl-test.json",
+      "actors": "1M1F",
+      "closeup": false,
+      "bytes": 2033,
+      "sha256": "578aa0b03ed116a0cf17dff7b36bb0ba90d31c282eab4ddfbb3e14f2106a3099"
+    },
+    {
+      "id": "juggernaut-nsfw-reverse-cowgirl-penetration-closeup-test",
+      "path": "positions/juggernaut-nsfw-reverse-cowgirl-penetration-closeup-test.json",
+      "actors": "1M1F",
+      "closeup": true,
+      "bytes": 2158,
+      "sha256": "629ea5c6791b8009388cecbd1a54daad9ada15d26d7507458adbc222689ebb07"
+    },
+    {
+      "id": "juggernaut-nsfw-spooning-test",
+      "path": "positions/juggernaut-nsfw-spooning-test.json",
+      "actors": "1M1F",
+      "closeup": false,
+      "bytes": 2110,
+      "sha256": "7aa70098c875ce5c21e27ed8ef73e50e9b632f2f63d83b518492cded6de330be"
+    },
+    {
+      "id": "juggernaut-nsfw-spooning-penetration-closeup-test",
+      "path": "positions/juggernaut-nsfw-spooning-penetration-closeup-test.json",
+      "actors": "1M1F",
+      "closeup": true,
+      "bytes": 2070,
+      "sha256": "77de7c2763d01bf49d93f32b8301804a2ce621573845aacd0eaea627a6c638d5"
+    },
+    {
+      "id": "juggernaut-nsfw-standing-test",
+      "path": "positions/juggernaut-nsfw-standing-test.json",
+      "actors": "1M1F",
+      "closeup": false,
+      "bytes": 2150,
+      "sha256": "39995878aaff9b9727af38f68f532169e264fe0a10a709db573b1d65da07c32e"
+    },
+    {
+      "id": "juggernaut-nsfw-standing-penetration-closeup-test",
+      "path": "positions/juggernaut-nsfw-standing-penetration-closeup-test.json",
+      "actors": "1M1F",
+      "closeup": true,
+      "bytes": 2124,
+      "sha256": "95979606b2c23aa4f3806f3e3ddb897837b5347ebd40f4d713ae1ddbccab5f09"
+    },
+    {
+      "id": "juggernaut-nsfw-cumshot-facial-test",
+      "path": "positions/juggernaut-nsfw-cumshot-facial-test.json",
+      "actors": "1M1F",
+      "closeup": true,
+      "bytes": 2094,
+      "sha256": "858c2073b891573fe1c88324819c58e907bf861df2644dd51d95fc36f68d92ae"
+    },
+    {
+      "id": "juggernaut-nsfw-cumshot-in-mouth-test",
+      "path": "positions/juggernaut-nsfw-cumshot-in-mouth-test.json",
+      "actors": "1M1F",
+      "closeup": true,
+      "bytes": 2139,
+      "sha256": "e6e144e0c6a5baf8cb6473c93d4ac491b00945837e94b5fe3dbe732c4effd838"
+    },
+    {
+      "id": "juggernaut-nsfw-cumshot-on-body-test",
+      "path": "positions/juggernaut-nsfw-cumshot-on-body-test.json",
+      "actors": "1M1F",
+      "closeup": true,
+      "bytes": 2131,
+      "sha256": "e7240d70d39e3001501bf8b0a04ec4acd428bcad9d16218edcb85539960eebc5"
+    },
+    {
+      "id": "juggernaut-nsfw-cumshot-creampie-test",
+      "path": "positions/juggernaut-nsfw-cumshot-creampie-test.json",
+      "actors": "1M1F",
+      "closeup": true,
+      "bytes": 2249,
+      "sha256": "eb0c4ededdfa452207d3ab0838eb15504b9eb93961cafc8d43b355e4e2ae9308"
+    },
+    {
+      "id": "juggernaut-nsfw-mff-cowgirl-cunnilingus-test",
+      "path": "positions/juggernaut-nsfw-mff-cowgirl-cunnilingus-test.json",
+      "actors": "2F1M",
+      "closeup": false,
+      "bytes": 2205,
+      "sha256": "8721a37e3bd1130ed6b8c6fe9421be7c22530225579ec471c69fc024d45e00f5"
+    },
+    {
+      "id": "juggernaut-nsfw-mff-cowgirl-cunnilingus-closeup-test",
+      "path": "positions/juggernaut-nsfw-mff-cowgirl-cunnilingus-closeup-test.json",
+      "actors": "2F1M",
+      "closeup": true,
+      "bytes": 2068,
+      "sha256": "628da509cab772866f22e0f89c181e4d55c83d308b289476bafc2cfe666e7c21"
+    },
+    {
+      "id": "juggernaut-nsfw-mff-cowgirl-facesitting-test",
+      "path": "positions/juggernaut-nsfw-mff-cowgirl-facesitting-test.json",
+      "actors": "2F1M",
+      "closeup": false,
+      "bytes": 2171,
+      "sha256": "9737ff7c84c71373a0f5c992117164344090f5f4b4fa131db1f071c6cf1e23b7"
+    },
+    {
+      "id": "juggernaut-nsfw-mff-double-fellatio-test",
+      "path": "positions/juggernaut-nsfw-mff-double-fellatio-test.json",
+      "actors": "2F1M",
+      "closeup": false,
+      "bytes": 2114,
+      "sha256": "38e54db6b75ef806976b1c831d917373dac2f010116f7d7f0631f451c4eac932"
+    },
+    {
+      "id": "juggernaut-nsfw-mff-double-fellatio-closeup-test",
+      "path": "positions/juggernaut-nsfw-mff-double-fellatio-closeup-test.json",
+      "actors": "2F1M",
+      "closeup": true,
+      "bytes": 1885,
+      "sha256": "6fcbf159d9149e7813de985171cc6febf1f3647fe944b3ae6305c145ee55d1a7"
+    },
+    {
+      "id": "juggernaut-nsfw-mmf-cowgirl-fellatio-test",
+      "path": "positions/juggernaut-nsfw-mmf-cowgirl-fellatio-test.json",
+      "actors": "1F2M",
+      "closeup": false,
+      "bytes": 2207,
+      "sha256": "1ff890ee4ad52fbb1f71eab9fc4c1b242767dbbe98b2d6397060003ce99b2c5a"
+    },
+    {
+      "id": "juggernaut-nsfw-mmf-double-penetration-test",
+      "path": "positions/juggernaut-nsfw-mmf-double-penetration-test.json",
+      "actors": "1F2M",
+      "closeup": false,
+      "bytes": 2293,
+      "sha256": "e3ec89d123383f41aca12c9dca3b1227ed1b7c9431bb3de10454d3435b0a1cd3"
+    },
+    {
+      "id": "juggernaut-nsfw-mmf-double-penetration-closeup-test",
+      "path": "positions/juggernaut-nsfw-mmf-double-penetration-closeup-test.json",
+      "actors": "1F2M",
+      "closeup": true,
+      "bytes": 2148,
+      "sha256": "bba13ac21dc022962d01d8bda3235e961ec179c859fa876b9913568105963aff"
+    },
+    {
+      "id": "juggernaut-nsfw-mmf-spitroast-test",
+      "path": "positions/juggernaut-nsfw-mmf-spitroast-test.json",
+      "actors": "1F2M",
+      "closeup": false,
+      "bytes": 2266,
+      "sha256": "6d8286f39280854c56a11180bf84a0438cd6a3f6074a7f81bac7165c117596ec"
+    },
+    {
+      "id": "juggernaut-nsfw-mmf-spitroast-closeup-test",
+      "path": "positions/juggernaut-nsfw-mmf-spitroast-closeup-test.json",
+      "actors": "1F2M",
+      "closeup": true,
+      "bytes": 2054,
+      "sha256": "528506d3e01198a5d800904942e6fd25b4cbd5c9283f48093b4ee82552221642"
+    },
+    {
+      "id": "juggernaut-nsfw-orgy-four-way-test",
+      "path": "positions/juggernaut-nsfw-orgy-four-way-test.json",
+      "actors": "2F2M",
+      "closeup": false,
+      "bytes": 2214,
+      "sha256": "bfd0020839b04a61eb1182d712ab088718be87f58dd35e313f186c846759021c"
+    },
+    {
+      "id": "juggernaut-nsfw-orgy-double-penetration-test",
+      "path": "positions/juggernaut-nsfw-orgy-double-penetration-test.json",
+      "actors": "2F2M",
+      "closeup": false,
+      "bytes": 2336,
+      "sha256": "587812b587a708767bc6be01d5c75c30d32d72dd27a84e336fa14c745c13b1f6"
+    },
+    {
+      "id": "juggernaut-nsfw-orgy-four-way-closeup-test",
+      "path": "positions/juggernaut-nsfw-orgy-four-way-closeup-test.json",
+      "actors": "2F2M",
+      "closeup": true,
+      "bytes": 2149,
+      "sha256": "2d649bc14dabc4393219ebfc8f5a67d8c3c8bad585849e522795a0add9580722"
+    },
+    {
+      "id": "juggernaut-nsfw-cumshot-double-facial-test",
+      "path": "positions/juggernaut-nsfw-cumshot-double-facial-test.json",
+      "actors": "2M1F",
+      "closeup": true,
+      "bytes": 2203,
+      "sha256": "a09e622b5a4f58ccdeeb04c0e0026e702301e4daf2b92b01e25c6978ecf9e16b"
+    }
+  ]
+}

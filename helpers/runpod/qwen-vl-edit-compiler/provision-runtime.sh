@@ -141,4 +141,32 @@ verify_lfs_file tokenizer.json 7031645 c0382117ea329cdf097041132f6d735924b697924
 require_workspace_available "$minimum_final_workspace_available_bytes" final-headroom
 require_free_space / "$min_root_free_bytes" container-root
 
+# Auto-start vLLM on every boot via /pre_start.sh (container overlay is wiped on recycle).
+if [ -f /pre_start.sh ]; then
+  if grep -q "dreamgen-qwen-vl-bootstrap" /pre_start.sh; then
+    echo "  /pre_start.sh already patched (qwen-vl bootstrap)"
+  else
+    head -n 1 /pre_start.sh > /tmp/pre_start.new
+    cat >> /tmp/pre_start.new <<'BOOTSTRAP'
+# dreamgen-qwen-vl-bootstrap (provision-runtime.sh): auto-start vLLM on 3004 if not running.
+if ! ss -ltn | grep -q ':3004 ' && [ -x /workspace/qwen-vl-edit-compiler/.venv/bin/vllm ] && [ -f /workspace/qwen-vl-edit-compiler/model/config.json ]; then
+  export PATH="/workspace/qwen-vl-edit-compiler/.venv/bin:$PATH"
+  export VLLM_USE_FLASHINFER_SAMPLER=0
+  (setsid nohup /workspace/qwen-vl-edit-compiler/.venv/bin/vllm serve /workspace/qwen-vl-edit-compiler/model \
+      --host 0.0.0.0 --port 3004 \
+      --served-model-name huihui-ai/Qwen2.5-VL-7B-Instruct-abliterated \
+      --max-model-len 8192 --limit-mm-per-prompt '{"image":1}' \
+      --gpu-memory-utilization 0.9 \
+      >> /workspace/qwen-vl-edit-compiler/vllm.log 2>&1 < /dev/null &)
+fi
+BOOTSTRAP
+    tail -n +2 /pre_start.sh >> /tmp/pre_start.new
+    mv /tmp/pre_start.new /pre_start.sh
+    chmod +x /pre_start.sh
+    echo "  /pre_start.sh patched (qwen-vl bootstrap)"
+  fi
+else
+  echo "  /pre_start.sh not found; auto-start patch skipped"
+fi
+
 printf 'QWEN_VL_RUNTIME_PROVISIONED revision=%s vllm=%s path=%s\n' "$model_revision" "$vllm_version" "$runtime"

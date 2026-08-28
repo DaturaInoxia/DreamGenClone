@@ -12,6 +12,7 @@ public interface ISceneImageEditRepository
         DateTime? completedUtc = null,
         CancellationToken cancellationToken = default);
     Task<SceneImageEditSession?> GetSessionAsync(string sessionId, CancellationToken cancellationToken = default);
+    Task SetDescriptionAsync(string sessionId, string description, DateTime updatedUtc, CancellationToken cancellationToken = default);
     Task CreateAttemptAsync(SceneImageEditCompilationAttempt attempt, CancellationToken cancellationToken = default);
     Task UpdateAttemptAsync(SceneImageEditCompilationAttempt attempt, CancellationToken cancellationToken = default);
     Task<SceneImageEditCompilationAttempt?> GetAttemptAsync(string attemptId, CancellationToken cancellationToken = default);

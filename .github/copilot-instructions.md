@@ -125,3 +125,30 @@ When the user refers to "the backlog", "backlog item", "add to the backlog", or 
 - Valid states: `new`, `designed`, `planned`, `implemented`, `debugging`, `done`, `done done`.
 - New ideas are added as `new`. Items progress through states as work advances.
 - Do not remove items from the backlog — change their state to `done done` when fully closed.
+
+## Hard Rule: RunPod Pod Changes Must Be Documented (MANDATORY)
+
+Applies to ALL work on DreamGenClone RunPod pods (`helpers/runpod/**`, deployment manifests, pod
+provisioning, Model Manager RunPod endpoints).
+
+- **Every change added to a pod** (a model/checkpoint, a ComfyUI custom node, a config file, a
+  system package, an installed service, an env var) **MUST be recorded** in
+  `helpers/runpod/pod-registry.json` (as an idempotent `provision` step) and reflected in the pod's
+  deployment manifest. A change is not "done" until it is documented AND reproducible from scratch
+  by the `runpod-pod-creation` skill.
+- **Pods must keep their changes across restart.** RunPod pods have a persistent `/workspace`
+  volume and an ephemeral container overlay (wiped on restart/recycle). Models, venvs, custom-node
+  clones, and config "masters" go on `/workspace`; anything that must live in the overlay
+  (e.g. `/ComfyUI/extra_model_paths.yaml`, `/pre_start.sh`, custom-node symlinks) MUST be restored
+  automatically on every boot via an idempotent `/pre_start.sh` patch. Services (ComfyUI, vLLM)
+  MUST auto-start on boot — never rely on a manual SSH start surviving a restart.
+- **Verify restart-proofness**: after provisioning, restart the pod and re-run the smoke test
+  before declaring the pod ready.
+- Read `helpers/runpod/POD-PERSISTENCE.md` (the standard) and use the `runpod-pod-creation` skill
+  (`.github/skills/runpod-pod-creation/SKILL.md`) and `helpers/runpod/pod-registry.json` as the
+  source of truth. If you add something to a pod and do NOT update the registry/provision script,
+  you are breaking this rule.
+- Also see the recurring checkpoint-outage note above: container-overlay loss after recycle is a
+  KNOWN cause of "missing after restart"; the fix is the documented provisioner + `/pre_start.sh`
+  self-heal, never re-diagnosing from scratch.
+

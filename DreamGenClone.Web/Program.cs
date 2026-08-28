@@ -258,6 +258,7 @@ builder.Services.AddScoped<IBackgroundJobHandler, SceneImagePromptGenerationJobH
 builder.Services.AddScoped<IBackgroundJobHandler, SceneImageRenderingJobHandler>();
 builder.Services.AddScoped<IBackgroundJobHandler, SceneImageEditingJobHandler>();
 builder.Services.AddScoped<IBackgroundJobHandler, SceneImageEditCompilationJobHandler>();
+builder.Services.AddScoped<IBackgroundJobHandler, SceneImageEditDescriptionJobHandler>();
 builder.Services.AddScoped<SceneImageTurnResolver>();
 builder.Services.AddScoped<SceneImageBeatAnalysisService>();
 builder.Services.AddHostedService<GenericBackgroundJobWorker>();

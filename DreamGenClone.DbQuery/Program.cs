@@ -14,7 +14,7 @@ if (!File.Exists(databasePath))
     return 2;
 }
 
-var connectionMode = commandName is "provider-endpoint-update" or "provider-split-model" ? "ReadWrite" : "ReadOnly";
+var connectionMode = commandName is "provider-endpoint-update" or "provider-split-model" or "provider-timeout-update" ? "ReadWrite" : "ReadOnly";
 await using var connection = new SqliteConnection($"Data Source={databasePath};Mode={connectionMode}");
 await connection.OpenAsync();
 
@@ -50,6 +50,11 @@ try
             RequireArgument(args, 2, "modelId"),
             RequireArgument(args, 3, "newProviderName"),
             RequireArgument(args, 4, "newBaseUrl")),
+        "provider-timeout-update" => await UpdateProviderTimeoutAsync(
+            connection,
+            RequireArgument(args, 1, "providerId"),
+            RequireArgument(args, 2, "expectedCurrentTimeoutSeconds"),
+            RequireArgument(args, 3, "newTimeoutSeconds")),
         "sql" => await PrintSqlFileAsync(connection, RequireArgument(args, 1, "sqlFile"), args.ElementAtOrDefault(2)),
         _ => throw new ArgumentException($"Unknown command '{args[0]}'.")
     };
@@ -213,6 +218,68 @@ static async Task<int> SplitProviderModelAsync(
     return 0;
 }
 
+static async Task<int> UpdateProviderTimeoutAsync(
+    SqliteConnection connection,
+    string providerId,
+    string expectedCurrentTimeoutSeconds,
+    string newTimeoutSeconds)
+{
+    if (!int.TryParse(expectedCurrentTimeoutSeconds, out var expectedTimeout) || expectedTimeout <= 0)
+        throw new ArgumentException("expectedCurrentTimeoutSeconds must be a positive integer.");
+    if (!int.TryParse(newTimeoutSeconds, out var newTimeout) || newTimeout <= 0)
+        throw new ArgumentException("newTimeoutSeconds must be a positive integer.");
+
+    await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync();
+    await using var select = connection.CreateCommand();
+    select.Transaction = transaction;
+    select.CommandText = "SELECT Name, TimeoutSeconds FROM Providers WHERE Id = $providerId;";
+    select.Parameters.AddWithValue("$providerId", providerId);
+
+    string providerName;
+    int currentTimeout;
+    await using (var reader = await select.ExecuteReaderAsync())
+    {
+        if (!await reader.ReadAsync())
+            throw new InvalidOperationException($"Provider '{providerId}' was not found; no database changes were made.");
+        providerName = reader.GetString(0);
+        currentTimeout = reader.GetInt32(1);
+    }
+
+    if (currentTimeout != expectedTimeout)
+    {
+        throw new InvalidOperationException(
+            $"Provider '{providerName}' timeout changed concurrently. Expected {expectedTimeout}, found {currentTimeout}; no database changes were made.");
+    }
+
+    if (currentTimeout == newTimeout)
+    {
+        await transaction.RollbackAsync();
+        Console.WriteLine($"Provider timeout already current: {providerId} | {providerName} | {newTimeout}s");
+        return 0;
+    }
+
+    await using var update = connection.CreateCommand();
+    update.Transaction = transaction;
+    update.CommandText = """
+        UPDATE Providers
+        SET TimeoutSeconds = $newTimeoutSeconds,
+            UpdatedUtc = $updatedUtc
+        WHERE Id = $providerId
+          AND TimeoutSeconds = $expectedCurrentTimeoutSeconds;
+        """;
+    update.Parameters.AddWithValue("$newTimeoutSeconds", newTimeout);
+    update.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("o"));
+    update.Parameters.AddWithValue("$providerId", providerId);
+    update.Parameters.AddWithValue("$expectedCurrentTimeoutSeconds", expectedTimeout);
+    var rowsAffected = await update.ExecuteNonQueryAsync();
+    if (rowsAffected != 1)
+        throw new InvalidOperationException("Provider timeout compare-and-swap failed; no database changes were made.");
+
+    await transaction.CommitAsync();
+    Console.WriteLine($"Provider timeout updated: {providerId} | {providerName} | {currentTimeout}s -> {newTimeout}s");
+    return 0;
+}
+
 static async Task<int> PrintSchemaAsync(SqliteConnection connection, string? tableName)
 {
     if (!string.IsNullOrWhiteSpace(tableName))
@@ -296,5 +363,5 @@ static string FindDatabasePath()
 static void PrintUsage()
 {
     Console.Error.WriteLine("Usage: dotnet run --project DreamGenClone.DbQuery -- <command> [args]");
-    Console.Error.WriteLine("Commands: tables, schema [table], sessions, session <id>, adaptive <id>, themes <id>, evals <id>, transitions <id>, turns <id>, debug <id>, completions <id>, formula <id>, scenario <id>, gate-profiles, gate-rules <themeId>, theme-profiles, rp-themes <profileId>, provider-endpoint-update <providerId> <expectedCurrentBaseUrl> <newBaseUrl>, provider-split-model <sourceProviderId> <modelId> <newProviderName> <newBaseUrl>, sql <file> [id]");
+    Console.Error.WriteLine("Commands: tables, schema [table], sessions, session <id>, adaptive <id>, themes <id>, evals <id>, transitions <id>, turns <id>, debug <id>, completions <id>, formula <id>, scenario <id>, gate-profiles, gate-rules <themeId>, theme-profiles, rp-themes <profileId>, provider-endpoint-update <providerId> <expectedCurrentBaseUrl> <newBaseUrl>, provider-split-model <sourceProviderId> <modelId> <newProviderName> <newBaseUrl>, provider-timeout-update <providerId> <expectedCurrentTimeoutSeconds> <newTimeoutSeconds>, sql <file> [id]");
 }

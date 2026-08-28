@@ -1559,7 +1559,8 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 Status TEXT NOT NULL,
                 CreatedUtc TEXT NOT NULL,
                 UpdatedUtc TEXT NOT NULL,
-                CompletedUtc TEXT NULL
+                CompletedUtc TEXT NULL,
+                DescriptionText TEXT NULL
             );
             CREATE INDEX IF NOT EXISTS IX_SceneImageEditSessions_Source
                 ON SceneImageEditSessions (SourceImageId);
@@ -1605,6 +1606,17 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 ON SceneImageEditPromptRevisions (CompilationAttemptId, Ordinal DESC);
             """;
         await sceneImageEditSchema.ExecuteNonQueryAsync(cancellationToken);
+
+        var checkSceneImageEditDescriptionColumn = connection.CreateCommand();
+        checkSceneImageEditDescriptionColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('SceneImageEditSessions') WHERE name='DescriptionText'";
+        var hasSceneImageEditDescriptionColumn = Convert.ToInt64(await checkSceneImageEditDescriptionColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasSceneImageEditDescriptionColumn)
+        {
+            var alterSceneImageEditDescription = connection.CreateCommand();
+            alterSceneImageEditDescription.CommandText = "ALTER TABLE SceneImageEditSessions ADD COLUMN DescriptionText TEXT NULL";
+            await alterSceneImageEditDescription.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated SceneImageEditSessions table: added DescriptionText column");
+        }
 
         var checkAdaptiveStateJsonColumn = connection.CreateCommand();
         checkAdaptiveStateJsonColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('Sessions') WHERE name='AdaptiveStateJson'";

@@ -11,7 +11,7 @@ from pathlib import Path
 from PIL import Image
 
 
-MODEL_NAME = "qwen2.5-vl-7b-edit-compiler"
+MODEL_NAME = "huihui-ai/Qwen2.5-VL-7B-Instruct-abliterated"
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
 MAX_IMAGE_PIXELS = 1_048_576
 HTTP_TIMEOUT_SECONDS = 90

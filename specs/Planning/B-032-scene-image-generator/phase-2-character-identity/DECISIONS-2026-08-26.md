@@ -107,6 +107,20 @@ Recorded as a tested-and-failed alternative (scorecard); selected mechanism stay
 regional + near-frontal guardrail**. Angled-cell options now: multi-angle refs, ControlNet OpenPose
 (B-097), LoRA (P2-030).
 
+**Multi-angle pack proof + baseline positions — FAIL (2026-08-27).** Option 1 (multi-angle refs)
+was completed in full on the migrated proof pod `ncsmze3anko7w2`: 16-case pack proof (8 cells × 2
+seeds) with the complete 5-view packs, plus the 18 baseline position workflows (corrected to
+per-position angle-matched refs). Comparison sheets (`[Dean ref | render | Becky ref]`) were
+generated so identity could be judged against the actual pack photos. **Human review: NOT a pass —
+the renders do not match the pack identities, and the same character looks like a different person
+in different angles.** The angle-matched refs fixed structure (no collapse, coherent poses) but
+**identity itself does not carry through**. Cumulative across all three approaches (FaceID v2,
+single-frontal matrix, multi-angle packs): **IP-Adapter `PLUS FACE` regional conditioning does not
+hold character identity reliably across poses/angles.** The identity gate for P2-023 is NOT met by
+this mechanism; only single-actor near-frontal identity is validated. Remaining untested options:
+ControlNet OpenPose (B-097), dedicated identity LoRA (P2-030). See
+`specs/image-generator-tests/identity-two-character/research/RESEARCH-NOTES.md`.
+
 ## Known gaps / next steps
 
 - **Option C (independent identity pod)**: identity rendering should resolve its own provider (proof

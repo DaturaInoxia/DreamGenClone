@@ -11,4 +11,5 @@ public static class BackgroundJobTypes
     public const string SceneImageRendering = "scene-image-rendering";
     public const string SceneImageEditing = "scene-image-editing";
     public const string SceneImageEditPromptCompilation = "scene-image-edit-prompt-compilation";
+    public const string SceneImageEditDescription = "scene-image-edit-description";
 }

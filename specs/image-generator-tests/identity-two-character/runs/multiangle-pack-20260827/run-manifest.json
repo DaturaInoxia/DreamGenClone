@@ -1,0 +1,109 @@
+﻿{
+    "refs":  "refs/multiangle (5 views x 2 chars = 10 pack images)",
+    "renders":  [
+                    {
+                        "sha256":  "87DA3D08AEB6A435A2CE6383623C674DBADF238A162D6E6C8726BA1569E80F79",
+                        "file":  "c1_s1001.png",
+                        "bytes":  1473330
+                    },
+                    {
+                        "sha256":  "A95DDAB55DB1C0F96B616CBB5FA645C86A2684377394E2DAEF3132F34F4D0AAE",
+                        "file":  "c1_s1002.png",
+                        "bytes":  1486852
+                    },
+                    {
+                        "sha256":  "4DAD58EBBA74E21B57CA569751C7136BA53AC5578CFF74AABFAC4926EE3F727F",
+                        "file":  "c2_s1001.png",
+                        "bytes":  1410668
+                    },
+                    {
+                        "sha256":  "2EF0100D85708BABD22DD83A0DDD13531246B43F94071B3C177C25CC191FB31B",
+                        "file":  "c2_s1002.png",
+                        "bytes":  1370291
+                    },
+                    {
+                        "sha256":  "F453514A3E14F55E146F5DCC4D5DF1AB829E1014DBE8BE581A104B2694969BAD",
+                        "file":  "c2m_s1001.png",
+                        "bytes":  1421530
+                    },
+                    {
+                        "sha256":  "821A22D7D595AFEA92BCC8E2E41B2391D7DD65FAB817F6C3F45286EEE6042DDD",
+                        "file":  "c2m_s1002.png",
+                        "bytes":  1440824
+                    },
+                    {
+                        "sha256":  "668A1816504BD322485C0204B5B97EA8B8862E81926D340ADAF59BC94851BD7D",
+                        "file":  "c3_s1001.png",
+                        "bytes":  1444887
+                    },
+                    {
+                        "sha256":  "E5C9797F884401CB6D0EDE5D42256FC24E73E0AF48676C6143F2F54A51DB077B",
+                        "file":  "c3_s1002.png",
+                        "bytes":  1457913
+                    },
+                    {
+                        "sha256":  "0C8ADFC517E9806132209C9679020AE5913D2E6AE0A765571466E8198C80F9A1",
+                        "file":  "c3m_s1001.png",
+                        "bytes":  1403743
+                    },
+                    {
+                        "sha256":  "77A38DE5B0E3CDE6C73DAB2E5C053125B080B1EC14C8CE8C9BEAA2079D403B3C",
+                        "file":  "c3m_s1002.png",
+                        "bytes":  1430427
+                    },
+                    {
+                        "sha256":  "A45A9400760D873C6ED2C87AE375944F236C9EBE2E9144819C692AF95D2BE8C7",
+                        "file":  "c4_s1001.png",
+                        "bytes":  1359601
+                    },
+                    {
+                        "sha256":  "DB3C6250BB85171019E2A15371D492EBFBE9490C2A49735293240E826D35480C",
+                        "file":  "c4_s1002.png",
+                        "bytes":  1322692
+                    },
+                    {
+                        "sha256":  "897F135B56E4E338FF32FA592CF7B252266570BCC0E5BDAAFFD84DF39455075C",
+                        "file":  "c5_s1001.png",
+                        "bytes":  1369976
+                    },
+                    {
+                        "sha256":  "13AEC38CC6EC65EEC1C84291B12C40CB60ED0FACB7429C11BA6678CEA0D00187",
+                        "file":  "c5_s1002.png",
+                        "bytes":  1422079
+                    },
+                    {
+                        "sha256":  "DE2CA4FFC6B0A7D29C9BEEC2182962F7E454F16E25EEA218FEE40E9B51B0215F",
+                        "file":  "c6_s1001.png",
+                        "bytes":  1373051
+                    },
+                    {
+                        "sha256":  "D142903F1A84EF76DF5BC8D39841F49A036AA24B320B531448B035E4CC99124B",
+                        "file":  "c6_s1002.png",
+                        "bytes":  1369548
+                    }
+                ],
+    "createdUtc":  "2026-08-27T18:37:52Z",
+    "purpose":  "Multi-angle pack proof — identity-two-character with FULL 5-view face packs (Dean+Becky). Validates whether the DB packs hold identity in angled cells (C2/C3 + mirrored) and controls.",
+    "mechanism":  "IP-Adapter PLUS FACE regional, angle-matched refs from refs/multiangle/",
+    "run":  "multiangle-pack-20260827",
+    "pod":  "ncsmze3anko7w2-3000",
+    "status":  "RENDERED — pending human identity review / gate decision",
+    "settings":  {
+                     "cells":  [
+                                   "c1",
+                                   "c2",
+                                   "c2m",
+                                   "c3",
+                                   "c3m",
+                                   "c4",
+                                   "c5",
+                                   "c6"
+                               ],
+                     "strengthDean":  0.8,
+                     "strengthBecky":  0.6,
+                     "seeds":  [
+                                   1001,
+                                   1002
+                               ]
+                 }
+}

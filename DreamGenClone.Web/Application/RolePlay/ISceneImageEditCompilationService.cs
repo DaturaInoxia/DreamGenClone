@@ -17,6 +17,8 @@ public interface ISceneImageEditCompilationService
         AppendSceneImageEditPromptRevisionRequest request,
         CancellationToken cancellationToken = default);
 
+    Task EnqueueDescriptionAsync(string editSessionId, bool force = false, CancellationToken cancellationToken = default);
+
     Task<SceneImageEditSession?> GetSessionAsync(string editSessionId, CancellationToken cancellationToken = default);
     Task<SceneImageEditCompilationAttempt?> GetLatestAttemptAsync(string editSessionId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<SceneImageEditPromptRevision>> ListRevisionsAsync(string attemptId, CancellationToken cancellationToken = default);

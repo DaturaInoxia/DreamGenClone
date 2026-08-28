@@ -58,6 +58,9 @@ C2/C3. C1 remains the control (must not regress).
 
 - [x] App-side multi-angle support implemented (`SceneImageReferenceFaceView` on assets,
       `/characters/identity` upload has a Face view selector, migration backfills existing faces as Front)
-- [ ] User provides ≥4 angle-tagged images per character
-- [ ] 12 multi-angle cases rendered
-- [ ] Scorecard updated + mechanism gate decision
+- [x] User provides ≥4 angle-tagged images per character (complete 5-view approved v3 packs for both)
+- [x] Multi-angle cases rendered (2026-08-27, 2 seeds; Dean refs 4x-UltraSharp upscaled first)
+- [~] Scorecard updated + mechanism gate decision — **in progress, not passed**. Preliminary review
+      is inconsistent: c2_s1001 Dean off / c2_s1002 Dean ok / c3 both seeds bad / c3m_s1001 ok, and
+      Becky drifts between renders from the same ref. Proof pod EXITED 2026-08-27 → paused.
+      Evidence + reusable runners now tracked under `specs/image-generator-tests/identity-two-character/`.

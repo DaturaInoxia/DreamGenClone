@@ -1,0 +1,175 @@
+{
+  "prompt": {
+    "4": {
+      "class_type": "CheckpointLoaderSimple",
+      "inputs": {
+        "ckpt_name": "juggernautXL_ragnarok.safetensors"
+      }
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "text": "Photorealistic explicit cumshot, Dean and Becky on an adult woman's chest, the man's face out of frame, only his erect penis and lower torso visible in the frame, close-up of her breasts and stomach covered in semen, thick cum dripping down her skin, his penis in the foreground, correct anatomy, natural realistic skin texture, soft warm bedroom lighting, 35mm macro lens, sharp focus, highly detailed",
+        "clip": [
+          "4",
+          1
+        ]
+      }
+    },
+    "7": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "text": "deformed, bad anatomy, extra limbs, extra legs, four legs, fused legs, extra fingers, extra arms, missing limbs, malformed hands, malformed feet, misplaced genitals, blurry genitals, featureless genitals, censored, cartoon, anime, illustration, painting, sketch, watermark, text, low quality, oversaturated, plastic skin",
+        "clip": [
+          "4",
+          1
+        ]
+      }
+    },
+    "5": {
+      "class_type": "EmptyLatentImage",
+      "inputs": {
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      }
+    },
+    "10": {
+      "class_type": "IPAdapterUnifiedLoader",
+      "inputs": {
+        "model": [
+          "4",
+          0
+        ],
+        "preset": "PLUS FACE (portraits)"
+      }
+    },
+    "11": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "dean_front.jpg"
+      }
+    },
+    "12": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "becky_front.png"
+      }
+    },
+    "13": {
+      "class_type": "LoadImageMask",
+      "inputs": {
+        "image": "c1_right.png",
+        "channel": "red"
+      }
+    },
+    "14": {
+      "class_type": "LoadImageMask",
+      "inputs": {
+        "image": "c1_left.png",
+        "channel": "red"
+      }
+    },
+    "20": {
+      "class_type": "IPAdapter",
+      "inputs": {
+        "model": [
+          "10",
+          0
+        ],
+        "ipadapter": [
+          "10",
+          1
+        ],
+        "image": [
+          "11",
+          0
+        ],
+        "weight": 0.8,
+        "weight_type": "standard",
+        "start_at": 0.0,
+        "end_at": 1.0,
+        "attn_mask": [
+          "13",
+          0
+        ]
+      }
+    },
+    "21": {
+      "class_type": "IPAdapter",
+      "inputs": {
+        "model": [
+          "20",
+          0
+        ],
+        "ipadapter": [
+          "10",
+          1
+        ],
+        "image": [
+          "12",
+          0
+        ],
+        "weight": 0.8,
+        "weight_type": "standard",
+        "start_at": 0.0,
+        "end_at": 1.0,
+        "attn_mask": [
+          "14",
+          0
+        ]
+      }
+    },
+    "3": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "21",
+          0
+        ],
+        "positive": [
+          "6",
+          0
+        ],
+        "negative": [
+          "7",
+          0
+        ],
+        "latent_image": [
+          "5",
+          0
+        ],
+        "seed": 20502,
+        "steps": 30,
+        "cfg": 5.0,
+        "sampler_name": "dpmpp_2m_sde",
+        "scheduler": "karras",
+        "denoise": 1.0
+      }
+    },
+    "8": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "3",
+          0
+        ],
+        "vae": [
+          "4",
+          2
+        ]
+      }
+    },
+    "9": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "filename_prefix": "two_char_position_cumshot-on-body",
+        "images": [
+          "8",
+          0
+        ]
+      }
+    }
+  },
+  "client_id": "2pack-position-juggernaut-nsfw-cumshot-on-body-test-20502"
+}

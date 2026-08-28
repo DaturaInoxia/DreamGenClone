@@ -99,6 +99,30 @@ public sealed class SceneImageEditCompilationService : ISceneImageEditCompilatio
         return attempt;
     }
 
+    public async Task EnqueueDescriptionAsync(string editSessionId, bool force = false, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(editSessionId))
+            throw new InvalidOperationException("An edit session id is required for description.");
+        var editSession = await _editRepository.GetSessionAsync(editSessionId, cancellationToken)
+            ?? throw new InvalidOperationException($"Edit session '{editSessionId}' was not found.");
+        if (!force && !string.IsNullOrWhiteSpace(editSession.DescriptionText))
+            return;
+        var source = await RequireSourceAsync(editSession.SourceImageId, editSession.SessionId, editSession.InteractionId, cancellationToken);
+        var resolved = await _modelResolver.ResolveAsync(AppFunction.RolePlaySceneImageEditPromptCompiler, cancellationToken);
+        await using var stream = await _storage.OpenReadAsync(source.FileRelativePath!, cancellationToken);
+        var input = await SceneImageMultimodalInput.ReadAsync(stream, resolved.MaximumInputImageBytes, cancellationToken);
+        SceneImageMultimodalInput.Validate(input, resolved);
+        if (!string.Equals(input.Sha256, editSession.SourceImageSha256, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("The source image checksum changed after the edit session was created.");
+        if (!_queue.Enqueue(
+            BackgroundJobTypes.SceneImageEditDescription,
+            JsonSerializer.Serialize(new SceneImageEditDescriptionJobPayload { EditSessionId = editSession.Id }, JsonOptions),
+            editSession.Id))
+        {
+            throw new InvalidOperationException($"Edit session '{editSession.Id}' description job is already queued.");
+        }
+    }
+
     public async Task<SceneImageEditPromptRevision> AppendPromptRevisionAsync(AppendSceneImageEditPromptRevisionRequest request, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(request.Prompt))

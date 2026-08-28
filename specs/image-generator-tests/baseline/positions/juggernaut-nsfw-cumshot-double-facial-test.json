@@ -1,0 +1,27 @@
+{
+  "id": "juggernaut-nsfw-cumshot-double-facial-test",
+  "title": "cumshot double facial",
+  "actors": "2M1F",
+  "closeup": true,
+  "neutralScene": "Exactly two adult men standing over one kneeling adult woman, both men's faces out of frame; both finishing on the woman's face, close-up of her face covered in semen from both; correct anatomy, natural skin texture, soft warm light, sharp focus.",
+  "negative": "deformed, bad anatomy, extra limbs, extra legs, four legs, fused legs, extra fingers, extra arms, missing limbs, malformed hands, malformed feet, fused bodies, merged bodies, extra people, men's faces, men's heads, male faces in frame, misplaced genitals, penis on arm, penis on hand, detached penis, extra penis, blurry genitals, featureless genitals, censored, cartoon, anime, illustration, painting, sketch, watermark, text, low quality, oversaturated, plastic skin",
+  "variants": {
+    "sdxl-juggernaut": "Photorealistic explicit cumshot, exactly two adult men standing over one kneeling adult woman, both men's faces out of frame, only their erect penises and lower torsos visible in the frame, both men finishing on the woman's face, close-up of her face covered in semen from both men, thick cum on her cheeks and lips, both penises in the foreground, correct anatomy, natural realistic skin texture, soft warm bedroom lighting, 35mm macro lens, sharp focus, highly detailed",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_explicit, 1girl and 2boys, 3people, double cumshot, facial, cum on face, cumshot, men's faces out of frame, close-up, nude, correct anatomy, soft lighting, sharp focus",
+    "qwen-edit": "Change the scene so two men finish on the kneeling woman's face. Keep her face, hair, identity, body, skin, and lighting exactly unchanged; keep the men's faces out of frame."
+  },
+  "settings": {
+    "seed": 20505,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1024,
+    "height": 1024
+  },
+  "source": {
+    "suite": "juggernaut",
+    "workflow": "juggernaut/prompts/juggernaut-nsfw-cumshot-double-facial-test.json"
+  }
+}

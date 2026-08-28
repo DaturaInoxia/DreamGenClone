@@ -220,6 +220,33 @@ public sealed class SceneImageEditRepositoryTests
         await repository.UpdateAttemptAsync(attempt);
     }
 
+    [Fact]
+    public async Task SetDescriptionAsync_PersistsAndRoundsTrips()
+    {
+        var fixture = await CreateFixtureAsync();
+        try
+        {
+            var session = CreateSession();
+            await fixture.EditRepository.CreateSessionAsync(session);
+
+            var loaded = await fixture.EditRepository.GetSessionAsync(session.Id);
+            Assert.NotNull(loaded);
+            Assert.Null(loaded.DescriptionText);
+
+            await fixture.EditRepository.SetDescriptionAsync(session.Id, "A woman holding an object close to her mouth.", DateTime.UtcNow);
+            loaded = await fixture.EditRepository.GetSessionAsync(session.Id);
+            Assert.NotNull(loaded);
+            Assert.Equal("A woman holding an object close to her mouth.", loaded.DescriptionText);
+
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                fixture.EditRepository.SetDescriptionAsync(session.Id, "   ", DateTime.UtcNow));
+        }
+        finally
+        {
+            Cleanup(fixture.DbPath);
+        }
+    }
+
     private static SceneImageEditSession CreateSession(string sourceImageId = "source") => new()
     {
         SourceImageId = sourceImageId,

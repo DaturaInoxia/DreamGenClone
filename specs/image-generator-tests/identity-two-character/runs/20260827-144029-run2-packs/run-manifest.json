@@ -1,0 +1,108 @@
+﻿{
+    "refs":  {
+                 "becky":  "becky_front.png",
+                 "dean":  "dean_front.jpg"
+             },
+    "renders":  [
+                    {
+                        "sha256":  "DD10FB7E4CD15AB44865585F9225E50085EAFA07743DF93E36535538FB7A2A5D",
+                        "file":  "two_char_position_69_00003_.png",
+                        "bytes":  1319170
+                    },
+                    {
+                        "sha256":  "FF0DB65291622A5D02DE19058140C2F1380A0BD7695978A89EC6A74674DBBAEA",
+                        "file":  "two_char_position_cowgirl_00003_.png",
+                        "bytes":  1310835
+                    },
+                    {
+                        "sha256":  "00A312BFEA32D3C618CD20EB00FC8134F1C9E9B9EB3365CA124414955EBB4EAA",
+                        "file":  "two_char_position_cowgirl-penetration-closeup_00003_.png",
+                        "bytes":  1288049
+                    },
+                    {
+                        "sha256":  "FF374D64A2A878BA555F180F23839A261C4D0D246A97647FAD53275AB01C9343",
+                        "file":  "two_char_position_cumshot-creampie_00003_.png",
+                        "bytes":  1174341
+                    },
+                    {
+                        "sha256":  "B5E2AF569512FF6E0A61416226C4651B179974FB3CD13A3FDEAC68568F93D613",
+                        "file":  "two_char_position_cumshot-facial_00003_.png",
+                        "bytes":  1245552
+                    },
+                    {
+                        "sha256":  "1BEF12AC89D200BAC7FC9042E94B0C0688B2E30CD15BE3238C124D583FDE5F3D",
+                        "file":  "two_char_position_cumshot-in-mouth_00002_.png",
+                        "bytes":  1274187
+                    },
+                    {
+                        "sha256":  "39BC54BA4C7890C730A4C5D3FACD663D4B6A08D328C76E1669F599356877EE85",
+                        "file":  "two_char_position_cumshot-on-body_00002_.png",
+                        "bytes":  1265845
+                    },
+                    {
+                        "sha256":  "D7AA5FEA5AB002D04C3473C2CD46855305A3420E9399218D13E063F89052BED0",
+                        "file":  "two_char_position_doggy_00002_.png",
+                        "bytes":  1198709
+                    },
+                    {
+                        "sha256":  "F9D0CFE857733E831F42A6C2C1B8754ABD7B43CADABAE9179CFCD9EC2D431A55",
+                        "file":  "two_char_position_doggy-penetration-closeup_00002_.png",
+                        "bytes":  1165780
+                    },
+                    {
+                        "sha256":  "901B069C931D142BACB02CA3D19A9A8600F86536118D132419EBC3100BBC1D76",
+                        "file":  "two_char_position_fellatio_00002_.png",
+                        "bytes":  1158983
+                    },
+                    {
+                        "sha256":  "26338B1595418F6380C714F4F5106E99857AC31324C7F661202D202B2035919D",
+                        "file":  "two_char_position_missionary_00003_.png",
+                        "bytes":  1124682
+                    },
+                    {
+                        "sha256":  "B0CDC4E943500C16C61558FB9E8AD282EAF684BB109C3B7A78A1CEF92CB625C2",
+                        "file":  "two_char_position_missionary-penetration-closeup_00002_.png",
+                        "bytes":  1128492
+                    },
+                    {
+                        "sha256":  "B538FF512F46727FA2150F01FA068C39C4FE1E4A4E27B471C4FA78146DD6A259",
+                        "file":  "two_char_position_reverse-cowgirl_00002_.png",
+                        "bytes":  1303334
+                    },
+                    {
+                        "sha256":  "9CBADC4B45A60ED4D7915A4B353A868C99469290DB43DD33B333C55E0F6EE521",
+                        "file":  "two_char_position_reverse-cowgirl-penetration-closeup_00002_.png",
+                        "bytes":  1290012
+                    },
+                    {
+                        "sha256":  "D3D0E4E07BA7DA5F562ED15DC3EA1419D3C4C230954C1D4F0E89F82B9582D8F6",
+                        "file":  "two_char_position_spooning_00002_.png",
+                        "bytes":  1103112
+                    },
+                    {
+                        "sha256":  "2F2B6FF3ECA95DD1E59911AA31C6FF12465BDFC34172802E3EF2D566B2B57E14",
+                        "file":  "two_char_position_spooning-penetration-closeup_00002_.png",
+                        "bytes":  1291362
+                    },
+                    {
+                        "sha256":  "4C6E9941C7097DFEEC19232C33104D94162213CC00536A2E169E31F97198FF65",
+                        "file":  "two_char_position_standing_00002_.png",
+                        "bytes":  1345049
+                    },
+                    {
+                        "sha256":  "69982B32FBB1E674250CC465E584C8BB924F62B7E1E561C5F5353A1B6E5C2F78",
+                        "file":  "two_char_position_standing-penetration-closeup_00002_.png",
+                        "bytes":  1197540
+                    }
+                ],
+    "createdUtc":  "2026-08-27T18:48:21Z",
+    "purpose":  "Baseline positions test using the FULL FACE PACKS (dean_front/becky_front from refs/multiangle) — identity-two-character, 18 positions.",
+    "mechanism":  "IP-Adapter PLUS FACE regional, per-position masks (POSITION_MASKS)",
+    "run":  "run2-packs-20260827",
+    "pod":  "ncsmze3anko7w2-3000",
+    "status":  "RENDERED — pending human identity review / gate decision",
+    "settings":  {
+                     "strengthBecky":  0.6,
+                     "strengthDean":  0.8
+                 }
+}

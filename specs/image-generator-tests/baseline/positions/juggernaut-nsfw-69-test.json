@@ -1,0 +1,27 @@
+{
+  "id": "juggernaut-nsfw-69-test",
+  "title": "69",
+  "actors": "1M1F",
+  "closeup": false,
+  "neutralScene": "Two naked adults on a bed in the 69 position: the woman on top facing the man's feet, her head between his thighs taking his erect penis in her mouth, while the man's head is between her thighs with his mouth on her vagina; mutual oral sex, medium shot, correct anatomy, natural bodies and skin texture, soft warm light, sharp focus.",
+  "negative": "deformed, bad anatomy, extra limbs, extra legs, four legs, fused legs, extra fingers, extra arms, missing limbs, malformed hands, malformed feet, blurry genitals, featureless genitals, censored, cartoon, anime, illustration, painting, sketch, watermark, text, low quality, oversaturated, plastic skin",
+  "variants": {
+    "sdxl-juggernaut": "Photorealistic explicit sex scene, one adult man and one adult woman on a bed in the 69 position, the woman lying on top facing the man's feet, her head between his thighs taking his erect penis into her mouth, the man's head between her thighs with his mouth on her vagina, mutual oral sex, medium shot, correct penis and vagina anatomy, both fully nude, natural realistic body proportions, natural skin texture, soft warm bedroom lighting, 35mm lens, sharp focus, highly detailed",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_explicit, 1girl and 1boy, 2people, 69 position, mutual oral sex, fellatio, cunnilingus, woman on top, penis in mouth, face sitting, nude, medium shot, correct anatomy, soft lighting, sharp focus",
+    "qwen-edit": "Reposition the two people into the 69 position on the bed: the woman on top facing the man's feet taking his erect penis into her mouth while the man's head is between her thighs performing cunnilingus. Keep both people's faces, hair, identity, skin, and lighting exactly unchanged."
+  },
+  "settings": {
+    "seed": 20244,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1024,
+    "height": 1024
+  },
+  "source": {
+    "suite": "juggernaut",
+    "workflow": "juggernaut/prompts/juggernaut-nsfw-69-test.json"
+  }
+}

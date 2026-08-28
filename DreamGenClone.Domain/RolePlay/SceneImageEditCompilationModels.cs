@@ -48,6 +48,7 @@ public sealed class SceneImageEditSession
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;
     public DateTime? CompletedUtc { get; set; }
+    public string? DescriptionText { get; set; }
 }
 
 public sealed class SceneImageEditCompilationAttempt

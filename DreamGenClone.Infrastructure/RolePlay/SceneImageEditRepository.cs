@@ -89,6 +89,27 @@ public sealed class SceneImageEditRepository : ISceneImageEditRepository
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
+    public async Task SetDescriptionAsync(string sessionId, string description, DateTime updatedUtc, CancellationToken cancellationToken = default)
+    {
+        Require(sessionId, "Edit session id");
+        if (string.IsNullOrWhiteSpace(description))
+            throw new InvalidOperationException("Edit session description must be non-empty.");
+
+        await using var connection = await OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE SceneImageEditSessions
+            SET DescriptionText = $description, UpdatedUtc = $updatedUtc
+            WHERE Id = $id;
+            """;
+        command.Parameters.AddWithValue("$description", description.Trim());
+        command.Parameters.AddWithValue("$updatedUtc", updatedUtc.ToString("O"));
+        command.Parameters.AddWithValue("$id", sessionId.Trim());
+        var rows = await command.ExecuteNonQueryAsync(cancellationToken);
+        if (rows == 0)
+            throw new InvalidOperationException($"Edit session '{sessionId}' was not found.");
+    }
+
     public async Task CreateAttemptAsync(SceneImageEditCompilationAttempt attempt, CancellationToken cancellationToken = default)
     {
         ValidateAttempt(attempt);
@@ -366,7 +387,8 @@ public sealed class SceneImageEditRepository : ISceneImageEditRepository
             CREATE TABLE IF NOT EXISTS SceneImageEditSessions (
                 Id TEXT PRIMARY KEY, SourceImageId TEXT NOT NULL, SourceImageSha256 TEXT NOT NULL,
                 SessionId TEXT NOT NULL, InteractionId TEXT NOT NULL, Status TEXT NOT NULL,
-                CreatedUtc TEXT NOT NULL, UpdatedUtc TEXT NOT NULL, CompletedUtc TEXT NULL
+                CreatedUtc TEXT NOT NULL, UpdatedUtc TEXT NOT NULL, CompletedUtc TEXT NULL,
+                DescriptionText TEXT NULL
             );
             CREATE INDEX IF NOT EXISTS IX_SceneImageEditSessions_Source ON SceneImageEditSessions (SourceImageId);
             CREATE INDEX IF NOT EXISTS IX_SceneImageEditSessions_Session ON SceneImageEditSessions (SessionId, UpdatedUtc DESC);
@@ -397,7 +419,7 @@ public sealed class SceneImageEditRepository : ISceneImageEditRepository
     {
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT Id, SourceImageId, SourceImageSha256, SessionId, InteractionId, Status, CreatedUtc, UpdatedUtc, CompletedUtc
+            SELECT Id, SourceImageId, SourceImageSha256, SessionId, InteractionId, Status, CreatedUtc, UpdatedUtc, CompletedUtc, DescriptionText
             FROM SceneImageEditSessions WHERE Id = $id;
             """;
         command.Parameters.AddWithValue("$id", id);
@@ -410,7 +432,8 @@ public sealed class SceneImageEditRepository : ISceneImageEditRepository
             Status = ParseEnum<SceneImageEditSessionStatus>(reader.GetString(5), "edit session", id),
             CreatedUtc = ParseUtc(reader.GetString(6), "edit session", id),
             UpdatedUtc = ParseUtc(reader.GetString(7), "edit session", id),
-            CompletedUtc = reader.IsDBNull(8) ? null : ParseUtc(reader.GetString(8), "edit session", id)
+            CompletedUtc = reader.IsDBNull(8) ? null : ParseUtc(reader.GetString(8), "edit session", id),
+            DescriptionText = reader.IsDBNull(9) ? null : reader.GetString(9)
         };
     }
 
