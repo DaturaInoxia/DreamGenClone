@@ -24,17 +24,18 @@ COMFYUI_PORT = 8188
 COMFYUI_HOST = f"http://127.0.0.1:{COMFYUI_PORT}"
 INPUT_DIR = Path(COMFYUI_DIR) / "input"
 
-# DWPose ckpts BAKED into the image (see Dockerfile) under the aux node's ckpts dir.
-# Sha256 = the pod's verified files (identity model manifest). ensure_ckpts() verifies
-# presence + integrity and FAILS FAST - no runtime download (cold containers are
-# deterministic; a runtime download hung the workflow on the 0.3.0 image).
-# Source URLs (pinned aux README):
-#   dw-ll_ucoco_384_bs5.torchscript.pt  https://huggingface.co/hr16/DWPose-TorchScript-BatchSize5/resolve/main/dw-ll_ucoco_384_bs5.torchscript.pt
-#   yolox_l.torchscript.pt              https://huggingface.co/hr16/yolox-onnx/resolve/main/yolox_l.torchscript.pt
-AUX_CKPTS_DIR = Path(COMFYUI_DIR) / "custom_nodes" / "comfyui_controlnet_aux" / "ckpts" / "dwpose"
+# DWPose ckpts BAKED into the image (see Dockerfile). ensure_ckpts() verifies the
+# EXACT layout custom_hf_download checks (src/custom_controlnet_aux/util.py):
+#   local_dir = <repo-root>/ckpts/<repo_id>  ->  model_path = <local_dir>/<filename>
+# DWPreprocessor maps (node_wrappers/dwpose.py):
+#   bbox_detector  yolox_l.torchscript.pt              -> hr16/yolox-onnx
+#   pose_estimator dw-ll_ucoco_384_bs5.torchscript.pt  -> hr16/DWPose-TorchScript-BatchSize5
+# Sha256 = the pod's verified files (identity model manifest). Fail fast, no download
+# (cold containers are deterministic; a runtime download hung the workflow on 0.3.0).
+AUX_CKPTS_ROOT = Path(COMFYUI_DIR) / "custom_nodes" / "comfyui_controlnet_aux" / "ckpts"
 CKPT_FILES = {
-    "dw-ll_ucoco_384_bs5.torchscript.pt": "d86a0b2b59fddc0901a7076e9f59c9f8602602133ed72511c693fd11eea23d91",
-    "yolox_l.torchscript.pt": "80bc14b13c260c24b3014cd42c02994bf52296ab8fa2d80a60b6afe08c93ef42",
+    ("hr16/DWPose-TorchScript-BatchSize5", "dw-ll_ucoco_384_bs5.torchscript.pt"): "d86a0b2b59fddc0901a7076e9f59c9f8602602133ed72511c693fd11eea23d91",
+    ("hr16/yolox-onnx", "yolox_l.torchscript.pt"): "80bc14b13c260c24b3014cd42c02994bf52296ab8fa2d80a60b6afe08c93ef42",
 }
 
 _comfy_started = False
@@ -49,14 +50,14 @@ def ensure_ckpts() -> None:
     """Verify the baked DWPose ckpts exist + sha256-match. Fail fast, no download."""
     import hashlib
     bad = []
-    for name, expected_sha in CKPT_FILES.items():
-        p = AUX_CKPTS_DIR / name
+    for (repo_sub, name), expected_sha in CKPT_FILES.items():
+        p = AUX_CKPTS_ROOT / repo_sub / name
         if not p.is_file():
-            bad.append(f"{name} MISSING at {p}")
+            bad.append(f"{repo_sub}/{name} MISSING at {p}")
         else:
             actual = hashlib.sha256(p.read_bytes()).hexdigest()
             if actual != expected_sha:
-                bad.append(f"{name} sha256 mismatch: {actual} (expected {expected_sha})")
+                bad.append(f"{repo_sub}/{name} sha256 mismatch: {actual} (expected {expected_sha})")
     if bad:
         raise RuntimeError("DWPose ckpts not ready: " + "; ".join(bad))
     _log(f"ensure_ckpts: OK ({len(CKPT_FILES)} files verified)")

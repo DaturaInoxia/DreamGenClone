@@ -27,21 +27,24 @@ RUN pip install --quiet \
       scikit-image==0.25.2
 
 # [DWPose ckpts] BAKED into the image so first-run never downloads at runtime.
-# Serverless cold containers are ephemeral + deterministic; a runtime download
+# The aux node resolves ckpts at <repo-root>/ckpts/<hf_repo_id>/<filename> (see
+# src/custom_controlnet_aux/util.py custom_hf_download: local_dir = ckpts/<repo_id>).
+# For DWPreprocessor (node_wrappers/dwpose.py) with our workflow inputs:
+#   bbox_detector  yolox_l.torchscript.pt              -> ckpts/hr16/yolox-onnx/
+#   pose_estimator dw-ll_ucoco_384_bs5.torchscript.pt  -> ckpts/hr16/DWPose-TorchScript-BatchSize5/
+# sha256 = the pod's verified files (identity model manifest). A runtime download
 # HANGS the workflow (observed "workflow did not finish in time" on the 0.3.0 image).
-# Files land in the aux node's ckpts dir, sha256-verified against the pod's files
-# (see specs/Planning/B-032-scene-image-generator/phase-2-character-identity/proofs/
-#  identity-conditioning/model-manifest-2026-08-26.md and the pinned aux README URLs).
-ARG AUX_CKPTS_DIR=/ComfyUI/custom_nodes/comfyui_controlnet_aux/ckpts/dwpose
-RUN mkdir -p "$AUX_CKPTS_DIR" \
- && curl -fsSL -o /tmp/dw-ll_ucoco_384_bs5.torchscript.pt \
+# Also disable hf_transfer: the base image sets HF_HUB_ENABLE_HF_TRANSFER=1 but does
+# not ship the package, so ANY hf_hub_download crashes with a ValueError.
+ENV HF_HUB_ENABLE_HF_TRANSFER=0
+ARG AUX_CKPTS_ROOT=/ComfyUI/custom_nodes/comfyui_controlnet_aux/ckpts
+RUN mkdir -p "$AUX_CKPTS_ROOT/hr16/DWPose-TorchScript-BatchSize5" "$AUX_CKPTS_ROOT/hr16/yolox-onnx" \
+ && curl -fsSL -o "$AUX_CKPTS_ROOT/hr16/DWPose-TorchScript-BatchSize5/dw-ll_ucoco_384_bs5.torchscript.pt" \
       "https://huggingface.co/hr16/DWPose-TorchScript-BatchSize5/resolve/main/dw-ll_ucoco_384_bs5.torchscript.pt" \
- && echo "d86a0b2b59fddc0901a7076e9f59c9f8602602133ed72511c693fd11eea23d91  /tmp/dw-ll_ucoco_384_bs5.torchscript.pt" | sha256sum -c - \
- && mv /tmp/dw-ll_ucoco_384_bs5.torchscript.pt "$AUX_CKPTS_DIR/" \
- && curl -fsSL -o /tmp/yolox_l.torchscript.pt \
+ && echo "d86a0b2b59fddc0901a7076e9f59c9f8602602133ed72511c693fd11eea23d91  $AUX_CKPTS_ROOT/hr16/DWPose-TorchScript-BatchSize5/dw-ll_ucoco_384_bs5.torchscript.pt" | sha256sum -c - \
+ && curl -fsSL -o "$AUX_CKPTS_ROOT/hr16/yolox-onnx/yolox_l.torchscript.pt" \
       "https://huggingface.co/hr16/yolox-onnx/resolve/main/yolox_l.torchscript.pt" \
- && echo "80bc14b13c260c24b3014cd42c02994bf52296ab8fa2d80a60b6afe08c93ef42  /tmp/yolox_l.torchscript.pt" | sha256sum -c - \
- && mv /tmp/yolox_l.torchscript.pt "$AUX_CKPTS_DIR/"
+ && echo "80bc14b13c260c24b3014cd42c02994bf52296ab8fa2d80a60b6afe08c93ef42  $AUX_CKPTS_ROOT/hr16/yolox-onnx/yolox_l.torchscript.pt" | sha256sum -c -
 
 # Handler entrypoint. ComfyUI is started lazily by the handler (per-worker, cached).
 COPY serverless-worker.py /serverless-worker.py
